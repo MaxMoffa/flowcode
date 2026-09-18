@@ -17,4 +17,10 @@ export interface EditorTab {
   label: string;
 }
 
-export type AppTab = TermTab | EditorTab;
+export interface SettingsTab {
+  kind: "settings";
+  id: string;
+  label: string;
+}
+
+export type AppTab = TermTab | EditorTab | SettingsTab;

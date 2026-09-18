@@ -1,0 +1,117 @@
+.file-info-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.38);
+  animation: file-info-backdrop-in 0.1s ease-out;
+}
+
+@keyframes file-info-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.file-info-panel {
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px 16px 16px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  animation: file-info-panel-in 0.14s ease-out;
+}
+
+@keyframes file-info-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.file-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.file-info-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.file-info-close:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.file-info-name {
+  margin: 8px 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-info-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.file-info-label {
+  flex: 0 0 84px;
+  color: var(--fg-muted);
+}
+
+.file-info-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg);
+  overflow-wrap: break-word;
+}
+
+.file-info-value-mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.file-info-loading,
+.file-info-error {
+  padding: 8px 0;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}

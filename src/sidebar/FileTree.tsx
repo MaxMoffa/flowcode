@@ -4,6 +4,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { FileTypeIcon } from "./fileIcons";
+import { FileInfoDialog } from "./FileInfoDialog";
 
 interface FsEntry {
   name: string;
@@ -28,10 +29,12 @@ const Icons = {
   newFile: iconSvg(<><path d="M6 3.5h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" /><line x1="9" y1="14" x2="15" y2="14" /><line x1="12" y1="11" x2="12" y2="17" /></>),
   newFolder: iconSvg(<><path d="M3.5 6.5a1 1 0 0 1 1-1H9l2 2h8.5a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" /><line x1="9.5" y1="10.5" x2="9.5" y2="15.5" /><line x1="7" y1="13" x2="12" y2="13" /></>),
   delete: iconSvg(<><path d="M5 7.5h14" /><path d="M9.5 7.5V5.6c0-.6.4-1 1-1h3c.6 0 1 .4 1 1v1.9" /><path d="M7 7.5 7.7 19a1.3 1.3 0 0 0 1.3 1.3h6a1.3 1.3 0 0 0 1.3-1.3l.7-11.5" /></>),
+  info: iconSvg(<><circle cx="12" cy="12" r="8.7" /><line x1="12" y1="11" x2="12" y2="16.5" /><circle cx="12" cy="8" r="0.15" fill="currentColor" stroke="currentColor" strokeWidth="1.8" /></>),
   back: iconSvg(<polyline points="14.5 5 8 12 14.5 19" />),
   terminal: iconSvg(<><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><polyline points="7 9.5 10.5 12.5 7 15.5" /><line x1="12.5" y1="15.5" x2="16.5" y2="15.5" /></>),
   eye: iconSvg(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.6" /></>),
   refresh: iconSvg(<><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8.5" /><path d="M20 4v4.5h-4.5" /><path d="M20 12a8 8 0 0 1-13.66 5.66L4 15.5" /><path d="M4 20v-4.5h4.5" /></>),
+  search: iconSvg(<><circle cx="10.5" cy="10.5" r="6.5" /><line x1="15.3" y1="15.3" x2="20.5" y2="20.5" /></>),
   kebab: (
     <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none">
       <circle cx="12" cy="5.5" r="1.9" />
@@ -165,6 +168,7 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
   const [creating, setCreating] = useState<"file" | "dir" | null>(null);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [infoEntry, setInfoEntry] = useState<FsEntry | null>(null);
   const [showHidden, setShowHidden] = useState<boolean>(() => {
     try {
       return localStorage.getItem(SHOW_HIDDEN_KEY) === "1";
@@ -173,11 +177,25 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
     }
   });
   const [headerRenameDraft, setHeaderRenameDraft] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const openMenu = useOpenContextMenu();
   const confirm = useConfirmDialog();
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerRenameInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+
+  function toggleSearch() {
+    setSearchOpen((open) => {
+      if (open) setSearchQuery("");
+      return !open;
+    });
+  }
 
   useEffect(
     () => () => {
@@ -326,6 +344,8 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
     items.push({ label: "Duplica", icon: Icons.duplicate, onSelect: () => handleDuplicate(entry) });
     items.push({ label: "Copia percorso", icon: Icons.copy, onSelect: () => handleCopyPath(entry.path) });
     items.push({ separator: true, label: "sep-2" });
+    items.push({ label: "Informazioni", icon: Icons.info, onSelect: () => setInfoEntry(entry) });
+    items.push({ separator: true, label: "sep-3" });
     items.push({ label: "Elimina", icon: Icons.delete, danger: true, onSelect: () => handleDelete(entry) });
     return items;
   }
@@ -347,6 +367,11 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
       { label: "Aggiorna", icon: Icons.refresh, onSelect: reload },
     ];
   }
+
+  const visibleEntries =
+    searchOpen && searchQuery.trim()
+      ? entries?.filter((entry) => entry.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+      : entries;
 
   return (
     <div className="file-tree">
@@ -387,6 +412,15 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
         )}
         <button
           type="button"
+          className={"file-tree-menu-btn" + (searchOpen ? " is-active" : "")}
+          aria-label="Cerca nella cartella"
+          title="Cerca nella cartella"
+          onClick={toggleSearch}
+        >
+          {Icons.search}
+        </button>
+        <button
+          type="button"
           className="file-tree-menu-btn"
           aria-label="Opzioni cartella"
           title="Opzioni cartella"
@@ -395,11 +429,25 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
           {Icons.kebab}
         </button>
       </div>
+      {searchOpen && (
+        <div className="file-tree-search">
+          <input
+            ref={searchInputRef}
+            className="file-tree-search-input"
+            placeholder="Cerca file o cartelle…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") toggleSearch();
+            }}
+          />
+        </div>
+      )}
       <div className="file-tree-list" onContextMenu={(e) => openMenu(e, backgroundMenuItems())}>
         {error && <div className="file-tree-loading">{error}</div>}
         {!error && entries === null && <div className="file-tree-loading">Loading…</div>}
         {!error &&
-          entries?.map((entry) =>
+          visibleEntries?.map((entry) =>
             renamingPath === entry.path ? (
               <InlineEditRow
                 key={entry.path}
@@ -442,13 +490,23 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
             onCancel={() => setCreating(null)}
           />
         )}
-        {!error && entries?.length === 0 && !creating && <div className="file-tree-loading">Cartella vuota</div>}
+        {!error && visibleEntries?.length === 0 && !creating && (
+          <div className="file-tree-loading">{searchOpen && searchQuery.trim() ? "Nessun risultato" : "Cartella vuota"}</div>
+        )}
       </div>
       {toast && (
         <div className="file-tree-toast">
           {Icons.smallCheck}
           {toast}
         </div>
+      )}
+      {infoEntry && (
+        <FileInfoDialog
+          path={infoEntry.path}
+          name={infoEntry.name}
+          isDir={infoEntry.is_dir}
+          onClose={() => setInfoEntry(null)}
+        />
       )}
     </div>
   );

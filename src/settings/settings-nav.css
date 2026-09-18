@@ -1,0 +1,52 @@
+.settings-nav {
+  width: 240px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+
+.settings-nav-header {
+  display: flex;
+  align-items: center;
+  height: var(--panel-header-h);
+  box-sizing: border-box;
+  padding: 0 10px;
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-nav-list {
+  padding: 6px;
+}
+
+.settings-nav-item {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  margin-bottom: 1px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12.5px;
+  text-align: left;
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+}
+
+.settings-nav-item:hover {
+  background: var(--sidebar-hover);
+}
+
+.settings-nav-item.is-active {
+  background: var(--sidebar-selected-bg);
+  color: var(--sidebar-selected-fg);
+  font-weight: 600;
+}

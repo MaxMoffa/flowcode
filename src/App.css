@@ -49,8 +49,7 @@
   border-left: 1px solid var(--border);
 }
 
-.icon-button,
-.theme-toggle {
+.icon-button {
   -webkit-app-region: no-drag;
   width: 28px;
   height: 28px;
@@ -67,17 +66,24 @@
   flex: 0 0 auto;
 }
 
-.icon-button svg,
-.theme-toggle svg {
+.icon-button svg {
   width: 16px;
   height: 16px;
   stroke: currentColor;
   fill: none;
 }
 
-.icon-button:hover,
-.theme-toggle:hover {
+.icon-button:hover {
   background: var(--ctrl-hover-bg);
+}
+
+.quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
 }
 
 .icon-button-close:hover {

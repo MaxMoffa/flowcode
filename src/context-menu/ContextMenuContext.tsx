@@ -9,6 +9,10 @@ export interface ContextMenuItem {
   disabled?: boolean;
   separator?: boolean;
   checked?: boolean;
+  /** Renders this instead of the standard icon/label button - for compound
+   * rows (e.g. a browser-style zoom control) that don't fit the plain
+   * label+action shape. `label` still has to be unique for React's key. */
+  custom?: ReactNode;
 }
 
 interface MenuState {
@@ -91,6 +95,10 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
           {menu.items.map((item, i) =>
             item.separator ? (
               <div className="context-menu-separator" key={`sep-${i}`} />
+            ) : item.custom ? (
+              <div className="context-menu-custom" key={item.label}>
+                {item.custom}
+              </div>
             ) : (
               <button
                 key={item.label}

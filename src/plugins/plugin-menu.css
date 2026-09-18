@@ -1,0 +1,123 @@
+.plugin-menu {
+  position: fixed;
+  z-index: 1000;
+  width: 250px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  overflow: hidden;
+  animation: plugin-menu-in 0.12s ease-out;
+}
+
+@keyframes plugin-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.plugin-menu-search {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12.5px;
+}
+
+.plugin-menu-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 5px;
+}
+
+.plugin-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.plugin-menu-item-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12.5px;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plugin-menu-item-body:hover {
+  background: var(--sidebar-hover);
+}
+
+.plugin-menu-item-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.plugin-menu-item-icon svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.plugin-menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-menu-pin {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plugin-menu-pin:hover {
+  background: var(--ctrl-hover-bg);
+  color: var(--fg);
+}
+
+.plugin-menu-pin.is-pinned {
+  color: var(--accent-2);
+}
+
+.plugin-menu-empty {
+  padding: 10px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}

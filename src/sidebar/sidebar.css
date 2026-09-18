@@ -117,6 +117,34 @@
   background: var(--ctrl-hover-bg);
 }
 
+.file-tree-menu-btn.is-active {
+  background: var(--sidebar-selected-bg);
+  color: var(--sidebar-selected-fg);
+}
+
+.file-tree-search {
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-tree-search-input {
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.file-tree-search-input:focus {
+  border-color: var(--accent);
+}
+
 .file-tree-list {
   overflow-y: auto;
   flex: 1 1 auto;

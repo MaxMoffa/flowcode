@@ -1,0 +1,70 @@
+.plugin-create-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.38);
+  animation: plugin-create-backdrop-in 0.1s ease-out;
+}
+
+@keyframes plugin-create-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.plugin-create-panel {
+  width: min(380px, calc(100vw - 32px));
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  animation: plugin-create-panel-in 0.14s ease-out;
+}
+
+@keyframes plugin-create-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.plugin-create-title {
+  margin-bottom: 12px;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.plugin-create-hint {
+  margin: 4px 0 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.plugin-create-hint code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--sidebar-hover);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.plugin-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}

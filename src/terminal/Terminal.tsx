@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTheme } from "../themes/ThemeContext";
+import { useTerminalSettings } from "./TerminalSettingsContext";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 
@@ -76,6 +77,8 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
   const { theme } = useTheme();
+  const { fontSize } = useTerminalSettings();
+  const initialFontSizeRef = useRef(fontSize);
 
   // Absolute row (scrollback-inclusive) where a pending silent navigation's
   // injected `cd` started - real pty output is never touched or dropped, so
@@ -130,6 +133,14 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
   }, [theme]);
 
   useEffect(() => {
+    if (xtermRef.current) {
+      xtermRef.current.options.fontSize = fontSize;
+      refit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fontSize]);
+
+  useEffect(() => {
     if (!hidden) requestAnimationFrame(refit);
   }, [hidden]);
 
@@ -138,7 +149,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: initialFontSizeRef.current,
       fontFamily: "Menlo, Consolas, monospace",
       theme: readTermColors(),
     });

@@ -1,4 +1,5 @@
 mod fs;
+mod plugins;
 mod pty;
 
 use pty::PtyState;
@@ -25,6 +26,12 @@ pub fn run() {
             fs::delete_entry,
             fs::read_text_file,
             fs::write_text_file,
+            fs::get_file_info,
+            plugins::list_plugins,
+            plugins::save_plugin,
+            plugins::delete_plugin,
+            plugins::run_plugin_command,
+            plugins::run_plugin_command_stdout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

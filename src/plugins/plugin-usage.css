@@ -1,0 +1,101 @@
+.plugin-usage-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.plugin-usage-btn {
+  position: relative;
+}
+
+.plugin-usage-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: rotate(-90deg);
+}
+
+.plugin-usage-ring-track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.plugin-usage-ring-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s ease;
+}
+
+.plugin-usage-popover {
+  position: fixed;
+  z-index: 1200;
+  width: 260px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  animation: plugin-usage-popover-in 0.12s ease-out;
+}
+
+@keyframes plugin-usage-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.plugin-usage-popover-title {
+  margin-bottom: 6px;
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.plugin-usage-popover-loading {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.plugin-usage-metric + .plugin-usage-metric {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.plugin-usage-metric-label {
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.plugin-usage-bar {
+  margin-top: 4px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--sidebar-hover);
+  overflow: hidden;
+}
+
+.plugin-usage-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.plugin-usage-metric-detail {
+  margin-top: 3px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}

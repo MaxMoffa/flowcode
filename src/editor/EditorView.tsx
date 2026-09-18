@@ -15,6 +15,10 @@ import "./editor.css";
 export interface EditorHandle {
   isDirty: () => boolean;
   save: () => void;
+  /** Current buffer text, for building the "jump to symbol" sidebar outline. */
+  getContent: () => string;
+  /** Moves the cursor to (and centers the view on) a 1-indexed line. */
+  scrollToLine: (line: number) => void;
 }
 
 interface EditorViewProps {
@@ -77,7 +81,26 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     }
   }, []);
 
-  useImperativeHandle(ref, () => ({ isDirty: () => dirtyRef.current, save: performSave }), [performSave]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      isDirty: () => dirtyRef.current,
+      save: performSave,
+      getContent: () => cmViewRef.current?.state.doc.toString() ?? content ?? "",
+      scrollToLine: (line: number) => {
+        const view = cmViewRef.current;
+        if (!view) return;
+        const clamped = Math.max(1, Math.min(line, view.state.doc.lines));
+        const pos = view.state.doc.line(clamped).from;
+        view.dispatch({
+          selection: { anchor: pos },
+          effects: CMEditorView.scrollIntoView(pos, { y: "center" }),
+        });
+        view.focus();
+      },
+    }),
+    [performSave, content],
+  );
 
   // Mount the CodeMirror instance once the file content has loaded.
   useEffect(() => {

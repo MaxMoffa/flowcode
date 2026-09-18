@@ -207,3 +207,62 @@ pub fn delete_entry(path: String, is_dir: bool) -> Result<(), String> {
         std::fs::remove_file(target).map_err(|e| e.to_string())
     }
 }
+
+#[derive(Serialize)]
+pub struct FileInfo {
+    name: String,
+    path: String,
+    is_dir: bool,
+    size: u64,
+    /// Immediate children count, directories only.
+    entry_count: Option<u32>,
+    /// Unix milliseconds, when the filesystem exposes it.
+    modified: Option<u64>,
+    created: Option<u64>,
+    /// Octal string (e.g. "755"), Unix only.
+    permissions_mode: Option<String>,
+    readonly: bool,
+}
+
+fn system_time_to_millis(time: std::io::Result<std::time::SystemTime>) -> Option<u64> {
+    time.ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+}
+
+#[tauri::command]
+pub fn get_file_info(path: String) -> Result<FileInfo, String> {
+    let target = Path::new(&path);
+    let meta = std::fs::metadata(target).map_err(|e| e.to_string())?;
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.clone());
+    let is_dir = meta.is_dir();
+
+    let entry_count = if is_dir {
+        std::fs::read_dir(target).ok().map(|rd| rd.count() as u32)
+    } else {
+        None
+    };
+
+    #[cfg(unix)]
+    let permissions_mode = {
+        use std::os::unix::fs::PermissionsExt;
+        Some(format!("{:o}", meta.permissions().mode() & 0o777))
+    };
+    #[cfg(not(unix))]
+    let permissions_mode: Option<String> = None;
+
+    Ok(FileInfo {
+        name,
+        path,
+        is_dir,
+        size: meta.len(),
+        entry_count,
+        modified: system_time_to_millis(meta.modified()),
+        created: system_time_to_millis(meta.created()),
+        permissions_mode,
+        readonly: meta.permissions().readonly(),
+    })
+}
