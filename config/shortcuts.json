@@ -1,0 +1,9 @@
+{
+  "newTab": "Ctrl+T",
+  "closeTab": "Ctrl+W",
+  "toggleSidebar": "Ctrl+B",
+  "toggleTheme": "Ctrl+Shift+L",
+  "clearTerminal": "Ctrl+K",
+  "copy": "Ctrl+Shift+C",
+  "paste": "Ctrl+Shift+V"
+}

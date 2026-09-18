@@ -1,0 +1,19 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# os
+.DS_Store
+
+# rust
+/target/
+src-tauri/target/
+
+# stray local tooling artifacts
+.playwright-mcp/

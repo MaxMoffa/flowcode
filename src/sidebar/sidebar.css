@@ -1,0 +1,306 @@
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+
+.file-tree {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.file-tree-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--panel-header-h);
+  padding: 0 6px 0 6px;
+  box-sizing: border-box;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.file-tree-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ctrl-fg);
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+}
+
+.file-tree-back svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.file-tree-back:hover:not(:disabled) {
+  background: var(--ctrl-hover-bg);
+}
+
+.file-tree-back:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.file-tree-header-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 3px 5px;
+  margin: 0 -5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.file-tree-header-label:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.file-tree-header-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+.file-tree-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ctrl-fg);
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+}
+
+.file-tree-menu-btn:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.file-tree-list {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  padding: 6px 0;
+}
+
+.file-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 8px;
+  margin: 1px 6px;
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.file-tree-row:hover {
+  background: var(--sidebar-hover);
+}
+
+.file-tree-row:hover .file-tree-copy-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.file-tree-row.is-active {
+  background: var(--sidebar-selected-bg);
+  color: var(--sidebar-selected-fg);
+}
+
+.file-tree-row.is-editing {
+  cursor: default;
+}
+
+.file-tree-chevron-spacer {
+  display: inline-block;
+  width: 2px;
+  flex: 0 0 auto;
+}
+
+.file-tree-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.file-tree-icon svg {
+  display: block;
+}
+
+.file-tree-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-tree-copy-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  border-radius: 5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease, background 0.1s ease, color 0.1s ease;
+}
+
+.file-tree-copy-btn:hover {
+  background: var(--ctrl-hover-bg);
+  color: var(--fg);
+}
+
+.file-tree-copy-btn.is-copied {
+  opacity: 1;
+  pointer-events: auto;
+  color: #4cae7d;
+}
+
+.file-tree-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+  color: var(--fg);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: file-tree-toast-in 0.14s ease-out;
+}
+
+.file-tree-toast svg {
+  width: 12px;
+  height: 12px;
+  stroke: #4cae7d;
+  fill: none;
+  flex: 0 0 auto;
+}
+
+@keyframes file-tree-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.file-tree-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: inherit;
+}
+
+.file-tree-loading {
+  padding: 8px 14px;
+  color: var(--fg-muted);
+}
+
+/* File-type icon colors: one accent per category, tuned to read on both
+   light and dark surfaces since the palette isn't theme-swapped. */
+.ft-folder {
+  color: var(--accent-2);
+}
+
+.ft-code {
+  color: #4d8dee;
+}
+
+.ft-style {
+  color: #e0964b;
+}
+
+.ft-markup {
+  color: #e0824b;
+}
+
+.ft-config {
+  color: #a45bdb;
+}
+
+.ft-doc {
+  color: #8b7457;
+}
+
+.ft-image {
+  color: #4cae7d;
+}
+
+.ft-archive {
+  color: #c9975a;
+}
+
+.ft-shell {
+  color: #4caf7d;
+}
+
+.ft-git {
+  color: #e0964b;
+}
+
+.ft-generic {
+  color: var(--fg-muted);
+}

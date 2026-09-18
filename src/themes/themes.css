@@ -1,0 +1,115 @@
+/* Variant A — "Adwaita Glass": amber-light chrome in light mode, near-black
+   warm chrome in dark mode, single rationed moss accent, GNOME/GTK proportions. */
+
+/* --surface is real glass by default (low alpha, meant to be seen through
+   `backdrop-filter: blur()`). On Linux the WebView (WebKitGTK) doesn't
+   render backdrop-filter at all, so it's overridden below to an opaque
+   fallback there - otherwise panels would be see-through with no blur and
+   totally illegible. See main.tsx's platform detection. */
+
+:root[data-theme="light"] {
+  --surface: rgba(255, 250, 241, 0.55);
+  --bg-elevated: var(--surface);
+  --fg: #3a2b17;
+  --fg-muted: #8b7457;
+  --border: rgba(120, 80, 36, 0.16);
+  --window-border: rgba(58, 43, 23, 0.28);
+  --accent: #4f6e3a;
+  --accent-2: #a8683a;
+  --ctrl-fg: rgba(50, 34, 16, 0.86);
+  --ctrl-hover-bg: rgba(140, 88, 32, 0.08);
+  --radius-ctl: 6px;
+  --glass-blur: 16px;
+  --sidebar-bg: var(--surface);
+  --sidebar-hover: rgba(140, 88, 32, 0.055);
+  --sidebar-selected-bg: rgba(79, 110, 58, 0.16);
+  --sidebar-selected-fg: #2c3a1e;
+  --term-bg: var(--surface);
+  --term-fg: #2b2013;
+
+  /* Full ANSI 16-color palette, tuned for a light terminal background.
+     xterm.js's own defaults assume a dark background (pure white/bright
+     colors), which is unreadable here - every color below is deliberately
+     dark enough to stay legible on light glass, "white"/"bright white"
+     included. */
+  --ansi-black: #3a2b17;
+  --ansi-red: #b33a3a;
+  --ansi-green: #4f6e3a;
+  --ansi-yellow: #8a6a1f;
+  --ansi-blue: #33618f;
+  --ansi-magenta: #8a4a86;
+  --ansi-cyan: #2f7d7d;
+  --ansi-white: #6b5a44;
+  --ansi-bright-black: #8b7457;
+  --ansi-bright-red: #d1544c;
+  --ansi-bright-green: #6d8f55;
+  --ansi-bright-yellow: #a67c2c;
+  --ansi-bright-blue: #4a7bab;
+  --ansi-bright-magenta: #a8639f;
+  --ansi-bright-cyan: #3a9b9b;
+  --ansi-bright-white: #2b2013;
+  --term-selection-bg: rgba(79, 110, 58, 0.25);
+}
+
+:root[data-theme="dark"] {
+  --surface: rgba(14, 10, 7, 0.55);
+  --bg-elevated: var(--surface);
+  --fg: #e7d8c5;
+  --fg-muted: #a08a6f;
+  --border: rgba(232, 184, 128, 0.12);
+  --window-border: rgba(0, 0, 0, 0.55);
+  --accent: #9db984;
+  --accent-2: #c9975a;
+  --ctrl-fg: rgba(240, 224, 204, 0.85);
+  --ctrl-hover-bg: rgba(232, 184, 128, 0.12);
+  --radius-ctl: 6px;
+  --glass-blur: 16px;
+  --sidebar-bg: var(--surface);
+  --sidebar-hover: rgba(232, 184, 128, 0.07);
+  --sidebar-selected-bg: rgba(139, 168, 118, 0.22);
+  --sidebar-selected-fg: #eef2e6;
+  --term-bg: var(--surface);
+  --term-fg: #f2e6d6;
+
+  /* Full ANSI 16-color palette, tuned for a dark terminal background - see
+     the light theme's block above for why this is overridden at all
+     instead of leaving xterm.js's defaults in place. */
+  --ansi-black: #3a2c1c;
+  --ansi-red: #e2645c;
+  --ansi-green: #9db984;
+  --ansi-yellow: #d1a752;
+  --ansi-blue: #6f9bcf;
+  --ansi-magenta: #c98fc4;
+  --ansi-cyan: #6fc2c2;
+  --ansi-white: #d9cdb8;
+  --ansi-bright-black: #a08a6f;
+  --ansi-bright-red: #f08079;
+  --ansi-bright-green: #b6d19d;
+  --ansi-bright-yellow: #e0bd72;
+  --ansi-bright-blue: #8fb4e0;
+  --ansi-bright-magenta: #ddabd8;
+  --ansi-bright-cyan: #8fd6d6;
+  --ansi-bright-white: #f2e6d6;
+  --term-selection-bg: rgba(139, 168, 118, 0.3);
+}
+
+/* Fallback: no working backdrop-filter on this engine, so trade transparency
+   for legibility instead of shipping unreadable panels. */
+:root[data-theme="light"][data-platform="linux"] {
+  --surface: rgba(255, 250, 241, 0.93);
+}
+:root[data-theme="dark"][data-platform="linux"] {
+  --surface: rgba(14, 10, 7, 0.93);
+}
+
+html,
+body,
+#root {
+  background: transparent;
+}
+
+body {
+  margin: 0;
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}

@@ -1,0 +1,247 @@
+import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { useTheme } from "../themes/ThemeContext";
+import "@xterm/xterm/css/xterm.css";
+import "./terminal.css";
+
+function readTermColors() {
+  const style = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  return {
+    // The container div already paints --term-bg (same glass surface as the
+    // rest of the window). Giving xterm's own canvas a background too would
+    // stack two translucent layers on top of each other, compositing to a
+    // darker/more opaque result than every other panel - so it stays transparent.
+    // xterm.js only accepts hex colors here (it matches /#[\da-f]{3,8}/) -
+    // the CSS keyword "transparent" and rgba() syntax silently fail to parse
+    // and fall back to opaque black, so this must be 8-digit hex.
+    background: "#00000000",
+    foreground: v("--term-fg", "#e6e6e6"),
+    cursor: v("--accent", "#e6e6e6"),
+    cursorAccent: v("--term-bg", "#000000"),
+    // xterm.js's own ANSI defaults assume a dark background (pure white/
+    // near-white foreground colors), which goes unreadable against the
+    // light theme - both palettes are supplied explicitly per theme in
+    // themes.css instead of relying on the built-in ones.
+    black: v("--ansi-black", "#3a2c1c"),
+    red: v("--ansi-red", "#cd3131"),
+    green: v("--ansi-green", "#0dbc79"),
+    yellow: v("--ansi-yellow", "#e5e510"),
+    blue: v("--ansi-blue", "#2472c8"),
+    magenta: v("--ansi-magenta", "#bc3fbc"),
+    cyan: v("--ansi-cyan", "#11a8cd"),
+    white: v("--ansi-white", "#e5e5e5"),
+    brightBlack: v("--ansi-bright-black", "#666666"),
+    brightRed: v("--ansi-bright-red", "#f14c4c"),
+    brightGreen: v("--ansi-bright-green", "#23d18b"),
+    brightYellow: v("--ansi-bright-yellow", "#f5f543"),
+    brightBlue: v("--ansi-bright-blue", "#3b8eea"),
+    brightMagenta: v("--ansi-bright-magenta", "#d670d6"),
+    brightCyan: v("--ansi-bright-cyan", "#29b8db"),
+    brightWhite: v("--ansi-bright-white", "#e5e5e5"),
+    selectionBackground: v("--term-selection-bg", "rgba(120, 150, 200, 0.3)"),
+  };
+}
+
+/** Single-quotes a path for POSIX shells: `it's/here` -> `'it'\''s/here'`. */
+function shellQuote(path: string): string {
+  return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+export interface TerminalHandle {
+  clear: () => void;
+  focus: () => void;
+  refit: () => void;
+  runCommand: (cmd: string) => void;
+  /** Actually `cd`s the shell, but hides the injected command and its echo
+   * entirely - the terminal's on-screen content doesn't change at all. */
+  navigateSilently: (path: string) => void;
+}
+
+interface TerminalViewProps {
+  cwd?: string;
+  hidden?: boolean;
+  onTitleChange?: (title: string) => void;
+}
+
+export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd, hidden, onTitleChange }, ref) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const ptyIdRef = useRef<string | null>(null);
+  const cwdRef = useRef(cwd);
+  const onTitleChangeRef = useRef(onTitleChange);
+  onTitleChangeRef.current = onTitleChange;
+  const { theme } = useTheme();
+
+  // Absolute row (scrollback-inclusive) where a pending silent navigation's
+  // injected `cd` started - real pty output is never touched or dropped, so
+  // a second/third terminal tab can never get "stuck"; once the resulting
+  // prompt redraw is detected (via the title-change signal below), those
+  // in-between rows are collapsed back out with a standard VT erase, so
+  // browsing folders never lengthens the terminal.
+  const pendingCollapseRowRef = useRef<number | null>(null);
+  const collapseSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function refit() {
+    const term = xtermRef.current;
+    const fitAddon = fitAddonRef.current;
+    const id = ptyIdRef.current;
+    if (!term || !fitAddon || !containerRef.current) return;
+    if (containerRef.current.clientWidth === 0 || containerRef.current.clientHeight === 0) return;
+    fitAddon.fit();
+    if (id) {
+      invoke("pty_resize", { id, cols: term.cols, rows: term.rows }).catch(() => {});
+    }
+  }
+
+  useImperativeHandle(ref, () => ({
+    clear: () => xtermRef.current?.clear(),
+    focus: () => xtermRef.current?.focus(),
+    refit,
+    runCommand: (cmd: string) => {
+      const id = ptyIdRef.current;
+      if (id) invoke("pty_write", { id, data: `${cmd}\n` }).catch(() => {});
+    },
+    navigateSilently: (path: string) => {
+      const id = ptyIdRef.current;
+      const term = xtermRef.current;
+      if (!id || !term) return;
+      if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
+      const buf = term.buffer.active;
+      pendingCollapseRowRef.current = buf.baseY + buf.cursorY;
+      // If the shell never redraws a titled prompt afterward (no OSC title
+      // support, or something unexpected happened), give up on collapsing
+      // rather than risk erasing unrelated later output.
+      collapseSafetyRef.current = setTimeout(() => {
+        pendingCollapseRowRef.current = null;
+      }, 2000);
+      invoke("pty_write", { id, data: `cd ${shellQuote(path)}\n` }).catch(() => {});
+    },
+  }));
+
+  useEffect(() => {
+    if (xtermRef.current) {
+      xtermRef.current.options.theme = readTermColors();
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    if (!hidden) requestAnimationFrame(refit);
+  }, [hidden]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const term = new XTerm({
+      cursorBlink: true,
+      fontSize: 13,
+      fontFamily: "Menlo, Consolas, monospace",
+      theme: readTermColors(),
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(containerRef.current);
+    fitAddon.fit();
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    // Most shells emit an OSC title escape (e.g. bash's PROMPT_COMMAND) with
+    // "user@host: cwd", and some update it further while a command runs -
+    // that's the actual live "what's happening in this terminal" signal, and
+    // also exactly when a silent navigation's fresh prompt has finished
+    // drawing, so it doubles as the trigger to collapse the rows in between.
+    const titleDisposable = term.onTitleChange((title) => {
+      if (pendingCollapseRowRef.current !== null) {
+        if (collapseSafetyRef.current) {
+          clearTimeout(collapseSafetyRef.current);
+          collapseSafetyRef.current = null;
+        }
+        const startRow = pendingCollapseRowRef.current;
+        pendingCollapseRowRef.current = null;
+        // The OSC title sequence is parsed (firing this callback) *before*
+        // the prompt text that follows it in the same chunk has actually
+        // been written - reading the cursor position synchronously here
+        // would catch it mid-line (column 0, right after the preceding
+        // linefeed), which is exactly why the collapse below used to land
+        // the cursor at the start of the line instead of after the prompt.
+        // Deferring a tick lets xterm finish writing the rest of the chunk
+        // first, so the position read afterward is the real one.
+        setTimeout(() => {
+          const buf = term.buffer.active;
+          const linesToDelete = buf.baseY + buf.cursorY - startRow;
+          const endCol = buf.cursorX;
+          if (linesToDelete > 0) {
+            // Cursor Previous Line x N (this also resets to column 1), then
+            // Delete Line x N: jump back up to where the old prompt sat and
+            // remove exactly the rows the injected `cd` + its fresh prompt
+            // added, pulling that fresh prompt up to reclaim the old one's
+            // spot - net zero rows added. DL leaves the cursor on that same
+            // row but still at column 1, not at the end of the (shell-drawn)
+            // prompt text it's now showing - readline still thinks it's
+            // typing from that original column, so the next keystrokes
+            // would land there and overwrite the prompt. Cursor Character
+            // Absolute moves it back to match, keyed off the column it was
+            // actually at (the true end of the fresh prompt).
+            term.write(`\x1b[${linesToDelete}F\x1b[${linesToDelete}M\x1b[${endCol + 1}G`);
+          }
+        }, 0);
+      }
+      if (title) onTitleChangeRef.current?.(title);
+    });
+
+    let unlistenOutput: (() => void) | undefined;
+    let unlistenExit: (() => void) | undefined;
+    let disposed = false;
+
+    (async () => {
+      const id = await invoke<string>("pty_spawn", {
+        cwd: cwdRef.current ?? null,
+        cols: term.cols,
+        rows: term.rows,
+      });
+      if (disposed) return;
+      ptyIdRef.current = id;
+
+      unlistenOutput = await listen<{ id: string; data: string }>("pty://output", (event) => {
+        if (event.payload.id === id) term.write(event.payload.data);
+      });
+      unlistenExit = await listen<{ id: string }>("pty://exit", (event) => {
+        if (event.payload.id === id) term.write("\r\n[process exited]\r\n");
+      });
+
+      term.onData((data) => {
+        invoke("pty_write", { id, data }).catch(() => {});
+      });
+    })();
+
+    const resizeObserver = new ResizeObserver(() => refit());
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      disposed = true;
+      resizeObserver.disconnect();
+      titleDisposable.dispose();
+      if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
+      unlistenOutput?.();
+      unlistenExit?.();
+      if (ptyIdRef.current) {
+        invoke("pty_kill", { id: ptyIdRef.current }).catch(() => {});
+      }
+      term.dispose();
+    };
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="terminal-container"
+      style={{ display: hidden ? "none" : "flex" }}
+    />
+  );
+});
+
+TerminalView.displayName = "TerminalView";
