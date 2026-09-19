@@ -3,8 +3,8 @@
  * edge instead of the left (so the border faces the terminal stack on both
  * sides). */
 .agents-sidebar {
-  width: 240px;
-  min-width: 240px;
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--sidebar-bg);
@@ -92,4 +92,69 @@
   white-space: nowrap;
   color: var(--fg-muted);
   font-size: 11px;
+}
+
+.agents-sidebar-section-label {
+  margin: 8px 12px 2px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* A background session has no local tab, so it's dimmer than a real running
+   row (this app isn't the one actually driving it) until hovered. */
+.agents-sidebar-row--background {
+  opacity: 0.7;
+}
+
+.agents-sidebar-row--background:hover {
+  opacity: 1;
+}
+
+.agents-sidebar-chip {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--sidebar-hover);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.agents-sidebar-chip--busy {
+  color: var(--ansi-bright-red);
+}
+
+.agents-sidebar-chip--idle {
+  color: var(--ansi-bright-green);
+}
+
+.agents-sidebar-chip--running {
+  color: var(--accent);
+}
+
+.agents-sidebar-chip--saved {
+  color: var(--fg-muted);
+}
+
+.agents-sidebar-stop {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.agents-sidebar-stop:hover {
+  background: var(--sidebar-hover);
+  color: var(--ansi-bright-red);
 }

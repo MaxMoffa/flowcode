@@ -49,6 +49,16 @@ async function readCodexStatusScreen(): Promise<string> {
   // whereas buffer.active spans the scrollback too, so screenTextOf still sees
   // them.
   const term = new HeadlessTerminal({ cols: CODEX_COLS, rows: CODEX_ROWS, scrollback: 200, allowProposedApi: true });
+  // A real terminal tab (Terminal.tsx) always wires `onData` back to
+  // `pty_write` - without it, the shell's own automatic queries (a DSR
+  // cursor-position request, `ESC[6n`, is the first thing cmd.exe sends)
+  // never get an answer, and cmd.exe stalls right there waiting for one
+  // that structurally can never come. This headless terminal needs the
+  // exact same wiring, or the shell it's driving never gets past its own
+  // startup handshake.
+  term.onData((data) => {
+    invoke("pty_write", { id, data }).catch(() => {});
+  });
   let unlisten: (() => void) | undefined;
   try {
     unlisten = await listen<{ id: string; data: string }>("pty://output", (event) => {
@@ -73,16 +83,31 @@ async function fetchCodexUsage(): Promise<UsageInfo> {
   } catch (e) {
     const message = String(e);
     const loggedOut = /sign.?in|log.?in/i.test(message);
-    return {
-      fetchedAt: Date.now(),
-      ok: false,
-      metrics: [
-        {
-          label: loggedOut ? "Non collegato" : "Non disponibile",
-          detail: loggedOut ? 'Esegui "codex login" nel terminale per collegare un account.' : message,
-        },
-      ],
-    };
+    // A cold ConPTY session on Windows occasionally comes up with its
+    // output stalled for several seconds (a real OS-level quirk, not
+    // something retrying the same session can fix - see warmup_conpty in
+    // pty.rs) - a session that never got anywhere near a real codex prompt
+    // is worth one fresh attempt (a brand new pty, not just resending
+    // keystrokes into the stuck one) before actually giving up. A genuine
+    // "please log in" is a real signal, not a fluke - no point retrying
+    // that.
+    if (!loggedOut) {
+      try {
+        screen = await readCodexStatusScreen();
+      } catch (e2) {
+        return {
+          fetchedAt: Date.now(),
+          ok: false,
+          metrics: [{ label: "Non disponibile", detail: String(e2) }],
+        };
+      }
+    } else {
+      return {
+        fetchedAt: Date.now(),
+        ok: false,
+        metrics: [{ label: "Non collegato", detail: 'Esegui "codex login" nel terminale per collegare un account.' }],
+      };
+    }
   }
 
   const metrics: UsageMetric[] = parseCodexLimits(screen).map((limit) => ({
@@ -137,8 +162,9 @@ async function fetchClaudeUsage(): Promise<UsageInfo> {
     };
   }
 
-  // "Current session" (the 5-hour rolling window) first, so it's the metric
-  // the shortcut-bar ring picks up - see PluginUsageButton.
+  // "Current session" (the 5-hour rolling window) first: it's the one that
+  // moves while you work, so it leads the popover's list. (The shortcut-bar
+  // mini bar picks by pressure, not by order - see PluginUsageButton.)
   const metrics: UsageMetric[] = out
     .split("\n")
     .map((line) => line.match(USAGE_LINE_RE))

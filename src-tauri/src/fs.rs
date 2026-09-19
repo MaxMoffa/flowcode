@@ -70,21 +70,34 @@ fn search_dir_recursive(dir: &Path, query: &str, show_hidden: bool, results: &mu
 /// only ever lists one directory. Skips `SEARCH_IGNORE_DIRS` and (unless
 /// `show_hidden`) dotfiles, same as the plain listing, and stops at 300
 /// matches so a broad query over a big tree can't hang the UI.
+///
+/// `async` + `spawn_blocking`, not a plain sync command: a walk that hasn't
+/// hit either stop condition yet (few/no matches in a large tree - Windows'
+/// NTFS metadata calls are noticeably slower than Linux here) can run for
+/// seconds, and every `#[tauri::command]` shares one bounded worker pool -
+/// a slow search left running there queues up everything else behind it,
+/// typed keystrokes (`pty_write`) included, which reads as "the terminal
+/// just froze". `spawn_blocking` moves the walk to Tokio's separate,
+/// much larger blocking-thread pool instead.
 #[tauri::command]
-pub fn search_dir(path: String, query: String, show_hidden: Option<bool>) -> Result<Vec<FsEntry>, String> {
-    let show_hidden = show_hidden.unwrap_or(false);
-    let query = query.trim().to_lowercase();
-    if query.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut results = Vec::new();
-    search_dir_recursive(Path::new(&path), &query, show_hidden, &mut results, 300);
-    results.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
-    Ok(results)
+pub async fn search_dir(path: String, query: String, show_hidden: Option<bool>) -> Result<Vec<FsEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let show_hidden = show_hidden.unwrap_or(false);
+        let query = query.trim().to_lowercase();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let mut results = Vec::new();
+        search_dir_recursive(Path::new(&path), &query, show_hidden, &mut results, 300);
+        results.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        });
+        results
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

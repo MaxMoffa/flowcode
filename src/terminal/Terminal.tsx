@@ -83,13 +83,21 @@ interface TerminalViewProps {
   cwd?: string;
   hidden?: boolean;
   onTitleChange?: (title: string) => void;
+  /** A command to type and submit the moment this tab's shell is ready -
+   * for a freshly-opened tab meant to run one specific thing (e.g. a CLI's
+   * install/login command from a setup prompt), not a general-purpose API.
+   * Only read once, at mount - reusing a TerminalView instance for a
+   * different `runOnStart` later does nothing. */
+  runOnStart?: string;
 }
 
-export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd, hidden, onTitleChange }, ref) => {
+export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
+  ({ cwd, hidden, onTitleChange, runOnStart }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyIdRef = useRef<string | null>(null);
+  const runOnStartRef = useRef(runOnStart);
   const cwdRef = useRef(cwd);
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
@@ -145,13 +153,32 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
     refit,
     runCommand: (cmd: string) => {
       const id = ptyIdRef.current;
-      if (id) invoke("pty_write", { id, data: `${cmd}\n` }).catch(() => {});
+      // `\r`, not `\n`: that's what xterm.js itself sends for a real Enter
+      // keypress (see term.onData below) - matching it here, rather than
+      // the more "written text" instinct of `\n`, is what makes ConPTY
+      // (the Windows pty backend) actually treat this as pressing Enter
+      // instead of leaving the line sitting there typed but unsubmitted.
+      if (id) invoke("pty_write", { id, data: `${cmd}\r` }).catch(() => {});
     },
     // A launched full-screen CLI can take a while to draw its first titled
     // frame (cold start, update check, ...), longer than a plain `cd`'s
     // fresh prompt - a more generous safety window than navigateSilently's.
-    runCommandSilently: (cmd: string) => writeSilently(`${cmd}\n`, 8000),
-    navigateSilently: (path: string) => writeSilently(`cd ${shellQuote(path)}\n`),
+    runCommandSilently: (cmd: string) => writeSilently(`${cmd}\r`, 8000),
+    // The collapse above only fires once xterm sees a title-change escape -
+    // that's how bash/zsh's own prompt naturally signals "the injected
+    // command is done", via PROMPT_COMMAND retitling on every prompt. cmd.exe
+    // (the Windows default shell) never retitles on its own, plain `cd`
+    // included, so nothing would ever trigger the collapse there and the
+    // typed `cd` would just sit on screen looking like it did nothing.
+    // Chaining an explicit `title` onto the `cd` forces that same signal -
+    // using the real path as the title also happens to be exactly what
+    // App.tsx's title handler needs to pick the new cwd/tab label back up.
+    navigateSilently: (path: string) =>
+      writeSilently(
+        document.documentElement.dataset.platform === "windows"
+          ? `cd ${shellQuote(path)} && title ${path}\r`
+          : `cd ${shellQuote(path)}\r`,
+      ),
     getPtyId: () => ptyIdRef.current,
   }));
 
@@ -277,6 +304,26 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
       term.onData((data) => {
         invoke("pty_write", { id, data }).catch(() => {});
       });
+
+      // cmd.exe (the Windows default shell, see default_shell() in pty.rs)
+      // never retitles on its own - not even after a `cd` the user typed by
+      // hand - unlike bash/zsh, which retitle every prompt on their own.
+      // Without this, App.tsx's "a real cd is authoritative, follow it in
+      // the explorer" logic (handleTitleChange) has nothing to listen to on
+      // Windows. `$E` is cmd.exe's own PROMPT code for ESC, and `$P`
+      // expands to the *current* cwd every time the prompt is drawn, not
+      // just once now - so this makes every future prompt emit a real OSC 0
+      // title update with the live cwd, on top of (not instead of) the
+      // normal visible "$P$G" ("C:\path>") prompt text. Silent like
+      // navigateSilently's own injected commands: this line disappears from
+      // the screen the moment the first retitled prompt redraws.
+      if (document.documentElement.dataset.platform === "windows") {
+        writeSilently("prompt $E]0;$P$E\\$P$G\r");
+      }
+
+      if (runOnStartRef.current) {
+        invoke("pty_write", { id, data: `${runOnStartRef.current}\r` }).catch(() => {});
+      }
     })();
 
     const resizeObserver = new ResizeObserver(() => refit());

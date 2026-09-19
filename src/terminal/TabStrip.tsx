@@ -61,10 +61,13 @@ interface TabOverflowMenuProps {
   activeId: string;
   anchorRect: DOMRect;
   onSelect: (id: string) => void;
-  onClose: () => void;
+  onCloseTab: (id: string) => void;
+  /** Closes the overflow popup itself (Escape, click outside) - distinct
+   * from `onCloseTab`, which closes one of the tabs listed inside it. */
+  onDismiss: () => void;
 }
 
-function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onClose }: TabOverflowMenuProps) {
+function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onDismiss }: TabOverflowMenuProps) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -75,10 +78,10 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onClose }: TabO
 
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onDismiss();
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onDismiss();
     };
     window.addEventListener("mousedown", onMouseDown, true);
     window.addEventListener("keydown", onKeyDown);
@@ -86,7 +89,7 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onClose }: TabO
       window.removeEventListener("mousedown", onMouseDown, true);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [onClose]);
+  }, [onDismiss]);
 
   const filtered = tabs.filter((t) => t.label.toLowerCase().includes(query.trim().toLowerCase()));
 
@@ -111,18 +114,35 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onClose }: TabO
       <div className="tab-overflow-list">
         {filtered.length === 0 && <div className="tab-overflow-empty">Nessun risultato</div>}
         {filtered.map((tab) => (
-          <button
+          <div
             key={tab.id}
-            type="button"
             className={"tab-overflow-item" + (tab.id === activeId ? " is-active" : "")}
             onClick={() => {
               onSelect(tab.id);
-              onClose();
+              onDismiss();
             }}
           >
             {tabIcon(tab)}
             <span className="tab-overflow-item-label">{tab.label}</span>
-          </button>
+            <button
+              type="button"
+              className="tab-overflow-item-close"
+              aria-label={`Close ${tab.label}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Closing the last hidden tab leaves nothing left to show in
+                // this popup, so it's dismissed along with it rather than
+                // left open and empty.
+                if (filtered.length === 1) onDismiss();
+                onCloseTab(tab.id);
+              }}
+            >
+              <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+              </svg>
+            </button>
+          </div>
         ))}
       </div>
     </div>,
@@ -212,7 +232,6 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
   return (
     <div className="tab-strip" ref={containerRef} data-tauri-drag-region>
       {visibleTabs.map((tab) => {
-        const canClose = tab.kind === "terminal" ? tabs.filter((t) => t.kind === "terminal").length > 1 : true;
         return (
           <div
             key={tab.id}
@@ -248,22 +267,20 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
             {tab.kind === "editor" && dirtyIds?.has(tab.id) && (
               <span className="term-tab-dirty-dot" title="Modifiche non salvate" />
             )}
-            {canClose && (
-              <button
-                type="button"
-                className="term-tab-close"
-                aria-label={`Close ${tab.label}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose(tab.id);
-                }}
-              >
-                <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                </svg>
-              </button>
-            )}
+            <button
+              type="button"
+              className="term-tab-close"
+              aria-label={`Close ${tab.label}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose(tab.id);
+              }}
+            >
+              <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+              </svg>
+            </button>
           </div>
         );
       })}
@@ -293,7 +310,8 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
           activeId={activeId}
           anchorRect={overflowAnchorRect}
           onSelect={onSelect}
-          onClose={() => setOverflowAnchorRect(null)}
+          onCloseTab={onClose}
+          onDismiss={() => setOverflowAnchorRect(null)}
         />
       )}
     </div>

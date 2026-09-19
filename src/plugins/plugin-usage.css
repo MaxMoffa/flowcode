@@ -14,24 +14,36 @@
 .plugin-usage-mini {
   position: absolute;
   left: 50%;
-  bottom: 3px;
+  bottom: 2px;
   transform: translateX(-50%);
-  width: 14px;
-  height: 2px;
+  width: 16px;
+  height: 3px;
   border-radius: 999px;
-  background: var(--sidebar-hover);
+  /* NOT --sidebar-hover: at ~5% alpha that track is invisible on the header,
+   * so a partially-filled bar read as "nothing there at all". A tinted
+   * version of the same accent keeps the empty part faint but actually
+   * perceptible, and makes 0% distinguishable from "no data". The plain
+   * declaration first is the fallback for a WebView2 runtime older than
+   * Chromium 111 (no color-mix), which would otherwise drop the property
+   * entirely and take the track back to invisible. */
+  background: var(--border);
+  background: color-mix(in srgb, var(--usage-accent) 26%, transparent);
   overflow: hidden;
   pointer-events: none;
 }
 
 .plugin-usage-mini-fill {
-  width: 100%;
+  /* `display: block` is load-bearing: this is a <span> (a <button>'s content
+   * model is phrasing content, so no <div> here), and an inline box ignores
+   * width/height outright - the fill rendered as a zero-area box no matter
+   * what percentage was set on it, which is exactly why this bar looked
+   * permanently empty while the popover's <div>-based bar worked fine. */
+  display: block;
+  width: 0%;
   height: 100%;
   border-radius: 999px;
   background: var(--usage-accent);
-  transform: scaleX(var(--fill, 0));
-  transform-origin: left;
-  transition: transform 0.3s ease;
+  transition: width 0.3s ease;
 }
 
 .plugin-usage-mini--warn .plugin-usage-mini-fill {

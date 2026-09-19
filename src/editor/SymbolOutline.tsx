@@ -4,7 +4,10 @@ import "./symbol-outline.css";
 interface Symbol {
   name: string;
   line: number;
-  kind: "function" | "class";
+  kind: "function" | "class" | "heading";
+  /** Only meaningful for a "heading" - 1-6, how deep under `#`…`######` it
+   * was found, used to indent the outline like a table of contents. */
+  level?: number;
 }
 
 // Deliberately simple, regex-based, not a real parser for every language -
@@ -23,7 +26,38 @@ const PATTERNS: { re: RegExp; kind: Symbol["kind"] }[] = [
   { re: /^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/, kind: "function" },
 ];
 
-function extractSymbols(content: string): Symbol[] {
+const MARKDOWN_HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*$/;
+
+function isMarkdownFile(label: string): boolean {
+  return /\.(md|markdown)$/i.test(label);
+}
+
+/** For a Markdown file, the outline's job is a table of contents, not a
+ * function/class jump list - `# Heading` … `###### Heading` lines instead
+ * of the code PATTERNS above. */
+function extractMarkdownHeadings(content: string): Symbol[] {
+  const lines = content.split("\n");
+  const symbols: Symbol[] = [];
+  let inFence = false;
+  lines.forEach((text, i) => {
+    // A line starting with # inside a fenced code block (```...```) is a
+    // shell comment or similar, never a heading - skip the whole fence
+    // rather than mis-reading its contents as document structure.
+    if (/^\s*```/.test(text)) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) return;
+    const match = text.match(MARKDOWN_HEADING_RE);
+    if (match) {
+      symbols.push({ name: match[2], line: i + 1, kind: "heading", level: match[1].length });
+    }
+  });
+  return symbols;
+}
+
+function extractSymbols(content: string, label: string): Symbol[] {
+  if (isMarkdownFile(label)) return extractMarkdownHeadings(content);
   const lines = content.split("\n");
   const symbols: Symbol[] = [];
   lines.forEach((text, i) => {
@@ -58,6 +92,23 @@ function ClassIcon() {
   );
 }
 
+function HeadingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
+      <path d="M5 5v14" />
+      <path d="M15 5v14" />
+      <path d="M5 12h10" />
+      <path d="M18 8v10" />
+    </svg>
+  );
+}
+
+function symbolIcon(kind: Symbol["kind"]) {
+  if (kind === "class") return <ClassIcon />;
+  if (kind === "heading") return <HeadingIcon />;
+  return <FunctionIcon />;
+}
+
 interface SymbolOutlineProps {
   label: string;
   getContent: () => string;
@@ -65,15 +116,34 @@ interface SymbolOutlineProps {
 }
 
 export function SymbolOutline({ label, getContent, onJump }: SymbolOutlineProps) {
-  const [symbols, setSymbols] = useState<Symbol[]>(() => extractSymbols(getContent()));
+  const [symbols, setSymbols] = useState<Symbol[]>(() => extractSymbols(getContent(), label));
   const [query, setQuery] = useState("");
+  const isMarkdown = isMarkdownFile(label);
 
   // Recomputed whenever this panel becomes relevant (active tab switched to
   // this file) rather than on every keystroke in the editor - a live-typing
   // outline isn't worth the extra plumbing for what's meant to be a quick
-  // jump list.
+  // jump list. But the very first computation for a freshly opened tab
+  // races EditorView's own async `read_text_file` - this mounts (tab
+  // switch) well before that IPC round-trip resolves, so `getContent()`
+  // still returns "" the first time. Without retrying, the outline would
+  // stay empty forever for that file, since nothing else ever pokes this
+  // effect again. So: keep re-checking briefly until real content shows up
+  // (or give up after ~2s, for a file that's genuinely empty).
   useEffect(() => {
-    setSymbols(extractSymbols(getContent()));
+    let cancelled = false;
+    let attempts = 0;
+    function tick() {
+      if (cancelled) return;
+      const content = getContent();
+      setSymbols(extractSymbols(content, label));
+      attempts += 1;
+      if (content === "" && attempts < 20) setTimeout(tick, 100);
+    }
+    tick();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [label]);
 
@@ -89,17 +159,27 @@ export function SymbolOutline({ label, getContent, onJump }: SymbolOutlineProps)
       <div className="symbol-outline-search-row">
         <input
           className="symbol-outline-search"
-          placeholder="Cerca funzione…"
+          placeholder={isMarkdown ? "Cerca titolo…" : "Cerca funzione…"}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
       <div className="symbol-outline-list">
-        {symbols.length === 0 && <div className="symbol-outline-empty">Nessun simbolo riconosciuto in questo file</div>}
+        {symbols.length === 0 && (
+          <div className="symbol-outline-empty">
+            {isMarkdown ? "Nessun titolo in questo documento" : "Nessun simbolo riconosciuto in questo file"}
+          </div>
+        )}
         {symbols.length > 0 && filtered.length === 0 && <div className="symbol-outline-empty">Nessun risultato</div>}
         {filtered.map((s) => (
-          <button key={`${s.name}-${s.line}`} type="button" className="symbol-outline-item" onClick={() => onJump(s.line)}>
-            <span className="symbol-outline-item-icon">{s.kind === "class" ? <ClassIcon /> : <FunctionIcon />}</span>
+          <button
+            key={`${s.name}-${s.line}`}
+            type="button"
+            className="symbol-outline-item"
+            style={s.kind === "heading" ? { paddingLeft: `${8 + (s.level! - 1) * 12}px` } : undefined}
+            onClick={() => onJump(s.line)}
+          >
+            <span className="symbol-outline-item-icon">{symbolIcon(s.kind)}</span>
             <span className="symbol-outline-item-label">{s.name}</span>
             <span className="symbol-outline-item-line">{s.line}</span>
           </button>

@@ -103,6 +103,43 @@
   min-height: 0;
 }
 
+/* Wraps whichever fixed-width panel (file explorer / settings nav / symbol
+   outline on the left, agents list on the right) is currently docked, so
+   its width is a plain inline style driven by useResizablePanelWidth
+   instead of a CSS constant - the panel itself now just fills this. */
+.resizable-panel {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 5;
+  /* Wider than it looks: the visible seam is 1px (the panel's own border),
+     but a hit target that thin is nearly unusable with a mouse. */
+  background: transparent;
+}
+
+.resize-handle-right {
+  right: -2px;
+}
+
+.resize-handle-left {
+  left: -2px;
+}
+
+.resize-handle:hover,
+.resize-handle.is-dragging {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
 .terminal-stack {
   flex: 1 1 auto;
   min-width: 0;

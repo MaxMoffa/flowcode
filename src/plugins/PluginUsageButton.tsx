@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PluginDef } from "./types";
+import type { UsageMetric } from "./usage";
 import { useUsageState } from "./useUsageState";
 import { usagePopoverPosition } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
@@ -14,8 +15,8 @@ interface PluginUsageButtonProps {
 
 /** A quick-action icon button - for a plugin with a known usage fetcher
  * (currently Codex CLI / Claude Code, see usage.ts), also a hover popover
- * with account status, and a mini bar under the icon for any metric that
- * comes back with a numeric fill level. Click always just runs the plugin;
+ * with account status, and a mini bar under the icon showing whichever
+ * reported limit is closest to running out. Click always just runs the plugin;
  * the popover is purely informational and never intercepts the click. The
  * same popover also shows up on these plugins' rows in the "tutti i
  * plugin" menu - see PluginMenu.tsx, which shares useUsageState/
@@ -55,8 +56,21 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
     );
   }
 
-  const barMetric = usage?.metrics.find((m) => m.percent !== undefined);
-  const barWarn = barMetric?.percent !== undefined && barMetric.percent >= 0.75;
+  // The tightest window, not the first one listed. These CLIs report two
+  // limits (rolling 5h session + weekly) and either can be the one about to
+  // bite: Codex routinely comes back with the 5h window at 0% used while the
+  // weekly one is exhausted, so a bar pinned to "the session" sat at zero and
+  // read as broken precisely when it most needed to warn. The popover still
+  // lists every metric, labelled, in its own order.
+  const barMetric = usage?.metrics.reduce<UsageMetric | undefined>((worst, m) => {
+    if (m.percent === undefined || !Number.isFinite(m.percent)) return worst;
+    return worst === undefined || m.percent > (worst.percent ?? -1) ? m : worst;
+  }, undefined);
+  // Clamp: a future CLI wording change could yield something outside 0-1, and
+  // a width over 100% would silently overflow the track instead of showing
+  // "full".
+  const barPct = barMetric?.percent === undefined ? undefined : Math.max(0, Math.min(100, Math.round(barMetric.percent * 100)));
+  const barWarn = barPct !== undefined && barPct >= 75;
 
   return (
     <div className="plugin-usage-anchor" data-plugin={plugin.id} onMouseEnter={show} onMouseLeave={scheduleHide}>
@@ -64,14 +78,17 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
         ref={btnRef}
         type="button"
         className="icon-button plugin-usage-btn"
-        aria-label={plugin.label}
+        aria-label={barPct === undefined ? plugin.label : `${plugin.label} - ${barMetric?.label}: ${barPct}%`}
         title={plugin.label}
         onClick={onRun}
       >
         {icon}
-        {barMetric && barMetric.percent !== undefined && (
-          <span className={`plugin-usage-mini${barWarn ? " plugin-usage-mini--warn" : ""}`}>
-            <span className="plugin-usage-mini-fill" style={{ "--fill": barMetric.percent } as CSSProperties} />
+        {barPct !== undefined && (
+          <span
+            className={`plugin-usage-mini${barWarn ? " plugin-usage-mini--warn" : ""}`}
+            data-pct={barPct}
+          >
+            <span className="plugin-usage-mini-fill" style={{ width: `${barPct}%` }} />
           </span>
         )}
       </button>

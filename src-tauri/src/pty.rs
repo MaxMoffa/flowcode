@@ -40,6 +40,54 @@ struct PtyExitPayload {
     id: String,
 }
 
+/// Spawns and immediately tears down a throwaway ConPTY session, blocking
+/// until it exits. Windows-only, called once from `lib.rs`'s `setup()`
+/// before the window/webview is shown.
+///
+/// The very first `CreatePseudoConsole` a process ever makes can come up
+/// with its input pipe not actually wired to the child yet - the shell
+/// prints its prompt fine (output flows), but nothing typed reaches it,
+/// with no error anywhere. Every ConPTY after that first one behaves
+/// normally. Ending up with the user's actual first terminal tab being the
+/// one that silently eats keystrokes is exactly backwards - so this makes
+/// something else be the "first" one instead, before there's a real tab
+/// (or a user) around to notice.
+#[cfg(target_os = "windows")]
+pub fn warmup_conpty() {
+    let pty_system = native_pty_system();
+    let Ok(pair) = pty_system.openpty(PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    }) else {
+        return;
+    };
+    // Always cmd.exe here, regardless of the user's configured default
+    // shell (`default_shell()` below) - this only needs *some* process to
+    // round-trip through ConPTY, and cmd.exe is guaranteed present.
+    let mut cmd = CommandBuilder::new("cmd.exe");
+    cmd.args(["/c", "exit"]);
+    let Ok(mut child) = pair.slave.spawn_command(cmd) else {
+        return;
+    };
+    drop(pair.slave);
+    // Even `cmd.exe /c exit` writes a few dozen bytes of mode-set/title
+    // escapes on its way out - if nothing drains the pty's output pipe, the
+    // write can block once that pipe fills, which blocks the exit itself,
+    // which means `child.wait()` below never returns. A real pty_spawn
+    // session never hits this because its own reader thread (below) is
+    // always draining output; this one-off warmup needs the same, even
+    // though it has nowhere to send what it reads.
+    if let Ok(mut reader) = pair.master.try_clone_reader() {
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
+        });
+    }
+    let _ = child.wait();
+}
+
 fn default_shell() -> String {
     if cfg!(target_os = "windows") {
         std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".into())

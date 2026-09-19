@@ -25,6 +25,7 @@ import { PluginDialog } from "./plugins/PluginDialog";
 import { BUILTIN_PLUGINS, EXAMPLE_PLUGINS, DEFAULT_QUICK_ACTIONS } from "./plugins/registry";
 import { pluginIconNode } from "./plugins/icons";
 import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
+import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -151,6 +152,23 @@ function cleanTitle(raw: string, home: string): string {
   return title || "shell";
 }
 
+/** POSIX ("/foo"), Windows drive-letter ("C:\foo" or "C:/foo") and UNC
+ * ("\\host\share") absolute paths - what a real `cd`'s reported path looks
+ * like on each platform this app runs on. */
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+}
+
+/** A cwd is never a file - but a brand new cmd.exe console on Windows starts
+ * out titled with the full path to its OWN executable (e.g.
+ * `C:\Windows\System32\cmd.exe`), before anything has set a real title. That
+ * happens to also pass `isAbsolutePath`, so without this check a fresh tab's
+ * very first title update would stomp `explorerPath` with the shell binary's
+ * own path instead of its actual working directory. */
+function looksLikeExecutablePath(path: string): boolean {
+  return /\.(exe|com|bat|cmd)$/i.test(path);
+}
+
 function expandHome(path: string, home: string): string {
   if (!home) return path;
   if (path === "~") return home;
@@ -173,6 +191,20 @@ function Shell() {
     }
   });
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  const sidebarResize = useResizablePanelWidth({
+    storageKey: "flowcode.sidebarWidth",
+    defaultWidth: 240,
+    min: 180,
+    max: 480,
+    handleSide: "right",
+  });
+  const agentsResize = useResizablePanelWidth({
+    storageKey: "flowcode.agentsSidebarWidth",
+    defaultWidth: 240,
+    min: 200,
+    max: 480,
+    handleSide: "left",
+  });
   const [homeDir, setHomeDir] = useState<string>("");
   const [tabs, setTabs] = useState<AppTab[]>([
     { kind: "terminal", id: "tab-0", cwd: "", explorerPath: "", label: "shell" },
@@ -188,6 +220,10 @@ function Shell() {
   const [pluginDialog, setPluginDialog] = useState<PluginDef | null>(null);
   const pluginToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const termRefs = useRef(new Map<string, TerminalHandle>());
+  // Command to type into a tab the instant its shell is ready - set by
+  // openTerminalWithCommand, read once by that tab's own TerminalView via
+  // its runOnStart prop (see the render loop below).
+  const pendingCommandsRef = useRef(new Map<string, string>());
   const editorRefs = useRef(new Map<string, EditorHandle>());
   const pluginBtnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirmDialog();
@@ -375,6 +411,31 @@ function Shell() {
     setActiveTerminalId(id);
   }
 
+  /** A fresh terminal tab whose one job is to run `command` - used for a
+   * CLI's install/login step offered from the setup-check dialog, so the
+   * user's actual working terminal is never hijacked for it. */
+  function openTerminalWithCommand(command: string) {
+    const id = `tab-${nextTabId++}`;
+    pendingCommandsRef.current.set(id, command);
+    setTabs((prev) => [...prev, { kind: "terminal", id, cwd: homeDir, explorerPath: homeDir, label: "setup" }]);
+    setActiveTabId(id);
+    setActiveTerminalId(id);
+  }
+
+  /** Opens a fresh terminal tab in `cwd`, resuming a specific agent session
+   * the moment its shell is ready - used from the Agents sidebar for a
+   * background/saved session (one this app has no open tab for), so
+   * double-clicking it drops the user straight back into that chat instead
+   * of a bare shell they'd have to resume by hand. */
+  function openAgentSession(cwd: string, sessionId: string, cli: "claude" | "codex") {
+    const id = `tab-${nextTabId++}`;
+    const command = cli === "claude" ? `claude --resume ${sessionId}` : `codex resume ${sessionId}`;
+    pendingCommandsRef.current.set(id, command);
+    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir) }]);
+    setActiveTabId(id);
+    setActiveTerminalId(id);
+  }
+
   function openFile(path: string) {
     const name = path.split("/").pop() || path;
     if (!isLikelyTextFile(name)) {
@@ -409,7 +470,25 @@ function Shell() {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
     if (tab.kind === "terminal") {
-      if (tabs.filter((t) => t.kind === "terminal").length <= 1) return;
+      // The app always needs at least one terminal, but that's no reason to
+      // refuse to close the last one outright - a stuck/broken session
+      // (e.g. one whose shell never started right) then has no way to
+      // recover short of restarting the whole app. Replace it in place with
+      // a fresh tab instead: same effect for the user (a working terminal,
+      // same slot), minus the dead end.
+      if (tabs.filter((t) => t.kind === "terminal").length <= 1) {
+        const cwd = tab.cwd || homeDir;
+        const newId = `tab-${nextTabId++}`;
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === id ? { kind: "terminal", id: newId, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir) } : t,
+          ),
+        );
+        setActiveTabId(newId);
+        setActiveTerminalId(newId);
+        termRefs.current.delete(id);
+        return;
+      }
     } else {
       const handle = editorRefs.current.get(id);
       if (handle?.isDirty()) {
@@ -450,7 +529,7 @@ function Shell() {
     setTabs((prev) =>
       prev.map((t) => {
         if (t.id !== tabId || t.kind !== "terminal") return t;
-        const cwd = rawPath.startsWith("/") ? rawPath : t.cwd;
+        const cwd = isAbsolutePath(rawPath) && !looksLikeExecutablePath(rawPath) ? rawPath : t.cwd;
         const label = t.customLabel ? t.label : cleanTitle(trimmed, homeDir);
         // A real cd in the shell is authoritative - follow it in the explorer too.
         return { ...t, cwd, explorerPath: cwd, label };
@@ -509,6 +588,53 @@ function Shell() {
     pluginToastTimerRef.current = setTimeout(() => setPluginToast(null), 2600);
   }
 
+  /** Before launching Claude Code / Codex, offers a one-click install (if
+   * missing) or login (if installed but signed out) in a fresh terminal
+   * instead of the shortcut just quietly doing nothing useful. `check_cli_status`
+   * (src-tauri/src/plugins.rs) does the actual detection. */
+  async function checkCliAndMaybeLaunch(cliBin: "claude" | "codex", launchCommand: string, term: TerminalHandle | undefined) {
+    const label = cliBin === "claude" ? "Claude Code" : "Codex CLI";
+    let status: { installed: boolean; logged_in: boolean };
+    try {
+      status = await invoke("check_cli_status", { cli: cliBin });
+    } catch {
+      // Detection itself failed - don't block the shortcut over it, just
+      // fall back to the plain launch as before this check existed.
+      term?.runCommandSilently(launchCommand);
+      return;
+    }
+
+    if (!status.installed) {
+      const isWindows = document.documentElement.dataset.platform === "windows";
+      const installCommand =
+        cliBin === "claude"
+          ? isWindows
+            ? "irm https://claude.ai/install.ps1 | iex"
+            : "curl -fsSL https://claude.ai/install.sh | bash"
+          : "npm install -g @openai/codex";
+      const ok = await confirm({
+        title: `${label} non è installato`,
+        message: `${label} non risulta installato su questo sistema. Vuoi installarlo ora in un nuovo terminale?`,
+        confirmLabel: "Installa",
+      });
+      if (ok) openTerminalWithCommand(installCommand);
+      return;
+    }
+
+    if (!status.logged_in) {
+      const loginCommand = cliBin === "claude" ? "claude auth login" : "codex login";
+      const ok = await confirm({
+        title: `Accesso a ${label} richiesto`,
+        message: `${label} è installato ma non hai ancora effettuato l'accesso. Vuoi farlo ora in un nuovo terminale?`,
+        confirmLabel: "Accedi",
+      });
+      if (ok) openTerminalWithCommand(loginCommand);
+      return;
+    }
+
+    term?.runCommandSilently(launchCommand);
+  }
+
   /** Runs the one thing a plugin (or a dialog-plugin's button) is allowed to
    * do - see PLUGINS.md at the repo root for why this stays a fixed, safe
    * vocabulary instead of arbitrary code. */
@@ -532,9 +658,13 @@ function Shell() {
         // Claude Code / Codex CLI take over the whole screen the moment
         // they start - unlike an arbitrary user-defined runCommand plugin,
         // there's no reason to leave the typed launch command sitting in
-        // the scrollback above their UI.
+        // the scrollback above their UI. They're also the only plugins with
+        // a known CLI binary behind them, which is what makes the
+        // install/login pre-check possible - a plain runCommand plugin has
+        // no such notion and always just runs.
         if ("id" in plugin && (plugin.id === "claude-code" || plugin.id === "codex-cli")) {
-          term?.runCommandSilently(plugin.command);
+          const cliBin = plugin.id === "claude-code" ? "claude" : "codex";
+          checkCliAndMaybeLaunch(cliBin, plugin.command, term);
         } else {
           term?.runCommand(plugin.command);
         }
@@ -707,7 +837,15 @@ function Shell() {
         </div>
       </header>
       <div className="app-body">
-        {effectiveSidebarMode === "docked" && !sidebarCollapsed && sidebarPanel}
+        {effectiveSidebarMode === "docked" && !sidebarCollapsed && (
+          <div className="resizable-panel" style={{ width: sidebarResize.width }}>
+            {sidebarPanel}
+            <div
+              className={"resize-handle resize-handle-right" + (sidebarResize.dragging ? " is-dragging" : "")}
+              onPointerDown={sidebarResize.onHandlePointerDown}
+            />
+          </div>
+        )}
         <div className="terminal-stack">
           {homeDir &&
             tabs.map((tab) => {
@@ -722,6 +860,7 @@ function Shell() {
                     cwd={tab.cwd || undefined}
                     hidden={tab.id !== activeTabId}
                     onTitleChange={(title) => handleTitleChange(tab.id, title)}
+                    runOnStart={pendingCommandsRef.current.get(tab.id)}
                   />
                 );
               }
@@ -763,12 +902,19 @@ function Shell() {
           </div>
         )}
         {agentsSidebarOpen && (
-          <AgentsSidebar
-            tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
-            activeTabId={activeTabId}
-            getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
-            onOpenTab={selectTab}
-          />
+          <div className="resizable-panel" style={{ width: agentsResize.width }}>
+            <div
+              className={"resize-handle resize-handle-left" + (agentsResize.dragging ? " is-dragging" : "")}
+              onPointerDown={agentsResize.onHandlePointerDown}
+            />
+            <AgentsSidebar
+              tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
+              activeTabId={activeTabId}
+              getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
+              onOpenTab={selectTab}
+              onOpenSession={openAgentSession}
+            />
+          </div>
         )}
       </div>
       {pluginToast && <PluginToast message={pluginToast} />}

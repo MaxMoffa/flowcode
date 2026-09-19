@@ -81,6 +81,16 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 use tauri::Manager;
+                // On its own thread: `setup()` runs on the main/event-loop
+                // thread, and this app's window is already shown by the
+                // time `setup()` runs (see tauri.conf.json - not created
+                // lazily here) - blocking this closure on warmup_conpty's
+                // own child.wait() would freeze that window (visible but
+                // "not responding") for however long it takes, instead of
+                // just delaying how soon the *frontend's* first real pty
+                // spawn is safe. See warmup_conpty's own doc comment for
+                // why it exists at all.
+                std::thread::spawn(pty::warmup_conpty);
                 if let Some(window) = _app.get_webview_window("main") {
                     apply_window_chrome(&window);
                 }
@@ -113,7 +123,10 @@ pub fn run() {
             plugins::delete_plugin,
             plugins::run_plugin_command,
             plugins::run_plugin_command_stdout,
+            plugins::check_cli_status,
             agents::list_agent_sessions,
+            agents::list_claude_agents,
+            agents::list_codex_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -70,7 +70,12 @@ export function codexDiagnostic(screen: string): string {
 /** Launch codex in the session, get past the trust prompt, run `/status` and
  * return the screen that holds the answer. */
 export async function driveCodexStatus(pty: CodexPty): Promise<string> {
-  await pty.write("codex\n");
+  // `\r`, not `\n`: that's what a real Enter keypress sends (see
+  // Terminal.tsx's own runCommand), and what actually submits a line on
+  // Windows' ConPTY/cmd.exe - a bare `\n` just sits there unsubmitted,
+  // which used to make this whole flow time out on Windows waiting for a
+  // composer that never appears, well before ever getting to /status.
+  await pty.write("codex\r");
 
   const appeared = await waitUntil(() => COMPOSER_RE.test(pty.screen()) || TRUST_RE.test(pty.screen()), 20000);
   if (!appeared) throw new Error(screenTail(pty.screen(), 6) || "codex non ha risposto.");
@@ -158,7 +163,8 @@ export function parseCodexLimits(screen: string): CodexLimit[] {
       percent: (100 - Number(leftPct)) / 100,
       resets: resets.trim(),
     }))
-    // "5h limit" (the rolling session window) first, so it's the metric the
-    // shortcut-bar ring picks up - see PluginUsageButton.
+    // "5h limit" (the rolling session window) first: it's the one that moves
+    // while you work, so it leads the popover's list. (The shortcut-bar mini
+    // bar picks by pressure, not by order - see PluginUsageButton.)
     .sort((a, b) => (a.label.includes("5 ore") ? -1 : b.label.includes("5 ore") ? 1 : 0));
 }

@@ -133,11 +133,11 @@
    src-tauri/src/lib.rs), but it is painted *behind* the webview - at
    --surface-alpha 0.93 the panel is so close to opaque that none of it comes
    through, which is what made the blur look "broken" even while DWM was
-   rendering it. 0.72 is opaque enough to keep text legible and still lets the
+   rendering it. 0.7 is opaque enough to keep text legible and still lets the
    backdrop read; the Trasparenza slider in Settings overrides it either way. */
 :root[data-theme="light"][data-platform="windows"],
 :root[data-theme="dark"][data-platform="windows"] {
-  --surface-alpha: 0.72;
+  --surface-alpha: 0.7;
 }
 
 /* The whole app is exactly one viewport tall (.app-shell is height: 100vh)
