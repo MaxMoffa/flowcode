@@ -123,7 +123,22 @@
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.settings-info {
+.settings-credits-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-credits-item {
   color: var(--fg-muted);
   font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.settings-credits-name {
+  color: var(--fg);
+  font-weight: 500;
 }

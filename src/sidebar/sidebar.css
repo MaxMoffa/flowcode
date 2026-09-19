@@ -123,15 +123,31 @@
 }
 
 .file-tree-search {
+  position: relative;
   flex: 0 0 auto;
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);
 }
 
+.file-tree-search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+
+.file-tree-search-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
 .file-tree-search-input {
   width: 100%;
   height: 26px;
-  padding: 0 8px;
+  padding: 0 8px 0 28px;
   box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: var(--radius-ctl);
@@ -201,6 +217,17 @@
   flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The folder a recursive search match was found in - shown so results from
+ * different subfolders (possibly sharing a name) stay distinguishable. */
+.file-tree-result-path {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 6px;
+  color: var(--fg-muted);
+  font-size: 11px;
 }
 
 .file-tree-copy-btn {

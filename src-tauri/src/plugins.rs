@@ -177,5 +177,16 @@ pub fn run_plugin_command_stdout(command: String) -> Result<String, String> {
             err_text
         });
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    // Some CLIs (e.g. `codex login status`) print their actual result to
+    // stderr even on success - stdout alone would silently come back empty
+    // and get misread as "not logged in" by callers that parse this text.
+    let mut text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let err_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !err_text.is_empty() {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&err_text);
+    }
+    Ok(text)
 }

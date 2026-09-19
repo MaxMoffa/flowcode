@@ -7,6 +7,7 @@ export type PluginAction =
   | "newTerminal"
   | "clearTerminal"
   | "toggleSidebar"
+  | "toggleAgentsSidebar"
   | "runCommand"
   | "notify"
   | "dialog"
@@ -50,6 +51,7 @@ export const PLUGIN_ACTION_LABELS: Record<PluginAction, string> = {
   newTerminal: "Apri un nuovo terminale",
   clearTerminal: "Pulisci il terminale attivo",
   toggleSidebar: "Mostra/nascondi il pannello laterale",
+  toggleAgentsSidebar: "Mostra/nascondi il pannello agenti attivi",
   runCommand: "Digita un comando nel terminale attivo",
   notify: "Mostra un messaggio (popup)",
   dialog: "Apri un dialog con informazioni e pulsanti",

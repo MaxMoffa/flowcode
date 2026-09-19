@@ -4,7 +4,7 @@ import "./settings-nav.css";
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: "generale", label: "Generali" },
   { id: "funzionalita", label: "Funzionalità" },
-  { id: "info", label: "Info" },
+  { id: "info", label: "Informazioni" },
 ];
 
 export function SettingsNav() {

@@ -1,0 +1,95 @@
+/* Mirrors ../sidebar/sidebar.css's `.sidebar`/`.file-tree*` structure -
+ * same width, same glass surface, same list/row rhythm - just on the right
+ * edge instead of the left (so the border faces the terminal stack on both
+ * sides). */
+.agents-sidebar {
+  width: 240px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar-bg);
+  border-left: 1px solid var(--border);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+
+.agents-sidebar-header {
+  display: flex;
+  align-items: center;
+  height: var(--panel-header-h);
+  padding: 0 10px;
+  box-sizing: border-box;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.agents-sidebar-list {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  padding: 6px 0;
+}
+
+.agents-sidebar-empty {
+  padding: 10px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.agents-sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 8px;
+  margin: 1px 6px;
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+  color: var(--fg);
+}
+
+.agents-sidebar-row:hover {
+  background: var(--sidebar-hover);
+}
+
+.agents-sidebar-row.is-active {
+  background: var(--sidebar-selected-bg);
+  color: var(--sidebar-selected-fg);
+}
+
+.agents-sidebar-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
+.agents-sidebar-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.agents-sidebar-row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agents-sidebar-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-sidebar-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: 11px;
+}

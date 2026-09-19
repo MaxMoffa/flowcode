@@ -17,3 +17,4 @@ src-tauri/target/
 
 # stray local tooling artifacts
 .playwright-mcp/
+.claude/scheduled_tasks.lock

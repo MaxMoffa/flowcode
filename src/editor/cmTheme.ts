@@ -30,6 +30,15 @@ export const cmChromeTheme = EditorView.theme({
     color: "var(--fg-muted)",
     border: "none",
     borderRight: "1px solid var(--border)",
+    transition: "background-color 0.15s ease",
+  },
+  // The gutter is sticky (pinned left) while `.cm-content` scrolls under it
+  // horizontally - staying transparent there let the code text show through
+  // and overlap the line numbers. `cm-h-scrolled` (toggled in EditorView.tsx
+  // on horizontal scroll) opaques it only while that's actually happening,
+  // reverting once scrolled back to the left edge.
+  "&.cm-h-scrolled .cm-gutters": {
+    backgroundColor: "var(--bg-elevated)",
   },
   ".cm-activeLine": {
     backgroundColor: "var(--sidebar-hover)",

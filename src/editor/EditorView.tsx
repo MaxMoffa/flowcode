@@ -132,6 +132,13 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
         syntaxHighlighting(cmHighlightStyle),
         indentUnit.of("  "),
         cmChromeTheme,
+        // Toggles the gutter's opaque-background state (see cmChromeTheme)
+        // based on horizontal scroll position.
+        CMEditorView.domEventHandlers({
+          scroll: (_event, view) => {
+            view.dom.classList.toggle("cm-h-scrolled", view.scrollDOM.scrollLeft > 0);
+          },
+        }),
         CMEditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           const isDirty = update.state.doc.toString() !== originalRef.current;

@@ -35,6 +35,58 @@ pub fn read_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FsEntry>,
     Ok(entries)
 }
 
+/// Never worth descending into for a name search - huge, machine-generated,
+/// and would otherwise dominate the (capped) result list with noise.
+const SEARCH_IGNORE_DIRS: &[&str] = &["node_modules", ".git", "target", "dist", "build", ".next", ".venv", "__pycache__"];
+
+fn search_dir_recursive(dir: &Path, query: &str, show_hidden: bool, results: &mut Vec<FsEntry>, max_results: usize) {
+    let Ok(read) = std::fs::read_dir(dir) else { return };
+    for entry in read.filter_map(|e| e.ok()) {
+        if results.len() >= max_results {
+            return;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !show_hidden && name.starts_with('.') {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir && SEARCH_IGNORE_DIRS.contains(&name.as_str()) {
+            continue;
+        }
+        if name.to_lowercase().contains(query) {
+            results.push(FsEntry {
+                name: name.clone(),
+                path: entry.path().to_string_lossy().to_string(),
+                is_dir,
+            });
+        }
+        if is_dir {
+            search_dir_recursive(&entry.path(), query, show_hidden, results, max_results);
+        }
+    }
+}
+
+/// Recursive name search from `path` downward - unlike `read_dir`, which
+/// only ever lists one directory. Skips `SEARCH_IGNORE_DIRS` and (unless
+/// `show_hidden`) dotfiles, same as the plain listing, and stops at 300
+/// matches so a broad query over a big tree can't hang the UI.
+#[tauri::command]
+pub fn search_dir(path: String, query: String, show_hidden: Option<bool>) -> Result<Vec<FsEntry>, String> {
+    let show_hidden = show_hidden.unwrap_or(false);
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut results = Vec::new();
+    search_dir_recursive(Path::new(&path), &query, show_hidden, &mut results, 300);
+    results.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+    Ok(results)
+}
+
 #[tauri::command]
 pub fn home_dir() -> Result<String, String> {
     let path: Option<PathBuf> = std::env::var_os("HOME")
@@ -42,6 +94,18 @@ pub fn home_dir() -> Result<String, String> {
         .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from));
     path.map(|p| p.to_string_lossy().to_string())
         .ok_or_else(|| "could not resolve home directory".to_string())
+}
+
+/// Per-OS app config directory (same root `overrides_path` and `plugins_dir`
+/// write into) - exposed so Settings → Informazioni can open it directly in
+/// the OS file manager. Created on demand: on a brand-new install nothing
+/// may have written here yet, and opening a path that doesn't exist would
+/// just fail silently.
+#[tauri::command]
+pub fn config_dir(app: AppHandle) -> Result<String, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().to_string())
 }
 
 /// Bundled defaults live in `config/shortcuts.json` at the repo root. In dev

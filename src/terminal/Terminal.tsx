@@ -57,9 +57,20 @@ export interface TerminalHandle {
   focus: () => void;
   refit: () => void;
   runCommand: (cmd: string) => void;
+  /** Same as `runCommand`, but hides the injected command and its echo
+   * entirely once the launched program redraws the prompt/title - the
+   * terminal's on-screen content doesn't show the typed line at all. Meant
+   * for shortcuts that launch a full-screen CLI (Claude Code, Codex), not
+   * for arbitrary user-defined `runCommand` plugins where the typed command
+   * is expected to stay visible. */
+  runCommandSilently: (cmd: string) => void;
   /** Actually `cd`s the shell, but hides the injected command and its echo
    * entirely - the terminal's on-screen content doesn't change at all. */
   navigateSilently: (path: string) => void;
+  /** The backend pty session id for this tab's shell, once spawned - lets
+   * the Agents sidebar match a `list_agent_sessions` result back to the tab
+   * that owns it. `null` before the pty has finished spawning. */
+  getPtyId: () => string | null;
 }
 
 interface TerminalViewProps {
@@ -101,6 +112,27 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
     }
   }
 
+  /** Arms the title-change-triggered collapse (see the `onTitleChange`
+   * handler below) so the rows an injected command adds get erased once the
+   * launched program redraws a titled prompt/screen, then sends the
+   * command. Shared by `navigateSilently` (a `cd`) and `runCommandSilently`
+   * (any other command, e.g. launching a full-screen CLI). */
+  function writeSilently(data: string, safetyMs = 2000) {
+    const id = ptyIdRef.current;
+    const term = xtermRef.current;
+    if (!id || !term) return;
+    if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
+    const buf = term.buffer.active;
+    pendingCollapseRowRef.current = buf.baseY + buf.cursorY;
+    // If the launched program never redraws a titled prompt/screen (no OSC
+    // title support, or something unexpected happened), give up on
+    // collapsing rather than risk erasing unrelated later output.
+    collapseSafetyRef.current = setTimeout(() => {
+      pendingCollapseRowRef.current = null;
+    }, safetyMs);
+    invoke("pty_write", { id, data }).catch(() => {});
+  }
+
   useImperativeHandle(ref, () => ({
     clear: () => xtermRef.current?.clear(),
     focus: () => xtermRef.current?.focus(),
@@ -109,21 +141,12 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
       const id = ptyIdRef.current;
       if (id) invoke("pty_write", { id, data: `${cmd}\n` }).catch(() => {});
     },
-    navigateSilently: (path: string) => {
-      const id = ptyIdRef.current;
-      const term = xtermRef.current;
-      if (!id || !term) return;
-      if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
-      const buf = term.buffer.active;
-      pendingCollapseRowRef.current = buf.baseY + buf.cursorY;
-      // If the shell never redraws a titled prompt afterward (no OSC title
-      // support, or something unexpected happened), give up on collapsing
-      // rather than risk erasing unrelated later output.
-      collapseSafetyRef.current = setTimeout(() => {
-        pendingCollapseRowRef.current = null;
-      }, 2000);
-      invoke("pty_write", { id, data: `cd ${shellQuote(path)}\n` }).catch(() => {});
-    },
+    // A launched full-screen CLI can take a while to draw its first titled
+    // frame (cold start, update check, ...), longer than a plain `cd`'s
+    // fresh prompt - a more generous safety window than navigateSilently's.
+    runCommandSilently: (cmd: string) => writeSilently(`${cmd}\n`, 8000),
+    navigateSilently: (path: string) => writeSilently(`cd ${shellQuote(path)}\n`),
+    getPtyId: () => ptyIdRef.current,
   }));
 
   useEffect(() => {
@@ -152,6 +175,10 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
       fontSize: initialFontSizeRef.current,
       fontFamily: "Menlo, Consolas, monospace",
       theme: readTermColors(),
+      // buffer.active.type (used below to detect an alternate-screen app
+      // like Claude Code before collapsing rows) is gated behind this flag
+      // at runtime - without it xterm.js throws the moment it's read.
+      allowProposedApi: true,
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -183,6 +210,16 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
         // first, so the position read afterward is the real one.
         setTimeout(() => {
           const buf = term.buffer.active;
+          // A launched full-screen program (e.g. Claude Code) can switch to
+          // the terminal's alternate screen buffer before its first title
+          // update - `startRow` was recorded against the primary buffer, so
+          // diffing it against the alternate buffer's own (unrelated)
+          // cursor position would be meaningless and risks erasing rows of
+          // the program's own freshly drawn UI instead of the intended
+          // leftover command line. The primary buffer is fully hidden by
+          // the alt screen anyway, so there's nothing to clean up until the
+          // program exits back to it - just give up here rather than guess.
+          if (buf.type !== "normal") return;
           const linesToDelete = buf.baseY + buf.cursorY - startRow;
           const endCol = buf.cursorX;
           if (linesToDelete > 0) {

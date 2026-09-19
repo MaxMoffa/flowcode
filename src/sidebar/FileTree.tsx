@@ -105,7 +105,9 @@ function truncatePath(path: string): string {
   return "…/" + parts.slice(-2).join("/");
 }
 
-const SHOW_HIDDEN_KEY = "flowcode.showHiddenFiles";
+/** Exported so Settings → Informazioni's "Ripristina terminale" can clear it
+ * as part of a full reset, without duplicating the key string. */
+export const SHOW_HIDDEN_KEY = "flowcode.showHiddenFiles";
 
 interface InlineEditRowProps {
   icon: React.ReactNode;
@@ -179,6 +181,8 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
   const [headerRenameDraft, setHeaderRenameDraft] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<FsEntry[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const openMenu = useOpenContextMenu();
   const confirm = useConfirmDialog();
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -192,10 +196,44 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
 
   function toggleSearch() {
     setSearchOpen((open) => {
-      if (open) setSearchQuery("");
+      if (open) {
+        setSearchQuery("");
+        setSearchResults(null);
+      }
       return !open;
     });
   }
+
+  // Recursive (subfolders included) search, debounced so a fast typist
+  // doesn't fire a filesystem walk on every keystroke. `read_dir`'s own
+  // flat `entries` only ever cover the current folder, so a real query
+  // needs the dedicated backend walk instead of a client-side filter.
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!searchOpen || !query || !cwd) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      invoke<FsEntry[]>("search_dir", { path: cwd, query, showHidden })
+        .then((result) => {
+          if (!cancelled) setSearchResults(result);
+        })
+        .catch(() => {
+          if (!cancelled) setSearchResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchOpen, searchQuery, cwd, showHidden]);
 
   useEffect(
     () => () => {
@@ -368,10 +406,19 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
     ];
   }
 
-  const visibleEntries =
-    searchOpen && searchQuery.trim()
-      ? entries?.filter((entry) => entry.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-      : entries;
+  const isSearching = searchOpen && searchQuery.trim().length > 0;
+  const visibleEntries = isSearching ? searchResults : entries;
+
+  /** The folder a recursive-search match sits in, relative to `cwd` - shown
+   * next to the name so results from different subfolders (possibly
+   * sharing a filename) stay distinguishable. Empty for a direct child. */
+  function resultDir(entry: FsEntry): string {
+    if (!cwd) return "";
+    const cwdPrefix = cwd.replace(/\/+$/, "") + "/";
+    if (!entry.path.startsWith(cwdPrefix)) return "";
+    const rel = entry.path.slice(cwdPrefix.length, entry.path.length - entry.name.length - 1);
+    return rel;
+  }
 
   return (
     <div className="file-tree">
@@ -413,8 +460,8 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
         <button
           type="button"
           className={"file-tree-menu-btn" + (searchOpen ? " is-active" : "")}
-          aria-label="Cerca nella cartella"
-          title="Cerca nella cartella"
+          aria-label="Cerca nella cartella e nelle sottocartelle"
+          title="Cerca nella cartella e nelle sottocartelle"
           onClick={toggleSearch}
         >
           {Icons.search}
@@ -431,10 +478,11 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
       </div>
       {searchOpen && (
         <div className="file-tree-search">
+          <span className="file-tree-search-icon">{Icons.search}</span>
           <input
             ref={searchInputRef}
             className="file-tree-search-input"
-            placeholder="Cerca file o cartelle…"
+            placeholder="Cerca file o cartelle, anche nelle sottocartelle…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -445,7 +493,10 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
       )}
       <div className="file-tree-list" onContextMenu={(e) => openMenu(e, backgroundMenuItems())}>
         {error && <div className="file-tree-loading">{error}</div>}
-        {!error && entries === null && <div className="file-tree-loading">Loading…</div>}
+        {!error && !isSearching && entries === null && <div className="file-tree-loading">Loading…</div>}
+        {!error && isSearching && searching && searchResults === null && (
+          <div className="file-tree-loading">Ricerca in corso…</div>
+        )}
         {!error &&
           visibleEntries?.map((entry) =>
             renamingPath === entry.path ? (
@@ -466,6 +517,11 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
               >
                 <EntryIcon entry={entry} />
                 <span className="file-tree-name">{entry.name}</span>
+                {isSearching && resultDir(entry) && (
+                  <span className="file-tree-result-path" title={resultDir(entry)}>
+                    {resultDir(entry)}
+                  </span>
+                )}
                 <button
                   type="button"
                   className={"file-tree-copy-btn" + (copiedPath === entry.path ? " is-copied" : "")}
@@ -490,8 +546,8 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
             onCancel={() => setCreating(null)}
           />
         )}
-        {!error && visibleEntries?.length === 0 && !creating && (
-          <div className="file-tree-loading">{searchOpen && searchQuery.trim() ? "Nessun risultato" : "Cartella vuota"}</div>
+        {!error && visibleEntries?.length === 0 && !creating && !(isSearching && searching && searchResults === null) && (
+          <div className="file-tree-loading">{isSearching ? "Nessun risultato" : "Cartella vuota"}</div>
         )}
       </div>
       {toast && (

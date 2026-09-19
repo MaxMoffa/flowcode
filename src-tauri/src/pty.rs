@@ -15,6 +15,20 @@ struct PtySession {
 #[derive(Default)]
 pub struct PtyState(Mutex<HashMap<String, PtySession>>);
 
+impl PtyState {
+    /// (pty session id, shell PID) for every live session - just enough for
+    /// external process-tree inspection (see agents.rs) without exposing the
+    /// rest of PtySession's internals.
+    pub fn shell_pids(&self) -> Vec<(String, u32)> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(id, session)| session.child.process_id().map(|pid| (id.clone(), pid)))
+            .collect()
+    }
+}
+
 #[derive(Serialize, Clone)]
 struct PtyOutputPayload {
     id: String,

@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
+import { AgentsSidebar } from "./agents/AgentsSidebar";
 import { TerminalView, type TerminalHandle } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
 import { EditorView, type EditorHandle } from "./editor/EditorView";
@@ -21,7 +22,7 @@ import { PluginMenu } from "./plugins/PluginMenu";
 import { PluginUsageButton } from "./plugins/PluginUsageButton";
 import { PluginToast } from "./plugins/PluginToast";
 import { PluginDialog } from "./plugins/PluginDialog";
-import { BUILTIN_PLUGINS, EXAMPLE_PLUGINS } from "./plugins/registry";
+import { BUILTIN_PLUGINS, EXAMPLE_PLUGINS, DEFAULT_QUICK_ACTIONS } from "./plugins/registry";
 import { pluginIconNode } from "./plugins/icons";
 import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
 import "./App.css";
@@ -35,7 +36,6 @@ const SIDEBAR_MODE_KEY = "flowcode.sidebarMode";
 const SIDEBAR_AUTO_BREAKPOINT = 880;
 
 const QUICK_ACTIONS_KEY = "flowcode.quickActions";
-const DEFAULT_QUICK_ACTIONS = ["clearTerminal"];
 const PLUGINS_SEEDED_KEY = "flowcode.pluginsSeeded";
 const PLUGINS_MIGRATED_KEY = "flowcode.pluginsActionMigrated";
 
@@ -162,6 +162,7 @@ let nextTabId = 1;
 
 function Shell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(false);
   const [sidebarMode, setSidebarModeState] = useState<SidebarMode>(() => {
     try {
       const stored = localStorage.getItem(SIDEBAR_MODE_KEY);
@@ -522,9 +523,23 @@ function Shell() {
       case "toggleSidebar":
         setSidebarCollapsed((c) => !c);
         break;
-      case "runCommand":
-        if (plugin.command) termRefs.current.get(activeTerminalId)?.runCommand(plugin.command);
+      case "toggleAgentsSidebar":
+        setAgentsSidebarOpen((o) => !o);
         break;
+      case "runCommand": {
+        if (!plugin.command) break;
+        const term = termRefs.current.get(activeTerminalId);
+        // Claude Code / Codex CLI take over the whole screen the moment
+        // they start - unlike an arbitrary user-defined runCommand plugin,
+        // there's no reason to leave the typed launch command sitting in
+        // the scrollback above their UI.
+        if ("id" in plugin && (plugin.id === "claude-code" || plugin.id === "codex-cli")) {
+          term?.runCommandSilently(plugin.command);
+        } else {
+          term?.runCommand(plugin.command);
+        }
+        break;
+      }
       case "notify":
         showPluginToast(plugin.message || plugin.label);
         break;
@@ -746,6 +761,14 @@ function Shell() {
               {sidebarPanel}
             </div>
           </div>
+        )}
+        {agentsSidebarOpen && (
+          <AgentsSidebar
+            tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
+            activeTabId={activeTabId}
+            getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
+            onOpenTab={selectTab}
+          />
         )}
       </div>
       {pluginToast && <PluginToast message={pluginToast} />}

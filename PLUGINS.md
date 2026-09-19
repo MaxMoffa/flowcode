@@ -45,9 +45,10 @@ interface PluginManifest {
 }
 
 type PluginAction =
-  | "newTerminal"     // apre una nuova tab terminale
-  | "clearTerminal"   // pulisce il terminale attivo
-  | "toggleSidebar"   // mostra/nasconde il pannello laterale
+  | "newTerminal"          // apre una nuova tab terminale
+  | "clearTerminal"        // pulisce il terminale attivo
+  | "toggleSidebar"        // mostra/nasconde il pannello laterale (file explorer) a sinistra
+  | "toggleAgentsSidebar"  // mostra/nasconde il pannello "Agenti attivi" a destra
   | "runCommand"      // digita `command` nel terminale attivo, come se l'utente l'avesse scritto
   | "notify"          // mostra `message` in un popup (toast) temporaneo
   | "dialog"          // apre un dialog con `title` + `message` e i pulsanti `buttons`
@@ -149,11 +150,29 @@ che un manifest JSON può descrivere.
   testo invece di renderlo in TUI. L'output è testo semplice con righe tipo
   `Current session: 52% used · resets Sep 19, 12am (Europe/Rome)`, parsate
   con una regex. "Current session" è la finestra di 5 ore - è la percentuale
-  che riempie l'anello nella barra delle scorciatoie.
-- **Codex CLI**: nessun equivalente trovato (`codex login status`, `codex
-  doctor`, cache su disco - controllati direttamente) - resta solo lo stato
-  di login, senza percentuale, finché una versione futura della CLI non ne
-  espone una.
+  che riempie la mini barra nella barra delle scorciatoie.
+- **Codex CLI**: non esiste un flag/comando non interattivo equivalente
+  (`codex exec "/status"` passa il testo al modello come prompt letterale,
+  non esegue lo slash command lato client - verificato, produce un errore
+  di credito/costo invece dei dati). `/status` esiste solo dentro la TUI
+  interattiva, quindi `src/plugins/codexStatus.ts` pilota una sessione
+  `codex` invisibile e usa a `@xterm/headless` per leggere lo schermo
+  renderizzato dopo aver inviato `/status` (stesso meccanismo pty dei tab
+  terminale veri, nessun DOM). La sessione viene chiusa subito dopo aver
+  letto i dati - non resta mai in background.
+
+## Pannello "Agenti attivi"
+
+`toggleAgentsSidebar` mostra/nasconde un pannello a destra (stessa
+dimensione/struttura del file explorer a sinistra) con l'elenco delle tab
+terminale che hanno in corso un processo `claude` o `codex` riconoscibile
+nell'albero dei processi della loro shell (`src-tauri/src/agents.rs`,
+comando `list_agent_sessions`). È rilevamento onesto, non introspezione
+della CLI: mostra quale CLI gira, in quale tab, da quanto tempo - non uno
+stato "sta pensando/aspetta input" (richiederebbe leggere lo schermo di ogni
+tab in continuo) né una gerarchia "orchestratore/agenti figli" (concetto
+interno di Claude Code, non esposto da nessuna API pubblica). Doppio click
+su una riga passa a quella tab.
 
 ## Icona (facoltativa)
 

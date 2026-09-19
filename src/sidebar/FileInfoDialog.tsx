@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import "./file-info-dialog.css";
 
@@ -67,7 +68,11 @@ export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogPro
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  return (
+  // Portaled to <body> - the sidebar's own `backdrop-filter` (its glass
+  // surface) creates a containing block for any `position: fixed`
+  // descendant per the CSS spec, which trapped this dialog inside the
+  // sidebar's own box instead of covering the whole window.
+  return createPortal(
     <div
       className="file-info-backdrop"
       onMouseDown={(e) => {
@@ -133,6 +138,7 @@ export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogPro
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,3 +1,4 @@
+mod agents;
 mod fs;
 mod plugins;
 mod pty;
@@ -15,7 +16,9 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             fs::read_dir,
+            fs::search_dir,
             fs::home_dir,
+            fs::config_dir,
             fs::read_shortcuts_defaults,
             fs::read_shortcuts_overrides,
             fs::write_shortcuts_overrides,
@@ -32,6 +35,7 @@ pub fn run() {
             plugins::delete_plugin,
             plugins::run_plugin_command,
             plugins::run_plugin_command_stdout,
+            agents::list_agent_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

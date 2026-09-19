@@ -1,4 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { Terminal as HeadlessTerminal } from "@xterm/headless";
+import {
+  CODEX_COLS,
+  CODEX_ROWS,
+  codexDiagnostic,
+  driveCodexStatus,
+  parseCodexLimits,
+  screenTextOf,
+} from "./codexStatus";
 
 export interface UsageMetric {
   label: string;
@@ -23,31 +33,77 @@ async function runStdout(command: string): Promise<string> {
   return invoke<string>("run_plugin_command_stdout", { command });
 }
 
-/** Codex CLI (checked directly: `codex login status`, `codex doctor`, its
- * config/cache dirs) has no non-interactive way to report numeric
- * rate-limit/usage data today, unlike Claude Code's "/usage" below - so
- * `percent` stays undefined here on purpose rather than showing a made-up
- * number. If a future CLI version adds one, the popover/ring pick it up
- * automatically the moment this fetcher starts returning it. */
-async function fetchCodexUsage(): Promise<UsageInfo> {
+/** Codex CLI's numeric rate-limit data only exists behind the interactive
+ * TUI's `/status` slash command - `codex exec` doesn't expose it (a slash
+ * command passed to `exec` goes to the model as literal prompt text, not to
+ * the client-side status view), and there's no plain flag for it. So this
+ * drives a throwaway, invisible `codex` session just long enough to run
+ * `/status` and read the rendered screen back, using `@xterm/headless`
+ * (no DOM) to parse the pty stream exactly like a visible terminal tab
+ * would. Killed the moment the numbers are read - never left running. */
+async function readCodexStatusScreen(): Promise<string> {
+  const id = await invoke<string>("pty_spawn", { cwd: null, cols: CODEX_COLS, rows: CODEX_ROWS });
+  // A little scrollback, not none: the `/status` box is tall, and in a session
+  // that already printed something (shell banner, codex tips) its first rows
+  // can scroll above the viewport - with scrollback 0 they'd be gone for good,
+  // whereas buffer.active spans the scrollback too, so screenTextOf still sees
+  // them.
+  const term = new HeadlessTerminal({ cols: CODEX_COLS, rows: CODEX_ROWS, scrollback: 200, allowProposedApi: true });
+  let unlisten: (() => void) | undefined;
   try {
-    const out = (await runStdout("codex login status")).trim();
-    const loggedIn = /logged in/i.test(out) && !/not logged in/i.test(out);
+    unlisten = await listen<{ id: string; data: string }>("pty://output", (event) => {
+      if (event.payload.id === id) term.write(event.payload.data);
+    });
+
+    return await driveCodexStatus({
+      write: (data) => invoke("pty_write", { id, data }).then(() => undefined),
+      screen: () => screenTextOf(term),
+    });
+  } finally {
+    unlisten?.();
+    invoke("pty_kill", { id }).catch(() => {});
+    term.dispose();
+  }
+}
+
+async function fetchCodexUsage(): Promise<UsageInfo> {
+  let screen: string;
+  try {
+    screen = await readCodexStatusScreen();
+  } catch (e) {
+    const message = String(e);
+    const loggedOut = /sign.?in|log.?in/i.test(message);
     return {
       fetchedAt: Date.now(),
-      ok: true,
+      ok: false,
       metrics: [
         {
-          label: loggedIn ? out : "Non collegato",
-          detail: loggedIn
-            ? "Codex CLI non espone i limiti di utilizzo fuori da una sessione interattiva."
-            : 'Esegui "codex login" nel terminale per collegare un account.',
+          label: loggedOut ? "Non collegato" : "Non disponibile",
+          detail: loggedOut ? 'Esegui "codex login" nel terminale per collegare un account.' : message,
         },
       ],
     };
-  } catch (e) {
-    return { fetchedAt: Date.now(), ok: false, metrics: [{ label: "Non disponibile", detail: String(e) }] };
   }
+
+  const metrics: UsageMetric[] = parseCodexLimits(screen).map((limit) => ({
+    label: limit.label,
+    percent: limit.percent,
+    detail: `Si azzera ${limit.resets}`,
+  }));
+
+  if (metrics.length === 0) {
+    // Include a tail of whatever the screen actually showed, so a format
+    // change in a future Codex version (a relabeled row, different wording
+    // around the percentage) is diagnosable from the popover itself instead
+    // of showing an opaque "no data" with no way to tell why.
+    const tail = codexDiagnostic(screen);
+    return {
+      fetchedAt: Date.now(),
+      ok: false,
+      metrics: [{ label: "Non disponibile", detail: tail || "Nessun dato di utilizzo in /status." }],
+    };
+  }
+  return { fetchedAt: Date.now(), ok: true, metrics };
 }
 
 /** Matches a line like "Current session: 52% used · resets Sep 19, 12am
