@@ -1,0 +1,44 @@
+.favorites-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 12.5px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.favorites-row:hover {
+  background: var(--sidebar-selected-bg);
+}
+
+.favorites-row-remove {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: currentColor;
+  opacity: 0.55;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.favorites-row-remove:hover {
+  opacity: 1;
+  background: var(--ctrl-hover-bg);
+}
+
+.favorites-row-remove svg {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  fill: none;
+}

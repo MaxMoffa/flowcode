@@ -40,6 +40,22 @@ struct PtyExitPayload {
     id: String,
 }
 
+/// Runs the ConPTY warmup below exactly once per process, and - this is the
+/// point - *blocks* every other caller until that one run has finished.
+/// `setup()` kicks it off early on its own thread so the wait is normally
+/// already over by the time it matters; `pty_spawn` goes through the same
+/// gate, so a frontend that gets to its first tab quickly waits for the
+/// warmup instead of racing it. Without this gate the warmup was pure
+/// optimism: nothing stopped the first real tab's `CreatePseudoConsole` from
+/// happening first anyway, which is exactly the case it exists to prevent.
+#[cfg(target_os = "windows")]
+static CONPTY_WARMUP: std::sync::Once = std::sync::Once::new();
+
+#[cfg(target_os = "windows")]
+pub fn warmup_conpty() {
+    CONPTY_WARMUP.call_once(run_conpty_warmup);
+}
+
 /// Spawns and immediately tears down a throwaway ConPTY session, blocking
 /// until it exits. Windows-only, called once from `lib.rs`'s `setup()`
 /// before the window/webview is shown.
@@ -53,7 +69,7 @@ struct PtyExitPayload {
 /// something else be the "first" one instead, before there's a real tab
 /// (or a user) around to notice.
 #[cfg(target_os = "windows")]
-pub fn warmup_conpty() {
+fn run_conpty_warmup() {
     let pty_system = native_pty_system();
     let Ok(pair) = pty_system.openpty(PtySize {
         rows: 24,
@@ -85,7 +101,29 @@ pub fn warmup_conpty() {
             while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
         });
     }
-    let _ = child.wait();
+    // Bounded, not `child.wait()`: this runs inside `CONPTY_WARMUP.call_once`,
+    // which every `pty_spawn` call blocks on (see below) - if this particular
+    // throwaway `cmd.exe /c exit` ever fails to exit on its own (seen in
+    // practice: it can sit alive indefinitely with no error anywhere), an
+    // unbounded wait here would wedge the `Once` forever and silently take
+    // every terminal tab down with it, not just this one warmup session.
+    // Polling with a deadline, killing on timeout, guarantees this always
+    // returns - worst case the warmup is skipped and the real first tab
+    // absorbs the stuck-input-pipe quirk this exists to prevent, which is
+    // exactly the pre-warmup behavior, not a new failure mode.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                break;
+            }
+        }
+    }
 }
 
 fn default_shell() -> String {
@@ -96,7 +134,10 @@ fn default_shell() -> String {
     }
 }
 
-#[tauri::command]
+// `(async)` - i.e. "run this off the main thread". A plain `#[tauri::command]`
+// on a non-async fn runs on the event-loop thread, where the warmup wait below
+// (and openpty/spawn_command's own blocking syscalls) would stall the window.
+#[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
     state: State<'_, PtyState>,
@@ -104,6 +145,12 @@ pub fn pty_spawn(
     cols: u16,
     rows: u16,
 ) -> Result<String, String> {
+    // No-op once the warmup has run (the common case, since setup() starts it
+    // at launch); blocks only if this spawn really did beat it - see
+    // CONPTY_WARMUP above.
+    #[cfg(target_os = "windows")]
+    warmup_conpty();
+
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -117,6 +164,27 @@ pub fn pty_spawn(
     let mut cmd = CommandBuilder::new(default_shell());
     if let Some(dir) = cwd {
         cmd.cwd(dir);
+    }
+    // cmd.exe (the Windows default shell) never retitles on its own - not
+    // even after a `cd` the user typed by hand - unlike bash/zsh, which
+    // retitle every prompt on their own. Without this, the frontend's "a
+    // real cd is authoritative, follow it in the explorer" logic has nothing
+    // to listen to on Windows. `$E` is cmd.exe's own PROMPT code for ESC,
+    // and `$P` expands to the *current* cwd every time the prompt is drawn,
+    // not just once - so this makes every prompt emit a real OSC 0 title
+    // update with the live cwd, on top of (not instead of) the normal
+    // visible "$P$G" ("C:\path>") prompt text.
+    //
+    // Set via `/k` at spawn time, not by typing `prompt ...` into the
+    // already-running shell afterward (the frontend used to do this): typing
+    // it interactively means cmd.exe echoes it back like anything else you
+    // type, which then has to be erased again once the freshly-retitled
+    // prompt redraws - a fragile row-counting trick that depended on
+    // reading the terminal's cursor position at exactly the right moment.
+    // Setting it before the shell ever draws its first prompt needs no
+    // typing, no echo and nothing to erase.
+    if cfg!(target_os = "windows") {
+        cmd.args(["/k", "prompt", "$E]0;$P$E\\$P$G"]);
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;

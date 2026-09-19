@@ -18,6 +18,7 @@
   padding: 0 10px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border);
   color: var(--fg-muted);
   font: 500 12.5px/1 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: nowrap;
@@ -28,6 +29,7 @@
 
 .term-tab.is-active {
   background: var(--ctrl-hover-bg);
+  border-color: transparent;
   color: var(--fg);
 }
 
@@ -205,10 +207,12 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 5px;
 }
 
 .tab-overflow-item {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;

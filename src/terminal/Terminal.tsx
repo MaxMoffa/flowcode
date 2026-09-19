@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTheme } from "../themes/ThemeContext";
 import { useTerminalSettings } from "./TerminalSettingsContext";
+import { buildAsciiBanner, type BannerSystemInfo } from "./asciiBanner";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 
@@ -216,7 +217,22 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
-    fitAddon.fit();
+    // This effect body only ever runs once per tab, at the moment it's
+    // created (tabs stay mounted, just hidden, once switched away from - see
+    // the `hidden` prop) - and every call site that creates one also makes
+    // it the active tab immediately, so focusing here always lands on the
+    // tab the user is actually looking at, letting them start typing without
+    // an extra click.
+    term.focus();
+    // Only fit against a container that has actually been laid out. FitAddon
+    // clamps to a 2x1 minimum rather than refusing, so fitting an unmeasured
+    // container spawns the shell into a 2-column pty - which mangles its
+    // banner/prompt beyond recognition even though the tab resizes correctly a
+    // moment later. xterm's own 80x24 default is the better placeholder; the
+    // ResizeObserver below (and the refit after spawn) correct it for real.
+    if (containerRef.current.clientWidth > 0 && containerRef.current.clientHeight > 0) {
+      fitAddon.fit();
+    }
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
@@ -274,11 +290,93 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       if (title) onTitleChangeRef.current?.(title);
     });
 
+    // Registered now, not after pty_spawn resolves: xterm is live from this
+    // point on, so anything typed while the shell is still starting is held
+    // and flushed instead of vanishing (the first tab of a cold start is the
+    // one that has a startup long enough to type into).
+    const pendingInput: string[] = [];
+    const dataDisposable = term.onData((data) => {
+      const id = ptyIdRef.current;
+      if (!id) {
+        pendingInput.push(data);
+        return;
+      }
+      invoke("pty_write", { id, data }).catch(() => {});
+    });
+
     let unlistenOutput: (() => void) | undefined;
     let unlistenExit: (() => void) | undefined;
     let disposed = false;
 
     (async () => {
+      // A quiet splash above the real prompt, not a competing banner: skips
+      // itself on a too-narrow tab (see buildAsciiBanner) rather than wrap
+      // and look broken. Awaited here, before the pty output listener/spawn
+      // below, so it's always the very first thing written to this tab -
+      // xterm's write queue is FIFO by call order, not by which async call
+      // happens to resolve first, so writing it any later (e.g. off of its
+      // own unawaited invoke) could race the shell's own first output and
+      // land below it instead of above.
+      const sysInfo = await invoke<BannerSystemInfo>("system_info").catch(() => undefined);
+      if (disposed) return;
+      const banner = buildAsciiBanner(term.cols, sysInfo);
+      if (banner) term.write(banner);
+
+      // The output listener has to be in place *before* pty_spawn, not after
+      // it. The backend starts the shell and its reader thread inside that
+      // call, and Tauri events are fire-and-forget: anything emitted before
+      // `listen` has completed its own IPC round-trip reaches nobody. That is
+      // not just cosmetic here - the very first thing ConPTY emits is `ESC[6n`
+      // (a cursor-position query) and it then *waits* for the terminal's
+      // reply before letting the session proceed. Miss that one query and the
+      // shell never prints its banner, never draws a prompt and never acts on
+      // anything typed - a tab that looks dead because it is, on both ends.
+      // (Measured: an unanswered ESC[6n yields 4 bytes of output and a shell
+      // that ignores input forever; answering it yields the normal banner,
+      // prompt and echo.) Every tab raced that window and the first tab of a
+      // cold start lost, because that is when the round-trip is slowest -
+      // first event-plugin call, main thread busy with the initial render.
+      //
+      // xterm.js answers the query itself, but only once it has been *given*
+      // the bytes, and it answers through `onData` - which is why that handler
+      // is hooked up above the spawn too, with a queue for anything it
+      // produces before there is a pty id to send it to.
+      //
+      // Which pty is "ours" isn't known until pty_spawn returns, so output is
+      // parked per id until then and the matching id's backlog is replayed;
+      // the other ids belong to other tabs, which have their own listeners,
+      // so those are simply dropped.
+      let ourId: string | null = null;
+      const buffered = new Map<string, string[]>();
+      const exitedEarly = new Set<string>();
+
+      unlistenOutput = await listen<{ id: string; data: string }>("pty://output", (event) => {
+        const { id: eventId, data } = event.payload;
+        if (ourId === null) {
+          const backlog = buffered.get(eventId);
+          if (backlog) backlog.push(data);
+          else buffered.set(eventId, [data]);
+          return;
+        }
+        if (eventId === ourId) term.write(data);
+      });
+      unlistenExit = await listen<{ id: string }>("pty://exit", (event) => {
+        const eventId = event.payload.id;
+        if (ourId === null) {
+          exitedEarly.add(eventId);
+          return;
+        }
+        if (eventId === ourId) term.write("\r\n[process exited]\r\n");
+      });
+      // The cleanup below can have already run while those awaits were in
+      // flight, in which case it saw both handles still undefined - unhook
+      // here instead of leaking a listener onto a disposed terminal.
+      if (disposed) {
+        unlistenOutput?.();
+        unlistenExit?.();
+        return;
+      }
+
       const id = await invoke<string>("pty_spawn", {
         // "" (the initial tab, before homeDir has loaded) must reach the
         // backend as no cwd at all, not as an empty string - portable_pty's
@@ -291,39 +389,55 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         cols: term.cols,
         rows: term.rows,
       });
-      if (disposed) return;
+      if (disposed) {
+        unlistenOutput?.();
+        unlistenExit?.();
+        invoke("pty_kill", { id }).catch(() => {});
+        return;
+      }
       ptyIdRef.current = id;
+      ourId = id;
+      const backlog = buffered.get(id) ?? [];
+      buffered.clear();
+      const exitedBeforeReplay = exitedEarly.has(id);
+      exitedEarly.clear();
 
-      unlistenOutput = await listen<{ id: string; data: string }>("pty://output", (event) => {
-        if (event.payload.id === id) term.write(event.payload.data);
-      });
-      unlistenExit = await listen<{ id: string }>("pty://exit", (event) => {
-        if (event.payload.id === id) term.write("\r\n[process exited]\r\n");
-      });
+      // Everything below reads the terminal's cursor position
+      // (writeSilently, via pendingCollapseRowRef) or otherwise assumes the
+      // backlog is actually on screen - `term.write()` parses asynchronously
+      // (its own write buffer defers large/queued chunks to keep the UI
+      // responsive), so without this callback the very next line could run
+      // before the banner above was actually applied, reading a stale
+      // (pre-banner) cursor row. That mismeasurement is exactly what let the
+      // injected `prompt` command below show up unhidden instead of
+      // collapsing away - the collapse math was working off the wrong start
+      // row. `term.write(data, cb)` guarantees `cb` runs only once `data`
+      // has actually been parsed.
+      const afterBacklog = () => {
+        if (exitedBeforeReplay) term.write("\r\n[process exited]\r\n");
 
-      term.onData((data) => {
-        invoke("pty_write", { id, data }).catch(() => {});
-      });
+        // The pty was sized from whatever xterm measured at mount; if the
+        // container hadn't been laid out yet that is a placeholder, so push
+        // the real size across now that there is a session to resize.
+        refit();
 
-      // cmd.exe (the Windows default shell, see default_shell() in pty.rs)
-      // never retitles on its own - not even after a `cd` the user typed by
-      // hand - unlike bash/zsh, which retitle every prompt on their own.
-      // Without this, App.tsx's "a real cd is authoritative, follow it in
-      // the explorer" logic (handleTitleChange) has nothing to listen to on
-      // Windows. `$E` is cmd.exe's own PROMPT code for ESC, and `$P`
-      // expands to the *current* cwd every time the prompt is drawn, not
-      // just once now - so this makes every future prompt emit a real OSC 0
-      // title update with the live cwd, on top of (not instead of) the
-      // normal visible "$P$G" ("C:\path>") prompt text. Silent like
-      // navigateSilently's own injected commands: this line disappears from
-      // the screen the moment the first retitled prompt redraws.
-      if (document.documentElement.dataset.platform === "windows") {
-        writeSilently("prompt $E]0;$P$E\\$P$G\r");
-      }
+        for (const data of pendingInput.splice(0)) {
+          invoke("pty_write", { id, data }).catch(() => {});
+        }
 
-      if (runOnStartRef.current) {
-        invoke("pty_write", { id, data: `${runOnStartRef.current}\r` }).catch(() => {});
-      }
+        // Windows retitling (cmd.exe never does it on its own, unlike
+        // bash/zsh) is set up at spawn time via `cmd.exe /k prompt ...` -
+        // see pty.rs's pty_spawn - not by typing a `prompt` command into the
+        // already-running shell here, which used to echo visibly and rely on
+        // a fragile row-collapse trick to erase it again.
+
+        if (runOnStartRef.current) {
+          invoke("pty_write", { id, data: `${runOnStartRef.current}\r` }).catch(() => {});
+        }
+      };
+
+      if (backlog.length > 0) term.write(backlog.join(""), afterBacklog);
+      else afterBacklog();
     })();
 
     const resizeObserver = new ResizeObserver(() => refit());
@@ -333,6 +447,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       disposed = true;
       resizeObserver.disconnect();
       titleDisposable.dispose();
+      dataDisposable.dispose();
       if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
       unlistenOutput?.();
       unlistenExit?.();

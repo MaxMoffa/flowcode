@@ -2,6 +2,7 @@ mod agents;
 mod fs;
 mod plugins;
 mod pty;
+mod system;
 
 use pty::PtyState;
 
@@ -127,6 +128,7 @@ pub fn run() {
             agents::list_agent_sessions,
             agents::list_claude_agents,
             agents::list_codex_sessions,
+            system::system_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

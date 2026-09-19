@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 // @ts-expect-error type error without @types/node package
@@ -7,6 +8,19 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react()],
+
+  resolve: {
+    alias: [
+      // @flowkit-io/react's style.css unconditionally @imports this for its
+      // "location" step type, which Flowcode's welcome flow doesn't use -
+      // maplibre-gl itself is an optional peer dependency we don't install,
+      // so without this alias the CSS import 404s. See src/welcome/empty.css.
+      {
+        find: "maplibre-gl/dist/maplibre-gl.css",
+        replacement: fileURLToPath(new URL("./src/welcome/empty.css", import.meta.url)),
+      },
+    ],
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

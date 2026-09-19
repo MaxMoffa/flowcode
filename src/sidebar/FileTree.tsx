@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
+import { addFavorite, isFavorite, removeFavorite } from "../favorites/favoritesStore";
 import { FileTypeIcon } from "./fileIcons";
 import { FileInfoDialog } from "./FileInfoDialog";
 
@@ -51,6 +52,7 @@ const Icons = {
   eye: iconSvg(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.6" /></>),
   refresh: iconSvg(<><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8.5" /><path d="M20 4v4.5h-4.5" /><path d="M20 12a8 8 0 0 1-13.66 5.66L4 15.5" /><path d="M4 20v-4.5h4.5" /></>),
   search: iconSvg(<><circle cx="10.5" cy="10.5" r="6.5" /><line x1="15.3" y1="15.3" x2="20.5" y2="20.5" /></>),
+  star: iconSvg(<path d="M12 3.8l2.35 4.9 5.35.68-3.9 3.75.98 5.37L12 15.9l-4.78 2.6.98-5.37-3.9-3.75 5.35-.68z" />),
   kebab: (
     <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none">
       <circle cx="12" cy="5.5" r="1.9" />
@@ -393,6 +395,14 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
       icon: Icons.reveal,
       onSelect: () => revealItemInDir(entry.path).catch(() => {}),
     });
+    if (entry.is_dir) {
+      const fav = isFavorite(entry.path);
+      items.push({
+        label: fav ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti",
+        icon: Icons.star,
+        onSelect: () => (fav ? removeFavorite(entry.path) : addFavorite(entry.path)),
+      });
+    }
     items.push({ separator: true, label: "sep-1" });
     items.push({ label: "Rinomina", icon: Icons.rename, onSelect: () => setRenamingPath(entry.path) });
     items.push({ label: "Duplica", icon: Icons.duplicate, onSelect: () => handleDuplicate(entry) });
@@ -412,12 +422,20 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
   }
 
   function headerMenuItems(): ContextMenuItem[] {
+    const cwdFav = cwd ? isFavorite(cwd) : false;
     return [
       { label: "Mostra file nascosti", icon: Icons.eye, checked: showHidden, onSelect: toggleShowHidden },
       { separator: true, label: "sep-h1" },
+      {
+        label: cwdFav ? "Rimuovi cartella corrente dai preferiti" : "Aggiungi cartella corrente ai preferiti",
+        icon: Icons.star,
+        disabled: !cwd,
+        onSelect: () => cwd && (cwdFav ? removeFavorite(cwd) : addFavorite(cwd)),
+      },
+      { separator: true, label: "sep-h2" },
       { label: "Nuovo file", icon: Icons.newFile, onSelect: () => setCreating("file") },
       { label: "Nuova cartella", icon: Icons.newFolder, onSelect: () => setCreating("dir") },
-      { separator: true, label: "sep-h2" },
+      { separator: true, label: "sep-h3" },
       { label: "Aggiorna", icon: Icons.refresh, onSelect: reload },
     ];
   }

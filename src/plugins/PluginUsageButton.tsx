@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PluginDef } from "./types";
-import type { UsageMetric } from "./usage";
 import { useUsageState } from "./useUsageState";
 import { usagePopoverPosition } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
@@ -56,16 +55,13 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
     );
   }
 
-  // The tightest window, not the first one listed. These CLIs report two
-  // limits (rolling 5h session + weekly) and either can be the one about to
-  // bite: Codex routinely comes back with the 5h window at 0% used while the
-  // weekly one is exhausted, so a bar pinned to "the session" sat at zero and
-  // read as broken precisely when it most needed to warn. The popover still
-  // lists every metric, labelled, in its own order.
-  const barMetric = usage?.metrics.reduce<UsageMetric | undefined>((worst, m) => {
-    if (m.percent === undefined || !Number.isFinite(m.percent)) return worst;
-    return worst === undefined || m.percent > (worst.percent ?? -1) ? m : worst;
-  }, undefined);
+  // Always the rolling 5-hour session window, not the weekly one - that's
+  // the limit that actually moves while you work, so it's the one worth a
+  // glance at without opening the popover. The popover still lists every
+  // metric (including the weekly one), labelled, in its own order.
+  const barMetric =
+    usage?.metrics.find((m) => m.label.includes("5 ore") && m.percent !== undefined && Number.isFinite(m.percent)) ??
+    usage?.metrics.find((m) => m.percent !== undefined && Number.isFinite(m.percent));
   // Clamp: a future CLI wording change could yield something outside 0-1, and
   // a width over 100% would silently overflow the track instead of showing
   // "full".

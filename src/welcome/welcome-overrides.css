@@ -1,0 +1,9 @@
+/* The visible "border" around the dialog card isn't a CSS `border` at all -
+   FlowOverlay focuses its sheet div (`tabIndex={-1}`, for the Tab-trap and
+   focus-return behavior) the moment it opens, and the browser's own default
+   focus ring then outlines the whole card. Suppressing the outline doesn't
+   lose anything: the sheet isn't an interactive control itself, it's just
+   the focus-trap boundary. */
+.fk-overlay-sheet {
+  outline: none;
+}

@@ -8,14 +8,20 @@ const STORAGE_KEY = "flowcode.theme";
 // low alpha just looked washed out, so a stored opacity of ~1 was the only
 // usable setting - and that stored value would keep hiding the acrylic
 // backdrop now that it does work. Bumping the key drops those stale values
-// once, so everyone lands back on the platform default below; the slider
-// still overrides it from then on.
-// Keyed per-theme (`.v3.light` / `.v3.dark`), not one shared value: a level
+// once, so everyone lands back on the default below; the slider still
+// overrides it from then on.
+// Bumped again (v3 -> v4): `getInitialGlassOpacity` used to read a missing
+// key as literal 0% (`Number(null) === 0` slipped past the `0 <= x <= 1`
+// check) instead of falling back to the default, and then persisted that
+// wrong 0 right back to storage on the next render - so v3's stored values
+// are all suspect, not just unset ones, and can't be told apart from a
+// genuine "user picked 0%" after the fact.
+// Keyed per-theme (`.v4.light` / `.v4.dark`), not one shared value: a level
 // tuned by eye against a dark backdrop while on the dark theme reads as
 // muddy/too-dark once applied to the light theme's much paler surface color
 // (or vice versa) - the two need their own setting, same as the theme mode
 // itself does.
-const GLASS_OPACITY_KEY_PREFIX = "flowcode.glassOpacity.v3.";
+const GLASS_OPACITY_KEY_PREFIX = "flowcode.glassOpacity.v4.";
 
 interface ThemeContextValue {
   /** Resolved light/dark - what's actually applied, auto included. */
@@ -53,14 +59,16 @@ function getInitialMode(): ThemeMode {
  * it up yet. Duplicated here instead - matches the values in the platform
  * override block a few lines above the theme blocks in themes.css. */
 function getThemeDefaultAlpha(_theme: Theme): number {
-  const platform = document.documentElement.dataset.platform;
-  if (platform === "windows") return 0.7; // native acrylic backdrop, see lib.rs
-  if (platform === "linux") return 0.93; // no backdrop available, stay legible
-  return 0.55; // macOS native vibrancy - same base for both themes
+  return 0.9;
 }
 
 function getInitialGlassOpacity(theme: Theme): number {
-  const stored = Number(localStorage.getItem(GLASS_OPACITY_KEY_PREFIX + theme));
+  const raw = localStorage.getItem(GLASS_OPACITY_KEY_PREFIX + theme);
+  // `Number(null)` is `0`, not `NaN` - reading it before checking for a
+  // missing key would make "never set" indistinguishable from "explicitly
+  // set to 0%", silently turning every fresh profile fully transparent.
+  if (raw === null) return getThemeDefaultAlpha(theme);
+  const stored = Number(raw);
   if (Number.isFinite(stored) && stored >= 0 && stored <= 1) return stored;
   return getThemeDefaultAlpha(theme);
 }

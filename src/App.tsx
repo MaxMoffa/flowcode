@@ -25,6 +25,8 @@ import { PluginDialog } from "./plugins/PluginDialog";
 import { BUILTIN_PLUGINS, EXAMPLE_PLUGINS, DEFAULT_QUICK_ACTIONS } from "./plugins/registry";
 import { pluginIconNode } from "./plugins/icons";
 import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
+import { FavoritesButton } from "./favorites/FavoritesButton";
+import { WelcomeFlow } from "./welcome/WelcomeFlow";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
 import "./App.css";
 
@@ -794,6 +796,7 @@ function Shell() {
               })}
             </div>
           )}
+          <FavoritesButton activeCwd={activeTerminal?.cwd || undefined} onOpenFolder={browseExplorer} />
           <button
             ref={pluginBtnRef}
             type="button"
@@ -928,6 +931,7 @@ function Shell() {
 export default function App() {
   return (
     <ThemeProvider>
+      <WelcomeFlow />
       <TerminalSettingsProvider>
         <SettingsSectionProvider>
           <ConfirmDialogProvider>

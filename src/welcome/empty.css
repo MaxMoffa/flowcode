@@ -1,0 +1,4 @@
+/* Stub for maplibre-gl's stylesheet, see vite.config.ts - @flowkit-io/react's
+   style.css unconditionally @imports it for the "location" step type, which
+   the welcome flow never uses, and maplibre-gl itself is an optional peer
+   dependency Flowcode doesn't install. */
