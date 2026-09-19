@@ -1060,6 +1060,7 @@ name = "flowcode"
 version = "0.1.0"
 dependencies = [
  "portable-pty",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "sysinfo",
@@ -1067,6 +1068,8 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "uuid",
+ "window-vibrancy",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

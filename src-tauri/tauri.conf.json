@@ -16,7 +16,8 @@
         "width": 1100,
         "height": 700,
         "transparent": true,
-        "decorations": false
+        "decorations": false,
+        "shadow": false
       }
     ],
     "macOSPrivateApi": true,

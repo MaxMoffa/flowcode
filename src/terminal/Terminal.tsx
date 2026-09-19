@@ -47,8 +47,14 @@ function readTermColors() {
   };
 }
 
-/** Single-quotes a path for POSIX shells: `it's/here` -> `'it'\''s/here'`. */
+/** Quotes a path for the platform's default shell: `'it's/here'` -> `'it'\''s/here'`
+ * on POSIX shells (bash/zsh/...). cmd.exe (the Windows default) doesn't strip
+ * single quotes at all - they'd become literal characters in the path, so
+ * `cd`'s target simply wouldn't exist - and it has no path characters that
+ * need escaping inside a double-quoted string (`"` isn't legal in a Windows
+ * filename), so wrapping in plain double quotes is enough there. */
 function shellQuote(path: string): string {
+  if (document.documentElement.dataset.platform === "windows") return `"${path}"`;
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -247,7 +253,14 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(({ cwd
 
     (async () => {
       const id = await invoke<string>("pty_spawn", {
-        cwd: cwdRef.current ?? null,
+        // "" (the initial tab, before homeDir has loaded) must reach the
+        // backend as no cwd at all, not as an empty string - portable_pty's
+        // CommandBuilder::cwd("") sets lpCurrentDirectory to "" on Windows,
+        // which CreateProcessW treats as an invalid working directory rather
+        // than "inherit the current one", breaking that shell silently (no
+        // prompt, no cursor, but no error either - it just never starts
+        // right).
+        cwd: cwdRef.current || null,
         cols: term.cols,
         rows: term.rows,
       });

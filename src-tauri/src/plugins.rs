@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use tauri::{AppHandle, Manager};
 
 /// The plugin "standard": a small declarative JSON file, not arbitrary code.
@@ -115,10 +117,26 @@ pub fn run_plugin_command(command: String) -> Result<String, String> {
     }
 
     let output = if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd")
-            .args(["/C", command])
-            .stdin(std::process::Stdio::null())
-            .output()
+        #[cfg(target_os = "windows")]
+        {
+            // Not `.args(["/C", command])`: Rust escapes each element of
+            // `args` as its own argv entry (doubling/backslash-escaping any
+            // quotes `command` already contains), then cmd.exe's own /C
+            // unquoting re-parses that already-mangled text - two
+            // incompatible escaping conventions stacked on each other. That
+            // corrupted e.g. `claude -p "/usage"` just enough that claude
+            // stopped recognizing `/usage` as its client-side slash command
+            // and treated it as a literal chat prompt instead. `raw_arg`
+            // hands cmd.exe the command text byte-for-byte, matching how a
+            // real `cmd /C claude -p "/usage"` invocation reads it.
+            std::process::Command::new("cmd")
+                .arg("/C")
+                .raw_arg(command)
+                .stdin(std::process::Stdio::null())
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        unreachable!()
     } else {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
         std::process::Command::new(shell)
@@ -156,10 +174,18 @@ pub fn run_plugin_command_stdout(command: String) -> Result<String, String> {
     }
 
     let output = if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd")
-            .args(["/C", command])
-            .stdin(std::process::Stdio::null())
-            .output()
+        #[cfg(target_os = "windows")]
+        {
+            // See run_plugin_command's comment: raw_arg avoids Rust and
+            // cmd.exe stacking two different quote-escaping conventions.
+            std::process::Command::new("cmd")
+                .arg("/C")
+                .raw_arg(command)
+                .stdin(std::process::Stdio::null())
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        unreachable!()
     } else {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
         std::process::Command::new(shell)

@@ -8,7 +8,12 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  border-radius: 12px;
+  /* 8px, not 12px: on Windows 11 DWM clips the native window (and the Mica
+     backdrop painted into it) with an 8px corner radius. Any larger radius
+     here leaves a sliver of backdrop showing between the CSS curve and the
+     DWM curve at each corner, which reads as a square edge around the
+     rounded panel. Keep these two in sync. */
+  border-radius: 8px;
   border: 1px solid var(--window-border);
   overflow: hidden;
   box-sizing: border-box;

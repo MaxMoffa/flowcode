@@ -5,10 +5,33 @@
    `backdrop-filter: blur()`). On Linux the WebView (WebKitGTK) doesn't
    render backdrop-filter at all, so it's overridden below to an opaque
    fallback there - otherwise panels would be see-through with no blur and
-   totally illegible. See main.tsx's platform detection. */
+   totally illegible. See main.tsx's platform detection.
+
+   Windows gets the same opaque fallback for a different reason: getting the
+   OS compositor to blur what's behind the window (the actual "frosted
+   glass" look, vs. just alpha transparency) requires native Mica/Acrylic -
+   tried via window-vibrancy, but Tauri's `transparent: true` puts the
+   window in a DirectComposition-based mode (needed for WebView2's own
+   per-pixel alpha) that the legacy DWM backdrop APIs silently do nothing
+   for. The real fix is the WinRT SystemBackdropController API family
+   (see Microsoft's "Mica for Win32 apps" sample) - real work, not a config
+   flag - so until that lands, trading transparency for legibility here
+   too beats a plain see-through hole with unreadable text. */
 
 :root[data-theme="light"] {
-  --surface: rgba(255, 250, 241, 0.55);
+  /* Split into an RGB triple + a separate alpha variable (rather than one
+     rgba() literal) so the settings page's transparency slider can override
+     just --surface-alpha at the :root inline-style level - which beats any
+     stylesheet rule, including the platform fallback below - without having
+     to know or recompute the theme's actual surface color. */
+  /* Space-separated, not comma-separated: the modern `rgb(R G B / A)` slash
+     syntax below can't mix with legacy comma-separated channels - that's an
+     invalid value, and an invalid var() substitution doesn't fall back to
+     anything sane, it makes the whole --surface declaration invalid, which
+     computes as fully transparent everywhere it's used. */
+  --surface-rgb: 255 250 241;
+  --surface-alpha: 0.55;
+  --surface: rgb(var(--surface-rgb) / var(--surface-alpha));
   --bg-elevated: var(--surface);
   --fg: #3a2b17;
   --fg-muted: #8b7457;
@@ -52,7 +75,9 @@
 }
 
 :root[data-theme="dark"] {
-  --surface: rgba(14, 10, 7, 0.55);
+  --surface-rgb: 14 10 7;
+  --surface-alpha: 0.55;
+  --surface: rgb(var(--surface-rgb) / var(--surface-alpha));
   --bg-elevated: var(--surface);
   --fg: #e7d8c5;
   --fg-muted: #a08a6f;
@@ -93,23 +118,71 @@
   --term-selection-bg: rgba(139, 168, 118, 0.3);
 }
 
-/* Fallback: no working backdrop-filter on this engine, so trade transparency
-   for legibility instead of shipping unreadable panels. */
-:root[data-theme="light"][data-platform="linux"] {
-  --surface: rgba(255, 250, 241, 0.93);
-}
+/* Fallback: no working blur behind the window on these engines (see the
+   comment above), so trade transparency for legibility instead of shipping
+   unreadable/see-through panels. Only --surface-alpha changes here (not a
+   full --surface override) so the settings transparency slider - which sets
+   --surface-alpha inline on :root - still has one single value to beat on
+   every platform. */
+:root[data-theme="light"][data-platform="linux"],
 :root[data-theme="dark"][data-platform="linux"] {
-  --surface: rgba(14, 10, 7, 0.93);
+  --surface-alpha: 0.93;
 }
 
+/* Windows 11 does have a working backdrop (Mica, applied natively in
+   src-tauri/src/lib.rs), but it is painted *behind* the webview - at
+   --surface-alpha 0.93 the panel is so close to opaque that none of it comes
+   through, which is what made the blur look "broken" even while DWM was
+   rendering it. 0.72 is opaque enough to keep text legible and still lets the
+   backdrop read; the Trasparenza slider in Settings overrides it either way. */
+:root[data-theme="light"][data-platform="windows"],
+:root[data-theme="dark"][data-platform="windows"] {
+  --surface-alpha: 0.72;
+}
+
+/* The whole app is exactly one viewport tall (.app-shell is height: 100vh)
+   with its own internal panels scrolling independently - the page itself
+   should never scroll. Without this, a two-finger trackpad swipe anywhere
+   outside an actual scrollable panel rubber-bands the entire window (WebView2
+   is Chromium, which does that by default), which reads as "the whole app
+   just slid up/down" since there's nothing to reveal underneath. */
 html,
 body,
 #root {
   background: transparent;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
   margin: 0;
   color: var(--fg);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Every scrollable panel (file tree, editor, settings, popovers, ...) gets
+   this thin themed scrollbar instead of the OS/WebView default - on Windows
+   that default is a chunky opaque light-grey bar that clashes hard with the
+   dark glass chrome. WebView2 and WebKitGTK are both Chromium/WebKit-based,
+   so the `::-webkit-scrollbar` pseudo-elements apply on every desktop
+   target this app ships for. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fg-muted);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }

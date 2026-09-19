@@ -123,6 +123,12 @@
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.settings-opacity-slider {
+  width: 220px;
+  max-width: 100%;
+  accent-color: var(--accent);
+}
+
 .settings-credits-list {
   margin: 0;
   padding: 0;

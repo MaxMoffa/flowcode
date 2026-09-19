@@ -61,7 +61,7 @@ export function SettingsPage({
   onAddPlugin,
   onDeletePlugin,
 }: SettingsPageProps) {
-  const { mode, setMode } = useTheme();
+  const { mode, setMode, glassOpacity, setGlassOpacity } = useTheme();
   const { fontSize, zoomIn, zoomOut, resetZoom } = useTerminalSettings();
   const { section } = useSettingsSection();
   const confirm = useConfirmDialog();
@@ -146,6 +146,31 @@ export function SettingsPage({
                       {m === "auto" ? "Automatico (sistema)" : m === "light" ? "Chiaro" : "Scuro"}
                     </button>
                   ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="settings-block">
+              <h3>Trasparenza</h3>
+              <p className="settings-block-desc">
+                Regola quanto sono trasparenti i pannelli dell'app (barra laterale, terminale, finestre). Su Windows
+                e Linux il sistema operativo non applica una sfocatura reale dietro la finestra, quindi un valore
+                troppo basso rende il testo difficile da leggere.
+              </p>
+              <div className="settings-field">
+                <span className="settings-field-label">Opacità pannelli</span>
+                <div className="settings-zoom-row">
+                  <input
+                    type="range"
+                    min={0.3}
+                    max={1}
+                    step={0.01}
+                    value={glassOpacity}
+                    onChange={(e) => setGlassOpacity(Number(e.target.value))}
+                    className="settings-opacity-slider"
+                    aria-label="Opacità pannelli"
+                  />
+                  <span className="settings-zoom-value">{Math.round(glassOpacity * 100)}%</span>
                 </div>
               </div>
             </section>
