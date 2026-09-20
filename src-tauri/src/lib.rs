@@ -99,12 +99,14 @@ pub fn run() {
             Ok(())
         })
         .manage(PtyState::default())
+        .manage(agents::ProbePids::default())
         .invoke_handler(tauri::generate_handler![
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
             fs::read_dir,
+            fs::is_directory,
             fs::search_dir,
             fs::home_dir,
             fs::config_dir,
@@ -128,7 +130,9 @@ pub fn run() {
             agents::list_agent_sessions,
             agents::list_claude_agents,
             agents::list_codex_sessions,
+            agents::run_claude_usage_probe,
             system::system_info,
+            system::wsl_default_distro,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -26,13 +26,6 @@ export interface UsageInfo {
 
 type UsageFetcher = () => Promise<UsageInfo>;
 
-/** Headless, strict (fails on non-zero exit) - unlike the plugin
- * "commandOutput" action, which is tolerant and merges stderr for display.
- * Structured parsing needs to know whether the command actually succeeded. */
-async function runStdout(command: string): Promise<string> {
-  return invoke<string>("run_plugin_command_stdout", { command });
-}
-
 /** Codex CLI's numeric rate-limit data only exists behind the interactive
  * TUI's `/status` slash command - `codex exec` doesn't expose it (a slash
  * command passed to `exec` goes to the model as literal prompt text, not to
@@ -147,7 +140,10 @@ function claudeUsageLabel(raw: string): string {
 async function fetchClaudeUsage(): Promise<UsageInfo> {
   let out: string;
   try {
-    out = await runStdout('claude -p "/usage"');
+    // Dedicated command (not `runStdout`/`run_plugin_command_stdout`): it
+    // tracks this probe's real pid on the Rust side so `list_claude_agents`
+    // can exclude it - see `run_claude_usage_probe` in src-tauri/src/agents.rs.
+    out = await invoke<string>("run_claude_usage_probe");
   } catch (e) {
     const message = String(e);
     return {

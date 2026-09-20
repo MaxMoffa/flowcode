@@ -15,6 +15,10 @@ pub struct SystemInfo {
     /// The build/version string alongside `os_name` (e.g. "10.0.26200") -
     /// kept separate since not every platform folds it into `os_name`.
     os_version: Option<String>,
+    /// Short, human-friendly CPU architecture label (e.g. "x64", "ARM64") -
+    /// derived from the compile target, not queried at runtime, since this
+    /// process's own architecture is what actually matters for compatibility.
+    arch: String,
     /// Bytes - the frontend formats these (GiB, one decimal) for display, so
     /// no unit conversion or rounding happens on this side.
     memory_total: u64,
@@ -60,8 +64,62 @@ pub fn system_info() -> SystemInfo {
     SystemInfo {
         os_name: System::long_os_version(),
         os_version: System::os_version(),
+        arch: friendly_arch().to_string(),
         memory_total: sys.total_memory(),
         memory_available: sys.available_memory(),
         disk,
+    }
+}
+
+/// The machine's default WSL distro name (e.g. "Ubuntu"), for translating a
+/// POSIX path reported by a bare `wsl` session (no explicit `-d`) into a
+/// browsable `\\wsl.localhost\<distro>\...` UNC path - see wslPath.ts.
+/// `None` on any non-Windows platform (no `wsl.exe` to spawn) or if WSL
+/// itself isn't installed, both of which just fail the process spawn below.
+#[tauri::command]
+pub fn wsl_default_distro() -> Option<String> {
+    let output = std::process::Command::new("wsl.exe")
+        .args(["-l", "-v"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = decode_wsl_output(&output.stdout);
+    // `*` marks the default distro's row in `-l -v` output (e.g.
+    // "  * Ubuntu    Running   2") - more reliable than assuming row order,
+    // which `-l -q` (no marker at all) would otherwise force us to do.
+    text.lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix('*'))
+        .and_then(|rest| rest.split_whitespace().next())
+        .map(str::to_string)
+}
+
+/// `wsl.exe`'s stdout is UTF-16LE (with embedded nulls) when captured
+/// through a pipe on many Windows builds, unlike every other console tool
+/// this app shells out to - a well-known quirk of that specific binary.
+/// Detected by null-byte density rather than assumed, since which encoding
+/// a given Windows build actually uses isn't consistent.
+fn decode_wsl_output(bytes: &[u8]) -> String {
+    let null_ratio = bytes.iter().filter(|&&b| b == 0).count() as f32 / bytes.len().max(1) as f32;
+    if null_ratio > 0.3 {
+        let utf16: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        String::from_utf16_lossy(&utf16)
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
+/// Maps Rust's compile-time target architecture to the label users actually
+/// recognize (Windows itself calls x86_64 "x64" everywhere in its own UI).
+fn friendly_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "x86" => "x86",
+        "aarch64" => "ARM64",
+        "arm" => "ARM",
+        other => other,
     }
 }

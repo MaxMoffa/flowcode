@@ -1,4 +1,5 @@
 import { parseFlow } from "@flowkit-io/core";
+import flowcodeIcon from "../assets/flowcode-icon.svg";
 
 /** Shown once, on the very first launch (see WelcomeFlow.tsx / WELCOME_SEEN_KEY).
  * Content pulled from README.md/ROADMAP.md's actual feature list - kept in
@@ -22,7 +23,7 @@ export const welcomeFlow = parseFlow({
       title: "Benvenuto in Flowcode",
       subtitle: "Un terminale desktop moderno, con file explorer integrato, shortcut personalizzabili e temi chiaro/scuro.",
       cta: "Inizia",
-      image: { kind: "emoji", value: "👋" },
+      image: { kind: "image", value: flowcodeIcon },
     },
     {
       id: "about",

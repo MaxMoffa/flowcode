@@ -2,11 +2,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::State;
 
 use crate::plugins::run_command_blocking;
 use crate::pty::PtyState;
+
+/// Pids of this app's own throwaway `claude -p "/usage"` probes (see
+/// `run_claude_usage_probe`), live only for the second or two the probe
+/// itself is running. `list_claude_agents` excludes them - Claude Code's own
+/// registry has no notion of "interactive session" vs. "one-shot -p query",
+/// so without this a usage-popover poll would flash a phantom "agent"
+/// session into the sidebar for as long as the probe takes to answer.
+#[derive(Default)]
+pub struct ProbePids(Mutex<HashSet<u32>>);
 
 /// Binary names this recognizes as "an AI coding agent" - matched against a
 /// descendant process's own name, not the shell's, so a plain shell with no
@@ -125,7 +135,7 @@ pub struct ClaudeAgentEntry {
 }
 
 #[tauri::command]
-pub async fn list_claude_agents() -> Result<Vec<ClaudeAgentEntry>, String> {
+pub async fn list_claude_agents(probe_pids: State<'_, ProbePids>) -> Result<Vec<ClaudeAgentEntry>, String> {
     let output = tauri::async_runtime::spawn_blocking(|| run_command_blocking("claude agents --json"))
         .await
         .map_err(|e| e.to_string())?
@@ -140,7 +150,45 @@ pub async fn list_claude_agents() -> Result<Vec<ClaudeAgentEntry>, String> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str(&stdout).map_err(|e| e.to_string())
+    let entries: Vec<ClaudeAgentEntry> = serde_json::from_str(&stdout).map_err(|e| e.to_string())?;
+    let excluded = probe_pids.0.lock().unwrap();
+    Ok(entries.into_iter().filter(|e| !excluded.contains(&e.pid)).collect())
+}
+
+/// Runs `claude -p "/usage"` for the usage popover (see src/plugins/usage.ts)
+/// - a plain-text, client-side-only query, no model call. Spawned directly
+/// (no shell) rather than through `run_command_blocking`: that both sidesteps
+/// the cmd.exe re-quoting hazard documented on `cli_is_logged_in` and, more
+/// importantly, hands back the *actual* `claude` pid - the one `claude agents
+/// --json` will report - so it can be tracked in `ProbePids` and filtered out
+/// of `list_claude_agents` for the short time it's alive.
+#[tauri::command]
+pub async fn run_claude_usage_probe(probe_pids: State<'_, ProbePids>) -> Result<String, String> {
+    let child = std::process::Command::new("claude")
+        .arg("-p")
+        .arg("/usage")
+        .stdin(std::process::Stdio::null())
+        // `wait_with_output` below only captures stdout/stderr that were
+        // actually piped - left as the default `Stdio::inherit()`, this
+        // process's output goes to the app's own (invisible) console and
+        // `Output.stdout` comes back empty every time, which is exactly what
+        // broke the usage popover: the probe "succeeded" with zero output.
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let pid = child.id();
+    probe_pids.0.lock().unwrap().insert(pid);
+
+    let result = tauri::async_runtime::spawn_blocking(move || child.wait_with_output()).await;
+
+    probe_pids.0.lock().unwrap().remove(&pid);
+
+    let output = result.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// One saved Codex CLI session, read directly off disk. Codex CLI has no

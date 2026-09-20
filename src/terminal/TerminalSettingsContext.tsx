@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 const STORAGE_KEY = "flowcode.terminalFontSize";
+const BANNER_KEY = "flowcode.terminalBannerEnabled";
 const MIN_SIZE = 9;
 const MAX_SIZE = 28;
 const DEFAULT_SIZE = 13;
@@ -10,6 +11,10 @@ interface TerminalSettingsValue {
   zoomIn: () => void;
   zoomOut: () => void;
   resetZoom: () => void;
+  /** Whether a fresh terminal tab writes the ASCII "Flowcode" splash before
+   * the shell's own output. */
+  bannerEnabled: boolean;
+  setBannerEnabled: (enabled: boolean) => void;
 }
 
 const TerminalSettingsContext = createContext<TerminalSettingsValue | null>(null);
@@ -28,8 +33,19 @@ function readInitial(): number {
   return DEFAULT_SIZE;
 }
 
+function readInitialBanner(): boolean {
+  try {
+    const stored = localStorage.getItem(BANNER_KEY);
+    if (stored === "0") return false;
+  } catch {
+    /* storage unavailable */
+  }
+  return true;
+}
+
 export function TerminalSettingsProvider({ children }: { children: ReactNode }) {
   const [fontSize, setFontSize] = useState(readInitial);
+  const [bannerEnabled, setBannerEnabledState] = useState(readInitialBanner);
 
   useEffect(() => {
     try {
@@ -39,12 +55,23 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
     }
   }, [fontSize]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(BANNER_KEY, bannerEnabled ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  }, [bannerEnabled]);
+
   const zoomIn = () => setFontSize((s) => clamp(s + 1));
   const zoomOut = () => setFontSize((s) => clamp(s - 1));
   const resetZoom = () => setFontSize(DEFAULT_SIZE);
+  const setBannerEnabled = (enabled: boolean) => setBannerEnabledState(enabled);
 
   return (
-    <TerminalSettingsContext.Provider value={{ fontSize, zoomIn, zoomOut, resetZoom }}>
+    <TerminalSettingsContext.Provider
+      value={{ fontSize, zoomIn, zoomOut, resetZoom, bannerEnabled, setBannerEnabled }}
+    >
       {children}
     </TerminalSettingsContext.Provider>
   );

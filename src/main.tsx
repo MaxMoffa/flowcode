@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { InstallerFlow } from "./installer/InstallerFlow";
 import "./themes/themes.css";
 
 // WebKitGTK (Tauri's WebView on Linux) accepts the `backdrop-filter` CSS
@@ -18,8 +19,15 @@ function detectPlatform(): "linux" | "macos" | "windows" | "other" {
 }
 document.documentElement.dataset.platform = detectPlatform();
 
+// A separate root, not a route inside <App/>: the installer boots before
+// Flowcode itself is set up, so it must never mount the main shell's own
+// state (terminal tabs, settings, plugins...) even transiently. Standalone
+// today (open with `#installer` in the URL); the intended long-term shape is
+// its own small executable pointed straight at this same built frontend
+// with that hash baked into its window URL, sharing this bundle and the
+// Tauri commands it calls instead of a second frontend to maintain.
+const isInstaller = window.location.hash === "#installer";
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <React.StrictMode>{isInstaller ? <InstallerFlow /> : <App />}</React.StrictMode>,
 );

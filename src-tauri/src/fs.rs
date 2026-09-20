@@ -9,30 +9,57 @@ pub struct FsEntry {
     is_dir: bool,
 }
 
+/// Cheap existence check - used by App.tsx's `handleTitleChange` to verify a
+/// candidate "we're back on a real shell prompt" path while a tab's
+/// `nestedShell` is `"agent"` (Claude Code/Codex has, or just had, the
+/// screen) before trusting it: a real post-exit shell prompt reports an
+/// actual cwd, but the CLI's own console-title noise while it's running
+/// isn't reliably distinguishable from that by shape alone (an executable
+/// path, a resolved script path, ...) - this asks the filesystem instead of
+/// guessing. `async` + `spawn_blocking` for the same reason as `read_dir`:
+/// this can be asked about a WSL UNC path too.
 #[tauri::command]
-pub fn read_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FsEntry>, String> {
-    let show_hidden = show_hidden.unwrap_or(false);
-    let dir = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
-    let mut entries: Vec<FsEntry> = dir
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| show_hidden || !entry.file_name().to_string_lossy().starts_with('.'))
-        .map(|entry| {
-            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            FsEntry {
-                name: entry.file_name().to_string_lossy().to_string(),
-                path: entry.path().to_string_lossy().to_string(),
-                is_dir,
-            }
-        })
-        .collect();
+pub async fn is_directory(path: String) -> bool {
+    tauri::async_runtime::spawn_blocking(move || Path::new(&path).is_dir())
+        .await
+        .unwrap_or(false)
+}
 
-    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
+/// `async` + `spawn_blocking`, same reasoning as `search_dir` below: a WSL
+/// UNC path (`\\wsl.localhost\...`) can take a real, noticeable amount of
+/// time to answer the first `read_dir` after the network redirector session
+/// negotiates - on a plain sync command that stalls every other `#[tauri::
+/// command]` queued on the same shared worker pool (typed keystrokes,
+/// `pty_write`, included) until it returns, which reads as "the file
+/// explorer is stuck and the whole app with it", not just a slow folder.
+#[tauri::command]
+pub async fn read_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FsEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let show_hidden = show_hidden.unwrap_or(false);
+        let dir = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
+        let mut entries: Vec<FsEntry> = dir
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| show_hidden || !entry.file_name().to_string_lossy().starts_with('.'))
+            .map(|entry| {
+                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                FsEntry {
+                    name: entry.file_name().to_string_lossy().to_string(),
+                    path: entry.path().to_string_lossy().to_string(),
+                    is_dir,
+                }
+            })
+            .collect();
 
-    Ok(entries)
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        });
+
+        Ok(entries)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Never worth descending into for a name search - huge, machine-generated,

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 
 export type Theme = "light" | "dark";
 export type ThemeMode = Theme | "auto";
@@ -88,7 +88,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  useEffect(() => {
+  // Layout effect, not a plain one: React flushes every layout effect in the
+  // tree (parents included) before any passive `useEffect` runs, but within
+  // a single effect phase children fire before their ancestors. Terminal.tsx
+  // re-reads these CSS custom properties from a plain `useEffect` keyed off
+  // `theme` - as a passive effect it would otherwise run in the same commit
+  // as this one, but *before* it (child before parent), catching the
+  // computed style one render behind and leaving already-open tabs stuck on
+  // the previous theme's colors until something else touched them.
+  useLayoutEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 

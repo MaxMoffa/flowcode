@@ -1,0 +1,36 @@
+name: CI
+
+# Runs on every push to the main branch (this repo's is "master") - not on
+# every PR, per how it was asked for. Windows-latest, not ubuntu: most of
+# what's actually worth checking here (ConPTY, DWM window chrome, WSL UNC
+# paths) is behind #[cfg(windows)] and would silently no-op on Linux.
+on:
+  push:
+    branches: [master]
+
+jobs:
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # `npm run build` is `tsc && vite build` - typecheck and bundle in one
+      # step; there's no separate test runner in this project yet.
+      - run: npm run build
+
+  rust:
+    name: Rust (check + test)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+      - run: cargo test --manifest-path src-tauri/Cargo.toml

@@ -48,14 +48,18 @@ function readTermColors() {
   };
 }
 
-/** Quotes a path for the platform's default shell: `'it's/here'` -> `'it'\''s/here'`
- * on POSIX shells (bash/zsh/...). cmd.exe (the Windows default) doesn't strip
+/** Quotes a path for the target shell: `'it's/here'` -> `'it'\''s/here'` on
+ * POSIX shells (bash/zsh/...). cmd.exe (the Windows default) doesn't strip
  * single quotes at all - they'd become literal characters in the path, so
  * `cd`'s target simply wouldn't exist - and it has no path characters that
  * need escaping inside a double-quoted string (`"` isn't legal in a Windows
- * filename), so wrapping in plain double quotes is enough there. */
-function shellQuote(path: string): string {
-  if (document.documentElement.dataset.platform === "windows") return `"${path}"`;
+ * filename), so wrapping in plain double quotes is enough there.
+ * `forcePosix` overrides the app's own host-platform guess for a tab whose
+ * live shell doesn't match it - a WSL bash session inside an otherwise
+ * Windows tab, most notably, where the host being Windows says nothing
+ * about what's actually reading this command right now. */
+function shellQuote(path: string, forcePosix = false): string {
+  if (!forcePosix && document.documentElement.dataset.platform === "windows") return `"${path}"`;
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -72,18 +76,42 @@ export interface TerminalHandle {
    * is expected to stay visible. */
   runCommandSilently: (cmd: string) => void;
   /** Actually `cd`s the shell, but hides the injected command and its echo
-   * entirely - the terminal's on-screen content doesn't change at all. */
-  navigateSilently: (path: string) => void;
+   * entirely - the terminal's on-screen content doesn't change at all.
+   * `forcePosix` - see `shellQuote` - is for a WSL tab: `path` there is
+   * already the POSIX path bash itself expects (translated back from the
+   * `\\wsl.localhost\...` form the explorer browses), not this app's own
+   * host-platform path. */
+  navigateSilently: (path: string, forcePosix?: boolean) => void;
   /** The backend pty session id for this tab's shell, once spawned - lets
    * the Agents sidebar match a `list_agent_sessions` result back to the tab
    * that owns it. `null` before the pty has finished spawning. */
   getPtyId: () => string | null;
+  /** Whether a full-screen program currently owns this tab (see
+   * `onBusyChange`) - a pull-based read of the same signal, for callers that
+   * need the value at a specific moment rather than a running subscription. */
+  isBusy: () => boolean;
 }
 
 interface TerminalViewProps {
   cwd?: string;
   hidden?: boolean;
   onTitleChange?: (title: string) => void;
+  /** Fires whenever this tab's shell switches into/out of an alternate
+   * screen buffer - the signal xterm itself gives for "a full-screen program
+   * (vim, htop, Claude Code, Codex...) now owns the terminal", as opposed to
+   * a plain shell prompt. Used to auto-suspend the file explorer's
+   * click-to-`cd` link (injecting a `cd` into, say, Claude Code's input
+   * would just type garbage into it) and to gate "save as favorite". */
+  onBusyChange?: (busy: boolean) => void;
+  /** Fires with the user's own typed command line, the moment they press
+   * Enter - a best-effort local shadow of what's on the prompt line (built
+   * from the same keystrokes this view forwards to the pty, not read back
+   * from it), used to notice a shell-inside-the-shell (`wsl`, `ssh`, `docker
+   * exec/run -it`) starting. Backspace is tracked; arrow-key/history editing
+   * isn't, so a heavily-edited line can drift from what's really on screen -
+   * acceptable here since the only thing read out of it is a leading command
+   * name, not the full line. */
+  onCommandLine?: (line: string) => void;
   /** A command to type and submit the moment this tab's shell is ready -
    * for a freshly-opened tab meant to run one specific thing (e.g. a CLI's
    * install/login command from a setup prompt), not a general-purpose API.
@@ -93,7 +121,7 @@ interface TerminalViewProps {
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ cwd, hidden, onTitleChange, runOnStart }, ref) => {
+  ({ cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -102,8 +130,15 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   const cwdRef = useRef(cwd);
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
+  const onBusyChangeRef = useRef(onBusyChange);
+  onBusyChangeRef.current = onBusyChange;
+  const onCommandLineRef = useRef(onCommandLine);
+  onCommandLineRef.current = onCommandLine;
+  const lineBufferRef = useRef("");
   const { theme } = useTheme();
-  const { fontSize } = useTerminalSettings();
+  const { fontSize, bannerEnabled } = useTerminalSettings();
+  const bannerEnabledRef = useRef(bannerEnabled);
+  bannerEnabledRef.current = bannerEnabled;
   const initialFontSizeRef = useRef(fontSize);
 
   // Absolute row (scrollback-inclusive) where a pending silent navigation's
@@ -174,13 +209,14 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     // Chaining an explicit `title` onto the `cd` forces that same signal -
     // using the real path as the title also happens to be exactly what
     // App.tsx's title handler needs to pick the new cwd/tab label back up.
-    navigateSilently: (path: string) =>
+    navigateSilently: (path: string, forcePosix = false) =>
       writeSilently(
-        document.documentElement.dataset.platform === "windows"
+        !forcePosix && document.documentElement.dataset.platform === "windows"
           ? `cd ${shellQuote(path)} && title ${path}\r`
-          : `cd ${shellQuote(path)}\r`,
+          : `cd ${shellQuote(path, forcePosix)}\r`,
       ),
     getPtyId: () => ptyIdRef.current,
+    isBusy: () => (xtermRef.current ? xtermRef.current.buffer.active.type !== "normal" : false),
   }));
 
   useEffect(() => {
@@ -290,6 +326,10 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       if (title) onTitleChangeRef.current?.(title);
     });
 
+    const bufferDisposable = term.buffer.onBufferChange((buf) => {
+      onBusyChangeRef.current?.(buf.type !== "normal");
+    });
+
     // Registered now, not after pty_spawn resolves: xterm is live from this
     // point on, so anything typed while the shell is still starting is held
     // and flushed instead of vanishing (the first tab of a cold start is the
@@ -302,6 +342,26 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         return;
       }
       invoke("pty_write", { id, data }).catch(() => {});
+
+      // See `onCommandLine`'s own doc comment for what this shadow buffer
+      // is (and isn't) good for. Arrow keys/function keys arrive from xterm
+      // as one atomic ESC-led chunk - skipped whole, rather than scanned
+      // char-by-char, so its non-ESC bytes don't get spliced into the
+      // buffer as garbage. A pasted multi-line chunk has no such prefix, so
+      // it's scanned to catch any \r/\n it carries.
+      if (data.charCodeAt(0) !== 0x1b) {
+        for (const ch of data) {
+          if (ch === "\r" || ch === "\n") {
+            const line = lineBufferRef.current;
+            lineBufferRef.current = "";
+            if (line.trim()) onCommandLineRef.current?.(line);
+          } else if (ch === "\x7f" || ch === "\b") {
+            lineBufferRef.current = lineBufferRef.current.slice(0, -1);
+          } else if (ch >= " ") {
+            lineBufferRef.current += ch;
+          }
+        }
+      }
     });
 
     let unlistenOutput: (() => void) | undefined;
@@ -317,10 +377,12 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       // happens to resolve first, so writing it any later (e.g. off of its
       // own unawaited invoke) could race the shell's own first output and
       // land below it instead of above.
-      const sysInfo = await invoke<BannerSystemInfo>("system_info").catch(() => undefined);
-      if (disposed) return;
-      const banner = buildAsciiBanner(term.cols, sysInfo);
-      if (banner) term.write(banner);
+      if (bannerEnabledRef.current) {
+        const sysInfo = await invoke<BannerSystemInfo>("system_info").catch(() => undefined);
+        if (disposed) return;
+        const banner = buildAsciiBanner(term.cols, sysInfo);
+        if (banner) term.write(banner);
+      }
 
       // The output listener has to be in place *before* pty_spawn, not after
       // it. The backend starts the shell and its reader thread inside that
@@ -447,6 +509,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       disposed = true;
       resizeObserver.disconnect();
       titleDisposable.dispose();
+      bufferDisposable.dispose();
       dataDisposable.dispose();
       if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
       unlistenOutput?.();

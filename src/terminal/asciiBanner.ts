@@ -3,14 +3,30 @@
  * with "l"/"d" reaching the full height for their ascenders, same as real
  * lowercase letterforms. Verified character-by-character (see the generator
  * script used to build it) so every row is exactly 47 columns wide. */
-const FLOWCODE_ART = [
+const FLOWCODE_ART_BASE = [
   "█████   █                               █      ",
   "█       █                               █      ",
   "████    █    ███  █   █  ████  ███   ████  ███ ",
   "█       █   █   █ █ █ █ █     █   █ █   █ █████",
-  "█       █    ███   █ █   ████  ███   ████  █   ",
+  "█       █    ███   █ █   ████  ███   ████  ███ ",
 ];
-const ART_WIDTH = 47;
+
+/** Nearest-neighbor upscale of the base art - the source glyphs (esp. the
+ * trailing "e", squeezed into the 3-row x-height band) read as noise at 1x
+ * in a real terminal's cell aspect ratio. Doubling every pixel keeps every
+ * proportion byte-for-byte identical to the verified source while making
+ * each glyph's shape actually legible. */
+function scaleArt(rows: string[], factor: number): string[] {
+  const scaled: string[] = [];
+  for (const row of rows) {
+    const wideRow = row.replace(/./gs, (ch) => ch.repeat(factor));
+    for (let i = 0; i < factor; i++) scaled.push(wideRow);
+  }
+  return scaled;
+}
+
+const FLOWCODE_ART = scaleArt(FLOWCODE_ART_BASE, 2);
+const ART_WIDTH = FLOWCODE_ART[0].length;
 
 function ansiTrueColor(hex: string): string | null {
   const match = hex.trim().match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
@@ -29,6 +45,7 @@ function gib(bytes: number): string {
 export interface BannerSystemInfo {
   os_name: string | null;
   os_version: string | null;
+  arch: string;
   memory_total: number;
   memory_available: number;
   disk: { total: number; available: number } | null;
@@ -50,8 +67,15 @@ export function buildAsciiBanner(cols: number, info?: BannerSystemInfo): string 
 
   const rows: [string, string][] = [];
   if (info) {
+    // `os_version` on Windows duplicates/wraps `os_name`'s own trailing
+    // number (e.g. name "Windows 11 Home", version "11 (26200)"), which
+    // read as noisy nested parentheses - just the name, plus the actual
+    // architecture, is the useful pair here.
     if (info.os_name) {
-      rows.push(["Sistema", info.os_version ? `${info.os_name} (${info.os_version})` : info.os_name]);
+      rows.push(["Sistema", info.os_name]);
+    }
+    if (info.arch) {
+      rows.push(["Architettura", info.arch]);
     }
     rows.push(["RAM disponibile", `${gib(info.memory_available)} / ${gib(info.memory_total)} GiB`]);
     if (info.disk) {

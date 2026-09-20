@@ -74,6 +74,11 @@
   color: var(--accent);
 }
 
+.context-menu-caret {
+  flex: 0 0 auto;
+  opacity: 0.6;
+}
+
 .context-menu-label {
   flex: 1 1 auto;
   overflow: hidden;

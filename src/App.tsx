@@ -12,6 +12,8 @@ import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, TermTab, EditorTab } from "./tabs/types";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
+import { defaultWslDistro, fromWslUncPath, toWslUncPath } from "./terminal/wslPath";
+import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
 import { ContextMenuProvider, useOpenContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
 import { ConfirmDialogProvider, useConfirmDialog } from "./dialog/ConfirmDialogContext";
@@ -34,6 +36,13 @@ const appWindow = getCurrentWindow();
 
 type SidebarMode = "auto" | "docked" | "floating";
 const SIDEBAR_MODE_KEY = "flowcode.sidebarMode";
+
+/** "auto" follows the active terminal (clicking a folder actually `cd`s the
+ * shell), but auto-suspends itself while that shell is busy with a
+ * full-screen program - see TermTab.busy. "disconnesso" never `cd`s the
+ * shell at all, regardless of busy state, until switched back by hand. */
+type ExplorerLinkMode = "auto" | "disconnesso";
+const EXPLORER_LINK_MODE_KEY = "flowcode.explorerLinkMode";
 // Below this window width, "auto" mode floats the explorer instead of
 // docking it, so a narrow window keeps its terminal usable.
 const SIDEBAR_AUTO_BREAKPOINT = 880;
@@ -158,17 +167,30 @@ function cleanTitle(raw: string, home: string): string {
  * ("\\host\share") absolute paths - what a real `cd`'s reported path looks
  * like on each platform this app runs on. */
 function isAbsolutePath(path: string): boolean {
-  return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+  return path.startsWith("/") || isWindowsHostPath(path);
+}
+
+/** Drive-letter or UNC - a path only a real Windows shell (not WSL, not a
+ * POSIX host) would ever report. */
+function isWindowsHostPath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
 }
 
 /** A cwd is never a file - but a brand new cmd.exe console on Windows starts
  * out titled with the full path to its OWN executable (e.g.
- * `C:\Windows\System32\cmd.exe`), before anything has set a real title. That
- * happens to also pass `isAbsolutePath`, so without this check a fresh tab's
- * very first title update would stomp `explorerPath` with the shell binary's
- * own path instead of its actual working directory. */
+ * `C:\Windows\System32\cmd.exe`), before anything has set a real title. The
+ * same thing happens launching Claude Code/Codex on Windows: if the shell
+ * (or Windows console default-title fallback) reports the CLI's own script
+ * path instead of a real title - an npm shim (`.cmd`/`.ps1`) or the Node
+ * entry point itself (`.js`/`.mjs`/`.cjs`) - that also happens to pass
+ * `isAbsolutePath`. Without this check a title update like that would stomp
+ * `explorerPath` with the CLI's own script location instead of the actual
+ * working directory, which then can't be `read_dir`'d (it's a file, not a
+ * folder) and leaves the explorer pointed somewhere that looks "connected"
+ * but shows nothing - and navigating up from there re-injects a `cd` into
+ * whatever real session is still running in that shell. */
 function looksLikeExecutablePath(path: string): boolean {
-  return /\.(exe|com|bat|cmd)$/i.test(path);
+  return /\.(exe|com|bat|cmd|ps1|js|mjs|cjs)$/i.test(path);
 }
 
 function expandHome(path: string, home: string): string {
@@ -193,6 +215,14 @@ function Shell() {
     }
   });
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  const [explorerLinkMode, setExplorerLinkModeState] = useState<ExplorerLinkMode>(() => {
+    try {
+      const stored = localStorage.getItem(EXPLORER_LINK_MODE_KEY);
+      return stored === "disconnesso" ? "disconnesso" : "auto";
+    } catch {
+      return "auto";
+    }
+  });
   const sidebarResize = useResizablePanelWidth({
     storageKey: "flowcode.sidebarWidth",
     defaultWidth: 240,
@@ -249,6 +279,15 @@ function Shell() {
     setSidebarModeState(mode);
     try {
       localStorage.setItem(SIDEBAR_MODE_KEY, mode);
+    } catch {
+      /* storage unavailable */
+    }
+  }
+
+  function setExplorerLinkMode(mode: ExplorerLinkMode) {
+    setExplorerLinkModeState(mode);
+    try {
+      localStorage.setItem(EXPLORER_LINK_MODE_KEY, mode);
     } catch {
       /* storage unavailable */
     }
@@ -524,17 +563,126 @@ function Shell() {
     });
   }
 
+  /** Recognizes the user having typed `wsl`, `ssh ...` or an interactive
+   * `docker exec/run -it` (see the shadow line-buffer in Terminal.tsx) -
+   * the terminal-inside-the-terminal cases `handleTitleChange` below needs
+   * to treat differently from a plain local `cd`. */
+  function handleCommandLine(tabId: string, line: string) {
+    const trimmed = line.trim();
+
+    const wslMatch = trimmed.match(/^wsl(?:\.exe)?(?:\s+(.*))?$/i);
+    if (wslMatch) {
+      const rest = wslMatch[1] ?? "";
+      const distroMatch = rest.match(/(?:^|\s)(?:-d|--distribution)\s+(\S+)/i);
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "wsl", wslDistro: distroMatch?.[1] } : t,
+        ),
+      );
+      return;
+    }
+
+    const isInteractiveDocker =
+      /^docker\s+(exec|run)\b/i.test(trimmed) && /(^|\s)(-it|-ti)(\s|$)|--interactive\b/i.test(trimmed);
+    if (/^ssh\s+\S/i.test(trimmed) || isInteractiveDocker) {
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "remote", wslDistro: undefined } : t,
+        ),
+      );
+      return;
+    }
+
+    // Same tracking as `markAgentLaunching` (see its doc comment), but for
+    // the CLI typed straight into the prompt rather than launched through a
+    // shortcut - `checkCliAndMaybeLaunch` only ever sees the shortcut path.
+    if (/^(claude|codex)(\.exe)?(?:\s|$)/i.test(trimmed)) {
+      setTabs((prev) =>
+        prev.map((t) => (t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "agent", wslDistro: undefined } : t)),
+      );
+    }
+  }
+
   function handleTitleChange(tabId: string, rawTitle: string) {
     const trimmed = rawTitle.trim();
     const hostPrefix = trimmed.match(/^[^\s@]+@[^\s:]+:\s*(.+)$/);
-    const rawPath = expandHome(hostPrefix ? hostPrefix[1] : trimmed, homeDir);
+    const reportedPath = hostPrefix ? hostPrefix[1] : trimmed;
+    const isWindows = document.documentElement.dataset.platform === "windows";
+
     setTabs((prev) =>
       prev.map((t) => {
         if (t.id !== tabId || t.kind !== "terminal") return t;
-        const cwd = isAbsolutePath(rawPath) && !looksLikeExecutablePath(rawPath) ? rawPath : t.cwd;
         const label = t.customLabel ? t.label : cleanTitle(trimmed, homeDir);
-        // A real cd in the shell is authoritative - follow it in the explorer too.
-        return { ...t, cwd, explorerPath: cwd, label };
+
+        // `~` only expands against *this app's own host* home dir - correct
+        // for a plain local shell, but meaningless for a nested WSL/remote
+        // session's own (different, unknown to this app) home. Left
+        // un-expanded there: it then simply fails `isAbsolutePath` below and
+        // this one title update is skipped, rather than being expanded into
+        // a bogus host path that would wrongly look like "back on the host
+        // shell" and drop the nested-shell tracking.
+        const rawPath = t.nestedShell ? reportedPath : expandHome(reportedPath, homeDir);
+
+        if (!isAbsolutePath(rawPath) || looksLikeExecutablePath(rawPath)) return { ...t, label };
+
+        // A genuine Windows path means we're back on a real host shell,
+        // whatever nested session we might have been tracking before - with
+        // one exception: `"agent"` (Claude Code/Codex). Its own title/console
+        // noise while it owns the screen is Windows-shaped too (a resolved
+        // script or shim path, an OS default-title fallback, ...) and isn't
+        // reliably distinguishable from a real post-exit shell prompt by
+        // shape alone, unlike wsl/remote's POSIX-vs-Windows shape check -
+        // so this one candidate is verified against the filesystem before
+        // being trusted, the same deferred-update pattern as the wsl distro
+        // resolution below (this title update itself is left alone; a
+        // confirmed candidate is applied once the check resolves).
+        if (isWindowsHostPath(rawPath)) {
+          if (t.nestedShell === "agent") {
+            invoke<boolean>("is_directory", { path: rawPath }).then((isDir) => {
+              if (!isDir) return;
+              setTabs((prev2) =>
+                prev2.map((t2) =>
+                  t2.id === tabId && t2.kind === "terminal" && t2.nestedShell === "agent"
+                    ? { ...t2, cwd: rawPath, explorerPath: rawPath, nestedShell: undefined }
+                    : t2,
+                ),
+              );
+            });
+            return { ...t, label };
+          }
+          return { ...t, cwd: rawPath, explorerPath: rawPath, label, nestedShell: undefined, wslDistro: undefined };
+        }
+
+        // From here `rawPath` is POSIX-shaped.
+        if (t.nestedShell === "remote" || t.nestedShell === "agent") {
+          // ssh / docker exec (this app has no way to read that filesystem)
+          // or Claude Code/Codex (a real filesystem, but not what a POSIX-
+          // shaped title fragment while its own TUI owns the screen would
+          // mean here) - cwd/explorerPath are left exactly where they were
+          // rather than pointed at a local path that means nothing.
+          return { ...t, label };
+        }
+        if (t.nestedShell === "wsl" && isWindows) {
+          if (!t.wslDistro) {
+            // No explicit `-d` - resolve (and cache) the machine's default
+            // distro; this particular title update is left untranslated,
+            // the next one (after the shell's next prompt redraw) will have
+            // a name to translate through.
+            defaultWslDistro().then((resolved) => {
+              if (!resolved) return;
+              setTabs((prev2) =>
+                prev2.map((t2) => (t2.id === tabId && t2.kind === "terminal" ? { ...t2, wslDistro: resolved } : t2)),
+              );
+            });
+            return { ...t, label };
+          }
+          const uncPath = toWslUncPath(t.wslDistro, rawPath);
+          return { ...t, cwd: uncPath, explorerPath: uncPath, label };
+        }
+
+        // A plain POSIX path with no nested-shell context recognized - the
+        // real local cwd (this app running on macOS/Linux, most commonly).
+        return { ...t, cwd: rawPath, explorerPath: rawPath, label };
       }),
     );
   }
@@ -556,6 +704,10 @@ function Shell() {
     setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "editor" ? { ...t, path: newPath, label } : t)));
   }
 
+  function handleBusyChange(tabId: string, busy: boolean) {
+    setTabs((prev) => prev.map((t) => (t.id === tabId && t.kind === "terminal" ? { ...t, busy } : t)));
+  }
+
   function handleDirtyChange(id: string, dirty: boolean) {
     setDirtyIds((prev) => {
       const has = prev.has(id);
@@ -571,9 +723,32 @@ function Shell() {
    * there for the next command), but hides the injected command and its
    * echo completely - the terminal's on-screen content is untouched. `cwd`/
    * label catch up on their own next real prompt (OSC title update), same
-   * as after a manually-typed `cd`. */
+   * as after a manually-typed `cd`. Skipped entirely while the explorer is
+   * disconnected (by hand, or auto-suspended because a full-screen program
+   * owns the shell) - the sidebar still moves, it just stops typing into it. */
   function browseExplorer(path: string) {
-    termRefs.current.get(activeTerminalId)?.navigateSilently(path);
+    const active = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
+    // `busy` (alt-screen) alone isn't a reliable enough signal for Claude
+    // Code/Codex - not every build of either necessarily switches to the
+    // alternate screen buffer, so a click-to-`cd` could still reach a
+    // running agent's stdin as garbage input. `nestedShell === "agent"` (see
+    // handleTitleChange/checkCliAndMaybeLaunch) is the authoritative one:
+    // it's set the moment this app itself launches the CLI and only clears
+    // once a real shell prompt is verified back.
+    const linked = explorerLinkMode === "auto" && !active?.busy && active?.nestedShell !== "agent";
+    if (linked) {
+      // `path` is whatever the explorer itself browses - for a WSL tab
+      // that's the `\\wsl.localhost\...` form (see handleTitleChange), which
+      // means nothing to the actual bash session on the other end of this
+      // pty. It needs translating back to the POSIX path bash expects, and
+      // quoting POSIX-style rather than by this app's own host platform.
+      if (active?.nestedShell === "wsl" && active.wslDistro) {
+        const posixPath = fromWslUncPath(active.wslDistro, path);
+        if (posixPath) termRefs.current.get(activeTerminalId)?.navigateSilently(posixPath, true);
+      } else if (active?.nestedShell !== "remote") {
+        termRefs.current.get(activeTerminalId)?.navigateSilently(path);
+      }
+    }
     setTabs((prev) =>
       prev.map((t) => (t.id === activeTerminalId && t.kind === "terminal" ? { ...t, explorerPath: path } : t)),
     );
@@ -590,11 +765,28 @@ function Shell() {
     pluginToastTimerRef.current = setTimeout(() => setPluginToast(null), 2600);
   }
 
+  /** Marks a tab as owned by an about-to-launch agent CLI *before* it's
+   * actually typed into the shell - see the `nestedShell: "agent"` doc
+   * comment in tabs/types.ts. Set from here rather than waiting for a title
+   * update to imply it, so there's no window between the launch command
+   * landing and the tracking kicking in for a title update racing it to
+   * claim a bogus cwd. */
+  function markAgentLaunching(tabId: string) {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "agent", wslDistro: undefined } : t)),
+    );
+  }
+
   /** Before launching Claude Code / Codex, offers a one-click install (if
    * missing) or login (if installed but signed out) in a fresh terminal
    * instead of the shortcut just quietly doing nothing useful. `check_cli_status`
    * (src-tauri/src/plugins.rs) does the actual detection. */
-  async function checkCliAndMaybeLaunch(cliBin: "claude" | "codex", launchCommand: string, term: TerminalHandle | undefined) {
+  async function checkCliAndMaybeLaunch(
+    cliBin: "claude" | "codex",
+    launchCommand: string,
+    term: TerminalHandle | undefined,
+    tabId: string,
+  ) {
     const label = cliBin === "claude" ? "Claude Code" : "Codex CLI";
     let status: { installed: boolean; logged_in: boolean };
     try {
@@ -602,18 +794,14 @@ function Shell() {
     } catch {
       // Detection itself failed - don't block the shortcut over it, just
       // fall back to the plain launch as before this check existed.
+      markAgentLaunching(tabId);
       term?.runCommandSilently(launchCommand);
       return;
     }
 
     if (!status.installed) {
       const isWindows = document.documentElement.dataset.platform === "windows";
-      const installCommand =
-        cliBin === "claude"
-          ? isWindows
-            ? "irm https://claude.ai/install.ps1 | iex"
-            : "curl -fsSL https://claude.ai/install.sh | bash"
-          : "npm install -g @openai/codex";
+      const installCommand = cliInstallCommand(cliBin, isWindows);
       const ok = await confirm({
         title: `${label} non è installato`,
         message: `${label} non risulta installato su questo sistema. Vuoi installarlo ora in un nuovo terminale?`,
@@ -634,6 +822,7 @@ function Shell() {
       return;
     }
 
+    markAgentLaunching(tabId);
     term?.runCommandSilently(launchCommand);
   }
 
@@ -666,7 +855,7 @@ function Shell() {
         // no such notion and always just runs.
         if ("id" in plugin && (plugin.id === "claude-code" || plugin.id === "codex-cli")) {
           const cliBin = plugin.id === "claude-code" ? "claude" : "codex";
-          checkCliAndMaybeLaunch(cliBin, plugin.command, term);
+          checkCliAndMaybeLaunch(cliBin, plugin.command, term, activeTerminalId);
         } else {
           term?.runCommand(plugin.command);
         }
@@ -721,7 +910,16 @@ function Shell() {
     );
   } else {
     sidebarPanel = (
-      <Sidebar collapsed={false} cwd={sidebarCwd} onNavigate={browseExplorer} onOpenFile={openFile} onOpenTerminal={addTab} />
+      <Sidebar
+        collapsed={false}
+        cwd={sidebarCwd}
+        onNavigate={browseExplorer}
+        onOpenFile={openFile}
+        onOpenTerminal={addTab}
+        linkMode={explorerLinkMode}
+        onSetLinkMode={setExplorerLinkMode}
+        terminalBusy={activeTerminal?.busy ?? false}
+      />
     );
   }
 
@@ -796,7 +994,10 @@ function Shell() {
               })}
             </div>
           )}
-          <FavoritesButton activeCwd={activeTerminal?.cwd || undefined} onOpenFolder={browseExplorer} />
+          <FavoritesButton
+            activeCwd={activeTerminal && !activeTerminal.busy ? activeTerminal.cwd || undefined : undefined}
+            onOpenFolder={browseExplorer}
+          />
           <button
             ref={pluginBtnRef}
             type="button"
@@ -863,6 +1064,8 @@ function Shell() {
                     cwd={tab.cwd || undefined}
                     hidden={tab.id !== activeTabId}
                     onTitleChange={(title) => handleTitleChange(tab.id, title)}
+                    onBusyChange={(busy) => handleBusyChange(tab.id, busy)}
+                    onCommandLine={(line) => handleCommandLine(tab.id, line)}
                     runOnStart={pendingCommandsRef.current.get(tab.id)}
                   />
                 );

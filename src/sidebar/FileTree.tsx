@@ -52,6 +52,7 @@ const Icons = {
   eye: iconSvg(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.6" /></>),
   refresh: iconSvg(<><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8.5" /><path d="M20 4v4.5h-4.5" /><path d="M20 12a8 8 0 0 1-13.66 5.66L4 15.5" /><path d="M4 20v-4.5h4.5" /></>),
   search: iconSvg(<><circle cx="10.5" cy="10.5" r="6.5" /><line x1="15.3" y1="15.3" x2="20.5" y2="20.5" /></>),
+  link: iconSvg(<><path d="M9.5 14.5 14.5 9.5" /><path d="M11 7.5 13 5.5a3 3 0 0 1 4.24 4.24l-2 2" /><path d="M13 16.5 11 18.5a3 3 0 0 1-4.24-4.24l2-2" /></>),
   star: iconSvg(<path d="M12 3.8l2.35 4.9 5.35.68-3.9 3.75.98 5.37L12 15.9l-4.78 2.6.98-5.37-3.9-3.75 5.35-.68z" />),
   kebab: (
     <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none">
@@ -106,11 +107,44 @@ function EntryIcon({ entry }: { entry: FsEntry }) {
   return entry.is_dir ? <FolderGlyph /> : <FileTypeIcon name={entry.name} />;
 }
 
+/** Whether `path` is a top-level root the "up" button has nowhere above to
+ * go from - a plain POSIX "/", a bare Windows drive ("C:" / "C:\\"), or a
+ * WSL UNC share root ("\\\\wsl.localhost\\Ubuntu"). */
+function isRootPath(path: string): boolean {
+  if (!path || path === "/") return true;
+  if (/^[A-Za-z]:\\?$/.test(path)) return true;
+  if (path.startsWith("\\\\")) {
+    return path.slice(2).split("\\").filter(Boolean).length <= 2;
+  }
+  return false;
+}
+
+/** The containing folder of `path`, one level up - separator-aware, since
+ * `cwd` can be POSIX (macOS/Linux, or a real WSL bash session's own path),
+ * a Windows drive path ("C:\\Users\\me"), or a WSL UNC path this app made up
+ * for Explorer's sake ("\\\\wsl.localhost\\Ubuntu\\home\\me" - see
+ * terminal/wslPath.ts). Splitting only on "/" here made every backslash path
+ * fail to find any separator at all and fall straight through to "/" - the
+ * "up" button always landing on root regardless of where it was clicked. */
 function parentPath(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  if (!trimmed) return "/";
-  const idx = trimmed.lastIndexOf("/");
-  if (idx <= 0) return "/";
+  if (isRootPath(path)) return path;
+  const sep = path.includes("\\") ? "\\" : "/";
+  let trimmed = path;
+  while (trimmed.length > 1 && trimmed.endsWith(sep)) trimmed = trimmed.slice(0, -1);
+
+  if (sep === "/") {
+    const idx = trimmed.lastIndexOf("/");
+    return idx <= 0 ? "/" : trimmed.slice(0, idx);
+  }
+
+  if (trimmed.startsWith("\\\\")) {
+    const parts = trimmed.slice(2).split("\\");
+    return "\\\\" + parts.slice(0, -1).join("\\");
+  }
+
+  const driveRoot = trimmed.match(/^[A-Za-z]:\\/)?.[0];
+  const idx = trimmed.lastIndexOf("\\");
+  if (driveRoot && idx < driveRoot.length) return driveRoot;
   return trimmed.slice(0, idx);
 }
 
@@ -173,14 +207,27 @@ function InlineEditRow({ icon, initialValue, allowUnchanged, onCommit, onCancel 
   );
 }
 
+type ExplorerLinkMode = "auto" | "disconnesso";
+
 interface FileTreeProps {
   cwd: string;
   onNavigate: (path: string) => void;
   onOpenFile: (path: string) => void;
   onOpenTerminal: (path: string) => void;
+  linkMode: ExplorerLinkMode;
+  onSetLinkMode: (mode: ExplorerLinkMode) => void;
+  terminalBusy: boolean;
 }
 
-export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTreeProps) {
+export function FileTree({
+  cwd,
+  onNavigate,
+  onOpenFile,
+  onOpenTerminal,
+  linkMode,
+  onSetLinkMode,
+  terminalBusy,
+}: FileTreeProps) {
   const [entries, setEntries] = useState<FsEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -414,25 +461,50 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
     return items;
   }
 
+  /** Whether clicking a folder in the tree actually `cd`s the terminal - see
+   * `ExplorerLinkMode`. Exposed as a two-way submenu (not a plain toggle) so
+   * the always-on "disconnesso" choice reads as a distinct, deliberate state
+   * from "auto"'s automatic, temporary suspension while a full-screen
+   * program owns the shell. */
+  function linkModeItem(): ContextMenuItem {
+    return {
+      label: "Collegamento al terminale",
+      icon: Icons.link,
+      submenu: [
+        { label: "Connesso", checked: linkMode === "auto", onSelect: () => onSetLinkMode("auto") },
+        { label: "Scollegato", checked: linkMode === "disconnesso", onSelect: () => onSetLinkMode("disconnesso") },
+      ],
+    };
+  }
+
   function backgroundMenuItems(): ContextMenuItem[] {
     return [
       { label: "Nuovo file", icon: Icons.newFile, onSelect: () => setCreating("file") },
       { label: "Nuova cartella", icon: Icons.newFolder, onSelect: () => setCreating("dir") },
+      { separator: true, label: "sep-bg1" },
+      linkModeItem(),
     ];
   }
 
   function headerMenuItems(): ContextMenuItem[] {
     const cwdFav = cwd ? isFavorite(cwd) : false;
+    // Saving "the current folder" only makes sense while it actually
+    // reflects the terminal's real cwd - once a full-screen program (Claude
+    // Code, Codex, vim...) owns the shell, the explorer may be browsing
+    // somewhere the shell never actually visited.
+    const canFavoriteCurrent = !!cwd && !terminalBusy;
     return [
       { label: "Mostra file nascosti", icon: Icons.eye, checked: showHidden, onSelect: toggleShowHidden },
       { separator: true, label: "sep-h1" },
       {
         label: cwdFav ? "Rimuovi cartella corrente dai preferiti" : "Aggiungi cartella corrente ai preferiti",
         icon: Icons.star,
-        disabled: !cwd,
+        disabled: !canFavoriteCurrent,
         onSelect: () => cwd && (cwdFav ? removeFavorite(cwd) : addFavorite(cwd)),
       },
       { separator: true, label: "sep-h2" },
+      linkModeItem(),
+      { separator: true, label: "sep-h2b" },
       { label: "Nuovo file", icon: Icons.newFile, onSelect: () => setCreating("file") },
       { label: "Nuova cartella", icon: Icons.newFolder, onSelect: () => setCreating("dir") },
       { separator: true, label: "sep-h3" },
@@ -462,7 +534,7 @@ export function FileTree({ cwd, onNavigate, onOpenFile, onOpenTerminal }: FileTr
           className="file-tree-back"
           aria-label="Cartella superiore"
           title="Cartella superiore"
-          disabled={!cwd || cwd === "/"}
+          disabled={isRootPath(cwd)}
           onClick={goUp}
         >
           {Icons.back}

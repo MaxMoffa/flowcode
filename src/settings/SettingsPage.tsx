@@ -62,7 +62,7 @@ export function SettingsPage({
   onDeletePlugin,
 }: SettingsPageProps) {
   const { mode, setMode, glassOpacity, setGlassOpacity } = useTheme();
-  const { fontSize, zoomIn, zoomOut, resetZoom } = useTerminalSettings();
+  const { fontSize, zoomIn, zoomOut, resetZoom, bannerEnabled, setBannerEnabled } = useTerminalSettings();
   const { section } = useSettingsSection();
   const confirm = useConfirmDialog();
   const [versionCopied, setVersionCopied] = useState(false);
@@ -101,7 +101,7 @@ export function SettingsPage({
     const ok = await confirm({
       title: "Ripristina terminale",
       message:
-        "Riporta tema, zoom del testo, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
+        "Riporta tema, zoom del testo, banner all'apertura, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
       confirmLabel: "Ripristina",
       danger: true,
     });
@@ -109,6 +109,7 @@ export function SettingsPage({
 
     setMode("auto");
     resetZoom();
+    setBannerEnabled(true);
     onSetSidebarMode("auto");
 
     const toRemove = quickActionIds.filter((id) => !DEFAULT_QUICK_ACTIONS.includes(id));
@@ -190,6 +191,25 @@ export function SettingsPage({
                   </button>
                   <button type="button" className="settings-choice" onClick={resetZoom}>
                     Reimposta
+                  </button>
+                </div>
+              </div>
+              <div className="settings-field">
+                <span className="settings-field-label">Banner Flowcode all'apertura</span>
+                <div className="settings-choice-row">
+                  <button
+                    type="button"
+                    className={"settings-choice" + (bannerEnabled ? " is-active" : "")}
+                    onClick={() => setBannerEnabled(true)}
+                  >
+                    Mostra
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (!bannerEnabled ? " is-active" : "")}
+                    onClick={() => setBannerEnabled(false)}
+                  >
+                    Nascondi
                   </button>
                 </div>
               </div>

@@ -13,6 +13,9 @@ export interface ContextMenuItem {
    * rows (e.g. a browser-style zoom control) that don't fit the plain
    * label+action shape. `label` still has to be unique for React's key. */
   custom?: ReactNode;
+  /** Turns this row into a flyout parent (one level deep) - clicking it opens
+   * these items in a second panel next to it instead of running `onSelect`. */
+  submenu?: ContextMenuItem[];
 }
 
 interface MenuState {
@@ -50,17 +53,29 @@ export function useOpenContextMenu() {
 export function ContextMenuProvider({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
+  // The flyout is one level deep and always spawned from the top-level menu
+  // that's currently open - index into `menu.items`, not a separate menu
+  // stack, so it's automatically torn down whenever `menu` itself closes.
+  const [submenuOpenAt, setSubmenuOpenAt] = useState<{ index: number; x: number; y: number } | null>(null);
 
-  const hide = useCallback(() => setMenu(null), []);
+  const hide = useCallback(() => {
+    setMenu(null);
+    setSubmenuOpenAt(null);
+  }, []);
 
   const show = useCallback((x: number, y: number, items: ContextMenuItem[]) => {
     setMenu({ x, y, items });
+    setSubmenuOpenAt(null);
   }, []);
 
   useEffect(() => {
     if (!menu) return;
     const onPointerDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) hide();
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (submenuRef.current?.contains(target)) return;
+      hide();
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") hide();
@@ -87,40 +102,74 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     style = { left: Math.max(8, left), top: Math.max(8, top) };
   }
 
+  const activeSubmenu = submenuOpenAt ? menu?.items[submenuOpenAt.index]?.submenu : undefined;
+  let submenuStyle: { left: number; top: number } | undefined;
+  if (submenuOpenAt && activeSubmenu) {
+    const menuWidth = 210;
+    const rowHeight = 30;
+    const estHeight = activeSubmenu.length * rowHeight + 8;
+    const left = Math.min(submenuOpenAt.x, window.innerWidth - menuWidth - 8);
+    const top = Math.min(submenuOpenAt.y, window.innerHeight - estHeight - 8);
+    submenuStyle = { left: Math.max(8, left), top: Math.max(8, top) };
+  }
+
+  function renderItems(items: ContextMenuItem[], onOpenSubmenu?: (index: number, rect: DOMRect) => void) {
+    return items.map((item, i) =>
+      item.separator ? (
+        <div className="context-menu-separator" key={`sep-${i}`} />
+      ) : item.custom ? (
+        <div className="context-menu-custom" key={item.label}>
+          {item.custom}
+        </div>
+      ) : (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          aria-haspopup={item.submenu ? "menu" : undefined}
+          className={"context-menu-item" + (item.danger ? " is-danger" : "")}
+          disabled={item.disabled}
+          onClick={(e) => {
+            if (item.submenu) {
+              onOpenSubmenu?.(i, e.currentTarget.getBoundingClientRect());
+              return;
+            }
+            hide();
+            item.onSelect?.();
+          }}
+        >
+          {item.icon && <span className="context-menu-icon">{item.icon}</span>}
+          <span className="context-menu-label">{item.label}</span>
+          {item.checked && (
+            <svg className="context-menu-check" viewBox="0 0 24 24" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
+              <polyline points="5 12.5 10 17.5 19 7" />
+            </svg>
+          )}
+          {item.submenu && (
+            <svg className="context-menu-caret" viewBox="0 0 24 24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
+              <polyline points="9 5.5 15 12 9 18.5" />
+            </svg>
+          )}
+        </button>
+      ),
+    );
+  }
+
   return (
     <ContextMenuCtx.Provider value={{ show, hide }}>
       {children}
       {menu && (
         <div className="context-menu" ref={menuRef} style={style} role="menu">
-          {menu.items.map((item, i) =>
-            item.separator ? (
-              <div className="context-menu-separator" key={`sep-${i}`} />
-            ) : item.custom ? (
-              <div className="context-menu-custom" key={item.label}>
-                {item.custom}
-              </div>
-            ) : (
-              <button
-                key={item.label}
-                type="button"
-                role="menuitem"
-                className={"context-menu-item" + (item.danger ? " is-danger" : "")}
-                disabled={item.disabled}
-                onClick={() => {
-                  hide();
-                  item.onSelect?.();
-                }}
-              >
-                {item.icon && <span className="context-menu-icon">{item.icon}</span>}
-                <span className="context-menu-label">{item.label}</span>
-                {item.checked && (
-                  <svg className="context-menu-check" viewBox="0 0 24 24" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
-                    <polyline points="5 12.5 10 17.5 19 7" />
-                  </svg>
-                )}
-              </button>
+          {renderItems(menu.items, (index, rect) =>
+            setSubmenuOpenAt((prev) =>
+              prev?.index === index ? null : { index, x: rect.right + 2, y: rect.top },
             ),
           )}
+        </div>
+      )}
+      {menu && submenuOpenAt && activeSubmenu && (
+        <div className="context-menu" ref={submenuRef} style={submenuStyle} role="menu">
+          {renderItems(activeSubmenu)}
         </div>
       )}
     </ContextMenuCtx.Provider>

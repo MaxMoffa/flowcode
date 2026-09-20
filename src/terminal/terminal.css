@@ -4,7 +4,9 @@
   min-width: 0;
   height: 100%;
   box-sizing: border-box;
-  padding: 8px 10px;
+  /* Extra bottom padding keeps the cursor line off the window edge when a
+     command prints a long, fast-scrolling output. */
+  padding: 8px 10px 40px;
   background: var(--term-bg);
   backdrop-filter: blur(var(--glass-blur)) saturate(115%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(115%);
