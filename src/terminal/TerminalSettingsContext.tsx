@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 const STORAGE_KEY = "flowcode.terminalFontSize";
 const BANNER_KEY = "flowcode.terminalBannerEnabled";
 const SHELL_KEY = "flowcode.terminalShell";
+const START_PATH_KEY = "flowcode.terminalStartPath";
 const MIN_SIZE = 9;
 const MAX_SIZE = 28;
 const DEFAULT_SIZE = 13;
@@ -27,6 +28,13 @@ interface TerminalSettingsValue {
    * longer makes sense. */
   shellId: string;
   setShellId: (id: string) => void;
+  /** Cwd a brand-new terminal tab starts in, when there's no other tab's cwd
+   * to inherit - empty string means "use the OS home dir" (the old, only
+   * behavior). Not validated here; App.tsx checks it's still a real
+   * directory before ever using it, so a path that got deleted/unmounted
+   * since it was set just falls back to home instead of breaking. */
+  startPath: string;
+  setStartPath: (path: string) => void;
 }
 
 /** Plain (non-hook) read of the same value `shellId` above holds - for the
@@ -68,10 +76,19 @@ function readInitialBanner(): boolean {
   return true;
 }
 
+function readInitialStartPath(): string {
+  try {
+    return localStorage.getItem(START_PATH_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
 export function TerminalSettingsProvider({ children }: { children: ReactNode }) {
   const [fontSize, setFontSize] = useState(readInitial);
   const [bannerEnabled, setBannerEnabledState] = useState(readInitialBanner);
   const [shellId, setShellIdState] = useState(getConfiguredShell);
+  const [startPath, setStartPathState] = useState(readInitialStartPath);
 
   useEffect(() => {
     try {
@@ -97,15 +114,35 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
     }
   }, [shellId]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(START_PATH_KEY, startPath);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [startPath]);
+
   const zoomIn = () => setFontSize((s) => clamp(s + 1));
   const zoomOut = () => setFontSize((s) => clamp(s - 1));
   const resetZoom = () => setFontSize(DEFAULT_SIZE);
   const setBannerEnabled = (enabled: boolean) => setBannerEnabledState(enabled);
   const setShellId = (id: string) => setShellIdState(id);
+  const setStartPath = (path: string) => setStartPathState(path);
 
   return (
     <TerminalSettingsContext.Provider
-      value={{ fontSize, zoomIn, zoomOut, resetZoom, bannerEnabled, setBannerEnabled, shellId, setShellId }}
+      value={{
+        fontSize,
+        zoomIn,
+        zoomOut,
+        resetZoom,
+        bannerEnabled,
+        setBannerEnabled,
+        shellId,
+        setShellId,
+        startPath,
+        setStartPath,
+      }}
     >
       {children}
     </TerminalSettingsContext.Provider>

@@ -147,19 +147,19 @@ const Icons = {
 };
 
 function labelForCwd(cwd: string, home: string): string {
-  if (cwd === home) return "~";
+  if (cwd === home) return home;
   const trimmed = cwd.replace(/\/+$/, "");
   const parts = trimmed.split("/");
   return parts[parts.length - 1] || "/";
 }
 
 /** Shells usually emit OSC titles as "user@host: /some/path" - keep just the
- * useful part, and collapse the home dir to `~` like a shell prompt would. */
-function cleanTitle(raw: string, home: string): string {
+ * useful part. Shown as the shell reports it, full path included - no
+ * collapsing the home dir down to `~`. */
+function cleanTitle(raw: string, _home: string): string {
   let title = raw.trim();
   const hostPrefix = title.match(/^[^\s@]+@[^\s:]+:\s*(.+)$/);
   if (hostPrefix) title = hostPrefix[1];
-  if (home && title.startsWith(home)) title = "~" + title.slice(home.length);
   return title || "shell";
 }
 
@@ -261,7 +261,7 @@ function Shell() {
   const confirm = useConfirmDialog();
   const openMenu = useOpenContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
-  const { fontSize, zoomIn, zoomOut, resetZoom } = useTerminalSettings();
+  const { fontSize, zoomIn, zoomOut, resetZoom, startPath } = useTerminalSettings();
 
   function toggleQuickAction(id: string) {
     setQuickActionIds((prev) => {
@@ -381,13 +381,43 @@ function Shell() {
   }
 
   useEffect(() => {
-    invoke<string>("home_dir").then((home) => {
-      setHomeDir(home);
-      setTabs((prev) =>
-        prev.map((t) => (t.kind === "terminal" && t.cwd === "" ? { ...t, cwd: home, explorerPath: home, label: "~" } : t)),
-      );
-    });
+    invoke<string>("home_dir").then(setHomeDir);
   }, []);
+
+  // The configured start path (Settings > Terminale) may since have been
+  // deleted/unmounted, so it's re-checked here rather than trusted outright -
+  // an invalid one just falls back to home instead of handing pty_spawn a
+  // cwd that no longer exists.
+  const [resolvedStartPath, setResolvedStartPath] = useState("");
+  useEffect(() => {
+    if (!startPath) {
+      setResolvedStartPath("");
+      return;
+    }
+    let cancelled = false;
+    invoke<boolean>("is_directory", { path: startPath })
+      .then((ok) => {
+        if (!cancelled) setResolvedStartPath(ok ? startPath : "");
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedStartPath("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [startPath]);
+
+  useEffect(() => {
+    if (!homeDir) return;
+    const initial = resolvedStartPath || homeDir;
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.kind === "terminal" && t.cwd === ""
+          ? { ...t, cwd: initial, explorerPath: initial, label: labelForCwd(initial, homeDir) }
+          : t,
+      ),
+    );
+  }, [homeDir, resolvedStartPath]);
 
   useEffect(() => {
     appWindow.isMaximized().then(setIsMaximized);
@@ -445,7 +475,7 @@ function Shell() {
 
   function addTab(cwdOverride?: string) {
     const active = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
-    const cwd = cwdOverride || active?.cwd || homeDir;
+    const cwd = cwdOverride || active?.cwd || resolvedStartPath || homeDir;
     const id = `tab-${nextTabId++}`;
     setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir) }]);
     setActiveTabId(id);

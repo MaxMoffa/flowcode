@@ -67,12 +67,65 @@ export function SettingsPage({
   onDeletePlugin,
 }: SettingsPageProps) {
   const { mode, setMode, glassOpacity, setGlassOpacity } = useTheme();
-  const { fontSize, zoomIn, zoomOut, resetZoom, bannerEnabled, setBannerEnabled, shellId, setShellId } =
-    useTerminalSettings();
+  const {
+    fontSize,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    bannerEnabled,
+    setBannerEnabled,
+    shellId,
+    setShellId,
+    startPath,
+    setStartPath,
+  } = useTerminalSettings();
   const { section } = useSettingsSection();
   const confirm = useConfirmDialog();
   const [versionCopied, setVersionCopied] = useState(false);
   const versionCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Which of the two "Cartella di avvio" choices is selected - kept as its
+  // own bit of state rather than derived from `startPath !== ""`, because
+  // that derivation is exactly what made the "Personalizzata" button look
+  // broken: with a fresh/empty draft, `startPath` stayed "" even after
+  // picking it, so the button never visually activated and the input box
+  // (which was only rendered when a draft already existed) never appeared.
+  const [customPathMode, setCustomPathMode] = useState(startPath !== "");
+  const [startPathDraft, setStartPathDraft] = useState(startPath);
+  const [startPathValid, setStartPathValid] = useState<boolean | null>(null);
+  const startPathCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Re-validates on every keystroke (debounced) - `null` while unchecked, so
+  // the commit effect below never mistakes "haven't verified yet" for
+  // "verified valid".
+  useEffect(() => {
+    setStartPathValid(null);
+    if (!startPathDraft) return;
+    if (startPathCheckTimer.current) clearTimeout(startPathCheckTimer.current);
+    startPathCheckTimer.current = setTimeout(() => {
+      invoke<boolean>("is_directory", { path: startPathDraft })
+        .then((ok) => setStartPathValid(ok))
+        .catch(() => setStartPathValid(false));
+    }, 300);
+    return () => {
+      if (startPathCheckTimer.current) clearTimeout(startPathCheckTimer.current);
+    };
+  }, [startPathDraft]);
+
+  // Commits the draft to the real setting only once it's confirmed to exist -
+  // an invalid/half-typed draft is shown in the field (with the error hint
+  // below) but never becomes `startPath`, so App.tsx can trust it outright.
+  // Switching back to "Home utente" clears it immediately either way.
+  useEffect(() => {
+    if (!customPathMode) {
+      if (startPath !== "") setStartPath("");
+      return;
+    }
+    if (startPathValid === true && startPathDraft && startPathDraft !== startPath) {
+      setStartPath(startPathDraft);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customPathMode, startPathDraft, startPathValid]);
   // Which shells make sense to offer is OS-specific (see pty.rs's
   // `list_shell_options`) - fetched once rather than hardcoded here, so this
   // list can never drift from what `pty_spawn` will actually accept.
@@ -117,7 +170,7 @@ export function SettingsPage({
     const ok = await confirm({
       title: "Ripristina terminale",
       message:
-        "Riporta tema, zoom del testo, banner all'apertura, shell predefinita, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
+        "Riporta tema, zoom del testo, banner all'apertura, shell predefinita, cartella di avvio, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
       confirmLabel: "Ripristina",
       danger: true,
     });
@@ -127,6 +180,8 @@ export function SettingsPage({
     resetZoom();
     setBannerEnabled(true);
     setShellId("system");
+    setCustomPathMode(false);
+    setStartPathDraft("");
     onSetSidebarMode("auto");
 
     const toRemove = quickActionIds.filter((id) => !DEFAULT_QUICK_ACTIONS.includes(id));
@@ -153,6 +208,7 @@ export function SettingsPage({
               <p className="settings-block-desc">Scegli se l'aspetto dell'app deve seguire il sistema operativo oppure restare sempre chiaro o scuro.</p>
               <div className="settings-field">
                 <span className="settings-field-label">Modalità tema</span>
+                <p className="settings-field-desc">"Automatico" segue il tema chiaro/scuro impostato nel sistema operativo e cambia da solo se lo cambi lì.</p>
                 <div className="settings-choice-row">
                   {(["auto", "light", "dark"] as ThemeMode[]).map((m) => (
                     <button
@@ -177,6 +233,7 @@ export function SettingsPage({
               </p>
               <div className="settings-field">
                 <span className="settings-field-label">Opacità pannelli</span>
+                <p className="settings-field-desc">Valori più bassi rendono i pannelli più trasparenti; più alti li avvicinano a uno sfondo pieno.</p>
                 <div className="settings-zoom-row">
                   <input
                     type="range"
@@ -201,6 +258,7 @@ export function SettingsPage({
               </p>
               <div className="settings-field">
                 <span className="settings-field-label">Zoom testo</span>
+                <p className="settings-field-desc">Dimensione del carattere nel pannello del terminale integrato.</p>
                 <div className="settings-zoom-row">
                   <button type="button" className="settings-zoom-btn" aria-label="Riduci zoom" onClick={zoomOut}>
                     −
@@ -217,6 +275,10 @@ export function SettingsPage({
               {shellOptions.length > 0 && (
                 <div className="settings-field">
                   <span className="settings-field-label">Shell predefinita</span>
+                  <p className="settings-field-desc">
+                    Programma avviato in una nuova scheda di terminale. Il cambio si applica solo alle schede aperte
+                    da questo momento in poi.
+                  </p>
                   <div className="settings-choice-row">
                     {shellOptions.map((opt) => (
                       <button
@@ -233,6 +295,7 @@ export function SettingsPage({
               )}
               <div className="settings-field">
                 <span className="settings-field-label">Banner Flowcode all'apertura</span>
+                <p className="settings-field-desc">Scritta ASCII "Flowcode" mostrata all'inizio di ogni scheda di terminale, prima dell'output della shell.</p>
                 <div className="settings-choice-row">
                   <button
                     type="button"
@@ -250,6 +313,46 @@ export function SettingsPage({
                   </button>
                 </div>
               </div>
+              <div className="settings-field">
+                <span className="settings-field-label">Cartella di avvio</span>
+                <p className="settings-field-desc">
+                  La cartella in cui si apre una nuova scheda di terminale quando non ce n'è già una aperta da cui
+                  ereditare la posizione (es. il primo avvio dell'app).
+                </p>
+                <div className="settings-choice-row">
+                  <button
+                    type="button"
+                    className={"settings-choice" + (!customPathMode ? " is-active" : "")}
+                    onClick={() => setCustomPathMode(false)}
+                  >
+                    Home utente
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (customPathMode ? " is-active" : "")}
+                    onClick={() => setCustomPathMode(true)}
+                  >
+                    Personalizzata
+                  </button>
+                </div>
+                {customPathMode && (
+                  <>
+                    <input
+                      type="text"
+                      className="settings-text-input"
+                      value={startPathDraft}
+                      placeholder="Es. C:\Progetti oppure /home/utente/progetti"
+                      onChange={(e) => setStartPathDraft(e.target.value)}
+                    />
+                    {startPathValid === false && (
+                      <span className="settings-field-hint is-error">Cartella non trovata.</span>
+                    )}
+                    {startPathValid === true && (
+                      <span className="settings-field-hint is-success">Cartella valida, in uso.</span>
+                    )}
+                  </>
+                )}
+              </div>
             </section>
 
             <section className="settings-block">
@@ -257,6 +360,10 @@ export function SettingsPage({
               <p className="settings-block-desc">Decide come si comporta il pannello dei file quando esplori una cartella.</p>
               <div className="settings-field">
                 <span className="settings-field-label">Modalità sidebar</span>
+                <p className="settings-field-desc">
+                  "Automatica" passa da fissata a flottante in base alla larghezza della finestra; le altre due la
+                  bloccano sempre in uno dei due modi.
+                </p>
                 <div className="settings-choice-row">
                   <button
                     type="button"
@@ -304,6 +411,7 @@ export function SettingsPage({
                 <span className="settings-field-label">
                   {pkg.name} v{pkg.version}
                 </span>
+                <p className="settings-field-desc">Copia nome, versione e descrizione dell'app negli appunti - utile per segnalare un problema.</p>
                 <div className="settings-choice-row">
                   <button type="button" className="settings-choice" onClick={handleCopyVersionInfo}>
                     {versionCopied ? "Copiato" : "Copia informazioni versione"}
@@ -314,17 +422,29 @@ export function SettingsPage({
 
             <section className="settings-block">
               <h3>Manutenzione</h3>
-              <p className="settings-block-desc">
-                Operazioni rapide sulla configurazione dell'app. La cartella di configurazione contiene le funzionalità
-                personalizzate e le altre impostazioni salvate su disco.
-              </p>
-              <div className="settings-choice-row">
-                <button type="button" className="settings-choice" onClick={handleOpenConfigDir}>
-                  Apri cartella di configurazione
-                </button>
-                <button type="button" className="settings-choice" onClick={handleResetTerminal}>
-                  Ripristina terminale
-                </button>
+              <div className="settings-field">
+                <span className="settings-field-label">Cartella di configurazione</span>
+                <p className="settings-field-desc">
+                  Apre la cartella su disco dove sono salvate le funzionalità personalizzate e le altre impostazioni
+                  dell'app.
+                </p>
+                <div className="settings-choice-row">
+                  <button type="button" className="settings-choice" onClick={handleOpenConfigDir}>
+                    Apri cartella di configurazione
+                  </button>
+                </div>
+              </div>
+              <div className="settings-field">
+                <span className="settings-field-label">Ripristina impostazioni</span>
+                <p className="settings-field-desc">
+                  Riporta tema, terminale, sidebar e azioni rapide ai valori predefiniti. I plugin personalizzati non
+                  vengono toccati.
+                </p>
+                <div className="settings-choice-row">
+                  <button type="button" className="settings-choice" onClick={handleResetTerminal}>
+                    Ripristina terminale
+                  </button>
+                </div>
               </div>
             </section>
 

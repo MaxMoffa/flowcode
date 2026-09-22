@@ -29,7 +29,7 @@
 }
 
 .settings-block {
-  padding: 18px 0;
+  padding: 26px 0;
   border-top: 1px solid var(--border);
 }
 
@@ -57,17 +57,25 @@
 .settings-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .settings-field + .settings-field {
-  margin-top: 14px;
+  margin-top: 22px;
 }
 
 .settings-field-label {
   color: var(--fg);
   font-size: 12.5px;
   font-weight: 500;
+}
+
+.settings-field-desc {
+  margin: -4px 0 0;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+  max-width: 520px;
 }
 
 .settings-choice-row,
@@ -127,6 +135,37 @@
   width: 220px;
   max-width: 100%;
   accent-color: var(--accent);
+}
+
+.settings-text-input {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12.5px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  width: 100%;
+  max-width: 420px;
+}
+
+.settings-text-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-field-hint {
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.settings-field-hint.is-error {
+  color: var(--danger, #d64545);
+}
+
+.settings-field-hint.is-success {
+  color: var(--accent);
 }
 
 .settings-credits-list {
