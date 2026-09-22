@@ -9,12 +9,19 @@ edition = "2021"
 name = "flowcode_installer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# See src-tauri/Cargo.toml's identical block for why this is needed - same
+# raw `cargo build --release` bypass applies to this binary too.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2" }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flowcode-shared = { path = "../shared" }

@@ -9,7 +9,13 @@ import { FlowOverlay } from "@flowkit-io/react/overlay";
 import type { FlowRunnerHandle } from "@flowkit-io/react";
 import "@flowkit-io/react/style.css";
 import "../welcome/welcome-overrides.css";
-import { flowcodeFlowTheme } from "../welcome/flowcodeFlowTheme";
+import "./installer.css";
+// Side-effect import: registers the custom "directory" step type/component
+// (flowkit ships no folder-picker step) before `installerFlow` (parsed at
+// module load, below) can reference it.
+import "./steps/directoryStepType";
+import "./steps/DirectoryStepView";
+import { installerFlowTheme } from "./installerFlowTheme";
 import { installerFlow, type InstallableComponent } from "./installerFlowConfig";
 import { cliInstallCommand } from "../cli/cliInstallCommands";
 
@@ -33,6 +39,17 @@ export function InstallerFlow() {
   const [open, setOpen] = useState(false);
   const [defaultLocation, setDefaultLocation] = useState<string | null>(null);
   const flowRef = useRef<FlowRunnerHandle>(null);
+  // FlowOverlay portals into `document.body` by default (`container` prop,
+  // see @flowkit-io/react/overlay) - as a direct child of <body> it sat
+  // *outside* `.installer-flow-region` in the real DOM despite being nested
+  // there in JSX, so its `position: fixed` overlay covered the titlebar
+  // above it completely (and the `transform` containing-block trick in
+  // installer.css never applied, since that only affects DOM descendants).
+  // Pointing `container` at this div directly fixes both. `useState`, not a
+  // plain ref, because the portal target has to exist as of the *next*
+  // render for `createPortal` to receive a non-null node - a ref alone
+  // wouldn't trigger that re-render when it first attaches.
+  const [flowRegion, setFlowRegion] = useState<HTMLDivElement | null>(null);
   // No ThemeProvider here (this runs standalone, before the main app's own
   // state exists) - read the OS preference directly, once, same source
   // ThemeContext's own "auto" mode uses.
@@ -115,20 +132,54 @@ export function InstallerFlow() {
   if (!open || defaultLocation === null) return null;
 
   return (
-    <FlowOverlay
-      ref={flowRef}
-      flow={installerFlow}
-      theme={flowcodeFlowTheme}
-      mode={mode}
-      open={open}
-      onOpenChange={setOpen}
-      onSubmit={handleSubmit}
-      onStepChange={handleStepChange}
-      initialAnswers={{ location: defaultLocation, desktop_shortcut: true }}
-      presentation="fullscreen"
-      dismissible={false}
-      showCloseButton={false}
-      ariaLabel="Installazione di Flowcode"
-    />
+    <div className="installer-shell">
+      <header className="installer-titlebar" data-tauri-drag-region>
+        <div className="installer-titlebar-controls">
+          <button
+            type="button"
+            className="installer-icon-button"
+            aria-label="Minimizza"
+            title="Minimizza"
+            onClick={() => getCurrentWindow().minimize()}
+          >
+            <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
+              <line x1="6" y1="12" x2="18" y2="12" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="installer-icon-button installer-icon-button--close"
+            aria-label="Chiudi"
+            title="Chiudi"
+            onClick={() => getCurrentWindow().close()}
+          >
+            <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
+              <line x1="6.5" y1="6.5" x2="17.5" y2="17.5" />
+              <line x1="17.5" y1="6.5" x2="6.5" y2="17.5" />
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div className="installer-flow-region" ref={setFlowRegion}>
+        {flowRegion && (
+          <FlowOverlay
+            ref={flowRef}
+            flow={installerFlow}
+            theme={installerFlowTheme}
+            mode={mode}
+            open={open}
+            onOpenChange={setOpen}
+            onSubmit={handleSubmit}
+            onStepChange={handleStepChange}
+            initialAnswers={{ location: defaultLocation, desktop_shortcut: true }}
+            presentation="fullscreen"
+            dismissible={false}
+            showCloseButton={false}
+            ariaLabel="Installazione di Flowcode"
+            container={flowRegion}
+          />
+        )}
+      </div>
+    </div>
   );
 }

@@ -1,0 +1,151 @@
+/* Standalone installer window: no OS titlebar (tauri.conf.json's
+   `decorations: false`), so this replaces it with a minimal draggable bar
+   carrying only minimize/close - the window is fixed-size (`resizable:
+   false`, a 9:16 "phone" dialog), so there's no maximize control, matching
+   how classic fixed-size installers (NSIS, Inno Setup) behave. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: transparent;
+}
+
+/* `--fk-*` (flowkit's own theme tokens) only exist inside `.fk-theme`, the
+   class FlowOverlay puts on ITS OWN root div - a descendant of
+   `.installer-flow-region`, not an ancestor of `.installer-titlebar` (a
+   sibling). Referencing `var(--fk-border)` etc. up here resolved to nothing,
+   so the titlebar rendered with no background/border/icon color - present
+   in the DOM (and clickable) but invisible. Defining our own copies here,
+   scoped to `.installer-shell`, keeps the titlebar themed without depending
+   on flowkit's internal DOM structure. Values copied from
+   `flowcodeFlowTheme.ts` (itself copied from src/themes/themes.css) - the
+   installer picks light/dark the same way (`prefers-color-scheme`), not
+   from any app/flowkit runtime state. */
+.installer-shell {
+  --titlebar-text: #3a2b17;
+  --titlebar-text2: #8b7457;
+  --titlebar-surface: #fbf3e4;
+  --titlebar-border: rgba(120, 80, 36, 0.16);
+  --titlebar-hover: rgba(140, 88, 32, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  .installer-shell {
+    --titlebar-text: #e7d8c5;
+    --titlebar-text2: #a08a6f;
+    --titlebar-surface: #161009;
+    --titlebar-border: rgba(232, 184, 128, 0.12);
+    --titlebar-hover: rgba(232, 184, 128, 0.05);
+  }
+}
+
+.installer-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  /* Matches the DWM corner radius `apply_window_chrome` (Rust) sets on
+     Windows 11 - see App.css's `.app-shell` for the same 8px pairing. */
+  border-radius: 8px;
+  border: 1px solid var(--titlebar-border);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.installer-titlebar {
+  flex: none;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6px;
+  background: var(--titlebar-surface);
+  border-bottom: 1px solid var(--titlebar-border);
+}
+
+.installer-titlebar-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.installer-icon-button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--titlebar-text2);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.installer-icon-button svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.installer-icon-button:hover {
+  background: var(--titlebar-hover);
+  color: var(--titlebar-text);
+}
+
+.installer-icon-button--close:hover {
+  background: #d64545;
+  color: #fff;
+}
+
+/* `.fk-overlay` (flowkit) is `position: fixed; inset: 0` - it positions
+   against the viewport by default, which would draw it full-window and
+   under/behind the titlebar above. Giving this wrapper a `transform` makes
+   it the containing block for that fixed descendant instead (a standard
+   CSS trick), so the overlay fills exactly the area below the titlebar. */
+.installer-flow-region {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  transform: translateZ(0);
+  overflow: hidden;
+}
+
+/* flowkit's fullscreen sheet sizes itself with `height: 100dvh` - the real
+   OS viewport height (720px), not the 684px actually left under our
+   titlebar. `dvh` ignores the containing block entirely, so the sheet (and
+   its footer button) overflowed the bottom of `.installer-flow-region` and
+   got clipped by its `overflow: hidden`. `%` on a `position: fixed`
+   descendant resolves against its containing block instead (here, thanks
+   to the `transform` above) - exactly the space we actually have. */
+.installer-flow-region .fk-overlay-sheet--fullscreen {
+  height: 100%;
+}
+
+.installer-dir-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.installer-dir-input {
+  width: 100%;
+  box-sizing: border-box;
+  /* The path is the whole point of this field - never truncate it behind
+     ellipsis, scroll horizontally instead (see also `.installer-dir-browse`
+     living on its own row below, not squeezed alongside it). */
+  text-overflow: clip;
+}
+
+.installer-dir-browse {
+  width: 100%;
+  box-sizing: border-box;
+  white-space: nowrap;
+}

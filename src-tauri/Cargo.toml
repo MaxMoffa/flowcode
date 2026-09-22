@@ -17,6 +17,18 @@ edition = "2021"
 name = "flowcode_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# `cargo tauri build`/`cargo tauri dev` pass this automatically; our release
+# builds (this repo's CI and local release process) invoke plain `cargo
+# build --release` instead (see .github/workflows/release.yml), which
+# bypasses that. Without it, `tauri::is_dev()` stays true even in a release
+# binary, so the window tries to load `build.devUrl` (a dev server that
+# isn't running) instead of the embedded frontend - a blank/
+# ERR_CONNECTION_REFUSED webview instead of the app. `cargo tauri dev`
+# disables this default itself, so live-reload dev is unaffected.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

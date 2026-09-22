@@ -11,8 +11,9 @@
       {
         "title": "Installa Flowcode",
         "url": "index.html#installer",
-        "width": 900,
-        "height": 640,
+        "width": 405,
+        "height": 720,
+        "center": true,
         "resizable": false,
         "transparent": true,
         "decorations": false,

@@ -65,14 +65,42 @@ async fn run_plugin_command(command: String) -> Result<String, String> {
 
 #[tauri::command]
 fn installer_launch_app(install_dir: String) -> Result<(), String> {
-    let exe = std::path::PathBuf::from(&install_dir).join("flowcode.exe");
-    std::process::Command::new(exe).spawn().map(|_| ()).map_err(|e| e.to_string())
+    let install_dir = std::path::PathBuf::from(&install_dir);
+    let exe = install_dir.join("flowcode.exe");
+    std::process::Command::new(exe)
+        // Without this the child inherits *this* process's cwd (wherever
+        // flowcode-installer.exe happened to be run from), not its own
+        // install directory. WebView2 falls back to a cwd-relative data
+        // folder when nothing overrides it, so a mismatched cwd here was
+        // showing a blank webview instead of the app on first launch.
+        .current_dir(&install_dir)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn installer_pick_dir(app: tauri::AppHandle, default_dir: String) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_directory(&default_dir)
+        .set_title("Scegli la cartella di installazione")
+        .pick_folder(move |result| {
+            let _ = tx.send(result.map(|p| p.to_string()));
+        });
+    tauri::async_runtime::spawn_blocking(move || rx.recv().ok().flatten())
+        .await
+        .unwrap_or(None)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
             #[cfg(target_os = "windows")]
             {
@@ -89,6 +117,7 @@ pub fn run() {
             installer_run,
             run_plugin_command,
             installer_launch_app,
+            installer_pick_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running flowcode-installer");
