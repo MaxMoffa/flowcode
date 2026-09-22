@@ -69,11 +69,18 @@ export function WelcomeFlow() {
     if (initialStepHits.current > 1) handleOpenChange(false);
   }
 
+  // Inverted vs. the terminal's own theme (`theme` from ThemeContext, same
+  // value Terminal.tsx reads): a dark terminal sits on a dark OS/desktop
+  // background, so a dark flow overlay blends in and loses contrast against
+  // it - flipping it keeps the overlay readable regardless of which theme
+  // the terminal is on.
+  const flowMode = theme === "dark" ? "light" : "dark";
+
   return (
     <FlowOverlay
       flow={welcomeFlow}
       theme={flowcodeFlowTheme}
-      mode={theme}
+      mode={flowMode}
       open={open}
       onOpenChange={handleOpenChange}
       onChange={applyThemeAnswer}
