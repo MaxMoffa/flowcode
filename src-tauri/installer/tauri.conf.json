@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flowcode Setup",
+  "version": "0.1.0",
+  "identifier": "com.maxmoffa.flowcode.installer",
+  "build": {
+    "frontendDist": "../../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Installa Flowcode",
+        "url": "index.html#installer",
+        "width": 900,
+        "height": 640,
+        "resizable": false,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["../icons/icon.ico"]
+  }
+}

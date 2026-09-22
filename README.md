@@ -1,3 +1,10 @@
+```
+██▀██ ██    ██▀██ ██ ▄▄ ██ ██▀██ ██▀██ ██▀█▄ ██▀██
+██▄   ██    ██ ██ ██ ██ ██ ██    ██ ██ ██ ██ ██▄  
+█▓░   █▓░▄▄ █▓░█▓ █▓░█▓░█▓ █▓░▄▄ █▓░█▓ █▓░█▓ █▓░▄▄
+▀▀    ▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀  ▀▀▀▀▀
+```
+
 # Flowcode
 
 Terminale desktop moderno cross-platform (Windows, macOS, Linux) con file explorer integrato, shortcut personalizzabili e temi chiaro/scuro.

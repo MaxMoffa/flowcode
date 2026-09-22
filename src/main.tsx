@@ -21,11 +21,10 @@ document.documentElement.dataset.platform = detectPlatform();
 
 // A separate root, not a route inside <App/>: the installer boots before
 // Flowcode itself is set up, so it must never mount the main shell's own
-// state (terminal tabs, settings, plugins...) even transiently. Standalone
-// today (open with `#installer` in the URL); the intended long-term shape is
-// its own small executable pointed straight at this same built frontend
-// with that hash baked into its window URL, sharing this bundle and the
-// Tauri commands it calls instead of a second frontend to maintain.
+// state (terminal tabs, settings, plugins...) even transiently. Also opened
+// this way from the actual `flowcode-installer.exe` binary (see
+// src-tauri/installer/), whose own tauri.conf.json points its window straight
+// at this hash - one frontend bundle, two different Tauri backends behind it.
 const isInstaller = window.location.hash === "#installer";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

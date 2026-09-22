@@ -1,26 +1,31 @@
-/** "Flowcode" (only the F capitalized) in a 5-row block font - the F is a
- * full-height uppercase glyph, "lowcode" sits in the lower 3 rows (x-height)
- * with "l"/"d" reaching the full height for their ascenders, same as real
- * lowercase letterforms. Verified character-by-character (see the generator
- * script used to build it) so every row is exactly 47 columns wide. */
+/** "Flowcode" wordmark, pre-rendered as a 4-row shaded block font. */
 const FLOWCODE_ART_BASE = [
-  "█████   █                               █      ",
-  "█       █                               █      ",
-  "████    █    ███  █   █  ████  ███   ████  ███ ",
-  "█       █   █   █ █ █ █ █     █   █ █   █ █████",
-  "█       █    ███   █ █   ████  ███   ████  ███ ",
+  "██▀██ ██    ██▀██ ██ ▄▄ ██ ██▀██ ██▀██ ██▀█▄ ██▀██",
+  "██▄   ██    ██ ██ ██ ██ ██ ██    ██ ██ ██ ██ ██▄  ",
+  "█▓░   █▓░▄▄ █▓░█▓ █▓░█▓░█▓ █▓░▄▄ █▓░█▓ █▓░█▓ █▓░▄▄",
+  "▀▀    ▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀  ▀▀▀▀▀",
 ];
 
-/** Nearest-neighbor upscale of the base art - the source glyphs (esp. the
- * trailing "e", squeezed into the 3-row x-height band) read as noise at 1x
- * in a real terminal's cell aspect ratio. Doubling every pixel keeps every
- * proportion byte-for-byte identical to the verified source while making
- * each glyph's shape actually legible. */
+/** Nearest-neighbor upscale, sub-cell-aware for the half-block glyphs
+ * ("▀"/"▄"): naively repeating a row that contains them would stack two
+ * half-filled cells instead of one solid + one empty row, producing a
+ * striped artifact. Every other glyph (full block, shade, space) is
+ * vertically uniform and can just be repeated. */
 function scaleArt(rows: string[], factor: number): string[] {
+  const topHalf = Math.floor(factor / 2);
+  const bottomHalf = factor - topHalf;
   const scaled: string[] = [];
   for (const row of rows) {
-    const wideRow = row.replace(/./gs, (ch) => ch.repeat(factor));
-    for (let i = 0; i < factor; i++) scaled.push(wideRow);
+    let topRow = "";
+    let bottomRow = "";
+    for (const ch of row) {
+      const top = ch === "▀" ? "█" : ch === "▄" ? " " : ch;
+      const bottom = ch === "▀" ? " " : ch === "▄" ? "█" : ch;
+      topRow += top.repeat(factor);
+      bottomRow += bottom.repeat(factor);
+    }
+    for (let i = 0; i < topHalf; i++) scaled.push(topRow);
+    for (let i = 0; i < bottomHalf; i++) scaled.push(bottomRow);
   }
   return scaled;
 }
@@ -37,6 +42,29 @@ function ansiTrueColor(hex: string): string | null {
 
 function gib(bytes: number): string {
   return (bytes / 1024 ** 3).toFixed(1);
+}
+
+/** Renders label/value pairs as a bordered two-column table (box-drawing
+ * chars), border in the accent color, labels dim - matches how the art
+ * above and the rest of the splash are colored. */
+function buildInfoTable(rows: [string, string][], accent: string, dim: string, reset: string): string[] {
+  if (rows.length === 0) return [];
+
+  const labelWidth = Math.max(...rows.map(([label]) => label.length));
+  const valueWidth = Math.max(...rows.map(([, value]) => value.length));
+
+  const border = (left: string, mid: string, right: string) =>
+    `${accent}${left}${"─".repeat(labelWidth + 2)}${mid}${"─".repeat(valueWidth + 2)}${right}${reset}`;
+
+  const lines = [border("┌", "┬", "┐")];
+  rows.forEach(([label, value], i) => {
+    if (i > 0) lines.push(border("├", "┼", "┤"));
+    lines.push(
+      `${accent}│${reset} ${dim}${label.padEnd(labelWidth)}${reset} ${accent}│${reset} ${value.padEnd(valueWidth)} ${accent}│${reset}`,
+    );
+  });
+  lines.push(border("└", "┴", "┘"));
+  return lines;
 }
 
 /** Mirrors the backend's `SystemInfo` (see src-tauri/src/system.rs) -
@@ -86,7 +114,7 @@ export function buildAsciiBanner(cols: number, info?: BannerSystemInfo): string 
   const lines: string[] = [""];
   for (const row of FLOWCODE_ART) lines.push(`  ${accent}${row}${reset}`);
   lines.push("");
-  for (const [label, value] of rows) lines.push(`  ${dim}${label}:${reset} ${value}`);
+  for (const tableLine of buildInfoTable(rows, accent, dim, reset)) lines.push(`  ${tableLine}`);
   lines.push("");
 
   return lines.join("\r\n") + "\r\n";

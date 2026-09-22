@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useTheme, type ThemeMode } from "../themes/ThemeContext";
@@ -29,6 +29,11 @@ const CREDITS: { name: string; use: string }[] = [
 ];
 
 export type SidebarMode = "auto" | "docked" | "floating";
+
+interface ShellOption {
+  id: string;
+  label: string;
+}
 
 interface SettingsPageProps {
   quickActionIds: string[];
@@ -62,11 +67,22 @@ export function SettingsPage({
   onDeletePlugin,
 }: SettingsPageProps) {
   const { mode, setMode, glassOpacity, setGlassOpacity } = useTheme();
-  const { fontSize, zoomIn, zoomOut, resetZoom, bannerEnabled, setBannerEnabled } = useTerminalSettings();
+  const { fontSize, zoomIn, zoomOut, resetZoom, bannerEnabled, setBannerEnabled, shellId, setShellId } =
+    useTerminalSettings();
   const { section } = useSettingsSection();
   const confirm = useConfirmDialog();
   const [versionCopied, setVersionCopied] = useState(false);
   const versionCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which shells make sense to offer is OS-specific (see pty.rs's
+  // `list_shell_options`) - fetched once rather than hardcoded here, so this
+  // list can never drift from what `pty_spawn` will actually accept.
+  const [shellOptions, setShellOptions] = useState<ShellOption[]>([]);
+
+  useEffect(() => {
+    invoke<ShellOption[]>("list_shell_options")
+      .then(setShellOptions)
+      .catch(() => setShellOptions([]));
+  }, []);
 
   async function handleCopyVersionInfo() {
     const text = `${pkg.name} v${pkg.version} - ${pkg.description}`;
@@ -101,7 +117,7 @@ export function SettingsPage({
     const ok = await confirm({
       title: "Ripristina terminale",
       message:
-        "Riporta tema, zoom del testo, banner all'apertura, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
+        "Riporta tema, zoom del testo, banner all'apertura, shell predefinita, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
       confirmLabel: "Ripristina",
       danger: true,
     });
@@ -110,6 +126,7 @@ export function SettingsPage({
     setMode("auto");
     resetZoom();
     setBannerEnabled(true);
+    setShellId("system");
     onSetSidebarMode("auto");
 
     const toRemove = quickActionIds.filter((id) => !DEFAULT_QUICK_ACTIONS.includes(id));
@@ -178,7 +195,10 @@ export function SettingsPage({
 
             <section className="settings-block">
               <h3>Terminale</h3>
-              <p className="settings-block-desc">Regola la dimensione del testo nel terminale integrato.</p>
+              <p className="settings-block-desc">
+                Regola la dimensione del testo e la shell usata dal terminale integrato. Il cambio di shell si
+                applica alle schede aperte da questo momento in poi, non a quelle già aperte.
+              </p>
               <div className="settings-field">
                 <span className="settings-field-label">Zoom testo</span>
                 <div className="settings-zoom-row">
@@ -194,6 +214,23 @@ export function SettingsPage({
                   </button>
                 </div>
               </div>
+              {shellOptions.length > 0 && (
+                <div className="settings-field">
+                  <span className="settings-field-label">Shell predefinita</span>
+                  <div className="settings-choice-row">
+                    {shellOptions.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        className={"settings-choice" + (shellId === opt.id ? " is-active" : "")}
+                        onClick={() => setShellId(opt.id)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="settings-field">
                 <span className="settings-field-label">Banner Flowcode all'apertura</span>
                 <div className="settings-choice-row">

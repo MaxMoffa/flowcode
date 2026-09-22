@@ -136,9 +136,14 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   onCommandLineRef.current = onCommandLine;
   const lineBufferRef = useRef("");
   const { theme } = useTheme();
-  const { fontSize, bannerEnabled } = useTerminalSettings();
+  const { fontSize, bannerEnabled, shellId } = useTerminalSettings();
   const bannerEnabledRef = useRef(bannerEnabled);
   bannerEnabledRef.current = bannerEnabled;
+  // Read at spawn time only (like bannerEnabledRef above) - changing the
+  // shell in Settings takes effect on the next new tab, not by tearing down
+  // whatever's already running in existing ones.
+  const shellIdRef = useRef(shellId);
+  shellIdRef.current = shellId;
   const initialFontSizeRef = useRef(fontSize);
 
   // Absolute row (scrollback-inclusive) where a pending silent navigation's
@@ -450,6 +455,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         cwd: cwdRef.current || null,
         cols: term.cols,
         rows: term.rows,
+        shell: shellIdRef.current,
       });
       if (disposed) {
         unlistenOutput?.();

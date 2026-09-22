@@ -1,6 +1,11 @@
 use serde::Serialize;
 use sysinfo::{Disks, System};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use flowcode_shared::CREATE_NO_WINDOW;
+
 #[derive(Serialize)]
 pub struct DiskInfo {
     total: u64,
@@ -78,11 +83,12 @@ pub fn system_info() -> SystemInfo {
 /// itself isn't installed, both of which just fail the process spawn below.
 #[tauri::command]
 pub fn wsl_default_distro() -> Option<String> {
-    let output = std::process::Command::new("wsl.exe")
-        .args(["-l", "-v"])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .ok()?;
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("wsl.exe");
+    cmd.args(["-l", "-v"]).stdin(std::process::Stdio::null());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().ok()?;
     if !output.status.success() {
         return None;
     }

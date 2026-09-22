@@ -32,6 +32,23 @@ export const installerFlow = parseFlow({
       image: { kind: "image", value: flowcodeIcon },
     },
     {
+      id: "location",
+      type: "text",
+      key: "location",
+      title: "Cartella di installazione",
+      subtitle: "Puoi lasciare il percorso proposto oppure sceglierne uno diverso.",
+      placeholder: "C:\\Utenti\\...\\Programs\\Flowcode",
+      required: true,
+    },
+    {
+      id: "shortcut",
+      type: "checkbox",
+      key: "desktop_shortcut",
+      label: "Crea un collegamento sul Desktop",
+      subtitle: "Il collegamento nel menu Start viene creato comunque.",
+      required: false,
+    },
+    {
       id: "components",
       type: "select-cards",
       key: "components",

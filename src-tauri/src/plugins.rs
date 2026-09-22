@@ -1,7 +1,6 @@
+use flowcode_shared::run_command_blocking;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 use tauri::{AppHandle, Manager};
 
 /// The plugin "standard": a small declarative JSON file, not arbitrary code.
@@ -102,49 +101,6 @@ pub fn delete_plugin(app: AppHandle, id: String) -> Result<(), String> {
     let id = sanitize_id(&id);
     let path = dir.join(format!("{id}.json"));
     std::fs::remove_file(path).map_err(|e| e.to_string())
-}
-
-/// The actual blocking spawn-and-wait, shared by both commands below. Always
-/// called through `spawn_blocking` (never directly from an async command
-/// body) - `Command::output()` blocks its calling thread until the child
-/// exits, and these commands can take real wall-clock time (a CLI like
-/// `claude` starting up, or a Codex/Claude usage check). Blocking a worker
-/// thread straight from the command handler would tie it up for that whole
-/// stretch; since Tauri's async runtime has a bounded worker pool shared by
-/// every invoke() call, enough of these landing at once (this plugin fires
-/// one automatically on launch, and again on every hover of its shortcut
-/// button) can starve unrelated invokes - e.g. the one behind clicking a
-/// completely different shortcut - into a visible stall. `spawn_blocking`
-/// hands it to Tokio's separate, much larger blocking-thread pool instead.
-pub(crate) fn run_command_blocking(command: &str) -> std::io::Result<std::process::Output> {
-    if cfg!(target_os = "windows") {
-        #[cfg(target_os = "windows")]
-        {
-            // Not `.args(["/C", command])`: Rust escapes each element of
-            // `args` as its own argv entry (doubling/backslash-escaping any
-            // quotes `command` already contains), then cmd.exe's own /C
-            // unquoting re-parses that already-mangled text - two
-            // incompatible escaping conventions stacked on each other. That
-            // corrupted e.g. `claude -p "/usage"` just enough that claude
-            // stopped recognizing `/usage` as its client-side slash command
-            // and treated it as a literal chat prompt instead. `raw_arg`
-            // hands cmd.exe the command text byte-for-byte, matching how a
-            // real `cmd /C claude -p "/usage"` invocation reads it.
-            std::process::Command::new("cmd")
-                .arg("/C")
-                .raw_arg(command)
-                .stdin(std::process::Stdio::null())
-                .output()
-        }
-        #[cfg(not(target_os = "windows"))]
-        unreachable!()
-    } else {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        std::process::Command::new(shell)
-            .args(["-lc", command])
-            .stdin(std::process::Stdio::null())
-            .output()
-    }
 }
 
 #[derive(Serialize)]

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
+import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import {
   CODEX_COLS,
   CODEX_ROWS,
@@ -35,7 +36,12 @@ type UsageFetcher = () => Promise<UsageInfo>;
  * (no DOM) to parse the pty stream exactly like a visible terminal tab
  * would. Killed the moment the numbers are read - never left running. */
 async function readCodexStatusScreen(): Promise<string> {
-  const id = await invoke<string>("pty_spawn", { cwd: null, cols: CODEX_COLS, rows: CODEX_ROWS });
+  const id = await invoke<string>("pty_spawn", {
+    cwd: null,
+    cols: CODEX_COLS,
+    rows: CODEX_ROWS,
+    shell: getConfiguredShell(),
+  });
   // A little scrollback, not none: the `/status` box is tall, and in a session
   // that already printed something (shell banner, codex tips) its first rows
   // can scroll above the viewport - with scrollback 0 they'd be gone for good,

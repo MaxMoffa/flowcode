@@ -6,7 +6,13 @@ use std::sync::Mutex;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::State;
 
-use crate::plugins::run_command_blocking;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+use flowcode_shared::run_command_blocking;
+#[cfg(target_os = "windows")]
+use flowcode_shared::CREATE_NO_WINDOW;
+
 use crate::pty::PtyState;
 
 /// Pids of this app's own throwaway `claude -p "/usage"` probes (see
@@ -164,8 +170,9 @@ pub async fn list_claude_agents(probe_pids: State<'_, ProbePids>) -> Result<Vec<
 /// of `list_claude_agents` for the short time it's alive.
 #[tauri::command]
 pub async fn run_claude_usage_probe(probe_pids: State<'_, ProbePids>) -> Result<String, String> {
-    let child = std::process::Command::new("claude")
-        .arg("-p")
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new("claude");
+    cmd.arg("-p")
         .arg("/usage")
         .stdin(std::process::Stdio::null())
         // `wait_with_output` below only captures stdout/stderr that were
@@ -174,9 +181,13 @@ pub async fn run_claude_usage_probe(probe_pids: State<'_, ProbePids>) -> Result<
         // `Output.stdout` comes back empty every time, which is exactly what
         // broke the usage popover: the probe "succeeded" with zero output.
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+        .stderr(std::process::Stdio::piped());
+    #[cfg(target_os = "windows")]
+    // `claude` resolves to a .cmd shim, which Rust runs via a hidden
+    // cmd.exe - without this it flashes a console window open/closed on
+    // every poll (this probe fires on a multi-second interval).
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let child = cmd.spawn().map_err(|e| e.to_string())?;
     let pid = child.id();
     probe_pids.0.lock().unwrap().insert(pid);
 

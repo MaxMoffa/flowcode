@@ -1,0 +1,63 @@
+name: Release
+
+# Tag-triggered, not on every push to master (that's ci.yml's job, and it
+# stays fast/checks-only) - building the installer needs two full release
+# compiles (main app, then the installer embedding it) plus LTO, which is
+# minutes of work not worth paying on every commit.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  build-installer:
+    name: Build Flowcode Setup
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Shared by both binaries below - the installer's own tauri.conf.json
+      # points `frontendDist` at this same `dist/`, no second Vite build.
+      - run: npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build main app
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml -p flowcode
+
+      - name: Stage payload for the installer to embed
+        shell: bash
+        run: |
+          mkdir -p src-tauri/target/stage/config
+          cp src-tauri/target/release/flowcode.exe src-tauri/target/stage/flowcode.exe
+          cp config/shortcuts.json src-tauri/target/stage/config/shortcuts.json
+
+      - name: Build installer (embeds the staged payload via build.rs)
+        shell: bash
+        run: |
+          export FLOWCODE_STAGE_DIR="$(pwd)/src-tauri/target/stage"
+          cargo build --release --manifest-path src-tauri/Cargo.toml -p flowcode-installer
+
+      - name: Rename release artifact
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist-release
+          cp src-tauri/target/release/flowcode-installer.exe "dist-release/Flowcode-Setup-${version}.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowcode-setup
+          path: dist-release/*.exe
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-release/*.exe

@@ -134,6 +134,56 @@ fn default_shell() -> String {
     }
 }
 
+#[derive(Serialize)]
+pub struct ShellOption {
+    /// Sent back verbatim as `pty_spawn`'s `shell` argument - `"system"`
+    /// (always first, and the default the Settings page pre-selects) means
+    /// "whatever `default_shell()` already picks", so choosing it changes
+    /// nothing from today's behavior.
+    id: String,
+    label: String,
+}
+
+/// The terminal choices the Settings page offers, filtered to what actually
+/// makes sense on this OS - a Windows build has no business offering zsh,
+/// and vice versa.
+#[tauri::command]
+pub fn list_shell_options() -> Vec<ShellOption> {
+    let mut options = vec![ShellOption { id: "system".into(), label: "Predefinita di sistema".into() }];
+    if cfg!(target_os = "windows") {
+        options.push(ShellOption { id: "cmd".into(), label: "Prompt dei comandi (cmd)".into() });
+        options.push(ShellOption { id: "powershell".into(), label: "Windows PowerShell".into() });
+        options.push(ShellOption { id: "pwsh".into(), label: "PowerShell 7".into() });
+    } else if cfg!(target_os = "macos") {
+        options.push(ShellOption { id: "zsh".into(), label: "zsh".into() });
+        options.push(ShellOption { id: "bash".into(), label: "bash".into() });
+    } else {
+        options.push(ShellOption { id: "bash".into(), label: "bash".into() });
+        options.push(ShellOption { id: "zsh".into(), label: "zsh".into() });
+        options.push(ShellOption { id: "sh".into(), label: "sh (POSIX)".into() });
+    }
+    options
+}
+
+/// Turns a `ShellOption::id` (as chosen in Settings, round-tripped through
+/// `pty_spawn`'s `shell` argument) into the actual program to spawn. Falls
+/// back to treating an unrecognized id as a literal program name rather than
+/// erroring - keeps this forward-compatible with an id this version of the
+/// list doesn't know about (e.g. after a downgrade) instead of breaking every
+/// new tab.
+fn resolve_shell(id: Option<&str>) -> String {
+    match id {
+        None | Some("") | Some("system") => default_shell(),
+        Some("cmd") => "cmd.exe".into(),
+        Some("powershell") => "powershell.exe".into(),
+        Some("pwsh") => "pwsh.exe".into(),
+        Some("zsh") => "zsh".into(),
+        Some("bash") => "bash".into(),
+        Some("sh") => "sh".into(),
+        Some(other) => other.to_string(),
+    }
+}
+
 // `(async)` - i.e. "run this off the main thread". A plain `#[tauri::command]`
 // on a non-async fn runs on the event-loop thread, where the warmup wait below
 // (and openpty/spawn_command's own blocking syscalls) would stall the window.
@@ -144,6 +194,7 @@ pub fn pty_spawn(
     cwd: Option<String>,
     cols: u16,
     rows: u16,
+    shell: Option<String>,
 ) -> Result<String, String> {
     // No-op once the warmup has run (the common case, since setup() starts it
     // at launch); blocks only if this spawn really did beat it - see
@@ -161,19 +212,29 @@ pub fn pty_spawn(
         })
         .map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new(default_shell());
+    let shell_program = resolve_shell(shell.as_deref());
+    // Only cmd.exe understands the `/k prompt ...` trick below - picking it
+    // via the resolved program's filename (not just "are we on Windows",
+    // which is what this used to check) matters now that a tab's shell can
+    // actually be something else (PowerShell, pwsh) instead of whatever
+    // `default_shell()` alone would have picked.
+    let is_cmd = std::path::Path::new(&shell_program)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| s.eq_ignore_ascii_case("cmd"));
+
+    let mut cmd = CommandBuilder::new(shell_program);
     if let Some(dir) = cwd {
         cmd.cwd(dir);
     }
-    // cmd.exe (the Windows default shell) never retitles on its own - not
-    // even after a `cd` the user typed by hand - unlike bash/zsh, which
-    // retitle every prompt on their own. Without this, the frontend's "a
-    // real cd is authoritative, follow it in the explorer" logic has nothing
-    // to listen to on Windows. `$E` is cmd.exe's own PROMPT code for ESC,
-    // and `$P` expands to the *current* cwd every time the prompt is drawn,
-    // not just once - so this makes every prompt emit a real OSC 0 title
-    // update with the live cwd, on top of (not instead of) the normal
-    // visible "$P$G" ("C:\path>") prompt text.
+    // cmd.exe never retitles on its own - not even after a `cd` the user
+    // typed by hand - unlike bash/zsh, which retitle every prompt on their
+    // own. Without this, the frontend's "a real cd is authoritative, follow
+    // it in the explorer" logic has nothing to listen to on Windows. `$E` is
+    // cmd.exe's own PROMPT code for ESC, and `$P` expands to the *current*
+    // cwd every time the prompt is drawn, not just once - so this makes
+    // every prompt emit a real OSC 0 title update with the live cwd, on top
+    // of (not instead of) the normal visible "$P$G" ("C:\path>") prompt text.
     //
     // Set via `/k` at spawn time, not by typing `prompt ...` into the
     // already-running shell afterward (the frontend used to do this): typing
@@ -183,7 +244,7 @@ pub fn pty_spawn(
     // reading the terminal's cursor position at exactly the right moment.
     // Setting it before the shell ever draws its first prompt needs no
     // typing, no echo and nothing to erase.
-    if cfg!(target_os = "windows") {
+    if is_cmd {
         cmd.args(["/k", "prompt", "$E]0;$P$E\\$P$G"]);
     }
 
