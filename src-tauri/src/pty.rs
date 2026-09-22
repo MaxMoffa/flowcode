@@ -272,21 +272,52 @@ pub fn pty_spawn(
     let emit_app = app.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
+        // A multi-byte UTF-8 character can straddle two 4096-byte reads -
+        // decoding each chunk with `from_utf8_lossy` in isolation would
+        // replace both halves with U+FFFD instead of the real character
+        // (garbled accented letters, box-drawing borders, emoji in anything
+        // the shell prints). Any trailing incomplete sequence is held back
+        // here and prepended to the next read instead.
+        let mut pending: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = emit_app.emit(
-                        "pty://output",
-                        PtyOutputPayload {
-                            id: emit_id.clone(),
-                            data,
-                        },
-                    );
+                    pending.extend_from_slice(&buf[..n]);
+                    let valid_len = match std::str::from_utf8(&pending) {
+                        Ok(_) => pending.len(),
+                        Err(e) => e.valid_up_to(),
+                    };
+                    // A genuinely invalid byte (not just a truncated tail)
+                    // must still be flushed - otherwise `pending` could grow
+                    // without bound - so only hold back a short tail that
+                    // could still become valid with more bytes.
+                    let hold_back = pending.len() - valid_len <= 3;
+                    let emit_len = if hold_back { valid_len } else { pending.len() };
+                    if emit_len > 0 {
+                        let data = String::from_utf8_lossy(&pending[..emit_len]).to_string();
+                        let _ = emit_app.emit(
+                            "pty://output",
+                            PtyOutputPayload {
+                                id: emit_id.clone(),
+                                data,
+                            },
+                        );
+                    }
+                    pending.drain(..emit_len);
                 }
                 Err(_) => break,
             }
+        }
+        if !pending.is_empty() {
+            let data = String::from_utf8_lossy(&pending).to_string();
+            let _ = emit_app.emit(
+                "pty://output",
+                PtyOutputPayload {
+                    id: emit_id.clone(),
+                    data,
+                },
+            );
         }
         let _ = emit_app.emit("pty://exit", PtyExitPayload { id: emit_id.clone() });
     });

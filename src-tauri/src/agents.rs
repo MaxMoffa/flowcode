@@ -170,7 +170,6 @@ pub async fn list_claude_agents(probe_pids: State<'_, ProbePids>) -> Result<Vec<
 /// of `list_claude_agents` for the short time it's alive.
 #[tauri::command]
 pub async fn run_claude_usage_probe(probe_pids: State<'_, ProbePids>) -> Result<String, String> {
-    #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("claude");
     cmd.arg("-p")
         .arg("/usage")
@@ -334,7 +333,7 @@ pub fn list_codex_sessions() -> Vec<CodexSessionEntry> {
     // Most recent first, capped - a project with years of history shouldn't
     // dump its entire archive into the sidebar, just what's plausibly worth
     // resuming.
-    sessions.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at));
     sessions.truncate(8);
     sessions
 }

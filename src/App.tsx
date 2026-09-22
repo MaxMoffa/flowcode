@@ -528,6 +528,7 @@ function Shell() {
         setActiveTabId(newId);
         setActiveTerminalId(newId);
         termRefs.current.delete(id);
+        pendingCommandsRef.current.delete(id);
         return;
       }
     } else {
@@ -555,6 +556,7 @@ function Shell() {
     setTabs(next);
     termRefs.current.delete(id);
     editorRefs.current.delete(id);
+    pendingCommandsRef.current.delete(id);
     setDirtyIds((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);

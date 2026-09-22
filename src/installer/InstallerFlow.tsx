@@ -60,6 +60,7 @@ export function InstallerFlow() {
       .catch(() => {
         // No default resolvable (e.g. running outside the installer
         // binary) - still open, just with an empty field the user fills in.
+        setDefaultLocation("");
         setOpen(true);
       });
   }, []);

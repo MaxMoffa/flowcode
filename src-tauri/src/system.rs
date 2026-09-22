@@ -83,7 +83,6 @@ pub fn system_info() -> SystemInfo {
 /// itself isn't installed, both of which just fail the process spawn below.
 #[tauri::command]
 pub fn wsl_default_distro() -> Option<String> {
-    #[allow(unused_mut)]
     let mut cmd = std::process::Command::new("wsl.exe");
     cmd.args(["-l", "-v"]).stdin(std::process::Stdio::null());
     #[cfg(target_os = "windows")]
@@ -111,7 +110,7 @@ pub fn wsl_default_distro() -> Option<String> {
 fn decode_wsl_output(bytes: &[u8]) -> String {
     let null_ratio = bytes.iter().filter(|&&b| b == 0).count() as f32 / bytes.len().max(1) as f32;
     if null_ratio > 0.3 {
-        let utf16: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let utf16: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
         String::from_utf16_lossy(&utf16)
     } else {
         String::from_utf8_lossy(bytes).into_owned()

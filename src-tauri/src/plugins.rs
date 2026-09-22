@@ -77,7 +77,7 @@ pub fn list_plugins(app: AppHandle) -> Result<Vec<PluginManifest>, String> {
             }
         }
     }
-    plugins.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+    plugins.sort_by_key(|p| p.label.to_lowercase());
     Ok(plugins)
 }
 
