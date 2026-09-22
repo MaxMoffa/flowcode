@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+// `currentMonitor` is a module-level export, NOT a `Window` method - there is
+// no `appWindow.currentMonitor()` in @tauri-apps/api v2 (only `primaryMonitor`,
+// `availableMonitors` and friends are module-level too). Calling it off the
+// window object throws a TypeError.
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Sidebar } from "./sidebar/Sidebar";
@@ -244,6 +248,7 @@ function Shell() {
   const [activeTabId, setActiveTabId] = useState("tab-0");
   const [activeTerminalId, setActiveTerminalId] = useState("tab-0");
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isEdgeFlush, setIsEdgeFlush] = useState(false);
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set());
   const [quickActionIds, setQuickActionIds] = useState<string[]>(readQuickActions);
   const [pluginMenuAnchor, setPluginMenuAnchor] = useState<DOMRect | null>(null);
@@ -420,14 +425,76 @@ function Shell() {
   }, [homeDir, resolvedStartPath]);
 
   useEffect(() => {
-    appWindow.isMaximized().then(setIsMaximized);
-    const unlisten = appWindow.onResized(() => {
-      appWindow.isMaximized().then(setIsMaximized);
-    });
+    // Windows Snap (tiling two windows side by side) is not "maximized" as
+    // far as `isMaximized()` (win32 `IsZoomed`) is concerned - the window is
+    // just resized to half the work area. But a snapped window always spans
+    // the full work-area height, so it's flush against the top and bottom
+    // screen edges the same way a real maximized window is; without this,
+    // the floating window's 1px border (and DWM's own rounded corners, see
+    // the effect below) stay on and read as a stray outline/notch against
+    // the screen edge and the neighboring window.
+    const updateMaximizedState = async () => {
+      const maximized = await appWindow.isMaximized();
+      setIsMaximized(maximized);
+      if (maximized) {
+        setIsEdgeFlush(false);
+        return;
+      }
+      try {
+        const monitor = await currentMonitor();
+        if (!monitor) {
+          setIsEdgeFlush(false);
+          return;
+        }
+        const [pos, size] = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]);
+        // All four values are physical pixels: `outerPosition`/`outerSize` come
+        // from win32 `GetWindowRect` and `workArea` from `GetMonitorInfoW`'s
+        // `rcWork`, both unscaled. Don't mix in `scaleFactor` here.
+        const { position: workPos, size: workSize } = monitor.workArea;
+        // Generous tolerance: Windows 11's "show a small gap between snapped
+        // windows" setting insets a snapped window a few px from the work
+        // area on top of normal DPI-scaling rounding, so an exact (or
+        // near-exact) match is too strict to ever fire. (Measured on a real
+        // Snap here the match is in fact exact, but leave room for the gap
+        // setting and for other DPI configurations.)
+        const EDGE_TOLERANCE = 24;
+        const flushTop = Math.abs(pos.y - workPos.y) <= EDGE_TOLERANCE;
+        const flushBottom = Math.abs(pos.y + size.height - (workPos.y + workSize.height)) <= EDGE_TOLERANCE;
+        setIsEdgeFlush(flushTop && flushBottom);
+      } catch (err) {
+        // Don't swallow silently: a bad API call here looks exactly like "the
+        // window simply isn't snapped", which hid an `appWindow.currentMonitor`
+        // TypeError for a long time.
+        console.error("[snap-detect] failed to read window/monitor geometry", err);
+        setIsEdgeFlush(false);
+      }
+    };
+    updateMaximizedState();
+    const recheck = () => {
+      updateMaximizedState();
+      // Windows Snap animates the window into place - re-check once the
+      // animation has almost certainly settled, in case the event fired
+      // mid-animation and read a not-yet-final position.
+      setTimeout(updateMaximizedState, 250);
+    };
+    // `onMoved` as well as `onResized`: snapping from one half to the other
+    // (or dragging a full-height window onto another monitor) changes the
+    // position without changing the size, so WM_SIZE - and therefore
+    // `onResized` - never fires.
+    const unlisten = Promise.all([appWindow.onResized(recheck), appWindow.onMoved(recheck)]);
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fns) => fns.forEach((fn) => fn()));
     };
   }, []);
+
+  useEffect(() => {
+    // DWM rounds this window's corners unconditionally (see
+    // apply_window_chrome/set_window_corner_rounding in shared/src/lib.rs);
+    // that only goes unnoticed on a floating window. Flush against the
+    // screen edge or a neighboring Snapped window, the rounded clip nicks a
+    // visible notch out of the corner, so square it off there instead.
+    invoke("set_window_square_corners", { square: isMaximized || isEdgeFlush }).catch(() => {});
+  }, [isMaximized, isEdgeFlush]);
 
   useEffect(() => {
     const onResize = () => setWindowWidth(window.innerWidth);
@@ -1045,7 +1112,7 @@ function Shell() {
   }
 
   return (
-    <div className={`app-shell${isMaximized ? " maximized" : ""}`}>
+    <div className={`app-shell${isMaximized ? " maximized" : ""}${isEdgeFlush ? " edge-flush" : ""}`}>
       <header className="app-headerbar" data-tauri-drag-region>
         <button
           className="icon-button"

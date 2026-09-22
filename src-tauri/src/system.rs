@@ -76,6 +76,20 @@ pub fn system_info() -> SystemInfo {
     }
 }
 
+/// Squares off (or restores) DWM's own rounded window corners - the
+/// frontend calls this whenever it decides the window is flush against the
+/// screen edge (real maximize or Windows-Snap-tiled; see App.tsx's
+/// `isMaximized`/`isEdgeFlush` and `set_window_corner_rounding`'s own doc
+/// comment for why that matters). A no-op everywhere but Windows, since
+/// that's the only platform this DWM attribute applies to.
+#[tauri::command]
+pub fn set_window_square_corners(window: tauri::WebviewWindow, square: bool) {
+    #[cfg(target_os = "windows")]
+    flowcode_shared::set_window_corner_rounding(&window, !square);
+    #[cfg(not(target_os = "windows"))]
+    let _ = (window, square);
+}
+
 /// The machine's default WSL distro name (e.g. "Ubuntu"), for translating a
 /// POSIX path reported by a bare `wsl` session (no explicit `-d`) into a
 /// browsable `\\wsl.localhost\<distro>\...` UNC path - see wslPath.ts.

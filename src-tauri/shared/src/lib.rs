@@ -88,18 +88,67 @@ pub fn run_command_blocking(command: &str) -> std::io::Result<std::process::Outp
 //
 // Note the backdrop is only *visible* to the extent the CSS on top of it is
 // translucent: see --surface-alpha in src/themes/themes.css.
+
+// When this window (no caption - `decorations: false`) is actually
+// maximized (`IsZoomed`), wry/tao's default `WM_NCCALCSIZE` handling leaves
+// the proposed client rect a few px short of the monitor's work area on
+// every edge, so the webview's own content stops short of the screen edge
+// and the OS's default window-background color (light gray) shows through
+// in the gap - a thin, stray-looking border/outline hugging the screen.
+// Subclass the window and, only while zoomed, replace the proposed client
+// rect outright with the monitor's actual work area so content always
+// reaches exactly to the (taskbar-aware) screen edge. Restored (and
+// Windows-Snap-tiled) windows already size themselves within the work area
+// on their own and don't need this.
 #[cfg(target_os = "windows")]
-pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
+unsafe extern "system" fn nc_calc_size_subclass(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+    _subclass_id: usize,
+    _ref_data: usize,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows_sys::Win32::UI::Shell::DefSubclassProc;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsZoomed, NCCALCSIZE_PARAMS, WM_NCCALCSIZE};
+
+    let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+    if msg == WM_NCCALCSIZE && wparam != 0 && IsZoomed(hwnd) != 0 {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) != 0 {
+            let params = &mut *(lparam as *mut NCCALCSIZE_PARAMS);
+            params.rgrc[0] = info.rcWork;
+        }
+    }
+    result
+}
+
+/// Toggles DWM's own corner rounding on this window. Called with `true` once
+/// at startup (see `apply_window_chrome`'s doc comment for why acrylic needs
+/// it), and again with `false` whenever the frontend decides the window is
+/// flush against the screen edge - real maximize (`.app-shell.maximized`) or
+/// Windows-Snap-tiled (`.app-shell.edge-flush`, see App.tsx's `isEdgeFlush`)
+/// - since DWM rounds corners unconditionally regardless of window state,
+/// and a rounded corner sitting flush against the screen edge or a
+/// neighboring snapped window nicks a visible notch out of it rather than
+/// just going unnoticed the way it does on a floating window.
+#[cfg(target_os = "windows")]
+pub fn set_window_corner_rounding(window: &tauri::WebviewWindow, round: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Graphics::Dwm::{
-        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND,
     };
 
     let Ok(handle) = window.window_handle() else { return };
     let RawWindowHandle::Win32(h) = handle.as_raw() else { return };
     let hwnd = h.hwnd.get() as *mut core::ffi::c_void;
 
-    let pref = DWMWCP_ROUND;
+    let pref = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
     unsafe {
         DwmSetWindowAttribute(
             hwnd,
@@ -108,6 +157,23 @@ pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
             std::mem::size_of_val(&pref) as u32,
         );
     }
+}
+
+#[cfg(target_os = "windows")]
+pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR};
+    use windows_sys::Win32::UI::Shell::SetWindowSubclass;
+
+    let Ok(handle) = window.window_handle() else { return };
+    let RawWindowHandle::Win32(h) = handle.as_raw() else { return };
+    let hwnd = h.hwnd.get() as *mut core::ffi::c_void;
+
+    unsafe {
+        SetWindowSubclass(hwnd, Some(nc_calc_size_subclass), 1, 0);
+    }
+
+    set_window_corner_rounding(window, true);
 
     // DWMWA_COLOR_NONE - "do not draw the border at all".
     let border: u32 = 0xFFFF_FFFE;

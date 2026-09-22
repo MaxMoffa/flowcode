@@ -67,6 +67,7 @@ pub fn run() {
             system::system_info,
             system::wsl_default_distro,
             system::wsl_home_dir,
+            system::set_window_square_corners,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

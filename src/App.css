@@ -19,9 +19,35 @@
   box-sizing: border-box;
 }
 
+/* `border: none`, not `border-color: transparent`: a transparent border still
+   *occupies* its 1px ring, and nothing paints there - not the shell (its own
+   backgrounds live on its children, inside the padding box) and not html /
+   body / #root, which are all `background: transparent` (themes.css). Those
+   pixels therefore stay fully transparent right through to the window, where
+   DWM's acrylic backdrop (DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_TRANSIENTWINDOW,
+   set by apply_window_chrome in shared/src/lib.rs) shows at full strength -
+   i.e. undimmed by the ~0.7-alpha dark --surface that covers it everywhere
+   else. Against bare desktop that reads as a light-gray 1px fringe hugging
+   the screen edge: the exact "bordino" this state is supposed to remove.
+   Note it is NOT native chrome - it sits at client (0,0), and the window's
+   non-client edge is 7px off-screen when maximized - so neither
+   DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE nor turning the backdrop off can
+   suppress it (with the backdrop off the same ring would show raw desktop
+   instead). Only giving the ring zero width does. */
 .app-shell.maximized {
   border-radius: 0;
-  border-color: transparent;
+  border: none;
+}
+
+/* Windows Snap: the window doesn't cover the whole monitor, but its corners
+   still sit flush against the screen edge / the neighboring snapped window,
+   so a rounded CSS corner there reads as the same stray-outline artifact as
+   the unrounded border (see App.tsx's isEdgeFlush) - drop both. `border: none`
+   rather than a transparent border, for the same reason as `.maximized`
+   above. */
+.app-shell.edge-flush {
+  border-radius: 0;
+  border: none;
 }
 
 .app-headerbar {
