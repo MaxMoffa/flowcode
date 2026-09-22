@@ -218,10 +218,16 @@ pub fn pty_spawn(
     // which is what this used to check) matters now that a tab's shell can
     // actually be something else (PowerShell, pwsh) instead of whatever
     // `default_shell()` alone would have picked.
-    let is_cmd = std::path::Path::new(&shell_program)
+    let shell_stem = std::path::Path::new(&shell_program)
         .file_stem()
         .and_then(|s| s.to_str())
-        .is_some_and(|s| s.eq_ignore_ascii_case("cmd"));
+        .unwrap_or_default()
+        .to_string();
+    let is_cmd = shell_stem.eq_ignore_ascii_case("cmd");
+    // PowerShell needs the same treatment as cmd.exe below, just in its own
+    // dialect - both editions, since `pwsh` and `powershell` differ in
+    // version, not in having no cwd title of their own.
+    let is_powershell = shell_stem.eq_ignore_ascii_case("powershell") || shell_stem.eq_ignore_ascii_case("pwsh");
 
     let mut cmd = CommandBuilder::new(shell_program);
     if let Some(dir) = cwd {
@@ -246,6 +252,29 @@ pub fn pty_spawn(
     // typing, no echo and nothing to erase.
     if is_cmd {
         cmd.args(["/k", "prompt", "$E]0;$P$E\\$P$G"]);
+    }
+    // PowerShell is in the same boat as cmd.exe - it never retitles per
+    // prompt either - but it had no equivalent of the line above, so a
+    // PowerShell tab reported *no* cwd at all: `cd` never moved the
+    // explorer, and (the reason this got noticed) leaving a nested `wsl`
+    // session emitted nothing the frontend could recognize as "back on the
+    // host shell", leaving the explorer stranded on the WSL path with the
+    // tab still flagged as a WSL session - measured on this machine, where
+    // the only title around the `exit` was ConPTY restoring the original
+    // `...\powershell.exe`, which is (correctly) ignored as an executable
+    // path. `-NoExit -Command` is PowerShell's `/k`: it runs after the
+    // user's profile, so it can wrap whatever `prompt` that profile left
+    // behind (oh-my-posh and friends included) rather than replacing it -
+    // the OSC 0 title is prefixed, the visible prompt is still the user's
+    // own. Written entirely with single-quoted strings and `[char]` escapes
+    // so the whole thing survives being passed through CreateProcess as one
+    // argument without any quote juggling.
+    if is_powershell {
+        cmd.args([
+            "-NoExit",
+            "-Command",
+            "$f = $function:prompt; function prompt { $p = (Get-Location).Path; ([char]27 + ']0;' + $p + [char]7) + ((& $f) -join '') }",
+        ]);
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;

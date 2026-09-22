@@ -102,6 +102,38 @@ pub fn wsl_default_distro() -> Option<String> {
         .map(str::to_string)
 }
 
+/// The home directory of the user a WSL session runs as (e.g.
+/// `/home/alice`, `/root`). Needed because bash reports its cwd through the
+/// OSC title with `$HOME` collapsed to `~` (`\w`), and `~` is exactly where
+/// a freshly entered `wsl` starts - so without expanding it against the
+/// *distro's* idea of home, the explorer could never follow a session into
+/// the home tree at all (see App.tsx's `handleTitleChange`). Asked of the
+/// distro itself rather than assumed to be `/home/<user>`, which neither
+/// `root` nor a custom passwd entry matches. `user` comes from the title's
+/// own `user@host:` prefix; `None` falls back to the distro's default user.
+#[tauri::command]
+pub fn wsl_home_dir(distro: String, user: Option<String>) -> Option<String> {
+    let mut cmd = std::process::Command::new("wsl.exe");
+    cmd.args(["-d", &distro]);
+    if let Some(user) = user.as_deref().filter(|u| !u.is_empty()) {
+        cmd.args(["-u", user]);
+    }
+    // `printf` rather than `echo` to avoid a trailing newline, and `sh` so
+    // this doesn't depend on the session's own (possibly non-bash) shell.
+    cmd.args(["-e", "sh", "-c", "printf %s \"$HOME\""])
+        .stdin(std::process::Stdio::null());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let home = decode_wsl_output(&output.stdout).trim().to_string();
+    // A distro that failed to resolve the user prints its error to stdout in
+    // some builds, so only a real POSIX path counts as an answer.
+    home.starts_with('/').then_some(home)
+}
+
 /// `wsl.exe`'s stdout is UTF-16LE (with embedded nulls) when captured
 /// through a pipe on many Windows builds, unlike every other console tool
 /// this app shells out to - a well-known quirk of that specific binary.

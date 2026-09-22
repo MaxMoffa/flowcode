@@ -66,6 +66,7 @@ pub fn run() {
             agents::run_claude_usage_probe,
             system::system_info,
             system::wsl_default_distro,
+            system::wsl_home_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

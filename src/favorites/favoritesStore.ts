@@ -74,11 +74,6 @@ export function removeFavorite(path: string) {
   setCache(cache.filter((f) => normalize(f.path) !== target));
 }
 
-export function toggleFavorite(path: string) {
-  if (isFavorite(path)) removeFavorite(path);
-  else addFavorite(path);
-}
-
 export function subscribeFavorites(listener: Listener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

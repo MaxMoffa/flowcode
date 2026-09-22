@@ -12,7 +12,7 @@ import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, TermTab, EditorTab } from "./tabs/types";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
-import { defaultWslDistro, fromWslUncPath, toWslUncPath } from "./terminal/wslPath";
+import { defaultWslDistro, toWindowsPath, toWslPath, wslHomeDir } from "./terminal/wslPath";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
 import { ContextMenuProvider, useOpenContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
@@ -605,10 +605,48 @@ function Shell() {
     }
   }
 
+  /** Turns a WSL session's reported POSIX path into the Windows form the
+   * explorer can browse (`\\wsl.localhost\...`, or a plain `C:\...` for the
+   * distro's `/mnt` drive mounts - see `toWindowsPath`), and applies it to
+   * the tab.
+   *
+   * Async because both halves may need looking up: the distro name (a bare
+   * `wsl` with no `-d`) and the session's home dir (any `~`-shaped title,
+   * i.e. the whole home tree - which is where `wsl` drops you, so it's the
+   * normal case). Both lookups are memoized, so this costs one wsl.exe call
+   * per distro+user for the whole app session. Crucially the path travels
+   * *with* the lookup instead of the title update being dropped while one is
+   * in flight: bash emits its title once per prompt, so a dropped update
+   * would strand the explorer on the host path until the user happened to
+   * run another command - which is what "the explorer disconnects the moment
+   * I enter WSL" looked like. */
+  async function applyWslTitle(tabId: string, distro: string | undefined, user: string | undefined, path: string) {
+    const resolvedDistro = distro || (await defaultWslDistro());
+    if (!resolvedDistro) return;
+    let posixPath = path;
+    if (posixPath === "~" || posixPath.startsWith("~/")) {
+      const home = await wslHomeDir(resolvedDistro, user);
+      if (!home) return;
+      posixPath = home + posixPath.slice(1);
+    }
+    if (!posixPath.startsWith("/")) return;
+    const winPath = toWindowsPath(resolvedDistro, posixPath);
+    setTabs((prev) =>
+      prev.map((t) =>
+        // Still the same WSL session? The user may have exited back to the
+        // host shell (which clears `nestedShell`) while a lookup ran.
+        t.id === tabId && t.kind === "terminal" && t.nestedShell === "wsl"
+          ? { ...t, cwd: winPath, explorerPath: winPath, wslDistro: resolvedDistro }
+          : t,
+      ),
+    );
+  }
+
   function handleTitleChange(tabId: string, rawTitle: string) {
     const trimmed = rawTitle.trim();
-    const hostPrefix = trimmed.match(/^[^\s@]+@[^\s:]+:\s*(.+)$/);
-    const reportedPath = hostPrefix ? hostPrefix[1] : trimmed;
+    const hostPrefix = trimmed.match(/^([^\s@]+)@[^\s:]+:\s*(.+)$/);
+    const reportedUser = hostPrefix?.[1];
+    const reportedPath = hostPrefix ? hostPrefix[2] : trimmed;
     const isWindows = document.documentElement.dataset.platform === "windows";
 
     setTabs((prev) =>
@@ -619,33 +657,50 @@ function Shell() {
         // `~` only expands against *this app's own host* home dir - correct
         // for a plain local shell, but meaningless for a nested WSL/remote
         // session's own (different, unknown to this app) home. Left
-        // un-expanded there: it then simply fails `isAbsolutePath` below and
-        // this one title update is skipped, rather than being expanded into
-        // a bogus host path that would wrongly look like "back on the host
-        // shell" and drop the nested-shell tracking.
+        // un-expanded there rather than turned into a bogus host path that
+        // would wrongly look like "back on the host shell" and drop the
+        // nested-shell tracking; a WSL tab's `~` is expanded further down
+        // against the distro's own home instead, a remote's is dropped.
         const rawPath = t.nestedShell ? reportedPath : expandHome(reportedPath, homeDir);
 
-        if (!isAbsolutePath(rawPath) || looksLikeExecutablePath(rawPath)) return { ...t, label };
+        // A WSL shell collapses its home tree to `~` in the title it reports
+        // (bash's `\w`), and `wsl` starts you right there - so unlike a host
+        // shell's, a WSL tab's `~` can't be written off as "not a real cwd".
+        // It's kept and expanded against the *distro's* home in
+        // `applyWslTitle` below, where the lookup belongs.
+        const isWslHomePath = t.nestedShell === "wsl" && (rawPath === "~" || rawPath.startsWith("~/"));
+        if ((!isAbsolutePath(rawPath) && !isWslHomePath) || looksLikeExecutablePath(rawPath)) return { ...t, label };
 
         // A genuine Windows path means we're back on a real host shell,
-        // whatever nested session we might have been tracking before - with
-        // one exception: `"agent"` (Claude Code/Codex). Its own title/console
-        // noise while it owns the screen is Windows-shaped too (a resolved
-        // script or shim path, an OS default-title fallback, ...) and isn't
-        // reliably distinguishable from a real post-exit shell prompt by
-        // shape alone, unlike wsl/remote's POSIX-vs-Windows shape check -
-        // so this one candidate is verified against the filesystem before
-        // being trusted, the same deferred-update pattern as the wsl distro
-        // resolution below (this title update itself is left alone; a
-        // confirmed candidate is applied once the check resolves).
+        // whatever nested session we might have been tracking before - but
+        // only a title that names a directory that actually exists counts as
+        // one, whenever there's a nested session to drop. Windows-shaped
+        // console noise is emitted *during* a nested session too, and it
+        // isn't distinguishable from a real post-exit prompt by shape alone
+        // the way wsl/remote's POSIX titles are:
+        //   - `"agent"` (Claude Code/Codex) reports a resolved script or
+        //     shim path, or an OS default-title fallback, while it owns the
+        //     screen;
+        //   - cmd.exe retitles to "<cwd> - <command>" for the whole time a
+        //     command runs, so typing `wsl` produces a title like
+        //     `C:\...\flowcode - wsl` *before* the distro's own first title
+        //     lands - taking that at face value dropped the WSL tracking
+        //     that had just been set up, one keystroke into the session.
+        // So the candidate is verified against the filesystem first, the
+        // same deferred-update pattern as the wsl path translation below
+        // (this title update itself is left alone; a confirmed candidate is
+        // applied once the check resolves).
         if (isWindowsHostPath(rawPath)) {
-          if (t.nestedShell === "agent") {
+          const nested = t.nestedShell;
+          if (nested) {
             invoke<boolean>("is_directory", { path: rawPath }).then((isDir) => {
               if (!isDir) return;
               setTabs((prev2) =>
                 prev2.map((t2) =>
-                  t2.id === tabId && t2.kind === "terminal" && t2.nestedShell === "agent"
-                    ? { ...t2, cwd: rawPath, explorerPath: rawPath, nestedShell: undefined }
+                  // Still the same nested session? Anything that moved on
+                  // since (exited, launched an agent) owns the tab now.
+                  t2.id === tabId && t2.kind === "terminal" && t2.nestedShell === nested
+                    ? { ...t2, cwd: rawPath, explorerPath: rawPath, nestedShell: undefined, wslDistro: undefined }
                     : t2,
                 ),
               );
@@ -665,21 +720,12 @@ function Shell() {
           return { ...t, label };
         }
         if (t.nestedShell === "wsl" && isWindows) {
-          if (!t.wslDistro) {
-            // No explicit `-d` - resolve (and cache) the machine's default
-            // distro; this particular title update is left untranslated,
-            // the next one (after the shell's next prompt redraw) will have
-            // a name to translate through.
-            defaultWslDistro().then((resolved) => {
-              if (!resolved) return;
-              setTabs((prev2) =>
-                prev2.map((t2) => (t2.id === tabId && t2.kind === "terminal" ? { ...t2, wslDistro: resolved } : t2)),
-              );
-            });
-            return { ...t, label };
-          }
-          const uncPath = toWslUncPath(t.wslDistro, rawPath);
-          return { ...t, cwd: uncPath, explorerPath: uncPath, label };
+          // Deferred (see `applyWslTitle`) even when the distro is already
+          // known, so every WSL title takes the same one path through the
+          // `~`-expansion; the lookups behind it are memoized and the update
+          // it applies is idempotent for a given title.
+          void applyWslTitle(tabId, t.wslDistro, reportedUser, rawPath);
+          return { ...t, label };
         }
 
         // A plain POSIX path with no nested-shell context recognized - the
@@ -738,21 +784,28 @@ function Shell() {
     // it's set the moment this app itself launches the CLI and only clears
     // once a real shell prompt is verified back.
     const linked = explorerLinkMode === "auto" && !active?.busy && active?.nestedShell !== "agent";
+    // `path` is whatever the explorer itself browses - for a WSL tab that's
+    // the translated Windows form (see handleTitleChange), which means
+    // nothing to the actual bash session on the other end of this pty. It
+    // needs translating back to the POSIX path bash expects, and quoting
+    // POSIX-style rather than by this app's own host platform.
+    const posixPath = active?.nestedShell === "wsl" && active.wslDistro ? toWslPath(active.wslDistro, path) : null;
     if (linked) {
-      // `path` is whatever the explorer itself browses - for a WSL tab
-      // that's the `\\wsl.localhost\...` form (see handleTitleChange), which
-      // means nothing to the actual bash session on the other end of this
-      // pty. It needs translating back to the POSIX path bash expects, and
-      // quoting POSIX-style rather than by this app's own host platform.
       if (active?.nestedShell === "wsl" && active.wslDistro) {
-        const posixPath = fromWslUncPath(active.wslDistro, path);
         if (posixPath) termRefs.current.get(activeTerminalId)?.navigateSilently(posixPath, true);
       } else if (active?.nestedShell !== "remote") {
         termRefs.current.get(activeTerminalId)?.navigateSilently(path);
       }
     }
+    // Round-tripped through the POSIX form so a click that lands *inside*
+    // the distro's drive mounts (`...\Ubuntu\mnt` lists fine, and `c` is
+    // right there in it) becomes the `C:\...` path that can actually be
+    // read, rather than the share path that answers ERROR_ACCESS_DENIED -
+    // exactly the rewrite `toWindowsPath` already does for a reported title.
+    const browsePath =
+      posixPath && active?.wslDistro ? toWindowsPath(active.wslDistro, posixPath) : path;
     setTabs((prev) =>
-      prev.map((t) => (t.id === activeTerminalId && t.kind === "terminal" ? { ...t, explorerPath: path } : t)),
+      prev.map((t) => (t.id === activeTerminalId && t.kind === "terminal" ? { ...t, explorerPath: browsePath } : t)),
     );
   }
 
