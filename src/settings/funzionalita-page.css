@@ -54,7 +54,7 @@
 
 .funzionalita-import-error {
   margin: 8px 0 0;
-  color: #d6544a;
+  color: var(--danger);
   font-size: 11.5px;
 }
 
@@ -150,7 +150,7 @@
 
 .funzionalita-delete:hover {
   background: rgba(214, 84, 74, 0.14);
-  color: #d6544a;
+  color: var(--danger);
 }
 
 .funzionalita-field {

@@ -113,6 +113,11 @@ export function buildAsciiBanner(cols: number, info?: BannerSystemInfo): string 
 
   const lines: string[] = [""];
   for (const row of FLOWCODE_ART) lines.push(`  ${accent}${row}${reset}`);
+  // Plain text, not part of the block-font art - same accent color as the
+  // wordmark above it (the theme's `--accent`, moss-green in both the light
+  // and dark palette, so this reads as "always green" without hardcoding a
+  // color that would drift from the art if the palette ever changes).
+  lines.push(`  ${accent}Il terminale che si adatta a te${reset}`);
   lines.push("");
   for (const tableLine of buildInfoTable(rows, accent, dim, reset)) lines.push(`  ${tableLine}`);
   lines.push("");

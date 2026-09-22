@@ -1,3 +1,46 @@
+/* Cancels `.context-menu-custom`'s own padding (3px 9px) so the search box
+   and list can run edge-to-edge inside the menu, same as the stacked-tabs
+   overflow popup's own search does inside its wrapper. */
+.favorites-menu-content {
+  margin: -3px -9px;
+  display: flex;
+  flex-direction: column;
+}
+
+.favorites-search {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12.5px;
+}
+
+.favorites-list {
+  flex: 0 1 auto;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 5px;
+}
+
+.favorites-empty {
+  padding: 8px 9px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+/* Divider above the "Aggiungi cartella corrente" row - always the last
+   thing in the menu, regardless of how many favorites are listed above. */
+.favorites-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  padding: 5px;
+}
+
 .favorites-row {
   display: flex;
   align-items: center;

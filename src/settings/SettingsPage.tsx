@@ -43,6 +43,8 @@ interface SettingsPageProps {
   plugins: PluginDef[];
   onAddPlugin: (manifest: PluginManifest) => void;
   onDeletePlugin: (id: string) => void;
+  favoritesButtonVisible: boolean;
+  onSetFavoritesButtonVisible: (visible: boolean) => void;
 }
 
 const SECTION_TITLES = {
@@ -65,6 +67,8 @@ export function SettingsPage({
   plugins,
   onAddPlugin,
   onDeletePlugin,
+  favoritesButtonVisible,
+  onSetFavoritesButtonVisible,
 }: SettingsPageProps) {
   const { mode, setMode, glassOpacity, setGlassOpacity } = useTheme();
   const {
@@ -179,6 +183,7 @@ export function SettingsPage({
     setMode("auto");
     resetZoom();
     setBannerEnabled(true);
+    onSetFavoritesButtonVisible(true);
     setShellId("system");
     setCustomPathMode(false);
     setStartPathDraft("");
@@ -308,6 +313,29 @@ export function SettingsPage({
                     type="button"
                     className={"settings-choice" + (!bannerEnabled ? " is-active" : "")}
                     onClick={() => setBannerEnabled(false)}
+                  >
+                    Nascondi
+                  </button>
+                </div>
+              </div>
+              <div className="settings-field">
+                <span className="settings-field-label">Scorciatoia Preferiti nell'intestazione</span>
+                <p className="settings-field-desc">
+                  Pulsante a forma di stella nell'intestazione per aprire rapidamente i preferiti. Sempre disponibile anche
+                  dal menu "···", anche se nascosto qui.
+                </p>
+                <div className="settings-choice-row">
+                  <button
+                    type="button"
+                    className={"settings-choice" + (favoritesButtonVisible ? " is-active" : "")}
+                    onClick={() => onSetFavoritesButtonVisible(true)}
+                  >
+                    Mostra
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (!favoritesButtonVisible ? " is-active" : "")}
+                    onClick={() => onSetFavoritesButtonVisible(false)}
                   >
                     Nascondi
                   </button>

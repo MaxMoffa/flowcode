@@ -18,6 +18,7 @@
 .agents-sidebar-header {
   display: flex;
   align-items: center;
+  gap: 6px;
   height: var(--panel-header-h);
   padding: 0 10px;
   box-sizing: border-box;
@@ -25,6 +26,26 @@
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   flex: 0 0 auto;
+}
+
+.agents-sidebar-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.agents-sidebar-close:hover {
+  background: var(--sidebar-hover);
+  color: var(--fg);
 }
 
 .agents-sidebar-list {

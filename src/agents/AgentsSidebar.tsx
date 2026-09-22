@@ -67,6 +67,7 @@ interface AgentsSidebarProps {
    * (`claude --resume <sessionId>` / `codex resume <sessionId>`) - used for
    * a background/saved session with no local tab of its own to switch to. */
   onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex") => void;
+  onClose: () => void;
 }
 
 /** Right-side panel, same size/structure as the left file explorer, listing
@@ -88,7 +89,7 @@ function interruptPty(ptyId: string) {
   invoke("pty_write", { id: ptyId, data: "\x1b" }).catch(() => {});
 }
 
-export function AgentsSidebar({ tabs, activeTabId, getPtyId, onOpenTab, onOpenSession }: AgentsSidebarProps) {
+export function AgentsSidebar({ tabs, activeTabId, getPtyId, onOpenTab, onOpenSession, onClose }: AgentsSidebarProps) {
   const [sessions, setSessions] = useState<AgentSession[] | null>(null);
   const [claudeAgents, setClaudeAgents] = useState<ClaudeAgentEntry[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSessionEntry[]>([]);
@@ -158,7 +159,12 @@ export function AgentsSidebar({ tabs, activeTabId, getPtyId, onOpenTab, onOpenSe
 
   return (
     <div className="agents-sidebar">
-      <div className="agents-sidebar-header">Agenti attivi</div>
+      <div className="agents-sidebar-header">
+        <button type="button" className="agents-sidebar-close" title="Chiudi pannello" aria-label="Chiudi pannello" onClick={onClose}>
+          <CloseIcon />
+        </button>
+        Agenti attivi
+      </div>
       <div className="agents-sidebar-list">
         {loading && <div className="agents-sidebar-empty">Verifica in corso…</div>}
         {isEmpty && <div className="agents-sidebar-empty">Nessun agente in esecuzione.</div>}
@@ -244,6 +250,15 @@ export function AgentsSidebar({ tabs, activeTabId, getPtyId, onOpenTab, onOpenSe
 
 function StatusChip({ kind, label }: { kind: string; label: string }) {
   return <span className={`agents-sidebar-chip agents-sidebar-chip--${kind}`}>{label}</span>;
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="5" y1="5" x2="19" y2="19" />
+      <line x1="19" y1="5" x2="5" y2="19" />
+    </svg>
+  );
 }
 
 function StopIcon() {

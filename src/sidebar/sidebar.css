@@ -171,8 +171,8 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  height: 28px;
-  padding: 0 8px;
+  min-height: 28px;
+  padding: 3px 8px;
   margin: 1px 6px;
   border-radius: var(--radius-ctl);
   cursor: pointer;
@@ -213,19 +213,27 @@
   display: block;
 }
 
-.file-tree-name {
+.file-tree-name-col {
   flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
+.file-tree-name {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* The folder a recursive search match was found in - shown so results from
- * different subfolders (possibly sharing a name) stay distinguishable. */
+/* The folder a recursive search match was found in - shown on its own line
+ * under the name (rather than squeezed beside it) so results from different
+ * subfolders, possibly sharing a name, stay distinguishable without either
+ * line fighting the other for width. */
 .file-tree-result-path {
-  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-left: 6px;
   color: var(--fg-muted);
   font-size: 11px;
 }

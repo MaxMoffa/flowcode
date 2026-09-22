@@ -93,6 +93,10 @@ export interface TerminalHandle {
 }
 
 interface TerminalViewProps {
+  /** This tab's own id - used only to look up its per-tab zoom override
+   * (see TerminalSettingsContext's `getTabFontSize`), same idea as a
+   * browser's per-tab zoom. */
+  tabId: string;
   cwd?: string;
   hidden?: boolean;
   onTitleChange?: (title: string) => void;
@@ -118,10 +122,15 @@ interface TerminalViewProps {
    * Only read once, at mount - reusing a TerminalView instance for a
    * different `runOnStart` later does nothing. */
   runOnStart?: string;
+  /** One-off shell for this tab, overriding the configured default (see
+   * TerminalSettingsContext's `shellId`) - set by the "+" button's own
+   * context menu when a specific shell (e.g. WSL) was picked instead of
+   * just clicking it. Only read once, at spawn, same as `runOnStart`. */
+  shellOverride?: string;
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, shellOverride }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -136,14 +145,15 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   onCommandLineRef.current = onCommandLine;
   const lineBufferRef = useRef("");
   const { theme } = useTheme();
-  const { fontSize, bannerEnabled, shellId } = useTerminalSettings();
+  const { getTabFontSize, bannerEnabled, shellId } = useTerminalSettings();
+  const fontSize = getTabFontSize(tabId);
   const bannerEnabledRef = useRef(bannerEnabled);
   bannerEnabledRef.current = bannerEnabled;
   // Read at spawn time only (like bannerEnabledRef above) - changing the
   // shell in Settings takes effect on the next new tab, not by tearing down
   // whatever's already running in existing ones.
-  const shellIdRef = useRef(shellId);
-  shellIdRef.current = shellId;
+  const shellIdRef = useRef(shellOverride ?? shellId);
+  shellIdRef.current = shellOverride ?? shellId;
   const initialFontSizeRef = useRef(fontSize);
 
   // Absolute row (scrollback-inclusive) where a pending silent navigation's

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { addFavorite, listFavorites, removeFavorite, subscribeFavorites } from "./favoritesStore";
 import "./favorites.css";
@@ -11,7 +11,7 @@ interface FavoritesButtonProps {
   onOpenFolder: (path: string) => void;
 }
 
-function StarIcon() {
+export function StarIcon() {
   return (
     <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" width="16" height="16" stroke="currentColor" fill="none">
       <path d="M12 3.8l2.35 4.9 5.35.68-3.9 3.75.98 5.37L12 15.9l-4.78 2.6.98-5.37-3.9-3.75 5.35-.68z" />
@@ -36,38 +36,53 @@ function AddIcon() {
   );
 }
 
-/** Header quick-access to folders pinned as favorites - addable from here
- * (current terminal folder), from the file explorer's own context menu, or
- * removable straight from this menu. Left click and right click behave the
- * same: both just open the list, there's nothing hidden behind a second
- * gesture. */
-export function FavoritesButton({ activeCwd, onOpenFolder }: FavoritesButtonProps) {
+interface FavoritesMenuContentProps {
+  /** The active terminal's real cwd, if any - lets the footer's "Aggiungi
+   * cartella corrente" row show up straight from this menu. */
+  activeCwd?: string;
+  onOpenFolder: (path: string) => void;
+  /** Closes whichever menu (top-level or flyout) this content ends up
+   * rendered in. */
+  hide: () => void;
+}
+
+/** The favorites menu's full body - shared by the header's own
+ * FavoritesButton and App.tsx's top-right "..." menu (a "Preferiti" submenu
+ * entry there), as a single self-contained component rather than a plain
+ * list of ContextMenuItems: a search box (same idea as the stacked-tabs
+ * overflow popup's own "Cerca tab…") needs to filter the list live as the
+ * user types, which a static items array handed to ContextMenuProvider at
+ * open time can't do - and subscribing to the favorites store directly here
+ * (rather than taking `favorites` as a prop computed once at open time)
+ * means both call sites stay live if a favorite is added/removed elsewhere
+ * while the menu is open. */
+function FavoritesMenuContent({ activeCwd, onOpenFolder, hide }: FavoritesMenuContentProps) {
   const favorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
-  const { show, hide } = useContextMenu();
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  function openMenu(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    const items: ContextMenuItem[] = [];
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
-    if (activeCwd) {
-      items.push({
-        label: "Aggiungi cartella corrente",
-        icon: <AddIcon />,
-        onSelect: () => addFavorite(activeCwd),
-      });
-      if (favorites.length > 0) items.push({ separator: true, label: "sep-add" });
-    }
+  const filtered = favorites.filter((f) => f.name.toLowerCase().includes(query.trim().toLowerCase()));
 
-    if (favorites.length === 0 && !activeCwd) {
-      items.push({ label: "Nessun preferito", disabled: true, onSelect: undefined });
-    }
-
-    favorites.forEach((fav) => {
-      items.push({
-        label: `fav-${fav.path}`,
-        custom: (
+  return (
+    <div className="favorites-menu-content">
+      <input
+        ref={inputRef}
+        type="text"
+        className="favorites-search"
+        placeholder="Cerca preferiti…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <div className="favorites-list">
+        {favorites.length === 0 && <div className="favorites-empty">Nessun preferito</div>}
+        {favorites.length > 0 && filtered.length === 0 && <div className="favorites-empty">Nessun risultato</div>}
+        {filtered.map((fav) => (
           <div
+            key={fav.path}
             className="favorites-row"
             onClick={() => {
               hide();
@@ -85,8 +100,11 @@ export function FavoritesButton({ activeCwd, onOpenFolder }: FavoritesButtonProp
               aria-label={`Rimuovi ${fav.name} dai preferiti`}
               onClick={(ev) => {
                 ev.stopPropagation();
+                // Same rule as the stacked-tabs overflow popup: only close
+                // the whole menu if this was the last row on screen,
+                // otherwise stay open so several can be removed in a row.
+                if (filtered.length === 1) hide();
                 removeFavorite(fav.path);
-                hide();
               }}
             >
               <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
@@ -95,11 +113,46 @@ export function FavoritesButton({ activeCwd, onOpenFolder }: FavoritesButtonProp
               </svg>
             </button>
           </div>
-        ),
-      });
-    });
+        ))}
+      </div>
+      {activeCwd && (
+        <div className="favorites-footer">
+          <div
+            className="favorites-row"
+            onClick={() => {
+              hide();
+              addFavorite(activeCwd);
+            }}
+          >
+            <span className="context-menu-icon">
+              <AddIcon />
+            </span>
+            <span className="context-menu-label">Aggiungi cartella corrente</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-    show(e.clientX, e.clientY, items);
+/** `ContextMenuItem` wrapper around `FavoritesMenuContent`, for the two call
+ * sites that hand it to `show()`/a `submenu` array. */
+export function favoritesMenuItem(props: FavoritesMenuContentProps): ContextMenuItem {
+  return { label: "favorites-content", custom: <FavoritesMenuContent {...props} /> };
+}
+
+/** Header quick-access to folders pinned as favorites - addable from here
+ * (current terminal folder), from the file explorer's own context menu, or
+ * removable straight from this menu. Left click and right click behave the
+ * same: both just open the list, there's nothing hidden behind a second
+ * gesture. */
+export function FavoritesButton({ activeCwd, onOpenFolder }: FavoritesButtonProps) {
+  const { show, hide } = useContextMenu();
+
+  function openMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    show(e.clientX, e.clientY, [favoritesMenuItem({ activeCwd, onOpenFolder, hide })]);
   }
 
   return (

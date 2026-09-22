@@ -6,6 +6,11 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use flowcode_shared::CREATE_NO_WINDOW;
+
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
@@ -144,9 +149,25 @@ pub struct ShellOption {
     label: String,
 }
 
+/// Whether `wsl.exe` resolves to a real, usable WSL install with at least
+/// one distro registered - `-l -q` (quiet, just distro names, no `-v`
+/// table header to parse) exits non-zero both when WSL itself isn't
+/// installed at all and when it's installed but has no distro yet, either
+/// of which means there's nothing a "wsl" shell option could actually
+/// launch. Same spawn shape as `wsl_default_distro` in system.rs.
+#[cfg(target_os = "windows")]
+fn wsl_installed() -> bool {
+    let mut cmd = std::process::Command::new("wsl.exe");
+    cmd.args(["-l", "-q"]).stdin(std::process::Stdio::null());
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd.output().map(|out| out.status.success()).unwrap_or(false)
+}
+
 /// The terminal choices the Settings page offers, filtered to what actually
 /// makes sense on this OS - a Windows build has no business offering zsh,
-/// and vice versa.
+/// and vice versa. "wsl" only ever appears when `wsl_installed()` finds a
+/// real, usable install - offering it otherwise would just hand back a
+/// shell option that fails the moment it's picked.
 #[tauri::command]
 pub fn list_shell_options() -> Vec<ShellOption> {
     let mut options = vec![ShellOption { id: "system".into(), label: "Predefinita di sistema".into() }];
@@ -154,6 +175,10 @@ pub fn list_shell_options() -> Vec<ShellOption> {
         options.push(ShellOption { id: "cmd".into(), label: "Prompt dei comandi (cmd)".into() });
         options.push(ShellOption { id: "powershell".into(), label: "Windows PowerShell".into() });
         options.push(ShellOption { id: "pwsh".into(), label: "PowerShell 7".into() });
+        #[cfg(target_os = "windows")]
+        if wsl_installed() {
+            options.push(ShellOption { id: "wsl".into(), label: "WSL".into() });
+        }
     } else if cfg!(target_os = "macos") {
         options.push(ShellOption { id: "zsh".into(), label: "zsh".into() });
         options.push(ShellOption { id: "bash".into(), label: "bash".into() });
@@ -177,6 +202,7 @@ fn resolve_shell(id: Option<&str>) -> String {
         Some("cmd") => "cmd.exe".into(),
         Some("powershell") => "powershell.exe".into(),
         Some("pwsh") => "pwsh.exe".into(),
+        Some("wsl") => "wsl.exe".into(),
         Some("zsh") => "zsh".into(),
         Some("bash") => "bash".into(),
         Some("sh") => "sh".into(),

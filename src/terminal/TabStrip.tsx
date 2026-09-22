@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
 import type { AppTab } from "../tabs/types";
 import { FileTypeIcon } from "../sidebar/fileIcons";
+import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import "./tabstrip.css";
 
 interface TabStripProps {
@@ -10,8 +12,14 @@ interface TabStripProps {
   dirtyIds?: Set<string>;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onNew: () => void;
+  /** Creates a new terminal tab - `shellId` (a `list_shell_options` id, from
+   * the "+" button's own context menu) picks a specific shell instead of the
+   * configured default. */
+  onNew: (shellId?: string) => void;
   onRename: (id: string, label: string) => void;
+  /** Opens a second, independent copy of a tab - same cwd for a terminal,
+   * same file for an editor. Not offered for the (singleton) settings tab. */
+  onDuplicate: (id: string) => void;
 }
 
 // Tabs have a fixed CSS width, so how many fit is plain arithmetic instead
@@ -42,6 +50,57 @@ function GearIcon() {
       <path d="M12 3.5v2.4M12 18.1v2.4M20.5 12h-2.4M5.9 12H3.5M17.7 6.3l-1.7 1.7M8 16l-1.7 1.7M17.7 17.7 16 16M8 8 6.3 6.3" />
     </svg>
   );
+}
+
+function PromptIcon() {
+  return (
+    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <path d="M7 9.5 10.5 12.5 7 15.5" />
+      <line x1="12" y1="15.5" x2="16" y2="15.5" />
+    </svg>
+  );
+}
+
+/** Same terminal-box shape as PromptIcon, but a plain chevron with no
+ * underscore bar - a deliberately small, brand-neutral difference from cmd's
+ * own icon (this app draws no real shell logos) so PowerShell/pwsh rows
+ * still read as visually distinct from the cmd row in the "+" button's
+ * shell-picker menu. */
+function ChevronBoxIcon() {
+  return (
+    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <path d="M8 9 13 12 8 15" />
+    </svg>
+  );
+}
+
+/** Generic "Linux" stand-in (an abstract penguin silhouette, not the Tux
+ * artwork itself) for the WSL shell option. */
+function PenguinIcon() {
+  return (
+    <svg viewBox="0 0 24 24" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
+      <path d="M12 3.5c-2.6 0-4.3 2-4.3 4.6 0 1.4.4 2.3.4 3.4 0 2-1.4 3.3-1.4 5.7 0 2 2.3 3.3 5.3 3.3s5.3-1.3 5.3-3.3c0-2.4-1.4-3.7-1.4-5.7 0-1.1.4-2 .4-3.4 0-2.6-1.7-4.6-4.3-4.6z" />
+      <circle cx="10.2" cy="9.3" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="13.8" cy="9.3" r="0.9" fill="currentColor" stroke="none" />
+      <path d="M10.5 17.5 9 20.5M13.5 17.5 15 20.5" />
+    </svg>
+  );
+}
+
+/** Icon for a `list_shell_options` row, used in the "+" button's own
+ * shell-picker context menu (see TabStrip's onContextMenu handler below) -
+ * `id` is the same id `pty_spawn`'s `shell` argument and `resolve_shell` in
+ * pty.rs understand. */
+function shellOptionIcon(id: string) {
+  if (id === "wsl") return <PenguinIcon />;
+  if (id === "cmd") return <PromptIcon />;
+  if (id === "powershell" || id === "pwsh") return <ChevronBoxIcon />;
+  if (id === "system") return <GearIcon />;
+  // zsh/bash/sh (macOS/Linux builds) - same neutral prompt icon as cmd,
+  // nothing platform-specific to tell them apart with.
+  return <PromptIcon />;
 }
 
 function tabIcon(tab: AppTab) {
@@ -150,7 +209,7 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onD
   );
 }
 
-export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, onRename }: TabStripProps) {
+export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, onRename, onDuplicate }: TabStripProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [overflowAnchorRect, setOverflowAnchorRect] = useState<DOMRect | null>(null);
@@ -159,6 +218,19 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const folderTabRef = useRef<HTMLDivElement>(null);
+  const openMenu = useOpenContextMenu();
+  // Fetched once, purely to answer "is there more than one shell to offer" -
+  // same list Settings uses for the default-shell picker (see
+  // list_shell_options in pty.rs), already filtered there to what's actually
+  // usable on this OS/machine (a WSL entry only exists here when it's really
+  // installed).
+  const [shellOptions, setShellOptions] = useState<{ id: string; label: string }[]>([]);
+
+  useEffect(() => {
+    invoke<{ id: string; label: string }[]>("list_shell_options")
+      .then(setShellOptions)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (editingId) {
@@ -185,6 +257,20 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
   function commitEditing() {
     if (editingId) onRename(editingId, draft);
     setEditingId(null);
+  }
+
+  function tabMenuItems(tab: AppTab): ContextMenuItem[] {
+    const items: ContextMenuItem[] = [
+      // Same effect as double-clicking the label - just reachable without
+      // knowing that gesture exists.
+      { label: "Rinomina", onSelect: () => startEditing(tab) },
+    ];
+    if (tab.kind !== "settings") {
+      items.push({ label: "Duplica", onSelect: () => onDuplicate(tab.id) });
+    }
+    items.push({ separator: true, label: "sep-close" });
+    items.push({ label: "Chiudi", danger: true, onSelect: () => onClose(tab.id) });
+    return items;
   }
 
   const totalSlots = computeVisibleSlots(containerWidth, tabs.length);
@@ -237,6 +323,7 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
             key={tab.id}
             className={"term-tab" + (tab.id === activeId ? " is-active" : "")}
             onClick={() => onSelect(tab.id)}
+            onContextMenu={(e) => openMenu(e, tabMenuItems(tab))}
             title={tabTitle(tab)}
           >
             {tabIcon(tab)}
@@ -298,7 +385,26 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
           <span className="term-tab-label">{folderPreview.label}</span>
         </div>
       )}
-      <button type="button" className="term-tab-new" aria-label="New terminal tab" title="New terminal" onClick={() => onNew()}>
+      <button
+        type="button"
+        className="term-tab-new"
+        aria-label="New terminal tab"
+        title="Nuovo terminale (click destro per scegliere la shell)"
+        onClick={() => onNew()}
+        onContextMenu={(e) => {
+          // Only worth a picker when there's an actual choice - one option
+          // (just "system") means this would open on a menu with nothing
+          // useful to pick, so it falls straight through to a plain new tab.
+          if (shellOptions.length <= 1) {
+            onNew();
+            return;
+          }
+          openMenu(
+            e,
+            shellOptions.map((opt) => ({ label: opt.label, icon: shellOptionIcon(opt.id), onSelect: () => onNew(opt.id) })),
+          );
+        }}
+      >
         <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />

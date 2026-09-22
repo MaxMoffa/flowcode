@@ -19,7 +19,7 @@ import { TerminalSettingsProvider, useTerminalSettings } from "./terminal/Termin
 import { defaultWslDistro, toWindowsPath, toWslPath, wslHomeDir } from "./terminal/wslPath";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
-import { ContextMenuProvider, useOpenContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
+import { ContextMenuProvider, useOpenContextMenu, useContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
 import { ConfirmDialogProvider, useConfirmDialog } from "./dialog/ConfirmDialogContext";
 import { SettingsPage } from "./settings/SettingsPage";
 import { SettingsNav } from "./settings/SettingsNav";
@@ -31,7 +31,7 @@ import { PluginDialog } from "./plugins/PluginDialog";
 import { BUILTIN_PLUGINS, EXAMPLE_PLUGINS, DEFAULT_QUICK_ACTIONS } from "./plugins/registry";
 import { pluginIconNode } from "./plugins/icons";
 import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
-import { FavoritesButton } from "./favorites/FavoritesButton";
+import { FavoritesButton, StarIcon, favoritesMenuItem } from "./favorites/FavoritesButton";
 import { WelcomeFlow } from "./welcome/WelcomeFlow";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
 import "./App.css";
@@ -54,6 +54,9 @@ const SIDEBAR_AUTO_BREAKPOINT = 880;
 const QUICK_ACTIONS_KEY = "flowcode.quickActions";
 const PLUGINS_SEEDED_KEY = "flowcode.pluginsSeeded";
 const PLUGINS_MIGRATED_KEY = "flowcode.pluginsActionMigrated";
+const FAVORITES_BUTTON_VISIBLE_KEY = "flowcode.favoritesButtonVisible";
+const SIDEBAR_COLLAPSED_KEY = "flowcode.sidebarCollapsed";
+const AGENTS_SIDEBAR_OPEN_KEY = "flowcode.agentsSidebarOpen";
 
 function readQuickActions(): string[] {
   try {
@@ -63,6 +66,27 @@ function readQuickActions(): string[] {
     /* storage unavailable or malformed */
   }
   return DEFAULT_QUICK_ACTIONS;
+}
+
+function readFavoritesButtonVisible(): boolean {
+  try {
+    return localStorage.getItem(FAVORITES_BUTTON_VISIBLE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/** Reads a plain "1"/"0" localStorage flag, defaulting when unset or when
+ * storage itself isn't available. */
+function readBoolFlag(key: string, fallback: boolean): boolean {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+    /* storage unavailable */
+  }
+  return fallback;
 }
 
 const Icons = {
@@ -116,6 +140,16 @@ const Icons = {
       <path d="M12 3.5v2.4M12 18.1v2.4M20.5 12h-2.4M5.9 12H3.5M17.7 6.3l-1.7 1.7M8 16l-1.7 1.7M17.7 17.7 16 16M8 8 6.3 6.3" />
     </svg>
   ),
+  fullscreen: (
+    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+      <path d="M9 4.5H5.5a1 1 0 0 0-1 1V9M15 4.5h3.5a1 1 0 0 1 1 1V9M20 15v3.5a1 1 0 0 1-1 1H15M4.5 15v3.5a1 1 0 0 0 1 1H9" />
+    </svg>
+  ),
+  fullscreenExit: (
+    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+      <path d="M9 9H5.5M9 9V5.5M9 9 4.5 4.5M15 9h3.5M15 9V5.5M15 9l4.5-4.5M15 15h3.5M15 15v3.5M15 15l4.5 4.5M9 15H5.5M9 15v3.5M9 15 4.5 19.5" />
+    </svg>
+  ),
   newTerminal: (
     <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
       <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
@@ -149,6 +183,93 @@ const Icons = {
     </svg>
   ),
 };
+
+/** The context menu's zoom row, as its own component rather than inline JSX
+ * built from App's own state - the menu's items are a snapshot captured
+ * once when it opens (see ContextMenuProvider), so a plain `{size}px` baked
+ * into that snapshot would never update after +/- clicks while the menu
+ * stays open. Subscribing to `useTerminalSettings()` here instead means this
+ * component re-renders off the context itself, independent of when its
+ * enclosing JSX was created.
+ *
+ * +/- here zoom only `tabId` (the last-active terminal), like a browser's
+ * per-tab zoom - the app-wide default (Settings > terminale) is untouched.
+ * When this tab's size has drifted from that default, the value switches to
+ * the accent color and a reset button appears next to it. The px box itself
+ * is a real input - typing a value and committing it (Enter/blur) goes
+ * through the same `setTabFontSize` the +/- buttons use. */
+function ZoomRow({ tabId }: { tabId: string }) {
+  const {
+    fontSize: defaultSize,
+    tabFontSizeOverrides,
+    getTabFontSize,
+    zoomTabIn,
+    zoomTabOut,
+    setTabFontSize,
+    resetTabZoom,
+  } = useTerminalSettings();
+  const size = getTabFontSize(tabId);
+  const isCustom = tabId in tabFontSizeOverrides;
+  // A locally-staged copy of the digits being typed - committing on every
+  // keystroke would run each partial value through `setTabFontSize`'s
+  // clamp (e.g. "1" while typing "12" would clamp up to MIN_SIZE and never
+  // let the second digit land). Only applied on blur/Enter; reverts to the
+  // real size on Escape or on unparsable input.
+  const [draft, setDraft] = useState(String(size));
+  useEffect(() => setDraft(String(size)), [size]);
+
+  function commit() {
+    const parsed = parseInt(draft, 10);
+    if (Number.isFinite(parsed)) setTabFontSize(tabId, parsed);
+    else setDraft(String(size));
+  }
+
+  return (
+    <div className="context-menu-zoom-row">
+      <button type="button" className="context-menu-zoom-btn" aria-label="Riduci zoom" onClick={() => zoomTabOut(tabId)}>
+        −
+      </button>
+      <button type="button" className="context-menu-zoom-btn" aria-label="Aumenta zoom" onClick={() => zoomTabIn(tabId)}>
+        +
+      </button>
+      <span
+        className={"context-menu-zoom-value" + (isCustom ? " is-custom" : "")}
+        title={isCustom ? `Diversa dal valore predefinito (${defaultSize}px)` : "Dimensione carattere di questo terminale"}
+      >
+        <input
+          type="text"
+          inputMode="numeric"
+          className="context-menu-zoom-input"
+          value={draft}
+          aria-label="Dimensione carattere"
+          onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commit();
+              e.currentTarget.blur();
+            } else if (e.key === "Escape") {
+              e.stopPropagation();
+              setDraft(String(size));
+              e.currentTarget.blur();
+            }
+          }}
+        />
+        <span className="context-menu-zoom-unit">px</span>
+      </span>
+      <button
+        type="button"
+        className="context-menu-zoom-btn context-menu-zoom-reset"
+        aria-label="Ripristina dimensione predefinita"
+        title="Ripristina dimensione predefinita"
+        disabled={!isCustom}
+        onClick={() => resetTabZoom(tabId)}
+      >
+        {Icons.zoomReset}
+      </button>
+    </div>
+  );
+}
 
 function labelForCwd(cwd: string, home: string): string {
   if (cwd === home) return home;
@@ -207,8 +328,29 @@ function expandHome(path: string, home: string): string {
 let nextTabId = 1;
 
 function Shell() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readBoolFlag(SIDEBAR_COLLAPSED_KEY, false));
+  const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(() => readBoolFlag(AGENTS_SIDEBAR_OPEN_KEY, false));
+
+  // Both side panels remember their shown/hidden state across app restarts -
+  // every toggle path (the header button, the command palette, closing the
+  // floating sidebar's backdrop, the agents panel's own X, ...) just flows
+  // through these two setters already, so persisting here covers all of them
+  // without touching each call site individually.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AGENTS_SIDEBAR_OPEN_KEY, agentsSidebarOpen ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  }, [agentsSidebarOpen]);
   const [sidebarMode, setSidebarModeState] = useState<SidebarMode>(() => {
     try {
       const stored = localStorage.getItem(SIDEBAR_MODE_KEY);
@@ -249,8 +391,10 @@ function Shell() {
   const [activeTerminalId, setActiveTerminalId] = useState("tab-0");
   const [isMaximized, setIsMaximized] = useState(false);
   const [isEdgeFlush, setIsEdgeFlush] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set());
   const [quickActionIds, setQuickActionIds] = useState<string[]>(readQuickActions);
+  const [favoritesButtonVisible, setFavoritesButtonVisibleState] = useState<boolean>(readFavoritesButtonVisible);
   const [pluginMenuAnchor, setPluginMenuAnchor] = useState<DOMRect | null>(null);
   const [customPlugins, setCustomPlugins] = useState<PluginDef[]>([]);
   const [pluginToast, setPluginToast] = useState<string | null>(null);
@@ -261,12 +405,28 @@ function Shell() {
   // openTerminalWithCommand, read once by that tab's own TerminalView via
   // its runOnStart prop (see the render loop below).
   const pendingCommandsRef = useRef(new Map<string, string>());
+  // A one-off shell override for a tab about to be created (the "+" button's
+  // own context menu picking a specific shell, e.g. WSL, instead of the
+  // configured default) - read once by that tab's TerminalView via its
+  // shellOverride prop (see the render loop below), same lifecycle as
+  // pendingCommandsRef above.
+  const pendingShellOverrideRef = useRef(new Map<string, string>());
   const editorRefs = useRef(new Map<string, EditorHandle>());
   const pluginBtnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirmDialog();
   const openMenu = useOpenContextMenu();
+  const { hide: hideMenu } = useContextMenu();
+
+  function setFavoritesButtonVisible(visible: boolean) {
+    setFavoritesButtonVisibleState(visible);
+    try {
+      localStorage.setItem(FAVORITES_BUTTON_VISIBLE_KEY, visible ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  }
   const { mode, toggleTheme, setMode } = useTheme();
-  const { fontSize, zoomIn, zoomOut, resetZoom, startPath } = useTerminalSettings();
+  const { startPath, resetTabZoom } = useTerminalSettings();
 
   function toggleQuickAction(id: string) {
     setQuickActionIds((prev) => {
@@ -436,6 +596,7 @@ function Shell() {
     const updateMaximizedState = async () => {
       const maximized = await appWindow.isMaximized();
       setIsMaximized(maximized);
+      appWindow.isFullscreen().then(setIsFullscreen).catch(() => {});
       if (maximized) {
         setIsEdgeFlush(false);
         return;
@@ -493,8 +654,8 @@ function Shell() {
     // that only goes unnoticed on a floating window. Flush against the
     // screen edge or a neighboring Snapped window, the rounded clip nicks a
     // visible notch out of the corner, so square it off there instead.
-    invoke("set_window_square_corners", { square: isMaximized || isEdgeFlush }).catch(() => {});
-  }, [isMaximized, isEdgeFlush]);
+    invoke("set_window_square_corners", { square: isMaximized || isEdgeFlush || isFullscreen }).catch(() => {});
+  }, [isMaximized, isEdgeFlush, isFullscreen]);
 
   useEffect(() => {
     const onResize = () => setWindowWidth(window.innerWidth);
@@ -540,11 +701,30 @@ function Shell() {
     if (tab?.kind === "terminal") setActiveTerminalId(id);
   }
 
-  function addTab(cwdOverride?: string) {
-    const active = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
-    const cwd = cwdOverride || active?.cwd || resolvedStartPath || homeDir;
+  function addTab(cwdOverride?: string, shellOverride?: string) {
+    // No longer inherits the active tab's cwd - a fresh tab always starts at
+    // the configured start folder (Impostazioni > Cartella di avvio), which
+    // defaults to the user's home dir when left unset, same as
+    // `resolvedStartPath`'s own fallback below. `cwdOverride` is still how a
+    // caller that *does* want a specific folder (duplicateTab, opening a
+    // favorite, resuming an agent session) gets one.
+    const cwd = cwdOverride || resolvedStartPath || homeDir;
     const id = `tab-${nextTabId++}`;
-    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir) }]);
+    if (shellOverride) pendingShellOverrideRef.current.set(id, shellOverride);
+    // A tab whose shell *is* wsl.exe from the moment it spawns never goes
+    // through the "user typed `wsl`" detection in handleCommandLine below -
+    // there's no host shell first for them to type into - so without this
+    // its first WSL prompt's title update is read as a plain host path
+    // (nestedShell undefined) and the explorer just never follows it in.
+    // `cwd` above is still a host path (there's no host shell to have had a
+    // real one) - same placeholder-until-corrected behavior as typing `wsl`
+    // into an existing tab, fixed up by applyWslTitle the moment the first
+    // prompt reports the distro's actual cwd.
+    const nestedShell = shellOverride === "wsl" ? "wsl" : undefined;
+    setTabs((prev) => [
+      ...prev,
+      { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir), nestedShell },
+    ]);
     setActiveTabId(id);
     setActiveTerminalId(id);
   }
@@ -572,6 +752,26 @@ function Shell() {
     setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir) }]);
     setActiveTabId(id);
     setActiveTerminalId(id);
+  }
+
+  /** A second, independent tab alongside `id` - same cwd for a terminal
+   * (via addTab's own cwdOverride), same file for an editor (bypassing
+   * openFile's own "already open, just switch to it" dedupe, since
+   * duplicating an already-open file is exactly asking for a second tab on
+   * it). Settings has nothing to duplicate (a singleton tab - see
+   * openSettings) so it's simply not offered there (see TabStrip's own menu). */
+  function duplicateTab(id: string) {
+    const tab = tabs.find((t) => t.id === id);
+    if (!tab) return;
+    if (tab.kind === "terminal") {
+      addTab(tab.cwd);
+      return;
+    }
+    if (tab.kind === "editor") {
+      const newId = `editor-${nextTabId++}`;
+      setTabs((prev) => [...prev, { kind: "editor", id: newId, path: tab.path, label: tab.label }]);
+      setActiveTabId(newId);
+    }
   }
 
   function openFile(path: string) {
@@ -608,6 +808,16 @@ function Shell() {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
     if (tab.kind === "terminal") {
+      // Closing the very last tab of any kind (nothing else open - no
+      // editor, no settings) mirrors how a plain terminal app behaves:
+      // there's nothing left to show, so quit rather than leave an empty
+      // shell of a window around. Editor/settings tabs still open take
+      // priority - closing just falls through to the "replace in place"
+      // branch below instead, so nothing else gets torn down unprompted.
+      if (tabs.length === 1) {
+        appWindow.close();
+        return;
+      }
       // The app always needs at least one terminal, but that's no reason to
       // refuse to close the last one outright - a stuck/broken session
       // (e.g. one whose shell never started right) then has no way to
@@ -626,6 +836,8 @@ function Shell() {
         setActiveTerminalId(newId);
         termRefs.current.delete(id);
         pendingCommandsRef.current.delete(id);
+        pendingShellOverrideRef.current.delete(id);
+        resetTabZoom(id);
         return;
       }
     } else {
@@ -654,6 +866,8 @@ function Shell() {
     termRefs.current.delete(id);
     editorRefs.current.delete(id);
     pendingCommandsRef.current.delete(id);
+    pendingShellOverrideRef.current.delete(id);
+    resetTabZoom(id);
     setDirtyIds((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
@@ -1075,6 +1289,13 @@ function Shell() {
     );
   }
 
+  function toggleFullscreen() {
+    appWindow
+      .setFullscreen(!isFullscreen)
+      .then(() => setIsFullscreen((f) => !f))
+      .catch(() => {});
+  }
+
   const themeModeLabels: Record<ThemeMode, string> = {
     auto: "Automatico (sistema)",
     light: "Chiaro",
@@ -1085,29 +1306,39 @@ function Shell() {
     return [
       {
         label: "zoom-row",
-        custom: (
-          <div className="context-menu-zoom-row">
-            <button type="button" className="context-menu-zoom-btn" aria-label="Riduci zoom" onClick={zoomOut}>
-              −
-            </button>
-            <button type="button" className="context-menu-zoom-value" onClick={resetZoom} title="Reimposta zoom">
-              {fontSize}px
-            </button>
-            <button type="button" className="context-menu-zoom-btn" aria-label="Aumenta zoom" onClick={zoomIn}>
-              +
-            </button>
-          </div>
-        ),
+        custom: <ZoomRow tabId={activeTerminalId} />,
       },
       { separator: true, label: "sep-zoom" },
-      ...(["auto", "light", "dark"] as ThemeMode[]).map((m) => ({
-        label: themeModeLabels[m],
-        icon: m === "auto" ? Icons.settings : m === "light" ? Icons.sun : Icons.moon,
-        checked: mode === m,
-        onSelect: () => setMode(m),
-      })),
+      { label: "Nuovo terminale", icon: Icons.newTerminal, onSelect: () => addTab() },
+      {
+        label: isFullscreen ? "Esci da schermo intero" : "Schermo intero",
+        icon: isFullscreen ? Icons.fullscreenExit : Icons.fullscreen,
+        onSelect: toggleFullscreen,
+      },
+      {
+        label: "Preferiti",
+        icon: <StarIcon />,
+        submenu: [
+          favoritesMenuItem({
+            activeCwd: activeTerminal && !activeTerminal.busy ? activeTerminal.cwd || undefined : undefined,
+            onOpenFolder: browseExplorer,
+            hide: hideMenu,
+          }),
+        ],
+      },
+      { separator: true, label: "sep-actions" },
+      {
+        label: "Tema",
+        icon: mode === "auto" ? Icons.settings : mode === "light" ? Icons.sun : Icons.moon,
+        submenu: (["auto", "light", "dark"] as ThemeMode[]).map((m) => ({
+          label: themeModeLabels[m],
+          icon: m === "auto" ? Icons.settings : m === "light" ? Icons.sun : Icons.moon,
+          checked: mode === m,
+          onSelect: () => setMode(m),
+        })),
+      },
       { separator: true, label: "sep-theme" },
-      { label: "Impostazioni…", icon: Icons.settings, onSelect: openSettings },
+      { label: "Impostazioni", icon: Icons.settings, onSelect: openSettings },
     ];
   }
 
@@ -1117,8 +1348,20 @@ function Shell() {
         <button
           className="icon-button"
           onClick={() => setSidebarCollapsed((c) => !c)}
+          onContextMenu={(e) =>
+            openMenu(
+              e,
+              (
+                [
+                  ["auto", "Automatica (larghezza)"],
+                  ["docked", "Fissato"],
+                  ["floating", "Flottante"],
+                ] as [SidebarMode, string][]
+              ).map(([m, label]) => ({ label, checked: sidebarMode === m, onSelect: () => setSidebarMode(m) })),
+            )
+          }
           aria-label="Mostra/nascondi pannello laterale"
-          title="Mostra/nascondi pannello laterale"
+          title="Mostra/nascondi pannello laterale (click destro per la modalità)"
         >
           <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
@@ -1132,8 +1375,9 @@ function Shell() {
           dirtyIds={dirtyIds}
           onSelect={selectTab}
           onClose={closeTab}
-          onNew={() => addTab()}
+          onNew={(shellId) => addTab(undefined, shellId)}
           onRename={renameTab}
+          onDuplicate={duplicateTab}
         />
 
         <div className="header-right">
@@ -1142,14 +1386,25 @@ function Shell() {
               {quickActionIds.map((id) => {
                 const plugin = allPlugins.find((p) => p.id === id);
                 if (!plugin) return null;
-                return <PluginUsageButton key={id} plugin={plugin} icon={pluginIconNode(plugin)} onRun={() => runPlugin(plugin)} />;
+                return (
+                  <div
+                    key={id}
+                    onContextMenu={(e) =>
+                      openMenu(e, [{ label: "Rimuovi dagli shortcut", danger: true, onSelect: () => toggleQuickAction(id) }])
+                    }
+                  >
+                    <PluginUsageButton plugin={plugin} icon={pluginIconNode(plugin)} onRun={() => runPlugin(plugin)} />
+                  </div>
+                );
               })}
             </div>
           )}
-          <FavoritesButton
-            activeCwd={activeTerminal && !activeTerminal.busy ? activeTerminal.cwd || undefined : undefined}
-            onOpenFolder={browseExplorer}
-          />
+          {favoritesButtonVisible && (
+            <FavoritesButton
+              activeCwd={activeTerminal && !activeTerminal.busy ? activeTerminal.cwd || undefined : undefined}
+              onOpenFolder={browseExplorer}
+            />
+          )}
           <button
             ref={pluginBtnRef}
             type="button"
@@ -1209,6 +1464,7 @@ function Shell() {
                 return (
                   <TerminalView
                     key={tab.id}
+                    tabId={tab.id}
                     ref={(handle) => {
                       if (handle) termRefs.current.set(tab.id, handle);
                       else termRefs.current.delete(tab.id);
@@ -1219,6 +1475,7 @@ function Shell() {
                     onBusyChange={(busy) => handleBusyChange(tab.id, busy)}
                     onCommandLine={(line) => handleCommandLine(tab.id, line)}
                     runOnStart={pendingCommandsRef.current.get(tab.id)}
+                    shellOverride={pendingShellOverrideRef.current.get(tab.id)}
                   />
                 );
               }
@@ -1248,6 +1505,8 @@ function Shell() {
                   plugins={allPlugins}
                   onAddPlugin={addPlugin}
                   onDeletePlugin={deletePlugin}
+                  favoritesButtonVisible={favoritesButtonVisible}
+                  onSetFavoritesButtonVisible={setFavoritesButtonVisible}
                 />
               );
             })}
@@ -1271,6 +1530,7 @@ function Shell() {
               getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
               onOpenTab={selectTab}
               onOpenSession={openAgentSession}
+              onClose={() => setAgentsSidebarOpen(false)}
             />
           </div>
         )}

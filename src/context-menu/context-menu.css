@@ -124,17 +124,54 @@
 
 .context-menu-zoom-value {
   flex: 1 1 auto;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--fg);
   font-size: 12px;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  border-radius: 6px;
-  height: 26px;
 }
 
-.context-menu-zoom-value:hover {
-  background: var(--ctrl-hover-bg);
+.context-menu-zoom-value:focus-within {
+  border-color: var(--accent);
+}
+
+.context-menu-zoom-input {
+  width: 2.1em;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
+.context-menu-zoom-input:focus {
+  outline: none;
+}
+
+.context-menu-zoom-unit {
+  opacity: 0.7;
+}
+
+/* Marks this tab's zoom as different from the app-wide default (see
+   ZoomRow in App.tsx) - same accent used for the ASCII banner/theme icons,
+   so "not the default" reads consistently across the app. */
+.context-menu-zoom-value.is-custom {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.context-menu-zoom-reset svg {
+  width: 14px;
+  height: 14px;
+}
+
+.context-menu-zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }

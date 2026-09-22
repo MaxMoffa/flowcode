@@ -57,7 +57,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   // The flyout is one level deep and always spawned from the top-level menu
   // that's currently open - index into `menu.items`, not a separate menu
   // stack, so it's automatically torn down whenever `menu` itself closes.
-  const [submenuOpenAt, setSubmenuOpenAt] = useState<{ index: number; x: number; y: number } | null>(null);
+  const [submenuOpenAt, setSubmenuOpenAt] = useState<{ index: number; x: number; y: number; parentLeft: number } | null>(null);
 
   const hide = useCallback(() => {
     setMenu(null);
@@ -108,7 +108,12 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     const menuWidth = 210;
     const rowHeight = 30;
     const estHeight = activeSubmenu.length * rowHeight + 8;
-    const left = Math.min(submenuOpenAt.x, window.innerWidth - menuWidth - 8);
+    // Always opens to the left of the parent row - the one caller this
+    // flyout style is used for (App.tsx's top-right "..." menu) lives at
+    // the window's right edge, so a right-opening flyout would run off
+    // (or hug) the screen edge; opening left is the position that's always
+    // reachable regardless of where the parent menu itself ended up.
+    const left = Math.max(8, submenuOpenAt.parentLeft - menuWidth - 2);
     const top = Math.min(submenuOpenAt.y, window.innerHeight - estHeight - 8);
     submenuStyle = { left: Math.max(8, left), top: Math.max(8, top) };
   }
@@ -138,16 +143,17 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
             item.onSelect?.();
           }}
         >
-          {item.icon && <span className="context-menu-icon">{item.icon}</span>}
+          {item.submenu ? (
+            <svg className="context-menu-caret" viewBox="0 0 24 24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
+              <polyline points="15 5.5 9 12 15 18.5" />
+            </svg>
+          ) : (
+            item.icon && <span className="context-menu-icon">{item.icon}</span>
+          )}
           <span className="context-menu-label">{item.label}</span>
           {item.checked && (
             <svg className="context-menu-check" viewBox="0 0 24 24" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
               <polyline points="5 12.5 10 17.5 19 7" />
-            </svg>
-          )}
-          {item.submenu && (
-            <svg className="context-menu-caret" viewBox="0 0 24 24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
-              <polyline points="9 5.5 15 12 9 18.5" />
             </svg>
           )}
         </button>
@@ -162,7 +168,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
         <div className="context-menu" ref={menuRef} style={style} role="menu">
           {renderItems(menu.items, (index, rect) =>
             setSubmenuOpenAt((prev) =>
-              prev?.index === index ? null : { index, x: rect.right + 2, y: rect.top },
+              prev?.index === index ? null : { index, x: rect.right + 2, y: rect.top, parentLeft: rect.left },
             ),
           )}
         </div>

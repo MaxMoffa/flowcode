@@ -5,7 +5,10 @@
   height: 100%;
   overflow-y: auto;
   background: var(--term-bg);
-  color: var(--term-fg);
+  /* Not --term-fg: this is a chrome page, not the terminal surface - every
+     other text rule below is already keyed off --fg/--fg-muted, so the base
+     color matches instead of leaving stray un-classed text a shade off. */
+  color: var(--fg);
 }
 
 .settings-page-inner {
@@ -161,7 +164,7 @@
 }
 
 .settings-field-hint.is-error {
-  color: var(--danger, #d64545);
+  color: var(--danger);
 }
 
 .settings-field-hint.is-success {

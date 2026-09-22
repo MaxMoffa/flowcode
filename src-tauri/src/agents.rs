@@ -67,7 +67,17 @@ fn find_agent(
         }
         if pid != root_pid {
             if let Some(process) = sys.process(pid) {
-                let name = process.name().to_string_lossy().to_lowercase();
+                // `Process::name()` on Windows is the raw NT image name and
+                // keeps its `.exe` suffix (sysinfo never strips it, on any
+                // version) - comparing the bare name against "claude"/"codex"
+                // silently never matches there, so this strips any extension
+                // via `file_stem` first, which is a no-op on Unix where the
+                // name never had one.
+                let raw_name = process.name().to_string_lossy().to_lowercase();
+                let name = Path::new(&raw_name)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or(raw_name);
                 if let Some(&(bin, label)) = AGENT_BINARIES
                     .iter()
                     .find(|(bin, _)| name == *bin || name.starts_with(&format!("{bin}-")))

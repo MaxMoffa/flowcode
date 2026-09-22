@@ -39,6 +39,11 @@
   --window-border: rgba(58, 43, 23, 0.28);
   --accent: #4f6e3a;
   --accent-2: #a8683a;
+  /* Error/destructive-action red, tied to the same ansi-red already tuned
+     for legible text on this theme's own surface (see the ANSI palette
+     below) rather than a separate hardcoded hex - one red, adapting with
+     the theme instead of drifting out of sync with it. */
+  --danger: var(--ansi-red);
   --ctrl-fg: rgba(50, 34, 16, 0.86);
   --ctrl-hover-bg: rgba(140, 88, 32, 0.08);
   --radius-ctl: 6px;
@@ -85,6 +90,7 @@
   --window-border: rgba(0, 0, 0, 0.55);
   --accent: #9db984;
   --accent-2: #c9975a;
+  --danger: var(--ansi-red);
   --ctrl-fg: rgba(240, 224, 204, 0.85);
   --ctrl-hover-bg: rgba(232, 184, 128, 0.12);
   --radius-ctl: 6px;

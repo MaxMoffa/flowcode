@@ -40,6 +40,12 @@ function iconSvg(children: ReactElement) {
 const Icons = {
   open: iconSvg(<><rect x="4" y="6" width="16" height="13" rx="1.6" /><path d="M4 9h16" /></>),
   reveal: iconSvg(<><path d="M3.5 6.5a1 1 0 0 1 1-1H9l2 2h8.5a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" /></>),
+  openContaining: iconSvg(
+    <>
+      <path d="M3.5 6.5a1 1 0 0 1 1-1H9l2 2h8.5a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" />
+      <path d="M9.5 15.5 12.5 12.5 9.5 9.5" />
+    </>,
+  ),
   rename: iconSvg(<><path d="M16.5 3.5 20.5 7.5 8 20 3.5 20.5 4 16z" /></>),
   duplicate: iconSvg(<><rect x="8.5" y="8.5" width="11" height="11" rx="1.6" /><path d="M15.5 8.5V5.6A1.6 1.6 0 0 0 13.9 4H5.6A1.6 1.6 0 0 0 4 5.6v8.3A1.6 1.6 0 0 0 5.6 15.5H8.5" /></>),
   copy: iconSvg(<><rect x="7" y="3.5" width="9" height="4" rx="1" /><path d="M15.5 5.5H18a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 19V7A1.5 1.5 0 0 1 6 5.5h2.5" /><line x1="8.5" y1="12" x2="15.5" y2="12" /><line x1="8.5" y1="16" x2="13.5" y2="16" /></>),
@@ -96,7 +102,7 @@ async function copyToClipboard(text: string) {
 function FolderGlyph() {
   return (
     <span className="file-tree-icon ft-folder">
-      <svg viewBox="0 0 24 24" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" width="15" height="15" stroke="currentColor" fill="none">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none">
         <path d="M3.5 6.5a1 1 0 0 1 1-1H9l2 2h8.5a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" />
       </svg>
     </span>
@@ -437,6 +443,19 @@ export function FileTree({
         onSelect: () => onOpenTerminal(entry.path),
       });
     }
+    // Only meaningful for a search result - while just browsing, an entry's
+    // containing folder already *is* the current cwd, so this would be a
+    // no-op offered on every single row for no reason.
+    if (isSearching) {
+      items.push({
+        label: "Apri cartella contenente",
+        icon: Icons.openContaining,
+        onSelect: () => {
+          onNavigate(parentPath(entry.path));
+          setSelected(entry.path);
+        },
+      });
+    }
     items.push({
       label: "Rivela nel file manager",
       icon: Icons.reveal,
@@ -520,7 +539,14 @@ export function FileTree({
    * sharing a filename) stay distinguishable. Empty for a direct child. */
   function resultDir(entry: FsEntry): string {
     if (!cwd) return "";
-    const cwdPrefix = cwd.replace(/\/+$/, "") + "/";
+    // `cwd`/`entry.path` come straight from Rust's `Path::to_string_lossy`
+    // (see fs.rs's `read_dir`/`search_dir`), which is backslash-separated on
+    // Windows - a hardcoded "/" prefix here never matched there, so this
+    // path line silently never showed on Windows at all. Sniffed from `cwd`
+    // itself rather than assumed from the platform, so a WSL UNC cwd
+    // (`\\wsl.localhost\...`, still backslash-separated) works the same way.
+    const sep = cwd.includes("\\") ? "\\" : "/";
+    const cwdPrefix = cwd.replace(/[\\/]+$/, "") + sep;
     if (!entry.path.startsWith(cwdPrefix)) return "";
     const rel = entry.path.slice(cwdPrefix.length, entry.path.length - entry.name.length - 1);
     return rel;
@@ -622,12 +648,14 @@ export function FileTree({
                 onContextMenu={(e) => openMenu(e, entryMenuItems(entry))}
               >
                 <EntryIcon entry={entry} />
-                <span className="file-tree-name">{entry.name}</span>
-                {isSearching && resultDir(entry) && (
-                  <span className="file-tree-result-path" title={resultDir(entry)}>
-                    {resultDir(entry)}
-                  </span>
-                )}
+                <div className="file-tree-name-col">
+                  <span className="file-tree-name">{entry.name}</span>
+                  {isSearching && resultDir(entry) && (
+                    <span className="file-tree-result-path" title={resultDir(entry)}>
+                      {resultDir(entry)}
+                    </span>
+                  )}
+                </div>
                 <button
                   type="button"
                   className={"file-tree-copy-btn" + (copiedPath === entry.path ? " is-copied" : "")}

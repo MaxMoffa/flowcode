@@ -26,17 +26,45 @@ export const welcomeFlow = parseFlow({
       image: { kind: "image", value: flowcodeIcon },
     },
     {
-      id: "about",
-      type: "long-content",
-      key: "about",
-      title: "Cosa puoi fare",
-      image: { kind: "emoji", value: "🛠️" },
-      content:
-        "- 🗂️ **Terminale a schede**: più sessioni in parallelo, raggruppate automaticamente in una cartella quando non entrano più nella barra.\n" +
-        "- 📁 **File explorer laterale**: naviga, cerca ricorsivamente e gestisci i file della cartella del terminale attivo — ora anche con i **⭐ Preferiti** per le cartelle che usi più spesso.\n" +
-        "- ⚡ **Funzionalità e shortcut**: scorciatoie personalizzabili nella barra in alto per azioni rapide (nuovo terminale, comandi, notifiche...).\n" +
-        "- 🤖 **Agenti**: monitora Claude Code e Codex CLI, con l'utilizzo delle sessioni sempre a portata di sguardo.\n" +
-        "- ✏️ **Editor integrato**: apri e modifica file senza uscire dal terminale.",
+      id: "about-tabs",
+      type: "info",
+      key: "about_tabs",
+      title: "Terminale a schede",
+      subtitle: "Più sessioni in parallelo, raggruppate automaticamente in una cartella quando non entrano più nella barra.",
+      image: { kind: "emoji", value: "🗂️" },
+    },
+    {
+      id: "about-explorer",
+      type: "info",
+      key: "about_explorer",
+      title: "File explorer laterale",
+      subtitle:
+        "Naviga, cerca ricorsivamente e gestisci i file della cartella del terminale attivo — ora anche con i ⭐ Preferiti per le cartelle che usi più spesso.",
+      image: { kind: "emoji", value: "📁" },
+    },
+    {
+      id: "about-shortcuts",
+      type: "info",
+      key: "about_shortcuts",
+      title: "Funzionalità e shortcut",
+      subtitle: "Scorciatoie personalizzabili nella barra in alto per azioni rapide (nuovo terminale, comandi, notifiche...).",
+      image: { kind: "emoji", value: "⚡" },
+    },
+    {
+      id: "about-agents",
+      type: "info",
+      key: "about_agents",
+      title: "Agenti",
+      subtitle: "Monitora Claude Code e Codex CLI, con l'utilizzo delle sessioni sempre a portata di sguardo.",
+      image: { kind: "emoji", value: "🤖" },
+    },
+    {
+      id: "about-editor",
+      type: "info",
+      key: "about_editor",
+      title: "Editor integrato",
+      subtitle: "Apri e modifica file senza uscire dal terminale.",
+      image: { kind: "emoji", value: "✏️" },
     },
     {
       id: "theme",

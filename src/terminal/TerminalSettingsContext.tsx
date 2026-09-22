@@ -14,10 +14,30 @@ const DEFAULT_SIZE = 13;
 const DEFAULT_SHELL_ID = "system";
 
 interface TerminalSettingsValue {
+  /** The default font size, set from Settings - what a brand-new tab starts
+   * at, and what a tab's own zoom (below) is compared against/reset to.
+   * Mirrors a browser's "default zoom level" setting. */
   fontSize: number;
   zoomIn: () => void;
   zoomOut: () => void;
   resetZoom: () => void;
+  /** Per-tab zoom overrides, keyed by tab id - a tab only appears here once
+   * its own zoom has been changed away from `fontSize` (see `zoomTabIn`).
+   * Mirrors a browser's per-tab zoom: changing it from the terminal's own
+   * context menu affects only that tab, not the app-wide default. */
+  tabFontSizeOverrides: Record<string, number>;
+  /** `tabFontSizeOverrides[tabId] ?? fontSize` - what a given tab should
+   * actually render at right now. */
+  getTabFontSize: (tabId: string) => number;
+  zoomTabIn: (tabId: string) => void;
+  zoomTabOut: (tabId: string) => void;
+  /** Sets a tab's zoom directly (the context menu's editable px box) -
+   * clamped like the +/- steps, and drops the override entirely if it's set
+   * back to exactly the app-wide default, same as `resetTabZoom`. */
+  setTabFontSize: (tabId: string, size: number) => void;
+  /** Drops the tab's override, falling back to the app-wide default again -
+   * also called when a tab closes, so the map doesn't grow unbounded. */
+  resetTabZoom: (tabId: string) => void;
   /** Whether a fresh terminal tab writes the ASCII "Flowcode" splash before
    * the shell's own output. */
   bannerEnabled: boolean;
@@ -86,6 +106,7 @@ function readInitialStartPath(): string {
 
 export function TerminalSettingsProvider({ children }: { children: ReactNode }) {
   const [fontSize, setFontSize] = useState(readInitial);
+  const [tabFontSizeOverrides, setTabFontSizeOverrides] = useState<Record<string, number>>({});
   const [bannerEnabled, setBannerEnabledState] = useState(readInitialBanner);
   const [shellId, setShellIdState] = useState(getConfiguredShell);
   const [startPath, setStartPathState] = useState(readInitialStartPath);
@@ -125,6 +146,30 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
   const zoomIn = () => setFontSize((s) => clamp(s + 1));
   const zoomOut = () => setFontSize((s) => clamp(s - 1));
   const resetZoom = () => setFontSize(DEFAULT_SIZE);
+  const getTabFontSize = (tabId: string) => tabFontSizeOverrides[tabId] ?? fontSize;
+  const zoomTabIn = (tabId: string) =>
+    setTabFontSizeOverrides((prev) => ({ ...prev, [tabId]: clamp((prev[tabId] ?? fontSize) + 1) }));
+  const zoomTabOut = (tabId: string) =>
+    setTabFontSizeOverrides((prev) => ({ ...prev, [tabId]: clamp((prev[tabId] ?? fontSize) - 1) }));
+  const resetTabZoom = (tabId: string) =>
+    setTabFontSizeOverrides((prev) => {
+      if (!(tabId in prev)) return prev;
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+  const setTabFontSize = (tabId: string, size: number) => {
+    const clamped = clamp(size);
+    setTabFontSizeOverrides((prev) => {
+      if (clamped === fontSize) {
+        if (!(tabId in prev)) return prev;
+        const next = { ...prev };
+        delete next[tabId];
+        return next;
+      }
+      return { ...prev, [tabId]: clamped };
+    });
+  };
   const setBannerEnabled = (enabled: boolean) => setBannerEnabledState(enabled);
   const setShellId = (id: string) => setShellIdState(id);
   const setStartPath = (path: string) => setStartPathState(path);
@@ -136,6 +181,12 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
         zoomIn,
         zoomOut,
         resetZoom,
+        tabFontSizeOverrides,
+        getTabFontSize,
+        zoomTabIn,
+        zoomTabOut,
+        setTabFontSize,
+        resetTabZoom,
         bannerEnabled,
         setBannerEnabled,
         shellId,
