@@ -52,6 +52,9 @@ export const installerFlow = parseFlow({
   texts: {
     continue: "Avanti",
     submit: "Installa",
+    // flowkit's fallback when a submit fails without its own message - its
+    // stock wording is about a failed payment, which makes no sense here.
+    paymentFailed: "Installazione non riuscita, riprova.",
   },
   steps: [
     {

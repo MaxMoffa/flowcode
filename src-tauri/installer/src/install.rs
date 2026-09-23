@@ -123,11 +123,55 @@ pub fn check_webview2() -> bool {
         || RegKey::predef(HKEY_CURRENT_USER).open_subkey(CLIENT_KEY).is_ok()
 }
 
+/// Suffix for a file set aside by `replace_file` - see `remove_stale_replaced`.
+#[cfg(target_os = "windows")]
+const REPLACED_SUFFIX: &str = ".flowcode-old";
+
+/// Writes `bytes` to `path`, even when the current copy is in use. Updating
+/// while Flowcode is open is the common case - the app holds `flowcode.exe`,
+/// every terminal an `OpenConsole.exe`, and `conpty.dll` stays loaded - and
+/// Windows refuses to overwrite a running executable or loaded DLL but does
+/// allow renaming one. So a failed write moves the old file aside (under a
+/// unique name, since an older leftover may itself still be in use) and
+/// writes the new one in its place; the running instance keeps its renamed
+/// copy until it exits, and the next launch picks up the new version.
+#[cfg(target_os = "windows")]
+fn replace_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    if fs::write(path, bytes).is_ok() {
+        return Ok(());
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let mut aside = path.as_os_str().to_owned();
+    aside.push(format!(".{stamp}{REPLACED_SUFFIX}"));
+    fs::rename(path, &aside).map_err(|e| {
+        format!(
+            "{} è in uso e non può essere sostituito ({e}). Chiudi Flowcode e riprova.",
+            path.display()
+        )
+    })?;
+    fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Best-effort cleanup of files `replace_file` set aside on a previous
+/// install - anything whose process has exited since goes; whatever is still
+/// in use stays for next time.
+#[cfg(target_os = "windows")]
+fn remove_stale_replaced(dir: &std::path::Path) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().ends_with(REPLACED_SUFFIX) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// Does the actual install: writes the embedded payload to `install_dir`,
 /// leaves a copy of this installer behind as `uninstall.exe`, creates
-/// shortcuts, and registers the uninstall entry. CLI extras (Claude
-/// Code/Codex) are handled separately by the frontend's existing
-/// `run_plugin_command` loop, not folded in here.
+/// shortcuts, and registers the uninstall entry. The "Integrazioni" picks
+/// are recorded separately, by `installer_run` in lib.rs.
 #[cfg(target_os = "windows")]
 pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), String> {
     use crate::payload::{CONPTY_DLL, OPENCONSOLE_EXE};
@@ -137,17 +181,20 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
 
     let install_dir = PathBuf::from(install_dir);
     fs::create_dir_all(install_dir.join("config")).map_err(|e| e.to_string())?;
+    fs::create_dir_all(install_dir.join("x64")).map_err(|e| e.to_string())?;
+    remove_stale_replaced(&install_dir);
+    remove_stale_replaced(&install_dir.join("x64"));
 
     let exe_path = install_dir.join("flowcode.exe");
-    fs::write(&exe_path, FLOWCODE_BIN).map_err(|e| e.to_string())?;
-    fs::write(install_dir.join("config").join("shortcuts.json"), SHORTCUTS_JSON).map_err(|e| e.to_string())?;
-    fs::create_dir_all(install_dir.join("x64")).map_err(|e| e.to_string())?;
-    fs::write(install_dir.join("conpty.dll"), CONPTY_DLL).map_err(|e| e.to_string())?;
-    fs::write(install_dir.join("x64").join("OpenConsole.exe"), OPENCONSOLE_EXE).map_err(|e| e.to_string())?;
+    replace_file(&exe_path, FLOWCODE_BIN)?;
+    replace_file(&install_dir.join("config").join("shortcuts.json"), SHORTCUTS_JSON)?;
+    replace_file(&install_dir.join("conpty.dll"), CONPTY_DLL)?;
+    replace_file(&install_dir.join("x64").join("OpenConsole.exe"), OPENCONSOLE_EXE)?;
 
     let uninstall_exe = install_dir.join("uninstall.exe");
     let self_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    fs::copy(&self_exe, &uninstall_exe).map_err(|e| e.to_string())?;
+    let self_bytes = fs::read(&self_exe).map_err(|e| e.to_string())?;
+    replace_file(&uninstall_exe, &self_bytes)?;
 
     let start_menu = start_menu_shortcut_path();
     if let Some(parent) = start_menu.parent() {
@@ -304,4 +351,42 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
     }
 
     Ok(())
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    /// A running executable can't be overwritten on Windows - `replace_file`
+    /// must still land the new bytes (by moving the busy copy aside), which is
+    /// what makes updating over an open Flowcode work.
+    #[test]
+    fn replace_file_swaps_a_running_executable() {
+        let dir = std::env::temp_dir().join(format!("flowcode-replace-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("busy.exe");
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        fs::copy(PathBuf::from(system_root).join(r"System32\PING.EXE"), &exe).unwrap();
+
+        let mut child = std::process::Command::new(&exe)
+            .args(["-n", "6", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(fs::write(&exe, b"x").is_err(), "a running exe should be locked");
+
+        replace_file(&exe, b"new contents").unwrap();
+        assert_eq!(fs::read(&exe).unwrap(), b"new contents");
+        let set_aside = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().ends_with(REPLACED_SUFFIX));
+        assert!(set_aside, "the busy copy should have been renamed aside");
+
+        let _ = child.kill();
+        let _ = child.wait();
+        remove_stale_replaced(&dir);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

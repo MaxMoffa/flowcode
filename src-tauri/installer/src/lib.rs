@@ -32,6 +32,14 @@ fn installer_run(
     desktop_shortcut: bool,
     features: Vec<String>,
 ) -> Result<(), String> {
+    // A relative path would install next to wherever the installer happened
+    // to be started from (and point shortcuts/registry there) - never what
+    // was meant.
+    if !std::path::Path::new(&install_dir).is_absolute() {
+        return Err(format!(
+            "\"{install_dir}\" non è un percorso completo: scegli la cartella con \"Sfoglia...\"."
+        ));
+    }
     install::perform_install(&install_dir, desktop_shortcut)?;
     record_feature_choices(&app, &features)
 }

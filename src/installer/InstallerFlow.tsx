@@ -82,10 +82,11 @@ export function InstallerFlow() {
     try {
       await invoke("installer_run", { installDir: location, desktopShortcut, features });
     } catch (e) {
-      flowRef.current?.showError({ title: "Installazione non riuscita", message: String(e) });
-      // Re-throwing keeps flowkit's "don't advance past a failed submit" -
-      // `showError` alone only surfaces the message.
-      throw e;
+      // Tauri rejects with a plain string, and flowkit only shows the text
+      // of a thrown `Error` - anything else falls back to its own generic
+      // (payment!) message. Wrapping it keeps the real reason on screen;
+      // re-throwing keeps flowkit's "don't advance past a failed submit".
+      throw new Error(`Installazione non riuscita: ${String(e)}`);
     }
   }
 
