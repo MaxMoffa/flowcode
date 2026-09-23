@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PluginDef } from "./types";
-import { useUsageState } from "./useUsageState";
+import { useHoverPopover, useUsageState } from "./useUsageState";
 import { usagePopoverPosition } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
 import "./plugin-usage.css";
@@ -24,28 +24,7 @@ interface PluginUsageButtonProps {
 export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProps) {
   const { fetcher, usage, loading, load } = useUsageState(plugin.id);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const [rect, setRect] = useState<DOMRect | null>(null);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function show() {
-    if (hideTimer.current) {
-      clearTimeout(hideTimer.current);
-      hideTimer.current = null;
-    }
-    setRect(btnRef.current?.getBoundingClientRect() ?? null);
-    load();
-  }
-
-  function scheduleHide() {
-    hideTimer.current = setTimeout(() => setRect(null), 160);
-  }
-
-  useEffect(
-    () => () => {
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-    },
-    [],
-  );
+  const { rect, show, scheduleHide } = useHoverPopover(btnRef, load);
 
   if (!fetcher) {
     return (

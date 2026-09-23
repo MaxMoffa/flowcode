@@ -9,27 +9,7 @@ import "./welcome-overrides.css";
 import { useTheme } from "../themes/ThemeContext";
 import { welcomeFlow } from "./welcomeFlowConfig";
 import { flowcodeFlowTheme } from "./flowcodeFlowTheme";
-
-/** Same try/catch-guarded localStorage pattern as SHOW_HIDDEN_KEY
- * (src/sidebar/FileTree.tsx) - a missing/blocked storage just means the
- * flow shows again next launch instead of throwing. */
-const WELCOME_SEEN_KEY = "flowcode.hasSeenWelcome";
-
-function hasSeenWelcome(): boolean {
-  try {
-    return localStorage.getItem(WELCOME_SEEN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markWelcomeSeen() {
-  try {
-    localStorage.setItem(WELCOME_SEEN_KEY, "1");
-  } catch {
-    /* storage unavailable */
-  }
-}
+import { hasSeenWelcome, markWelcomeSeen } from "./welcomeSeen";
 
 /** First-launch-only welcome/onboarding flow, built on flowkit-io's
  * `FlowOverlay` (a dialog with its own ✕ close button) - mounted inside

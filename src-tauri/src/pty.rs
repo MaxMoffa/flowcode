@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::ipc::Channel;
+use tauri::{AppHandle, Manager, State};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -13,8 +14,13 @@ use flowcode_shared::CREATE_NO_WINDOW;
 
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
-    child: Box<dyn Child + Send + Sync>,
+    /// Behind its own lock (not just the map's): a write to a pty whose
+    /// program isn't reading its input can block until the pipe drains, and
+    /// holding the map-wide lock for that long would stall every other tab's
+    /// keystrokes/resizes along with it.
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
+    pid: Option<u32>,
 }
 
 #[derive(Default)]
@@ -29,20 +35,47 @@ impl PtyState {
             .lock()
             .unwrap()
             .iter()
-            .filter_map(|(id, session)| session.child.process_id().map(|pid| (id.clone(), pid)))
+            .filter_map(|(id, session)| session.pid.map(|pid| (id.clone(), pid)))
             .collect()
     }
 }
 
+/// Streamed to the frontend over the per-session `Channel` handed to
+/// `pty_spawn`. A channel rather than a global `pty://output` event: the
+/// frontend attaches its handler *before* the spawn call (so nothing the
+/// shell prints first - notably ConPTY's initial `ESC[6n` cursor query,
+/// which blocks the session until answered - can be missed), and each
+/// terminal only ever receives its own session's bytes instead of every
+/// tab filtering every other tab's output.
 #[derive(Serialize, Clone)]
-struct PtyOutputPayload {
-    id: String,
-    data: String,
+#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+pub enum PtyEvent {
+    Output(String),
+    Exit,
 }
 
-#[derive(Serialize, Clone)]
-struct PtyExitPayload {
-    id: String,
+/// How much of `pending` can be decoded and emitted now. A multi-byte UTF-8
+/// character can straddle two reads - decoding each chunk in isolation would
+/// turn both halves into U+FFFD - so a *truncated* trailing sequence (a lead
+/// byte whose continuation bytes haven't arrived yet) is held back for the
+/// next read. Anything else, invalid bytes included, is emitted right away
+/// (lossily), so the held-back tail is never more than 3 bytes.
+fn emittable_len(pending: &[u8]) -> usize {
+    let len = pending.len();
+    for back in 1..=len.min(3) {
+        let byte = pending[len - back];
+        if byte & 0xC0 == 0x80 {
+            continue; // continuation byte - keep looking for the lead byte
+        }
+        let needed = match byte {
+            0xF0..=0xFF => 4,
+            0xE0..=0xEF => 3,
+            0xC0..=0xDF => 2,
+            _ => 1,
+        };
+        return if needed > back { len - back } else { len };
+    }
+    len
 }
 
 /// Runs the ConPTY warmup below exactly once per process, and - this is the
@@ -168,7 +201,9 @@ fn wsl_installed() -> bool {
 /// and vice versa. "wsl" only ever appears when `wsl_installed()` finds a
 /// real, usable install - offering it otherwise would just hand back a
 /// shell option that fails the moment it's picked.
-#[tauri::command]
+///
+/// `(async)`: probing for WSL spawns `wsl.exe`, which must not block the UI thread.
+#[tauri::command(async)]
 pub fn list_shell_options() -> Vec<ShellOption> {
     let mut options = vec![ShellOption { id: "system".into(), label: "Predefinita di sistema".into() }];
     if cfg!(target_os = "windows") {
@@ -221,6 +256,7 @@ pub fn pty_spawn(
     cols: u16,
     rows: u16,
     shell: Option<String>,
+    on_event: Channel<PtyEvent>,
 ) -> Result<String, String> {
     // No-op once the warmup has run (the common case, since setup() starts it
     // at launch); blocks only if this spawn really did beat it - see
@@ -228,8 +264,7 @@ pub fn pty_spawn(
     #[cfg(target_os = "windows")]
     warmup_conpty();
 
-    let pty_system = native_pty_system();
-    let pair = pty_system
+    let pair = native_pty_system()
         .openpty(PtySize {
             rows,
             cols,
@@ -239,142 +274,96 @@ pub fn pty_spawn(
         .map_err(|e| e.to_string())?;
 
     let shell_program = resolve_shell(shell.as_deref());
-    // Only cmd.exe understands the `/k prompt ...` trick below - picking it
-    // via the resolved program's filename (not just "are we on Windows",
-    // which is what this used to check) matters now that a tab's shell can
-    // actually be something else (PowerShell, pwsh) instead of whatever
-    // `default_shell()` alone would have picked.
+    // Only cmd.exe understands the `/k prompt ...` trick below - picked via
+    // the resolved program's filename, not "are we on Windows", since a tab's
+    // shell can be something else (PowerShell, pwsh, wsl).
     let shell_stem = std::path::Path::new(&shell_program)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or_default()
-        .to_string();
-    let is_cmd = shell_stem.eq_ignore_ascii_case("cmd");
-    // PowerShell needs the same treatment as cmd.exe below, just in its own
-    // dialect - both editions, since `pwsh` and `powershell` differ in
-    // version, not in having no cwd title of their own.
-    let is_powershell = shell_stem.eq_ignore_ascii_case("powershell") || shell_stem.eq_ignore_ascii_case("pwsh");
+        .to_ascii_lowercase();
 
-    let mut cmd = CommandBuilder::new(shell_program);
-    if let Some(dir) = cwd {
+    let mut cmd = CommandBuilder::new(&shell_program);
+    // An empty cwd must never reach CommandBuilder: on Windows it becomes an
+    // empty lpCurrentDirectory, which CreateProcessW treats as invalid rather
+    // than "inherit" - the shell silently never starts.
+    if let Some(dir) = cwd.filter(|d| !d.is_empty()) {
         cmd.cwd(dir);
     }
-    // cmd.exe never retitles on its own - not even after a `cd` the user
-    // typed by hand - unlike bash/zsh, which retitle every prompt on their
-    // own. Without this, the frontend's "a real cd is authoritative, follow
-    // it in the explorer" logic has nothing to listen to on Windows. `$E` is
-    // cmd.exe's own PROMPT code for ESC, and `$P` expands to the *current*
-    // cwd every time the prompt is drawn, not just once - so this makes
-    // every prompt emit a real OSC 0 title update with the live cwd, on top
-    // of (not instead of) the normal visible "$P$G" ("C:\path>") prompt text.
-    //
-    // Set via `/k` at spawn time, not by typing `prompt ...` into the
-    // already-running shell afterward (the frontend used to do this): typing
-    // it interactively means cmd.exe echoes it back like anything else you
-    // type, which then has to be erased again once the freshly-retitled
-    // prompt redraws - a fragile row-counting trick that depended on
-    // reading the terminal's cursor position at exactly the right moment.
-    // Setting it before the shell ever draws its first prompt needs no
-    // typing, no echo and nothing to erase.
-    if is_cmd {
-        cmd.args(["/k", "prompt", "$E]0;$P$E\\$P$G"]);
-    }
-    // PowerShell is in the same boat as cmd.exe - it never retitles per
-    // prompt either - but it had no equivalent of the line above, so a
-    // PowerShell tab reported *no* cwd at all: `cd` never moved the
-    // explorer, and (the reason this got noticed) leaving a nested `wsl`
-    // session emitted nothing the frontend could recognize as "back on the
-    // host shell", leaving the explorer stranded on the WSL path with the
-    // tab still flagged as a WSL session - measured on this machine, where
-    // the only title around the `exit` was ConPTY restoring the original
-    // `...\powershell.exe`, which is (correctly) ignored as an executable
-    // path. `-NoExit -Command` is PowerShell's `/k`: it runs after the
-    // user's profile, so it can wrap whatever `prompt` that profile left
-    // behind (oh-my-posh and friends included) rather than replacing it -
-    // the OSC 0 title is prefixed, the visible prompt is still the user's
-    // own. Written entirely with single-quoted strings and `[char]` escapes
-    // so the whole thing survives being passed through CreateProcess as one
-    // argument without any quote juggling.
-    if is_powershell {
-        cmd.args([
-            "-NoExit",
-            "-Command",
-            "$f = $function:prompt; function prompt { $p = (Get-Location).Path; ([char]27 + ']0;' + $p + [char]7) + ((& $f) -join '') }",
-        ]);
+    match shell_stem.as_str() {
+        // cmd.exe never retitles on its own - not even after a `cd` typed by
+        // hand - so the frontend's "follow the real cwd" logic would have
+        // nothing to listen to. `$E` is ESC and `$P` expands to the *current*
+        // cwd each time the prompt is drawn, so every prompt emits an OSC 0
+        // title with the live cwd on top of the normal "$P$G" prompt text.
+        // Set via `/k` at spawn (not typed into the running shell) so there's
+        // no echo to erase afterwards.
+        "cmd" => {
+            cmd.args(["/k", "prompt", "$E]0;$P$E\\$P$G"]);
+        }
+        // Same problem as cmd.exe, in PowerShell's dialect (both editions).
+        // `-NoExit -Command` runs after the user's profile, so this wraps
+        // whatever `prompt` the profile defined (oh-my-posh included) rather
+        // than replacing it - only the OSC 0 title is prefixed. Written with
+        // single quotes and `[char]` escapes so it survives CreateProcess as
+        // one argument without quote juggling.
+        "powershell" | "pwsh" => {
+            cmd.args([
+                "-NoExit",
+                "-Command",
+                "$f = $function:prompt; function prompt { $p = (Get-Location).Path; ([char]27 + ']0;' + $p + [char]7) + ((& $f) -join '') }",
+            ]);
+        }
+        _ => {}
     }
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
 
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
     let id = uuid::Uuid::new_v4().to_string();
+    state.0.lock().unwrap().insert(
+        id.clone(),
+        PtySession {
+            master: pair.master,
+            writer: Arc::new(Mutex::new(writer)),
+            killer: child.clone_killer(),
+            pid: child.process_id(),
+        },
+    );
 
-    {
-        let mut sessions = state.0.lock().unwrap();
-        sessions.insert(
-            id.clone(),
-            PtySession {
-                master: pair.master,
-                writer,
-                child,
-            },
-        );
-    }
-
-    let emit_id = id.clone();
-    let emit_app = app.clone();
+    let session_id = id.clone();
     std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        // A multi-byte UTF-8 character can straddle two 4096-byte reads -
-        // decoding each chunk with `from_utf8_lossy` in isolation would
-        // replace both halves with U+FFFD instead of the real character
-        // (garbled accented letters, box-drawing borders, emoji in anything
-        // the shell prints). Any trailing incomplete sequence is held back
-        // here and prepended to the next read instead.
+        let mut buf = [0u8; 8192];
         let mut pending: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
-                Ok(0) => break,
+                Ok(0) | Err(_) => break,
                 Ok(n) => {
                     pending.extend_from_slice(&buf[..n]);
-                    let valid_len = match std::str::from_utf8(&pending) {
-                        Ok(_) => pending.len(),
-                        Err(e) => e.valid_up_to(),
-                    };
-                    // A genuinely invalid byte (not just a truncated tail)
-                    // must still be flushed - otherwise `pending` could grow
-                    // without bound - so only hold back a short tail that
-                    // could still become valid with more bytes.
-                    let hold_back = pending.len() - valid_len <= 3;
-                    let emit_len = if hold_back { valid_len } else { pending.len() };
+                    let emit_len = emittable_len(&pending);
                     if emit_len > 0 {
-                        let data = String::from_utf8_lossy(&pending[..emit_len]).to_string();
-                        let _ = emit_app.emit(
-                            "pty://output",
-                            PtyOutputPayload {
-                                id: emit_id.clone(),
-                                data,
-                            },
-                        );
+                        let data = String::from_utf8_lossy(&pending[..emit_len]).into_owned();
+                        pending.drain(..emit_len);
+                        if on_event.send(PtyEvent::Output(data)).is_err() {
+                            break;
+                        }
                     }
-                    pending.drain(..emit_len);
                 }
-                Err(_) => break,
             }
         }
         if !pending.is_empty() {
-            let data = String::from_utf8_lossy(&pending).to_string();
-            let _ = emit_app.emit(
-                "pty://output",
-                PtyOutputPayload {
-                    id: emit_id.clone(),
-                    data,
-                },
-            );
+            let _ = on_event.send(PtyEvent::Output(String::from_utf8_lossy(&pending).into_owned()));
         }
-        let _ = emit_app.emit("pty://exit", PtyExitPayload { id: emit_id.clone() });
+        let _ = on_event.send(PtyEvent::Exit);
+        // The session is over either way (shell exited, or the tab killed it):
+        // drop it from the map so its handles are released now rather than
+        // whenever the tab happens to close, and reap the child so it doesn't
+        // linger as a zombie on Unix.
+        app.state::<PtyState>().0.lock().unwrap().remove(&session_id);
+        let _ = child.wait();
     });
 
     Ok(id)
@@ -382,21 +371,17 @@ pub fn pty_spawn(
 
 #[tauri::command]
 pub fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
-    let mut sessions = state.0.lock().unwrap();
-    let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
-    session
-        .writer
-        .write_all(data.as_bytes())
-        .map_err(|e| e.to_string())
+    let writer = {
+        let sessions = state.0.lock().unwrap();
+        Arc::clone(&sessions.get(&id).ok_or("unknown pty session")?.writer)
+    };
+    let mut writer = writer.lock().unwrap();
+    writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+    writer.flush().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn pty_resize(
-    state: State<'_, PtyState>,
-    id: String,
-    cols: u16,
-    rows: u16,
-) -> Result<(), String> {
+pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
     let sessions = state.0.lock().unwrap();
     let session = sessions.get(&id).ok_or("unknown pty session")?;
     session
@@ -412,9 +397,28 @@ pub fn pty_resize(
 
 #[tauri::command]
 pub fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
-    let mut sessions = state.0.lock().unwrap();
-    if let Some(mut session) = sessions.remove(&id) {
-        session.child.kill().map_err(|e| e.to_string())?;
+    // Removed from the map right away; the reader thread notices EOF once the
+    // process is gone and does the rest of the cleanup (see pty_spawn).
+    let session = state.0.lock().unwrap().remove(&id);
+    if let Some(mut session) = session {
+        session.killer.kill().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::emittable_len;
+
+    #[test]
+    fn holds_back_only_truncated_utf8_tail() {
+        let euro = "€".as_bytes(); // 3 bytes
+        assert_eq!(emittable_len(b"abc"), 3);
+        assert_eq!(emittable_len(euro), 3);
+        assert_eq!(emittable_len(&[b'a', euro[0]]), 1);
+        assert_eq!(emittable_len(&[b'a', euro[0], euro[1]]), 1);
+        // A stray continuation byte / invalid lead is flushed, not held.
+        assert_eq!(emittable_len(&[b'a', 0x80, 0x80, 0x80]), 4);
+        assert_eq!(emittable_len(&[]), 0);
+    }
 }

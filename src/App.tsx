@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 // `currentMonitor` is a module-level export, NOT a `Window` method - there is
 // no `appWindow.currentMonitor()` in @tauri-apps/api v2 (only `primaryMonitor`,
 // `availableMonitors` and friends are module-level too). Calling it off the
@@ -11,7 +11,7 @@ import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
 import { TerminalView, type TerminalHandle } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
-import { EditorView, type EditorHandle } from "./editor/EditorView";
+import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, TermTab, EditorTab } from "./tabs/types";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
@@ -32,20 +32,22 @@ import { BUILTIN_PLUGINS, EXAMPLE_PLUGINS, DEFAULT_QUICK_ACTIONS } from "./plugi
 import { pluginIconNode } from "./plugins/icons";
 import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
 import { FavoritesButton, StarIcon, favoritesMenuItem } from "./favorites/FavoritesButton";
-import { WelcomeFlow } from "./welcome/WelcomeFlow";
+import { hasSeenWelcome } from "./welcome/welcomeSeen";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
+import { SIDEBAR_MODES, EXPLORER_LINK_MODES, type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
+import { readBool, readEnum, readJson, readString, usePersistentState, writeBool, writeString } from "./lib/storage";
+import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
 
-type SidebarMode = "auto" | "docked" | "floating";
-const SIDEBAR_MODE_KEY = "flowcode.sidebarMode";
+// Loaded on demand: CodeMirror (every language grammar) and the flowkit
+// onboarding flow are the bulk of the bundle, and plenty of sessions never
+// open a file - the welcome flow only ever shows on first launch.
+const EditorView = lazy(() => import("./editor/EditorView").then((m) => ({ default: m.EditorView })));
+const WelcomeFlow = lazy(() => import("./welcome/WelcomeFlow").then((m) => ({ default: m.WelcomeFlow })));
 
-/** "auto" follows the active terminal (clicking a folder actually `cd`s the
- * shell), but auto-suspends itself while that shell is busy with a
- * full-screen program - see TermTab.busy. "disconnesso" never `cd`s the
- * shell at all, regardless of busy state, until switched back by hand. */
-type ExplorerLinkMode = "auto" | "disconnesso";
+const SIDEBAR_MODE_KEY = "flowcode.sidebarMode";
 const EXPLORER_LINK_MODE_KEY = "flowcode.explorerLinkMode";
 // Below this window width, "auto" mode floats the explorer instead of
 // docking it, so a narrow window keeps its terminal usable.
@@ -58,36 +60,14 @@ const FAVORITES_BUTTON_VISIBLE_KEY = "flowcode.favoritesButtonVisible";
 const SIDEBAR_COLLAPSED_KEY = "flowcode.sidebarCollapsed";
 const AGENTS_SIDEBAR_OPEN_KEY = "flowcode.agentsSidebarOpen";
 
-function readQuickActions(): string[] {
-  try {
-    const stored = JSON.parse(localStorage.getItem(QUICK_ACTIONS_KEY) ?? "null");
-    if (Array.isArray(stored) && stored.every((id) => typeof id === "string")) return stored;
-  } catch {
-    /* storage unavailable or malformed */
-  }
-  return DEFAULT_QUICK_ACTIONS;
-}
-
-function readFavoritesButtonVisible(): boolean {
-  try {
-    return localStorage.getItem(FAVORITES_BUTTON_VISIBLE_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-/** Reads a plain "1"/"0" localStorage flag, defaulting when unset or when
- * storage itself isn't available. */
-function readBoolFlag(key: string, fallback: boolean): boolean {
-  try {
-    const stored = localStorage.getItem(key);
-    if (stored === "1") return true;
-    if (stored === "0") return false;
-  } catch {
-    /* storage unavailable */
-  }
-  return fallback;
-}
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((id) => typeof id === "string");
+const readQuickActions = (key: string) => readJson(key, isStringArray, DEFAULT_QUICK_ACTIONS);
+const writeJson = (key: string, value: unknown) => writeString(key, JSON.stringify(value));
+const readTrue = (key: string) => readBool(key, true);
+const readFalse = (key: string) => readBool(key, false);
+const readSidebarMode = (key: string) => readEnum(key, SIDEBAR_MODES, "auto");
+const readLinkMode = (key: string) => readEnum(key, EXPLORER_LINK_MODES, "auto");
 
 const Icons = {
   kebab: (
@@ -95,21 +75,6 @@ const Icons = {
       <circle cx="12" cy="5.5" r="1.9" />
       <circle cx="12" cy="12" r="1.9" />
       <circle cx="12" cy="18.5" r="1.9" />
-    </svg>
-  ),
-  zoomIn: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <circle cx="10.5" cy="10.5" r="6.5" />
-      <line x1="15.3" y1="15.3" x2="20.5" y2="20.5" />
-      <line x1="10.5" y1="7.5" x2="10.5" y2="13.5" />
-      <line x1="7.5" y1="10.5" x2="13.5" y2="10.5" />
-    </svg>
-  ),
-  zoomOut: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <circle cx="10.5" cy="10.5" r="6.5" />
-      <line x1="15.3" y1="15.3" x2="20.5" y2="20.5" />
-      <line x1="7.5" y1="10.5" x2="13.5" y2="10.5" />
     </svg>
   ),
   zoomReset: (
@@ -155,23 +120,6 @@ const Icons = {
       <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
       <polyline points="7 9.5 10.5 12.5 7 15.5" />
       <line x1="12.5" y1="15.5" x2="16.5" y2="15.5" />
-    </svg>
-  ),
-  clear: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <path d="M4 15.5 13.5 6a2 2 0 0 1 2.8 0l1.7 1.7a2 2 0 0 1 0 2.8L8.5 20H4z" />
-      <line x1="12" y1="20" x2="20.5" y2="20" />
-    </svg>
-  ),
-  sidebar: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-      <line x1="9.5" y1="4.5" x2="9.5" y2="19.5" />
-    </svg>
-  ),
-  plugin: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <path d="M9 4.5h3v2.3a1.5 1.5 0 0 0 3 0V4.5h3v3h2.3a1.5 1.5 0 0 1 0 3H18v3h2.3a1.5 1.5 0 0 1 0 3H18v3h-3v-2.3a1.5 1.5 0 0 0-3 0V19.5H9v-3H6.7a1.5 1.5 0 0 1 0-3H9v-3H6.7a1.5 1.5 0 0 1 0-3H9z" />
     </svg>
   ),
   features: (
@@ -271,34 +219,22 @@ function ZoomRow({ tabId }: { tabId: string }) {
   );
 }
 
-function labelForCwd(cwd: string, home: string): string {
-  if (cwd === home) return home;
-  const trimmed = cwd.replace(/\/+$/, "");
-  const parts = trimmed.split("/");
-  return parts[parts.length - 1] || "/";
+/** A fresh tab's label before its shell reports a title of its own - the
+ * full path, same as what the shell's own title will show (tabs never
+ * collapse the home dir to `~`). */
+function labelForCwd(cwd: string): string {
+  return cwd || "shell";
 }
 
-/** Shells usually emit OSC titles as "user@host: /some/path" - keep just the
- * useful part. Shown as the shell reports it, full path included - no
- * collapsing the home dir down to `~`. */
-function cleanTitle(raw: string, _home: string): string {
-  let title = raw.trim();
-  const hostPrefix = title.match(/^[^\s@]+@[^\s:]+:\s*(.+)$/);
-  if (hostPrefix) title = hostPrefix[1];
-  return title || "shell";
-}
+/** Matches the "user@host: /some/path" shape most shells use for their OSC
+ * title, capturing the user and the path. */
+const TITLE_HOST_PREFIX = /^([^\s@]+)@[^\s:]+:\s*(.+)$/;
 
-/** POSIX ("/foo"), Windows drive-letter ("C:\foo" or "C:/foo") and UNC
- * ("\\host\share") absolute paths - what a real `cd`'s reported path looks
- * like on each platform this app runs on. */
-function isAbsolutePath(path: string): boolean {
-  return path.startsWith("/") || isWindowsHostPath(path);
-}
-
-/** Drive-letter or UNC - a path only a real Windows shell (not WSL, not a
- * POSIX host) would ever report. */
-function isWindowsHostPath(path: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+/** Keeps just the useful part of a shell title - shown as the shell reports
+ * it, full path included. */
+function cleanTitle(raw: string): string {
+  const title = raw.trim();
+  return title.match(TITLE_HOST_PREFIX)?.[2] ?? (title || "shell");
 }
 
 /** A cwd is never a file - but a brand new cmd.exe console on Windows starts
@@ -318,57 +254,27 @@ function looksLikeExecutablePath(path: string): boolean {
   return /\.(exe|com|bat|cmd|ps1|js|mjs|cjs)$/i.test(path);
 }
 
-function expandHome(path: string, home: string): string {
-  if (!home) return path;
-  if (path === "~") return home;
-  if (path.startsWith("~/")) return home + path.slice(1);
-  return path;
-}
-
 let nextTabId = 1;
 
 function Shell() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readBoolFlag(SIDEBAR_COLLAPSED_KEY, false));
-  const [agentsSidebarOpen, setAgentsSidebarOpen] = useState(() => readBoolFlag(AGENTS_SIDEBAR_OPEN_KEY, false));
-
-  // Both side panels remember their shown/hidden state across app restarts -
-  // every toggle path (the header button, the command palette, closing the
-  // floating sidebar's backdrop, the agents panel's own X, ...) just flows
-  // through these two setters already, so persisting here covers all of them
-  // without touching each call site individually.
-  useEffect(() => {
-    try {
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? "1" : "0");
-    } catch {
-      /* storage unavailable */
-    }
-  }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(AGENTS_SIDEBAR_OPEN_KEY, agentsSidebarOpen ? "1" : "0");
-    } catch {
-      /* storage unavailable */
-    }
-  }, [agentsSidebarOpen]);
-  const [sidebarMode, setSidebarModeState] = useState<SidebarMode>(() => {
-    try {
-      const stored = localStorage.getItem(SIDEBAR_MODE_KEY);
-      if (stored === "docked" || stored === "floating" || stored === "auto") return stored;
-      return "auto";
-    } catch {
-      return "auto";
-    }
-  });
+  // All persisted across restarts - every toggle path (header button,
+  // shortcut, floating backdrop, the agents panel's own X, Settings...) goes
+  // through these setters, so persisting in one place covers all of them.
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState(SIDEBAR_COLLAPSED_KEY, readFalse, writeBool);
+  const [agentsSidebarOpen, setAgentsSidebarOpen] = usePersistentState(AGENTS_SIDEBAR_OPEN_KEY, readFalse, writeBool);
+  const [sidebarMode, setSidebarMode] = usePersistentState<SidebarMode>(SIDEBAR_MODE_KEY, readSidebarMode, writeString);
+  const [explorerLinkMode, setExplorerLinkMode] = usePersistentState<ExplorerLinkMode>(
+    EXPLORER_LINK_MODE_KEY,
+    readLinkMode,
+    writeString,
+  );
+  const [quickActionIds, setQuickActionIds] = usePersistentState<string[]>(QUICK_ACTIONS_KEY, readQuickActions, writeJson);
+  const [favoritesButtonVisible, setFavoritesButtonVisible] = usePersistentState(
+    FAVORITES_BUTTON_VISIBLE_KEY,
+    readTrue,
+    writeBool,
+  );
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
-  const [explorerLinkMode, setExplorerLinkModeState] = useState<ExplorerLinkMode>(() => {
-    try {
-      const stored = localStorage.getItem(EXPLORER_LINK_MODE_KEY);
-      return stored === "disconnesso" ? "disconnesso" : "auto";
-    } catch {
-      return "auto";
-    }
-  });
   const sidebarResize = useResizablePanelWidth({
     storageKey: "flowcode.sidebarWidth",
     defaultWidth: 240,
@@ -389,12 +295,12 @@ function Shell() {
   ]);
   const [activeTabId, setActiveTabId] = useState("tab-0");
   const [activeTerminalId, setActiveTerminalId] = useState("tab-0");
+  const latestRef = useRef({ tabs, activeTabId, activeTerminalId });
+  latestRef.current = { tabs, activeTabId, activeTerminalId };
   const [isMaximized, setIsMaximized] = useState(false);
   const [isEdgeFlush, setIsEdgeFlush] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set());
-  const [quickActionIds, setQuickActionIds] = useState<string[]>(readQuickActions);
-  const [favoritesButtonVisible, setFavoritesButtonVisibleState] = useState<boolean>(readFavoritesButtonVisible);
+  const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [pluginMenuAnchor, setPluginMenuAnchor] = useState<DOMRect | null>(null);
   const [customPlugins, setCustomPlugins] = useState<PluginDef[]>([]);
   const [pluginToast, setPluginToast] = useState<string | null>(null);
@@ -416,59 +322,16 @@ function Shell() {
   const confirm = useConfirmDialog();
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
-
-  function setFavoritesButtonVisible(visible: boolean) {
-    setFavoritesButtonVisibleState(visible);
-    try {
-      localStorage.setItem(FAVORITES_BUTTON_VISIBLE_KEY, visible ? "1" : "0");
-    } catch {
-      /* storage unavailable */
-    }
-  }
   const { mode, toggleTheme, setMode } = useTheme();
   const { startPath, resetTabZoom } = useTerminalSettings();
 
   function toggleQuickAction(id: string) {
-    setQuickActionIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      try {
-        localStorage.setItem(QUICK_ACTIONS_KEY, JSON.stringify(next));
-      } catch {
-        /* storage unavailable */
-      }
-      return next;
-    });
-  }
-
-  function setSidebarMode(mode: SidebarMode) {
-    setSidebarModeState(mode);
-    try {
-      localStorage.setItem(SIDEBAR_MODE_KEY, mode);
-    } catch {
-      /* storage unavailable */
-    }
-  }
-
-  function setExplorerLinkMode(mode: ExplorerLinkMode) {
-    setExplorerLinkModeState(mode);
-    try {
-      localStorage.setItem(EXPLORER_LINK_MODE_KEY, mode);
-    } catch {
-      /* storage unavailable */
-    }
+    setQuickActionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   function pinToQuickActions(ids: string[]) {
     if (ids.length === 0) return;
-    setQuickActionIds((prev) => {
-      const next = [...prev, ...ids.filter((id) => !prev.includes(id))];
-      try {
-        localStorage.setItem(QUICK_ACTIONS_KEY, JSON.stringify(next));
-      } catch {
-        /* storage unavailable */
-      }
-      return next;
-    });
+    setQuickActionIds((prev) => [...prev, ...ids.filter((id) => !prev.includes(id))]);
   }
 
   /** Installs the example plugins (see registry.ts) once, ever - a flag in
@@ -482,7 +345,7 @@ function Shell() {
       const existing = await invoke<PluginManifest[]>("list_plugins");
       const byId = new Map(existing.map((p) => [p.id, p]));
 
-      if (!localStorage.getItem(PLUGINS_MIGRATED_KEY)) {
+      if (!readString(PLUGINS_MIGRATED_KEY)) {
         const migratedIds: string[] = [];
         for (const manifest of EXAMPLE_PLUGINS) {
           const current = byId.get(manifest.id);
@@ -496,7 +359,7 @@ function Shell() {
         pinToQuickActions(migratedIds);
       }
 
-      if (!localStorage.getItem(PLUGINS_SEEDED_KEY)) {
+      if (!readString(PLUGINS_SEEDED_KEY)) {
         const newIds: string[] = [];
         for (const manifest of EXAMPLE_PLUGINS) {
           if (!byId.has(manifest.id)) {
@@ -509,12 +372,8 @@ function Shell() {
     } catch {
       /* plugins folder unavailable (e.g. dev in a plain browser) */
     }
-    try {
-      localStorage.setItem(PLUGINS_MIGRATED_KEY, "1");
-      localStorage.setItem(PLUGINS_SEEDED_KEY, "1");
-    } catch {
-      /* storage unavailable */
-    }
+    writeString(PLUGINS_MIGRATED_KEY, "1");
+    writeString(PLUGINS_SEEDED_KEY, "1");
   }
 
   async function reloadCustomPlugins() {
@@ -546,7 +405,9 @@ function Shell() {
   }
 
   useEffect(() => {
-    invoke<string>("home_dir").then(setHomeDir);
+    invoke<string>("home_dir")
+      .then(setHomeDir)
+      .catch(() => setHomeDir("/"));
   }, []);
 
   // The configured start path (Settings > Terminale) may since have been
@@ -578,7 +439,7 @@ function Shell() {
     setTabs((prev) =>
       prev.map((t) =>
         t.kind === "terminal" && t.cwd === ""
-          ? { ...t, cwd: initial, explorerPath: initial, label: labelForCwd(initial, homeDir) }
+          ? { ...t, cwd: initial, explorerPath: initial, label: labelForCwd(initial) }
           : t,
       ),
     );
@@ -687,9 +548,14 @@ function Shell() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [effectiveSidebarMode, sidebarCollapsed]);
 
+  // Copy/paste only make sense with a terminal on screen - an editor or
+  // input keeps its own native clipboard handling.
+  const activeTermHandle = () => (activeTabId === activeTerminalId ? termRefs.current.get(activeTerminalId) : undefined);
   useShortcuts({
     toggleSidebar: () => setSidebarCollapsed((c) => !c),
     clearTerminal: () => termRefs.current.get(activeTerminalId)?.clear(),
+    copy: () => activeTermHandle()?.copySelection(),
+    paste: () => activeTermHandle()?.paste(),
     newTab: () => addTab(),
     closeTab: () => closeTab(activeTabId),
     toggleTheme: () => toggleTheme(),
@@ -723,7 +589,7 @@ function Shell() {
     const nestedShell = shellOverride === "wsl" ? "wsl" : undefined;
     setTabs((prev) => [
       ...prev,
-      { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir), nestedShell },
+      { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd), nestedShell },
     ]);
     setActiveTabId(id);
     setActiveTerminalId(id);
@@ -749,7 +615,7 @@ function Shell() {
     const id = `tab-${nextTabId++}`;
     const command = cli === "claude" ? `claude --resume ${sessionId}` : `codex resume ${sessionId}`;
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir) }]);
+    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd) }]);
     setActiveTabId(id);
     setActiveTerminalId(id);
   }
@@ -775,7 +641,7 @@ function Shell() {
   }
 
   function openFile(path: string) {
-    const name = path.split("/").pop() || path;
+    const name = basename(path);
     if (!isLikelyTextFile(name)) {
       openPath(path).catch(() => {});
       return;
@@ -829,7 +695,7 @@ function Shell() {
         const newId = `tab-${nextTabId++}`;
         setTabs((prev) =>
           prev.map((t) =>
-            t.id === id ? { kind: "terminal", id: newId, cwd, explorerPath: cwd, label: labelForCwd(cwd, homeDir) } : t,
+            t.id === id ? { kind: "terminal", id: newId, cwd, explorerPath: cwd, label: labelForCwd(cwd) } : t,
           ),
         );
         setActiveTabId(newId);
@@ -852,17 +718,23 @@ function Shell() {
         if (!ok) return;
       }
     }
-    const idx = tabs.findIndex((t) => t.id === id);
-    const next = tabs.filter((t) => t.id !== id);
-    if (id === activeTabId) {
+    // Read through refs, not the `tabs`/active ids captured when this call
+    // started: the confirm above can stay open for a while, and title/cwd
+    // updates that landed on other tabs meanwhile must not be overwritten
+    // with that stale snapshot.
+    const current = latestRef.current;
+    const idx = current.tabs.findIndex((t) => t.id === id);
+    if (idx === -1) return;
+    const next = current.tabs.filter((t) => t.id !== id);
+    if (id === current.activeTabId) {
       const fallback = next[Math.max(0, idx - 1)] ?? next[0];
       if (fallback) setActiveTabId(fallback.id);
     }
-    if (id === activeTerminalId) {
+    if (id === current.activeTerminalId) {
       const fallbackTerminal = next.find((t) => t.kind === "terminal");
       if (fallbackTerminal) setActiveTerminalId(fallbackTerminal.id);
     }
-    setTabs(next);
+    setTabs((prev) => prev.filter((t) => t.id !== id));
     termRefs.current.delete(id);
     editorRefs.current.delete(id);
     pendingCommandsRef.current.delete(id);
@@ -955,15 +827,15 @@ function Shell() {
 
   function handleTitleChange(tabId: string, rawTitle: string) {
     const trimmed = rawTitle.trim();
-    const hostPrefix = trimmed.match(/^([^\s@]+)@[^\s:]+:\s*(.+)$/);
+    const hostPrefix = trimmed.match(TITLE_HOST_PREFIX);
     const reportedUser = hostPrefix?.[1];
     const reportedPath = hostPrefix ? hostPrefix[2] : trimmed;
-    const isWindows = document.documentElement.dataset.platform === "windows";
+    const isWindows = isWindowsPlatform();
 
     setTabs((prev) =>
       prev.map((t) => {
         if (t.id !== tabId || t.kind !== "terminal") return t;
-        const label = t.customLabel ? t.label : cleanTitle(trimmed, homeDir);
+        const label = t.customLabel ? t.label : cleanTitle(trimmed);
 
         // `~` only expands against *this app's own host* home dir - correct
         // for a plain local shell, but meaningless for a nested WSL/remote
@@ -1059,7 +931,7 @@ function Shell() {
   }
 
   function handleEditorRenamed(id: string, newPath: string) {
-    const label = newPath.split("/").pop() || newPath;
+    const label = basename(newPath);
     setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "editor" ? { ...t, path: newPath, label } : t)));
   }
 
@@ -1166,7 +1038,7 @@ function Shell() {
     }
 
     if (!status.installed) {
-      const isWindows = document.documentElement.dataset.platform === "windows";
+      const isWindows = isWindowsPlatform();
       const installCommand = cliInstallCommand(cliBin, isWindows);
       const ok = await confirm({
         title: `${label} non è installato`,
@@ -1269,6 +1141,7 @@ function Shell() {
     const editorTab: EditorTab = activeTab;
     sidebarPanel = (
       <SymbolOutline
+        key={editorTab.id}
         label={editorTab.label}
         getContent={() => editorRefs.current.get(editorTab.id)?.getContent() ?? ""}
         onJump={(line) => editorRefs.current.get(editorTab.id)?.scrollToLine(line)}
@@ -1277,7 +1150,6 @@ function Shell() {
   } else {
     sidebarPanel = (
       <Sidebar
-        collapsed={false}
         cwd={sidebarCwd}
         onNavigate={browseExplorer}
         onOpenFile={openFile}
@@ -1481,17 +1353,18 @@ function Shell() {
               }
               if (tab.kind === "editor") {
                 return (
-                  <EditorView
-                    key={tab.id}
-                    ref={(handle) => {
-                      if (handle) editorRefs.current.set(tab.id, handle);
-                      else editorRefs.current.delete(tab.id);
-                    }}
-                    path={tab.path}
-                    hidden={tab.id !== activeTabId}
-                    onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
-                    onRenamed={(newPath) => handleEditorRenamed(tab.id, newPath)}
-                  />
+                  <Suspense key={tab.id} fallback={null}>
+                    <EditorView
+                      ref={(handle) => {
+                        if (handle) editorRefs.current.set(tab.id, handle);
+                        else editorRefs.current.delete(tab.id);
+                      }}
+                      path={tab.path}
+                      hidden={tab.id !== activeTabId}
+                      onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
+                      onRenamed={(newPath) => handleEditorRenamed(tab.id, newPath)}
+                    />
+                  </Suspense>
                 );
               }
               if (tab.id !== activeTabId) return null;
@@ -1546,7 +1419,11 @@ function Shell() {
 export default function App() {
   return (
     <ThemeProvider>
-      <WelcomeFlow />
+      {!hasSeenWelcome() && (
+        <Suspense fallback={null}>
+          <WelcomeFlow />
+        </Suspense>
+      )}
       <TerminalSettingsProvider>
         <SettingsSectionProvider>
           <ConfirmDialogProvider>

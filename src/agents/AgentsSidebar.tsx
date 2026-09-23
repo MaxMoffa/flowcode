@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TermTab } from "../tabs/types";
 import { agentCliIcon } from "../plugins/icons";
+import { basename } from "../lib/path";
 import "./agents-sidebar.css";
 
 /** Mirrors the Rust `AgentSession` struct in src-tauri/src/agents.rs field
@@ -123,15 +124,26 @@ export function AgentsSidebar({ tabs, activeTabId, getPtyId, onOpenTab, onOpenSe
         .catch(() => {});
     }
     load();
-    const interval = setInterval(load, POLL_MS);
+    // Each poll refreshes the whole process table and spawns `claude agents`
+    // - not worth doing while the window is minimized/hidden.
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, POLL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 1000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") setTick((t) => t + 1);
+    }, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -216,7 +228,7 @@ export function AgentsSidebar({ tabs, activeTabId, getPtyId, onOpenTab, onOpenSe
           >
             <span className="agents-sidebar-icon">{agentCliIcon("claude")}</span>
             <div className="agents-sidebar-row-body">
-              <span className="agents-sidebar-tab-label">{agent.cwd.split(/[\\/]/).pop() || agent.cwd}</span>
+              <span className="agents-sidebar-tab-label">{basename(agent.cwd)}</span>
               <span className="agents-sidebar-meta">
                 Claude Code
                 {agent.startedAt !== null && ` · ${formatDuration(agent.startedAt)}`}
@@ -234,7 +246,7 @@ export function AgentsSidebar({ tabs, activeTabId, getPtyId, onOpenTab, onOpenSe
           >
             <span className="agents-sidebar-icon">{agentCliIcon("codex")}</span>
             <div className="agents-sidebar-row-body">
-              <span className="agents-sidebar-tab-label">{s.cwd.split(/[\\/]/).pop() || s.cwd}</span>
+              <span className="agents-sidebar-tab-label">{basename(s.cwd)}</span>
               <span className="agents-sidebar-meta">
                 Codex CLI
                 {s.startedAt !== null && ` · ${formatDuration(s.startedAt)}`}

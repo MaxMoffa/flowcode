@@ -1,4 +1,4 @@
-use flowcode_shared::run_command_blocking;
+use flowcode_shared::{combined_output, run_command_blocking};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
@@ -12,8 +12,7 @@ use tauri::{AppHandle, Manager};
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PluginButtonManifest {
     pub label: String,
-    /// One of "newTerminal" | "clearTerminal" | "toggleSidebar" | "runCommand"
-    /// | "notify" | "commandOutput".
+    /// Same vocabulary as `PluginManifest::action`, minus "dialog".
     pub action: String,
     #[serde(default)]
     pub command: String,
@@ -27,8 +26,9 @@ pub struct PluginManifest {
     pub label: String,
     #[serde(default)]
     pub description: String,
-    /// One of "newTerminal" | "clearTerminal" | "toggleSidebar" | "runCommand"
-    /// | "notify" | "dialog" | "commandOutput".
+    /// One of "newTerminal" | "clearTerminal" | "toggleSidebar" |
+    /// "toggleAgentsSidebar" | "runCommand" | "notify" | "dialog" |
+    /// "commandOutput" - see `PluginAction` in src/plugins/types.ts.
     pub action: String,
     /// runCommand: typed into the active terminal exactly as if the user had
     /// typed it themselves. commandOutput: run headlessly (no terminal,
@@ -135,16 +135,11 @@ fn cli_is_logged_in(cli: &str) -> bool {
             .ok()
             .filter(|o| o.status.success())
             .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-            .and_then(|v| v.get("loggedIn").and_then(|b| b.as_bool()).map(Some))
-            .flatten()
+            .and_then(|v| v.get("loggedIn").and_then(|b| b.as_bool()))
             .unwrap_or(false),
         "codex" => run_command_blocking("codex login status")
             .ok()
-            .map(|o| {
-                let text = (String::from_utf8_lossy(&o.stdout) + String::from_utf8_lossy(&o.stderr)).to_lowercase();
-                o.status.success() && !text.contains("not logged in")
-            })
-            .unwrap_or(false),
+            .is_some_and(|o| o.status.success() && !combined_output(&o).to_lowercase().contains("not logged in")),
         _ => false,
     }
 }
@@ -156,82 +151,19 @@ fn cli_is_logged_in(cli: &str) -> bool {
 /// login prompt with no explanation).
 #[tauri::command]
 pub async fn check_cli_status(cli: String) -> Result<CliStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::blocking(move || {
         let installed = cli_is_installed(&cli);
         let logged_in = installed && cli_is_logged_in(&cli);
-        CliStatus { installed, logged_in }
+        Ok(CliStatus { installed, logged_in })
     })
     .await
-    .map_err(|e| e.to_string())
 }
 
-/// Runs a plugin's `commandOutput` command headlessly - no terminal tab, no
-/// stdin (so a command that expects interactive input fails fast instead of
-/// hanging) - and returns its combined stdout+stderr for display in a popup.
-/// Still just the same fixed action vocabulary as everything else: the
-/// command text comes from a manifest field, never from anywhere else.
+/// Runs a plugin's `commandOutput` command headlessly and returns its
+/// combined stdout+stderr for display in a popup. Still just the same fixed
+/// action vocabulary as everything else: the command text comes from a
+/// manifest field, never from anywhere else.
 #[tauri::command]
 pub async fn run_plugin_command(command: String) -> Result<String, String> {
-    let command = command.trim().to_string();
-    if command.is_empty() {
-        return Err("Comando vuoto".to_string());
-    }
-
-    let output = tauri::async_runtime::spawn_blocking(move || run_command_blocking(&command))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
-
-    let mut text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let err_text = String::from_utf8_lossy(&output.stderr);
-    let err_text = err_text.trim();
-    if !err_text.is_empty() {
-        if !text.is_empty() {
-            text.push('\n');
-        }
-        text.push_str(err_text);
-    }
-    if text.is_empty() {
-        text = "(nessun output)".to_string();
-    }
-    Ok(text)
-}
-
-/// Like `run_plugin_command`, but strict: only stdout, and a non-zero exit
-/// is an error (with stderr as the message) instead of being folded into the
-/// text. Used where the caller needs to parse the output (JSON, a fixed
-/// phrase) and must be able to tell "it failed" from "it succeeded with
-/// this text" - `run_plugin_command`'s tolerant merge is for display only.
-#[tauri::command]
-pub async fn run_plugin_command_stdout(command: String) -> Result<String, String> {
-    let command = command.trim().to_string();
-    if command.is_empty() {
-        return Err("Comando vuoto".to_string());
-    }
-
-    let output = tauri::async_runtime::spawn_blocking(move || run_command_blocking(&command))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        let err_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if err_text.is_empty() {
-            format!("Comando terminato con codice {:?}", output.status.code())
-        } else {
-            err_text
-        });
-    }
-    // Some CLIs (e.g. `codex login status`) print their actual result to
-    // stderr even on success - stdout alone would silently come back empty
-    // and get misread as "not logged in" by callers that parse this text.
-    let mut text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let err_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !err_text.is_empty() {
-        if !text.is_empty() {
-            text.push('\n');
-        }
-        text.push_str(&err_text);
-    }
-    Ok(text)
+    flowcode_shared::run_command_for_display(command).await
 }

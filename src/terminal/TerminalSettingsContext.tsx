@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { readBool, readNumber, readString, usePersistentState, writeBool, writeString } from "../lib/storage";
 
 const STORAGE_KEY = "flowcode.terminalFontSize";
 const BANNER_KEY = "flowcode.terminalBannerEnabled";
@@ -63,11 +64,7 @@ interface TerminalSettingsValue {
  * Reads localStorage directly rather than caching: negligible cost, and
  * guarantees it never drifts from whatever the Settings page just wrote. */
 export function getConfiguredShell(): string {
-  try {
-    return localStorage.getItem(SHELL_KEY) || DEFAULT_SHELL_ID;
-  } catch {
-    return DEFAULT_SHELL_ID;
-  }
+  return readString(SHELL_KEY) || DEFAULT_SHELL_ID;
 }
 
 const TerminalSettingsContext = createContext<TerminalSettingsValue | null>(null);
@@ -76,128 +73,76 @@ function clamp(size: number): number {
   return Math.max(MIN_SIZE, Math.min(MAX_SIZE, size));
 }
 
-function readInitial(): number {
-  try {
-    const stored = Number(localStorage.getItem(STORAGE_KEY));
-    if (Number.isFinite(stored) && stored > 0) return clamp(stored);
-  } catch {
-    /* storage unavailable */
-  }
-  return DEFAULT_SIZE;
-}
+const readFontSize = (key: string) => clamp(readNumber(key, DEFAULT_SIZE, 1));
+const writeNumber = (key: string, value: number) => writeString(key, String(value));
+const readBanner = (key: string) => readBool(key, true);
+const readShell = () => getConfiguredShell();
+const readStartPath = (key: string) => readString(key) ?? "";
 
-function readInitialBanner(): boolean {
-  try {
-    const stored = localStorage.getItem(BANNER_KEY);
-    if (stored === "0") return false;
-  } catch {
-    /* storage unavailable */
-  }
-  return true;
-}
-
-function readInitialStartPath(): string {
-  try {
-    return localStorage.getItem(START_PATH_KEY) || "";
-  } catch {
-    return "";
-  }
+/** Drops `tabId` from the overrides map (same reference if it isn't there). */
+function withoutTab(prev: Record<string, number>, tabId: string): Record<string, number> {
+  if (!(tabId in prev)) return prev;
+  const next = { ...prev };
+  delete next[tabId];
+  return next;
 }
 
 export function TerminalSettingsProvider({ children }: { children: ReactNode }) {
-  const [fontSize, setFontSize] = useState(readInitial);
+  const [fontSize, setFontSize] = usePersistentState(STORAGE_KEY, readFontSize, writeNumber);
   const [tabFontSizeOverrides, setTabFontSizeOverrides] = useState<Record<string, number>>({});
-  const [bannerEnabled, setBannerEnabledState] = useState(readInitialBanner);
-  const [shellId, setShellIdState] = useState(getConfiguredShell);
-  const [startPath, setStartPathState] = useState(readInitialStartPath);
+  const [bannerEnabled, setBannerEnabled] = usePersistentState(BANNER_KEY, readBanner, writeBool);
+  const [shellId, setShellId] = usePersistentState(SHELL_KEY, readShell, writeString);
+  const [startPath, setStartPath] = usePersistentState(START_PATH_KEY, readStartPath, writeString);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, String(fontSize));
-    } catch {
-      /* storage unavailable */
-    }
-  }, [fontSize]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(BANNER_KEY, bannerEnabled ? "1" : "0");
-    } catch {
-      /* storage unavailable */
-    }
-  }, [bannerEnabled]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SHELL_KEY, shellId);
-    } catch {
-      /* storage unavailable */
-    }
-  }, [shellId]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(START_PATH_KEY, startPath);
-    } catch {
-      /* storage unavailable */
-    }
-  }, [startPath]);
-
-  const zoomIn = () => setFontSize((s) => clamp(s + 1));
-  const zoomOut = () => setFontSize((s) => clamp(s - 1));
-  const resetZoom = () => setFontSize(DEFAULT_SIZE);
-  const getTabFontSize = (tabId: string) => tabFontSizeOverrides[tabId] ?? fontSize;
-  const zoomTabIn = (tabId: string) =>
-    setTabFontSizeOverrides((prev) => ({ ...prev, [tabId]: clamp((prev[tabId] ?? fontSize) + 1) }));
-  const zoomTabOut = (tabId: string) =>
-    setTabFontSizeOverrides((prev) => ({ ...prev, [tabId]: clamp((prev[tabId] ?? fontSize) - 1) }));
-  const resetTabZoom = (tabId: string) =>
-    setTabFontSizeOverrides((prev) => {
-      if (!(tabId in prev)) return prev;
-      const next = { ...prev };
-      delete next[tabId];
-      return next;
-    });
-  const setTabFontSize = (tabId: string, size: number) => {
-    const clamped = clamp(size);
-    setTabFontSizeOverrides((prev) => {
-      if (clamped === fontSize) {
-        if (!(tabId in prev)) return prev;
-        const next = { ...prev };
-        delete next[tabId];
-        return next;
-      }
-      return { ...prev, [tabId]: clamped };
-    });
-  };
-  const setBannerEnabled = (enabled: boolean) => setBannerEnabledState(enabled);
-  const setShellId = (id: string) => setShellIdState(id);
-  const setStartPath = (path: string) => setStartPathState(path);
-
-  return (
-    <TerminalSettingsContext.Provider
-      value={{
-        fontSize,
-        zoomIn,
-        zoomOut,
-        resetZoom,
-        tabFontSizeOverrides,
-        getTabFontSize,
-        zoomTabIn,
-        zoomTabOut,
-        setTabFontSize,
-        resetTabZoom,
-        bannerEnabled,
-        setBannerEnabled,
-        shellId,
-        setShellId,
-        startPath,
-        setStartPath,
-      }}
-    >
-      {children}
-    </TerminalSettingsContext.Provider>
+  const getTabFontSize = useCallback(
+    (tabId: string) => tabFontSizeOverrides[tabId] ?? fontSize,
+    [tabFontSizeOverrides, fontSize],
   );
+  const setTabFontSize = useCallback(
+    (tabId: string, size: number) => {
+      const clamped = clamp(size);
+      setTabFontSizeOverrides((prev) =>
+        clamped === fontSize ? withoutTab(prev, tabId) : { ...prev, [tabId]: clamped },
+      );
+    },
+    [fontSize],
+  );
+
+  const value = useMemo<TerminalSettingsValue>(
+    () => ({
+      fontSize,
+      zoomIn: () => setFontSize((s) => clamp(s + 1)),
+      zoomOut: () => setFontSize((s) => clamp(s - 1)),
+      resetZoom: () => setFontSize(DEFAULT_SIZE),
+      tabFontSizeOverrides,
+      getTabFontSize,
+      zoomTabIn: (tabId) => setTabFontSize(tabId, (tabFontSizeOverrides[tabId] ?? fontSize) + 1),
+      zoomTabOut: (tabId) => setTabFontSize(tabId, (tabFontSizeOverrides[tabId] ?? fontSize) - 1),
+      setTabFontSize,
+      resetTabZoom: (tabId) => setTabFontSizeOverrides((prev) => withoutTab(prev, tabId)),
+      bannerEnabled,
+      setBannerEnabled,
+      shellId,
+      setShellId,
+      startPath,
+      setStartPath,
+    }),
+    [
+      fontSize,
+      setFontSize,
+      tabFontSizeOverrides,
+      getTabFontSize,
+      setTabFontSize,
+      bannerEnabled,
+      setBannerEnabled,
+      shellId,
+      setShellId,
+      startPath,
+      setStartPath,
+    ],
+  );
+
+  return <TerminalSettingsContext.Provider value={value}>{children}</TerminalSettingsContext.Provider>;
 }
 
 export function useTerminalSettings() {

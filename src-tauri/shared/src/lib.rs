@@ -18,41 +18,64 @@ pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// run a shell command headlessly. Always call through `spawn_blocking`
 /// (never directly from an async command body) - `Command::output()` blocks
 /// its calling thread until the child exits.
+#[cfg(target_os = "windows")]
 pub fn run_command_blocking(command: &str) -> std::io::Result<std::process::Output> {
-    if cfg!(target_os = "windows") {
-        #[cfg(target_os = "windows")]
-        {
-            // Not `.args(["/C", command])`: Rust escapes each element of
-            // `args` as its own argv entry (doubling/backslash-escaping any
-            // quotes `command` already contains), then cmd.exe's own /C
-            // unquoting re-parses that already-mangled text - two
-            // incompatible escaping conventions stacked on each other. That
-            // corrupted e.g. `claude -p "/usage"` just enough that claude
-            // stopped recognizing `/usage` as its client-side slash command
-            // and treated it as a literal chat prompt instead. `raw_arg`
-            // hands cmd.exe the command text byte-for-byte, matching how a
-            // real `cmd /C claude -p "/usage"` invocation reads it.
-            std::process::Command::new("cmd")
-                .arg("/C")
-                .raw_arg(command)
-                .stdin(std::process::Stdio::null())
-                // Without this, cmd.exe (a console-subsystem process) gets
-                // its own new console allocated since this GUI app has
-                // none to inherit - a window flashes open and closes for
-                // every single command run, including background polls
-                // every few seconds.
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-        }
-        #[cfg(not(target_os = "windows"))]
-        unreachable!()
-    } else {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        std::process::Command::new(shell)
-            .args(["-lc", command])
-            .stdin(std::process::Stdio::null())
-            .output()
+    // Not `.args(["/C", command])`: Rust escapes each element of `args` as its
+    // own argv entry (doubling/backslash-escaping any quotes `command` already
+    // contains), then cmd.exe's own /C unquoting re-parses that already-mangled
+    // text - two incompatible escaping conventions stacked on each other. That
+    // corrupted e.g. `claude -p "/usage"` just enough that claude stopped
+    // recognizing `/usage` as a slash command. `raw_arg` hands cmd.exe the
+    // command text byte-for-byte, exactly like a real `cmd /C ...` invocation.
+    std::process::Command::new("cmd")
+        .arg("/C")
+        .raw_arg(command)
+        .stdin(std::process::Stdio::null())
+        // A GUI app has no console for cmd.exe to inherit - without this a
+        // console window flashes open and closed for every command run,
+        // background polls included.
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn run_command_blocking(command: &str) -> std::io::Result<std::process::Output> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    std::process::Command::new(shell)
+        .args(["-lc", command])
+        .stdin(std::process::Stdio::null())
+        .output()
+}
+
+/// Trimmed stdout followed by trimmed stderr (newline-separated when both are
+/// present) - what a command "printed", for display or for parsing CLIs that
+/// report results on stderr (e.g. `codex login status`).
+pub fn combined_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    match (stdout.trim(), stderr.trim()) {
+        (out, "") => out.to_string(),
+        ("", err) => err.to_string(),
+        (out, err) => format!("{out}\n{err}"),
     }
+}
+
+/// Runs `command` headlessly (no terminal, no stdin, so anything expecting
+/// interactive input fails fast instead of hanging) off the async runtime and
+/// returns its combined output for display - "(nessun output)" if it printed
+/// nothing. Shared by the main app's `run_plugin_command` and the installer's
+/// identically named command.
+pub async fn run_command_for_display(command: String) -> Result<String, String> {
+    let command = command.trim().to_string();
+    if command.is_empty() {
+        return Err("Comando vuoto".to_string());
+    }
+    let output = tauri::async_runtime::spawn_blocking(move || run_command_blocking(&command))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let text = combined_output(&output);
+    Ok(if text.is_empty() { "(nessun output)".to_string() } else { text })
 }
 
 // Native window chrome + Acrylic backdrop, Windows 11 only.
@@ -132,8 +155,8 @@ unsafe extern "system" fn nc_calc_size_subclass(
 /// at startup (see `apply_window_chrome`'s doc comment for why acrylic needs
 /// it), and again with `false` whenever the frontend decides the window is
 /// flush against the screen edge - real maximize (`.app-shell.maximized`) or
-/// Windows-Snap-tiled (`.app-shell.edge-flush`, see App.tsx's `isEdgeFlush`)
-/// - since DWM rounds corners unconditionally regardless of window state,
+/// Windows-Snap-tiled (`.app-shell.edge-flush`, see App.tsx's `isEdgeFlush`),
+/// since DWM rounds corners unconditionally regardless of window state,
 /// and a rounded corner sitting flush against the screen edge or a
 /// neighboring snapped window nicks a visible notch out of it rather than
 /// just going unnoticed the way it does on a floating window.

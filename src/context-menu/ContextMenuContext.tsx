@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./context-menu.css";
 
 export interface ContextMenuItem {
@@ -68,6 +68,10 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     setMenu({ x, y, items });
     setSubmenuOpenAt(null);
   }, []);
+
+  // Stable across menu open/close, so consumers of the context (every
+  // component with a right-click menu) don't all re-render with it.
+  const value = useMemo(() => ({ show, hide }), [show, hide]);
 
   useEffect(() => {
     if (!menu) return;
@@ -162,7 +166,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ContextMenuCtx.Provider value={{ show, hide }}>
+    <ContextMenuCtx.Provider value={value}>
       {children}
       {menu && (
         <div className="context-menu" ref={menuRef} style={style} role="menu">

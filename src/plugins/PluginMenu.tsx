@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useUsageState } from "./useUsageState";
+import { useHoverPopover, useUsageState } from "./useUsageState";
 import { usagePopoverPosition } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
 import "./plugin-menu.css";
@@ -36,29 +36,10 @@ function PinIcon({ filled }: { filled: boolean }) {
 function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () => void }) {
   const { fetcher, usage, loading, load } = useUsageState(item.id);
   const rowRef = useRef<HTMLDivElement>(null);
-  const [rect, setRect] = useState<DOMRect | null>(null);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function show() {
-    if (!fetcher) return;
-    if (hideTimer.current) {
-      clearTimeout(hideTimer.current);
-      hideTimer.current = null;
-    }
-    setRect(rowRef.current?.getBoundingClientRect() ?? null);
-    load();
-  }
-
-  function scheduleHide() {
-    hideTimer.current = setTimeout(() => setRect(null), 160);
-  }
-
-  useEffect(
-    () => () => {
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-    },
-    [],
-  );
+  const popover = useHoverPopover(rowRef, load);
+  const rect = fetcher ? popover.rect : null;
+  const show = fetcher ? popover.show : undefined;
+  const scheduleHide = fetcher ? popover.scheduleHide : undefined;
 
   return (
     <div className="plugin-menu-item" ref={rowRef} onMouseEnter={show} onMouseLeave={scheduleHide}>
@@ -85,8 +66,7 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
       >
         <PinIcon filled={item.pinned} />
       </button>
-      {fetcher &&
-        rect &&
+      {rect &&
         createPortal(
           <div
             className="plugin-usage-popover"

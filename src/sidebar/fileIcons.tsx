@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { basename, extOf } from "../lib/path";
 
 type IconDef = { svg: ReactElement; className: string };
 
@@ -24,16 +25,12 @@ const LOCK_EXT = new Set(["lock"]);
 const TEXT_DOTFILES = new Set([".gitignore", ".gitattributes", ".gitmodules", ".editorconfig", ".env"]);
 const TEXT_NO_EXT_NAMES = new Set(["Makefile", "Dockerfile", "LICENSE", "README", "CHANGELOG", "Procfile"]);
 
-function extOf(name: string): string {
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0) return "";
-  return name.slice(dot + 1).toLowerCase();
-}
 
 /** Whether a file is safe to open in the built-in text editor rather than
  * handing it off to the OS default app. Conservative: unknown/no-extension
  * names (besides a short allowlist) fall back to the system opener. */
 export function isLikelyTextFile(name: string): boolean {
+  name = basename(name);
   if (TEXT_DOTFILES.has(name) || TEXT_NO_EXT_NAMES.has(name)) return true;
   const ext = extOf(name);
   if (!ext) return false;
@@ -76,6 +73,7 @@ function iconFor(ext: string, name: string): IconDef {
 }
 
 export function FileTypeIcon({ name }: { name: string }) {
-  const { svg: icon, className } = iconFor(extOf(name), name);
+  const base = basename(name);
+  const { svg: icon, className } = iconFor(extOf(base), base);
   return <span className={`file-tree-icon ${className}`}>{icon}</span>;
 }

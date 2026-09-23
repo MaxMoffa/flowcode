@@ -20,12 +20,8 @@ import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 import { swift } from "@codemirror/legacy-modes/mode/swift";
 import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
 import { xml } from "@codemirror/legacy-modes/mode/xml";
+import { extOf } from "../lib/path";
 
-export function extOf(name: string): string {
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0) return "";
-  return name.slice(dot + 1).toLowerCase();
-}
 
 /** Best-effort CodeMirror language for a filename, by extension. Returns
  * null for formats with no available grammar (plain text, no highlighting). */

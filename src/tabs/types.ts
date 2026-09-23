@@ -10,7 +10,7 @@ export interface TermTab {
   customLabel?: boolean;
   /** Whether a full-screen program (an alternate-screen app: Claude Code,
    * Codex, vim, htop...) currently owns this tab's shell - see
-   * `TerminalHandle.isBusy`/`onBusyChange` in Terminal.tsx. */
+   * `onBusyChange` in Terminal.tsx. */
   busy?: boolean;
   /** Set when this tab's shell has handed control to something whose title
    * updates can't be trusted as a real `cd` - either the user's own typed

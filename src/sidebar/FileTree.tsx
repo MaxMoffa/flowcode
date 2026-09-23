@@ -6,6 +6,9 @@ import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { addFavorite, isFavorite, removeFavorite } from "../favorites/favoritesStore";
 import { FileTypeIcon } from "./fileIcons";
 import { FileInfoDialog } from "./FileInfoDialog";
+import type { ExplorerLinkMode } from "../settings/modes";
+import { isRootPath, parentPath, separatorOf, trimTrailingSeparators, truncatePath } from "../lib/path";
+import { readBool, usePersistentState, writeBool } from "../lib/storage";
 
 interface FsEntry {
   name: string;
@@ -113,59 +116,10 @@ function EntryIcon({ entry }: { entry: FsEntry }) {
   return entry.is_dir ? <FolderGlyph /> : <FileTypeIcon name={entry.name} />;
 }
 
-/** Whether `path` is a top-level root the "up" button has nowhere above to
- * go from - a plain POSIX "/", a bare Windows drive ("C:" / "C:\\"), or a
- * WSL UNC share root ("\\\\wsl.localhost\\Ubuntu"). */
-function isRootPath(path: string): boolean {
-  if (!path || path === "/") return true;
-  if (/^[A-Za-z]:\\?$/.test(path)) return true;
-  if (path.startsWith("\\\\")) {
-    return path.slice(2).split("\\").filter(Boolean).length <= 2;
-  }
-  return false;
-}
-
-/** The containing folder of `path`, one level up - separator-aware, since
- * `cwd` can be POSIX (macOS/Linux, or a real WSL bash session's own path),
- * a Windows drive path ("C:\\Users\\me"), or a WSL UNC path this app made up
- * for Explorer's sake ("\\\\wsl.localhost\\Ubuntu\\home\\me" - see
- * terminal/wslPath.ts). Splitting only on "/" here made every backslash path
- * fail to find any separator at all and fall straight through to "/" - the
- * "up" button always landing on root regardless of where it was clicked. */
-function parentPath(path: string): string {
-  if (isRootPath(path)) return path;
-  const sep = path.includes("\\") ? "\\" : "/";
-  let trimmed = path;
-  while (trimmed.length > 1 && trimmed.endsWith(sep)) trimmed = trimmed.slice(0, -1);
-
-  if (sep === "/") {
-    const idx = trimmed.lastIndexOf("/");
-    return idx <= 0 ? "/" : trimmed.slice(0, idx);
-  }
-
-  if (trimmed.startsWith("\\\\")) {
-    const parts = trimmed.slice(2).split("\\");
-    return "\\\\" + parts.slice(0, -1).join("\\");
-  }
-
-  const driveRoot = trimmed.match(/^[A-Za-z]:\\/)?.[0];
-  const idx = trimmed.lastIndexOf("\\");
-  if (driveRoot && idx < driveRoot.length) return driveRoot;
-  return trimmed.slice(0, idx);
-}
-
-/** Shows just the last two path segments so deep cwds don't push the menu
- * button off the sidebar - the full path is still available as a tooltip. */
-function truncatePath(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const parts = trimmed.split("/").filter(Boolean);
-  if (parts.length <= 2) return path || "/";
-  return "…/" + parts.slice(-2).join("/");
-}
-
 /** Exported so Settings → Informazioni's "Ripristina terminale" can clear it
  * as part of a full reset, without duplicating the key string. */
 export const SHOW_HIDDEN_KEY = "flowcode.showHiddenFiles";
+const readHiddenFlag = (key: string) => readBool(key, false);
 
 interface InlineEditRowProps {
   icon: React.ReactNode;
@@ -178,6 +132,10 @@ interface InlineEditRowProps {
 function InlineEditRow({ icon, initialValue, allowUnchanged, onCommit, onCancel }: InlineEditRowProps) {
   const [value, setValue] = useState(initialValue);
   const ref = useRef<HTMLInputElement>(null);
+  // Enter commits, and the blur that follows (the row unmounting, or the
+  // user clicking away while the rename is still in flight) must not commit
+  // a second time - that second rename would fail against the old path.
+  const doneRef = useRef(false);
 
   useEffect(() => {
     ref.current?.focus();
@@ -185,12 +143,19 @@ function InlineEditRow({ icon, initialValue, allowUnchanged, onCommit, onCancel 
   }, []);
 
   function commit() {
+    if (doneRef.current) return;
+    doneRef.current = true;
     const trimmed = value.trim();
     if (!trimmed || (!allowUnchanged && trimmed === initialValue)) {
       onCancel();
       return;
     }
     onCommit(trimmed);
+  }
+
+  function cancel() {
+    doneRef.current = true;
+    onCancel();
   }
 
   return (
@@ -206,14 +171,12 @@ function InlineEditRow({ icon, initialValue, allowUnchanged, onCommit, onCancel 
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit();
-          if (e.key === "Escape") onCancel();
+          if (e.key === "Escape") cancel();
         }}
       />
     </div>
   );
 }
-
-type ExplorerLinkMode = "auto" | "disconnesso";
 
 interface FileTreeProps {
   cwd: string;
@@ -242,13 +205,7 @@ export function FileTree({
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [infoEntry, setInfoEntry] = useState<FsEntry | null>(null);
-  const [showHidden, setShowHidden] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(SHOW_HIDDEN_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
+  const [showHidden, setShowHidden] = usePersistentState(SHOW_HIDDEN_KEY, readHiddenFlag, writeBool);
   const [headerRenameDraft, setHeaderRenameDraft] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -324,26 +281,26 @@ export function FileTree({
     toastTimer.current = setTimeout(() => setToast(null), 1600);
   }
 
+  // Only the newest listing request may land: clicking through folders
+  // quickly (or a slow WSL/network path) can resolve out of order, and an
+  // older answer must not replace the folder actually being shown.
+  const reloadSeqRef = useRef(0);
   const reload = useCallback(() => {
     if (!cwd) return;
+    const seq = ++reloadSeqRef.current;
     invoke<FsEntry[]>("read_dir", { path: cwd, showHidden })
       .then((result) => {
+        if (seq !== reloadSeqRef.current) return;
         setEntries(result);
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (seq === reloadSeqRef.current) setError(String(e));
+      });
   }, [cwd, showHidden]);
 
   function toggleShowHidden() {
-    setShowHidden((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(SHOW_HIDDEN_KEY, next ? "1" : "0");
-      } catch {
-        /* storage unavailable */
-      }
-      return next;
-    });
+    setShowHidden((prev) => !prev);
   }
 
   useEffect(() => {
@@ -370,7 +327,7 @@ export function FileTree({
   }, [renamingPath, cwd]);
 
   function commitPathEdit() {
-    const trimmed = headerRenameDraft.trim().replace(/\/+$/, "") || "/";
+    const trimmed = trimTrailingSeparators(headerRenameDraft.trim()) || "/";
     setRenamingPath(null);
     if (trimmed === cwd) return;
     onNavigate(trimmed);
@@ -545,8 +502,9 @@ export function FileTree({
     // path line silently never showed on Windows at all. Sniffed from `cwd`
     // itself rather than assumed from the platform, so a WSL UNC cwd
     // (`\\wsl.localhost\...`, still backslash-separated) works the same way.
-    const sep = cwd.includes("\\") ? "\\" : "/";
-    const cwdPrefix = cwd.replace(/[\\/]+$/, "") + sep;
+    // A root ("/", "C:\") already ends in its separator.
+    const base = trimTrailingSeparators(cwd);
+    const cwdPrefix = /[\\/]$/.test(base) ? base : base + separatorOf(cwd);
     if (!entry.path.startsWith(cwdPrefix)) return "";
     const rel = entry.path.slice(cwdPrefix.length, entry.path.length - entry.name.length - 1);
     return rel;

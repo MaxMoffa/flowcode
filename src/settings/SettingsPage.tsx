@@ -9,6 +9,9 @@ import { FunzionalitaPage } from "./FunzionalitaPage";
 import { DEFAULT_QUICK_ACTIONS } from "../plugins/registry";
 import { SHOW_HIDDEN_KEY } from "../sidebar/FileTree";
 import type { PluginDef, PluginManifest } from "../plugins/types";
+import type { SidebarMode } from "./modes";
+import { listShellOptions, type ShellOption } from "../terminal/shellOptions";
+import { writeBool } from "../lib/storage";
 import pkg from "../../package.json";
 import "./settings-page.css";
 
@@ -27,13 +30,6 @@ const CREDITS: { name: string; use: string }[] = [
   { name: "sysinfo", use: "rilevamento dei processi (agenti CLI) in esecuzione nei terminali, lato Rust." },
   { name: "uuid", use: "identificativi univoci per le sessioni di terminale, lato Rust." },
 ];
-
-export type SidebarMode = "auto" | "docked" | "floating";
-
-interface ShellOption {
-  id: string;
-  label: string;
-}
 
 interface SettingsPageProps {
   quickActionIds: string[];
@@ -136,9 +132,7 @@ export function SettingsPage({
   const [shellOptions, setShellOptions] = useState<ShellOption[]>([]);
 
   useEffect(() => {
-    invoke<ShellOption[]>("list_shell_options")
-      .then(setShellOptions)
-      .catch(() => setShellOptions([]));
+    listShellOptions().then(setShellOptions);
   }, []);
 
   async function handleCopyVersionInfo() {
@@ -193,11 +187,7 @@ export function SettingsPage({
     const toAdd = DEFAULT_QUICK_ACTIONS.filter((id) => !quickActionIds.includes(id));
     for (const id of [...toRemove, ...toAdd]) onToggleQuickAction(id);
 
-    try {
-      localStorage.setItem(SHOW_HIDDEN_KEY, "0");
-    } catch {
-      /* storage unavailable */
-    }
+    writeBool(SHOW_HIDDEN_KEY, false);
   }
 
   return (

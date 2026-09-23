@@ -34,16 +34,15 @@ pub struct SystemInfo {
 }
 
 /// System/memory/disk info for the ASCII splash written into a fresh
-/// terminal tab - read fresh on every call (no caching): each of these is a
-/// single cheap OS query, and this only ever runs once per new tab anyway.
-#[tauri::command]
+/// terminal tab - read fresh on every call (no caching): this only ever runs
+/// once per new tab. `(async)` (like the WSL lookups below, which spawn
+/// `wsl.exe`) so the disk/memory queries never run on the UI thread.
+#[tauri::command(async)]
 pub fn system_info() -> SystemInfo {
     let mut sys = System::new();
     sys.refresh_memory();
 
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(std::path::PathBuf::from);
+    let home = crate::fs::user_home();
 
     let disks = Disks::new_with_refreshed_list();
     // The disk whose mount point is the longest matching prefix of the
@@ -95,7 +94,7 @@ pub fn set_window_square_corners(window: tauri::WebviewWindow, square: bool) {
 /// browsable `\\wsl.localhost\<distro>\...` UNC path - see wslPath.ts.
 /// `None` on any non-Windows platform (no `wsl.exe` to spawn) or if WSL
 /// itself isn't installed, both of which just fail the process spawn below.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn wsl_default_distro() -> Option<String> {
     let mut cmd = std::process::Command::new("wsl.exe");
     cmd.args(["-l", "-v"]).stdin(std::process::Stdio::null());
@@ -125,7 +124,7 @@ pub fn wsl_default_distro() -> Option<String> {
 /// distro itself rather than assumed to be `/home/<user>`, which neither
 /// `root` nor a custom passwd entry matches. `user` comes from the title's
 /// own `user@host:` prefix; `None` falls back to the distro's default user.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn wsl_home_dir(distro: String, user: Option<String>) -> Option<String> {
     let mut cmd = std::process::Command::new("wsl.exe");
     cmd.args(["-d", &distro]);

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./confirm-dialog.css";
 
 export interface ConfirmOptions {
@@ -35,6 +35,9 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
 
   const confirm = useCallback((options: ConfirmOptions) => {
     return new Promise<boolean>((resolve) => {
+      // Only one dialog at a time: a newer request supersedes (cancels) the
+      // one still open, instead of leaving its caller awaiting forever.
+      pendingRef.current?.resolve(false);
       const entry: PendingConfirm = { ...options, resolve };
       pendingRef.current = entry;
       setPending(entry);
@@ -51,15 +54,21 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
     if (!pending) return;
     confirmBtnRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") settle(false);
-      if (e.key === "Enter") settle(true);
+      if (e.key !== "Escape" && e.key !== "Enter") return;
+      // Keep the key from also reaching whatever is behind the modal (a
+      // focused terminal would otherwise receive the Enter too).
+      e.preventDefault();
+      e.stopPropagation();
+      settle(e.key === "Enter");
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [pending, settle]);
 
+  const value = useMemo(() => ({ confirm }), [confirm]);
+
   return (
-    <ConfirmDialogCtx.Provider value={{ confirm }}>
+    <ConfirmDialogCtx.Provider value={value}>
       {children}
       {pending && (
         <div

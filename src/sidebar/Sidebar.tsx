@@ -1,10 +1,8 @@
 import { FileTree } from "./FileTree";
+import type { ExplorerLinkMode } from "../settings/modes";
 import "./sidebar.css";
 
-type ExplorerLinkMode = "auto" | "disconnesso";
-
 interface SidebarProps {
-  collapsed: boolean;
   cwd: string;
   onNavigate: (path: string) => void;
   onOpenFile: (path: string) => void;
@@ -18,7 +16,6 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-  collapsed,
   cwd,
   onNavigate,
   onOpenFile,
@@ -27,7 +24,6 @@ export function Sidebar({
   onSetLinkMode,
   terminalBusy,
 }: SidebarProps) {
-  if (collapsed) return null;
   return (
     <aside className="sidebar">
       <FileTree

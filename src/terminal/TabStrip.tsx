@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
+import { listShellOptions, type ShellOption } from "./shellOptions";
 import type { AppTab } from "../tabs/types";
 import { FileTypeIcon } from "../sidebar/fileIcons";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
@@ -224,12 +224,10 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
   // list_shell_options in pty.rs), already filtered there to what's actually
   // usable on this OS/machine (a WSL entry only exists here when it's really
   // installed).
-  const [shellOptions, setShellOptions] = useState<{ id: string; label: string }[]>([]);
+  const [shellOptions, setShellOptions] = useState<ShellOption[]>([]);
 
   useEffect(() => {
-    invoke<{ id: string; label: string }[]>("list_shell_options")
-      .then(setShellOptions)
-      .catch(() => {});
+    listShellOptions().then(setShellOptions);
   }, []);
 
   useEffect(() => {

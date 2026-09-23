@@ -20,7 +20,9 @@ fn installer_check_webview2() -> bool {
     }
 }
 
-#[tauri::command]
+/// `(async)`: writing the embedded payload (the whole app binary) to disk
+/// takes long enough to freeze the window if run on the UI thread.
+#[tauri::command(async)]
 fn installer_run(install_dir: String, desktop_shortcut: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -38,29 +40,7 @@ fn installer_run(install_dir: String, desktop_shortcut: bool) -> Result<(), Stri
 /// same command name with no changes needed.
 #[tauri::command]
 async fn run_plugin_command(command: String) -> Result<String, String> {
-    let command = command.trim().to_string();
-    if command.is_empty() {
-        return Err("Comando vuoto".to_string());
-    }
-
-    let output = tauri::async_runtime::spawn_blocking(move || flowcode_shared::run_command_blocking(&command))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
-
-    let mut text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let err_text = String::from_utf8_lossy(&output.stderr);
-    let err_text = err_text.trim();
-    if !err_text.is_empty() {
-        if !text.is_empty() {
-            text.push('\n');
-        }
-        text.push_str(err_text);
-    }
-    if text.is_empty() {
-        text = "(nessun output)".to_string();
-    }
-    Ok(text)
+    flowcode_shared::run_command_for_display(command).await
 }
 
 #[tauri::command]

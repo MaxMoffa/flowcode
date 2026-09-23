@@ -1,7 +1,5 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
-import { InstallerFlow } from "./installer/InstallerFlow";
 import "./themes/themes.css";
 
 // WebKitGTK (Tauri's WebView on Linux) accepts the `backdrop-filter` CSS
@@ -26,7 +24,15 @@ document.documentElement.dataset.platform = detectPlatform();
 // src-tauri/installer/), whose own tauri.conf.json points its window straight
 // at this hash - one frontend bundle, two different Tauri backends behind it.
 const isInstaller = window.location.hash === "#installer";
+// Each entry point is its own chunk, so neither binary loads the other's code.
+const Root = isInstaller
+  ? lazy(() => import("./installer/InstallerFlow").then((m) => ({ default: m.InstallerFlow })))
+  : lazy(() => import("./App"));
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>{isInstaller ? <InstallerFlow /> : <App />}</React.StrictMode>,
+  <React.StrictMode>
+    <Suspense fallback={null}>
+      <Root />
+    </Suspense>
+  </React.StrictMode>,
 );

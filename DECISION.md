@@ -8,7 +8,7 @@ Log delle decisioni tecniche/architetturali rilevanti. Formato: data, decisione,
 - **Alternative scartate**: Svelte/Vue (ok ma React scelto per ecosistema componenti più ampio in fase iniziale).
 
 ## 2026-09-17 — PTY via `portable-pty`
-- **Decisione**: uso crate `portable-pty` per spawn shell locale cross-platform, comunicazione con frontend via eventi Tauri (`pty://output`, `pty://exit`) + comandi invoke (`pty_spawn`, `pty_write`, `pty_resize`, `pty_kill`).
+- **Decisione**: uso crate `portable-pty` per spawn shell locale cross-platform, output verso il frontend via un `Channel` Tauri per sessione (eventi `output`/`exit`, collegato prima dello spawn) + comandi invoke (`pty_spawn`, `pty_write`, `pty_resize`, `pty_kill`).
 - **Motivo**: astrae differenze PTY/ConPTY tra Unix e Windows, API semplice, mantenuta attivamente (usata anche da WezTerm).
 - **Alternative scartate**: bindings diretti a `nix`/`winpty` (troppo lavoro manuale per portabilità Windows).
 

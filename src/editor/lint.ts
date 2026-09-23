@@ -1,6 +1,6 @@
 import type { Extension } from "@codemirror/state";
 import { linter, type Diagnostic } from "@codemirror/lint";
-import { extOf } from "./language";
+import { extOf } from "../lib/path";
 
 interface CommentStyle {
   line?: string;

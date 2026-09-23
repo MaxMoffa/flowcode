@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { readEnum, readNumber, writeString } from "../lib/storage";
 
 export type Theme = "light" | "dark";
 export type ThemeMode = Theme | "auto";
@@ -47,30 +48,19 @@ function getSystemTheme(): Theme {
 }
 
 function getInitialMode(): ThemeMode {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "light" || stored === "dark" || stored === "auto") return stored;
-  return "auto";
+  return readEnum<ThemeMode>(STORAGE_KEY, ["auto", "light", "dark"], "auto");
 }
 
-/** themes.css's own default --surface-alpha for the current platform/theme.
- * Can't just read it back via getComputedStyle: this runs before the
- * `data-theme` effect below has applied (that attribute is what makes the
- * platform override rule match at all), so the cascade wouldn't have picked
- * it up yet. Duplicated here instead - matches the values in the platform
- * override block a few lines above the theme blocks in themes.css. */
-function getThemeDefaultAlpha(_theme: Theme): number {
-  return 0.9;
-}
+/** Default --surface-alpha until the user moves the slider - the same for
+ * both themes today. Can't be read back from themes.css via
+ * getComputedStyle: this runs before the `data-theme` attribute that makes
+ * the platform override rules match has been applied. */
+const DEFAULT_GLASS_ALPHA = 0.9;
 
 function getInitialGlassOpacity(theme: Theme): number {
-  const raw = localStorage.getItem(GLASS_OPACITY_KEY_PREFIX + theme);
-  // `Number(null)` is `0`, not `NaN` - reading it before checking for a
-  // missing key would make "never set" indistinguishable from "explicitly
-  // set to 0%", silently turning every fresh profile fully transparent.
-  if (raw === null) return getThemeDefaultAlpha(theme);
-  const stored = Number(raw);
-  if (Number.isFinite(stored) && stored >= 0 && stored <= 1) return stored;
-  return getThemeDefaultAlpha(theme);
+  // readNumber treats a missing key as "use the default" - `Number(null)` is
+  // 0, which would otherwise turn every fresh profile fully transparent.
+  return readNumber(GLASS_OPACITY_KEY_PREFIX + theme, DEFAULT_GLASS_ALPHA, 0, 1);
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -101,7 +91,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, mode);
+    writeString(STORAGE_KEY, mode);
   }, [mode]);
 
   // Switching theme swaps in that theme's own stored (or default) opacity -
@@ -117,19 +107,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Windows/Linux opaque-fallback override - one place to set, no need to
     // know which of those is currently in effect.
     document.documentElement.style.setProperty("--surface-alpha", String(glassOpacity));
-    localStorage.setItem(GLASS_OPACITY_KEY_PREFIX + theme, String(glassOpacity));
+    writeString(GLASS_OPACITY_KEY_PREFIX + theme, String(glassOpacity));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glassOpacity]);
 
-  const setMode = (next: ThemeMode) => setModeState(next);
-  const toggleTheme = () => setModeState(theme === "dark" ? "light" : "dark");
-  const setGlassOpacity = (value: number) => setGlassOpacityState(Math.max(0, Math.min(1, value)));
-
-  return (
-    <ThemeContext.Provider value={{ theme, mode, setMode, toggleTheme, glassOpacity, setGlassOpacity }}>
-      {children}
-    </ThemeContext.Provider>
+  const value = useMemo<ThemeContextValue>(
+    () => ({
+      theme,
+      mode,
+      setMode: setModeState,
+      toggleTheme: () => setModeState(theme === "dark" ? "light" : "dark"),
+      glassOpacity,
+      setGlassOpacity: (next) => setGlassOpacityState(Math.max(0, Math.min(1, next))),
+    }),
+    [theme, mode, glassOpacity],
   );
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {

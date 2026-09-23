@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
+import { killPty, spawnPty, writePty } from "../terminal/ptyClient";
 import {
   CODEX_COLS,
   CODEX_ROWS,
@@ -36,41 +36,40 @@ type UsageFetcher = () => Promise<UsageInfo>;
  * (no DOM) to parse the pty stream exactly like a visible terminal tab
  * would. Killed the moment the numbers are read - never left running. */
 async function readCodexStatusScreen(): Promise<string> {
-  const id = await invoke<string>("pty_spawn", {
-    cwd: null,
-    cols: CODEX_COLS,
-    rows: CODEX_ROWS,
-    shell: getConfiguredShell(),
-  });
   // A little scrollback, not none: the `/status` box is tall, and in a session
   // that already printed something (shell banner, codex tips) its first rows
-  // can scroll above the viewport - with scrollback 0 they'd be gone for good,
-  // whereas buffer.active spans the scrollback too, so screenTextOf still sees
-  // them.
+  // can scroll above the viewport - buffer.active spans the scrollback too,
+  // so screenTextOf still sees them.
   const term = new HeadlessTerminal({ cols: CODEX_COLS, rows: CODEX_ROWS, scrollback: 200, allowProposedApi: true });
-  // A real terminal tab (Terminal.tsx) always wires `onData` back to
-  // `pty_write` - without it, the shell's own automatic queries (a DSR
-  // cursor-position request, `ESC[6n`, is the first thing cmd.exe sends)
-  // never get an answer, and cmd.exe stalls right there waiting for one
-  // that structurally can never come. This headless terminal needs the
-  // exact same wiring, or the shell it's driving never gets past its own
-  // startup handshake.
+  let id: string | null = null;
+  let done = false;
+  // Same wiring as a visible tab (Terminal.tsx): the shell's own startup
+  // queries (cmd.exe's first output is a DSR `ESC[6n`) must be answered or
+  // the session stalls. Replies produced before the id is known are queued.
+  const pendingReplies: string[] = [];
   term.onData((data) => {
-    invoke("pty_write", { id, data }).catch(() => {});
+    if (id) writePty(id, data);
+    else pendingReplies.push(data);
   });
-  let unlisten: (() => void) | undefined;
   try {
-    unlisten = await listen<{ id: string; data: string }>("pty://output", (event) => {
-      if (event.payload.id === id) term.write(event.payload.data);
+    id = await spawnPty({
+      cols: CODEX_COLS,
+      rows: CODEX_ROWS,
+      shell: getConfiguredShell(),
+      onOutput: (data) => {
+        if (!done) term.write(data);
+      },
     });
+    const ptyId = id;
+    for (const data of pendingReplies.splice(0)) writePty(ptyId, data);
 
     return await driveCodexStatus({
-      write: (data) => invoke("pty_write", { id, data }).then(() => undefined),
+      write: (data) => writePty(ptyId, data),
       screen: () => screenTextOf(term),
     });
   } finally {
-    unlisten?.();
-    invoke("pty_kill", { id }).catch(() => {});
+    done = true;
+    if (id) killPty(id);
     term.dispose();
   }
 }
@@ -146,7 +145,7 @@ function claudeUsageLabel(raw: string): string {
 async function fetchClaudeUsage(): Promise<UsageInfo> {
   let out: string;
   try {
-    // Dedicated command (not `runStdout`/`run_plugin_command_stdout`): it
+    // Dedicated command (not the generic `run_plugin_command`): it
     // tracks this probe's real pid on the Rust side so `list_claude_agents`
     // can exclude it - see `run_claude_usage_probe` in src-tauri/src/agents.rs.
     out = await invoke<string>("run_claude_usage_probe");

@@ -2,7 +2,8 @@ import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { isWindowsPlatform } from "../lib/path";
+import { killPty, resizePty, spawnPty, writePty } from "./ptyClient";
 import { useTheme } from "../themes/ThemeContext";
 import { useTerminalSettings } from "./TerminalSettingsContext";
 import { buildAsciiBanner, type BannerSystemInfo } from "./asciiBanner";
@@ -59,14 +60,16 @@ function readTermColors() {
  * Windows tab, most notably, where the host being Windows says nothing
  * about what's actually reading this command right now. */
 function shellQuote(path: string, forcePosix = false): string {
-  if (!forcePosix && document.documentElement.dataset.platform === "windows") return `"${path}"`;
+  if (!forcePosix && isWindowsPlatform()) return `"${path}"`;
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
 export interface TerminalHandle {
   clear: () => void;
-  focus: () => void;
-  refit: () => void;
+  /** Copies the current selection to the clipboard (no-op without one). */
+  copySelection: () => void;
+  /** Pastes the clipboard as if typed (bracketed-paste aware). */
+  paste: () => void;
   runCommand: (cmd: string) => void;
   /** Same as `runCommand`, but hides the injected command and its echo
    * entirely once the launched program redraws the prompt/title - the
@@ -86,10 +89,6 @@ export interface TerminalHandle {
    * the Agents sidebar match a `list_agent_sessions` result back to the tab
    * that owns it. `null` before the pty has finished spawning. */
   getPtyId: () => string | null;
-  /** Whether a full-screen program currently owns this tab (see
-   * `onBusyChange`) - a pull-based read of the same signal, for callers that
-   * need the value at a specific moment rather than a running subscription. */
-  isBusy: () => boolean;
 }
 
 interface TerminalViewProps {
@@ -164,16 +163,23 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   // browsing folders never lengthens the terminal.
   const pendingCollapseRowRef = useRef<number | null>(null);
   const collapseSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Size last pushed to the pty - the ResizeObserver fires for every layout
+  // tweak (sidebar drag, window resize frames), and most of those don't
+  // change the cell grid at all, so there's nothing worth an IPC call.
+  const ptySizeRef = useRef({ cols: 0, rows: 0 });
 
   function refit() {
     const term = xtermRef.current;
     const fitAddon = fitAddonRef.current;
-    const id = ptyIdRef.current;
-    if (!term || !fitAddon || !containerRef.current) return;
-    if (containerRef.current.clientWidth === 0 || containerRef.current.clientHeight === 0) return;
+    const container = containerRef.current;
+    if (!term || !fitAddon || !container) return;
+    if (container.clientWidth === 0 || container.clientHeight === 0) return;
     fitAddon.fit();
-    if (id) {
-      invoke("pty_resize", { id, cols: term.cols, rows: term.rows }).catch(() => {});
+    const id = ptyIdRef.current;
+    const last = ptySizeRef.current;
+    if (id && (last.cols !== term.cols || last.rows !== term.rows)) {
+      ptySizeRef.current = { cols: term.cols, rows: term.rows };
+      resizePty(id, term.cols, term.rows);
     }
   }
 
@@ -195,13 +201,23 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     collapseSafetyRef.current = setTimeout(() => {
       pendingCollapseRowRef.current = null;
     }, safetyMs);
-    invoke("pty_write", { id, data }).catch(() => {});
+    writePty(id, data);
   }
 
   useImperativeHandle(ref, () => ({
     clear: () => xtermRef.current?.clear(),
-    focus: () => xtermRef.current?.focus(),
-    refit,
+    copySelection: () => {
+      const selection = xtermRef.current?.getSelection();
+      if (selection) navigator.clipboard.writeText(selection).catch(() => {});
+    },
+    paste: () => {
+      navigator.clipboard
+        .readText()
+        .then((text) => {
+          if (text) xtermRef.current?.paste(text);
+        })
+        .catch(() => {});
+    },
     runCommand: (cmd: string) => {
       const id = ptyIdRef.current;
       // `\r`, not `\n`: that's what xterm.js itself sends for a real Enter
@@ -209,7 +225,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       // the more "written text" instinct of `\n`, is what makes ConPTY
       // (the Windows pty backend) actually treat this as pressing Enter
       // instead of leaving the line sitting there typed but unsubmitted.
-      if (id) invoke("pty_write", { id, data: `${cmd}\r` }).catch(() => {});
+      if (id) writePty(id, `${cmd}\r`);
     },
     // A launched full-screen CLI can take a while to draw its first titled
     // frame (cold start, update check, ...), longer than a plain `cd`'s
@@ -226,12 +242,11 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     // App.tsx's title handler needs to pick the new cwd/tab label back up.
     navigateSilently: (path: string, forcePosix = false) =>
       writeSilently(
-        !forcePosix && document.documentElement.dataset.platform === "windows"
+        !forcePosix && isWindowsPlatform()
           ? `cd ${shellQuote(path)} && title ${path}\r`
           : `cd ${shellQuote(path, forcePosix)}\r`,
       ),
     getPtyId: () => ptyIdRef.current,
-    isBusy: () => (xtermRef.current ? xtermRef.current.buffer.active.type !== "normal" : false),
   }));
 
   useEffect(() => {
@@ -356,7 +371,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         pendingInput.push(data);
         return;
       }
-      invoke("pty_write", { id, data }).catch(() => {});
+      writePty(id, data);
 
       // See `onCommandLine`'s own doc comment for what this shadow buffer
       // is (and isn't) good for. Arrow keys/function keys arrive from xterm
@@ -379,19 +394,14 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       }
     });
 
-    let unlistenOutput: (() => void) | undefined;
-    let unlistenExit: (() => void) | undefined;
     let disposed = false;
 
     (async () => {
       // A quiet splash above the real prompt, not a competing banner: skips
       // itself on a too-narrow tab (see buildAsciiBanner) rather than wrap
-      // and look broken. Awaited here, before the pty output listener/spawn
-      // below, so it's always the very first thing written to this tab -
-      // xterm's write queue is FIFO by call order, not by which async call
-      // happens to resolve first, so writing it any later (e.g. off of its
-      // own unawaited invoke) could race the shell's own first output and
-      // land below it instead of above.
+      // and look broken. Awaited before the spawn so it's always the very
+      // first thing written to this tab - xterm's write queue is FIFO by call
+      // order, so writing it any later could land below the shell's output.
       if (bannerEnabledRef.current) {
         const sysInfo = await invoke<BannerSystemInfo>("system_info").catch(() => undefined);
         if (disposed) return;
@@ -399,123 +409,48 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         if (banner) term.write(banner);
       }
 
-      // The output listener has to be in place *before* pty_spawn, not after
-      // it. The backend starts the shell and its reader thread inside that
-      // call, and Tauri events are fire-and-forget: anything emitted before
-      // `listen` has completed its own IPC round-trip reaches nobody. That is
-      // not just cosmetic here - the very first thing ConPTY emits is `ESC[6n`
-      // (a cursor-position query) and it then *waits* for the terminal's
-      // reply before letting the session proceed. Miss that one query and the
-      // shell never prints its banner, never draws a prompt and never acts on
-      // anything typed - a tab that looks dead because it is, on both ends.
-      // (Measured: an unanswered ESC[6n yields 4 bytes of output and a shell
-      // that ignores input forever; answering it yields the normal banner,
-      // prompt and echo.) Every tab raced that window and the first tab of a
-      // cold start lost, because that is when the round-trip is slowest -
-      // first event-plugin call, main thread busy with the initial render.
-      //
-      // xterm.js answers the query itself, but only once it has been *given*
-      // the bytes, and it answers through `onData` - which is why that handler
-      // is hooked up above the spawn too, with a queue for anything it
-      // produces before there is a pty id to send it to.
-      //
-      // Which pty is "ours" isn't known until pty_spawn returns, so output is
-      // parked per id until then and the matching id's backlog is replayed;
-      // the other ids belong to other tabs, which have their own listeners,
-      // so those are simply dropped.
-      let ourId: string | null = null;
-      const buffered = new Map<string, string[]>();
-      const exitedEarly = new Set<string>();
-
-      unlistenOutput = await listen<{ id: string; data: string }>("pty://output", (event) => {
-        const { id: eventId, data } = event.payload;
-        if (ourId === null) {
-          const backlog = buffered.get(eventId);
-          if (backlog) backlog.push(data);
-          else buffered.set(eventId, [data]);
-          return;
-        }
-        if (eventId === ourId) term.write(data);
-      });
-      unlistenExit = await listen<{ id: string }>("pty://exit", (event) => {
-        const eventId = event.payload.id;
-        if (ourId === null) {
-          exitedEarly.add(eventId);
-          return;
-        }
-        if (eventId === ourId) term.write("\r\n[process exited]\r\n");
-      });
-      // The cleanup below can have already run while those awaits were in
-      // flight, in which case it saw both handles still undefined - unhook
-      // here instead of leaking a listener onto a disposed terminal.
-      if (disposed) {
-        unlistenOutput?.();
-        unlistenExit?.();
+      let id: string;
+      try {
+        // Output is written as it arrives, even before `pty_spawn` resolves
+        // (see spawnPty for why that window matters) - xterm's replies to
+        // the shell's startup queries go through `onData`, which queues them
+        // in `pendingInput` until the id is known.
+        id = await spawnPty({
+          cwd: cwdRef.current,
+          cols: term.cols,
+          rows: term.rows,
+          shell: shellIdRef.current,
+          onOutput: (data) => {
+            if (!disposed) term.write(data);
+          },
+          onExit: () => {
+            if (!disposed) term.write("\r\n[process exited]\r\n");
+          },
+        });
+      } catch (e) {
+        if (!disposed) term.write(`\r\n[impossibile avviare la shell: ${e}]\r\n`);
         return;
       }
-
-      const id = await invoke<string>("pty_spawn", {
-        // "" (the initial tab, before homeDir has loaded) must reach the
-        // backend as no cwd at all, not as an empty string - portable_pty's
-        // CommandBuilder::cwd("") sets lpCurrentDirectory to "" on Windows,
-        // which CreateProcessW treats as an invalid working directory rather
-        // than "inherit the current one", breaking that shell silently (no
-        // prompt, no cursor, but no error either - it just never starts
-        // right).
-        cwd: cwdRef.current || null,
-        cols: term.cols,
-        rows: term.rows,
-        shell: shellIdRef.current,
-      });
       if (disposed) {
-        unlistenOutput?.();
-        unlistenExit?.();
-        invoke("pty_kill", { id }).catch(() => {});
+        killPty(id);
         return;
       }
       ptyIdRef.current = id;
-      ourId = id;
-      const backlog = buffered.get(id) ?? [];
-      buffered.clear();
-      const exitedBeforeReplay = exitedEarly.has(id);
-      exitedEarly.clear();
+      ptySizeRef.current = { cols: term.cols, rows: term.rows };
 
-      // Everything below reads the terminal's cursor position
-      // (writeSilently, via pendingCollapseRowRef) or otherwise assumes the
-      // backlog is actually on screen - `term.write()` parses asynchronously
-      // (its own write buffer defers large/queued chunks to keep the UI
-      // responsive), so without this callback the very next line could run
-      // before the banner above was actually applied, reading a stale
-      // (pre-banner) cursor row. That mismeasurement is exactly what let the
-      // injected `prompt` command below show up unhidden instead of
-      // collapsing away - the collapse math was working off the wrong start
-      // row. `term.write(data, cb)` guarantees `cb` runs only once `data`
-      // has actually been parsed.
-      const afterBacklog = () => {
-        if (exitedBeforeReplay) term.write("\r\n[process exited]\r\n");
-
+      // An empty write's callback runs once everything queued before it has
+      // been parsed - so the cursor position `writeSilently` reads afterwards
+      // reflects the banner and any early shell output, not a stale row.
+      term.write("", () => {
+        if (disposed) return;
         // The pty was sized from whatever xterm measured at mount; if the
-        // container hadn't been laid out yet that is a placeholder, so push
-        // the real size across now that there is a session to resize.
+        // container hadn't been laid out yet that was a placeholder.
         refit();
-
-        for (const data of pendingInput.splice(0)) {
-          invoke("pty_write", { id, data }).catch(() => {});
-        }
-
-        // Windows retitling (cmd.exe never does it on its own, unlike
-        // bash/zsh) is set up at spawn time via `cmd.exe /k prompt ...` -
-        // see pty.rs's pty_spawn - not by typing a `prompt` command into the
-        // already-running shell here, which used to echo visibly and rely on
-        // a fragile row-collapse trick to erase it again.
-
-        if (runOnStartRef.current) {
-          invoke("pty_write", { id, data: `${runOnStartRef.current}\r` }).catch(() => {});
-        }
-      };
-
-      if (backlog.length > 0) term.write(backlog.join(""), afterBacklog);
-      else afterBacklog();
+        for (const data of pendingInput.splice(0)) writePty(id, data);
+        // Windows retitling (cmd.exe/PowerShell never do it on their own)
+        // is set up at spawn time - see pty.rs's pty_spawn.
+        if (runOnStartRef.current) writePty(id, `${runOnStartRef.current}\r`);
+      });
     })();
 
     const resizeObserver = new ResizeObserver(() => refit());
@@ -528,11 +463,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       bufferDisposable.dispose();
       dataDisposable.dispose();
       if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
-      unlistenOutput?.();
-      unlistenExit?.();
-      if (ptyIdRef.current) {
-        invoke("pty_kill", { id: ptyIdRef.current }).catch(() => {});
-      }
+      if (ptyIdRef.current) killPty(ptyIdRef.current);
       term.dispose();
     };
   }, []);

@@ -10,6 +10,7 @@ import { FileTypeIcon } from "../sidebar/fileIcons";
 import { languageFor } from "./language";
 import { buildLinter } from "./lint";
 import { cmChromeTheme, cmHighlightStyle } from "./cmTheme";
+import { basename } from "../lib/path";
 import "./editor.css";
 
 export interface EditorHandle {
@@ -26,10 +27,6 @@ interface EditorViewProps {
   hidden?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onRenamed?: (newPath: string) => void;
-}
-
-function basename(path: string): string {
-  return path.split("/").pop() || path;
 }
 
 export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hidden, onDirtyChange, onRenamed }, ref) => {
@@ -49,6 +46,8 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   const dirtyRef = useRef(false);
   const initialPathRef = useRef(path);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  // Enter commits and the blur that follows must not commit a second time.
+  const renameDoneRef = useRef(false);
   const onDirtyChangeRef = useRef(onDirtyChange);
   onDirtyChangeRef.current = onDirtyChange;
   pathRef.current = path;
@@ -126,8 +125,8 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
             },
           },
         ]),
-        langComp.of(languageFor(pathRef.current) ?? []),
-        lintComp.of(buildLinter(pathRef.current)),
+        langComp.of(languageFor(basename(pathRef.current)) ?? []),
+        lintComp.of(buildLinter(basename(pathRef.current))),
         lintGutter(),
         syntaxHighlighting(cmHighlightStyle),
         indentUnit.of("  "),
@@ -141,7 +140,11 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
         }),
         CMEditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
-          const isDirty = update.state.doc.toString() !== originalRef.current;
+          // Length first: most edits change it, which settles "dirty" without
+          // serializing the whole document on every keystroke.
+          const doc = update.state.doc;
+          const isDirty = doc.length !== originalRef.current.length || doc.toString() !== originalRef.current;
+          if (isDirty === dirtyRef.current) return;
           dirtyRef.current = isDirty;
           setDirty(isDirty);
           onDirtyChangeRef.current?.(isDirty);
@@ -165,7 +168,10 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     const lintComp = lintCompartment.current;
     if (!view || !langComp || !lintComp) return;
     view.dispatch({
-      effects: [langComp.reconfigure(languageFor(path) ?? []), lintComp.reconfigure(buildLinter(path))],
+      effects: [
+        langComp.reconfigure(languageFor(basename(path)) ?? []),
+        lintComp.reconfigure(buildLinter(basename(path))),
+      ],
     });
   }, [path]);
 
@@ -177,18 +183,23 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   }, [renaming]);
 
   function startRename() {
+    renameDoneRef.current = false;
     setRenameDraft(basename(path));
     setRenaming(true);
   }
 
+  function cancelRename() {
+    renameDoneRef.current = true;
+    setRenaming(false);
+  }
+
   async function commitRename() {
+    if (renameDoneRef.current) return;
+    renameDoneRef.current = true;
     const trimmed = renameDraft.trim();
     setRenaming(false);
     if (!trimmed || trimmed === basename(path)) return;
-    if (trimmed.includes("/")) {
-      window.alert('Il nome non può contenere "/"');
-      return;
-    }
+    // Invalid names (separators, "..") are rejected by rename_entry itself.
     try {
       const entry = await invoke<{ name: string; path: string; is_dir: boolean }>("rename_entry", {
         path,
@@ -203,7 +214,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   return (
     <div className="editor-view" style={{ display: hidden ? "none" : "flex" }}>
       <div className="editor-toolbar">
-        <FileTypeIcon name={path} />
+        <FileTypeIcon name={basename(path)} />
         {renaming ? (
           <input
             ref={renameInputRef}
@@ -214,7 +225,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
             onBlur={commitRename}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitRename();
-              if (e.key === "Escape") setRenaming(false);
+              if (e.key === "Escape") cancelRename();
             }}
           />
         ) : (

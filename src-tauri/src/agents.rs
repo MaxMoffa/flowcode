@@ -100,13 +100,20 @@ fn find_agent(
 /// running somewhere in its shell's process tree (the agent itself, or any
 /// of its own descendants aren't included - just the first match closest to
 /// the shell, since that's the process the tab is actually "running").
+///
+/// Async: a full process-table refresh takes tens of milliseconds (more on
+/// Windows) and this is polled every few seconds - on the UI thread that
+/// shows up as periodic stutter.
 #[tauri::command]
-pub fn list_agent_sessions(pty_state: State<'_, PtyState>) -> Vec<AgentSession> {
+pub async fn list_agent_sessions(pty_state: State<'_, PtyState>) -> Result<Vec<AgentSession>, String> {
     let shell_pids = pty_state.shell_pids();
     if shell_pids.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
+    crate::blocking(move || Ok(find_agent_sessions(shell_pids))).await
+}
 
+fn find_agent_sessions(shell_pids: Vec<(String, u32)>) -> Vec<AgentSession> {
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, true);
 
@@ -152,10 +159,7 @@ pub struct ClaudeAgentEntry {
 
 #[tauri::command]
 pub async fn list_claude_agents(probe_pids: State<'_, ProbePids>) -> Result<Vec<ClaudeAgentEntry>, String> {
-    let output = tauri::async_runtime::spawn_blocking(|| run_command_blocking("claude agents --json"))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    let output = crate::blocking(|| run_command_blocking("claude agents --json").map_err(|e| e.to_string())).await?;
 
     if !output.status.success() {
         // Not installed, not on PATH, or an old version without this
@@ -237,11 +241,13 @@ pub struct CodexSessionEntry {
 }
 
 fn codex_sessions_root() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))?;
-    Some(home.join(".codex").join("sessions"))
+    Some(crate::fs::user_home()?.join(".codex").join("sessions"))
 }
+
+/// Max sessions listed in the sidebar - a project with years of history
+/// shouldn't dump its entire archive there, just what's plausibly worth
+/// resuming.
+const MAX_CODEX_SESSIONS: usize = 8;
 
 /// Recursively collects `rollout-*.jsonl` files under `dir` - bounded depth
 /// rather than a hardcoded year/month/day nesting, so it survives either
@@ -298,7 +304,7 @@ fn uuid_from_filename(path: &Path) -> Option<String> {
 /// Reads just enough of a rollout file (its first handful of lines) to
 /// recover the session's cwd and id - never the whole transcript, which can
 /// be an arbitrarily long conversation.
-fn read_codex_session(path: &Path) -> Option<CodexSessionEntry> {
+fn read_codex_session(path: &Path, started_at: Option<u64>) -> Option<CodexSessionEntry> {
     let file = std::fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
     let mut cwd: Option<String> = None;
@@ -319,11 +325,6 @@ fn read_codex_session(path: &Path) -> Option<CodexSessionEntry> {
     }
     let cwd = cwd?;
     let session_id = session_id.or_else(|| uuid_from_filename(path))?;
-    let started_at = std::fs::metadata(path)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64);
     Some(CodexSessionEntry {
         cwd,
         session_id,
@@ -331,19 +332,35 @@ fn read_codex_session(path: &Path) -> Option<CodexSessionEntry> {
     })
 }
 
+/// Async + blocking pool: walks and opens files under `~/.codex/sessions`
+/// on every sidebar poll.
 #[tauri::command]
-pub fn list_codex_sessions() -> Vec<CodexSessionEntry> {
+pub async fn list_codex_sessions() -> Result<Vec<CodexSessionEntry>, String> {
+    crate::blocking(|| Ok(scan_codex_sessions())).await
+}
+
+fn scan_codex_sessions() -> Vec<CodexSessionEntry> {
     let Some(root) = codex_sessions_root() else {
         return Vec::new();
     };
     let mut files = Vec::new();
     find_rollout_files(&root, 5, &mut files);
 
-    let mut sessions: Vec<CodexSessionEntry> = files.iter().filter_map(|p| read_codex_session(p)).collect();
-    // Most recent first, capped - a project with years of history shouldn't
-    // dump its entire archive into the sidebar, just what's plausibly worth
-    // resuming.
-    sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at));
-    sessions.truncate(8);
-    sessions
+    // Sorted by mtime (one cheap stat each) *before* opening anything, so
+    // only the newest few files are actually read and parsed - not the whole
+    // history just to throw all but a handful away.
+    let mut files: Vec<(PathBuf, Option<u64>)> = files
+        .into_iter()
+        .map(|p| {
+            let mtime = crate::fs::system_time_to_millis(std::fs::metadata(&p).and_then(|m| m.modified()));
+            (p, mtime)
+        })
+        .collect();
+    files.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
+
+    files
+        .iter()
+        .filter_map(|(path, mtime)| read_codex_session(path, *mtime))
+        .take(MAX_CODEX_SESSIONS)
+        .collect()
 }

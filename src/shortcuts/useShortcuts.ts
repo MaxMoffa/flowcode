@@ -30,12 +30,17 @@ export function useShortcuts(handlers: Handlers) {
       const handler = action && handlersRef.current[action];
       if (handler) {
         e.preventDefault();
+        e.stopPropagation();
         handler();
       }
     }
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    // Capture phase: xterm.js cancels (preventDefault + stopPropagation) every
+    // keydown it turns into terminal input - Ctrl+K becomes ^K, Ctrl+W ^W -
+    // so a bubbling listener never sees app shortcuts while a terminal has
+    // focus, which is most of the time.
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [shortcuts]);
 
   return shortcuts;

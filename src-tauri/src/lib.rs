@@ -6,6 +6,18 @@ mod system;
 
 use pty::PtyState;
 
+/// Runs blocking work (filesystem walks, process spawns, process-table
+/// refreshes) on Tokio's blocking pool. Tauri runs a plain sync command on the
+/// main/event-loop thread, so anything slow there freezes the whole window;
+/// an `async` command awaiting this keeps the UI responsive instead.
+pub(crate) async fn blocking<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -58,7 +70,6 @@ pub fn run() {
             plugins::save_plugin,
             plugins::delete_plugin,
             plugins::run_plugin_command,
-            plugins::run_plugin_command_stdout,
             plugins::check_cli_status,
             agents::list_agent_sessions,
             agents::list_claude_agents,

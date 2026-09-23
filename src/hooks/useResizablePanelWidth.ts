@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { readNumber, writeString } from "../lib/storage";
 
 interface Options {
   storageKey: string;
@@ -17,11 +18,7 @@ interface Options {
  * get the same resize behavior and clamping instead of two hand-rolled
  * versions drifting apart. */
 export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, handleSide }: Options) {
-  const [width, setWidth] = useState(() => {
-    const stored = Number(localStorage.getItem(storageKey));
-    if (Number.isFinite(stored) && stored >= min && stored <= max) return stored;
-    return defaultWidth;
-  });
+  const [width, setWidth] = useState(() => readNumber(storageKey, defaultWidth, min, max));
   const [dragging, setDragging] = useState(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(width);
@@ -48,7 +45,7 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
   // Persist once the drag actually ends, not on every intermediate frame.
   useEffect(() => {
     if (dragging) return;
-    localStorage.setItem(storageKey, String(width));
+    writeString(storageKey, String(width));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging]);
 
