@@ -28,6 +28,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      # `tauri::generate_context!` embeds `frontendDist` (../dist) at compile
+      # time now that `custom-protocol` is a default feature - it panics if
+      # the folder is missing, and dist/ is gitignored, so build it first.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
