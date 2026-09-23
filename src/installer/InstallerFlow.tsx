@@ -16,25 +16,15 @@ import "./installer.css";
 import "./steps/directoryStepType";
 import "./steps/DirectoryStepView";
 import { installerFlowTheme } from "./installerFlowTheme";
-import { installerFlow, type InstallableComponent } from "./installerFlowConfig";
-import { cliInstallCommand } from "../cli/cliInstallCommands";
-
-const COMPONENT_LABELS: Record<InstallableComponent, string> = {
-  claude: "Claude Code CLI",
-  codex: "Codex CLI",
-};
+import { installerFlow, INSTALLABLE_COMPONENTS, type InstallableComponent } from "./installerFlowConfig";
 
 /** Standalone installer wizard - a separate entry point from the main app
  * (see main.tsx's `#installer` route), meant to run as its own executable
  * (`flowcode-installer.exe`) pointed at this same built frontend. Does the
  * real install work on submit (copy files, shortcuts, uninstall registry
  * entry - see `installer_run` on the Rust side, a different backend from the
- * main app's), then reuses the same `run_plugin_command` contract the main
- * app's own "install missing CLI" prompt runs real install commands
- * through, so there's exactly one trusted code path for that, fronted by
- * two different UIs. Runs each selected component's install command
- * headlessly and in sequence - genuinely executes on the machine once
- * "Installa" is pressed, no dry-run mode. */
+ * main app's) and records which integrations were picked, for the app to
+ * enable on its first launch - no CLI is installed from here. */
 export function InstallerFlow() {
   const [open, setOpen] = useState(false);
   const [defaultLocation, setDefaultLocation] = useState<string | null>(null);
@@ -86,36 +76,16 @@ export function InstallerFlow() {
     const location = typeof answers.location === "string" && answers.location.trim() ? answers.location.trim() : installDirRef.current;
     installDirRef.current = location;
     const desktopShortcut = Boolean(answers.desktop_shortcut);
+    const raw = answers.components;
+    const features = (Array.isArray(raw) ? raw : raw ? [raw] : []) as InstallableComponent[];
 
     try {
-      await invoke("installer_run", { installDir: location, desktopShortcut });
+      await invoke("installer_run", { installDir: location, desktopShortcut, features });
     } catch (e) {
       flowRef.current?.showError({ title: "Installazione non riuscita", message: String(e) });
+      // Re-throwing keeps flowkit's "don't advance past a failed submit" -
+      // `showError` alone only surfaces the message.
       throw e;
-    }
-
-    const raw = answers.components;
-    const selected = (Array.isArray(raw) ? raw : raw ? [raw] : []) as InstallableComponent[];
-
-    const isWindows = document.documentElement.dataset.platform === "windows";
-    const failures: string[] = [];
-    for (const component of selected) {
-      try {
-        await invoke<string>("run_plugin_command", { command: cliInstallCommand(component, isWindows) });
-      } catch (e) {
-        failures.push(`${COMPONENT_LABELS[component]}: ${e}`);
-      }
-    }
-
-    if (failures.length > 0) {
-      flowRef.current?.showError({
-        title: "Alcuni componenti non sono stati installati",
-        message: failures.join("\n"),
-      });
-      // Re-throwing keeps the review step's own submit state (and flowkit's
-      // "don't advance past a failed submit") consistent - `showError`
-      // alone only surfaces the message, it doesn't stop the flow moving on.
-      throw new Error(failures.join("; "));
     }
   }
 
@@ -171,7 +141,9 @@ export function InstallerFlow() {
             onOpenChange={setOpen}
             onSubmit={handleSubmit}
             onStepChange={handleStepChange}
-            initialAnswers={{ location: defaultLocation, desktop_shortcut: true }}
+            // Both integrations pre-checked: matches what a Flowcode started
+            // without the installer gets (every example plugin, pinned).
+            initialAnswers={{ location: defaultLocation, desktop_shortcut: true, components: [...INSTALLABLE_COMPONENTS] }}
             presentation="fullscreen"
             dismissible={false}
             showCloseButton={false}

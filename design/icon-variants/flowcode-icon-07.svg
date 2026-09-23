@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 07 - Leaping lime frog, full body</title>
+  <rect width="1024" height="1024" rx="224" fill="#0F3D2E"/>
+  <g transform="rotate(-28 512 512) translate(80 10)">
+    <g fill="none" stroke="#A3E635" stroke-width="56" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M320 550 L190 610 L90 585"/>
+      <path d="M330 475 L200 420 L100 440"/>
+      <path d="M600 575 L710 625 L785 605"/>
+    </g>
+    <g fill="#A3E635">
+      <ellipse cx="80" cy="590" rx="46" ry="26"/>
+      <ellipse cx="90" cy="440" rx="46" ry="26"/>
+      <ellipse cx="470" cy="512" rx="200" ry="122"/>
+      <ellipse cx="655" cy="490" rx="125" ry="102"/>
+      <circle cx="645" cy="408" r="62"/>
+    </g>
+    <ellipse cx="480" cy="570" rx="150" ry="52" fill="#D9F99D"/>
+    <circle cx="650" cy="402" r="38" fill="#FFFFFF"/>
+    <circle cx="664" cy="402" r="19" fill="#0F3D2E"/>
+    <path d="M690 525 Q735 535 770 505" fill="none" stroke="#0F3D2E" stroke-width="16" stroke-linecap="round"/>
+  </g>
+</svg>

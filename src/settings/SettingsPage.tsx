@@ -78,6 +78,10 @@ export function SettingsPage({
     setShellId,
     startPath,
     setStartPath,
+    restoreSession,
+    setRestoreSession,
+    confirmLinkOpen,
+    setConfirmLinkOpen,
   } = useTerminalSettings();
   const { section } = useSettingsSection();
   const confirm = useConfirmDialog();
@@ -168,7 +172,7 @@ export function SettingsPage({
     const ok = await confirm({
       title: "Ripristina terminale",
       message:
-        "Riporta tema, zoom del testo, banner all'apertura, shell predefinita, cartella di avvio, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
+        "Riporta tema, zoom del testo, banner all'apertura, shell predefinita, cartella di avvio, ripristino delle schede, conferma dei link, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
       confirmLabel: "Ripristina",
       danger: true,
     });
@@ -181,6 +185,8 @@ export function SettingsPage({
     setShellId("system");
     setCustomPathMode(false);
     setStartPathDraft("");
+    setRestoreSession(true);
+    setConfirmLinkOpen(true);
     onSetSidebarMode("auto");
 
     const toRemove = quickActionIds.filter((id) => !DEFAULT_QUICK_ACTIONS.includes(id));
@@ -334,8 +340,7 @@ export function SettingsPage({
               <div className="settings-field">
                 <span className="settings-field-label">Cartella di avvio</span>
                 <p className="settings-field-desc">
-                  La cartella in cui si apre una nuova scheda di terminale quando non ce n'è già una aperta da cui
-                  ereditare la posizione (es. il primo avvio dell'app).
+                  La cartella in cui si aprono il terminale all'avvio dell'app e ogni nuova scheda di terminale.
                 </p>
                 <div className="settings-choice-row">
                   <button
@@ -370,6 +375,53 @@ export function SettingsPage({
                     )}
                   </>
                 )}
+              </div>
+              <div className="settings-field">
+                <span className="settings-field-label">Schede all'avvio</span>
+                <p className="settings-field-desc">
+                  Con "Ripristina", alla riapertura trovi le schede che avevi aperto, ognuna nella sua cartella e con il
+                  testo che mostrava. I programmi in esecuzione (es. Claude Code) non riprendono: ogni terminale riparte
+                  con una shell nuova.
+                </p>
+                <div className="settings-choice-row">
+                  <button
+                    type="button"
+                    className={"settings-choice" + (restoreSession ? " is-active" : "")}
+                    onClick={() => setRestoreSession(true)}
+                  >
+                    Ripristina
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (!restoreSession ? " is-active" : "")}
+                    onClick={() => setRestoreSession(false)}
+                  >
+                    Riparti da zero
+                  </button>
+                </div>
+              </div>
+              <div className="settings-field">
+                <span className="settings-field-label">Link nel terminale</span>
+                <p className="settings-field-desc">
+                  Cosa succede quando clicchi un link nel terminale: con "Chiedi conferma" appare un piccolo menu per
+                  aprirlo nel browser o copiarlo, con "Apri subito" si apre direttamente nel browser predefinito.
+                </p>
+                <div className="settings-choice-row">
+                  <button
+                    type="button"
+                    className={"settings-choice" + (confirmLinkOpen ? " is-active" : "")}
+                    onClick={() => setConfirmLinkOpen(true)}
+                  >
+                    Chiedi conferma
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (!confirmLinkOpen ? " is-active" : "")}
+                    onClick={() => setConfirmLinkOpen(false)}
+                  >
+                    Apri subito
+                  </button>
+                </div>
               </div>
             </section>
 

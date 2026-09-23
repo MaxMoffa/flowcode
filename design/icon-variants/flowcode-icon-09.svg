@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 09 - White frog head on a lily pad</title>
+  <rect width="1024" height="1024" rx="224" fill="#0E4D3A"/>
+  <path d="M512 600 L701.3 870.3 A330 330 0 1 1 797.8 765 Z" fill="#4ADE80"/>
+  <g fill="#FFFFFF">
+    <circle cx="398" cy="410" r="92"/>
+    <circle cx="626" cy="410" r="92"/>
+    <ellipse cx="512" cy="520" rx="235" ry="135"/>
+  </g>
+  <circle cx="398" cy="405" r="50" fill="#0E4D3A"/>
+  <circle cx="626" cy="405" r="50" fill="#0E4D3A"/>
+  <path d="M428 565 Q512 610 596 565" fill="none" stroke="#0E4D3A" stroke-width="24" stroke-linecap="round"/>
+</svg>

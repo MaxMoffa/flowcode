@@ -5,6 +5,8 @@ const STORAGE_KEY = "flowcode.terminalFontSize";
 const BANNER_KEY = "flowcode.terminalBannerEnabled";
 const SHELL_KEY = "flowcode.terminalShell";
 const START_PATH_KEY = "flowcode.terminalStartPath";
+const RESTORE_SESSION_KEY = "flowcode.restoreSession";
+const CONFIRM_LINKS_KEY = "flowcode.confirmLinkOpen";
 const MIN_SIZE = 9;
 const MAX_SIZE = 28;
 const DEFAULT_SIZE = 13;
@@ -56,6 +58,14 @@ interface TerminalSettingsValue {
    * since it was set just falls back to home instead of breaking. */
   startPath: string;
   setStartPath: (path: string) => void;
+  /** Whether closing the window saves the open tabs (and each terminal's
+   * content) and the next launch reopens them - see `src/session/`. */
+  restoreSession: boolean;
+  setRestoreSession: (enabled: boolean) => void;
+  /** Whether clicking a link in a terminal asks first (a small menu at the
+   * click) or opens it in the browser straight away. */
+  confirmLinkOpen: boolean;
+  setConfirmLinkOpen: (enabled: boolean) => void;
 }
 
 /** Plain (non-hook) read of the same value `shellId` above holds - for the
@@ -78,6 +88,8 @@ const writeNumber = (key: string, value: number) => writeString(key, String(valu
 const readBanner = (key: string) => readBool(key, true);
 const readShell = () => getConfiguredShell();
 const readStartPath = (key: string) => readString(key) ?? "";
+const readRestoreSession = (key: string) => readBool(key, true);
+const readConfirmLinks = (key: string) => readBool(key, true);
 
 /** Drops `tabId` from the overrides map (same reference if it isn't there). */
 function withoutTab(prev: Record<string, number>, tabId: string): Record<string, number> {
@@ -93,6 +105,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
   const [bannerEnabled, setBannerEnabled] = usePersistentState(BANNER_KEY, readBanner, writeBool);
   const [shellId, setShellId] = usePersistentState(SHELL_KEY, readShell, writeString);
   const [startPath, setStartPath] = usePersistentState(START_PATH_KEY, readStartPath, writeString);
+  const [restoreSession, setRestoreSession] = usePersistentState(RESTORE_SESSION_KEY, readRestoreSession, writeBool);
+  const [confirmLinkOpen, setConfirmLinkOpen] = usePersistentState(CONFIRM_LINKS_KEY, readConfirmLinks, writeBool);
 
   const getTabFontSize = useCallback(
     (tabId: string) => tabFontSizeOverrides[tabId] ?? fontSize,
@@ -126,6 +140,10 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setShellId,
       startPath,
       setStartPath,
+      restoreSession,
+      setRestoreSession,
+      confirmLinkOpen,
+      setConfirmLinkOpen,
     }),
     [
       fontSize,
@@ -139,6 +157,10 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setShellId,
       startPath,
       setStartPath,
+      restoreSession,
+      setRestoreSession,
+      confirmLinkOpen,
+      setConfirmLinkOpen,
     ],
   );
 

@@ -290,6 +290,13 @@ pub fn pty_spawn(
     if let Some(dir) = cwd.filter(|d| !d.is_empty()) {
         cmd.cwd(dir);
     }
+    // How CLIs decide whether to emit color: with none of these, Rust TUIs
+    // like Codex (and plenty of Node/Python tools) fall back to plain
+    // monochrome output. Windows Terminal is recognized via WT_SESSION;
+    // Flowcode advertises itself the way VS Code's terminal does.
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "Flowcode");
+    cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     match shell_stem.as_str() {
         // cmd.exe never retitles on its own - not even after a `cd` typed by
         // hand - so the frontend's "follow the real cwd" logic would have

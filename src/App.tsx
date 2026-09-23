@@ -16,6 +16,7 @@ import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, TermTab, EditorTab } from "./tabs/types";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
+import { loadSession, saveSession, type SavedSession, type SavedTab } from "./session/session";
 import { defaultWslDistro, toWindowsPath, toWslPath, wslHomeDir } from "./terminal/wslPath";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
@@ -101,8 +102,14 @@ const Icons = {
   ),
   settings: (
     <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <circle cx="12" cy="12" r="2.6" />
-      <path d="M12 3.5v2.4M12 18.1v2.4M20.5 12h-2.4M5.9 12H3.5M17.7 6.3l-1.7 1.7M8 16l-1.7 1.7M17.7 17.7 16 16M8 8 6.3 6.3" />
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  themeAuto: (
+    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" />
     </svg>
   ),
   fullscreen: (
@@ -323,7 +330,17 @@ function Shell() {
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
-  const { startPath, resetTabZoom } = useTerminalSettings();
+  const { startPath, resetTabZoom, restoreSession } = useTerminalSettings();
+  const restoreSessionRef = useRef(restoreSession);
+  restoreSessionRef.current = restoreSession;
+  // Previous session's terminal text, keyed by the restored tab's new id -
+  // handed to its TerminalView once, at mount (see `restoredContent`).
+  const restoredContentRef = useRef(new Map<string, string>());
+  // Nothing may spawn, and nothing may be saved, until the previous session
+  // has been read back (or skipped) - otherwise the startup tab would start
+  // a shell that's about to be replaced, and the first save would overwrite
+  // the file before it was ever read.
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   function toggleQuickAction(id: string) {
     setQuickActionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -357,6 +374,22 @@ function Shell() {
         // Pin them to the shortcut bar too - the account-status ring/popover
         // this migration exists for is only visible there.
         pinToQuickActions(migratedIds);
+      }
+
+      // The installer's "Integrazioni" step: enable and pin exactly what was
+      // picked there (reinstalls included - an already-present plugin just
+      // gets re-pinned), and skip the blanket seeding below, which would
+      // otherwise add back whatever was left unchecked.
+      const chosen = await invoke<string[] | null>("take_installer_features").catch(() => null);
+      if (chosen) {
+        const chosenIds: string[] = [];
+        for (const manifest of EXAMPLE_PLUGINS) {
+          if (!chosen.includes(manifest.id)) continue;
+          if (!byId.has(manifest.id)) await invoke("save_plugin", { plugin: manifest });
+          chosenIds.push(manifest.id);
+        }
+        pinToQuickActions(chosenIds);
+        writeString(PLUGINS_SEEDED_KEY, "1");
       }
 
       if (!readString(PLUGINS_SEEDED_KEY)) {
@@ -415,9 +448,15 @@ function Shell() {
   // an invalid one just falls back to home instead of handing pty_spawn a
   // cwd that no longer exists.
   const [resolvedStartPath, setResolvedStartPath] = useState("");
+  // Whether that check has settled at least once - the startup tab waits on
+  // it (see below), since `home_dir` usually resolves first and would
+  // otherwise spawn the very first shell at home before the configured
+  // start folder is known.
+  const [startPathChecked, setStartPathChecked] = useState(false);
   useEffect(() => {
     if (!startPath) {
       setResolvedStartPath("");
+      setStartPathChecked(true);
       return;
     }
     let cancelled = false;
@@ -427,6 +466,9 @@ function Shell() {
       })
       .catch(() => {
         if (!cancelled) setResolvedStartPath("");
+      })
+      .finally(() => {
+        if (!cancelled) setStartPathChecked(true);
       });
     return () => {
       cancelled = true;
@@ -434,7 +476,99 @@ function Shell() {
   }, [startPath]);
 
   useEffect(() => {
-    if (!homeDir) return;
+    if (!restoreSessionRef.current) {
+      setSessionChecked(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const saved = await loadSession();
+      if (saved && !cancelled) {
+        const restored: AppTab[] = [];
+        for (const t of saved.tabs) {
+          if (t.kind === "terminal") {
+            // A folder deleted since, or a `\\wsl.localhost\...` path a
+            // Windows shell can't start in: left empty, so the startup-folder
+            // fill below gives it the configured start folder instead.
+            const usable =
+              !!t.cwd &&
+              !t.cwd.startsWith("\\\\") &&
+              (await invoke<boolean>("is_directory", { path: t.cwd }).catch(() => false));
+            const cwd = usable ? t.cwd : "";
+            const id = `tab-${nextTabId++}`;
+            if (t.content) restoredContentRef.current.set(id, t.content);
+            if (t.shell) pendingShellOverrideRef.current.set(id, t.shell);
+            restored.push({
+              kind: "terminal",
+              id,
+              cwd,
+              explorerPath: cwd,
+              label: t.customLabel || !cwd ? t.label : labelForCwd(cwd),
+              customLabel: t.customLabel,
+              nestedShell: t.shell === "wsl" ? "wsl" : undefined,
+            });
+          } else if (t.kind === "editor") {
+            restored.push({ kind: "editor", id: `editor-${nextTabId++}`, path: t.path, label: t.label });
+          } else if (!restored.some((r) => r.kind === "settings")) {
+            restored.push({ kind: "settings", id: "settings", label: "Impostazioni" });
+          }
+        }
+        if (cancelled) return;
+        if (!restored.some((r) => r.kind === "terminal")) {
+          restored.unshift({ kind: "terminal", id: "tab-0", cwd: "", explorerPath: "", label: "shell" });
+        }
+        const active = restored[Math.min(Math.max(saved.activeIndex, 0), restored.length - 1)];
+        setTabs(restored);
+        setActiveTabId(active.id);
+        setActiveTerminalId(active.kind === "terminal" ? active.id : restored.find((r) => r.kind === "terminal")!.id);
+      }
+      if (!cancelled) setSessionChecked(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sessionChecked) return;
+    function snapshot(): SavedSession {
+      const { tabs, activeTabId } = latestRef.current;
+      return {
+        version: 1,
+        activeIndex: Math.max(0, tabs.findIndex((t) => t.id === activeTabId)),
+        tabs: tabs.map((t): SavedTab => {
+          if (t.kind === "terminal") {
+            return {
+              kind: "terminal",
+              cwd: t.cwd,
+              label: t.label,
+              customLabel: t.customLabel,
+              shell: pendingShellOverrideRef.current.get(t.id),
+              content: termRefs.current.get(t.id)?.serialize(),
+            };
+          }
+          if (t.kind === "editor") return { kind: "editor", path: t.path, label: t.label };
+          return { kind: "settings" };
+        }),
+      };
+    }
+    // Setting off: overwrite with an empty session rather than leave a stale
+    // one around for whenever it's switched back on.
+    const persist = () => saveSession(restoreSessionRef.current ? snapshot() : null).catch(() => {});
+    // Periodic too, not just on close - a crash or a killed process never
+    // gets a close event.
+    const timer = setInterval(persist, 15000);
+    const unlisten = appWindow.onCloseRequested(async () => {
+      await persist();
+    });
+    return () => {
+      clearInterval(timer);
+      unlisten.then((off) => off());
+    };
+  }, [sessionChecked]);
+
+  useEffect(() => {
+    if (!homeDir || !startPathChecked || !sessionChecked) return;
     const initial = resolvedStartPath || homeDir;
     setTabs((prev) =>
       prev.map((t) =>
@@ -443,7 +577,7 @@ function Shell() {
           : t,
       ),
     );
-  }, [homeDir, resolvedStartPath]);
+  }, [homeDir, resolvedStartPath, startPathChecked, sessionChecked]);
 
   useEffect(() => {
     // Windows Snap (tiling two windows side by side) is not "maximized" as
@@ -1201,10 +1335,10 @@ function Shell() {
       { separator: true, label: "sep-actions" },
       {
         label: "Tema",
-        icon: mode === "auto" ? Icons.settings : mode === "light" ? Icons.sun : Icons.moon,
+        icon: mode === "auto" ? Icons.themeAuto : mode === "light" ? Icons.sun : Icons.moon,
         submenu: (["auto", "light", "dark"] as ThemeMode[]).map((m) => ({
           label: themeModeLabels[m],
-          icon: m === "auto" ? Icons.settings : m === "light" ? Icons.sun : Icons.moon,
+          icon: m === "auto" ? Icons.themeAuto : m === "light" ? Icons.sun : Icons.moon,
           checked: mode === m,
           onSelect: () => setMode(m),
         })),
@@ -1333,6 +1467,10 @@ function Shell() {
           {homeDir &&
             tabs.map((tab) => {
               if (tab.kind === "terminal") {
+                // The startup tab has no cwd until the start folder is
+                // resolved (see above) - mounting it earlier would spawn its
+                // shell in whatever directory the app itself started in.
+                if (!tab.cwd) return null;
                 return (
                   <TerminalView
                     key={tab.id}
@@ -1348,6 +1486,7 @@ function Shell() {
                     onCommandLine={(line) => handleCommandLine(tab.id, line)}
                     runOnStart={pendingCommandsRef.current.get(tab.id)}
                     shellOverride={pendingShellOverrideRef.current.get(tab.id)}
+                    restoredContent={restoredContentRef.current.get(tab.id)}
                   />
                 );
               }

@@ -55,6 +55,7 @@ pub fn run() {
             fs::search_dir,
             fs::home_dir,
             fs::config_dir,
+            fs::take_installer_features,
             fs::read_shortcuts_defaults,
             fs::read_shortcuts_overrides,
             fs::write_shortcuts_overrides,

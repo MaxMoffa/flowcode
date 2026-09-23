@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 11 - Lime frog face (02) with a terminal prompt mouth (03)</title>
+  <rect width="1024" height="1024" rx="224" fill="#14532D"/>
+  <g fill="#A3E635">
+    <circle cx="352" cy="380" r="150"/>
+    <circle cx="672" cy="380" r="150"/>
+    <ellipse cx="512" cy="600" rx="340" ry="230"/>
+  </g>
+  <circle cx="352" cy="372" r="95" fill="#FFFFFF"/>
+  <circle cx="672" cy="372" r="95" fill="#FFFFFF"/>
+  <circle cx="376" cy="388" r="50" fill="#14532D"/>
+  <circle cx="696" cy="388" r="50" fill="#14532D"/>
+  <circle cx="276" cy="650" r="44" fill="#84CC16"/>
+  <circle cx="748" cy="650" r="44" fill="#84CC16"/>
+  <circle cx="478" cy="540" r="13" fill="#14532D"/>
+  <circle cx="546" cy="540" r="13" fill="#14532D"/>
+  <g fill="none" stroke="#14532D" stroke-width="46" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M394 604 L476 662 L394 720"/>
+    <path d="M530 720 L632 720"/>
+  </g>
+</svg>

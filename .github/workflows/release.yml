@@ -1,16 +1,23 @@
 name: Release
 
 # Tag-triggered, not on every push to master (that's ci.yml's job, and it
-# stays fast/checks-only) - building the installer needs two full release
-# compiles (main app, then the installer embedding it) plus LTO, which is
-# minutes of work not worth paying on every commit.
+# stays fast/checks-only) - building the installers needs two full release
+# compiles per platform (main app, then the installer embedding it) plus
+# LTO, which is minutes of work not worth paying on every commit.
+# `workflow_dispatch` runs the same builds by hand (artifacts only - the
+# GitHub Release step below only runs for a tag).
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
 
+# All three platforms ship the same installer: the wizard in
+# src/installer/ (the "#installer" entry of the shared frontend) running in
+# its own Tauri binary, src-tauri/installer/, which embeds the main app
+# built right before it - see that crate's build.rs/payload.rs.
 jobs:
-  build-installer:
-    name: Build Flowcode Setup
+  windows:
+    name: Windows installer
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +30,17 @@ jobs:
       # Shared by both binaries below - the installer's own tauri.conf.json
       # points `frontendDist` at this same `dist/`, no second Vite build.
       - run: npm run build
+
+      # Tag builds are named after the tag; manual runs after package.json,
+      # marked -dev so they can't be mistaken for a release.
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=$(node -p "require('./package.json').version")-dev" >> "$GITHUB_ENV"
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -38,6 +56,9 @@ jobs:
           mkdir -p src-tauri/target/stage/config
           cp src-tauri/target/release/flowcode.exe src-tauri/target/stage/flowcode.exe
           cp config/shortcuts.json src-tauri/target/stage/config/shortcuts.json
+          mkdir -p src-tauri/target/stage/x64
+          cp src-tauri/conpty/conpty.dll src-tauri/target/stage/conpty.dll
+          cp src-tauri/conpty/x64/OpenConsole.exe src-tauri/target/stage/x64/OpenConsole.exe
 
       - name: Build installer (embeds the staged payload via build.rs)
         shell: bash
@@ -48,16 +69,176 @@ jobs:
       - name: Rename release artifact
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
           mkdir -p dist-release
-          cp src-tauri/target/release/flowcode-installer.exe "dist-release/Flowcode-Setup-${version}.exe"
+          cp src-tauri/target/release/flowcode-installer.exe "dist-release/Flowcode-Setup-${VERSION}.exe"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: flowcode-setup
-          path: dist-release/*.exe
+          name: flowcode-setup-windows
+          path: dist-release/*
 
-      - name: Attach to GitHub Release
-        uses: softprops/action-gh-release@v2
+  linux:
+    name: Linux installer
+    # The oldest supported Ubuntu LTS runner: glibc is forward- but not
+    # backward-compatible, so building on an older base runs on more distros.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev build-essential pkg-config
+
+      - uses: actions/setup-node@v4
         with:
-          files: dist-release/*.exe
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Tag builds are named after the tag; manual runs after package.json,
+      # marked -dev so they can't be mistaken for a release.
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=$(node -p "require('./package.json').version")-dev" >> "$GITHUB_ENV"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build main app
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml -p flowcode
+
+      - name: Stage payload for the installer to embed
+        run: |
+          mkdir -p src-tauri/target/stage/config
+          cp src-tauri/target/release/flowcode src-tauri/target/stage/flowcode
+          cp config/shortcuts.json src-tauri/target/stage/config/shortcuts.json
+
+      - name: Build installer
+        run: |
+          export FLOWCODE_STAGE_DIR="$(pwd)/src-tauri/target/stage"
+          cargo build --release --manifest-path src-tauri/Cargo.toml -p flowcode-installer
+
+      # tar, not a bare binary: an upload/download round trip drops the
+      # executable bit, tar keeps it.
+      - name: Package installer
+        run: |
+          mkdir -p dist-release pkg
+          cp src-tauri/target/release/flowcode-installer "pkg/Flowcode-Setup-${VERSION}"
+          chmod +x "pkg/Flowcode-Setup-${VERSION}"
+          tar -C pkg -czf "dist-release/Flowcode-Setup-${VERSION}-linux-x86_64.tar.gz" "Flowcode-Setup-${VERSION}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowcode-setup-linux
+          path: dist-release/*
+
+  macos:
+    name: macOS installer (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Tag builds are named after the tag; manual runs after package.json,
+      # marked -dev so they can't be mistaken for a release.
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=$(node -p "require('./package.json').version")-dev" >> "$GITHUB_ENV"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # One installer per architecture, each embedding the app built for that
+      # same architecture, then merged with lipo - so a universal installer
+      # carries each app once, not a universal app inside both halves.
+      - name: Build app + installer per architecture
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --manifest-path src-tauri/Cargo.toml -p flowcode --target "$target"
+            stage="$(pwd)/src-tauri/target/stage-$target"
+            mkdir -p "$stage/config"
+            cp "src-tauri/target/$target/release/flowcode" "$stage/flowcode"
+            cp config/shortcuts.json "$stage/config/shortcuts.json"
+            FLOWCODE_STAGE_DIR="$stage" cargo build --release --manifest-path src-tauri/Cargo.toml -p flowcode-installer --target "$target"
+          done
+
+      # Unsigned (no Apple Developer ID here): ad-hoc signatures are the
+      # minimum Apple Silicon needs to run a binary at all. The downloaded
+      # zip still gets the usual Gatekeeper "unidentified developer" prompt -
+      # right-click > Apri the first time.
+      - name: Assemble "Flowcode Setup.app"
+        run: |
+          app="pkg/Flowcode Setup.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist-release
+          lipo -create \
+            src-tauri/target/aarch64-apple-darwin/release/flowcode-installer \
+            src-tauri/target/x86_64-apple-darwin/release/flowcode-installer \
+            -output "$app/Contents/MacOS/flowcode-installer"
+          cp src-tauri/icons/icon.icns "$app/Contents/Resources/icon.icns"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDisplayName</key><string>Flowcode Setup</string>
+            <key>CFBundleExecutable</key><string>flowcode-installer</string>
+            <key>CFBundleIconFile</key><string>icon</string>
+            <key>CFBundleIdentifier</key><string>com.maxmoffa.flowcode.installer</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>Flowcode Setup</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key><string>10.15</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --keepParent "$app" "dist-release/Flowcode-Setup-${VERSION}-macos-universal.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowcode-setup-macos
+          path: dist-release/*
+
+  publish:
+    name: Attach to GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: flowcode-setup-*
+          path: dist-release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist-release/*

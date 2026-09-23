@@ -210,4 +210,45 @@ pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
     }
 
     let _ = window_vibrancy::apply_acrylic(window, None);
+
+    set_window_icon_from_exe(hwnd);
+}
+
+/// Tauri's default window icon is a single RGBA image - the *first* entry of
+/// icons/icon.ico, which `tauri icon` writes as the 32px one - so on a scaled
+/// display Windows stretches it for the taskbar/Alt+Tab and it comes out
+/// blurry. The exe also embeds the full multi-size .ico as resource 32512
+/// (tauri-build's IDI_APPLICATION slot); loading it at the system's big and
+/// small icon sizes lets Windows pick the matching bitmap instead.
+#[cfg(target_os = "windows")]
+fn set_window_icon_from_exe(hwnd: *mut core::ffi::c_void) {
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR,
+        SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, WM_SETICON,
+    };
+
+    const APP_ICON_ID: usize = 32512;
+    unsafe {
+        let module = GetModuleHandleW(core::ptr::null());
+        if module.is_null() {
+            return;
+        }
+        for (kind, cx, cy) in [
+            (ICON_BIG, SM_CXICON, SM_CYICON),
+            (ICON_SMALL, SM_CXSMICON, SM_CYSMICON),
+        ] {
+            let icon = LoadImageW(
+                module,
+                APP_ICON_ID as *const u16,
+                IMAGE_ICON,
+                GetSystemMetrics(cx),
+                GetSystemMetrics(cy),
+                LR_DEFAULTCOLOR,
+            );
+            if !icon.is_null() {
+                SendMessageW(hwnd, WM_SETICON, kind as usize, icon as isize);
+            }
+        }
+    }
 }

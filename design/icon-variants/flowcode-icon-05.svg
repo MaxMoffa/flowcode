@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 05 - Top-down frog silhouette in a circle</title>
+  <circle cx="512" cy="512" r="496" fill="#22C55E"/>
+  <g fill="none" stroke="#052E16" stroke-width="56" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M420 470 Q320 500 290 420"/>
+    <path d="M604 470 Q704 500 734 420"/>
+    <path d="M390 650 L240 720 L330 820"/>
+    <path d="M634 650 L784 720 L694 820"/>
+  </g>
+  <g fill="#052E16">
+    <circle cx="290" cy="405" r="40"/>
+    <circle cx="734" cy="405" r="40"/>
+    <circle cx="336" cy="836" r="46"/>
+    <circle cx="688" cy="836" r="46"/>
+    <ellipse cx="512" cy="570" rx="175" ry="215"/>
+    <ellipse cx="512" cy="365" rx="165" ry="120"/>
+    <circle cx="408" cy="310" r="66"/>
+    <circle cx="616" cy="310" r="66"/>
+  </g>
+  <circle cx="408" cy="306" r="36" fill="#FFFFFF"/>
+  <circle cx="616" cy="306" r="36" fill="#FFFFFF"/>
+  <circle cx="408" cy="296" r="18" fill="#052E16"/>
+  <circle cx="616" cy="296" r="18" fill="#052E16"/>
+</svg>

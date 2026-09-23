@@ -1,6 +1,10 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { invoke } from "@tauri-apps/api/core";
 import { isWindowsPlatform } from "../lib/path";
 import { killPty, resizePty, spawnPty, writePty } from "./ptyClient";
@@ -9,6 +13,24 @@ import { useTerminalSettings } from "./TerminalSettingsContext";
 import { buildAsciiBanner, type BannerSystemInfo } from "./asciiBanner";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
+
+/** --term-bg's RGB as `#rrggbb00`: fully transparent to paint (see the
+ * `background` comment below), but xterm still reads the RGB channels -
+ * it's what `minimumContrastRatio` checks text against and what it reports
+ * to apps that query the background (OSC 11). A plain `#00000000` made both
+ * treat every theme as black: dark-tuned colors were left unreadable on the
+ * light theme, and apps deriving a panel shade from the reported background
+ * drew it off-tone. */
+function termBackgroundHex(): string {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:absolute;visibility:hidden;background:var(--term-bg)";
+  document.body.appendChild(probe);
+  const bg = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  const [r = 0, g = 0, b = 0] = (bg.match(/[\d.]+/g) ?? []).map(Number);
+  const hex = (n: number) => Math.round(n).toString(16).padStart(2, "0");
+  return `#${hex(r)}${hex(g)}${hex(b)}00`;
+}
 
 function readTermColors() {
   const style = getComputedStyle(document.documentElement);
@@ -21,7 +43,7 @@ function readTermColors() {
     // xterm.js only accepts hex colors here (it matches /#[\da-f]{3,8}/) -
     // the CSS keyword "transparent" and rgba() syntax silently fail to parse
     // and fall back to opaque black, so this must be 8-digit hex.
-    background: "#00000000",
+    background: termBackgroundHex(),
     foreground: v("--term-fg", "#e6e6e6"),
     cursor: v("--accent", "#e6e6e6"),
     cursorAccent: v("--term-bg", "#000000"),
@@ -89,7 +111,13 @@ export interface TerminalHandle {
    * the Agents sidebar match a `list_agent_sessions` result back to the tab
    * that owns it. `null` before the pty has finished spawning. */
   getPtyId: () => string | null;
+  /** This tab's normal-screen text (with colors) for session restore - the
+   * last `SESSION_SCROLLBACK_LINES` lines, never a full-screen program's
+   * alternate screen (that frame means nothing once the program is gone). */
+  serialize: () => string;
 }
+
+const SESSION_SCROLLBACK_LINES = 2000;
 
 interface TerminalViewProps {
   /** This tab's own id - used only to look up its per-tab zoom override
@@ -126,13 +154,24 @@ interface TerminalViewProps {
    * context menu when a specific shell (e.g. WSL) was picked instead of
    * just clicking it. Only read once, at spawn, same as `runOnStart`. */
   shellOverride?: string;
+  /** Text saved from this tab in the previous session (see `serialize`) -
+   * replayed in place of the banner before the new shell starts. Only read
+   * once, at mount, like `runOnStart`. */
+  restoredContent?: string;
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, shellOverride }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, shellOverride, restoredContent }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  // xterm mounts into this padding-free inner box, not the padded container:
+  // FitAddon sizes the grid off its parent's computed height, which under
+  // border-box includes padding - so opening straight into the container
+  // made the rows overflow into (and past) the padding.
+  const hostRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  const restoredContentRef = useRef(restoredContent);
   const ptyIdRef = useRef<string | null>(null);
   const runOnStartRef = useRef(runOnStart);
   const cwdRef = useRef(cwd);
@@ -144,7 +183,37 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   onCommandLineRef.current = onCommandLine;
   const lineBufferRef = useRef("");
   const { theme } = useTheme();
-  const { getTabFontSize, bannerEnabled, shellId } = useTerminalSettings();
+  const { getTabFontSize, bannerEnabled, shellId, confirmLinkOpen, setConfirmLinkOpen } = useTerminalSettings();
+  const { show: showMenu } = useContextMenu();
+  // xterm's link callbacks are registered once at mount - read the live
+  // setting/menu through a ref instead of the values captured back then.
+  const linkClickRef = useRef<(event: MouseEvent, uri: string) => void>(() => {});
+  linkClickRef.current = (event, uri) => {
+    // Only web links: OSC 8 hyperlinks can carry any scheme (file:, custom
+    // app protocols...), which a click shouldn't hand to the OS.
+    if (!/^https?:\/\//i.test(uri)) return;
+    const open = () => {
+      openUrl(uri).catch(() => {});
+    };
+    if (!confirmLinkOpen) {
+      open();
+      return;
+    }
+    const shown = uri.length > 60 ? `${uri.slice(0, 57)}…` : uri;
+    showMenu(event.clientX, event.clientY, [
+      { label: shown, disabled: true },
+      { label: "link-separator", separator: true },
+      { label: "Apri nel browser", onSelect: open },
+      {
+        label: "Apri e non chiedere più",
+        onSelect: () => {
+          setConfirmLinkOpen(false);
+          open();
+        },
+      },
+      { label: "Copia link", onSelect: () => navigator.clipboard.writeText(uri).catch(() => {}) },
+    ]);
+  };
   const fontSize = getTabFontSize(tabId);
   const bannerEnabledRef = useRef(bannerEnabled);
   bannerEnabledRef.current = bannerEnabled;
@@ -247,6 +316,12 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           : `cd ${shellQuote(path, forcePosix)}\r`,
       ),
     getPtyId: () => ptyIdRef.current,
+    serialize: () =>
+      serializeAddonRef.current?.serialize({
+        scrollback: SESSION_SCROLLBACK_LINES,
+        excludeAltBuffer: true,
+        excludeModes: true,
+      }) ?? "",
   }));
 
   useEffect(() => {
@@ -279,10 +354,24 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       // like Claude Code before collapsing rows) is gated behind this flag
       // at runtime - without it xterm.js throws the moment it's read.
       allowProposedApi: true,
+      // Most CLIs tune their colors for a black background, so some come
+      // out washed out or invisible on the light theme (and a few too dark
+      // on the dark one). xterm nudges any foreground below this contrast
+      // against its background until it's readable - same default as VS
+      // Code's terminal.
+      minimumContrastRatio: 4.5,
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.open(containerRef.current);
+    const serializeAddon = new SerializeAddon();
+    term.loadAddon(serializeAddon);
+    serializeAddonRef.current = serializeAddon;
+    // Plain URLs detected in the text, plus OSC 8 hyperlinks (link text that
+    // isn't the URL itself - Claude Code and others emit these); both go
+    // through the same confirm menu.
+    term.loadAddon(new WebLinksAddon((event, uri) => linkClickRef.current(event, uri)));
+    term.options.linkHandler = { activate: (event, uri) => linkClickRef.current(event, uri) };
+    term.open(hostRef.current!);
     // This effect body only ever runs once per tab, at the moment it's
     // created (tabs stay mounted, just hidden, once switched away from - see
     // the `hidden` prop) - and every call site that creates one also makes
@@ -301,6 +390,38 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     }
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
+
+    // xterm sends a plain `\r` for Shift+Enter, indistinguishable from Enter,
+    // so multi-line prompts in CLIs like Claude Code were impossible. Send
+    // ESC+CR (Alt+Enter) instead - the sequence those CLIs read as "insert a
+    // newline", and what VS Code's terminal setup maps Shift+Enter to.
+    term.attachCustomKeyEventHandler((e) => {
+      const key = e.key.toLowerCase();
+      const ctrlOnly = e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey;
+      // Ctrl+V / Shift+Insert: xterm would turn these into ^V / an escape
+      // sequence for the shell. Returning false *without* preventDefault lets
+      // the browser run its native paste into xterm's textarea, which xterm
+      // then handles (bracketed-paste aware) - the path dictation tools like
+      // Wispr Flow rely on, since they paste by synthesizing Ctrl+V.
+      if ((ctrlOnly && key === "v") || (e.key === "Insert" && e.shiftKey && !e.ctrlKey)) return false;
+      // Ctrl+C copies when there's a selection (and clears it, so the next
+      // Ctrl+C interrupts as usual); without one it stays ^C.
+      if (ctrlOnly && key === "c" && term.hasSelection()) {
+        if (e.type === "keydown") {
+          e.preventDefault();
+          navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+          term.clearSelection();
+        }
+        return false;
+      }
+      if (e.key !== "Enter" || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return true;
+      if (e.type === "keydown") {
+        e.preventDefault();
+        const id = ptyIdRef.current;
+        if (id) writePty(id, "\x1b\r");
+      }
+      return false;
+    });
 
     // Most shells emit an OSC title escape (e.g. bash's PROMPT_COMMAND) with
     // "user@host: cwd", and some update it further while a command runs -
@@ -402,7 +523,11 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       // and look broken. Awaited before the spawn so it's always the very
       // first thing written to this tab - xterm's write queue is FIFO by call
       // order, so writing it any later could land below the shell's output.
-      if (bannerEnabledRef.current) {
+      if (restoredContentRef.current) {
+        // Dim separator so the replayed text reads as history, not as live
+        // output of the shell that's about to start below it.
+        term.write(`${restoredContentRef.current}\x1b[0m\r\n\x1b[2m── sessione ripristinata ──\x1b[0m\r\n`);
+      } else if (bannerEnabledRef.current) {
         const sysInfo = await invoke<BannerSystemInfo>("system_info").catch(() => undefined);
         if (disposed) return;
         const banner = buildAsciiBanner(term.cols, sysInfo);
@@ -473,7 +598,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       ref={containerRef}
       className="terminal-container"
       style={{ display: hidden ? "none" : "flex" }}
-    />
+    >
+      <div ref={hostRef} className="terminal-host" />
+    </div>
   );
 });
 

@@ -2,6 +2,9 @@ mod install;
 mod payload;
 #[cfg(target_os = "windows")]
 pub mod uninstall;
+#[cfg(target_os = "linux")]
+#[path = "uninstall_linux.rs"]
+pub mod uninstall;
 
 #[tauri::command]
 fn installer_default_dir() -> String {
@@ -23,40 +26,32 @@ fn installer_check_webview2() -> bool {
 /// `(async)`: writing the embedded payload (the whole app binary) to disk
 /// takes long enough to freeze the window if run on the UI thread.
 #[tauri::command(async)]
-fn installer_run(install_dir: String, desktop_shortcut: bool) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        install::perform_install(&install_dir, desktop_shortcut)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (install_dir, desktop_shortcut);
-        Err("L'installer supporta solo Windows".to_string())
-    }
+fn installer_run(
+    app: tauri::AppHandle,
+    install_dir: String,
+    desktop_shortcut: bool,
+    features: Vec<String>,
+) -> Result<(), String> {
+    install::perform_install(&install_dir, desktop_shortcut)?;
+    record_feature_choices(&app, &features)
 }
 
-/// Identical contract to the main app's `plugins::run_plugin_command` - the
-/// existing per-component CLI-install loop in `InstallerFlow.tsx` calls this
-/// same command name with no changes needed.
-#[tauri::command]
-async fn run_plugin_command(command: String) -> Result<String, String> {
-    flowcode_shared::run_command_for_display(command).await
+/// Hands the wizard's "Integrazioni" picks to the app: its first launch
+/// reads (then deletes) this file and enables/pins just those plugins - see
+/// `take_installer_features` in the main app. Written into the *app's*
+/// config folder (its own identifier, not this installer's), which is where
+/// that command looks.
+fn record_feature_choices(app: &tauri::AppHandle, features: &[String]) -> Result<(), String> {
+    use tauri::Manager;
+    let dir = app.path().config_dir().map_err(|e| e.to_string())?.join("com.maxmoffa.flowcode");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let json = serde_json::json!({ "features": features }).to_string();
+    std::fs::write(dir.join("installer-features.json"), json).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn installer_launch_app(install_dir: String) -> Result<(), String> {
-    let install_dir = std::path::PathBuf::from(&install_dir);
-    let exe = install_dir.join("flowcode.exe");
-    std::process::Command::new(exe)
-        // Without this the child inherits *this* process's cwd (wherever
-        // flowcode-installer.exe happened to be run from), not its own
-        // install directory. WebView2 falls back to a cwd-relative data
-        // folder when nothing overrides it, so a mismatched cwd here was
-        // showing a blank webview instead of the app on first launch.
-        .current_dir(&install_dir)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    install::launch(&install_dir)
 }
 
 #[tauri::command]
@@ -95,7 +90,6 @@ pub fn run() {
             installer_default_dir,
             installer_check_webview2,
             installer_run,
-            run_plugin_command,
             installer_launch_app,
             installer_pick_dir,
         ])

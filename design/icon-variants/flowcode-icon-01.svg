@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 01 - Diving frog (flat reinterpretation of current mascot)</title>
+  <rect width="1024" height="1024" rx="224" fill="#2FA36B"/>
+  <g transform="translate(512 512) scale(21) translate(-31 -41) rotate(28 30 42)">
+    <path d="M24 47c-5 3-8 3-12 1" fill="none" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round"/>
+    <path d="M26 36c-4-3-8-3-12-2" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+    <ellipse cx="30" cy="42" rx="11" ry="8" fill="#FFFFFF"/>
+    <ellipse cx="41" cy="40" rx="6.5" ry="5.5" fill="#FFFFFF" stroke="#2FA36B" stroke-width="1.5"/>
+    <circle cx="42.4" cy="38.6" r="2" fill="#0B3D24"/>
+  </g>
+</svg>

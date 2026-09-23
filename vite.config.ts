@@ -39,8 +39,10 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri`, and `design` - a stray
+      // .html there otherwise triggers a full page reload, killing every
+      // open terminal session
+      ignored: ["**/src-tauri/**", "**/design/**"],
     },
   },
 }));

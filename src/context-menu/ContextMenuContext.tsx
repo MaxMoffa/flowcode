@@ -81,18 +81,24 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
       if (submenuRef.current?.contains(target)) return;
       hide();
     };
+    // Capture phase: xterm stops propagation of every keydown it handles, so
+    // with a terminal focused (a link menu opens right over one) a bubbling
+    // listener never saw Escape.
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") hide();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      hide();
     };
     window.addEventListener("mousedown", onPointerDown, true);
     window.addEventListener("blur", hide);
     window.addEventListener("resize", hide);
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     return () => {
       window.removeEventListener("mousedown", onPointerDown, true);
       window.removeEventListener("blur", hide);
       window.removeEventListener("resize", hide);
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
     };
   }, [menu, hide]);
 

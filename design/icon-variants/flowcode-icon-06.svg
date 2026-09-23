@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 06 - Frog eyes peeking out of the water</title>
+  <defs>
+    <clipPath id="sq"><path d="M512 0 C940 0 1024 84 1024 512 C1024 940 940 1024 512 1024 C84 1024 0 940 0 512 C0 84 84 0 512 0 Z"/></clipPath>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect width="1024" height="1024" fill="#BBF7D0"/>
+    <g fill="#15803D">
+      <circle cx="370" cy="500" r="125"/>
+      <circle cx="654" cy="500" r="125"/>
+      <ellipse cx="512" cy="660" rx="320" ry="170"/>
+    </g>
+    <circle cx="370" cy="492" r="74" fill="#FFFFFF"/>
+    <circle cx="654" cy="492" r="74" fill="#FFFFFF"/>
+    <circle cx="386" cy="504" r="38" fill="#052E16"/>
+    <circle cx="670" cy="504" r="38" fill="#052E16"/>
+    <rect x="0" y="640" width="1024" height="384" fill="#22C55E"/>
+    <g fill="none" stroke="#BBF7D0" stroke-width="26" stroke-linecap="round">
+      <path d="M150 720 L270 720"/>
+      <path d="M754 720 L874 720"/>
+      <path d="M380 800 L644 800"/>
+    </g>
+  </g>
+</svg>

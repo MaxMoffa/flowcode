@@ -24,10 +24,23 @@ jobs:
       - run: npm run build
 
   rust:
-    name: Rust (check + test)
-    runs-on: windows-latest
+    name: Rust (check + test, ${{ matrix.os }})
+    # Windows is where most of the platform-specific code lives (see the
+    # note at the top), but release.yml ships Linux and macOS installers
+    # too - checking them here catches a break on every push instead of
+    # only when a release tag is built.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install Tauri system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev build-essential pkg-config
       # `tauri::generate_context!` embeds `frontendDist` (../dist) at compile
       # time now that `custom-protocol` is a default feature - it panics if
       # the folder is missing, and dist/ is gitignored, so build it first.

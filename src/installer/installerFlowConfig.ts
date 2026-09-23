@@ -1,11 +1,34 @@
 import { parseFlow } from "@flowkit-io/core";
 import flowcodeIcon from "../assets/flowcode-icon.svg";
 
-/** IDs of the optional CLIs offered on the "components" step - kept as a
- * named list (not re-derived from the flow config) so InstallerFlow.tsx's
- * install logic and this step's `options` can't silently drift apart. */
-export const INSTALLABLE_COMPONENTS = ["claude", "codex"] as const;
+/** Flowcode integrations offered on the "components" step - the ids of the
+ * app's own example plugins (see plugins/registry.ts's EXAMPLE_PLUGINS).
+ * Choosing one doesn't install the CLI itself: the installer only records
+ * the choice, and the app enables and pins that plugin on first launch (the
+ * plugin offers to install/log in to the CLI the first time it's clicked, if
+ * it's missing). Kept as a named list so InstallerFlow.tsx and this step's
+ * `options` can't silently drift apart. */
+export const INSTALLABLE_COMPONENTS = ["claude-code", "codex-cli"] as const;
 export type InstallableComponent = (typeof INSTALLABLE_COMPONENTS)[number];
+
+/** Set by main.tsx before this lazily-loaded module is ever imported. The
+ * same wizard ships on all three platforms (see src-tauri/installer/), only
+ * the wording about where things end up differs. */
+const platform = document.documentElement.dataset.platform;
+
+const LOCATION_PLACEHOLDER =
+  platform === "macos"
+    ? "/Users/.../Applications"
+    : platform === "linux"
+      ? "/home/.../.local/share/flowcode"
+      : "C:\\Utenti\\...\\Programs\\Flowcode";
+
+const SHORTCUT_SUBTITLE =
+  platform === "macos"
+    ? "Flowcode.app viene comunque aggiunto alla cartella Applicazioni."
+    : platform === "linux"
+      ? "La voce nel menu delle applicazioni viene creata comunque."
+      : "Il collegamento nel menu Start viene creato comunque.";
 
 /** The installer's own wizard, separate from `welcomeFlowConfig.ts` (shown
  * once inside the running app) - this one is meant to run standalone, before
@@ -37,7 +60,7 @@ export const installerFlow = parseFlow({
       key: "welcome",
       title: "Installa Flowcode",
       subtitle:
-        "Configura Flowcode su questo computer. Nei prossimi passaggi puoi scegliere dove installarlo e quali funzionalità extra aggiungere.",
+        "Configura Flowcode su questo computer. Nei prossimi passaggi puoi scegliere dove installarlo e quali integrazioni attivare.",
       cta: "Avanti",
       image: { kind: "image", value: flowcodeIcon },
     },
@@ -48,7 +71,7 @@ export const installerFlow = parseFlow({
       title: "Cartella di installazione",
       subtitle: "Flowcode verrà installato qui. Usa \"Sfoglia...\" per scegliere un'altra cartella.",
       image: { kind: "emoji", value: "📁" },
-      placeholder: "C:\\Utenti\\...\\Programs\\Flowcode",
+      placeholder: LOCATION_PLACEHOLDER,
       required: true,
     },
     {
@@ -56,7 +79,7 @@ export const installerFlow = parseFlow({
       type: "checkbox",
       key: "desktop_shortcut",
       title: "Collegamenti",
-      subtitle: "Il collegamento nel menu Start viene creato comunque.",
+      subtitle: SHORTCUT_SUBTITLE,
       label: "Crea un collegamento sul Desktop",
       image: { kind: "emoji", value: "🖥️" },
       required: false,
@@ -66,21 +89,23 @@ export const installerFlow = parseFlow({
       type: "multi-select",
       key: "components",
       min: 0,
-      title: "Funzionalità extra",
+      title: "Integrazioni",
       subtitle:
-        "Flowcode di base viene sempre installato. Seleziona zero o più CLI da installare adesso - puoi farlo comunque in seguito dalle Impostazioni.",
+        "Scegli quali integrazioni attivare in Flowcode: ognuna aggiunge un pulsante alla barra degli shortcut. Puoi cambiarle in seguito da Impostazioni > Funzionalità.",
       image: { kind: "emoji", value: "🧩" },
       required: false,
       options: [
         {
-          value: "claude" satisfies InstallableComponent,
-          label: "Claude Code CLI",
-          description: "CLI ufficiale di Anthropic per programmare con Claude nel terminale.",
+          value: "claude-code" satisfies InstallableComponent,
+          label: "Claude Code",
+          description:
+            "Avvia Claude Code con un clic e mostra lo stato dell'account. Se la CLI non c'è, Flowcode ti propone di installarla al primo uso.",
         },
         {
-          value: "codex" satisfies InstallableComponent,
-          label: "Codex CLI",
-          description: "CLI ufficiale di OpenAI per programmare con Codex nel terminale.",
+          value: "codex-cli" satisfies InstallableComponent,
+          label: "Codex",
+          description:
+            "Avvia Codex con un clic e mostra lo stato dell'account. Se la CLI non c'è, Flowcode ti propone di installarla al primo uso.",
         },
       ],
     },

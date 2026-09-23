@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 08 - Sitting white frog, front view</title>
+  <rect width="1024" height="1024" rx="224" fill="#3F9142"/>
+  <g fill="#FFFFFF">
+    <ellipse cx="326" cy="720" rx="150" ry="110"/>
+    <ellipse cx="698" cy="720" rx="150" ry="110"/>
+    <ellipse cx="250" cy="826" rx="112" ry="40"/>
+    <ellipse cx="774" cy="826" rx="112" ry="40"/>
+  </g>
+  <ellipse cx="512" cy="640" rx="210" ry="200" fill="#FFFFFF" stroke="#3F9142" stroke-width="16"/>
+  <ellipse cx="512" cy="690" rx="128" ry="128" fill="#DCFCE7"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="56" stroke-linecap="round">
+    <path d="M430 620 L440 810"/>
+    <path d="M594 620 L584 810"/>
+  </g>
+  <g fill="#FFFFFF">
+    <ellipse cx="440" cy="830" rx="62" ry="34"/>
+    <ellipse cx="584" cy="830" rx="62" ry="34"/>
+    <ellipse cx="512" cy="420" rx="250" ry="150"/>
+    <circle cx="380" cy="320" r="95"/>
+    <circle cx="644" cy="320" r="95"/>
+  </g>
+  <circle cx="380" cy="318" r="48" fill="#14532D"/>
+  <circle cx="644" cy="318" r="48" fill="#14532D"/>
+  <circle cx="396" cy="302" r="13" fill="#FFFFFF"/>
+  <circle cx="660" cy="302" r="13" fill="#FFFFFF"/>
+  <path d="M400 460 Q512 525 624 460" fill="none" stroke="#14532D" stroke-width="24" stroke-linecap="round"/>
+</svg>

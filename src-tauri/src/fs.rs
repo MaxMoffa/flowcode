@@ -149,6 +149,25 @@ pub fn home_dir() -> Result<String, String> {
 /// the OS file manager. Created on demand: on a brand-new install nothing
 /// may have written here yet, and opening a path that doesn't exist would
 /// just fail silently.
+/// The installer's "Integrazioni" picks (plugin ids), if it left any - read
+/// once and deleted, so a later launch never re-applies them over whatever
+/// the user has changed since. `None` when there's no file: a Flowcode that
+/// wasn't set up by the installer (dev builds, older installs).
+#[tauri::command]
+pub fn take_installer_features(app: AppHandle) -> Option<Vec<String>> {
+    let path = app.path().app_config_dir().ok()?.join("installer-features.json");
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    Some(
+        parsed["features"]
+            .as_array()?
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+    )
+}
+
 #[tauri::command]
 pub fn config_dir(app: AppHandle) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;

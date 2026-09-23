@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 10 - Prompt chevron and a frog-shaped block cursor</title>
+  <rect width="1024" height="1024" rx="224" fill="#A3E635"/>
+  <g transform="translate(30 -40)">
+    <path d="M190 420 L310 520 L190 620" fill="none" stroke="#14532D" stroke-width="68" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="#14532D">
+      <rect x="400" y="380" width="380" height="460" rx="44"/>
+      <circle cx="480" cy="386" r="82"/>
+      <circle cx="700" cy="386" r="82"/>
+    </g>
+    <circle cx="480" cy="380" r="48" fill="#FFFFFF"/>
+    <circle cx="700" cy="380" r="48" fill="#FFFFFF"/>
+    <circle cx="492" cy="390" r="23" fill="#14532D"/>
+    <circle cx="712" cy="390" r="23" fill="#14532D"/>
+    <path d="M520 575 Q590 620 660 575" fill="none" stroke="#A3E635" stroke-width="24" stroke-linecap="round"/>
+  </g>
+</svg>

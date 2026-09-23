@@ -9,7 +9,7 @@ Elenco operativo di cose da fare, più granulare della ROADMAP. Spuntare e spost
 
 ## Da fare — a breve
 - [ ] Testare `npm run tauri dev` con display grafico (WSLg o X server) per validazione visiva reale
-- [ ] Icone app personalizzate Flowcode (sostituire icone placeholder in `src-tauri/icons/`)
+- [x] Icone app personalizzate Flowcode (sostituire icone placeholder in `src-tauri/icons/`)
 - [ ] Tab multipli terminale (vedi ROADMAP Fase 1)
 - [ ] Gestione errori spawn PTY (shell non trovata, permessi) con messaggio in UI invece che silenzioso
 - [ ] Validare `write_shortcuts_overrides` con test manuale (modifica, riavvio app, verifica persistenza)

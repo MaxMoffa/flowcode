@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowcode Icon Variants</title>
+<style>
+  :root { --bg:#f4f5f2; --fg:#16211b; --muted:#5b6b61; --card:#ffffff; --line:#dfe3dc; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px 48px; background:var(--bg); color:var(--fg);
+         font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { margin:0 0 4px; font-size:22px; }
+  p.lead { margin:0 0 24px; color:var(--muted); }
+  .grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 560px), 1fr)); max-width:1240px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  .head { padding:12px 16px; border-bottom:1px solid var(--line); }
+  .head b { font-variant-numeric:tabular-nums; margin-right:8px; }
+  .head span { color:var(--muted); }
+  .rows { display:grid; grid-template-columns:1fr 1fr; }
+  .panel { display:flex; align-items:flex-end; justify-content:center; gap:18px; padding:20px 12px; flex-wrap:wrap; }
+  .panel.light { background:#ffffff; }
+  .panel.dark { background:#1b1d1f; }
+  .panel img { display:block; }
+  .big { width:100%; max-width:256px; height:auto; aspect-ratio:1; }
+  .md { width:64px; height:64px; }
+  .sm { width:32px; height:32px; }
+  .small-set { display:flex; align-items:flex-end; gap:14px; }
+  @media (max-width:640px) { .rows { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<h1>Flowcode icon variants</h1>
+<p class="lead">13 flat, solid-color frog icons on green. Each is shown at 256, 64 and 32 px, on light and dark backgrounds.</p>
+<div class="grid" id="grid"></div>
+<script>
+  const variants = [
+    "Diving frog: flat take on the current mascot, white on mid green.",
+    "Lime frog face with big eyes and smile, on deep green.",
+    "Cream frog face whose mouth is a >_ terminal prompt, on emerald.",
+    "Dark frog in profile catching a block cursor with its tongue, on light green.",
+    "Top-down dark frog silhouette in a circular badge.",
+    "Frog eyes peeking out of the water, squircle frame, mint and green.",
+    "Leaping lime frog with a pale belly, full body, on dark teal-green.",
+    "Sitting white frog seen from the front, full body, on grass green.",
+    "White frog head resting on a notched lily pad, on dark teal.",
+    "Prompt chevron > next to a block cursor shaped like a frog, on lime.",
+    "Merge of 02 + 03: lime frog face on deep green with a >_ prompt mouth.",
+    "Variant of 02: the left half of the smile becomes a > chevron, so the mouth reads >‿.",
+    "03's face and >_ mouth recolored with 02's lime frog, deep green background and white eyes."
+  ];
+  const grid = document.getElementById("grid");
+  variants.forEach((desc, i) => {
+    const n = String(i + 1).padStart(2, "0");
+    const src = `flowcode-icon-${n}.svg`;
+    const panel = (cls) => `
+      <div class="panel ${cls}">
+        <img class="big" src="${src}" alt="Variant ${n} at 256px">
+        <div class="small-set">
+          <img class="md" src="${src}" alt="Variant ${n} at 64px">
+          <img class="sm" src="${src}" alt="Variant ${n} at 32px">
+        </div>
+      </div>`;
+    const card = document.createElement("section");
+    card.className = "card";
+    card.innerHTML = `<div class="head"><b>${n}</b><span></span></div>
+      <div class="rows">${panel("light")}${panel("dark")}</div>`;
+    card.querySelector(".head span").textContent = desc;
+    grid.appendChild(card);
+  });
+</script>
+</body>
+</html>

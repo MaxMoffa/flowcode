@@ -1,13 +1,92 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::payload::{FLOWCODE_EXE, SHORTCUTS_JSON};
+use crate::payload::{FLOWCODE_BIN, SHORTCUTS_JSON};
 
-/// `%LOCALAPPDATA%\Programs\Flowcode` - a per-user install needs no UAC
-/// elevation, matching modern installers (VS Code, Discord, ...).
+/// Where the wizard's "location" step starts. Always a per-user location, so
+/// no platform ever needs elevation (UAC/sudo/admin password):
+/// - Windows: `%LOCALAPPDATA%\Programs\Flowcode`, matching modern
+///   installers (VS Code, Discord, ...).
+/// - macOS: `~/Applications` - the folder `Flowcode.app` is placed in.
+/// - Linux: `$XDG_DATA_HOME/flowcode` (`~/.local/share/flowcode`).
 pub fn default_dir() -> String {
-    let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
-    format!("{base}\\Programs\\Flowcode")
+    #[cfg(target_os = "windows")]
+    {
+        let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
+        format!("{base}\\Programs\\Flowcode")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        home_dir().join("Applications").to_string_lossy().into_owned()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        xdg_data_home().join("flowcode").to_string_lossy().into_owned()
+    }
+}
+
+/// What "Apri Flowcode" at the end of the wizard runs.
+pub fn launch(install_dir: &str) -> Result<(), String> {
+    let install_dir = PathBuf::from(install_dir);
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg(install_dir.join("Flowcode.app"));
+        cmd
+    };
+    #[cfg(not(target_os = "macos"))]
+    let mut cmd = {
+        let exe = if cfg!(target_os = "windows") { "flowcode.exe" } else { "flowcode" };
+        let mut cmd = std::process::Command::new(install_dir.join(exe));
+        // Without this the child inherits *this* process's cwd (wherever the
+        // installer happened to be run from), not its own install directory.
+        // WebView2 falls back to a cwd-relative data folder when nothing
+        // overrides it, so a mismatched cwd here was showing a blank webview
+        // instead of the app on first launch.
+        cmd.current_dir(&install_dir);
+        cmd
+    };
+    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn home_dir() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn xdg_data_home() -> PathBuf {
+    std::env::var("XDG_DATA_HOME")
+        .ok()
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".local").join("share"))
+}
+
+/// The user's desktop folder: `xdg-user-dir DESKTOP` on Linux (it's
+/// localized - "Scrivania" on an Italian system), `~/Desktop` otherwise.
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn desktop_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    if let Ok(out) = std::process::Command::new("xdg-user-dir").arg("DESKTOP").output() {
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && !path.is_empty() {
+            return PathBuf::from(path);
+        }
+    }
+    home_dir().join("Desktop")
+}
+
+/// Writes an executable, replacing any previous copy. Unlinks first rather
+/// than truncating in place: a still-running old Flowcode keeps its (now
+/// unlinked) binary mapped, and overwriting a busy executable fails with
+/// ETXTBSY on Linux.
+#[cfg(not(target_os = "windows"))]
+fn write_executable(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::remove_file(path);
+    fs::write(path, bytes).map_err(|e| e.to_string())?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -51,6 +130,7 @@ pub fn check_webview2() -> bool {
 /// `run_plugin_command` loop, not folded in here.
 #[cfg(target_os = "windows")]
 pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), String> {
+    use crate::payload::{CONPTY_DLL, OPENCONSOLE_EXE};
     use mslnk::ShellLink;
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
@@ -59,8 +139,11 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
     fs::create_dir_all(install_dir.join("config")).map_err(|e| e.to_string())?;
 
     let exe_path = install_dir.join("flowcode.exe");
-    fs::write(&exe_path, FLOWCODE_EXE).map_err(|e| e.to_string())?;
+    fs::write(&exe_path, FLOWCODE_BIN).map_err(|e| e.to_string())?;
     fs::write(install_dir.join("config").join("shortcuts.json"), SHORTCUTS_JSON).map_err(|e| e.to_string())?;
+    fs::create_dir_all(install_dir.join("x64")).map_err(|e| e.to_string())?;
+    fs::write(install_dir.join("conpty.dll"), CONPTY_DLL).map_err(|e| e.to_string())?;
+    fs::write(install_dir.join("x64").join("OpenConsole.exe"), OPENCONSOLE_EXE).map_err(|e| e.to_string())?;
 
     let uninstall_exe = install_dir.join("uninstall.exe");
     let self_exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -92,6 +175,133 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
         .map_err(|e| e.to_string())?;
     key.set_value("NoModify", &1u32).map_err(|e| e.to_string())?;
     key.set_value("NoRepair", &1u32).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// The menu entry's file name - also what `uninstall.rs` removes.
+#[cfg(target_os = "linux")]
+pub(crate) const DESKTOP_FILE: &str = "flowcode.desktop";
+
+/// Linux: the binary plus its files in `install_dir`, a freedesktop entry in
+/// `~/.local/share/applications` (what every desktop's app menu/launcher
+/// reads - with a "Disinstalla Flowcode" action on it, pointing at the copy
+/// of this installer left behind as `uninstall`), and optionally the same
+/// entry on the desktop.
+#[cfg(target_os = "linux")]
+pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), String> {
+    use crate::payload::APP_ICON_PNG;
+    use std::os::unix::fs::PermissionsExt;
+
+    let install_dir = PathBuf::from(install_dir);
+    fs::create_dir_all(install_dir.join("config")).map_err(|e| e.to_string())?;
+
+    let exe_path = install_dir.join("flowcode");
+    write_executable(&exe_path, FLOWCODE_BIN)?;
+    fs::write(install_dir.join("config").join("shortcuts.json"), SHORTCUTS_JSON).map_err(|e| e.to_string())?;
+    let icon_path = install_dir.join("flowcode.png");
+    fs::write(&icon_path, APP_ICON_PNG).map_err(|e| e.to_string())?;
+
+    let uninstall_path = install_dir.join("uninstall");
+    let self_bytes = fs::read(std::env::current_exe().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    write_executable(&uninstall_path, &self_bytes)?;
+
+    let entry = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=Flowcode\n\
+         Comment=Il terminale che si adatta a te\n\
+         Exec=\"{exe}\"\n\
+         Path={dir}\n\
+         Icon={icon}\n\
+         Terminal=false\n\
+         Categories=System;TerminalEmulator;Utility;\n\
+         StartupWMClass=flowcode\n\
+         Actions=uninstall;\n\
+         \n\
+         [Desktop Action uninstall]\n\
+         Name=Disinstalla Flowcode\n\
+         Exec=\"{uninstall}\" --uninstall\n",
+        exe = exe_path.display(),
+        dir = install_dir.display(),
+        icon = icon_path.display(),
+        uninstall = uninstall_path.display(),
+    );
+
+    let applications = xdg_data_home().join("applications");
+    fs::create_dir_all(&applications).map_err(|e| e.to_string())?;
+    fs::write(applications.join(DESKTOP_FILE), &entry).map_err(|e| e.to_string())?;
+    // Refreshes the menu cache where one exists; harmless (and ignored) where not.
+    let _ = std::process::Command::new("update-desktop-database").arg(&applications).status();
+
+    if desktop_shortcut {
+        let desktop = desktop_dir();
+        fs::create_dir_all(&desktop).map_err(|e| e.to_string())?;
+        let shortcut = desktop.join(DESKTOP_FILE);
+        fs::write(&shortcut, &entry).map_err(|e| e.to_string())?;
+        // Desktop launchers must be executable to run; GNOME additionally
+        // wants them marked trusted, which `gio` does when it's around.
+        fs::set_permissions(&shortcut, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+        let _ = std::process::Command::new("gio")
+            .args(["set", &shortcut.to_string_lossy(), "metadata::trusted", "true"])
+            .status();
+    }
+
+    Ok(())
+}
+
+/// macOS: assembles `Flowcode.app` in `install_dir` (Info.plist, the binary,
+/// its icon and config), replacing any previous copy, plus an optional alias
+/// on the desktop. No uninstaller is left behind - on macOS removing an app
+/// means dragging it to the Trash, which is all this one needs.
+#[cfg(target_os = "macos")]
+pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), String> {
+    use crate::payload::APP_ICON_ICNS;
+
+    let app = PathBuf::from(install_dir).join("Flowcode.app");
+    if app.exists() {
+        fs::remove_dir_all(&app).map_err(|e| e.to_string())?;
+    }
+    let contents = app.join("Contents");
+    let macos = contents.join("MacOS");
+    let resources = contents.join("Resources");
+    fs::create_dir_all(&macos).map_err(|e| e.to_string())?;
+    fs::create_dir_all(resources.join("config")).map_err(|e| e.to_string())?;
+
+    write_executable(&macos.join("flowcode"), FLOWCODE_BIN)?;
+    fs::write(resources.join("icon.icns"), APP_ICON_ICNS).map_err(|e| e.to_string())?;
+    fs::write(resources.join("config").join("shortcuts.json"), SHORTCUTS_JSON).map_err(|e| e.to_string())?;
+
+    let version = env!("CARGO_PKG_VERSION");
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>it</string>
+  <key>CFBundleDisplayName</key><string>Flowcode</string>
+  <key>CFBundleExecutable</key><string>flowcode</string>
+  <key>CFBundleIconFile</key><string>icon</string>
+  <key>CFBundleIdentifier</key><string>com.maxmoffa.flowcode</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>Flowcode</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>{version}</string>
+  <key>CFBundleVersion</key><string>{version}</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <key>LSMinimumSystemVersion</key><string>10.15</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+"#
+    );
+    fs::write(contents.join("Info.plist"), plist).map_err(|e| e.to_string())?;
+
+    if desktop_shortcut {
+        let alias = desktop_dir().join("Flowcode.app");
+        let _ = fs::remove_file(&alias);
+        std::os::unix::fs::symlink(&app, &alias).map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }

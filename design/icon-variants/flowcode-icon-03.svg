@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Flowcode 03 - Cream frog face with a terminal prompt mouth</title>
+  <rect width="1024" height="1024" rx="224" fill="#16A34A"/>
+  <g fill="#FFF4D6">
+    <circle cx="340" cy="400" r="135"/>
+    <circle cx="684" cy="400" r="135"/>
+    <ellipse cx="512" cy="610" rx="360" ry="220"/>
+  </g>
+  <circle cx="340" cy="400" r="72" fill="#14532D"/>
+  <circle cx="684" cy="400" r="72" fill="#14532D"/>
+  <circle cx="364" cy="376" r="20" fill="#FFF4D6"/>
+  <circle cx="708" cy="376" r="20" fill="#FFF4D6"/>
+  <g fill="none" stroke="#14532D" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M396 575 L472 632 L396 689"/>
+    <path d="M526 689 L636 689"/>
+  </g>
+</svg>

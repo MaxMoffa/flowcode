@@ -3,7 +3,7 @@ members = ["installer", "shared"]
 
 [package]
 name = "flowcode"
-version = "0.1.0"
+version = "0.2.0"
 description = "Flowcode - cross-platform terminal"
 authors = ["Massimo Moffa"]
 edition = "2021"
