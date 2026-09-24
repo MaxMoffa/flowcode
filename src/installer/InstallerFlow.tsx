@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 // Side-effect import: registers every builtin step component - see
@@ -11,12 +11,19 @@ import "@flowkit-io/react/style.css";
 import "../welcome/welcome-overrides.css";
 import "./installer.css";
 // Side-effect import: registers the custom "directory" step type/component
-// (flowkit ships no folder-picker step) before `installerFlow` (parsed at
-// module load, below) can reference it.
+// (flowkit ships no folder-picker step) before `buildInstallerFlow` (parsed
+// once the existing-install check settles, below) can reference it.
 import "./steps/directoryStepType";
 import "./steps/DirectoryStepView";
 import { flowcodeFlowTheme } from "../welcome/flowcodeFlowTheme";
-import { installerFlow, INSTALLABLE_COMPONENTS, type InstallableComponent } from "./installerFlowConfig";
+import {
+  buildInstallerFlow,
+  INSTALLABLE_COMPONENTS,
+  EXISTING_STEP_ID,
+  UPDATE_ACTION,
+  type ExistingInstall,
+  type InstallableComponent,
+} from "./installerFlowConfig";
 
 /** Standalone installer wizard - a separate entry point from the main app
  * (see main.tsx's `#installer` route), meant to run as its own executable
@@ -25,6 +32,8 @@ import { installerFlow, INSTALLABLE_COMPONENTS, type InstallableComponent } from
  * entry - see `installer_run` on the Rust side, a different backend from the
  * main app's) and records which integrations were picked, for the app to
  * enable on its first launch - no CLI is installed from here. */
+const INSTALL_FAILED = "Installazione non riuscita";
+
 export function InstallerFlow() {
   const [open, setOpen] = useState(false);
   const [defaultLocation, setDefaultLocation] = useState<string | null>(null);
@@ -56,31 +65,59 @@ export function InstallerFlow() {
   // no direct "confirmation CTA clicked" callback.
   const initialStepHits = useRef(0);
   const installDirRef = useRef("");
+  // A Flowcode already on this machine turns the wizard into a one-click
+  // update (see buildInstallerFlow) - looked up before the flow is built,
+  // since that choice decides both the flow's first step and its wording.
+  const [existing, setExisting] = useState<ExistingInstall | null>(null);
+  const [installerVersion, setInstallerVersion] = useState("");
 
   useEffect(() => {
-    invoke<string>("installer_default_dir")
-      .then((dir) => {
-        installDirRef.current = dir;
-        setDefaultLocation(dir);
-        setOpen(true);
-      })
-      .catch(() => {
-        // No default resolvable (e.g. running outside the installer
-        // binary) - still open, just with an empty field the user fills in.
-        setDefaultLocation("");
-        setOpen(true);
-      });
+    Promise.all([
+      invoke<string>("installer_default_dir").catch(() => ""),
+      invoke<ExistingInstall | null>("installer_existing_install").catch(() => null),
+      invoke<string>("installer_version").catch(() => ""),
+    ]).then(([dir, found, version]) => {
+      // No default resolvable (e.g. running outside the installer binary) -
+      // still open, just with an empty field the user fills in. An existing
+      // install's folder wins, so "Installazione personalizzata" starts from
+      // where Flowcode already is rather than a second copy elsewhere.
+      const location = found?.dir || dir;
+      installDirRef.current = location;
+      setExisting(found);
+      setInstallerVersion(version);
+      setDefaultLocation(location);
+      setOpen(true);
+    });
   }, []);
 
+  const flow = useMemo(() => buildInstallerFlow(existing, installerVersion), [existing, installerVersion]);
+
   async function handleSubmit(answers: Record<string, unknown>) {
+    try {
+      await runInstall(answers);
+    } catch (e) {
+      // Re-thrown as an `Error` carrying the final text, on top of passing
+      // `onSubmitError`: FlowOverlay (flowkit 1.11.0) doesn't forward that
+      // prop to its inner FlowRunner, which then falls back to `.message`.
+      throw new Error(installErrorMessage(e));
+    }
+  }
+
+  async function runInstall(answers: Record<string, unknown>) {
+    if (existing && answers.action === UPDATE_ACTION) {
+      // Update in place: no shortcut/integration choices were asked, so
+      // none are sent - the backend keeps the desktop shortcut as it was
+      // and leaves the app's integrations untouched.
+      installDirRef.current = existing.dir;
+      await invoke("installer_run", { installDir: existing.dir, desktopShortcut: null, features: null });
+      return;
+    }
     const location = typeof answers.location === "string" && answers.location.trim() ? answers.location.trim() : installDirRef.current;
     installDirRef.current = location;
     const desktopShortcut = Boolean(answers.desktop_shortcut);
     const raw = answers.components;
     const features = (Array.isArray(raw) ? raw : raw ? [raw] : []) as InstallableComponent[];
 
-    // A rejection is left to propagate: flowkit then stays on the review
-    // step and shows `installErrorMessage`'s text in its footer.
     await invoke("installer_run", { installDir: location, desktopShortcut, features });
   }
 
@@ -90,8 +127,9 @@ export function InstallerFlow() {
    * generic text - the real reason (folder not writable, Flowcode still
    * running, ...) is exactly what the user needs to see here. */
   function installErrorMessage(error: unknown): string {
-    const reason = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-    return reason.trim() ? `Installazione non riuscita: ${reason.trim()}` : "Installazione non riuscita. Riprova.";
+    const reason = (error instanceof Error ? error.message : typeof error === "string" ? error : "").trim();
+    if (reason.startsWith(INSTALL_FAILED)) return reason; // already mapped by handleSubmit
+    return reason ? `${INSTALL_FAILED}: ${reason}` : `${INSTALL_FAILED}. Riprova.`;
   }
 
   function handleStepChange(info: { direction: string }) {
@@ -139,7 +177,9 @@ export function InstallerFlow() {
         {flowRegion && (
           <FlowOverlay
             ref={flowRef}
-            flow={installerFlow}
+            flow={flow}
+            // Already installed: open straight on "update or customize?".
+            initialStep={existing ? EXISTING_STEP_ID : undefined}
             theme={flowcodeFlowTheme}
             mode={mode}
             open={open}

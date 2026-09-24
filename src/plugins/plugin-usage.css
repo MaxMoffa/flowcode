@@ -67,8 +67,8 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  backdrop-filter: var(--menu-backdrop);
+  -webkit-backdrop-filter: var(--menu-backdrop);
   animation: plugin-usage-popover-in 0.12s ease-out;
   /* One accent per product, reusing the theme's own two accent tokens
    * (already a green/copper pair) rather than hardcoding brand colors. */

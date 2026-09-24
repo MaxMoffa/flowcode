@@ -1,6 +1,6 @@
 [package]
 name = "flowcode-installer"
-version = "0.2.0"
+version = "0.3.0"
 description = "Flowcode Setup"
 authors = ["Massimo Moffa"]
 edition = "2021"
@@ -33,5 +33,6 @@ windows-sys = { version = "0.59", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
   "Win32_UI_Controls",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }

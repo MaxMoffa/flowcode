@@ -146,6 +146,16 @@
   --surface-alpha: 0.7;
 }
 
+/* Floating menus (context menus and their flyouts, the tab overflow list,
+   Funzionalità, the usage popover) sit on top of the app's own content -
+   sharp terminal text, the file tree - rather than the desktop, so the
+   panels' --glass-blur leaves what's underneath still readable through them.
+   A much stronger blur + saturation makes them read like the window's own
+   acrylic backdrop instead of a tinted see-through sheet. */
+:root {
+  --menu-backdrop: blur(40px) saturate(160%);
+}
+
 /* The whole app is exactly one viewport tall (.app-shell is height: 100vh)
    with its own internal panels scrolling independently - the page itself
    should never scroll. Without this, a two-finger trackpad swipe anywhere

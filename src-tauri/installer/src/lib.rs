@@ -11,6 +11,19 @@ fn installer_default_dir() -> String {
     install::default_dir()
 }
 
+/// A Flowcode already on this machine, if any - lets the wizard open straight
+/// on "update it?" instead of the full setup.
+#[tauri::command]
+fn installer_existing_install() -> Option<install::ExistingInstall> {
+    install::existing_install()
+}
+
+/// The version this installer carries, shown next to the installed one.
+#[tauri::command]
+fn installer_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 #[tauri::command]
 fn installer_check_webview2() -> bool {
     #[cfg(target_os = "windows")]
@@ -29,8 +42,8 @@ fn installer_check_webview2() -> bool {
 fn installer_run(
     app: tauri::AppHandle,
     install_dir: String,
-    desktop_shortcut: bool,
-    features: Vec<String>,
+    desktop_shortcut: Option<bool>,
+    features: Option<Vec<String>>,
 ) -> Result<(), String> {
     // A relative path would install next to wherever the installer happened
     // to be started from (and point shortcuts/registry there) - never what
@@ -40,8 +53,16 @@ fn installer_run(
             "\"{install_dir}\" non è un percorso completo: scegli la cartella con \"Sfoglia...\"."
         ));
     }
+    // `None` for both = an update over an existing install: keep the
+    // desktop shortcut the way it was, and leave the integrations alone -
+    // recording a pick would make the app re-apply it (and reset whatever
+    // the user changed since) on its next launch.
+    let desktop_shortcut = desktop_shortcut.unwrap_or_else(install::had_desktop_shortcut);
     install::perform_install(&install_dir, desktop_shortcut)?;
-    record_feature_choices(&app, &features)
+    match features {
+        Some(features) => record_feature_choices(&app, &features),
+        None => Ok(()),
+    }
 }
 
 /// Hands the wizard's "Integrazioni" picks to the app: its first launch
@@ -96,6 +117,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             installer_default_dir,
+            installer_existing_install,
+            installer_version,
             installer_check_webview2,
             installer_run,
             installer_launch_app,

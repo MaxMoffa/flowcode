@@ -223,7 +223,116 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
     key.set_value("NoModify", &1u32).map_err(|e| e.to_string())?;
     key.set_value("NoRepair", &1u32).map_err(|e| e.to_string())?;
 
+    refresh_shell_icons(&[exe_path, start_menu, desktop_shortcut_path(), taskbar_pin_path()]);
+
     Ok(())
+}
+
+/// Where Explorer keeps the shortcut behind a taskbar pin - pinning Flowcode
+/// copies its shortcut here, icon included.
+#[cfg(target_os = "windows")]
+fn taskbar_pin_path() -> PathBuf {
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    PathBuf::from(appdata).join(r"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Flowcode.lnk")
+}
+
+/// Makes Explorer pick up the new icon. An update rewrites `flowcode.exe` at
+/// the same path, and Windows caches icons by path - without this, the
+/// taskbar pin, Start menu and desktop shortcuts (and the running window's
+/// taskbar button, which takes the pin's icon) keep showing the old one
+/// until the cache happens to expire. Best-effort: a failure here never
+/// fails the install.
+#[cfg(target_os = "windows")]
+fn refresh_shell_icons(paths: &[PathBuf]) {
+    use flowcode_shared::CREATE_NO_WINDOW;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::UI::Shell::{
+        SHChangeNotify, SHCNE_ASSOCCHANGED, SHCNE_UPDATEITEM, SHCNF_FLUSH, SHCNF_IDLIST, SHCNF_PATHW,
+    };
+
+    for path in paths.iter().filter(|p| p.exists()) {
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the
+        // call (SHCNF_FLUSH makes it synchronous).
+        unsafe { SHChangeNotify(SHCNE_UPDATEITEM as i32, SHCNF_PATHW | SHCNF_FLUSH, wide.as_ptr().cast(), std::ptr::null()) };
+    }
+    // SAFETY: no item pointers - "something about icons changed, re-read them".
+    unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED as i32, SHCNF_IDLIST | SHCNF_FLUSH, std::ptr::null(), std::ptr::null()) };
+    // The notifications above refresh Explorer's views, but the taskbar pin
+    // is drawn from the per-user icon cache database; `ie4uinit -show` is
+    // Windows' own way to rebuild it.
+    let _ = std::process::Command::new("ie4uinit.exe")
+        .arg("-show")
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+}
+
+/// A Flowcode already installed on this machine, found before the wizard
+/// opens so it can offer a one-click update instead of the full setup.
+#[derive(serde::Serialize)]
+pub struct ExistingInstall {
+    pub dir: String,
+    /// The installed version, when the platform records one.
+    pub version: Option<String>,
+}
+
+/// Windows: the per-user uninstall entry this installer registers (see
+/// `perform_install`), trusted only if `flowcode.exe` is still where it says.
+#[cfg(target_os = "windows")]
+pub fn existing_install() -> Option<ExistingInstall> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let key = RegKey::predef(HKEY_CURRENT_USER).open_subkey(UNINSTALL_KEY).ok()?;
+    let dir: String = key.get_value("InstallLocation").ok()?;
+    if !PathBuf::from(&dir).join("flowcode.exe").is_file() {
+        return None;
+    }
+    Some(ExistingInstall { dir, version: key.get_value("DisplayVersion").ok() })
+}
+
+/// Linux: the menu entry `perform_install` writes records the install folder
+/// in its `Path=` line; no version is recorded anywhere.
+#[cfg(target_os = "linux")]
+pub fn existing_install() -> Option<ExistingInstall> {
+    let entry = fs::read_to_string(xdg_data_home().join("applications").join(DESKTOP_FILE)).ok()?;
+    let dir = entry.lines().find_map(|l| l.strip_prefix("Path="))?.trim().to_string();
+    if !PathBuf::from(&dir).join("flowcode").is_file() {
+        return None;
+    }
+    Some(ExistingInstall { dir, version: None })
+}
+
+/// macOS: `Flowcode.app` in the default folder, versioned by its Info.plist.
+#[cfg(target_os = "macos")]
+pub fn existing_install() -> Option<ExistingInstall> {
+    let dir = default_dir();
+    let plist = fs::read_to_string(PathBuf::from(&dir).join("Flowcode.app/Contents/Info.plist")).ok()?;
+    let version = plist
+        .split("<key>CFBundleShortVersionString</key>")
+        .nth(1)
+        .and_then(|rest| rest.split("<string>").nth(1))
+        .and_then(|rest| rest.split("</string>").next())
+        .map(str::to_string);
+    Some(ExistingInstall { dir, version })
+}
+
+/// Whether the previous install had a desktop shortcut - an update keeps
+/// whatever the user chose back then instead of asking again.
+pub fn had_desktop_shortcut() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        desktop_shortcut_path().exists()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        desktop_dir().join(DESKTOP_FILE).exists()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        desktop_dir().join("Flowcode.app").exists()
+    }
 }
 
 /// The menu entry's file name - also what `uninstall.rs` removes.

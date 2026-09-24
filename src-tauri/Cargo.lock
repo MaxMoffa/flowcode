@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "flowcode-shared",
  "portable-pty",
@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-installer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "flowcode-shared",
  "mslnk",
@@ -1088,7 +1088,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-shared"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "raw-window-handle",
  "tauri",
