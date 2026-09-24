@@ -238,11 +238,31 @@ fn resolve_shell(id: Option<&str>) -> String {
         Some("powershell") => "powershell.exe".into(),
         Some("pwsh") => "pwsh.exe".into(),
         Some("wsl") => "wsl.exe".into(),
+        Some(id) if id.starts_with("wsl:") => "wsl.exe".into(),
         Some("zsh") => "zsh".into(),
         Some("bash") => "bash".into(),
         Some("sh") => "sh".into(),
         Some(other) => other.to_string(),
     }
+}
+
+/// `\\wsl.localhost\Ubuntu\home\me` (or the older `\\wsl$\...` form) ->
+/// `("Ubuntu", "/home/me")`. A WSL folder only reaches the frontend in that
+/// UNC form (see wslPath.ts), but it can't be wsl.exe's cwd as-is - the
+/// distro would start in its default dir instead - so it's handed over as
+/// `-d <distro> --cd <posix path>`.
+fn split_wsl_unc(path: &str) -> Option<(String, String)> {
+    let lower = path.to_ascii_lowercase();
+    let prefix = [r"\\wsl.localhost\", r"\\wsl$\"]
+        .into_iter()
+        .find(|prefix| lower.starts_with(prefix))?;
+    let rest = &path[prefix.len()..];
+    let (distro, tail) = rest.split_once('\\').unwrap_or((rest, ""));
+    if distro.is_empty() {
+        return None;
+    }
+    let tail = tail.trim_end_matches('\\').replace('\\', "/");
+    Some((distro.to_string(), format!("/{tail}")))
 }
 
 // `(async)` - i.e. "run this off the main thread". A plain `#[tauri::command]`
@@ -284,10 +304,30 @@ pub fn pty_spawn(
         .to_ascii_lowercase();
 
     let mut cmd = CommandBuilder::new(&shell_program);
-    // An empty cwd must never reach CommandBuilder: on Windows it becomes an
-    // empty lpCurrentDirectory, which CreateProcessW treats as invalid rather
-    // than "inherit" - the shell silently never starts.
-    if let Some(dir) = cwd.filter(|d| !d.is_empty()) {
+    let cwd = cwd.filter(|d| !d.is_empty());
+    // `wsl:<distro>` pins the distro a tab was opened from (a favorite saved
+    // in a WSL session, "Apri in un altro terminale" from one) - plain `wsl`
+    // keeps using the machine's default distro. A `\\wsl.localhost\<distro>`
+    // cwd names its distro on its own and wins over both.
+    let wsl_unc = if shell_stem == "wsl" { cwd.as_deref().and_then(split_wsl_unc) } else { None };
+    let wsl_distro = match &wsl_unc {
+        Some((distro, _)) => Some(distro.clone()),
+        None => shell
+            .as_deref()
+            .and_then(|id| id.strip_prefix("wsl:"))
+            .filter(|d| !d.is_empty())
+            .map(str::to_string),
+    };
+    if let Some(distro) = &wsl_distro {
+        cmd.args(["-d", distro]);
+    }
+    if let Some((_, posix)) = &wsl_unc {
+        cmd.args(["--cd", posix]);
+    } else if let Some(dir) = cwd {
+        // An empty cwd must never reach CommandBuilder: on Windows it becomes
+        // an empty lpCurrentDirectory, which CreateProcessW treats as invalid
+        // rather than "inherit" - the shell silently never starts. A plain
+        // `C:\...` one is fine for wsl.exe too: it maps it to `/mnt/c/...`.
         cmd.cwd(dir);
     }
     // How CLIs decide whether to emit color: with none of these, Rust TUIs
@@ -415,7 +455,7 @@ pub fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::emittable_len;
+    use super::{emittable_len, split_wsl_unc};
 
     #[test]
     fn holds_back_only_truncated_utf8_tail() {
@@ -427,5 +467,16 @@ mod tests {
         // A stray continuation byte / invalid lead is flushed, not held.
         assert_eq!(emittable_len(&[b'a', 0x80, 0x80, 0x80]), 4);
         assert_eq!(emittable_len(&[]), 0);
+    }
+
+    #[test]
+    fn splits_wsl_unc_paths() {
+        assert_eq!(
+            split_wsl_unc(r"\\wsl.localhost\Ubuntu\home\me\"),
+            Some(("Ubuntu".into(), "/home/me".into()))
+        );
+        assert_eq!(split_wsl_unc(r"\\WSL$\Debian"), Some(("Debian".into(), "/".into())));
+        assert_eq!(split_wsl_unc(r"C:\Users\me"), None);
+        assert_eq!(split_wsl_unc(r"\\server\share"), None);
     }
 }

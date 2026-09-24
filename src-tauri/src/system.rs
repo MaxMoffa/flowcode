@@ -89,6 +89,17 @@ pub fn set_window_square_corners(window: tauri::WebviewWindow, square: bool) {
     let _ = (window, square);
 }
 
+/// Hands a file the built-in editor can't show (an image, a PDF, an archive...)
+/// to the OS default app for it. Goes through the opener plugin's Rust API
+/// rather than its JS `openPath`: that one is gated by a path scope this app
+/// never configures (every path answers ForbiddenPath), and a file the
+/// explorer lists can live anywhere - a `\\wsl.localhost\<distro>\...` share
+/// included, which ShellExecute opens like any other UNC path.
+#[tauri::command(async)]
+pub fn open_with_default_app(path: String) -> Result<(), String> {
+    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+}
+
 /// The machine's default WSL distro name (e.g. "Ubuntu"), for translating a
 /// POSIX path reported by a bare `wsl` session (no explicit `-d`) into a
 /// browsable `\\wsl.localhost\<distro>\...` UNC path - see wslPath.ts.

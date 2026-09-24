@@ -5,7 +5,6 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "rea
 // window object throws a TypeError.
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
@@ -17,7 +16,16 @@ import type { AppTab, TermTab, EditorTab } from "./tabs/types";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
 import { loadSession, saveSession, type SavedSession, type SavedTab } from "./session/session";
-import { defaultWslDistro, toWindowsPath, toWslPath, wslHomeDir } from "./terminal/wslPath";
+import {
+  defaultWslDistro,
+  sameShell,
+  toWindowsPath,
+  toWslPath,
+  wslDistroOfPath,
+  wslDistroOfShell,
+  wslHomeDir,
+  wslShellId,
+} from "./terminal/wslPath";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
 import { ContextMenuProvider, useOpenContextMenu, useContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
@@ -33,6 +41,7 @@ import { BUILTIN_PLUGINS, EXAMPLE_PLUGINS, DEFAULT_QUICK_ACTIONS } from "./plugi
 import { pluginIconNode } from "./plugins/icons";
 import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
 import { FavoritesButton, StarIcon, favoritesMenuItem } from "./favorites/FavoritesButton";
+import type { FavoriteFolder } from "./favorites/favoritesStore";
 import { hasSeenWelcome } from "./welcome/welcomeSeen";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
 import { SIDEBAR_MODES, EXPLORER_LINK_MODES, type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
@@ -330,12 +339,15 @@ function Shell() {
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
-  const { startPath, resetTabZoom, restoreSession } = useTerminalSettings();
+  const { startPath, resetTabZoom, restoreSession, shellId } = useTerminalSettings();
   const restoreSessionRef = useRef(restoreSession);
   restoreSessionRef.current = restoreSession;
   // Previous session's terminal text, keyed by the restored tab's new id -
   // handed to its TerminalView once, at mount (see `restoredContent`).
   const restoredContentRef = useRef(new Map<string, string>());
+  // Terminal tabs brought back from the previous session - an untouched one
+  // is still worth keeping (it has history), unlike a virgin fresh tab.
+  const restoredTabIdsRef = useRef(new Set<string>());
   // Nothing may spawn, and nothing may be saved, until the previous session
   // has been read back (or skipped) - otherwise the startup tab would start
   // a shell that's about to be replaced, and the first save would overwrite
@@ -488,14 +500,18 @@ function Shell() {
         for (const t of saved.tabs) {
           if (t.kind === "terminal") {
             // A folder deleted since, or a `\\wsl.localhost\...` path a
-            // Windows shell can't start in: left empty, so the startup-folder
-            // fill below gives it the configured start folder instead.
+            // Windows shell can't start in (a WSL one can - pty_spawn turns
+            // it into `wsl -d <distro> --cd <path>`): left empty, so the
+            // startup-folder fill below gives it the configured start folder
+            // instead.
+            const wslDistro = wslDistroOfShell(t.shell);
             const usable =
               !!t.cwd &&
-              !t.cwd.startsWith("\\\\") &&
+              (wslDistro !== undefined || !t.cwd.startsWith("\\\\")) &&
               (await invoke<boolean>("is_directory", { path: t.cwd }).catch(() => false));
             const cwd = usable ? t.cwd : "";
             const id = `tab-${nextTabId++}`;
+            restoredTabIdsRef.current.add(id);
             if (t.content) restoredContentRef.current.set(id, t.content);
             if (t.shell) pendingShellOverrideRef.current.set(id, t.shell);
             restored.push({
@@ -505,7 +521,8 @@ function Shell() {
               explorerPath: cwd,
               label: t.customLabel || !cwd ? t.label : labelForCwd(cwd),
               customLabel: t.customLabel,
-              nestedShell: t.shell === "wsl" ? "wsl" : undefined,
+              nestedShell: wslDistro !== undefined ? "wsl" : undefined,
+              wslDistro: wslDistro ?? undefined,
             });
           } else if (t.kind === "editor") {
             restored.push({ kind: "editor", id: `editor-${nextTabId++}`, path: t.path, label: t.label });
@@ -533,18 +550,27 @@ function Shell() {
     if (!sessionChecked) return;
     function snapshot(): SavedSession {
       const { tabs, activeTabId } = latestRef.current;
+      // A virgin terminal (opened, never typed into or used) isn't worth
+      // bringing back. A restored one left untouched is saved with the very
+      // content it was restored with, not a fresh serialize - otherwise
+      // every restart would append the new shell's prompt below it again.
+      const kept = tabs.filter((t) => {
+        if (t.kind !== "terminal") return true;
+        return restoredTabIdsRef.current.has(t.id) || !!termRefs.current.get(t.id)?.wasUsed();
+      });
       return {
         version: 1,
-        activeIndex: Math.max(0, tabs.findIndex((t) => t.id === activeTabId)),
-        tabs: tabs.map((t): SavedTab => {
+        activeIndex: Math.max(0, kept.findIndex((t) => t.id === activeTabId)),
+        tabs: kept.map((t): SavedTab => {
           if (t.kind === "terminal") {
+            const term = termRefs.current.get(t.id);
             return {
               kind: "terminal",
               cwd: t.cwd,
               label: t.label,
               customLabel: t.customLabel,
-              shell: pendingShellOverrideRef.current.get(t.id),
-              content: termRefs.current.get(t.id)?.serialize(),
+              shell: tabShell(t),
+              content: term?.wasUsed() ? term.serialize() : restoredContentRef.current.get(t.id),
             };
           }
           if (t.kind === "editor") return { kind: "editor", path: t.path, label: t.label };
@@ -710,6 +736,10 @@ function Shell() {
     // favorite, resuming an agent session) gets one.
     const cwd = cwdOverride || resolvedStartPath || homeDir;
     const id = `tab-${nextTabId++}`;
+    // A `\\wsl.localhost\<distro>\...` folder only a WSL shell can start in,
+    // whatever the caller (or the configured default) would have picked.
+    const pathDistro = wslDistroOfPath(cwd);
+    if (pathDistro && wslDistroOfShell(shellOverride ?? shellId) === undefined) shellOverride = wslShellId(pathDistro);
     if (shellOverride) pendingShellOverrideRef.current.set(id, shellOverride);
     // A tab whose shell *is* wsl.exe from the moment it spawns never goes
     // through the "user typed `wsl`" detection in handleCommandLine below -
@@ -720,10 +750,19 @@ function Shell() {
     // real one) - same placeholder-until-corrected behavior as typing `wsl`
     // into an existing tab, fixed up by applyWslTitle the moment the first
     // prompt reports the distro's actual cwd.
-    const nestedShell = shellOverride === "wsl" ? "wsl" : undefined;
+    const wslDistro = wslDistroOfShell(shellOverride ?? shellId);
+    const nestedShell = wslDistro !== undefined ? "wsl" : undefined;
     setTabs((prev) => [
       ...prev,
-      { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd), nestedShell },
+      {
+        kind: "terminal",
+        id,
+        cwd,
+        explorerPath: cwd,
+        label: labelForCwd(cwd),
+        nestedShell,
+        wslDistro: pathDistro ?? wslDistro ?? undefined,
+      },
     ]);
     setActiveTabId(id);
     setActiveTerminalId(id);
@@ -754,6 +793,37 @@ function Shell() {
     setActiveTerminalId(id);
   }
 
+  /** The `pty_spawn` shell id a new terminal needs to land in the same kind
+   * of session `tab` is in right now - so "Apri in un altro terminale", a
+   * duplicated tab or a favorite saved from a WSL session opens in WSL (same
+   * distro), where its path actually exists, and one from a tab opened as
+   * PowerShell/cmd/... opens in that same shell. `undefined` = the tab runs
+   * the configured default. A path inside a distro's share always means WSL,
+   * even once a nested agent/remote session froze the tab (which clears
+   * `wslDistro`). */
+  function tabShell(tab: TermTab): string | undefined {
+    if (tab.nestedShell === "wsl") return wslShellId(tab.wslDistro);
+    const pathDistro = wslDistroOfPath(tab.explorerPath || tab.cwd);
+    if (pathDistro) return wslShellId(pathDistro);
+    return pendingShellOverrideRef.current.get(tab.id);
+  }
+
+  /** Opens a saved favorite: in the active terminal (a silent `cd`, same as
+   * browsing there from the explorer) when it's the same kind of terminal
+   * the favorite was saved from, otherwise in a new tab running that shell -
+   * a WSL folder can't be reached from cmd/PowerShell, and a folder saved
+   * from PowerShell shouldn't suddenly open in WSL. */
+  function openFavorite(fav: FavoriteFolder) {
+    const pathDistro = wslDistroOfPath(fav.path);
+    const shell = fav.shell ?? (pathDistro ? wslShellId(pathDistro) : undefined);
+    const current = activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined;
+    if (!shell || !activeTerminal || sameShell(shell, current)) {
+      browseExplorer(fav.path);
+      return;
+    }
+    addTab(fav.path, shell);
+  }
+
   /** A second, independent tab alongside `id` - same cwd for a terminal
    * (via addTab's own cwdOverride), same file for an editor (bypassing
    * openFile's own "already open, just switch to it" dedupe, since
@@ -764,7 +834,7 @@ function Shell() {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
     if (tab.kind === "terminal") {
-      addTab(tab.cwd);
+      addTab(tab.cwd, tabShell(tab));
       return;
     }
     if (tab.kind === "editor") {
@@ -777,7 +847,15 @@ function Shell() {
   function openFile(path: string) {
     const name = basename(path);
     if (!isLikelyTextFile(name)) {
-      openPath(path).catch(() => {});
+      // Not something the built-in editor can show (image, PDF, archive...):
+      // handed to the OS default app instead. The explorer already lists a
+      // WSL tab's files by their Windows form, but a bare POSIX path from one
+      // is translated too - Windows can't open `/home/...` as-is.
+      const wslTab = activeTerminal?.nestedShell === "wsl" ? activeTerminal : undefined;
+      const hostPath = wslTab?.wslDistro && path.startsWith("/") ? toWindowsPath(wslTab.wslDistro, path) : path;
+      invoke("open_with_default_app", { path: hostPath }).catch((e) =>
+        showPluginToast(`Impossibile aprire ${name}: ${e}`),
+      );
       return;
     }
     const existing = tabs.find((t) => t.kind === "editor" && t.path === path);
@@ -1287,7 +1365,8 @@ function Shell() {
         cwd={sidebarCwd}
         onNavigate={browseExplorer}
         onOpenFile={openFile}
-        onOpenTerminal={addTab}
+        onOpenTerminal={(path) => addTab(path, activeTerminal ? tabShell(activeTerminal) : undefined)}
+        shell={activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined}
         linkMode={explorerLinkMode}
         onSetLinkMode={setExplorerLinkMode}
         terminalBusy={activeTerminal?.busy ?? false}
@@ -1327,7 +1406,8 @@ function Shell() {
         submenu: [
           favoritesMenuItem({
             activeCwd: activeTerminal && !activeTerminal.busy ? activeTerminal.cwd || undefined : undefined,
-            onOpenFolder: browseExplorer,
+            activeShell: activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined,
+            onOpenFolder: openFavorite,
             hide: hideMenu,
           }),
         ],
@@ -1408,7 +1488,8 @@ function Shell() {
           {favoritesButtonVisible && (
             <FavoritesButton
               activeCwd={activeTerminal && !activeTerminal.busy ? activeTerminal.cwd || undefined : undefined}
-              onOpenFolder={browseExplorer}
+              activeShell={activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined}
+              onOpenFolder={openFavorite}
             />
           )}
           <button

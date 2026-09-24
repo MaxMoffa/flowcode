@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { useTheme, type ThemeMode } from "../themes/ThemeContext";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { useSettingsSection } from "./SettingsSectionContext";
@@ -154,7 +153,7 @@ export function SettingsPage({
   async function handleOpenConfigDir() {
     try {
       const dir = await invoke<string>("config_dir");
-      await openPath(dir);
+      await invoke("open_with_default_app", { path: dir });
     } catch (e) {
       window.alert(`Impossibile aprire la cartella di configurazione: ${e}`);
     }

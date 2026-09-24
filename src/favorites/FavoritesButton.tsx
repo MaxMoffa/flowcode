@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
-import { addFavorite, listFavorites, removeFavorite, subscribeFavorites } from "./favoritesStore";
+import { addFavorite, listFavorites, removeFavorite, subscribeFavorites, type FavoriteFolder } from "./favoritesStore";
 import "./favorites.css";
 
 interface FavoritesButtonProps {
@@ -8,7 +8,9 @@ interface FavoritesButtonProps {
    * corrente" show up straight from this button, without going through the
    * file explorer first. */
   activeCwd?: string;
-  onOpenFolder: (path: string) => void;
+  /** Shell id of the active terminal - saved alongside `activeCwd`. */
+  activeShell?: string;
+  onOpenFolder: (favorite: FavoriteFolder) => void;
 }
 
 export function StarIcon() {
@@ -40,7 +42,10 @@ interface FavoritesMenuContentProps {
   /** The active terminal's real cwd, if any - lets the footer's "Aggiungi
    * cartella corrente" row show up straight from this menu. */
   activeCwd?: string;
-  onOpenFolder: (path: string) => void;
+  /** Shell id of the active terminal - saved alongside `activeCwd`, see
+   * `FavoriteFolder.shell`. */
+  activeShell?: string;
+  onOpenFolder: (favorite: FavoriteFolder) => void;
   /** Closes whichever menu (top-level or flyout) this content ends up
    * rendered in. */
   hide: () => void;
@@ -56,7 +61,7 @@ interface FavoritesMenuContentProps {
  * (rather than taking `favorites` as a prop computed once at open time)
  * means both call sites stay live if a favorite is added/removed elsewhere
  * while the menu is open. */
-function FavoritesMenuContent({ activeCwd, onOpenFolder, hide }: FavoritesMenuContentProps) {
+function FavoritesMenuContent({ activeCwd, activeShell, onOpenFolder, hide }: FavoritesMenuContentProps) {
   const favorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -86,9 +91,9 @@ function FavoritesMenuContent({ activeCwd, onOpenFolder, hide }: FavoritesMenuCo
             className="favorites-row"
             onClick={() => {
               hide();
-              onOpenFolder(fav.path);
+              onOpenFolder(fav);
             }}
-            title={fav.path}
+            title={fav.shell?.startsWith("wsl") ? `${fav.path} (WSL)` : fav.path}
           >
             <span className="context-menu-icon">
               <FolderIcon />
@@ -121,7 +126,7 @@ function FavoritesMenuContent({ activeCwd, onOpenFolder, hide }: FavoritesMenuCo
             className="favorites-row"
             onClick={() => {
               hide();
-              addFavorite(activeCwd);
+              addFavorite(activeCwd, activeShell);
             }}
           >
             <span className="context-menu-icon">
@@ -146,13 +151,13 @@ export function favoritesMenuItem(props: FavoritesMenuContentProps): ContextMenu
  * removable straight from this menu. Left click and right click behave the
  * same: both just open the list, there's nothing hidden behind a second
  * gesture. */
-export function FavoritesButton({ activeCwd, onOpenFolder }: FavoritesButtonProps) {
+export function FavoritesButton({ activeCwd, activeShell, onOpenFolder }: FavoritesButtonProps) {
   const { show, hide } = useContextMenu();
 
   function openMenu(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    show(e.clientX, e.clientY, [favoritesMenuItem({ activeCwd, onOpenFolder, hide })]);
+    show(e.clientX, e.clientY, [favoritesMenuItem({ activeCwd, activeShell, onOpenFolder, hide })]);
   }
 
   return (

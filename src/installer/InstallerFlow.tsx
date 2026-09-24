@@ -15,7 +15,7 @@ import "./installer.css";
 // module load, below) can reference it.
 import "./steps/directoryStepType";
 import "./steps/DirectoryStepView";
-import { installerFlowTheme } from "./installerFlowTheme";
+import { flowcodeFlowTheme } from "../welcome/flowcodeFlowTheme";
 import { installerFlow, INSTALLABLE_COMPONENTS, type InstallableComponent } from "./installerFlowConfig";
 
 /** Standalone installer wizard - a separate entry point from the main app
@@ -79,15 +79,19 @@ export function InstallerFlow() {
     const raw = answers.components;
     const features = (Array.isArray(raw) ? raw : raw ? [raw] : []) as InstallableComponent[];
 
-    try {
-      await invoke("installer_run", { installDir: location, desktopShortcut, features });
-    } catch (e) {
-      // Tauri rejects with a plain string, and flowkit only shows the text
-      // of a thrown `Error` - anything else falls back to its own generic
-      // (payment!) message. Wrapping it keeps the real reason on screen;
-      // re-throwing keeps flowkit's "don't advance past a failed submit".
-      throw new Error(`Installazione non riuscita: ${String(e)}`);
-    }
+    // A rejection is left to propagate: flowkit then stays on the review
+    // step and shows `installErrorMessage`'s text in its footer.
+    await invoke("installer_run", { installDir: location, desktopShortcut, features });
+  }
+
+  /** `onSubmitError`: turns a failed `installer_run` into the message shown
+   * on the review step. Tauri rejects with the backend's plain error string
+   * (not an `Error`), which flowkit on its own would only replace with its
+   * generic text - the real reason (folder not writable, Flowcode still
+   * running, ...) is exactly what the user needs to see here. */
+  function installErrorMessage(error: unknown): string {
+    const reason = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+    return reason.trim() ? `Installazione non riuscita: ${reason.trim()}` : "Installazione non riuscita. Riprova.";
   }
 
   function handleStepChange(info: { direction: string }) {
@@ -136,11 +140,12 @@ export function InstallerFlow() {
           <FlowOverlay
             ref={flowRef}
             flow={installerFlow}
-            theme={installerFlowTheme}
+            theme={flowcodeFlowTheme}
             mode={mode}
             open={open}
             onOpenChange={setOpen}
             onSubmit={handleSubmit}
+            onSubmitError={installErrorMessage}
             onStepChange={handleStepChange}
             // Both integrations pre-checked: matches what a Flowcode started
             // without the installer gets (every example plugin, pinned).

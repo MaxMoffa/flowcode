@@ -115,7 +115,17 @@ export interface TerminalHandle {
    * last `SESSION_SCROLLBACK_LINES` lines, never a full-screen program's
    * alternate screen (that frame means nothing once the program is gone). */
   serialize: () => string;
+  /** Whether anything was ever sent to this tab's shell on the user's
+   * behalf - typed/pasted input, a command run in it, an explorer `cd`.
+   * A tab that's still `false` at exit is a virgin one (opened, never
+   * touched), which session restore doesn't bring back. */
+  wasUsed: () => boolean;
 }
+
+/** What xterm itself answers on the shell's behalf - cursor position /
+ * device attribute / status reports, focus in/out, OSC color queries - so
+ * none of it counts as the user having actually used the tab. */
+const TERMINAL_REPORT = /^(?:\x1b\[[\d;?>]*[Rcn]|\x1b\[[IO]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))+$/;
 
 const SESSION_SCROLLBACK_LINES = 2000;
 
@@ -174,6 +184,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   const restoredContentRef = useRef(restoredContent);
   const ptyIdRef = useRef<string | null>(null);
   const runOnStartRef = useRef(runOnStart);
+  // A tab opened to run something (agent session, install command) is in
+  // use from the start - see `wasUsed`.
+  const usedRef = useRef(!!runOnStart);
   const cwdRef = useRef(cwd);
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
@@ -270,6 +283,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     collapseSafetyRef.current = setTimeout(() => {
       pendingCollapseRowRef.current = null;
     }, safetyMs);
+    usedRef.current = true;
     writePty(id, data);
   }
 
@@ -294,7 +308,10 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       // the more "written text" instinct of `\n`, is what makes ConPTY
       // (the Windows pty backend) actually treat this as pressing Enter
       // instead of leaving the line sitting there typed but unsubmitted.
-      if (id) writePty(id, `${cmd}\r`);
+      if (id) {
+        usedRef.current = true;
+        writePty(id, `${cmd}\r`);
+      }
     },
     // A launched full-screen CLI can take a while to draw its first titled
     // frame (cold start, update check, ...), longer than a plain `cd`'s
@@ -316,6 +333,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           : `cd ${shellQuote(path, forcePosix)}\r`,
       ),
     getPtyId: () => ptyIdRef.current,
+    wasUsed: () => usedRef.current,
     serialize: () =>
       serializeAddonRef.current?.serialize({
         scrollback: SESSION_SCROLLBACK_LINES,
@@ -418,6 +436,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       if (e.type === "keydown") {
         e.preventDefault();
         const id = ptyIdRef.current;
+        usedRef.current = true;
         if (id) writePty(id, "\x1b\r");
       }
       return false;
@@ -487,6 +506,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     // one that has a startup long enough to type into).
     const pendingInput: string[] = [];
     const dataDisposable = term.onData((data) => {
+      if (!TERMINAL_REPORT.test(data)) usedRef.current = true;
       const id = ptyIdRef.current;
       if (!id) {
         pendingInput.push(data);
@@ -524,9 +544,11 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       // first thing written to this tab - xterm's write queue is FIFO by call
       // order, so writing it any later could land below the shell's output.
       if (restoredContentRef.current) {
-        // Dim separator so the replayed text reads as history, not as live
-        // output of the shell that's about to start below it.
-        term.write(`${restoredContentRef.current}\x1b[0m\r\n\x1b[2m── sessione ripristinata ──\x1b[0m\r\n`);
+        // Replayed as-is, with no "restored" marker of its own: an untouched
+        // restored tab is saved back with this same content (see App.tsx's
+        // session snapshot), so a marker would pile up one more line on
+        // every restart.
+        term.write(`${restoredContentRef.current}\x1b[0m\r\n`);
       } else if (bannerEnabledRef.current) {
         const sysInfo = await invoke<BannerSystemInfo>("system_info").catch(() => undefined);
         if (disposed) return;

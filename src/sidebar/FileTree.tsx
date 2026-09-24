@@ -183,6 +183,8 @@ interface FileTreeProps {
   onNavigate: (path: string) => void;
   onOpenFile: (path: string) => void;
   onOpenTerminal: (path: string) => void;
+  /** Shell id of the active terminal, stored with a favorite added here. */
+  shell?: string;
   linkMode: ExplorerLinkMode;
   onSetLinkMode: (mode: ExplorerLinkMode) => void;
   terminalBusy: boolean;
@@ -193,6 +195,7 @@ export function FileTree({
   onNavigate,
   onOpenFile,
   onOpenTerminal,
+  shell,
   linkMode,
   onSetLinkMode,
   terminalBusy,
@@ -423,7 +426,7 @@ export function FileTree({
       items.push({
         label: fav ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti",
         icon: Icons.star,
-        onSelect: () => (fav ? removeFavorite(entry.path) : addFavorite(entry.path)),
+        onSelect: () => (fav ? removeFavorite(entry.path) : addFavorite(entry.path, shell)),
       });
     }
     items.push({ separator: true, label: "sep-1" });
@@ -476,7 +479,7 @@ export function FileTree({
         label: cwdFav ? "Rimuovi cartella corrente dai preferiti" : "Aggiungi cartella corrente ai preferiti",
         icon: Icons.star,
         disabled: !canFavoriteCurrent,
-        onSelect: () => cwd && (cwdFav ? removeFavorite(cwd) : addFavorite(cwd)),
+        onSelect: () => cwd && (cwdFav ? removeFavorite(cwd) : addFavorite(cwd, shell)),
       },
       { separator: true, label: "sep-h2" },
       linkModeItem(),

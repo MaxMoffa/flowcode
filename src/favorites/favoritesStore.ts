@@ -6,6 +6,12 @@ const STORAGE_KEY = "flowcode.favorites";
 export interface FavoriteFolder {
   path: string;
   name: string;
+  /** `pty_spawn` shell id of the terminal the folder was saved from (e.g.
+   * `wsl:Ubuntu`, `pwsh`) - opening the favorite brings that same kind of
+   * terminal back, so a WSL folder reopens inside WSL rather than in a
+   * Windows shell that can't `cd` there. Missing on favorites saved before
+   * this existed: those just open in the active terminal, as they used to. */
+  shell?: string;
 }
 
 type Listener = () => void;
@@ -17,7 +23,9 @@ const isArray = (value: unknown): value is unknown[] => Array.isArray(value);
 function readFromStorage(): FavoriteFolder[] {
   return readJson(STORAGE_KEY, isArray, []).filter(
     (f): f is FavoriteFolder =>
-      typeof (f as FavoriteFolder)?.path === "string" && typeof (f as FavoriteFolder)?.name === "string",
+      typeof (f as FavoriteFolder)?.path === "string" &&
+      typeof (f as FavoriteFolder)?.name === "string" &&
+      ["string", "undefined"].includes(typeof (f as FavoriteFolder).shell),
   );
 }
 
@@ -48,11 +56,11 @@ export function isFavorite(path: string): boolean {
   return cache.some((f) => normalize(f.path) === target);
 }
 
-export function addFavorite(path: string) {
+export function addFavorite(path: string, shell?: string) {
   if (!path) return;
   const target = normalize(path);
   if (cache.some((f) => normalize(f.path) === target)) return;
-  setCache([...cache, { path, name: basename(path) }]);
+  setCache([...cache, { path, name: basename(path), ...(shell ? { shell } : {}) }]);
 }
 
 export function removeFavorite(path: string) {

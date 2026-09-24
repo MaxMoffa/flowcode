@@ -79,3 +79,37 @@ export function toWslPath(distro: string, path: string): string | null {
   const rest = path.slice(prefix.length).replace(/\\/g, "/");
   return rest || "/";
 }
+
+/** The distro a `\\wsl.localhost\<distro>\...` (or older `\\wsl$\...`)
+ * path lives in - i.e. a folder only a WSL shell of that distro can `cd`
+ * into. `null` for anything else, `C:\...` drive paths included (those are
+ * reachable from every shell). */
+export function wslDistroOfPath(path: string): string | null {
+  return path.match(/^\\\\wsl(?:\.localhost|\$)\\([^\\]+)/i)?.[1] ?? null;
+}
+
+/** `pty_spawn` shell id for a WSL session - `wsl:<distro>` pins the distro
+ * (see `resolve_shell`/`pty_spawn` in pty.rs), plain `wsl` means the
+ * machine's default one. */
+export function wslShellId(distro?: string | null): string {
+  return distro ? `wsl:${distro}` : "wsl";
+}
+
+/** `undefined` if `shellId` isn't a WSL one at all, `null` for plain `wsl`
+ * (default distro), the distro name for `wsl:<distro>`. */
+export function wslDistroOfShell(shellId: string | undefined): string | null | undefined {
+  if (!shellId) return undefined;
+  if (shellId === "wsl") return null;
+  return shellId.startsWith("wsl:") ? shellId.slice(4) || null : undefined;
+}
+
+/** Whether two shell ids start the same kind of terminal - `system` and an
+ * empty id are the same thing, and plain `wsl` matches any `wsl:<distro>`
+ * (it may well *be* that distro, and there's no cheap way to tell here). */
+export function sameShell(a: string | undefined, b: string | undefined): boolean {
+  const norm = (id: string | undefined) => (!id || id === "system" ? "system" : id);
+  const [x, y] = [norm(a), norm(b)];
+  if (x === y) return true;
+  const [dx, dy] = [wslDistroOfShell(x), wslDistroOfShell(y)];
+  return dx !== undefined && dy !== undefined && (dx === null || dy === null || dx === dy);
+}

@@ -30,7 +30,7 @@ const light = createThemeTokens(
       heading: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
       body: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     },
-    layout: { progressVariant: "bar" },
+    layout: { progressVariant: "dots" },
     animation: { name: "fade", duration: 200 },
   },
 );
@@ -61,7 +61,7 @@ const dark = createThemeTokens(
       heading: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
       body: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     },
-    layout: { progressVariant: "bar" },
+    layout: { progressVariant: "dots" },
     animation: { name: "fade", duration: 200 },
   },
 );

@@ -77,6 +77,7 @@ pub fn run() {
             agents::list_codex_sessions,
             agents::run_claude_usage_probe,
             system::system_info,
+            system::open_with_default_app,
             system::wsl_default_distro,
             system::wsl_home_dir,
             system::set_window_square_corners,
