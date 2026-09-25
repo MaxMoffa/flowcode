@@ -1,36 +1,12 @@
-/** "Flowcode" wordmark, pre-rendered as a 4-row shaded block font. */
-const FLOWCODE_ART_BASE = [
-  "██▀██ ██    ██▀██ ██ ▄▄ ██ ██▀██ ██▀██ ██▀█▄ ██▀██",
-  "██▄   ██    ██ ██ ██ ██ ██ ██    ██ ██ ██ ██ ██▄  ",
-  "█▓░   █▓░▄▄ █▓░█▓ █▓░█▓░█▓ █▓░▄▄ █▓░█▓ █▓░█▓ █▓░▄▄",
-  "▀▀    ▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀▀ ▀▀▀▀  ▀▀▀▀▀",
+/** "Flowcode" wordmark in the ANSI Shadow block font. */
+const FLOWCODE_ART = [
+  "███████╗██╗      ██████╗ ██╗    ██╗ ██████╗ ██████╗ ██████╗ ███████╗",
+  "██╔════╝██║     ██╔═══██╗██║    ██║██╔════╝██╔═══██╗██╔══██╗██╔════╝",
+  "█████╗  ██║     ██║   ██║██║ █╗ ██║██║     ██║   ██║██║  ██║█████╗  ",
+  "██╔══╝  ██║     ██║   ██║██║███╗██║██║     ██║   ██║██║  ██║██╔══╝  ",
+  "██║     ███████╗╚██████╔╝╚███╔███╔╝╚██████╗╚██████╔╝██████╔╝███████╗",
+  "╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝",
 ];
-
-/** Nearest-neighbor upscale, sub-cell-aware for the half-block glyphs
- * ("▀"/"▄"): naively repeating a row that contains them would stack two
- * half-filled cells instead of one solid + one empty row, producing a
- * striped artifact. Every other glyph (full block, shade, space) is
- * vertically uniform and can just be repeated. */
-function scaleArt(rows: string[], factor: number): string[] {
-  const topHalf = Math.floor(factor / 2);
-  const bottomHalf = factor - topHalf;
-  const scaled: string[] = [];
-  for (const row of rows) {
-    let topRow = "";
-    let bottomRow = "";
-    for (const ch of row) {
-      const top = ch === "▀" ? "█" : ch === "▄" ? " " : ch;
-      const bottom = ch === "▀" ? " " : ch === "▄" ? "█" : ch;
-      topRow += top.repeat(factor);
-      bottomRow += bottom.repeat(factor);
-    }
-    for (let i = 0; i < topHalf; i++) scaled.push(topRow);
-    for (let i = 0; i < bottomHalf; i++) scaled.push(bottomRow);
-  }
-  return scaled;
-}
-
-const FLOWCODE_ART = scaleArt(FLOWCODE_ART_BASE, 2);
 const ART_WIDTH = FLOWCODE_ART[0].length;
 
 function ansiTrueColor(hex: string): string | null {
@@ -85,7 +61,7 @@ export interface BannerSystemInfo {
  * too narrow a terminal for the art, or no accent color available yet.
  * `info` is optional - if the backend query hasn't resolved (or failed), the
  * banner still shows, just without the info lines below it. */
-export function buildAsciiBanner(cols: number, info?: BannerSystemInfo): string | null {
+export function buildAsciiBanner(cols: number, info?: BannerSystemInfo, appVersion?: string): string | null {
   if (cols < ART_WIDTH + 4) return null;
 
   const style = getComputedStyle(document.documentElement);
@@ -94,6 +70,9 @@ export function buildAsciiBanner(cols: number, info?: BannerSystemInfo): string 
   const dim = "\x1b[2m";
 
   const rows: [string, string][] = [];
+  if (appVersion) {
+    rows.push(["Flowcode", `v${appVersion}`]);
+  }
   if (info) {
     // `os_version` on Windows duplicates/wraps `os_name`'s own trailing
     // number (e.g. name "Windows 11 Home", version "11 (26200)"), which

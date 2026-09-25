@@ -6,6 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./ptyClient";
 import { useTheme } from "../themes/ThemeContext";
 import { useTerminalSettings } from "./TerminalSettingsContext";
@@ -597,9 +598,12 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         // every restart.
         term.write(`${restoredContentRef.current}\x1b[0m\r\n`);
       } else if (bannerEnabledRef.current) {
-        const sysInfo = await invoke<BannerSystemInfo>("system_info").catch(() => undefined);
+        const [sysInfo, appVersion] = await Promise.all([
+          invoke<BannerSystemInfo>("system_info").catch(() => undefined),
+          getVersion().catch(() => undefined),
+        ]);
         if (disposed) return;
-        const banner = buildAsciiBanner(term.cols, sysInfo);
+        const banner = buildAsciiBanner(term.cols, sysInfo, appVersion);
         if (banner) term.write(banner);
       }
 
