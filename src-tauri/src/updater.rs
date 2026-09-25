@@ -10,6 +10,7 @@
 //! saved beforehand (see `session::session_flush_all`), so the new version
 //! comes back with the same windows and tabs.
 
+use flowcode_shared::i18n::{is_italian, tr};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -129,12 +130,12 @@ pub async fn update_check(state: State<'_, UpdaterState>) -> Result<Option<Updat
             .map_err(|e| match e {
                 // Also what GitHub answers for a private repository.
                 ureq::Error::Status(404, _) => {
-                    "Nessuna release pubblica trovata su GitHub (MaxMoffa/flowcode).".to_string()
+                    tr("Nessuna release pubblica trovata su GitHub (MaxMoffa/flowcode).", "No public release found on GitHub (MaxMoffa/flowcode).").to_string()
                 }
                 ureq::Error::Status(403, _) | ureq::Error::Status(429, _) => {
-                    "Troppe richieste a GitHub: riprova tra qualche minuto.".to_string()
+                    tr("Troppe richieste a GitHub: riprova tra qualche minuto.", "Too many requests to GitHub: try again in a few minutes.").to_string()
                 }
-                other => format!("Impossibile contattare GitHub: {other}"),
+                other => if is_italian() { format!("Impossibile contattare GitHub: {other}") } else { format!("Couldn't reach GitHub: {other}") },
             })?;
         serde_json::from_reader::<_, GhRelease>(response.into_reader()).map_err(|e| e.to_string())
     })
@@ -142,14 +143,14 @@ pub async fn update_check(state: State<'_, UpdaterState>) -> Result<Option<Updat
 
     let current = env!("CARGO_PKG_VERSION");
     let (Some(latest), Some(installed)) = (parse_version(&release.tag_name), parse_version(current)) else {
-        return Err(format!("Versione non riconosciuta: {}", release.tag_name));
+        return Err(if is_italian() { format!("Versione non riconosciuta: {}", release.tag_name) } else { format!("Unrecognized version: {}", release.tag_name) });
     };
     if release.draft || release.prerelease || latest <= installed {
         *state.0.lock().unwrap() = None;
         return Ok(None);
     }
     let Some(asset) = pick_asset(&release.assets) else {
-        return Err("La nuova versione non ha un installer per questo sistema.".to_string());
+        return Err(tr("La nuova versione non ha un installer per questo sistema.", "The new version has no installer for this system.").to_string());
     };
     let info = UpdateInfo {
         version: release.tag_name.trim_start_matches('v').to_string(),
@@ -181,21 +182,21 @@ fn install_dir() -> Result<PathBuf, String> {
     #[cfg(target_os = "macos")]
     let (dir, marker) = {
         // .../<dir>/Flowcode.app/Contents/MacOS/flowcode
-        let app = exe.ancestors().nth(3).ok_or("percorso dell'app non valido")?;
+        let app = exe.ancestors().nth(3).ok_or(tr("percorso dell'app non valido", "invalid app path"))?;
         if app.file_name().and_then(|n| n.to_str()) != Some("Flowcode.app") {
-            return Err("Flowcode non è stato installato con l'installer: aggiornalo a mano.".to_string());
+            return Err(tr("Flowcode non è stato installato con l'installer: aggiornalo a mano.", "Flowcode wasn't installed with the installer: update it by hand.").to_string());
         }
-        let dir = app.parent().ok_or("percorso dell'app non valido")?.to_path_buf();
+        let dir = app.parent().ok_or(tr("percorso dell'app non valido", "invalid app path"))?.to_path_buf();
         (dir, app.join("Contents/Resources/config/shortcuts.json"))
     };
     #[cfg(not(target_os = "macos"))]
     let (dir, marker) = {
-        let dir = exe.parent().ok_or("percorso dell'app non valido")?.to_path_buf();
+        let dir = exe.parent().ok_or(tr("percorso dell'app non valido", "invalid app path"))?.to_path_buf();
         let marker = dir.join("config").join("shortcuts.json");
         (dir, marker)
     };
     if cfg!(debug_assertions) || !marker.is_file() {
-        return Err("Flowcode non è stato installato con l'installer: aggiornalo a mano.".to_string());
+        return Err(tr("Flowcode non è stato installato con l'installer: aggiornalo a mano.", "Flowcode wasn't installed with the installer: update it by hand.").to_string());
     }
     Ok(dir)
 }
@@ -240,7 +241,7 @@ fn download(
         .get(url)
         .timeout(Duration::from_secs(15 * 60))
         .call()
-        .map_err(|e| format!("Download non riuscito: {e}"))?;
+        .map_err(|e| if is_italian() { format!("Download non riuscito: {e}") } else { format!("Download failed: {e}") })?;
     let total = response
         .header("Content-Length")
         .and_then(|v| v.parse::<u64>().ok())
@@ -257,7 +258,7 @@ fn download(
     let mut last_report = Instant::now();
     let _ = on_progress.send(UpdateProgress::Download { downloaded, total });
     loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("Download interrotto: {e}"))?;
+        let n = reader.read(&mut buf).map_err(|e| if is_italian() { format!("Download interrotto: {e}") } else { format!("Download interrupted: {e}") })?;
         if n == 0 {
             break;
         }
@@ -272,7 +273,7 @@ fn download(
     file.flush().map_err(|e| e.to_string())?;
     let _ = on_progress.send(UpdateProgress::Download { downloaded, total });
     if total > 0 && downloaded != total {
-        return Err("Download incompleto: riprova.".to_string());
+        return Err(tr("Download incompleto: riprova.", "Incomplete download: try again.").to_string());
     }
     Ok(hasher
         .finalize()
@@ -287,7 +288,7 @@ fn verify_checksum(checksums_url: &str, asset_name: &str, sha256: &str) -> Resul
     let sums = agent()
         .get(checksums_url)
         .call()
-        .map_err(|e| format!("Impossibile scaricare i checksum: {e}"))?
+        .map_err(|e| if is_italian() { format!("Impossibile scaricare i checksum: {e}") } else { format!("Couldn't download the checksums: {e}") })?
         .into_string()
         .map_err(|e| e.to_string())?;
     let expected = sums
@@ -299,9 +300,9 @@ fn verify_checksum(checksums_url: &str, asset_name: &str, sha256: &str) -> Resul
             (name == asset_name).then(|| hash.to_ascii_lowercase())
         })
         .next()
-        .ok_or_else(|| format!("{asset_name} non è elencato nei checksum della release."))?;
+        .ok_or_else(|| if is_italian() { format!("{asset_name} non è elencato nei checksum della release.") } else { format!("{asset_name} is not listed in the release checksums.") })?;
     if expected != sha256 {
-        return Err("Il file scaricato non corrisponde al checksum della release: aggiornamento annullato.".to_string());
+        return Err(tr("Il file scaricato non corrisponde al checksum della release: aggiornamento annullato.", "The downloaded file doesn't match the release checksum: update cancelled.").to_string());
     }
     Ok(())
 }
@@ -327,14 +328,14 @@ fn prepare_installer(downloaded: &Path, work_dir: &Path) -> Result<PathBuf, Stri
             .status()
             .map_err(|e| e.to_string())?;
         if !status.success() {
-            return Err("Impossibile estrarre l'installer scaricato.".to_string());
+            return Err(tr("Impossibile estrarre l'installer scaricato.", "Couldn't extract the downloaded installer.").to_string());
         }
         let bin = std::fs::read_dir(&out)
             .map_err(|e| e.to_string())?
             .flatten()
             .map(|e| e.path())
             .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("Flowcode-Setup-")))
-            .ok_or("Installer non trovato nell'archivio scaricato.")?;
+            .ok_or(tr("Installer non trovato nell'archivio scaricato.", "Installer not found in the downloaded archive."))?;
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
         Ok(bin)
     }
@@ -349,11 +350,11 @@ fn prepare_installer(downloaded: &Path, work_dir: &Path) -> Result<PathBuf, Stri
             .status()
             .map_err(|e| e.to_string())?;
         if !status.success() {
-            return Err("Impossibile estrarre l'installer scaricato.".to_string());
+            return Err(tr("Impossibile estrarre l'installer scaricato.", "Couldn't extract the downloaded installer.").to_string());
         }
         let bin = out.join("Flowcode Setup.app/Contents/MacOS/flowcode-installer");
         if !bin.is_file() {
-            return Err("Installer non trovato nell'archivio scaricato.".to_string());
+            return Err(tr("Installer non trovato nell'archivio scaricato.", "Installer not found in the downloaded archive.").to_string());
         }
         Ok(bin)
     }
@@ -384,7 +385,7 @@ fn launch_installer(installer: &Path, install_dir: &Path) -> Result<(), String> 
         }
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
-    cmd.spawn().map(|_| ()).map_err(|e| format!("Impossibile avviare l'installer: {e}"))
+    cmd.spawn().map(|_| ()).map_err(|e| if is_italian() { format!("Impossibile avviare l'installer: {e}") } else { format!("Couldn't start the installer: {e}") })
 }
 
 /// Downloads, verifies and starts the update `update_check` found, then quits
@@ -398,7 +399,7 @@ pub async fn update_install(
 ) -> Result<(), String> {
     let (asset_name, asset_url, checksums_url, size) = {
         let pending = state.0.lock().unwrap();
-        let pending = pending.as_ref().ok_or("Nessun aggiornamento disponibile: controlla di nuovo.")?;
+        let pending = pending.as_ref().ok_or(tr("Nessun aggiornamento disponibile: controlla di nuovo.", "No update available: check again."))?;
         (
             pending.asset_name.clone(),
             pending.asset_url.clone(),
@@ -416,7 +417,7 @@ pub async fn update_install(
         let _ = progress.send(UpdateProgress::Verify);
         // No checksums, no install: the installer is about to run with the
         // user's rights, so skipping the check isn't a safe fallback.
-        let url = checksums_url.ok_or("La release non contiene SHA256SUMS: aggiornamento annullato.")?;
+        let url = checksums_url.ok_or(tr("La release non contiene SHA256SUMS: aggiornamento annullato.", "The release has no SHA256SUMS: update cancelled."))?;
         verify_checksum(&url, &asset_name, &sha256)?;
         prepare_installer(&downloaded, &work_dir)
     })

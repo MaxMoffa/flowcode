@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { UsageInfo } from "./usage";
+import { metricText, type UsageInfo } from "./usage";
+import { useI18n } from "../i18n";
 
-/** Small "copy debug info" button under a failed probe's "Non disponibile":
+/** Small "copy debug info" button under a failed probe's "Unavailable":
  * the raw error/CLI output is useful for a bug report but just noise in the
  * popover itself. */
 function CopyDebugButton({ text }: { text: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -24,7 +26,7 @@ function CopyDebugButton({ text }: { text: string }) {
 
   return (
     <button type="button" className="plugin-usage-debug-btn" onClick={copy}>
-      {copied ? "Copiato" : "Copia info di debug"}
+      {copied ? t("common.copied") : t("usage.copyDebug")}
     </button>
   );
 }
@@ -41,16 +43,18 @@ export function UsagePopoverContent({
   usage: UsageInfo | null;
   loading: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <>
       <div className="plugin-usage-popover-title">{label}</div>
-      {loading && !usage && <div className="plugin-usage-popover-loading">Verifica in corso…</div>}
+      {loading && !usage && <div className="plugin-usage-popover-loading">{t("common.checking")}</div>}
       {usage?.metrics.map((m, i) => {
         const warn = m.percent !== undefined && m.percent >= 0.75;
+        const { label, detail } = metricText(m);
         return (
           <div key={i} className={`plugin-usage-metric${warn ? " plugin-usage-metric--warn" : ""}`}>
             <div className="plugin-usage-metric-top">
-              <span className="plugin-usage-metric-label">{m.label}</span>
+              <span className="plugin-usage-metric-label">{label}</span>
               {m.percent !== undefined && (
                 <span className="plugin-usage-metric-pct">{Math.round(m.percent * 100)}%</span>
               )}
@@ -60,7 +64,7 @@ export function UsagePopoverContent({
                 <div className="plugin-usage-bar-fill" style={{ width: `${Math.round(m.percent * 100)}%` }} />
               </div>
             )}
-            {m.detail && <div className="plugin-usage-metric-detail">{m.detail}</div>}
+            {detail && <div className="plugin-usage-metric-detail">{detail}</div>}
           </div>
         );
       })}

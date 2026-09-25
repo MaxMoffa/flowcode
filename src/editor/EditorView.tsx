@@ -11,6 +11,7 @@ import { languageFor } from "./language";
 import { buildLinter } from "./lint";
 import { cmChromeTheme, cmHighlightStyle } from "./cmTheme";
 import { basename } from "../lib/path";
+import { useI18n } from "../i18n";
 import "./editor.css";
 
 export interface EditorHandle {
@@ -34,6 +35,7 @@ interface EditorViewProps {
 }
 
 export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hidden, onDirtyChange, onRenamed, initialContent }, ref) => {
+  const { t } = useI18n();
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -217,7 +219,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
       });
       onRenamed?.(entry.path);
     } catch (e) {
-      window.alert(`Impossibile rinominare: ${e}`);
+      window.alert(t("files.error.rename", { error: String(e) }));
     }
   }
 
@@ -243,15 +245,15 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
             {basename(path)}
           </span>
         )}
-        <span className="editor-status">{error ? "Errore" : saving ? "Salvataggio…" : dirty ? "Modificato" : "Salvato"}</span>
+        <span className="editor-status">{error ? t("editor.error") : saving ? t("editor.saving") : dirty ? t("editor.modified") : t("editor.saved")}</span>
         <button type="button" className="editor-save-btn" disabled={!dirty || saving} onClick={performSave}>
-          Salva
+          {t("editor.save")}
         </button>
       </div>
       {error ? (
-        <div className="editor-error">Impossibile aprire il file: {error}</div>
+        <div className="editor-error">{t("editor.openFailed", { error })}</div>
       ) : content === null ? (
-        <div className="editor-loading">Caricamento…</div>
+        <div className="editor-loading">{t("common.loading")}</div>
       ) : (
         <div className="editor-host" ref={hostRef} />
       )}

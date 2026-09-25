@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import "./themes/themes.css";
+import { I18nProvider } from "./i18n";
 
 // WebKitGTK (Tauri's WebView on Linux) accepts the `backdrop-filter` CSS
 // property but never actually renders it, on any GPU/compositing mode -
@@ -31,8 +32,10 @@ const Root = isInstaller
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <Suspense fallback={null}>
-      <Root />
-    </Suspense>
+    <I18nProvider>
+      <Suspense fallback={null}>
+        <Root />
+      </Suspense>
+    </I18nProvider>
   </React.StrictMode>,
 );

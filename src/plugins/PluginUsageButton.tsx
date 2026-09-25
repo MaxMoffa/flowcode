@@ -4,6 +4,8 @@ import type { PluginDef } from "./types";
 import { useHoverPopover, useUsageState } from "./useUsageState";
 import { usagePopoverPosition } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
+import { metricText } from "./usage";
+import { useI18n } from "../i18n";
 import "./plugin-usage.css";
 
 interface PluginUsageButtonProps {
@@ -22,6 +24,7 @@ interface PluginUsageButtonProps {
  * UsagePopoverContent/usagePopoverPosition with this component so both
  * stay in sync instead of drifting into two different caches/looks. */
 export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProps) {
+  useI18n();
   const { fetcher, usage, loading, load } = useUsageState(plugin.id);
   const btnRef = useRef<HTMLButtonElement>(null);
   const { rect, show, scheduleHide } = useHoverPopover(btnRef, load);
@@ -39,7 +42,7 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
   // glance at without opening the popover. The popover still lists every
   // metric (including the weekly one), labelled, in its own order.
   const barMetric =
-    usage?.metrics.find((m) => m.label.includes("5 ore") && m.percent !== undefined && Number.isFinite(m.percent)) ??
+    usage?.metrics.find((m) => m.kind === "session" && m.percent !== undefined && Number.isFinite(m.percent)) ??
     usage?.metrics.find((m) => m.percent !== undefined && Number.isFinite(m.percent));
   // Clamp: a future CLI wording change could yield something outside 0-1, and
   // a width over 100% would silently overflow the track instead of showing
@@ -53,7 +56,7 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
         ref={btnRef}
         type="button"
         className="icon-button plugin-usage-btn"
-        aria-label={barPct === undefined ? plugin.label : `${plugin.label} - ${barMetric?.label}: ${barPct}%`}
+        aria-label={barPct === undefined ? plugin.label : `${plugin.label} - ${barMetric ? metricText(barMetric).label : ""}: ${barPct}%`}
         title={plugin.label}
         onClick={onRun}
       >

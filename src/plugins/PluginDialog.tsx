@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { PluginDef, PluginButtonDef } from "./types";
+import { useI18n } from "../i18n";
 import "./plugin-dialog.css";
 
 interface PluginDialogProps {
@@ -10,6 +11,7 @@ interface PluginDialogProps {
 }
 
 export function PluginDialog({ plugin, onRunButton, onClose }: PluginDialogProps) {
+  const { t } = useI18n();
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -45,7 +47,7 @@ export function PluginDialog({ plugin, onRunButton, onClose }: PluginDialogProps
             </button>
           ))}
           <button type="button" className="plugin-dialog-btn plugin-dialog-btn-close" onClick={onClose}>
-            Chiudi
+            {t("common.close")}
           </button>
         </div>
       </div>

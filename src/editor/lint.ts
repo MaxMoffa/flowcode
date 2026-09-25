@@ -1,6 +1,7 @@
 import type { Extension } from "@codemirror/state";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import { extOf } from "../lib/path";
+import { t } from "../i18n";
 
 interface CommentStyle {
   line?: string;
@@ -73,7 +74,7 @@ function bracketDiagnostics(text: string, style: CommentStyle): Diagnostic[] {
     if (ch in closerFor) {
       const top = stack.pop();
       if (!top || top.ch !== closerFor[ch]) {
-        diagnostics.push({ from: i, to: i + 1, severity: "error", message: `"${ch}" senza apertura corrispondente` });
+        diagnostics.push({ from: i, to: i + 1, severity: "error", message: t("lint.unmatchedClose", { ch }) });
       }
     }
   }
@@ -83,7 +84,7 @@ function bracketDiagnostics(text: string, style: CommentStyle): Diagnostic[] {
       from: unclosed.pos,
       to: unclosed.pos + 1,
       severity: "error",
-      message: `"${unclosed.ch}" non è mai stato chiuso`,
+      message: t("lint.unclosed", { ch: unclosed.ch }),
     });
   }
   return diagnostics;
@@ -113,7 +114,7 @@ function yamlTabDiagnostics(text: string): Diagnostic[] {
         from: offset,
         to: offset + leading.length,
         severity: "error",
-        message: "YAML non permette il carattere di tabulazione per l'indentazione",
+        message: t("lint.yamlTab"),
       });
     }
     offset += line.length + 1;

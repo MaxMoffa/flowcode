@@ -1,3 +1,4 @@
+use flowcode_shared::i18n::{is_italian, tr};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -27,21 +28,23 @@ fn sort_entries(entries: &mut [FsEntry]) {
     entries.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
 }
 
-const ALREADY_EXISTS: &str = "Esiste già un file o una cartella con questo nome";
+fn already_exists() -> String {
+    tr("Esiste già un file o una cartella con questo nome", "A file or folder with this name already exists").to_string()
+}
 
 /// A name coming from the UI must name exactly one entry inside the target
 /// directory - never a path that escapes it.
 fn validate_name(name: &str) -> Result<&str, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed == "." || trimmed == ".." || trimmed.contains(['/', '\\']) {
-        return Err(format!("Nome non valido: \"{name}\""));
+        return Err(if is_italian() { format!("Nome non valido: \"{name}\"") } else { format!("Invalid name: \"{name}\"") });
     }
     Ok(trimmed)
 }
 
 fn map_exists_error(e: std::io::Error) -> String {
     match e.kind() {
-        std::io::ErrorKind::AlreadyExists => ALREADY_EXISTS.to_string(),
+        std::io::ErrorKind::AlreadyExists => already_exists(),
         _ => e.to_string(),
     }
 }
@@ -249,7 +252,7 @@ pub fn rename_entry(path: String, new_name: String) -> Result<FsEntry, String> {
     // refuse it.
     let case_only = dest.to_string_lossy().eq_ignore_ascii_case(&src.to_string_lossy());
     if !case_only && dest.exists() {
-        return Err(ALREADY_EXISTS.to_string());
+        return Err(already_exists());
     }
     std::fs::rename(src, &dest).map_err(|e| e.to_string())?;
     Ok(FsEntry::new(&dest, dest.is_dir()))

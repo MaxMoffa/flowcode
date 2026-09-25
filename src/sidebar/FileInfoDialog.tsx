@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { useI18n } from "../i18n";
 import "./file-info-dialog.css";
 
 interface FileInfo {
@@ -27,9 +28,9 @@ function formatSize(bytes: number): string {
   return `${value.toFixed(value < 10 ? 2 : 1)} ${units[unit]}`;
 }
 
-function formatDate(ms: number | null): string {
+function formatDate(ms: number | null, locale: string): string {
   if (ms === null) return "—";
-  return new Date(ms).toLocaleString();
+  return new Date(ms).toLocaleString(locale);
 }
 
 /** "755" -> "rwxr-xr-x", for a friendlier permissions readout next to the raw octal. */
@@ -51,6 +52,7 @@ interface FileInfoDialogProps {
 }
 
 export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogProps) {
+  const { t, language } = useI18n();
   const [info, setInfo] = useState<FileInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,8 +83,8 @@ export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogPro
     >
       <div className="file-info-panel" role="dialog" aria-modal="true">
         <div className="file-info-header">
-          <span>Informazioni</span>
-          <button type="button" className="file-info-close" aria-label="Chiudi" onClick={onClose}>
+          <span>{t("files.info")}</span>
+          <button type="button" className="file-info-close" aria-label={t("common.close")} onClick={onClose}>
             <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" width="14" height="14" stroke="currentColor" fill="none">
               <line x1="6" y1="6" x2="18" y2="18" />
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -93,47 +95,47 @@ export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogPro
           {name}
         </div>
         {error ? (
-          <div className="file-info-error">Impossibile leggere le informazioni: {error}</div>
+          <div className="file-info-error">{t("fileInfo.error", { error })}</div>
         ) : !info ? (
-          <div className="file-info-loading">Caricamento…</div>
+          <div className="file-info-loading">{t("common.loading")}</div>
         ) : (
           <div className="file-info-rows">
             <div className="file-info-row">
-              <span className="file-info-label">Percorso</span>
+              <span className="file-info-label">{t("fileInfo.path")}</span>
               <span className="file-info-value file-info-value-mono">{info.path}</span>
             </div>
             <div className="file-info-row">
-              <span className="file-info-label">Tipo</span>
-              <span className="file-info-value">{isDir ? "Cartella" : "File"}</span>
+              <span className="file-info-label">{t("fileInfo.type")}</span>
+              <span className="file-info-value">{isDir ? t("fileInfo.folder") : t("fileInfo.file")}</span>
             </div>
             {isDir ? (
               <div className="file-info-row">
-                <span className="file-info-label">Elementi</span>
+                <span className="file-info-label">{t("fileInfo.items")}</span>
                 <span className="file-info-value">{info.entry_count ?? "—"}</span>
               </div>
             ) : (
               <div className="file-info-row">
-                <span className="file-info-label">Dimensione</span>
+                <span className="file-info-label">{t("fileInfo.size")}</span>
                 <span className="file-info-value">{formatSize(info.size)}</span>
               </div>
             )}
             <div className="file-info-row">
-              <span className="file-info-label">Modificato</span>
-              <span className="file-info-value">{formatDate(info.modified)}</span>
+              <span className="file-info-label">{t("fileInfo.modified")}</span>
+              <span className="file-info-value">{formatDate(info.modified, language)}</span>
             </div>
             <div className="file-info-row">
-              <span className="file-info-label">Creato</span>
-              <span className="file-info-value">{formatDate(info.created)}</span>
+              <span className="file-info-label">{t("fileInfo.created")}</span>
+              <span className="file-info-value">{formatDate(info.created, language)}</span>
             </div>
             <div className="file-info-row">
-              <span className="file-info-label">Permessi</span>
+              <span className="file-info-label">{t("fileInfo.permissions")}</span>
               <span className="file-info-value file-info-value-mono">
                 {info.permissions_mode ? `${info.permissions_mode} (${modeToRwx(info.permissions_mode)})` : "—"}
               </span>
             </div>
             <div className="file-info-row">
-              <span className="file-info-label">Sola lettura</span>
-              <span className="file-info-value">{info.readonly ? "Sì" : "No"}</span>
+              <span className="file-info-label">{t("fileInfo.readonly")}</span>
+              <span className="file-info-value">{info.readonly ? t("common.yes") : t("common.no")}</span>
             </div>
           </div>
         )}

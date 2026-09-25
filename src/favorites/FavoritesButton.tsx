@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { addFavorite, listFavorites, removeFavorite, subscribeFavorites, type FavoriteFolder } from "./favoritesStore";
+import { useI18n } from "../i18n";
 import "./favorites.css";
 
 interface FavoritesButtonProps {
@@ -62,6 +63,7 @@ interface FavoritesMenuContentProps {
  * means both call sites stay live if a favorite is added/removed elsewhere
  * while the menu is open. */
 function FavoritesMenuContent({ activeCwd, activeShell, onOpenFolder, hide }: FavoritesMenuContentProps) {
+  const { t } = useI18n();
   const favorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -78,13 +80,13 @@ function FavoritesMenuContent({ activeCwd, activeShell, onOpenFolder, hide }: Fa
         ref={inputRef}
         type="text"
         className="favorites-search"
-        placeholder="Cerca preferiti…"
+        placeholder={t("favorites.search")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
       <div className="favorites-list">
-        {favorites.length === 0 && <div className="favorites-empty">Nessun preferito</div>}
-        {favorites.length > 0 && filtered.length === 0 && <div className="favorites-empty">Nessun risultato</div>}
+        {favorites.length === 0 && <div className="favorites-empty">{t("favorites.empty")}</div>}
+        {favorites.length > 0 && filtered.length === 0 && <div className="favorites-empty">{t("common.noResults")}</div>}
         {filtered.map((fav) => (
           <div
             key={fav.path}
@@ -102,7 +104,7 @@ function FavoritesMenuContent({ activeCwd, activeShell, onOpenFolder, hide }: Fa
             <button
               type="button"
               className="favorites-row-remove"
-              aria-label={`Rimuovi ${fav.name} dai preferiti`}
+              aria-label={t("favorites.removeNamed", { name: fav.name })}
               onClick={(ev) => {
                 ev.stopPropagation();
                 // Same rule as the stacked-tabs overflow popup: only close
@@ -132,7 +134,7 @@ function FavoritesMenuContent({ activeCwd, activeShell, onOpenFolder, hide }: Fa
             <span className="context-menu-icon">
               <AddIcon />
             </span>
-            <span className="context-menu-label">Aggiungi cartella corrente</span>
+            <span className="context-menu-label">{t("favorites.addCurrentShort")}</span>
           </div>
         </div>
       )}
@@ -152,6 +154,7 @@ export function favoritesMenuItem(props: FavoritesMenuContentProps): ContextMenu
  * same: both just open the list, there's nothing hidden behind a second
  * gesture. */
 export function FavoritesButton({ activeCwd, activeShell, onOpenFolder }: FavoritesButtonProps) {
+  const { t } = useI18n();
   const { show, hide } = useContextMenu();
 
   function openMenu(e: React.MouseEvent) {
@@ -164,8 +167,8 @@ export function FavoritesButton({ activeCwd, activeShell, onOpenFolder }: Favori
     <button
       type="button"
       className="icon-button"
-      aria-label="Preferiti"
-      title="Preferiti"
+      aria-label={t("favorites.title")}
+      title={t("favorites.title")}
       onClick={openMenu}
       onContextMenu={openMenu}
     >

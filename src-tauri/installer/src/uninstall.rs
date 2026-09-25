@@ -13,6 +13,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::install::{desktop_shortcut_path, start_menu_shortcut_path, UNINSTALL_KEY};
+use flowcode_shared::i18n::tr;
 
 fn wide(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(once(0)).collect()
@@ -46,8 +47,8 @@ fn remove_shortcut(path: &Path) {
 
 pub fn run() {
     let confirmed = message_box(
-        "Vuoi disinstallare Flowcode da questo computer?",
-        "Disinstalla Flowcode",
+        tr("Vuoi disinstallare Flowcode da questo computer?", "Do you want to uninstall Flowcode from this computer?"),
+        tr("Disinstalla Flowcode", "Uninstall Flowcode"),
         MB_YESNO | MB_ICONQUESTION,
     ) == IDYES;
     if !confirmed {
@@ -67,5 +68,9 @@ pub fn run() {
 
     remove_uninstall_registry();
 
-    message_box("Flowcode è stato disinstallato.", "Disinstalla Flowcode", MB_OK | MB_ICONINFORMATION);
+    message_box(
+        tr("Flowcode è stato disinstallato.", "Flowcode has been uninstalled."),
+        tr("Disinstalla Flowcode", "Uninstall Flowcode"),
+        MB_OK | MB_ICONINFORMATION,
+    );
 }

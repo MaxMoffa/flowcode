@@ -9,6 +9,7 @@ import { FlowOverlay } from "@flowkit-io/react/overlay";
 import type { FlowRunnerHandle } from "@flowkit-io/react";
 import "@flowkit-io/react/style.css";
 import "../welcome/welcome-overrides.css";
+import { useI18n } from "../i18n";
 import "./installer.css";
 // Side-effect import: registers the custom "directory" step type/component
 // (flowkit ships no folder-picker step) before `buildInstallerFlow` (parsed
@@ -32,9 +33,8 @@ import {
  * entry - see `installer_run` on the Rust side, a different backend from the
  * main app's) and records which integrations were picked, for the app to
  * enable on its first launch - no CLI is installed from here. */
-const INSTALL_FAILED = "Installazione non riuscita";
-
 export function InstallerFlow() {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [defaultLocation, setDefaultLocation] = useState<string | null>(null);
   const flowRef = useRef<FlowRunnerHandle>(null);
@@ -128,8 +128,9 @@ export function InstallerFlow() {
    * running, ...) is exactly what the user needs to see here. */
   function installErrorMessage(error: unknown): string {
     const reason = (error instanceof Error ? error.message : typeof error === "string" ? error : "").trim();
-    if (reason.startsWith(INSTALL_FAILED)) return reason; // already mapped by handleSubmit
-    return reason ? `${INSTALL_FAILED}: ${reason}` : `${INSTALL_FAILED}. Riprova.`;
+    const failed = t("installer.failedShort");
+    if (reason.startsWith(failed)) return reason; // already mapped by handleSubmit
+    return reason ? `${failed}: ${reason}` : t("installer.failed");
   }
 
   function handleStepChange(info: { direction: string }) {
@@ -151,8 +152,8 @@ export function InstallerFlow() {
           <button
             type="button"
             className="installer-icon-button"
-            aria-label="Minimizza"
-            title="Minimizza"
+            aria-label={t("window.minimize")}
+            title={t("window.minimize")}
             onClick={() => getCurrentWindow().minimize()}
           >
             <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
@@ -162,8 +163,8 @@ export function InstallerFlow() {
           <button
             type="button"
             className="installer-icon-button installer-icon-button--close"
-            aria-label="Chiudi"
-            title="Chiudi"
+            aria-label={t("window.close")}
+            title={t("window.close")}
             onClick={() => getCurrentWindow().close()}
           >
             <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
@@ -193,7 +194,7 @@ export function InstallerFlow() {
             presentation="fullscreen"
             dismissible={false}
             showCloseButton={false}
-            ariaLabel="Installazione di Flowcode"
+            ariaLabel={t("installer.title")}
             container={flowRegion}
           />
         )}

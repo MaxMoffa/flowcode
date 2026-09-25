@@ -3,7 +3,7 @@ members = ["installer", "shared"]
 
 [package]
 name = "flowcode"
-version = "0.4.0"
+version = "0.5.0"
 license = "Apache-2.0"
 description = "Flowcode - cross-platform terminal"
 authors = ["Massimo Moffa"]

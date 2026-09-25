@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { listShellOptions, type ShellOption } from "./shellOptions";
+import { listShellOptions, shellOptionLabel, type ShellOption } from "./shellOptions";
 import type { AppTab } from "../tabs/types";
 import { FileTypeIcon } from "../sidebar/fileIcons";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
+import { t, translationsOf, useI18n } from "../i18n";
 import "./tabstrip.css";
 
 interface TabStripProps {
@@ -134,10 +135,17 @@ function tabIcon(tab: AppTab) {
   return <FileTypeIcon name={tab.label} />;
 }
 
+/** The label shown for `tab`: a settings tab still carrying its default
+ * name (in whichever language it was opened) is shown in the current one. */
+export function tabDisplayLabel(tab: AppTab): string {
+  if (tab.kind === "settings" && translationsOf("settings.title").includes(tab.label)) return t("settings.title");
+  return tab.label;
+}
+
 function tabTitle(tab: AppTab): string {
   if (tab.kind === "terminal") return tab.cwd;
   if (tab.kind === "editor") return tab.path;
-  return tab.label;
+  return tabDisplayLabel(tab);
 }
 
 interface TabOverflowMenuProps {
@@ -152,6 +160,7 @@ interface TabOverflowMenuProps {
 }
 
 function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onDismiss }: TabOverflowMenuProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -175,7 +184,7 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onD
     };
   }, [onDismiss]);
 
-  const filtered = tabs.filter((t) => t.label.toLowerCase().includes(query.trim().toLowerCase()));
+  const filtered = tabs.filter((tab) => tabDisplayLabel(tab).toLowerCase().includes(query.trim().toLowerCase()));
 
   // Same width as the tab it unfolds from, anchored right under it - the
   // opening animation (see tabstrip.css) is what sells the illusion that
@@ -191,12 +200,12 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onD
       <input
         ref={inputRef}
         className="tab-overflow-search"
-        placeholder="Cerca tab…"
+        placeholder={t("tabs.search")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
       <div className="tab-overflow-list">
-        {filtered.length === 0 && <div className="tab-overflow-empty">Nessun risultato</div>}
+        {filtered.length === 0 && <div className="tab-overflow-empty">{t("common.noResults")}</div>}
         {filtered.map((tab) => (
           <div
             key={tab.id}
@@ -207,11 +216,11 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onD
             }}
           >
             {tabIcon(tab)}
-            <span className="tab-overflow-item-label">{tab.label}</span>
+            <span className="tab-overflow-item-label">{tabDisplayLabel(tab)}</span>
             <button
               type="button"
               className="tab-overflow-item-close"
-              aria-label={`Close ${tab.label}`}
+              aria-label={t("tabs.closeNamed", { name: tabDisplayLabel(tab) })}
               onClick={(e) => {
                 e.stopPropagation();
                 // Closing the last hidden tab leaves nothing left to show in
@@ -246,6 +255,7 @@ export function TabStrip({
   onReorder,
   onDragOut,
 }: TabStripProps) {
+  const { t } = useI18n();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [overflowAnchorRect, setOverflowAnchorRect] = useState<DOMRect | null>(null);
@@ -292,7 +302,7 @@ export function TabStrip({
 
   function startEditing(tab: AppTab) {
     setEditingId(tab.id);
-    setDraft(tab.label);
+    setDraft(tabDisplayLabel(tab));
   }
 
   function commitEditing() {
@@ -304,13 +314,13 @@ export function TabStrip({
     const items: ContextMenuItem[] = [
       // Same effect as double-clicking the label - just reachable without
       // knowing that gesture exists.
-      { label: "Rinomina", onSelect: () => startEditing(tab) },
+      { label: t("tabs.rename"), onSelect: () => startEditing(tab) },
     ];
     if (tab.kind !== "settings") {
-      items.push({ label: "Duplica", onSelect: () => onDuplicate(tab.id) });
+      items.push({ label: t("tabs.duplicate"), onSelect: () => onDuplicate(tab.id) });
     }
     items.push({ separator: true, label: "sep-close" });
-    items.push({ label: "Chiudi", danger: true, onSelect: () => onClose(tab.id) });
+    items.push({ label: t("common.close"), danger: true, onSelect: () => onClose(tab.id) });
     return items;
   }
 
@@ -459,16 +469,16 @@ export function TabStrip({
                   startEditing(tab);
                 }}
               >
-                {tab.label}
+                {tabDisplayLabel(tab)}
               </span>
             )}
             {tab.kind === "editor" && dirtyIds?.has(tab.id) && (
-              <span className="term-tab-dirty-dot" title="Modifiche non salvate" />
+              <span className="term-tab-dirty-dot" title={t("app.unsaved.title")} />
             )}
             <button
               type="button"
               className="term-tab-close"
-              aria-label={`Close ${tab.label}`}
+              aria-label={t("tabs.closeNamed", { name: tabDisplayLabel(tab) })}
               onClick={(e) => {
                 e.stopPropagation();
                 onClose(tab.id);
@@ -487,20 +497,20 @@ export function TabStrip({
           ref={folderTabRef}
           className={"term-tab term-tab-folder" + (activeInFolder ? " is-active" : "")}
           onClick={handleFolderTabClick}
-          title={activeInFolder ? "Clicca di nuovo per vedere le altre" : `${hiddenTabs.length} tab raggruppate`}
+          title={activeInFolder ? t("tabs.folder.clickAgain") : t("tabs.folder.grouped", { count: hiddenTabs.length })}
         >
           <span className="term-tab-folder-icon">
             <FolderIcon />
             <span className="tab-overflow-count">{hiddenTabs.length}</span>
           </span>
-          <span className="term-tab-label">{folderPreview.label}</span>
+          <span className="term-tab-label">{tabDisplayLabel(folderPreview)}</span>
         </div>
       )}
       <button
         type="button"
         className="term-tab-new"
-        aria-label="New terminal tab"
-        title="Nuovo terminale (click destro per scegliere la shell)"
+        aria-label={t("menu.newTerminal")}
+        title={t("tabs.new.title")}
         onClick={() => onNew()}
         onContextMenu={(e) => {
           // Only worth a picker when there's an actual choice - one option
@@ -512,7 +522,7 @@ export function TabStrip({
           }
           openMenu(
             e,
-            shellOptions.map((opt) => ({ label: opt.label, icon: shellOptionIcon(opt.id), onSelect: () => onNew(opt.id) })),
+            shellOptions.map((opt) => ({ label: shellOptionLabel(opt), icon: shellOptionIcon(opt.id), onSelect: () => onNew(opt.id) })),
           );
         }}
       >
@@ -526,7 +536,7 @@ export function TabStrip({
         createPortal(
           <div className="tab-drag-ghost" style={{ left: drag.x - 24, top: drag.y - 15 }}>
             {tabIcon(draggedTab)}
-            <span className="term-tab-label">{draggedTab.label}</span>
+            <span className="term-tab-label">{tabDisplayLabel(draggedTab)}</span>
           </div>,
           document.body,
         )}

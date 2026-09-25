@@ -1,28 +1,32 @@
 import { useSettingsSection, type SettingsSection } from "./SettingsSectionContext";
+import { useI18n, type MessageKey } from "../i18n";
 import "./settings-nav.css";
 
-const SECTIONS: { id: SettingsSection; label: string }[] = [
-  { id: "generale", label: "Generali" },
-  { id: "terminale", label: "Terminale" },
-  { id: "funzionalita", label: "Funzionalità" },
-  { id: "info", label: "Informazioni" },
-];
+export const SECTION_TITLE_KEYS: Record<SettingsSection, MessageKey> = {
+  generale: "settings.section.general",
+  terminale: "settings.section.terminal",
+  funzionalita: "settings.section.features",
+  info: "settings.section.info",
+};
+
+const SECTIONS = Object.keys(SECTION_TITLE_KEYS) as SettingsSection[];
 
 export function SettingsNav() {
+  const { t } = useI18n();
   const { section, setSection } = useSettingsSection();
 
   return (
     <div className="settings-nav">
-      <div className="settings-nav-header">Impostazioni</div>
+      <div className="settings-nav-header">{t("settings.title")}</div>
       <div className="settings-nav-list">
-        {SECTIONS.map((s) => (
+        {SECTIONS.map((id) => (
           <button
-            key={s.id}
+            key={id}
             type="button"
-            className={"settings-nav-item" + (section === s.id ? " is-active" : "")}
-            onClick={() => setSection(s.id)}
+            className={"settings-nav-item" + (section === id ? " is-active" : "")}
+            onClick={() => setSection(id)}
           >
-            {s.label}
+            {t(SECTION_TITLE_KEYS[id])}
           </button>
         ))}
       </div>

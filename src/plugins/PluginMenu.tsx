@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useHoverPopover, useUsageState } from "./useUsageState";
 import { usagePopoverPosition } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
+import { useI18n } from "../i18n";
 import "./plugin-menu.css";
 import "./plugin-usage.css";
 
@@ -34,6 +35,7 @@ function PinIcon({ filled }: { filled: boolean }) {
  * (currently Codex CLI / Claude Code). `useUsageState` is safe to call for
  * every row regardless: it's a no-op for a plugin with no fetcher. */
 function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () => void }) {
+  const { t } = useI18n();
   const { fetcher, usage, loading, load } = useUsageState(item.id);
   const rowRef = useRef<HTMLDivElement>(null);
   const popover = useHoverPopover(rowRef, load);
@@ -57,8 +59,8 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
       <button
         type="button"
         className={"plugin-menu-pin" + (item.pinned ? " is-pinned" : "")}
-        aria-label={item.pinned ? "Rimuovi dalla barra" : "Aggiungi alla barra"}
-        title={item.pinned ? "Rimuovi dalla barra" : "Aggiungi alla barra"}
+        aria-label={item.pinned ? t("plugins.unpin") : t("plugins.pin")}
+        title={item.pinned ? t("plugins.unpin") : t("plugins.pin")}
         onClick={(e) => {
           e.stopPropagation();
           item.onTogglePin();
@@ -84,6 +86,7 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
 }
 
 export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -120,12 +123,12 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
       <input
         ref={inputRef}
         className="plugin-menu-search"
-        placeholder="Cerca funzionalità…"
+        placeholder={t("plugins.search")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
       <div className="plugin-menu-list">
-        {filtered.length === 0 && <div className="plugin-menu-empty">Nessun risultato</div>}
+        {filtered.length === 0 && <div className="plugin-menu-empty">{t("common.noResults")}</div>}
         {filtered.map((item) => (
           <PluginMenuRow key={item.id} item={item} onClose={onClose} />
         ))}

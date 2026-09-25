@@ -9,26 +9,28 @@ import { DEFAULT_QUICK_ACTIONS } from "../plugins/registry";
 import { SHOW_HIDDEN_KEY } from "../sidebar/FileTree";
 import type { PluginDef, PluginManifest } from "../plugins/types";
 import type { SidebarMode } from "./modes";
-import { listShellOptions, type ShellOption } from "../terminal/shellOptions";
+import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { writeBool } from "../lib/storage";
 import { useUpdater, type UpdateStatus } from "../update/UpdateContext";
 import pkg from "../../package.json";
+import { LANGUAGES, t, useI18n, type LanguagePreference, type MessageKey } from "../i18n";
+import { SECTION_TITLE_KEYS } from "./SettingsNav";
 import "./settings-page.css";
 
 /** Third-party libraries the app is built on, with what each is used for.
  * Kept in sync by hand with package.json / Cargo.toml - versions are not
  * repeated here since dependency ranges (`^`) already make a pinned number
  * misleading. */
-const CREDITS: { name: string; use: string }[] = [
-  { name: "React", use: "libreria per l'interfaccia utente." },
-  { name: "Vite", use: "server di sviluppo e build del frontend." },
-  { name: "TypeScript", use: "tipizzazione statica per il codice frontend." },
-  { name: "Tauri", use: "guscio nativo dell'app, ponte tra frontend e sistema operativo." },
-  { name: "CodeMirror", use: "editor di codice integrato, con evidenziazione sintattica per i vari linguaggi." },
-  { name: "xterm.js", use: "emulatore di terminale nel pannello del terminale integrato." },
-  { name: "portable-pty", use: "avvio e gestione degli pseudo-terminali del sistema operativo, lato Rust." },
-  { name: "sysinfo", use: "rilevamento dei processi (agenti CLI) in esecuzione nei terminali, lato Rust." },
-  { name: "uuid", use: "identificativi univoci per le sessioni di terminale, lato Rust." },
+const CREDITS: { name: string; use: MessageKey }[] = [
+  { name: "React", use: "credits.react" },
+  { name: "Vite", use: "credits.vite" },
+  { name: "TypeScript", use: "credits.typescript" },
+  { name: "Tauri", use: "credits.tauri" },
+  { name: "CodeMirror", use: "credits.codemirror" },
+  { name: "xterm.js", use: "credits.xterm" },
+  { name: "portable-pty", use: "credits.portablePty" },
+  { name: "sysinfo", use: "credits.sysinfo" },
+  { name: "uuid", use: "credits.uuid" },
 ];
 
 interface SettingsPageProps {
@@ -46,30 +48,23 @@ interface SettingsPageProps {
 function updateStatusText(status: UpdateStatus): string {
   switch (status.kind) {
     case "upToDate":
-      return "Stai usando l'ultima versione.";
+      return t("settings.update.upToDate");
     case "available":
-      return `È disponibile la versione ${status.info.version}.`;
+      return t("settings.update.available", { version: status.info.version });
     case "installing":
-      return `Installazione della versione ${status.info.version} in corso…`;
+      return t("settings.update.installing", { version: status.info.version });
     case "error":
-      return `Controllo non riuscito: ${status.message}`;
+      return t("settings.update.error", { error: status.message });
     default:
       return "";
   }
 }
 
-const SECTION_TITLES = {
-  generale: "Generali",
-  terminale: "Terminale",
-  funzionalita: "Funzionalità",
-  info: "Informazioni",
-};
-
-const SECTION_DESCRIPTIONS: Record<keyof typeof SECTION_TITLES, string> = {
-  generale: "Aspetto dell'app, intestazione e comportamento della sidebar dei file.",
-  terminale: "Testo, shell, cartella di avvio e comportamento delle schede del terminale integrato.",
-  funzionalita: "Attiva, disattiva, crea o installa le funzionalità (plugin) disponibili nella barra rapida.",
-  info: "Versione installata, manutenzione e librerie open source su cui è costruito Flowcode.",
+const SECTION_DESCRIPTION_KEYS: Record<keyof typeof SECTION_TITLE_KEYS, MessageKey> = {
+  generale: "settings.section.general.desc",
+  terminale: "settings.section.terminal.desc",
+  funzionalita: "settings.section.features.desc",
+  info: "settings.section.info.desc",
 };
 
 export function SettingsPage({
@@ -83,6 +78,7 @@ export function SettingsPage({
   favoritesButtonVisible,
   onSetFavoritesButtonVisible,
 }: SettingsPageProps) {
+  const { t, preference: languagePreference, setPreference: setLanguagePreference } = useI18n();
   const { mode, setMode, glassOpacity, setGlassOpacity } = useTheme();
   const {
     fontSize,
@@ -174,7 +170,7 @@ export function SettingsPage({
       const dir = await invoke<string>("config_dir");
       await invoke("open_with_default_app", { path: dir });
     } catch (e) {
-      window.alert(`Impossibile aprire la cartella di configurazione: ${e}`);
+      window.alert(t("settings.configDir.error", { error: String(e) }));
     }
   }
 
@@ -188,10 +184,9 @@ export function SettingsPage({
    * effect until the app restarts. */
   async function handleResetTerminal() {
     const ok = await confirm({
-      title: "Ripristina terminale",
-      message:
-        "Riporta tema, zoom del testo, banner all'apertura, shell predefinita, cartella di avvio, ripristino delle schede, conferma dei link, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
-      confirmLabel: "Ripristina",
+      title: t("settings.reset.button"),
+      message: t("settings.reset.confirm"),
+      confirmLabel: t("settings.reset.confirmLabel"),
       danger: true,
     });
     if (!ok) return;
@@ -217,17 +212,38 @@ export function SettingsPage({
   return (
     <div className="settings-page">
       <div className="settings-page-inner">
-        <h1 className="settings-title">{SECTION_TITLES[section]}</h1>
-        <p className="settings-page-desc">{SECTION_DESCRIPTIONS[section]}</p>
+        <h1 className="settings-title">{t(SECTION_TITLE_KEYS[section])}</h1>
+        <p className="settings-page-desc">{t(SECTION_DESCRIPTION_KEYS[section])}</p>
 
         {section === "generale" && (
           <>
             <section className="settings-block">
-              <h3>Tema</h3>
-              <p className="settings-block-desc">Scegli se l'aspetto dell'app deve seguire il sistema operativo oppure restare sempre chiaro o scuro.</p>
+              <h3>{t("settings.language.title")}</h3>
+              <p className="settings-block-desc">{t("settings.language.desc")}</p>
               <div className="settings-field">
-                <span className="settings-field-label">Modalità tema</span>
-                <p className="settings-field-desc">"Automatico" segue il tema chiaro/scuro impostato nel sistema operativo e cambia da solo se lo cambi lì.</p>
+                <span className="settings-field-label">{t("settings.language.label")}</span>
+                <p className="settings-field-desc">{t("settings.language.fieldDesc")}</p>
+                <div className="settings-choice-row">
+                  {(["system", ...LANGUAGES.map((l) => l.code)] as LanguagePreference[]).map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      className={"settings-choice" + (languagePreference === code ? " is-active" : "")}
+                      onClick={() => setLanguagePreference(code)}
+                    >
+                      {code === "system" ? t("settings.language.system") : LANGUAGES.find((l) => l.code === code)?.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="settings-block">
+              <h3>{t("settings.theme.title")}</h3>
+              <p className="settings-block-desc">{t("settings.theme.desc")}</p>
+              <div className="settings-field">
+                <span className="settings-field-label">{t("settings.theme.label")}</span>
+                <p className="settings-field-desc">{t("settings.theme.fieldDesc")}</p>
                 <div className="settings-choice-row">
                   {(["auto", "light", "dark"] as ThemeMode[]).map((m) => (
                     <button
@@ -236,7 +252,7 @@ export function SettingsPage({
                       className={"settings-choice" + (mode === m ? " is-active" : "")}
                       onClick={() => setMode(m)}
                     >
-                      {m === "auto" ? "Automatico (sistema)" : m === "light" ? "Chiaro" : "Scuro"}
+                      {m === "auto" ? t("theme.auto") : m === "light" ? t("theme.light") : t("theme.dark")}
                     </button>
                   ))}
                 </div>
@@ -244,15 +260,11 @@ export function SettingsPage({
             </section>
 
             <section className="settings-block">
-              <h3>Trasparenza</h3>
-              <p className="settings-block-desc">
-                Regola quanto sono trasparenti i pannelli dell'app (barra laterale, terminale, finestre). Su Windows
-                e Linux il sistema operativo non applica una sfocatura reale dietro la finestra, quindi un valore
-                troppo basso rende il testo difficile da leggere.
-              </p>
+              <h3>{t("settings.transparency.title")}</h3>
+              <p className="settings-block-desc">{t("settings.transparency.desc")}</p>
               <div className="settings-field">
-                <span className="settings-field-label">Opacità pannelli</span>
-                <p className="settings-field-desc">Valori più bassi rendono i pannelli più trasparenti; più alti li avvicinano a uno sfondo pieno.</p>
+                <span className="settings-field-label">{t("settings.transparency.label")}</span>
+                <p className="settings-field-desc">{t("settings.transparency.fieldDesc")}</p>
                 <div className="settings-zoom-row">
                   <input
                     type="range"
@@ -262,7 +274,7 @@ export function SettingsPage({
                     value={glassOpacity}
                     onChange={(e) => setGlassOpacity(Number(e.target.value))}
                     className="settings-opacity-slider"
-                    aria-label="Opacità pannelli"
+                    aria-label={t("settings.transparency.label")}
                   />
                   <span className="settings-zoom-value">{Math.round(glassOpacity * 100)}%</span>
                 </div>
@@ -270,63 +282,57 @@ export function SettingsPage({
             </section>
 
             <section className="settings-block">
-              <h3>Intestazione</h3>
-              <p className="settings-block-desc">Scegli quali scorciatoie mostrare nella barra in alto della finestra.</p>
+              <h3>{t("settings.header.title")}</h3>
+              <p className="settings-block-desc">{t("settings.header.desc")}</p>
               <div className="settings-field">
-                <span className="settings-field-label">Scorciatoia Preferiti nell'intestazione</span>
-                <p className="settings-field-desc">
-                  Pulsante a forma di stella nell'intestazione per aprire rapidamente i preferiti. Sempre disponibile anche
-                  dal menu "···", anche se nascosto qui.
-                </p>
+                <span className="settings-field-label">{t("settings.header.favorites")}</span>
+                <p className="settings-field-desc">{t("settings.header.favorites.desc")}</p>
                 <div className="settings-choice-row">
                   <button
                     type="button"
                     className={"settings-choice" + (favoritesButtonVisible ? " is-active" : "")}
                     onClick={() => onSetFavoritesButtonVisible(true)}
                   >
-                    Mostra
+                    {t("common.show")}
                   </button>
                   <button
                     type="button"
                     className={"settings-choice" + (!favoritesButtonVisible ? " is-active" : "")}
                     onClick={() => onSetFavoritesButtonVisible(false)}
                   >
-                    Nascondi
+                    {t("common.hide")}
                   </button>
                 </div>
               </div>
             </section>
 
             <section className="settings-block">
-              <h3>File explorer</h3>
-              <p className="settings-block-desc">Decide come si comporta il pannello dei file quando esplori una cartella.</p>
+              <h3>{t("settings.explorer.title")}</h3>
+              <p className="settings-block-desc">{t("settings.explorer.desc")}</p>
               <div className="settings-field">
-                <span className="settings-field-label">Modalità sidebar</span>
-                <p className="settings-field-desc">
-                  "Automatica" passa da fissata a flottante in base alla larghezza della finestra; le altre due la
-                  bloccano sempre in uno dei due modi.
-                </p>
+                <span className="settings-field-label">{t("settings.explorer.label")}</span>
+                <p className="settings-field-desc">{t("settings.explorer.fieldDesc")}</p>
                 <div className="settings-choice-row">
                   <button
                     type="button"
                     className={"settings-choice" + (sidebarMode === "auto" ? " is-active" : "")}
                     onClick={() => onSetSidebarMode("auto")}
                   >
-                    Automatica (larghezza)
+                    {t("sidebarMode.auto")}
                   </button>
                   <button
                     type="button"
                     className={"settings-choice" + (sidebarMode === "docked" ? " is-active" : "")}
                     onClick={() => onSetSidebarMode("docked")}
                   >
-                    Fissato
+                    {t("sidebarMode.docked")}
                   </button>
                   <button
                     type="button"
                     className={"settings-choice" + (sidebarMode === "floating" ? " is-active" : "")}
                     onClick={() => onSetSidebarMode("floating")}
                   >
-                    Flottante
+                    {t("sidebarMode.floating")}
                   </button>
                 </div>
               </div>
@@ -337,34 +343,28 @@ export function SettingsPage({
         {section === "terminale" && (
           <>
             <section className="settings-block">
-              <h3>Testo e shell</h3>
-              <p className="settings-block-desc">
-                Regola la dimensione del testo e la shell usata dal terminale integrato. Il cambio di shell si
-                applica alle schede aperte da questo momento in poi, non a quelle già aperte.
-              </p>
+              <h3>{t("settings.textShell.title")}</h3>
+              <p className="settings-block-desc">{t("settings.textShell.desc")}</p>
               <div className="settings-field">
-                <span className="settings-field-label">Zoom testo</span>
-                <p className="settings-field-desc">Dimensione del carattere nel pannello del terminale integrato.</p>
+                <span className="settings-field-label">{t("settings.zoom.label")}</span>
+                <p className="settings-field-desc">{t("settings.zoom.desc")}</p>
                 <div className="settings-zoom-row">
-                  <button type="button" className="settings-zoom-btn" aria-label="Riduci zoom" onClick={zoomOut}>
+                  <button type="button" className="settings-zoom-btn" aria-label={t("zoom.out")} onClick={zoomOut}>
                     −
                   </button>
                   <span className="settings-zoom-value">{fontSize}px</span>
-                  <button type="button" className="settings-zoom-btn" aria-label="Aumenta zoom" onClick={zoomIn}>
+                  <button type="button" className="settings-zoom-btn" aria-label={t("zoom.in")} onClick={zoomIn}>
                     +
                   </button>
                   <button type="button" className="settings-choice" onClick={resetZoom}>
-                    Reimposta
+                    {t("settings.zoom.reset")}
                   </button>
                 </div>
               </div>
               {shellOptions.length > 0 && (
                 <div className="settings-field">
-                  <span className="settings-field-label">Shell predefinita</span>
-                  <p className="settings-field-desc">
-                    Programma avviato in una nuova scheda di terminale. Il cambio si applica solo alle schede aperte
-                    da questo momento in poi.
-                  </p>
+                  <span className="settings-field-label">{t("settings.shell.label")}</span>
+                  <p className="settings-field-desc">{t("settings.shell.desc")}</p>
                   <div className="settings-choice-row">
                     {shellOptions.map((opt) => (
                       <button
@@ -373,56 +373,54 @@ export function SettingsPage({
                         className={"settings-choice" + (shellId === opt.id ? " is-active" : "")}
                         onClick={() => setShellId(opt.id)}
                       >
-                        {opt.label}
+                        {shellOptionLabel(opt)}
                       </button>
                     ))}
                   </div>
                 </div>
               )}
               <div className="settings-field">
-                <span className="settings-field-label">Banner Flowcode all'apertura</span>
-                <p className="settings-field-desc">Scritta ASCII "Flowcode" mostrata all'inizio di ogni scheda di terminale, prima dell'output della shell.</p>
+                <span className="settings-field-label">{t("settings.banner.label")}</span>
+                <p className="settings-field-desc">{t("settings.banner.desc")}</p>
                 <div className="settings-choice-row">
                   <button
                     type="button"
                     className={"settings-choice" + (bannerEnabled ? " is-active" : "")}
                     onClick={() => setBannerEnabled(true)}
                   >
-                    Mostra
+                    {t("common.show")}
                   </button>
                   <button
                     type="button"
                     className={"settings-choice" + (!bannerEnabled ? " is-active" : "")}
                     onClick={() => setBannerEnabled(false)}
                   >
-                    Nascondi
+                    {t("common.hide")}
                   </button>
                 </div>
               </div>
             </section>
 
             <section className="settings-block">
-              <h3>Avvio e schede</h3>
-              <p className="settings-block-desc">Dove si aprono i nuovi terminali, cosa ritrovi alla riapertura dell'app e come si comportano i link.</p>
+              <h3>{t("settings.startup.title")}</h3>
+              <p className="settings-block-desc">{t("settings.startup.desc")}</p>
               <div className="settings-field">
-                <span className="settings-field-label">Cartella di avvio</span>
-                <p className="settings-field-desc">
-                  La cartella in cui si aprono il terminale all'avvio dell'app e ogni nuova scheda di terminale.
-                </p>
+                <span className="settings-field-label">{t("settings.startDir.label")}</span>
+                <p className="settings-field-desc">{t("settings.startDir.desc")}</p>
                 <div className="settings-choice-row">
                   <button
                     type="button"
                     className={"settings-choice" + (!customPathMode ? " is-active" : "")}
                     onClick={() => setCustomPathMode(false)}
                   >
-                    Home utente
+                    {t("settings.startDir.home")}
                   </button>
                   <button
                     type="button"
                     className={"settings-choice" + (customPathMode ? " is-active" : "")}
                     onClick={() => setCustomPathMode(true)}
                   >
-                    Personalizzata
+                    {t("settings.startDir.custom")}
                   </button>
                 </div>
                 {customPathMode && (
@@ -431,62 +429,55 @@ export function SettingsPage({
                       type="text"
                       className="settings-text-input"
                       value={startPathDraft}
-                      placeholder="Es. C:\Progetti oppure /home/utente/progetti"
+                      placeholder={t("settings.startDir.placeholder")}
                       onChange={(e) => setStartPathDraft(e.target.value)}
                     />
                     {startPathValid === false && (
-                      <span className="settings-field-hint is-error">Cartella non trovata.</span>
+                      <span className="settings-field-hint is-error">{t("settings.startDir.notFound")}</span>
                     )}
                     {startPathValid === true && (
-                      <span className="settings-field-hint is-success">Cartella valida, in uso.</span>
+                      <span className="settings-field-hint is-success">{t("settings.startDir.valid")}</span>
                     )}
                   </>
                 )}
               </div>
               <div className="settings-field">
-                <span className="settings-field-label">Schede all'avvio</span>
-                <p className="settings-field-desc">
-                  Con "Ripristina", alla riapertura trovi le schede che avevi aperto, ognuna nella sua cartella e con il
-                  testo che mostrava. I programmi in esecuzione (es. Claude Code) non riprendono: ogni terminale riparte
-                  con una shell nuova.
-                </p>
+                <span className="settings-field-label">{t("settings.restore.label")}</span>
+                <p className="settings-field-desc">{t("settings.restore.desc")}</p>
                 <div className="settings-choice-row">
                   <button
                     type="button"
                     className={"settings-choice" + (restoreSession ? " is-active" : "")}
                     onClick={() => setRestoreSession(true)}
                   >
-                    Ripristina
+                    {t("settings.restore.restore")}
                   </button>
                   <button
                     type="button"
                     className={"settings-choice" + (!restoreSession ? " is-active" : "")}
                     onClick={() => setRestoreSession(false)}
                   >
-                    Riparti da zero
+                    {t("settings.restore.fresh")}
                   </button>
                 </div>
               </div>
               <div className="settings-field">
-                <span className="settings-field-label">Link nel terminale</span>
-                <p className="settings-field-desc">
-                  Cosa succede quando clicchi un link nel terminale: con "Chiedi conferma" appare un piccolo menu per
-                  aprirlo nel browser o copiarlo, con "Apri subito" si apre direttamente nel browser predefinito.
-                </p>
+                <span className="settings-field-label">{t("settings.links.label")}</span>
+                <p className="settings-field-desc">{t("settings.links.desc")}</p>
                 <div className="settings-choice-row">
                   <button
                     type="button"
                     className={"settings-choice" + (confirmLinkOpen ? " is-active" : "")}
                     onClick={() => setConfirmLinkOpen(true)}
                   >
-                    Chiedi conferma
+                    {t("settings.links.ask")}
                   </button>
                   <button
                     type="button"
                     className={"settings-choice" + (!confirmLinkOpen ? " is-active" : "")}
                     onClick={() => setConfirmLinkOpen(false)}
                   >
-                    Apri subito
+                    {t("settings.links.open")}
                   </button>
                 </div>
               </div>
@@ -507,28 +498,28 @@ export function SettingsPage({
         {section === "info" && (
           <>
             <section className="settings-block">
-              <h3>Versione</h3>
+              <h3>{t("settings.version.title")}</h3>
               <p className="settings-block-desc">{pkg.description}</p>
               <div className="settings-field">
                 <span className="settings-field-label">
                   {pkg.name} v{pkg.version}
                 </span>
-                <p className="settings-field-desc">Copia nome, versione e descrizione dell'app negli appunti - utile per segnalare un problema.</p>
+                <p className="settings-field-desc">{t("settings.version.copyDesc")}</p>
                 <div className="settings-choice-row">
                   <button type="button" className="settings-choice" onClick={handleCopyVersionInfo}>
-                    {versionCopied ? "Copiato" : "Copia informazioni versione"}
+                    {versionCopied ? t("common.copied") : t("settings.version.copy")}
                   </button>
                 </div>
               </div>
               <div className="settings-field">
-                <span className="settings-field-label">Aggiornamenti</span>
+                <span className="settings-field-label">{t("settings.updates.label")}</span>
                 <p className="settings-field-desc">
-                  Flowcode controlla le nuove versioni a ogni avvio. {updateStatusText(updateStatus)}
+                  {t("settings.updates.desc")} {updateStatusText(updateStatus)}
                 </p>
                 <div className="settings-choice-row">
                   {updateStatus.kind === "available" || updateStatus.kind === "installing" ? (
                     <button type="button" className="settings-choice" onClick={openUpdateDialog}>
-                      Aggiorna a {updateStatus.info.version}
+                      {t("settings.updates.install", { version: updateStatus.info.version })}
                     </button>
                   ) : (
                     <button
@@ -537,7 +528,7 @@ export function SettingsPage({
                       disabled={updateStatus.kind === "checking"}
                       onClick={() => void checkForUpdates(true)}
                     >
-                      {updateStatus.kind === "checking" ? "Controllo in corso…" : "Verifica aggiornamenti"}
+                      {updateStatus.kind === "checking" ? t("common.checking") : t("settings.updates.check")}
                     </button>
                   )}
                 </div>
@@ -545,40 +536,34 @@ export function SettingsPage({
             </section>
 
             <section className="settings-block">
-              <h3>Manutenzione</h3>
+              <h3>{t("settings.maintenance.title")}</h3>
               <div className="settings-field">
-                <span className="settings-field-label">Cartella di configurazione</span>
-                <p className="settings-field-desc">
-                  Apre la cartella su disco dove sono salvate le funzionalità personalizzate e le altre impostazioni
-                  dell'app.
-                </p>
+                <span className="settings-field-label">{t("settings.configDir.label")}</span>
+                <p className="settings-field-desc">{t("settings.configDir.desc")}</p>
                 <div className="settings-choice-row">
                   <button type="button" className="settings-choice" onClick={handleOpenConfigDir}>
-                    Apri cartella di configurazione
+                    {t("settings.configDir.open")}
                   </button>
                 </div>
               </div>
               <div className="settings-field">
-                <span className="settings-field-label">Ripristina impostazioni</span>
-                <p className="settings-field-desc">
-                  Riporta tema, terminale, sidebar e azioni rapide ai valori predefiniti. I plugin personalizzati non
-                  vengono toccati.
-                </p>
+                <span className="settings-field-label">{t("settings.reset.label")}</span>
+                <p className="settings-field-desc">{t("settings.reset.desc")}</p>
                 <div className="settings-choice-row">
                   <button type="button" className="settings-choice" onClick={handleResetTerminal}>
-                    Ripristina terminale
+                    {t("settings.reset.button")}
                   </button>
                 </div>
               </div>
             </section>
 
             <section className="settings-block">
-              <h3>Crediti</h3>
-              <p className="settings-block-desc">Le librerie open source su cui è costruito Flowcode.</p>
+              <h3>{t("settings.credits.title")}</h3>
+              <p className="settings-block-desc">{t("settings.credits.desc")}</p>
               <ul className="settings-credits-list">
                 {CREDITS.map((c) => (
                   <li key={c.name} className="settings-credits-item">
-                    <span className="settings-credits-name">{c.name}</span> — {c.use}
+                    <span className="settings-credits-name">{c.name}</span> — {t(c.use)}
                   </li>
                 ))}
               </ul>

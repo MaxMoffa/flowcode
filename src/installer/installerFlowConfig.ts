@@ -1,8 +1,9 @@
 import { parseFlow } from "@flowkit-io/core";
 import flowcodeIcon from "../assets/flowcode-icon.svg";
+import { currentLanguage, t } from "../i18n";
 
 /** Flowcode integrations offered on the "components" step - the ids of the
- * app's own example plugins (see plugins/registry.ts's EXAMPLE_PLUGINS).
+ * app's own example plugins (see plugins/registry.ts's examplePlugins()).
  * Choosing one doesn't install the CLI itself: the installer only records
  * the choice, and the app enables and pins that plugin on first launch (the
  * plugin offers to install/log in to the CLI the first time it's clicked, if
@@ -21,14 +22,13 @@ const LOCATION_PLACEHOLDER =
     ? "/Users/.../Applications"
     : platform === "linux"
       ? "/home/.../.local/share/flowcode"
-      : "C:\\Utenti\\...\\Programs\\Flowcode";
+      : "C:\\Users\\...\\Programs\\Flowcode";
 
-const SHORTCUT_SUBTITLE =
-  platform === "macos"
-    ? "Flowcode.app viene comunque aggiunto alla cartella Applicazioni."
-    : platform === "linux"
-      ? "La voce nel menu delle applicazioni viene creata comunque."
-      : "Il collegamento nel menu Start viene creato comunque.";
+function shortcutSubtitle(): string {
+  if (platform === "macos") return t("installer.shortcut.subtitle.macos");
+  if (platform === "linux") return t("installer.shortcut.subtitle.linux");
+  return t("installer.shortcut.subtitle.windows");
+}
 
 /** A Flowcode already on this machine (`installer_existing_install` on the
  * Rust side) - `version` is missing where the platform records none. */
@@ -73,8 +73,8 @@ export function buildInstallerFlow(existing: ExistingInstall | null, installerVe
       id: "location",
       type: "directory",
       key: "location",
-      title: "Cartella di installazione",
-      subtitle: "Flowcode verrà installato qui. Usa \"Sfoglia...\" per scegliere un'altra cartella.",
+      title: t("installer.location.title"),
+      subtitle: t("installer.location.subtitle"),
       image: { kind: "emoji", value: "📁" },
       placeholder: LOCATION_PLACEHOLDER,
       required: true,
@@ -83,9 +83,9 @@ export function buildInstallerFlow(existing: ExistingInstall | null, installerVe
       id: "shortcut",
       type: "checkbox",
       key: "desktop_shortcut",
-      title: "Collegamenti",
-      subtitle: SHORTCUT_SUBTITLE,
-      label: "Crea un collegamento sul Desktop",
+      title: t("installer.shortcut.title"),
+      subtitle: shortcutSubtitle(),
+      label: t("installer.shortcut.label"),
       image: { kind: "emoji", value: "🖥️" },
       required: false,
     },
@@ -94,23 +94,20 @@ export function buildInstallerFlow(existing: ExistingInstall | null, installerVe
       type: "multi-select",
       key: "components",
       min: 0,
-      title: "Integrazioni",
-      subtitle:
-        "Scegli quali integrazioni attivare in Flowcode: ognuna aggiunge un pulsante alla barra degli shortcut. Puoi cambiarle in seguito da Impostazioni > Funzionalità.",
+      title: t("installer.components.title"),
+      subtitle: t("installer.components.subtitle"),
       image: { kind: "emoji", value: "🧩" },
       required: false,
       options: [
         {
           value: "claude-code" satisfies InstallableComponent,
           label: "Claude Code",
-          description:
-            "Avvia Claude Code con un clic e mostra lo stato dell'account. Se la CLI non c'è, Flowcode ti propone di installarla al primo uso.",
+          description: t("installer.components.cli", { name: "Claude Code" }),
         },
         {
           value: "codex-cli" satisfies InstallableComponent,
           label: "Codex",
-          description:
-            "Avvia Codex con un clic e mostra lo stato dell'account. Se la CLI non c'è, Flowcode ti propone di installarla al primo uso.",
+          description: t("installer.components.cli", { name: "Codex" }),
         },
       ],
     },
@@ -118,7 +115,7 @@ export function buildInstallerFlow(existing: ExistingInstall | null, installerVe
 
   const sameVersion = !!existing?.version && existing.version === installerVersion;
   const installed = existing?.version ? `Flowcode ${existing.version}` : "Flowcode";
-  const verb = sameVersion ? "Reinstalla" : "Aggiorna";
+  const verb = sameVersion ? t("installer.reinstall") : t("installer.update");
 
   const updateSteps = existing
     ? [
@@ -126,22 +123,22 @@ export function buildInstallerFlow(existing: ExistingInstall | null, installerVe
           id: EXISTING_STEP_ID,
           type: "select-cards",
           key: "action",
-          title: "Flowcode è già installato",
+          title: t("installer.existing.title"),
           subtitle: sameVersion
-            ? `${installed} si trova già in ${existing.dir}. Vuoi reinstallarlo così com'è o scegliere di nuovo le opzioni?`
-            : `${installed} si trova in ${existing.dir}. Vuoi aggiornarlo alla versione ${installerVersion}?`,
+            ? t("installer.existing.same", { installed, dir: existing.dir })
+            : t("installer.existing.older", { installed, dir: existing.dir, version: installerVersion }),
           image: { kind: "image", value: flowcodeIcon },
           required: true,
           options: [
             {
               value: UPDATE_ACTION,
-              label: sameVersion ? "Reinstalla" : `Aggiorna alla ${installerVersion}`,
-              description: "Stessa cartella e stessi collegamenti. Impostazioni, preferiti e integrazioni restano come sono.",
+              label: sameVersion ? t("installer.reinstall") : t("installer.updateTo", { version: installerVersion }),
+              description: t("installer.existing.update.desc"),
             },
             {
               value: "custom",
-              label: "Installazione personalizzata",
-              description: "Scegli di nuovo cartella, collegamenti e integrazioni.",
+              label: t("installer.custom"),
+              description: t("installer.custom.desc"),
             },
           ],
         },
@@ -151,32 +148,30 @@ export function buildInstallerFlow(existing: ExistingInstall | null, installerVe
           rules: [{ when: { key: "action", op: "eq", value: UPDATE_ACTION }, goTo: "review" }],
           fallback: "setup",
         },
-        { id: "setup", type: "subflow", title: "Installazione personalizzata", steps: setupSteps },
+        { id: "setup", type: "subflow", title: t("installer.custom"), steps: setupSteps },
       ]
     : setupSteps;
 
   return parseFlow({
     id: "flowcode-installer",
-    title: "Installazione di Flowcode",
-    locale: "it",
+    title: t("installer.title"),
+    locale: currentLanguage(),
     disableBack: false,
     texts: {
-      continue: "Avanti",
-      submit: existing ? verb : "Installa",
+      continue: t("welcome.continue"),
+      submit: existing ? verb : t("installer.install"),
       // flowkit's fallback when a submit fails without its own message - its
       // stock wording is about a failed payment, which makes no sense here.
-      paymentFailed: "Installazione non riuscita, riprova.",
+      paymentFailed: t("installer.failed"),
     },
     steps: [
       {
         id: "intro",
         type: "intro",
         key: "welcome",
-        title: existing ? `${verb} Flowcode` : "Installa Flowcode",
-        subtitle: existing
-          ? `${installed} è già installato su questo computer.`
-          : "Configura Flowcode su questo computer. Nei prossimi passaggi puoi scegliere dove installarlo e quali integrazioni attivare.",
-        cta: "Avanti",
+        title: `${existing ? verb : t("installer.install")} Flowcode`,
+        subtitle: existing ? t("installer.intro.existing", { installed }) : t("installer.intro.fresh"),
+        cta: t("welcome.continue"),
         image: { kind: "image", value: flowcodeIcon },
       },
       ...updateSteps,
@@ -185,20 +180,22 @@ export function buildInstallerFlow(existing: ExistingInstall | null, installerVe
         type: "review",
         key: "review",
         mode: "final",
-        title: existing ? `Pronto per ${sameVersion ? "reinstallare" : "aggiornare"}` : "Pronto per installare",
+        title: existing
+          ? t(sameVersion ? "installer.review.reinstall" : "installer.review.update")
+          : t("installer.review.install"),
         subtitle: existing
-          ? `Flowcode ${installerVersion} verrà installato in ${existing.dir}, sostituendo ${installed}.`
-          : "Controlla le scelte fatte prima di procedere.",
+          ? t("installer.review.existing", { version: installerVersion, dir: existing.dir, installed })
+          : t("installer.review.fresh"),
         image: { kind: "emoji", value: "✅" },
-        submitLabel: existing ? verb : "Installa",
+        submitLabel: existing ? verb : t("installer.install"),
       },
       {
         id: "done",
         type: "confirmation",
         key: "done",
-        title: existing ? `${sameVersion ? "Reinstallazione" : "Aggiornamento"} completato` : "Installazione completata",
-        message: existing ? `Flowcode ${installerVersion} è pronto all'uso.` : "Flowcode è pronto all'uso.",
-        primaryCta: "Apri Flowcode",
+        title: t(existing ? (sameVersion ? "installer.done.reinstall" : "installer.done.update") : "installer.done.install"),
+        message: t("installer.done.message", { name: existing ? `Flowcode ${installerVersion}` : "Flowcode" }),
+        primaryCta: t("installer.done.cta"),
         showRestartButton: false,
         emoji: "🚀",
       },

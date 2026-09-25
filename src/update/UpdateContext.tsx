@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readString, writeString } from "../lib/storage";
+import { useI18n } from "../i18n";
 import "./update-dialog.css";
 
 /** Mirrors `UpdateInfo` in src-tauri/src/updater.rs. */
@@ -54,6 +55,7 @@ function formatBytes(bytes: number): string {
  * dialog that offers it and shows the download. Installing hands off to the
  * installer, which quits and relaunches Flowcode - see updater.rs. */
 export function UpdateProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });
   const [dialogOpen, setDialogOpen] = useState(false);
   const statusRef = useRef(status);
@@ -113,10 +115,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       {dialogOpen && dialogInfo && (
         <div className="confirm-backdrop">
           <div className="confirm-dialog update-dialog" role="alertdialog" aria-modal="true">
-            <div className="confirm-title">Aggiornamento disponibile</div>
+            <div className="confirm-title">{t("update.title")}</div>
             <div className="confirm-message">
-              Flowcode {dialogInfo.version} è disponibile (installata: {dialogInfo.current_version}). Flowcode si riavvierà
-              da solo al termine, con le finestre e le schede aperte ora.
+              {t("update.message", { version: dialogInfo.version, current: dialogInfo.current_version })}
             </div>
             {dialogInfo.notes.trim() && <div className="update-notes">{dialogInfo.notes.trim()}</div>}
             {status.kind === "installing" && <UpdateProgressBar progress={status.progress} size={dialogInfo.size} />}
@@ -125,10 +126,10 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
               {status.kind !== "installing" && (
                 <>
                   <button type="button" className="confirm-btn" onClick={() => skip(dialogInfo)}>
-                    Salta questa versione
+                    {t("update.skip")}
                   </button>
                   <button type="button" className="confirm-btn" onClick={() => setDialogOpen(false)}>
-                    Più tardi
+                    {t("update.later")}
                   </button>
                   <button
                     type="button"
@@ -136,7 +137,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
                     autoFocus
                     onClick={() => void install(dialogInfo)}
                   >
-                    {status.kind === "error" ? "Riprova" : "Aggiorna ora"}
+                    {status.kind === "error" ? t("update.retry") : t("update.now")}
                   </button>
                 </>
               )}
@@ -149,17 +150,21 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 }
 
 function UpdateProgressBar({ progress, size }: { progress: UpdateProgress | null; size: number }) {
-  let label = "Avvio del download…";
+  const { t } = useI18n();
+  let label = t("update.progress.start");
   let fraction: number | null = 0;
   if (progress?.stage === "download") {
     const total = progress.total || size;
     fraction = total > 0 ? Math.min(1, progress.downloaded / total) : null;
-    label = `Download ${formatBytes(progress.downloaded)}${total > 0 ? ` di ${formatBytes(total)}` : ""}`;
+    label =
+      total > 0
+        ? t("update.progress.downloadOf", { done: formatBytes(progress.downloaded), total: formatBytes(total) })
+        : t("update.progress.download", { done: formatBytes(progress.downloaded) });
   } else if (progress?.stage === "verify") {
-    label = "Verifica del file scaricato…";
+    label = t("update.progress.verify");
     fraction = 1;
   } else if (progress?.stage === "install") {
-    label = "Riavvio di Flowcode per completare l'aggiornamento…";
+    label = t("update.progress.install");
     fraction = 1;
   }
   return (

@@ -3,6 +3,7 @@ import type { PluginDef, PluginManifest } from "../plugins/types";
 import { PLUGIN_ACTION_LABELS } from "../plugins/types";
 import { pluginIconNode } from "../plugins/icons";
 import { PluginCreateDialog } from "./PluginCreateDialog";
+import { useI18n } from "../i18n";
 import "./funzionalita-page.css";
 
 /** Loose validation on purpose: the plugin standard is safe by construction
@@ -23,6 +24,7 @@ interface FunzionalitaPageProps {
 }
 
 export function FunzionalitaPage({ plugins, enabledIds, onToggleEnabled, onAdd, onDelete }: FunzionalitaPageProps) {
+  const { t } = useI18n();
   const [creating, setCreating] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,34 +40,34 @@ export function FunzionalitaPage({ plugins, enabledIds, onToggleEnabled, onAdd, 
       .then((text) => {
         const parsed: unknown = JSON.parse(text);
         if (!isPluginManifest(parsed)) {
-          setImportError(`"${file.name}" non è un manifest di plugin valido (mancano id/label/action).`);
+          setImportError(t("features.import.invalid", { name: file.name }));
           return;
         }
-        if (existingIds.includes(parsed.id) && !window.confirm(`Esiste già un plugin con id "${parsed.id}". Sovrascriverlo?`)) {
+        if (existingIds.includes(parsed.id) && !window.confirm(t("features.import.overwrite", { id: parsed.id }))) {
           return;
         }
         onAdd(parsed);
       })
-      .catch((err) => setImportError(`Impossibile leggere "${file.name}": ${err}`));
+      .catch((err) => setImportError(t("features.import.readFailed", { name: file.name, error: String(err) })));
   }
+
+  const [introBefore, introAfter] = t("features.intro").split("{file}");
 
   return (
     <div>
       <p className="funzionalita-intro">
-        Ogni funzionalità è un piccolo plugin: quelle di base servono al programma e non si possono eliminare, ma tutte si
-        possono attivare o disattivare nella barra rapida. Lo standard completo per crearne di nuovi (comandi, popup,
-        dialog con più pulsanti, azioni con output dinamico) è documentato in <code>PLUGINS.md</code> nel repository - da
-        lì si può anche scrivere a mano un plugin più avanzato di quelli creabili qui, e installarlo con "Importa da
-        file".
+        {introBefore}
+        <code>PLUGINS.md</code>
+        {introAfter}
       </p>
 
       <table className="funzionalita-table">
         <thead>
           <tr>
-            <th aria-label="Icona" />
-            <th>Nome</th>
-            <th>Nella barra</th>
-            <th aria-label="Azioni" />
+            <th aria-label={t("features.col.icon")} />
+            <th>{t("features.col.name")}</th>
+            <th>{t("features.col.inBar")}</th>
+            <th aria-label={t("features.col.actions")} />
           </tr>
         </thead>
         <tbody>
@@ -75,7 +77,7 @@ export function FunzionalitaPage({ plugins, enabledIds, onToggleEnabled, onAdd, 
               <td>
                 <div className="funzionalita-name">
                   {plugin.label}
-                  {plugin.builtin && <span className="funzionalita-badge">di base</span>}
+                  {plugin.builtin && <span className="funzionalita-badge">{t("features.builtin")}</span>}
                 </div>
                 {plugin.description && <div className="funzionalita-desc">{plugin.description}</div>}
               </td>
@@ -94,8 +96,8 @@ export function FunzionalitaPage({ plugins, enabledIds, onToggleEnabled, onAdd, 
                   <button
                     type="button"
                     className="funzionalita-delete"
-                    aria-label={`Elimina ${plugin.label}`}
-                    title="Elimina"
+                    aria-label={t("features.deleteNamed", { name: plugin.label })}
+                    title={t("common.delete")}
                     onClick={() => onDelete(plugin.id)}
                   >
                     <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="14" height="14" stroke="currentColor" fill="none">
@@ -113,10 +115,10 @@ export function FunzionalitaPage({ plugins, enabledIds, onToggleEnabled, onAdd, 
 
       <div className="funzionalita-toolbar">
         <button type="button" className="settings-choice" onClick={() => setCreating(true)}>
-          + Nuovo plugin
+          + {t("features.new")}
         </button>
         <button type="button" className="settings-choice" onClick={() => fileInputRef.current?.click()}>
-          Importa da file
+          {t("features.import")}
         </button>
         <input ref={fileInputRef} type="file" accept="application/json,.json" hidden onChange={handleImportFile} />
       </div>

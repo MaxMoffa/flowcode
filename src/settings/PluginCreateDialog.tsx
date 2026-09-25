@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PluginAction, PluginManifest } from "../plugins/types";
 import { PLUGIN_ACTION_LABELS } from "../plugins/types";
+import { useI18n } from "../i18n";
 import "./plugin-create-dialog.css";
 
 /** The quick, in-app path for the common cases (run a command, show a
@@ -27,6 +28,7 @@ interface PluginCreateDialogProps {
 }
 
 export function PluginCreateDialog({ existingIds, onCreate, onClose }: PluginCreateDialogProps) {
+  const { t } = useI18n();
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
   const [action, setAction] = useState<PluginAction>("runCommand");
@@ -69,54 +71,56 @@ export function PluginCreateDialog({ existingIds, onCreate, onClose }: PluginCre
       }}
     >
       <div className="plugin-create-panel" role="dialog" aria-modal="true">
-        <div className="plugin-create-title">Nuovo plugin</div>
+        <div className="plugin-create-title">{t("features.new")}</div>
 
         <label className="funzionalita-field">
-          Nome
-          <input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Es. Avvia i test" />
+          {t("features.col.name")}
+          <input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t("pluginCreate.name.placeholder")} />
         </label>
         <label className="funzionalita-field">
-          Descrizione (opzionale)
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Cosa fa" />
+          {t("pluginCreate.description")}
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("pluginCreate.description.placeholder")} />
         </label>
         <label className="funzionalita-field">
-          Azione
+          {t("pluginCreate.action")}
           <select value={action} onChange={(e) => setAction(e.target.value as PluginAction)}>
             {QUICK_ACTIONS.map((a) => (
               <option key={a} value={a}>
-                {PLUGIN_ACTION_LABELS[a]}
+                {t(PLUGIN_ACTION_LABELS[a])}
               </option>
             ))}
           </select>
         </label>
         {action === "runCommand" && (
           <label className="funzionalita-field">
-            Comando
+            {t("pluginCreate.command")}
             <input
               value={command}
               onChange={(e) => setCommand(e.target.value)}
-              placeholder="Es. npm test"
+              placeholder={t("pluginCreate.command.placeholder")}
               className="funzionalita-field-mono"
             />
           </label>
         )}
         {action === "notify" && (
           <label className="funzionalita-field">
-            Messaggio
-            <input value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Testo del popup" />
+            {t("pluginCreate.message")}
+            <input value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("pluginCreate.message.placeholder")} />
           </label>
         )}
 
         <p className="plugin-create-hint">
-          Serve un dialog con più pulsanti o altro di più complesso? Vedi <code>PLUGINS.md</code> nel repository.
+          {t("pluginCreate.hint").split("{file}")[0]}
+          <code>PLUGINS.md</code>
+          {t("pluginCreate.hint").split("{file}")[1]}
         </p>
 
         <div className="plugin-create-actions">
           <button type="button" className="settings-choice" onClick={onClose}>
-            Annulla
+            {t("common.cancel")}
           </button>
           <button type="button" className="settings-choice is-active" onClick={submit}>
-            Crea plugin
+            {t("pluginCreate.create")}
           </button>
         </div>
       </div>

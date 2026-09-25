@@ -1,3 +1,4 @@
+use flowcode_shared::i18n::tr;
 use flowcode_shared::{combined_output, run_command_blocking};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -86,7 +87,7 @@ pub fn save_plugin(app: AppHandle, plugin: PluginManifest) -> Result<(), String>
     let dir = plugins_dir(&app)?;
     let id = sanitize_id(&plugin.id);
     if id.is_empty() {
-        return Err("Id del plugin non valido".to_string());
+        return Err(tr("Id del plugin non valido", "Invalid plugin id").to_string());
     }
     let mut plugin = plugin;
     plugin.id = id.clone();

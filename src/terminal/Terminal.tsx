@@ -11,6 +11,7 @@ import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./
 import { useTheme } from "../themes/ThemeContext";
 import { useTerminalSettings } from "./TerminalSettingsContext";
 import { buildAsciiBanner, type BannerSystemInfo } from "./asciiBanner";
+import { t } from "../i18n";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 
@@ -222,15 +223,15 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     showMenu(event.clientX, event.clientY, [
       { label: shown, disabled: true },
       { label: "link-separator", separator: true },
-      { label: "Apri nel browser", onSelect: open },
+      { label: t("link.open"), onSelect: open },
       {
-        label: "Apri e non chiedere più",
+        label: t("link.openAlways"),
         onSelect: () => {
           setConfirmLinkOpen(false);
           open();
         },
       },
-      { label: "Copia link", onSelect: () => navigator.clipboard.writeText(uri).catch(() => {}) },
+      { label: t("link.copy"), onSelect: () => navigator.clipboard.writeText(uri).catch(() => {}) },
     ]);
   };
   const fontSize = getTabFontSize(tabId);
@@ -567,7 +568,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           if (!disposed) term.write(data);
         },
         onExit: () => {
-          if (!disposed) term.write("\r\n[process exited]\r\n");
+          if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
         },
       })
         .then(() => {
@@ -580,7 +581,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           });
         })
         .catch((e) => {
-          if (!disposed) term.write(`\r\n[impossibile spostare il terminale: ${e}]\r\n`);
+          if (!disposed) term.write(`\r\n[${t("terminal.moveFailed", { error: String(e) })}]\r\n`);
         });
     }
 
@@ -623,11 +624,11 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
             if (!disposed) term.write(data);
           },
           onExit: () => {
-            if (!disposed) term.write("\r\n[process exited]\r\n");
+            if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
           },
         });
       } catch (e) {
-        if (!disposed) term.write(`\r\n[impossibile avviare la shell: ${e}]\r\n`);
+        if (!disposed) term.write(`\r\n[${t("terminal.spawnFailed", { error: String(e) })}]\r\n`);
         return;
       }
       if (disposed) {

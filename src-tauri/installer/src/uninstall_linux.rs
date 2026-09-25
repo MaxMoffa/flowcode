@@ -1,29 +1,38 @@
 //! Linux counterpart of `uninstall.rs`: entered from `main.rs` when the copy
 //! of this installer left in the install dir (`uninstall`, see
 //! `install::perform_install`) runs with `--uninstall` - which is what the
-//! menu entry's "Disinstalla Flowcode" action does.
+//! menu entry's "Uninstall Flowcode" action does.
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::Command;
 
 use crate::install::{desktop_dir, xdg_data_home, DESKTOP_FILE};
+use flowcode_shared::i18n::tr;
 
-const TITLE: &str = "Disinstalla Flowcode";
-const QUESTION: &str = "Vuoi disinstallare Flowcode da questo computer?";
-const DONE: &str = "Flowcode è stato disinstallato.";
+fn title() -> &'static str {
+    tr("Disinstalla Flowcode", "Uninstall Flowcode")
+}
+
+fn question() -> &'static str {
+    tr("Vuoi disinstallare Flowcode da questo computer?", "Do you want to uninstall Flowcode from this computer?")
+}
+
+fn done() -> &'static str {
+    tr("Flowcode è stato disinstallato.", "Flowcode has been uninstalled.")
+}
 
 /// A native yes/no where a dialog tool exists (GNOME/most distros ship
 /// `zenity`, KDE `kdialog`), a terminal prompt when run from one.
 fn confirm() -> bool {
-    if let Ok(status) = Command::new("zenity").args(["--question", "--title", TITLE, "--text", QUESTION]).status() {
+    if let Ok(status) = Command::new("zenity").args(["--question", "--title", title(), "--text", question()]).status() {
         return status.success();
     }
-    if let Ok(status) = Command::new("kdialog").args(["--title", TITLE, "--yesno", QUESTION]).status() {
+    if let Ok(status) = Command::new("kdialog").args(["--title", title(), "--yesno", question()]).status() {
         return status.success();
     }
     if std::io::stdin().is_terminal() {
-        println!("{QUESTION} [s/N]");
+        println!("{} {}", question(), tr("[s/N]", "[y/N]"));
         let mut answer = String::new();
         let _ = std::io::stdin().read_line(&mut answer);
         return matches!(answer.trim().to_lowercase().as_str(), "s" | "si" | "sì" | "y" | "yes");
@@ -34,13 +43,13 @@ fn confirm() -> bool {
 }
 
 fn notify_done() {
-    if Command::new("zenity").args(["--info", "--title", TITLE, "--text", DONE]).status().is_ok() {
+    if Command::new("zenity").args(["--info", "--title", title(), "--text", done()]).status().is_ok() {
         return;
     }
-    if Command::new("kdialog").args(["--title", TITLE, "--msgbox", DONE]).status().is_ok() {
+    if Command::new("kdialog").args(["--title", title(), "--msgbox", done()]).status().is_ok() {
         return;
     }
-    println!("{DONE}");
+    println!("{}", done());
 }
 
 pub fn run() {

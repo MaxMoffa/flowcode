@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 /** "Flowcode" wordmark in the ANSI Shadow block font. */
 const FLOWCODE_ART = [
   "███████╗██╗      ██████╗ ██╗    ██╗ ██████╗ ██████╗ ██████╗ ███████╗",
@@ -79,14 +81,14 @@ export function buildAsciiBanner(cols: number, info?: BannerSystemInfo, appVersi
     // read as noisy nested parentheses - just the name, plus the actual
     // architecture, is the useful pair here.
     if (info.os_name) {
-      rows.push(["Sistema", info.os_name]);
+      rows.push([t("banner.system"), info.os_name]);
     }
     if (info.arch) {
-      rows.push(["Architettura", info.arch]);
+      rows.push([t("banner.arch"), info.arch]);
     }
-    rows.push(["RAM disponibile", `${gib(info.memory_available)} / ${gib(info.memory_total)} GiB`]);
+    rows.push([t("banner.ram"), `${gib(info.memory_available)} / ${gib(info.memory_total)} GiB`]);
     if (info.disk) {
-      rows.push(["Spazio disponibile", `${gib(info.disk.available)} / ${gib(info.disk.total)} GiB`]);
+      rows.push([t("banner.disk"), `${gib(info.disk.available)} / ${gib(info.disk.total)} GiB`]);
     }
   }
 
@@ -96,7 +98,7 @@ export function buildAsciiBanner(cols: number, info?: BannerSystemInfo, appVersi
   // wordmark above it (the theme's `--accent`, moss-green in both the light
   // and dark palette, so this reads as "always green" without hardcoding a
   // color that would drift from the art if the palette ever changes).
-  lines.push(`  ${accent}Il terminale che si adatta a te${reset}`);
+  lines.push(`  ${accent}${t("banner.tagline")}${reset}`);
   lines.push("");
   for (const tableLine of buildInfoTable(rows, accent, dim, reset)) lines.push(`  ${tableLine}`);
   lines.push("");

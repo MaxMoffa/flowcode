@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 // Side-effect import: registers every builtin step component (intro,
 // long-content, select-cards, confirmation...) - `/overlay` itself registers
 // none, per its own docs, and needs this (or `/lean` + `/steps/*`) alongside it.
@@ -7,9 +7,10 @@ import { FlowOverlay } from "@flowkit-io/react/overlay";
 import "@flowkit-io/react/style.css";
 import "./welcome-overrides.css";
 import { useTheme } from "../themes/ThemeContext";
-import { welcomeFlow } from "./welcomeFlowConfig";
+import { buildWelcomeFlow } from "./welcomeFlowConfig";
 import { flowcodeFlowTheme } from "./flowcodeFlowTheme";
 import { hasSeenWelcome, markWelcomeSeen } from "./welcomeSeen";
+import { useI18n } from "../i18n";
 
 /** First-launch-only welcome/onboarding flow, built on flowkit-io's
  * `FlowOverlay` (a dialog with its own ✕ close button) - mounted inside
@@ -19,9 +20,12 @@ import { hasSeenWelcome, markWelcomeSeen } from "./welcomeSeen";
 export function WelcomeFlow() {
   const [open, setOpen] = useState(() => !hasSeenWelcome());
   const { theme, setMode } = useTheme();
+  const { t, language } = useI18n();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const welcomeFlow = useMemo(() => buildWelcomeFlow(), [language]);
   // The confirmation step has no review step above it, so flowkit never runs
   // its own submit path (that only exists for a "review" final step) - its
-  // primary button ("Vai a Flowcode") just resets the flow's internal state
+  // primary button ("Go to Flowcode") just resets the flow's internal state
   // back to the first step instead (flowkit's "torna alla home" behavior with
   // no `homeUrl` set). `onStepChange` reports that reset as a *second*
   // "initial" direction (the first is the flow's own mount) - that's the only
@@ -67,7 +71,7 @@ export function WelcomeFlow() {
       onStepChange={handleStepChange}
       presentation="dialog"
       showCloseButton
-      ariaLabel="Benvenuto in Flowcode"
+      ariaLabel={t("welcome.title")}
     />
   );
 }

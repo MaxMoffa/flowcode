@@ -22,6 +22,13 @@ where
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
 }
 
+/// The frontend's current UI language - what the backend's own messages
+/// (errors surfaced in the UI) are worded in. See shared/src/i18n.rs.
+#[tauri::command]
+fn set_ui_language(language: String) {
+    flowcode_shared::i18n::set_language(&language);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -64,6 +71,7 @@ pub fn run() {
         .manage(windows::WindowTabs::default())
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
+            set_ui_language,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

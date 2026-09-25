@@ -6,6 +6,14 @@ pub mod uninstall;
 #[path = "uninstall_linux.rs"]
 pub mod uninstall;
 
+use flowcode_shared::i18n::{is_italian, tr};
+
+/// The wizard's UI language - see shared/src/i18n.rs.
+#[tauri::command]
+fn set_ui_language(language: String) {
+    flowcode_shared::i18n::set_language(&language);
+}
+
 #[tauri::command]
 fn installer_default_dir() -> String {
     install::default_dir()
@@ -49,9 +57,11 @@ fn installer_run(
     // to be started from (and point shortcuts/registry there) - never what
     // was meant.
     if !std::path::Path::new(&install_dir).is_absolute() {
-        return Err(format!(
-            "\"{install_dir}\" non è un percorso completo: scegli la cartella con \"Sfoglia...\"."
-        ));
+        return Err(if is_italian() {
+            format!("\"{install_dir}\" non è un percorso completo: scegli la cartella con \"Sfoglia...\".")
+        } else {
+            format!("\"{install_dir}\" is not a full path: pick the folder with \"Browse...\".")
+        });
     }
     // `None` for both = an update over an existing install: keep the
     // desktop shortcut the way it was, and leave the integrations alone -
@@ -91,7 +101,7 @@ async fn installer_pick_dir(app: tauri::AppHandle, default_dir: String) -> Optio
     app.dialog()
         .file()
         .set_directory(&default_dir)
-        .set_title("Scegli la cartella di installazione")
+        .set_title(tr("Scegli la cartella di installazione", "Choose the install folder"))
         .pick_folder(move |result| {
             let _ = tx.send(result.map(|p| p.to_string()));
         });
@@ -113,7 +123,11 @@ pub fn silent_update(install_dir: &str, wait_pid: Option<u32>) {
     let result = if std::path::Path::new(install_dir).is_absolute() {
         install::perform_install(install_dir, install::had_desktop_shortcut())
     } else {
-        Err(format!("cartella di installazione non valida: \"{install_dir}\""))
+        Err(if is_italian() {
+            format!("cartella di installazione non valida: \"{install_dir}\"")
+        } else {
+            format!("invalid install folder: \"{install_dir}\"")
+        })
     };
     if let Err(e) = &result {
         report_update_error(e);
@@ -122,7 +136,7 @@ pub fn silent_update(install_dir: &str, wait_pid: Option<u32>) {
 }
 
 fn report_update_error(message: &str) {
-    let text = format!("Aggiornamento di Flowcode non riuscito:\n\n{message}");
+    let text = format!("{}\n\n{message}", tr("Aggiornamento di Flowcode non riuscito:", "Flowcode update failed:"));
     let _ = std::fs::write(std::env::temp_dir().join("flowcode-update-error.log"), &text);
     #[cfg(target_os = "windows")]
     {
@@ -185,6 +199,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            set_ui_language,
             installer_default_dir,
             installer_existing_install,
             installer_version,

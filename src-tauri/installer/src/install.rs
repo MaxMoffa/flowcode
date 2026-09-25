@@ -147,10 +147,11 @@ fn replace_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     let mut aside = path.as_os_str().to_owned();
     aside.push(format!(".{stamp}{REPLACED_SUFFIX}"));
     fs::rename(path, &aside).map_err(|e| {
-        format!(
-            "{} è in uso e non può essere sostituito ({e}). Chiudi Flowcode e riprova.",
-            path.display()
-        )
+        if flowcode_shared::i18n::is_italian() {
+            format!("{} è in uso e non può essere sostituito ({e}). Chiudi Flowcode e riprova.", path.display())
+        } else {
+            format!("{} is in use and can't be replaced ({e}). Close Flowcode and try again.", path.display())
+        }
     })?;
     fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -341,7 +342,7 @@ pub(crate) const DESKTOP_FILE: &str = "flowcode.desktop";
 
 /// Linux: the binary plus its files in `install_dir`, a freedesktop entry in
 /// `~/.local/share/applications` (what every desktop's app menu/launcher
-/// reads - with a "Disinstalla Flowcode" action on it, pointing at the copy
+/// reads - with an "Uninstall Flowcode" action on it, pointing at the copy
 /// of this installer left behind as `uninstall`), and optionally the same
 /// entry on the desktop.
 #[cfg(target_os = "linux")]
@@ -366,7 +367,8 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
         "[Desktop Entry]\n\
          Type=Application\n\
          Name=Flowcode\n\
-         Comment=Il terminale che si adatta a te\n\
+         Comment=The terminal that adapts to you\n\
+         Comment[it]=Il terminale che si adatta a te\n\
          Exec=\"{exe}\"\n\
          Path={dir}\n\
          Icon={icon}\n\
@@ -376,7 +378,8 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
          Actions=uninstall;\n\
          \n\
          [Desktop Action uninstall]\n\
-         Name=Disinstalla Flowcode\n\
+         Name=Uninstall Flowcode\n\
+         Name[it]=Disinstalla Flowcode\n\
          Exec=\"{uninstall}\" --uninstall\n",
         exe = exe_path.display(),
         dir = install_dir.display(),

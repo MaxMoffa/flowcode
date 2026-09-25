@@ -3,6 +3,7 @@ import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { killPty, spawnPty, writePty } from "../terminal/ptyClient";
 import pkg from "../../package.json";
+import { t } from "../i18n";
 import { withCodexLaunchFlags } from "./codexLaunch";
 import {
   CODEX_COLS,
@@ -15,8 +16,15 @@ import {
 } from "./codexStatus";
 
 export interface UsageMetric {
-  label: string;
-  detail?: string;
+  /** What the row is - its label is translated at render time (see
+   * `metricText`), so a cached result follows a language change. `other`
+   * keeps the CLI's own wording in `label`. */
+  kind: "session" | "week" | "other" | "unavailable" | "loggedOut";
+  label?: string;
+  /** When the window resets, as the CLI worded it. */
+  resets?: string;
+  /** loggedOut: the command that signs in. */
+  command?: string;
   /** 0-1 fill level for a bar/ring - omitted (never guessed) when the CLI
    * doesn't expose a number for this metric outside an interactive session. */
   percent?: number;
@@ -31,7 +39,22 @@ export interface UsageInfo {
   debug?: string;
 }
 
-/** A failed probe: a plain "Non disponibile" in the popover, with every
+/** Label and detail line of a metric, in the current language. */
+export function metricText(m: UsageMetric): { label: string; detail?: string } {
+  switch (m.kind) {
+    case "unavailable":
+      return { label: t("usage.unavailable") };
+    case "loggedOut":
+      return { label: t("usage.notLinked"), detail: t("usage.loginHint", { command: m.command ?? "" }) };
+    default:
+      return {
+        label: m.kind === "session" ? t("usage.session") : m.kind === "week" ? t("usage.week") : (m.label ?? ""),
+        detail: m.resets ? t("usage.resets", { when: m.resets }) : undefined,
+      };
+  }
+}
+
+/** A failed probe: a plain "Unavailable" in the popover, with every
  * detail (error, raw CLI output) moved into `debug`. */
 function unavailable(cli: string, sections: Record<string, string | undefined>): UsageInfo {
   const lines = [
@@ -44,7 +67,7 @@ function unavailable(cli: string, sections: Record<string, string | undefined>):
   return {
     fetchedAt: Date.now(),
     ok: false,
-    metrics: [{ label: "Non disponibile" }],
+    metrics: [{ kind: "unavailable" }],
     debug: lines.join("\n"),
   };
 }
@@ -107,8 +130,8 @@ async function readCodexStatusScreen(): Promise<string> {
 
 function errorSections(e: unknown): Record<string, string | undefined> {
   return {
-    Errore: e instanceof Error ? e.message : String(e),
-    Schermo: e instanceof CodexStatusError ? e.screen.trim() : undefined,
+    Error: e instanceof Error ? e.message : String(e),
+    Screen: e instanceof CodexStatusError ? e.screen.trim() : undefined,
   };
 }
 
@@ -122,7 +145,7 @@ async function fetchCodexUsage(): Promise<UsageInfo> {
       return {
         fetchedAt: Date.now(),
         ok: false,
-        metrics: [{ label: "Non collegato", detail: 'Esegui "codex login" nel terminale per collegare un account.' }],
+        metrics: [{ kind: "loggedOut", command: "codex login" }],
       };
     }
     // A cold ConPTY session on Windows occasionally comes up with its
@@ -137,16 +160,17 @@ async function fetchCodexUsage(): Promise<UsageInfo> {
       screen = await readCodexStatusScreen();
     } catch (e2) {
       return unavailable("Codex CLI", {
-        "Primo tentativo": errorSections(e).Errore,
+        "First attempt": errorSections(e).Error,
         ...errorSections(e2),
       });
     }
   }
 
   const metrics: UsageMetric[] = parseCodexLimits(screen).map((limit) => ({
+    kind: limit.kind,
     label: limit.label,
     percent: limit.percent,
-    detail: `Si azzera ${limit.resets}`,
+    resets: limit.resets,
   }));
 
   if (metrics.length === 0) {
@@ -154,9 +178,9 @@ async function fetchCodexUsage(): Promise<UsageInfo> {
     // future Codex version (a relabeled row, different wording around the
     // percentage) is diagnosable instead of an opaque "no data".
     return unavailable("Codex CLI", {
-      Errore: "Nessuna riga di utilizzo riconosciuta in /status.",
-      Diagnostica: codexDiagnostic(screen),
-      Schermo: screen.trim(),
+      Error: "No usage row recognized in /status.",
+      Diagnostics: codexDiagnostic(screen),
+      Screen: screen.trim(),
     });
   }
   return { fetchedAt: Date.now(), ok: true, metrics };
@@ -169,10 +193,10 @@ async function fetchCodexUsage(): Promise<UsageInfo> {
  * text back instead of rendering it in a TUI. */
 const USAGE_LINE_RE = /^(.+?):\s*(\d+)%\s*used(?:\s*·\s*resets\s+(.+))?\s*$/;
 
-function claudeUsageLabel(raw: string): string {
-  if (/session/i.test(raw)) return "Sessione (5 ore)";
-  if (/week/i.test(raw)) return "Settimana";
-  return raw.trim();
+function claudeUsageKind(raw: string): UsageMetric["kind"] {
+  if (/session/i.test(raw)) return "session";
+  if (/week/i.test(raw)) return "week";
+  return "other";
 }
 
 async function fetchClaudeUsage(): Promise<UsageInfo> {
@@ -188,10 +212,10 @@ async function fetchClaudeUsage(): Promise<UsageInfo> {
       return {
         fetchedAt: Date.now(),
         ok: false,
-        metrics: [{ label: "Non collegato", detail: 'Esegui "claude auth login" nel terminale per collegare un account.' }],
+        metrics: [{ kind: "loggedOut", command: "claude auth login" }],
       };
     }
-    return unavailable("Claude Code", { Errore: message });
+    return unavailable("Claude Code", { Error: message });
   }
 
   // "Current session" (the 5-hour rolling window) first: it's the one that
@@ -201,16 +225,17 @@ async function fetchClaudeUsage(): Promise<UsageInfo> {
     .split("\n")
     .map((line) => line.match(USAGE_LINE_RE))
     .filter((m): m is RegExpMatchArray => m !== null)
-    .map(([, rawLabel, pct, resets]) => ({
-      label: claudeUsageLabel(rawLabel),
+    .map(([, rawLabel, pct, resets]): UsageMetric => ({
+      kind: claudeUsageKind(rawLabel),
+      label: rawLabel.trim(),
       percent: Number(pct) / 100,
-      detail: resets ? `Si azzera ${resets.trim()}` : undefined,
+      resets: resets?.trim(),
     }))
-    .sort((a, b) => (a.label.includes("5 ore") ? -1 : b.label.includes("5 ore") ? 1 : 0));
+    .sort((a, b) => (a.kind === "session" ? -1 : b.kind === "session" ? 1 : 0));
 
   if (metrics.length === 0) {
     return unavailable("Claude Code", {
-      Errore: "Nessuna riga di utilizzo riconosciuta nell'output di claude -p /usage.",
+      Error: "No usage row recognized in the output of claude -p /usage.",
       Output: out,
     });
   }

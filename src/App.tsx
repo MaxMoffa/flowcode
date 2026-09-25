@@ -40,7 +40,7 @@ import { PluginMenu } from "./plugins/PluginMenu";
 import { PluginUsageButton } from "./plugins/PluginUsageButton";
 import { PluginToast } from "./plugins/PluginToast";
 import { PluginDialog } from "./plugins/PluginDialog";
-import { BUILTIN_PLUGINS, EXAMPLE_PLUGINS, DEFAULT_QUICK_ACTIONS } from "./plugins/registry";
+import { builtinPlugins, examplePlugins, DEFAULT_QUICK_ACTIONS } from "./plugins/registry";
 import { pluginIconNode } from "./plugins/icons";
 import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
 import { FavoritesButton, StarIcon, favoritesMenuItem } from "./favorites/FavoritesButton";
@@ -52,6 +52,7 @@ import { readBool, readEnum, readJson, readString, usePersistentState, writeBool
 import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
 import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
+import { useI18n } from "./i18n";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -223,6 +224,7 @@ function ZoomRow({ tabId }: { tabId: string }) {
     setTabFontSize,
     resetTabZoom,
   } = useTerminalSettings();
+  const { t } = useI18n();
   const size = getTabFontSize(tabId);
   const isCustom = tabId in tabFontSizeOverrides;
   // A locally-staged copy of the digits being typed - committing on every
@@ -241,22 +243,22 @@ function ZoomRow({ tabId }: { tabId: string }) {
 
   return (
     <div className="context-menu-zoom-row">
-      <button type="button" className="context-menu-zoom-btn" aria-label="Riduci zoom" onClick={() => zoomTabOut(tabId)}>
+      <button type="button" className="context-menu-zoom-btn" aria-label={t("zoom.out")} onClick={() => zoomTabOut(tabId)}>
         −
       </button>
-      <button type="button" className="context-menu-zoom-btn" aria-label="Aumenta zoom" onClick={() => zoomTabIn(tabId)}>
+      <button type="button" className="context-menu-zoom-btn" aria-label={t("zoom.in")} onClick={() => zoomTabIn(tabId)}>
         +
       </button>
       <span
         className={"context-menu-zoom-value" + (isCustom ? " is-custom" : "")}
-        title={isCustom ? `Diversa dal valore predefinito (${defaultSize}px)` : "Dimensione carattere di questo terminale"}
+        title={isCustom ? t("zoom.custom", { size: defaultSize }) : t("zoom.thisTerminal")}
       >
         <input
           type="text"
           inputMode="numeric"
           className="context-menu-zoom-input"
           value={draft}
-          aria-label="Dimensione carattere"
+          aria-label={t("zoom.fontSize")}
           onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
           onBlur={commit}
           onKeyDown={(e) => {
@@ -275,8 +277,8 @@ function ZoomRow({ tabId }: { tabId: string }) {
       <button
         type="button"
         className="context-menu-zoom-btn context-menu-zoom-reset"
-        aria-label="Ripristina dimensione predefinita"
-        title="Ripristina dimensione predefinita"
+        aria-label={t("zoom.reset")}
+        title={t("zoom.reset")}
         disabled={!isCustom}
         onClick={() => resetTabZoom(tabId)}
       >
@@ -412,6 +414,7 @@ function Shell() {
   const pendingEditorContentRef = useRef(new Map<string, string>());
   const pluginBtnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirmDialog();
+  const { t } = useI18n();
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
@@ -452,7 +455,7 @@ function Shell() {
 
       if (!readString(PLUGINS_MIGRATED_KEY)) {
         const migratedIds: string[] = [];
-        for (const manifest of EXAMPLE_PLUGINS) {
+        for (const manifest of examplePlugins()) {
           const current = byId.get(manifest.id);
           if (current && current.action !== manifest.action) {
             await invoke("save_plugin", { plugin: manifest });
@@ -471,7 +474,7 @@ function Shell() {
       const chosen = await invoke<string[] | null>("take_installer_features").catch(() => null);
       if (chosen) {
         const chosenIds: string[] = [];
-        for (const manifest of EXAMPLE_PLUGINS) {
+        for (const manifest of examplePlugins()) {
           if (!chosen.includes(manifest.id)) continue;
           if (!byId.has(manifest.id)) await invoke("save_plugin", { plugin: manifest });
           chosenIds.push(manifest.id);
@@ -482,7 +485,7 @@ function Shell() {
 
       if (!readString(PLUGINS_SEEDED_KEY)) {
         const newIds: string[] = [];
-        for (const manifest of EXAMPLE_PLUGINS) {
+        for (const manifest of examplePlugins()) {
           if (!byId.has(manifest.id)) {
             await invoke("save_plugin", { plugin: manifest });
             newIds.push(manifest.id);
@@ -511,7 +514,7 @@ function Shell() {
       await invoke("save_plugin", { plugin: manifest });
       await reloadCustomPlugins();
     } catch (e) {
-      window.alert(`Impossibile salvare il plugin: ${e}`);
+      window.alert(t("plugins.saveFailed", { error: String(e) }));
     }
   }
 
@@ -521,7 +524,7 @@ function Shell() {
       await reloadCustomPlugins();
       setQuickActionIds((prev) => prev.filter((x) => x !== id));
     } catch (e) {
-      window.alert(`Impossibile eliminare il plugin: ${e}`);
+      window.alert(t("plugins.deleteFailed", { error: String(e) }));
     }
   }
 
@@ -569,6 +572,7 @@ function Shell() {
     /** Rebuilds one saved window's tabs in this window. */
     async function applySavedWindow(saved: SavedWindow) {
       const restored: AppTab[] = [];
+      const settingsLabel = t("settings.title");
       for (const t of saved.tabs) {
         if (t.kind === "terminal") {
           // A folder deleted since, or a `\\wsl.localhost\...` path a
@@ -603,7 +607,7 @@ function Shell() {
         } else if (t.kind === "editor") {
           restored.push({ kind: "editor", id: `editor-${nextTabId++}`, path: t.path, label: t.label });
         } else if (!restored.some((r) => r.kind === "settings")) {
-          restored.push({ kind: "settings", id: "settings", label: "Impostazioni" });
+          restored.push({ kind: "settings", id: "settings", label: settingsLabel });
         }
       }
       if (cancelled) return;
@@ -1003,7 +1007,7 @@ function Shell() {
       const wslTab = activeTerminal?.nestedShell === "wsl" ? activeTerminal : undefined;
       const hostPath = wslTab?.wslDistro && path.startsWith("/") ? toWindowsPath(wslTab.wslDistro, path) : path;
       invoke("open_with_default_app", { path: hostPath }).catch((e) =>
-        showPluginToast(`Impossibile aprire ${name}: ${e}`),
+        showPluginToast(t("app.openFailed", { name, error: String(e) })),
       );
       return;
     }
@@ -1027,7 +1031,7 @@ function Shell() {
       setActiveTabId(existing.id);
       return;
     }
-    setTabs((prev) => [...prev, { kind: "settings", id: "settings", label: "Impostazioni" }]);
+    setTabs((prev) => [...prev, { kind: "settings", id: "settings", label: t("settings.title") }]);
     setActiveTabId("settings");
   }
 
@@ -1061,7 +1065,7 @@ function Shell() {
       if (transfer.editor?.dirty) pendingEditorContentRef.current.set(id, transfer.editor.content);
       adopted = { ...tab, id };
     } else {
-      adopted = { kind: "settings", id: "settings", label: "Impostazioni" };
+      adopted = { kind: "settings", id: "settings", label: t("settings.title") };
     }
 
     if (replaceAll) {
@@ -1246,9 +1250,9 @@ function Shell() {
       const handle = editorRefs.current.get(id);
       if (handle?.isDirty()) {
         const ok = await confirm({
-          title: "Modifiche non salvate",
-          message: `"${tab.label}" ha modifiche non salvate. Chiudere comunque?`,
-          confirmLabel: "Chiudi senza salvare",
+          title: t("app.unsaved.title"),
+          message: t("app.unsaved.message", { name: tab.label }),
+          confirmLabel: t("app.unsaved.confirm"),
           danger: true,
         });
         if (!ok) return;
@@ -1556,7 +1560,7 @@ function Shell() {
   const activeTerminal = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
   const sidebarCwd = activeTerminal?.explorerPath || homeDir;
 
-  const allPlugins: PluginDef[] = [...BUILTIN_PLUGINS, ...customPlugins];
+  const allPlugins: PluginDef[] = [...builtinPlugins(), ...customPlugins];
 
   function showPluginToast(message: string) {
     setPluginToast(message);
@@ -1601,9 +1605,9 @@ function Shell() {
       const isWindows = isWindowsPlatform();
       const installCommand = cliInstallCommand(cliBin, isWindows);
       const ok = await confirm({
-        title: `${label} non è installato`,
-        message: `${label} non risulta installato su questo sistema. Vuoi installarlo ora in un nuovo terminale?`,
-        confirmLabel: "Installa",
+        title: t("app.cli.notInstalled.title", { name: label }),
+        message: t("app.cli.notInstalled.message", { name: label }),
+        confirmLabel: t("app.cli.install"),
       });
       if (ok) openTerminalWithCommand(installCommand);
       return;
@@ -1612,9 +1616,9 @@ function Shell() {
     if (!status.logged_in) {
       const loginCommand = cliBin === "claude" ? "claude auth login" : "codex login";
       const ok = await confirm({
-        title: `Accesso a ${label} richiesto`,
-        message: `${label} è installato ma non hai ancora effettuato l'accesso. Vuoi farlo ora in un nuovo terminale?`,
-        confirmLabel: "Accedi",
+        title: t("app.cli.login.title", { name: label }),
+        message: t("app.cli.login.message", { name: label }),
+        confirmLabel: t("app.cli.login"),
       });
       if (ok) openTerminalWithCommand(loginCommand);
       return;
@@ -1752,9 +1756,9 @@ function Shell() {
   }
 
   const themeModeLabels: Record<ThemeMode, string> = {
-    auto: "Automatico (sistema)",
-    light: "Chiaro",
-    dark: "Scuro",
+    auto: t("theme.auto"),
+    light: t("theme.light"),
+    dark: t("theme.dark"),
   };
 
   function moreMenuItems(): ContextMenuItem[] {
@@ -1764,14 +1768,14 @@ function Shell() {
         custom: <ZoomRow tabId={activeTerminalId} />,
       },
       { separator: true, label: "sep-zoom" },
-      { label: "Nuovo terminale", icon: Icons.newTerminal, onSelect: () => addTab() },
+      { label: t("menu.newTerminal"), icon: Icons.newTerminal, onSelect: () => addTab() },
       {
-        label: isFullscreen ? "Esci da schermo intero" : "Schermo intero",
+        label: isFullscreen ? t("menu.exitFullscreen") : t("menu.fullscreen"),
         icon: isFullscreen ? Icons.fullscreenExit : Icons.fullscreen,
         onSelect: toggleFullscreen,
       },
       {
-        label: "Preferiti",
+        label: t("favorites.title"),
         icon: <StarIcon />,
         submenu: [
           favoritesMenuItem({
@@ -1784,7 +1788,7 @@ function Shell() {
       },
       { separator: true, label: "sep-actions" },
       {
-        label: "Tema",
+        label: t("menu.theme"),
         icon: mode === "auto" ? Icons.themeAuto : mode === "light" ? Icons.sun : Icons.moon,
         submenu: (["auto", "light", "dark"] as ThemeMode[]).map((m) => ({
           label: themeModeLabels[m],
@@ -1794,7 +1798,7 @@ function Shell() {
         })),
       },
       { separator: true, label: "sep-theme" },
-      { label: "Impostazioni", icon: Icons.settings, onSelect: openSettings },
+      { label: t("settings.title"), icon: Icons.settings, onSelect: openSettings },
     ];
   }
 
@@ -1809,15 +1813,15 @@ function Shell() {
               e,
               (
                 [
-                  ["auto", "Automatica (larghezza)"],
-                  ["docked", "Fissato"],
-                  ["floating", "Flottante"],
+                  ["auto", t("sidebarMode.auto")],
+                  ["docked", t("sidebarMode.docked")],
+                  ["floating", t("sidebarMode.floating")],
                 ] as [SidebarMode, string][]
               ).map(([m, label]) => ({ label, checked: sidebarMode === m, onSelect: () => setSidebarMode(m) })),
             )
           }
-          aria-label="Mostra/nascondi pannello laterale"
-          title="Mostra/nascondi pannello laterale (click destro per la modalità)"
+          aria-label={t("app.toggleSidebar")}
+          title={t("app.toggleSidebar.title")}
         >
           <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
@@ -1848,7 +1852,7 @@ function Shell() {
                   <div
                     key={id}
                     onContextMenu={(e) =>
-                      openMenu(e, [{ label: "Rimuovi dagli shortcut", danger: true, onSelect: () => toggleQuickAction(id) }])
+                      openMenu(e, [{ label: t("app.removeShortcut"), danger: true, onSelect: () => toggleQuickAction(id) }])
                     }
                   >
                     <PluginUsageButton plugin={plugin} icon={pluginIconNode(plugin)} onRun={() => runPlugin(plugin)} />
@@ -1869,8 +1873,8 @@ function Shell() {
             type="button"
             className="icon-button"
             onClick={() => setPluginMenuAnchor((r) => (r ? null : pluginBtnRef.current?.getBoundingClientRect() ?? null))}
-            aria-label="Funzionalità"
-            title="Funzionalità"
+            aria-label={t("settings.section.features")}
+            title={t("settings.section.features")}
           >
             {Icons.features}
           </button>
@@ -1880,24 +1884,24 @@ function Shell() {
           <button
             type="button"
             className="icon-button"
-            aria-label="Altre opzioni"
-            title="Altre opzioni"
+            aria-label={t("app.moreOptions")}
+            title={t("app.moreOptions")}
             onClick={(e) => openMenu(e, moreMenuItems())}
           >
             {Icons.kebab}
           </button>
           <div className="window-controls">
-            <button className="icon-button" aria-label="Minimize" onClick={() => appWindow.minimize()}>
+            <button className="icon-button" aria-label={t("window.minimize")} onClick={() => appWindow.minimize()}>
               <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
                 <line x1="6" y1="12" x2="18" y2="12" />
               </svg>
             </button>
-            <button className="icon-button" aria-label="Maximize" onClick={() => appWindow.toggleMaximize()}>
+            <button className="icon-button" aria-label={t("window.maximize")} onClick={() => appWindow.toggleMaximize()}>
               <svg viewBox="0 0 24 24" strokeWidth="1.6">
                 <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
               </svg>
             </button>
-            <button className="icon-button icon-button-close" aria-label="Close" onClick={() => appWindow.close()}>
+            <button className="icon-button icon-button-close" aria-label={t("window.close")} onClick={() => appWindow.close()}>
               <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
                 <line x1="6.5" y1="6.5" x2="17.5" y2="17.5" />
                 <line x1="17.5" y1="6.5" x2="6.5" y2="17.5" />

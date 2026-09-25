@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveContentText } from "@flowkit-io/core";
 import { registerStepComponent, type StepComponentProps } from "@flowkit-io/react";
+import { useI18n } from "../../i18n";
 import type { DirectoryStep } from "./directoryStepType";
 
 /** Same visual slot flowkit's own steps use for their title icon
@@ -21,10 +22,11 @@ function TitleIcon({ image }: { image: DirectoryStep["image"] }) {
 }
 
 /** Folder picker matching a classic desktop installer's "destination
- * folder" step: a read-only path display plus a native "Sfoglia..." dialog
+ * folder" step: a read-only path display plus a native "Browse..." dialog
  * (`installer_pick_dir`, Rust side), instead of flowkit's built-in `text`
  * step (a bare input the user had to type a Windows path into by hand). */
 function DirectoryStepView({ step, value, onChange, flow }: StepComponentProps<DirectoryStep>) {
+  const { t } = useI18n();
   const [browsing, setBrowsing] = useState(false);
   const stringValue = typeof value === "string" ? value : "";
   const title = step.title !== undefined ? resolveContentText(flow, step.title) : undefined;
@@ -65,7 +67,7 @@ function DirectoryStepView({ step, value, onChange, flow }: StepComponentProps<D
           spellCheck={false}
         />
         <button type="button" className="fk-btn-secondary installer-dir-browse" onClick={browse} disabled={browsing}>
-          Sfoglia...
+          {t("installer.browse")}
         </button>
       </div>
     </div>

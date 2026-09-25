@@ -3,6 +3,8 @@
  * to run - anyone can write a new plugin (a JSON file dropped in the app's
  * plugins folder) by picking one of these, without the app ever executing
  * code it didn't ship with. Full docs: PLUGINS.md at the repo root. */
+import type { MessageKey } from "../i18n";
+
 export type PluginAction =
   | "newTerminal"
   | "clearTerminal"
@@ -36,7 +38,7 @@ export interface PluginManifest {
   /** dialog only - defaults to `label` if omitted. */
   title?: string;
   /** dialog only - one button per action, shown alongside an automatic
-   * "Chiudi" button. */
+   * "Close" button. */
   buttons?: PluginButtonDef[];
   /** SVG path `d` data for a single path, drawn in a fixed icon frame. */
   icon?: string;
@@ -47,13 +49,15 @@ export interface PluginDef extends PluginManifest {
   builtin?: boolean;
 }
 
-export const PLUGIN_ACTION_LABELS: Record<PluginAction, string> = {
-  newTerminal: "Apri un nuovo terminale",
-  clearTerminal: "Pulisci il terminale attivo",
-  toggleSidebar: "Mostra/nascondi il pannello laterale",
-  toggleAgentsSidebar: "Mostra/nascondi il pannello agenti attivi",
-  runCommand: "Digita un comando nel terminale attivo",
-  notify: "Mostra un messaggio (popup)",
-  dialog: "Apri un dialog con informazioni e pulsanti",
-  commandOutput: "Esegue un comando e mostra l'output in un popup",
+/** Translation key of each action's description - also the list of valid
+ * actions (`action in PLUGIN_ACTION_LABELS`). */
+export const PLUGIN_ACTION_LABELS: Record<PluginAction, MessageKey> = {
+  newTerminal: "pluginAction.newTerminal",
+  clearTerminal: "pluginAction.clearTerminal",
+  toggleSidebar: "pluginAction.toggleSidebar",
+  toggleAgentsSidebar: "pluginAction.toggleAgentsSidebar",
+  runCommand: "pluginAction.runCommand",
+  notify: "pluginAction.notify",
+  dialog: "pluginAction.dialog",
+  commandOutput: "pluginAction.commandOutput",
 };

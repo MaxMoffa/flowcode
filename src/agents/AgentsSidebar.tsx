@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { TermTab } from "../tabs/types";
 import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
+import { t, useI18n } from "../i18n";
 import "./agents-sidebar.css";
 
 /** Mirrors the Rust `AgentSession` struct in src-tauri/src/agents.rs field
@@ -32,7 +33,7 @@ interface AgentSession {
 }
 
 const POLL_MS = 3000;
-/** Saved Codex sessions listed before "Mostra altre". */
+/** Saved Codex sessions listed before "Show more". */
 const SAVED_SESSIONS_SHOWN = 3;
 
 function formatDuration(startedAt: number | null): string {
@@ -108,10 +109,11 @@ interface AgentsSidebarProps {
  * is matched to a running agent (its shell's own process tree, not anything
  * the agent CLI itself reports - there's no API for that). Double-clicking a
  * row switches to that tab. */
-const STATUS_LABELS: Record<string, string> = {
-  busy: "al lavoro",
-  idle: "in attesa",
-};
+function statusLabel(status: string): string {
+  if (status === "busy") return t("agents.status.busy");
+  if (status === "idle") return t("agents.status.idle");
+  return status;
+}
 
 /** Sends an interrupt keystroke (Esc - the same key both Claude Code's and
  * Codex's own TUI treat as "stop this turn") straight to a tab's pty. Only
@@ -136,6 +138,7 @@ export function AgentsSidebar({
   onOpenSession,
   onClose,
 }: AgentsSidebarProps) {
+  const { t } = useI18n();
   const [sessions, setSessions] = useState<AgentSession[] | null>(null);
   const [claudeAgents, setClaudeAgents] = useState<ClaudeAgentEntry[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSessionEntry[]>([]);
@@ -259,8 +262,8 @@ export function AgentsSidebar({
       name: session.session_name || claudeInfo?.name || basename(cwd) || session.cli_label,
       cwd,
       chip: status
-        ? { kind: status === "busy" ? "busy" : "idle", label: STATUS_LABELS[status] ?? status }
-        : { kind: "running", label: "in esecuzione" },
+        ? { kind: status === "busy" ? "busy" : "idle", label: statusLabel(status) }
+        : { kind: "running", label: t("agents.status.running") },
     };
   }
 
@@ -268,7 +271,7 @@ export function AgentsSidebar({
     <button
       type="button"
       className="agents-sidebar-stop"
-      title="Interrompi (invia Esc a questo agente)"
+      title={t("agents.interrupt")}
       onClick={(e) => {
         e.stopPropagation();
         interruptPty(ptyId);
@@ -282,15 +285,15 @@ export function AgentsSidebar({
   return (
     <div className="agents-sidebar">
       <div className="agents-sidebar-header">
-        <button type="button" className="agents-sidebar-close" title="Chiudi pannello" aria-label="Chiudi pannello" onClick={onClose}>
+        <button type="button" className="agents-sidebar-close" title={t("agents.closePanel")} aria-label={t("agents.closePanel")} onClick={onClose}>
           <CloseIcon />
         </button>
-        <span className="agents-sidebar-title">Agenti attivi</span>
+        <span className="agents-sidebar-title">{t("agents.title")}</span>
         <button
           type="button"
           className={"agents-sidebar-close agents-sidebar-refresh" + (refreshing ? " is-refreshing" : "")}
-          title="Aggiorna"
-          aria-label="Aggiorna"
+          title={t("agents.refresh")}
+          aria-label={t("agents.refresh")}
           disabled={refreshing}
           onClick={() => {
             setRefreshing(true);
@@ -301,8 +304,8 @@ export function AgentsSidebar({
         </button>
       </div>
       <div className="agents-sidebar-list">
-        {loading && <div className="agents-sidebar-empty">Verifica in corso…</div>}
-        {isEmpty && <div className="agents-sidebar-empty">Nessun agente in esecuzione.</div>}
+        {loading && <div className="agents-sidebar-empty">{t("common.checking")}</div>}
+        {isEmpty && <div className="agents-sidebar-empty">{t("agents.empty")}</div>}
         {localRows.map(({ session, tab }) => {
           const { name, cwd, chip } = describeRunning(session, tab.cwd);
           return (
@@ -315,13 +318,13 @@ export function AgentsSidebar({
               meta={runningMeta(session)}
               chip={chip}
               active={tab.id === activeTabId}
-              hint="doppio click per aprire la scheda"
+              hint={t("agents.hint.openTab")}
               onOpen={() => onOpenTab(tab.id)}
               action={stopButton(session.pty_id)}
             />
           );
         })}
-        {otherWindowRows.length > 0 && <div className="agents-sidebar-section-label">Altre finestre</div>}
+        {otherWindowRows.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.otherWindows")}</div>}
         {otherWindowRows.map((session) => {
           const { name, cwd, chip } = describeRunning(session, session.tab_cwd);
           return (
@@ -334,14 +337,14 @@ export function AgentsSidebar({
               otherWindow
               meta={runningMeta(session)}
               chip={chip}
-              hint="in un'altra finestra · doppio click per andarci"
+              hint={t("agents.hint.otherWindow")}
               onOpen={() => focusOtherWindow(session)}
               action={stopButton(session.pty_id)}
             />
           );
         })}
         {(backgroundClaudeAgents.length > 0 || liveCodexElsewhere.length > 0) && (
-          <div className="agents-sidebar-section-label">In background</div>
+          <div className="agents-sidebar-section-label">{t("agents.section.background")}</div>
         )}
         {liveCodexElsewhere.map((s) => (
           <AgentRow
@@ -350,10 +353,10 @@ export function AgentsSidebar({
             cli="codex"
             name={s.name || basename(s.cwd)}
             cwd={s.cwd}
-            terminal={s.inFlowcode ? "altra istanza di Flowcode" : "altro terminale"}
+            terminal={s.inFlowcode ? t("agents.otherFlowcode") : t("agents.otherTerminal")}
             meta={`Codex CLI${s.wslDistro ? " · WSL" : ""}`}
-            chip={{ kind: s.status === "busy" ? "busy" : "idle", label: STATUS_LABELS[s.status ?? "idle"] }}
-            hint="in esecuzione in un altro terminale"
+            chip={{ kind: s.status === "busy" ? "busy" : "idle", label: statusLabel(s.status ?? "idle") }}
+            hint={t("agents.hint.runningElsewhere")}
             // Already open there - resuming it here too would put two
             // terminals on one thread.
             onOpen={() => {}}
@@ -366,14 +369,14 @@ export function AgentsSidebar({
             cli="claude"
             name={agent.name || basename(agent.cwd)}
             cwd={agent.cwd}
-            terminal={agent.hostApp ?? "altro terminale"}
+            terminal={agent.hostApp ?? t("agents.otherTerminal")}
             meta={`Claude Code${agent.startedAt !== null ? ` · ${formatDuration(agent.startedAt)}` : ""}`}
-            chip={{ kind: agent.status === "busy" ? "busy" : "idle", label: STATUS_LABELS[agent.status] ?? agent.status }}
-            hint="fuori da Flowcode · doppio click per riprendere la chat"
+            chip={{ kind: agent.status === "busy" ? "busy" : "idle", label: statusLabel(agent.status) }}
+            hint={t("agents.hint.outsideFlowcode")}
             onOpen={() => onOpenSession(agent.cwd, agent.sessionId, "claude")}
           />
         ))}
-        {backgroundCodexSessions.length > 0 && <div className="agents-sidebar-section-label">Sessioni salvate</div>}
+        {backgroundCodexSessions.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.saved")}</div>}
         {shownCodexSessions.map((s) => (
           <AgentRow
             key={s.sessionId}
@@ -381,15 +384,17 @@ export function AgentsSidebar({
             cli="codex"
             name={s.name || basename(s.cwd)}
             cwd={s.cwd}
-            meta={`Codex CLI${s.wslDistro ? ` · WSL` : ""}${s.startedAt !== null ? ` · ${formatDuration(s.startedAt)} fa` : ""}`}
-            chip={{ kind: "saved", label: "salvata" }}
-            hint="doppio click per riprendere la chat"
+            meta={`Codex CLI${s.wslDistro ? ` · WSL` : ""}${s.startedAt !== null ? ` · ${t("agents.ago", { duration: formatDuration(s.startedAt) })}` : ""}`}
+            chip={{ kind: "saved", label: t("agents.status.saved") }}
+            hint={t("agents.hint.resume")}
             onOpen={() => onOpenSession(s.cwd, s.sessionId, "codex", s.wslDistro ?? undefined)}
           />
         ))}
         {backgroundCodexSessions.length > SAVED_SESSIONS_SHOWN && (
           <button type="button" className="agents-sidebar-more" onClick={() => setShowAllSaved((v) => !v)}>
-            {showAllSaved ? "Mostra meno" : `Mostra altre ${backgroundCodexSessions.length - SAVED_SESSIONS_SHOWN}`}
+            {showAllSaved
+              ? t("agents.showLess")
+              : t("agents.showMore", { count: backgroundCodexSessions.length - SAVED_SESSIONS_SHOWN })}
           </button>
         )}
       </div>
@@ -421,6 +426,7 @@ interface AgentRowProps {
 /** One agent: its session name, the folder it works in, and which terminal
  * it runs in. */
 function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, chip, active, background, hint, onOpen, action }: AgentRowProps) {
+  const { t } = useI18n();
   return (
     <div
       className={
@@ -444,7 +450,7 @@ function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, chip, active, b
           {terminal !== undefined && (
             <span
               className="agents-sidebar-terminal"
-              title={otherWindow ? "Scheda di un'altra finestra" : "Scheda in cui è aperto"}
+              title={otherWindow ? t("agents.tabOtherWindow") : t("agents.tabHere")}
             >
               {otherWindow ? <WindowIcon /> : <TerminalIcon />}
               <span className="agents-sidebar-terminal-label">{terminal}</span>

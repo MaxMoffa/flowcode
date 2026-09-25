@@ -9,6 +9,7 @@ import { FileInfoDialog } from "./FileInfoDialog";
 import type { ExplorerLinkMode } from "../settings/modes";
 import { isRootPath, parentPath, separatorOf, trimTrailingSeparators, truncatePath } from "../lib/path";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
+import { useI18n } from "../i18n";
 
 interface FsEntry {
   name: string;
@@ -200,6 +201,7 @@ export function FileTree({
   onSetLinkMode,
   terminalBusy,
 }: FileTreeProps) {
+  const { t } = useI18n();
   const [entries, setEntries] = useState<FsEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -279,7 +281,7 @@ export function FileTree({
     setCopiedPath(path);
     if (copiedTimer.current) clearTimeout(copiedTimer.current);
     copiedTimer.current = setTimeout(() => setCopiedPath(null), 1200);
-    setToast("Percorso copiato");
+    setToast(t("files.pathCopied"));
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 1600);
   }
@@ -345,11 +347,10 @@ export function FileTree({
   }
 
   async function handleDelete(entry: FsEntry) {
-    const kind = entry.is_dir ? "cartella" : "file";
     const ok = await confirm({
-      title: "Elimina",
-      message: `Eliminare la ${kind} "${entry.name}"? L'operazione non può essere annullata.`,
-      confirmLabel: "Elimina",
+      title: t("common.delete"),
+      message: t(entry.is_dir ? "files.delete.folder" : "files.delete.file", { name: entry.name }),
+      confirmLabel: t("common.delete"),
       danger: true,
     });
     if (!ok) return;
@@ -357,7 +358,7 @@ export function FileTree({
       await invoke("delete_entry", { path: entry.path, isDir: entry.is_dir });
       reload();
     } catch (e) {
-      window.alert(`Impossibile eliminare: ${e}`);
+      window.alert(t("files.error.delete", { error: String(e) }));
     }
   }
 
@@ -366,7 +367,7 @@ export function FileTree({
       await invoke("duplicate_entry", { path: entry.path });
       reload();
     } catch (e) {
-      window.alert(`Impossibile duplicare: ${e}`);
+      window.alert(t("files.error.duplicate", { error: String(e) }));
     }
   }
 
@@ -374,7 +375,7 @@ export function FileTree({
     try {
       await invoke("rename_entry", { path: entry.path, newName });
     } catch (e) {
-      window.alert(`Impossibile rinominare: ${e}`);
+      window.alert(t("files.error.rename", { error: String(e) }));
     } finally {
       setRenamingPath(null);
       reload();
@@ -385,7 +386,7 @@ export function FileTree({
     try {
       await invoke(kind === "file" ? "create_file_entry" : "create_dir_entry", { dir: cwd, name });
     } catch (e) {
-      window.alert(`Impossibile creare: ${e}`);
+      window.alert(t("files.error.create", { error: String(e) }));
     } finally {
       setCreating(null);
       reload();
@@ -395,10 +396,10 @@ export function FileTree({
   function entryMenuItems(entry: FsEntry): ContextMenuItem[] {
     const items: ContextMenuItem[] = [];
     if (!entry.is_dir) {
-      items.push({ label: "Apri", icon: Icons.open, onSelect: () => onOpenFile(entry.path) });
+      items.push({ label: t("files.open"), icon: Icons.open, onSelect: () => onOpenFile(entry.path) });
     } else {
       items.push({
-        label: "Apri in un altro terminale",
+        label: t("files.openInTerminal"),
         icon: Icons.terminal,
         onSelect: () => onOpenTerminal(entry.path),
       });
@@ -408,7 +409,7 @@ export function FileTree({
     // no-op offered on every single row for no reason.
     if (isSearching) {
       items.push({
-        label: "Apri cartella contenente",
+        label: t("files.openContaining"),
         icon: Icons.openContaining,
         onSelect: () => {
           onNavigate(parentPath(entry.path));
@@ -417,49 +418,49 @@ export function FileTree({
       });
     }
     items.push({
-      label: "Rivela nel file manager",
+      label: t("files.reveal"),
       icon: Icons.reveal,
       onSelect: () => revealItemInDir(entry.path).catch(() => {}),
     });
     if (entry.is_dir) {
       const fav = isFavorite(entry.path);
       items.push({
-        label: fav ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti",
+        label: fav ? t("favorites.remove") : t("favorites.add"),
         icon: Icons.star,
         onSelect: () => (fav ? removeFavorite(entry.path) : addFavorite(entry.path, shell)),
       });
     }
     items.push({ separator: true, label: "sep-1" });
-    items.push({ label: "Rinomina", icon: Icons.rename, onSelect: () => setRenamingPath(entry.path) });
-    items.push({ label: "Duplica", icon: Icons.duplicate, onSelect: () => handleDuplicate(entry) });
-    items.push({ label: "Copia percorso", icon: Icons.copy, onSelect: () => handleCopyPath(entry.path) });
+    items.push({ label: t("tabs.rename"), icon: Icons.rename, onSelect: () => setRenamingPath(entry.path) });
+    items.push({ label: t("tabs.duplicate"), icon: Icons.duplicate, onSelect: () => handleDuplicate(entry) });
+    items.push({ label: t("files.copyPath"), icon: Icons.copy, onSelect: () => handleCopyPath(entry.path) });
     items.push({ separator: true, label: "sep-2" });
-    items.push({ label: "Informazioni", icon: Icons.info, onSelect: () => setInfoEntry(entry) });
+    items.push({ label: t("files.info"), icon: Icons.info, onSelect: () => setInfoEntry(entry) });
     items.push({ separator: true, label: "sep-3" });
-    items.push({ label: "Elimina", icon: Icons.delete, danger: true, onSelect: () => handleDelete(entry) });
+    items.push({ label: t("common.delete"), icon: Icons.delete, danger: true, onSelect: () => handleDelete(entry) });
     return items;
   }
 
   /** Whether clicking a folder in the tree actually `cd`s the terminal - see
    * `ExplorerLinkMode`. Exposed as a two-way submenu (not a plain toggle) so
-   * the always-on "disconnesso" choice reads as a distinct, deliberate state
+   * the always-on "disconnected" choice reads as a distinct, deliberate state
    * from "auto"'s automatic, temporary suspension while a full-screen
    * program owns the shell. */
   function linkModeItem(): ContextMenuItem {
     return {
-      label: "Collegamento al terminale",
+      label: t("files.link"),
       icon: Icons.link,
       submenu: [
-        { label: "Connesso", checked: linkMode === "auto", onSelect: () => onSetLinkMode("auto") },
-        { label: "Scollegato", checked: linkMode === "disconnesso", onSelect: () => onSetLinkMode("disconnesso") },
+        { label: t("files.link.connected"), checked: linkMode === "auto", onSelect: () => onSetLinkMode("auto") },
+        { label: t("files.link.disconnected"), checked: linkMode === "disconnesso", onSelect: () => onSetLinkMode("disconnesso") },
       ],
     };
   }
 
   function backgroundMenuItems(): ContextMenuItem[] {
     return [
-      { label: "Nuovo file", icon: Icons.newFile, onSelect: () => setCreating("file") },
-      { label: "Nuova cartella", icon: Icons.newFolder, onSelect: () => setCreating("dir") },
+      { label: t("files.newFile"), icon: Icons.newFile, onSelect: () => setCreating("file") },
+      { label: t("files.newFolder"), icon: Icons.newFolder, onSelect: () => setCreating("dir") },
       { separator: true, label: "sep-bg1" },
       linkModeItem(),
     ];
@@ -473,10 +474,10 @@ export function FileTree({
     // somewhere the shell never actually visited.
     const canFavoriteCurrent = !!cwd && !terminalBusy;
     return [
-      { label: "Mostra file nascosti", icon: Icons.eye, checked: showHidden, onSelect: toggleShowHidden },
+      { label: t("files.showHidden"), icon: Icons.eye, checked: showHidden, onSelect: toggleShowHidden },
       { separator: true, label: "sep-h1" },
       {
-        label: cwdFav ? "Rimuovi cartella corrente dai preferiti" : "Aggiungi cartella corrente ai preferiti",
+        label: cwdFav ? t("favorites.removeCurrent") : t("favorites.addCurrent"),
         icon: Icons.star,
         disabled: !canFavoriteCurrent,
         onSelect: () => cwd && (cwdFav ? removeFavorite(cwd) : addFavorite(cwd, shell)),
@@ -484,10 +485,10 @@ export function FileTree({
       { separator: true, label: "sep-h2" },
       linkModeItem(),
       { separator: true, label: "sep-h2b" },
-      { label: "Nuovo file", icon: Icons.newFile, onSelect: () => setCreating("file") },
-      { label: "Nuova cartella", icon: Icons.newFolder, onSelect: () => setCreating("dir") },
+      { label: t("files.newFile"), icon: Icons.newFile, onSelect: () => setCreating("file") },
+      { label: t("files.newFolder"), icon: Icons.newFolder, onSelect: () => setCreating("dir") },
       { separator: true, label: "sep-h3" },
-      { label: "Aggiorna", icon: Icons.refresh, onSelect: reload },
+      { label: t("agents.refresh"), icon: Icons.refresh, onSelect: reload },
     ];
   }
 
@@ -519,8 +520,8 @@ export function FileTree({
         <button
           type="button"
           className="file-tree-back"
-          aria-label="Cartella superiore"
-          title="Cartella superiore"
+          aria-label={t("files.up")}
+          title={t("files.up")}
           disabled={isRootPath(cwd)}
           onClick={goUp}
         >
@@ -553,8 +554,8 @@ export function FileTree({
         <button
           type="button"
           className={"file-tree-menu-btn" + (searchOpen ? " is-active" : "")}
-          aria-label="Cerca nella cartella e nelle sottocartelle"
-          title="Cerca nella cartella e nelle sottocartelle"
+          aria-label={t("files.search")}
+          title={t("files.search")}
           onClick={toggleSearch}
         >
           {Icons.search}
@@ -562,8 +563,8 @@ export function FileTree({
         <button
           type="button"
           className="file-tree-menu-btn"
-          aria-label="Opzioni cartella"
-          title="Opzioni cartella"
+          aria-label={t("files.folderOptions")}
+          title={t("files.folderOptions")}
           onClick={(e) => openMenu(e, headerMenuItems())}
         >
           {Icons.kebab}
@@ -575,7 +576,7 @@ export function FileTree({
           <input
             ref={searchInputRef}
             className="file-tree-search-input"
-            placeholder="Cerca file o cartelle, anche nelle sottocartelle…"
+            placeholder={t("files.search.placeholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -586,9 +587,9 @@ export function FileTree({
       )}
       <div className="file-tree-list" onContextMenu={(e) => openMenu(e, backgroundMenuItems())}>
         {error && <div className="file-tree-loading">{error}</div>}
-        {!error && !isSearching && entries === null && <div className="file-tree-loading">Loading…</div>}
+        {!error && !isSearching && entries === null && <div className="file-tree-loading">{t("common.loading")}</div>}
         {!error && isSearching && searching && searchResults === null && (
-          <div className="file-tree-loading">Ricerca in corso…</div>
+          <div className="file-tree-loading">{t("files.searching")}</div>
         )}
         {!error &&
           visibleEntries?.map((entry) =>
@@ -620,8 +621,8 @@ export function FileTree({
                 <button
                   type="button"
                   className={"file-tree-copy-btn" + (copiedPath === entry.path ? " is-copied" : "")}
-                  aria-label={`Copia percorso di ${entry.name}`}
-                  title="Copia percorso"
+                  aria-label={t("files.copyPathOf", { name: entry.name })}
+                  title={t("files.copyPath")}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCopyPath(entry.path);
@@ -634,15 +635,15 @@ export function FileTree({
           )}
         {creating && (
           <InlineEditRow
-            icon={creating === "dir" ? <FolderGlyph /> : <FileTypeIcon name="nuovo-file.txt" />}
-            initialValue={creating === "dir" ? "nuova cartella" : "nuovo-file.txt"}
+            icon={creating === "dir" ? <FolderGlyph /> : <FileTypeIcon name={t("files.newFile.default")} />}
+            initialValue={creating === "dir" ? t("files.newFolder.default") : t("files.newFile.default")}
             allowUnchanged
             onCommit={(value) => commitCreate(creating, value)}
             onCancel={() => setCreating(null)}
           />
         )}
         {!error && visibleEntries?.length === 0 && !creating && !(isSearching && searching && searchResults === null) && (
-          <div className="file-tree-loading">{isSearching ? "Nessun risultato" : "Cartella vuota"}</div>
+          <div className="file-tree-loading">{isSearching ? t("common.noResults") : t("files.empty")}</div>
         )}
       </div>
       {toast && (

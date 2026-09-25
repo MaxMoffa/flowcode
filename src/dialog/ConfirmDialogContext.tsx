@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useI18n } from "../i18n";
 import "./confirm-dialog.css";
 
 export interface ConfirmOptions {
@@ -29,6 +30,7 @@ export function useConfirmDialog() {
 }
 
 export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const pendingRef = useRef<PendingConfirm | null>(null);
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
@@ -82,7 +84,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
             <div className="confirm-message">{pending.message}</div>
             <div className="confirm-actions">
               <button type="button" className="confirm-btn" onClick={() => settle(false)}>
-                {pending.cancelLabel ?? "Annulla"}
+                {pending.cancelLabel ?? t("common.cancel")}
               </button>
               <button
                 ref={confirmBtnRef}
@@ -90,7 +92,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                 className={"confirm-btn confirm-btn-primary" + (pending.danger ? " is-danger" : "")}
                 onClick={() => settle(true)}
               >
-                {pending.confirmLabel ?? "Conferma"}
+                {pending.confirmLabel ?? t("common.confirm")}
               </button>
             </div>
           </div>

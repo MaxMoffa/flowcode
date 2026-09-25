@@ -272,13 +272,15 @@ fn wsl_installed() -> bool {
 /// `(async)`: probing for WSL spawns `wsl.exe`, which must not block the UI thread.
 #[tauri::command(async)]
 pub fn list_shell_options() -> Vec<ShellOption> {
-    let mut options = vec![ShellOption { id: "system".into(), label: "Predefinita di sistema".into() }];
+    // Labels are language-neutral names: the frontend words "system" and
+    // "cmd" in the UI language itself (see shellOptions.ts), since this list
+    // is fetched once and must follow a later language change.
+    let mut options = vec![ShellOption { id: "system".into(), label: String::new() }];
     if cfg!(target_os = "windows") {
         // Names what "system" resolves to - on Windows it's Flowcode's own
         // pick (see `default_shell`), not something the OS reports.
-        options[0].label =
-            if on_path("pwsh.exe") { "Predefinita (PowerShell 7)" } else { "Predefinita (Windows PowerShell)" }.into();
-        options.push(ShellOption { id: "cmd".into(), label: "Prompt dei comandi (cmd)".into() });
+        options[0].label = if on_path("pwsh.exe") { "PowerShell 7" } else { "Windows PowerShell" }.into();
+        options.push(ShellOption { id: "cmd".into(), label: "cmd".into() });
         options.push(ShellOption { id: "powershell".into(), label: "Windows PowerShell".into() });
         options.push(ShellOption { id: "pwsh".into(), label: "PowerShell 7".into() });
         #[cfg(target_os = "windows")]

@@ -5,170 +5,184 @@
 <h1 align="center">Flowcode</h1>
 
 <p align="center">
-  Il terminale desktop che tiene insieme shell, file e agenti AI — senza farti uscire dal flusso.
+  The desktop terminal that keeps your shell, files and AI agents together — without breaking your flow.
   <br>
   Windows · macOS · Linux
 </p>
 
 <p align="center">
-  <a href="https://github.com/MaxMoffa/flowcode/releases/latest">Scarica l'ultima versione</a> ·
-  <a href="PLUGINS.md">Crea un plugin</a> ·
-  <a href="LICENSE">Licenza Apache 2.0</a>
+  <a href="https://github.com/MaxMoffa/flowcode/releases/latest">Download the latest version</a> ·
+  <a href="PLUGINS.md">Create a plugin</a> ·
+  <a href="LICENSE">Apache 2.0 License</a>
+</p>
+
+<p align="center">
+  <b>English</b> · <a href="README.it.md">Italiano</a>
 </p>
 
 ---
 
-## La filosofia
+## The philosophy
 
-Oggi si lavora sempre di più **nel terminale**: si lancia una build, si apre Claude Code o Codex, si
-salta tra cartelle, si ritocca un file di configurazione. Di solito questo vuol dire tenere aperte
-quattro finestre diverse — terminale, file manager, editor, browser per controllare i limiti di
-utilizzo — e perdere il filo a ogni cambio.
+More and more work happens **in the terminal**: you kick off a build, open Claude Code or Codex, jump
+between folders, tweak a config file. Usually that means keeping four different windows open —
+terminal, file manager, editor, a browser to check your usage limits — and losing the thread every
+time you switch.
 
-Flowcode parte da un'idea semplice: **il terminale è il centro, tutto il resto gli gira attorno.**
+Flowcode starts from a simple idea: **the terminal is the center, everything else revolves around it.**
 
-- **Una cartella, un contesto.** Il file explorer e l'editor seguono la cartella del terminale
-  attivo, anche dentro WSL. Fai `cd`, e il resto dell'app ti viene dietro.
-- **Gli agenti AI sono di casa.** Claude Code e Codex CLI non sono "un programma qualsiasi nella
-  shell": Flowcode li riconosce, li mostra in un pannello dedicato e ti fa vedere quanto utilizzo
-  ti resta.
-- **Leggero e nativo.** Costruito su Tauri, non su Electron: si installa in un attimo, parte subito
-  e usa poca memoria.
-- **Estendibile senza rischi.** I plugin sono file JSON dichiarativi, non codice: puoi installare
-  quello di un collega senza preoccuparti di cosa esegue.
-- **Riprendi da dove avevi lasciato.** Schede, cartelle e output tornano al loro posto alla
-  riapertura, e le tue impostazioni sopravvivono agli aggiornamenti.
+- **One folder, one context.** The file explorer and the editor follow the active terminal's folder,
+  even inside WSL. You `cd`, and the rest of the app comes along.
+- **AI agents feel at home.** Claude Code and Codex CLI aren't "just another program in the shell":
+  Flowcode recognizes them, shows them in a dedicated panel and tells you how much usage you have left.
+- **Light and native.** Built on Tauri, not Electron: it installs in a moment, starts instantly and
+  uses little memory.
+- **Extensible without risk.** Plugins are declarative JSON files, not code: you can install a
+  colleague's plugin without worrying about what it runs.
+- **Pick up where you left off.** Tabs, folders and output come back when you reopen the app, and
+  your settings survive updates.
 
-## Cosa puoi fare
+## What you can do
 
 | | |
 |---|---|
-| 🗂️ **Terminale a schede** | Più sessioni in parallelo, trascinabili tra finestre diverse, raggruppate in automatico quando non entrano nella barra. Zoom del testo per singola scheda. |
-| 📁 **File explorer laterale** | Naviga, cerca ricorsivamente e gestisci i file della cartella del terminale attivo. ⭐ Preferiti per le cartelle che usi più spesso. |
-| ✏️ **Editor integrato** | Apri e modifica file al volo, con evidenziazione sintattica e struttura dei simboli, senza lasciare l'app. |
-| 🤖 **Pannello Agenti** | Vedi ogni sessione di Claude Code e Codex CLI aperta, riprendila con un clic e tieni d'occhio l'utilizzo residuo. |
-| ⚡ **Funzionalità e shortcut** | Una barra di azioni rapide personalizzabile: comandi, popup di stato, scorciatoie verso i tuoi strumenti. |
-| 🐧 **Shell a scelta** | PowerShell, cmd, bash, zsh, WSL… scegli quella predefinita per le nuove schede. |
-| 🎨 **Temi chiaro, scuro e automatico** | Pannelli in vetro smerigliato con opacità regolabile. |
-| 🔄 **Aggiornamenti in-app** | Flowcode controlla le nuove versioni all'avvio e si aggiorna con un clic. |
+| 🗂️ **Tabbed terminal** | Several sessions side by side, draggable between windows, grouped automatically when they don't fit the bar. Per-tab text zoom. |
+| 📁 **Side file explorer** | Browse, search recursively and manage the files of the active terminal's folder. ⭐ Favorites for the folders you use most. |
+| ✏️ **Built-in editor** | Open and edit files on the fly, with syntax highlighting and a symbol outline, without leaving the app. |
+| 🤖 **Agents panel** | See every open Claude Code and Codex CLI session, resume it with one click and keep an eye on your remaining usage. |
+| ⚡ **Features and shortcuts** | A customizable quick-action bar: commands, status popups, shortcuts to your own tools. |
+| 🐧 **Your shell of choice** | PowerShell, cmd, bash, zsh, WSL… pick the default one for new tabs. |
+| 🎨 **Light, dark and automatic themes** | Frosted-glass panels with adjustable opacity. |
+| 🌐 **Multilingual** | English and Italian, following your system language by default — switchable any time from the settings. |
+| 🔄 **In-app updates** | Flowcode checks for new versions on startup and updates itself in one click. |
 
-## Installazione
+## Installation
 
-1. Vai alla pagina [Releases](https://github.com/MaxMoffa/flowcode/releases/latest).
-2. Scarica l'installer per il tuo sistema:
-   - **Windows** — `Flowcode-Setup-<versione>.exe`
-   - **macOS** — `Flowcode-Setup-<versione>-macos-universal.zip` (Apple Silicon e Intel)
-   - **Linux** — `Flowcode-Setup-<versione>-linux-x86_64.tar.gz`
-3. Avvia l'installer e segui i passaggi. Se Flowcode è già installato, l'installer propone
-   direttamente l'aggiornamento mantenendo le tue impostazioni.
+1. Go to the [Releases](https://github.com/MaxMoffa/flowcode/releases/latest) page.
+2. Download the installer for your system:
+   - **Windows** — `Flowcode-Setup-<version>.exe`
+   - **macOS** — `Flowcode-Setup-<version>-macos-universal.zip` (Apple Silicon and Intel)
+   - **Linux** — `Flowcode-Setup-<version>-linux-x86_64.tar.gz`
+3. Run the installer and follow the steps. If Flowcode is already installed, the installer offers to
+   update it straight away, keeping your settings.
 
-Al primo avvio una breve presentazione ti mostra le funzioni principali e ti fa scegliere il tema.
+On first launch a short tour shows you the main features and lets you pick a theme.
 
-## Primi passi
+## Getting started
 
-- **Nuova scheda** — pulsante `+` nella barra delle schede (clic destro per scegliere la shell),
-  oppure dal menu `···`.
-- **Pannello laterale** — il pulsante nell'intestazione mostra/nasconde il file explorer; con il
-  clic destro scegli se tenerlo fissato, flottante o automatico.
-- **Aprire un file** — clic su un file nell'explorer per aprirlo nell'editor integrato.
-- **Agenti** — avvia `claude` o `codex` in una scheda: compaiono da soli nel pannello Agenti.
-- **Impostazioni** — dal menu `···`. Sono divise in:
-  - **Generali** — tema, trasparenza, intestazione, comportamento della sidebar;
-  - **Terminale** — zoom, shell predefinita, banner, cartella di avvio, ripristino schede, link;
-  - **Funzionalità** — attiva, crea o importa plugin per la barra rapida;
-  - **Informazioni** — versione, aggiornamenti, cartella di configurazione, ripristino.
+- **New tab** — the `+` button in the tab bar (right-click to choose the shell), or from the `···`
+  menu.
+- **Side panel** — the button in the header shows/hides the file explorer; right-click it to choose
+  whether it stays docked, floating or automatic.
+- **Opening a file** — click a file in the explorer to open it in the built-in editor.
+- **Agents** — start `claude` or `codex` in a tab: they show up in the Agents panel on their own.
+- **Settings** — from the `···` menu. They're split into:
+  - **General** — language, theme, transparency, header, sidebar behavior;
+  - **Terminal** — zoom, default shell, banner, startup folder, tab restore, links;
+  - **Features** — enable, create or import plugins for the quick bar;
+  - **About** — version, updates, configuration folder, reset.
 
-## Plugin
+## Language
 
-Vuoi un pulsante che lancia il tuo script di deploy, o un popup che mostra lo stato di un servizio?
-Da **Impostazioni → Funzionalità** puoi crearne uno con un modulo guidato oppure importare un file
-`.json`. Tutti i dettagli sul formato sono in [PLUGINS.md](PLUGINS.md).
+Flowcode is available in **English** and **Italian**. By default it uses your operating system's
+language (falling back to English when that language isn't available); you can pick a specific one in
+**Settings → General → Language**. The change applies right away to every open window.
+
+Want to add a language? Each one is a single catalog in `src/i18n/locales/` — copy `en.ts`, translate
+the values and register it in `LANGUAGES` in `src/i18n/index.tsx`. The catalogs are typed against the
+Italian reference one, so a missing key is a compile error.
+
+## Plugins
+
+Want a button that runs your deploy script, or a popup that shows a service's status? From
+**Settings → Features** you can create one with a guided form or import a `.json` file. All the
+details about the format are in [PLUGINS.md](PLUGINS.md).
 
 ---
 
-## Per sviluppatori
+## For developers
 
-Le sezioni seguenti servono solo se vuoi compilare Flowcode dai sorgenti o contribuire.
+The following sections are only needed if you want to build Flowcode from source or contribute.
 
 ### Stack
 
-- **Tauri v2** (Rust + WebView) — backend nativo, PTY locale
-- **React 19 + TypeScript** — frontend, con **Vite** come build tool
-- **xterm.js** — emulatore di terminale
-- **portable-pty** — gestione PTY cross-platform lato Rust
-- **CodeMirror** — editor integrato
+- **Tauri v2** (Rust + WebView) — native backend, local PTY
+- **React 19 + TypeScript** — frontend, with **Vite** as the build tool
+- **xterm.js** — terminal emulator
+- **portable-pty** — cross-platform PTY handling on the Rust side
+- **CodeMirror** — built-in editor
 
-### Struttura
+### Structure
 
 ```
 flowcode/
-├── src/                 # Frontend React
-│   ├── terminal/        # xterm.js + collegamento PTY, schede
+├── src/                 # React frontend
+│   ├── terminal/        # xterm.js + PTY bridge, tabs
 │   ├── sidebar/         # File explorer
-│   ├── editor/          # Editor CodeMirror
-│   ├── agents/          # Pannello Agenti
-│   ├── plugins/         # Sistema plugin / Funzionalità
-│   ├── settings/        # Pagine impostazioni
-│   ├── installer/       # Wizard di installazione (entry #installer)
-│   └── themes/          # Temi chiaro/scuro
-├── src-tauri/           # Backend Rust
-│   ├── src/             # App principale (pty, fs, agents, updater…)
-│   ├── installer/       # Binario dell'installer
-│   └── shared/          # Codice condiviso tra app e installer
-├── config/              # Shortcut predefiniti
-├── DECISION.md          # Log decisioni tecniche
+│   ├── editor/          # CodeMirror editor
+│   ├── agents/          # Agents panel
+│   ├── plugins/         # Plugin / Features system
+│   ├── settings/        # Settings pages
+│   ├── i18n/            # Translations (one catalog per language)
+│   ├── installer/       # Setup wizard (entry #installer)
+│   └── themes/          # Light/dark themes
+├── src-tauri/           # Rust backend
+│   ├── src/             # Main app (pty, fs, agents, updater…)
+│   ├── installer/       # Installer binary
+│   └── shared/          # Code shared by the app and the installer
+├── config/              # Default shortcuts
+├── DECISION.md          # Technical decision log
 ├── ROADMAP.md           # Roadmap
-└── TASKS.md             # Task operativi
+└── TASKS.md             # Operational tasks
 ```
 
-### Requisiti
+### Requirements
 
 - Node.js >= 20
 - Rust stable (via [rustup](https://rustup.rs))
-- Tauri CLI v2 (dev dependency, disponibile via `npx tauri`)
+- Tauri CLI v2 (dev dependency, available via `npx tauri`)
 
-Su **Linux** servono le librerie di sistema per il WebView:
+On **Linux** you need the system libraries for the WebView:
 
 ```bash
 sudo apt-get install libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
   libayatana-appindicator3-dev librsvg2-dev libssl-dev build-essential
 ```
 
-Su **Windows / macOS** vedi i [prerequisiti ufficiali Tauri](https://tauri.app/start/prerequisites/).
+On **Windows / macOS** see the [official Tauri prerequisites](https://tauri.app/start/prerequisites/).
 
-### Sviluppo
+### Development
 
 ```bash
 npm install
 npm run tauri dev
 ```
 
-Avvia Vite in dev mode + finestra Tauri con hot reload su frontend e backend.
+Starts Vite in dev mode + the Tauri window, with hot reload on both frontend and backend.
 
-> Nota WSL2: senza server grafico (WSLg o X server come VcXsrv) la finestra non viene visualizzata.
-> Per validare solo il backend: `cd src-tauri && cargo check`.
+> WSL2 note: without a display server (WSLg or an X server such as VcXsrv) the window won't show up.
+> To validate only the backend: `cd src-tauri && cargo check`.
 
-Solo type-check del frontend:
+Frontend type-check only:
 
 ```bash
 npx tsc --noEmit
 ```
 
-### Build e release
+### Build and release
 
 ```bash
 npm run tauri build
 ```
 
-Gli installer ufficiali per le tre piattaforme vengono generati dalla GitHub Action
-`.github/workflows/release.yml` al push di un tag `vX.Y.Z`.
+The official installers for the three platforms are built by the GitHub Action
+`.github/workflows/release.yml` when a `vX.Y.Z` tag is pushed.
 
-### Configurazione shortcut
+### Shortcut configuration
 
-I default stanno in `config/shortcuts.json` (inclusi nell'app). Le personalizzazioni utente vengono
-salvate nella cartella di configurazione dell'app, sopravvivono agli aggiornamenti e sovrascrivono i
-default con lo stesso nome.
+The defaults live in `config/shortcuts.json` (bundled with the app). User customizations are saved in
+the app's configuration folder, survive updates and override the defaults with the same name.
 
-## Licenza
+## License
 
-Flowcode è distribuito con licenza [Apache 2.0](LICENSE).
+Flowcode is distributed under the [Apache 2.0](LICENSE) license.

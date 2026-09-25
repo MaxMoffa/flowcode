@@ -2,6 +2,8 @@
 //! `flowcode-installer` binary, so both get the same console-flash fix and
 //! the same native window chrome without one depending on the other.
 
+pub mod i18n;
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -62,20 +64,20 @@ pub fn combined_output(output: &std::process::Output) -> String {
 
 /// Runs `command` headlessly (no terminal, no stdin, so anything expecting
 /// interactive input fails fast instead of hanging) off the async runtime and
-/// returns its combined output for display - "(nessun output)" if it printed
+/// returns its combined output for display - "(no output)" if it printed
 /// nothing. Shared by the main app's `run_plugin_command` and the installer's
 /// identically named command.
 pub async fn run_command_for_display(command: String) -> Result<String, String> {
     let command = command.trim().to_string();
     if command.is_empty() {
-        return Err("Comando vuoto".to_string());
+        return Err(i18n::tr("Comando vuoto", "Empty command").to_string());
     }
     let output = tauri::async_runtime::spawn_blocking(move || run_command_blocking(&command))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     let text = combined_output(&output);
-    Ok(if text.is_empty() { "(nessun output)".to_string() } else { text })
+    Ok(if text.is_empty() { i18n::tr("(nessun output)", "(no output)").to_string() } else { text })
 }
 
 // Native window chrome + Acrylic backdrop, Windows 11 only.

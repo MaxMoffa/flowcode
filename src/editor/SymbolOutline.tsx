@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useI18n } from "../i18n";
 import "./symbol-outline.css";
 
 interface Symbol {
@@ -116,6 +117,7 @@ interface SymbolOutlineProps {
 }
 
 export function SymbolOutline({ label, getContent, onJump }: SymbolOutlineProps) {
+  const { t } = useI18n();
   const [symbols, setSymbols] = useState<Symbol[]>(() => extractSymbols(getContent(), label));
   const [query, setQuery] = useState("");
   const isMarkdown = isMarkdownFile(label);
@@ -159,7 +161,7 @@ export function SymbolOutline({ label, getContent, onJump }: SymbolOutlineProps)
       <div className="symbol-outline-search-row">
         <input
           className="symbol-outline-search"
-          placeholder={isMarkdown ? "Cerca titolo…" : "Cerca funzione…"}
+          placeholder={isMarkdown ? t("outline.searchHeading") : t("outline.searchSymbol")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -167,10 +169,10 @@ export function SymbolOutline({ label, getContent, onJump }: SymbolOutlineProps)
       <div className="symbol-outline-list">
         {symbols.length === 0 && (
           <div className="symbol-outline-empty">
-            {isMarkdown ? "Nessun titolo in questo documento" : "Nessun simbolo riconosciuto in questo file"}
+            {isMarkdown ? t("outline.noHeadings") : t("outline.noSymbols")}
           </div>
         )}
-        {symbols.length > 0 && filtered.length === 0 && <div className="symbol-outline-empty">Nessun risultato</div>}
+        {symbols.length > 0 && filtered.length === 0 && <div className="symbol-outline-empty">{t("common.noResults")}</div>}
         {filtered.map((s) => (
           <button
             key={`${s.name}-${s.line}`}

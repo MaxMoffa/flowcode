@@ -118,7 +118,7 @@ export async function driveCodexStatus(pty: CodexPty, launch = "codex"): Promise
   }, 30000, 400);
   if (!appeared) {
     const screen = pty.screen();
-    throw new CodexStatusError(screenTail(screen, 6) || "codex non ha risposto.", screen);
+    throw new CodexStatusError(screenTail(screen, 6) || "codex did not respond.", screen);
   }
   if (LOGGED_OUT_RE.test(pty.screen())) throw new CodexStatusError("codex login", pty.screen());
 
@@ -150,7 +150,7 @@ export async function driveCodexStatus(pty: CodexPty, launch = "codex"): Promise
   }
   if (!settled) {
     const screen = pty.screen();
-    throw new CodexStatusError(screenTail(screen, 6) || "codex non è arrivato al prompt.", screen);
+    throw new CodexStatusError(screenTail(screen, 6) || "codex never reached its prompt.", screen);
   }
 
   const hasLimits = () => LIMIT_READY_RE.test(pty.screen());
@@ -185,16 +185,19 @@ export async function driveCodexStatus(pty: CodexPty, launch = "codex"): Promise
 export const CODEX_LIMIT_RE = /([0-9A-Za-z][A-Za-z0-9 ()./-]*?):\s*\[[^\]\n]*\]\s*(\d{1,3})%\s*left\s*\(resets\s+([^)]+)\)/i;
 
 export interface CodexLimit {
+  /** "session" (the rolling 5-hour window), "week", or "other" - then
+   * `label` is the row's own wording. */
+  kind: "session" | "week" | "other";
   label: string;
   /** Share of the window already consumed, 0-1. */
   percent: number;
   resets: string;
 }
 
-function codexLimitLabel(raw: string): string {
-  if (/5h|5 ?hour/i.test(raw)) return "Sessione (5 ore)";
-  if (/week/i.test(raw)) return "Settimana";
-  return raw.trim();
+function codexLimitKind(raw: string): CodexLimit["kind"] {
+  if (/5h|5 ?hour/i.test(raw)) return "session";
+  if (/week/i.test(raw)) return "week";
+  return "other";
 }
 
 export function parseCodexLimits(screen: string): CodexLimit[] {
@@ -203,12 +206,13 @@ export function parseCodexLimits(screen: string): CodexLimit[] {
     .map((line) => line.match(CODEX_LIMIT_RE))
     .filter((m): m is RegExpMatchArray => m !== null)
     .map(([, rawLabel, leftPct, resets]) => ({
-      label: codexLimitLabel(rawLabel),
+      kind: codexLimitKind(rawLabel),
+      label: rawLabel.trim(),
       percent: (100 - Number(leftPct)) / 100,
       resets: resets.trim(),
     }))
     // "5h limit" (the rolling session window) first: it's the one that moves
     // while you work, so it leads the popover's list. (The shortcut-bar mini
     // bar picks by pressure, not by order - see PluginUsageButton.)
-    .sort((a, b) => (a.label.includes("5 ore") ? -1 : b.label.includes("5 ore") ? 1 : 0));
+    .sort((a, b) => (a.kind === "session" ? -1 : b.kind === "session" ? 1 : 0));
 }
