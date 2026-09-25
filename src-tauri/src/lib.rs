@@ -72,6 +72,7 @@ pub fn run() {
             plugins::delete_plugin,
             plugins::run_plugin_command,
             plugins::check_cli_status,
+            plugins::codex_needs_no_daemon,
             agents::list_agent_sessions,
             agents::list_claude_agents,
             agents::list_codex_sessions,

@@ -1,4 +1,33 @@
+import { useEffect, useRef, useState } from "react";
 import type { UsageInfo } from "./usage";
+
+/** Small "copy debug info" button under a failed probe's "Non disponibile":
+ * the raw error/CLI output is useful for a bug report but just noise in the
+ * popover itself. */
+function CopyDebugButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      return;
+    }
+    setCopied(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <button type="button" className="plugin-usage-debug-btn" onClick={copy}>
+      {copied ? "Copiato" : "Copia info di debug"}
+    </button>
+  );
+}
 
 /** The popover's inner content (title + metric rows) - just the markup,
  * no positioning or portal, so the shortcut-bar button and the plugin menu
@@ -35,6 +64,7 @@ export function UsagePopoverContent({
           </div>
         );
       })}
+      {usage?.debug && <CopyDebugButton text={usage.debug} />}
     </>
   );
 }

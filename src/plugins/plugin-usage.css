@@ -155,6 +155,23 @@
   line-height: 1.4;
 }
 
+.plugin-usage-debug-btn {
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.plugin-usage-debug-btn:hover {
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
 /* Attribute selector (not scoped to a class) so one rule reaches both the
  * mini bar's anchor and the popover, even though the popover is portaled to
  * <body> and out of the anchor's DOM subtree entirely. Placed last: an

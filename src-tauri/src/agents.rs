@@ -188,6 +188,10 @@ pub async fn run_claude_usage_probe(probe_pids: State<'_, ProbePids>) -> Result<
     cmd.arg("-p")
         .arg("/usage")
         .stdin(std::process::Stdio::null())
+        // This probe runs every few minutes in the background: it has no
+        // business starting a self-update of the user's install each time
+        // (interactive sessions still update as usual).
+        .env("DISABLE_AUTOUPDATER", "1")
         // `wait_with_output` below only captures stdout/stderr that were
         // actually piped - left as the default `Stdio::inherit()`, this
         // process's output goes to the app's own (invisible) console and
@@ -210,7 +214,12 @@ pub async fn run_claude_usage_probe(probe_pids: State<'_, ProbePids>) -> Result<
 
     let output = result.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        // Everything it printed, not just stderr: claude often reports a
+        // failure on stdout, and an empty error leaves the popover's debug
+        // info with nothing to go on.
+        let printed = flowcode_shared::combined_output(&output);
+        return Err(format!("claude -p /usage: {}
+{printed}", output.status).trim().to_string());
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }

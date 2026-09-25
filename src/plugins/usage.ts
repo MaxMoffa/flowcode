@@ -2,9 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { killPty, spawnPty, writePty } from "../terminal/ptyClient";
+import pkg from "../../package.json";
+import { withCodexLaunchFlags } from "./codexLaunch";
 import {
   CODEX_COLS,
   CODEX_ROWS,
+  CodexStatusError,
   codexDiagnostic,
   driveCodexStatus,
   parseCodexLimits,
@@ -23,6 +26,27 @@ export interface UsageInfo {
   fetchedAt: number;
   ok: boolean;
   metrics: UsageMetric[];
+  /** When `ok` is false: what went wrong, as plain text for the popover's
+   * "copy debug info" button - never rendered in the popover itself. */
+  debug?: string;
+}
+
+/** A failed probe: a plain "Non disponibile" in the popover, with every
+ * detail (error, raw CLI output) moved into `debug`. */
+function unavailable(cli: string, sections: Record<string, string | undefined>): UsageInfo {
+  const lines = [
+    `Flowcode v${pkg.version} · ${navigator.userAgent}`,
+    `${cli} · ${new Date().toISOString()}`,
+    ...Object.entries(sections)
+      .filter(([, text]) => text?.trim())
+      .map(([title, text]) => `\n--- ${title} ---\n${text!.replace(/\s+$/, "")}`),
+  ];
+  return {
+    fetchedAt: Date.now(),
+    ok: false,
+    metrics: [{ label: "Non disponibile" }],
+    debug: lines.join("\n"),
+  };
 }
 
 type UsageFetcher = () => Promise<UsageInfo>;
@@ -63,10 +87,17 @@ async function readCodexStatusScreen(): Promise<string> {
     const ptyId = id;
     for (const data of pendingReplies.splice(0)) writePty(ptyId, data);
 
-    return await driveCodexStatus({
-      write: (data) => writePty(ptyId, data),
-      screen: () => screenTextOf(term),
-    });
+    // No update check: codex's "Update available · 1. Update now ..." prompt
+    // would sit in front of the composer this probe waits for. The user
+    // still gets it in their own sessions, where it can be answered.
+    const launch = await withCodexLaunchFlags("codex -c check_for_update_on_startup=false");
+    return await driveCodexStatus(
+      {
+        write: (data) => writePty(ptyId, data),
+        screen: () => screenTextOf(term),
+      },
+      launch,
+    );
   } finally {
     done = true;
     if (id) killPty(id);
@@ -74,13 +105,26 @@ async function readCodexStatusScreen(): Promise<string> {
   }
 }
 
+function errorSections(e: unknown): Record<string, string | undefined> {
+  return {
+    Errore: e instanceof Error ? e.message : String(e),
+    Schermo: e instanceof CodexStatusError ? e.screen.trim() : undefined,
+  };
+}
+
 async function fetchCodexUsage(): Promise<UsageInfo> {
   let screen: string;
   try {
     screen = await readCodexStatusScreen();
   } catch (e) {
-    const message = String(e);
-    const loggedOut = /sign.?in|log.?in/i.test(message);
+    const loggedOut = /sign.?in|log.?in/i.test(String(e));
+    if (loggedOut) {
+      return {
+        fetchedAt: Date.now(),
+        ok: false,
+        metrics: [{ label: "Non collegato", detail: 'Esegui "codex login" nel terminale per collegare un account.' }],
+      };
+    }
     // A cold ConPTY session on Windows occasionally comes up with its
     // output stalled for several seconds (a real OS-level quirk, not
     // something retrying the same session can fix - see warmup_conpty in
@@ -89,22 +133,13 @@ async function fetchCodexUsage(): Promise<UsageInfo> {
     // keystrokes into the stuck one) before actually giving up. A genuine
     // "please log in" is a real signal, not a fluke - no point retrying
     // that.
-    if (!loggedOut) {
-      try {
-        screen = await readCodexStatusScreen();
-      } catch (e2) {
-        return {
-          fetchedAt: Date.now(),
-          ok: false,
-          metrics: [{ label: "Non disponibile", detail: String(e2) }],
-        };
-      }
-    } else {
-      return {
-        fetchedAt: Date.now(),
-        ok: false,
-        metrics: [{ label: "Non collegato", detail: 'Esegui "codex login" nel terminale per collegare un account.' }],
-      };
+    try {
+      screen = await readCodexStatusScreen();
+    } catch (e2) {
+      return unavailable("Codex CLI", {
+        "Primo tentativo": errorSections(e).Errore,
+        ...errorSections(e2),
+      });
     }
   }
 
@@ -115,16 +150,14 @@ async function fetchCodexUsage(): Promise<UsageInfo> {
   }));
 
   if (metrics.length === 0) {
-    // Include a tail of whatever the screen actually showed, so a format
-    // change in a future Codex version (a relabeled row, different wording
-    // around the percentage) is diagnosable from the popover itself instead
-    // of showing an opaque "no data" with no way to tell why.
-    const tail = codexDiagnostic(screen);
-    return {
-      fetchedAt: Date.now(),
-      ok: false,
-      metrics: [{ label: "Non disponibile", detail: tail || "Nessun dato di utilizzo in /status." }],
-    };
+    // The whole screen goes into the debug info, so a format change in a
+    // future Codex version (a relabeled row, different wording around the
+    // percentage) is diagnosable instead of an opaque "no data".
+    return unavailable("Codex CLI", {
+      Errore: "Nessuna riga di utilizzo riconosciuta in /status.",
+      Diagnostica: codexDiagnostic(screen),
+      Schermo: screen.trim(),
+    });
   }
   return { fetchedAt: Date.now(), ok: true, metrics };
 }
@@ -151,16 +184,14 @@ async function fetchClaudeUsage(): Promise<UsageInfo> {
     out = await invoke<string>("run_claude_usage_probe");
   } catch (e) {
     const message = String(e);
-    return {
-      fetchedAt: Date.now(),
-      ok: false,
-      metrics: [
-        {
-          label: /not.{0,3}logged.?in|unauthoriz|auth/i.test(message) ? "Non collegato" : "Non disponibile",
-          detail: message,
-        },
-      ],
-    };
+    if (/not.{0,3}logged.?in|unauthoriz|\/login\b|auth(?:entication)? (?:failed|required|error)/i.test(message)) {
+      return {
+        fetchedAt: Date.now(),
+        ok: false,
+        metrics: [{ label: "Non collegato", detail: 'Esegui "claude auth login" nel terminale per collegare un account.' }],
+      };
+    }
+    return unavailable("Claude Code", { Errore: message });
   }
 
   // "Current session" (the 5-hour rolling window) first: it's the one that
@@ -178,11 +209,10 @@ async function fetchClaudeUsage(): Promise<UsageInfo> {
     .sort((a, b) => (a.label.includes("5 ore") ? -1 : b.label.includes("5 ore") ? 1 : 0));
 
   if (metrics.length === 0) {
-    return {
-      fetchedAt: Date.now(),
-      ok: false,
-      metrics: [{ label: "Non disponibile", detail: out.slice(0, 200) || "Nessun dato di utilizzo nell'output." }],
-    };
+    return unavailable("Claude Code", {
+      Errore: "Nessuna riga di utilizzo riconosciuta nell'output di claude -p /usage.",
+      Output: out,
+    });
   }
   return { fetchedAt: Date.now(), ok: true, metrics };
 }

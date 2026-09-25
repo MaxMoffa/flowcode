@@ -35,6 +35,15 @@ export function screenTextOf(term: ScreenSource): string {
 const COMPOSER_RE = /Ask Codex to do anything/i;
 const TRUST_RE = /trust the contents of this directory/i;
 const LOGGED_OUT_RE = /sign in with chatgpt|not (?:signed|logged) in|codex login/i;
+/** Codex's own "Update available · 1. Update now · 2. Skip ..." startup
+ * prompt. The probe launches codex with `check_for_update_on_startup=false`
+ * so it normally never shows up - this is the backstop for a version that
+ * ignores that setting. */
+const UPDATE_RE = /update available/i;
+/** Codex refusing to start its shared background server because the host's
+ * Windows Job Object forbids breakaway ("host Job Object prevents daemon
+ * detachment ... rerun the same command with --no-daemon"). */
+const NO_DAEMON_RE = /rerun the same command with --no-daemon|prevents daemon detachment/i;
 /** The distinctive shape of a `/status` limit row, wherever it sits on the
  * line - the row is drawn inside a box, so it has `│` borders around it. */
 const LIMIT_READY_RE = /%\s*left\s*\(resets/i;
@@ -54,6 +63,16 @@ export function screenTail(screen: string, lines = 4): string {
   return screen.trim().split("\n").filter(Boolean).slice(-lines).join(" · ");
 }
 
+/** A probe that gave up before reaching the numbers - carries the full
+ * screen it was looking at, for the popover's "copy debug info" button. */
+export class CodexStatusError extends Error {
+  readonly screen: string;
+  constructor(message: string, screen: string) {
+    super(message);
+    this.screen = screen;
+  }
+}
+
 /** Diagnostic text for the popover when no limit row could be parsed. The
  * `/status` box is drawn ABOVE the composer, so a plain tail of the screen
  * shows the composer's own footer even when the box rendered perfectly - which
@@ -67,19 +86,41 @@ export function codexDiagnostic(screen: string): string {
   return rows.length ? rows.join(" · ") : screenTail(screen);
 }
 
-/** Launch codex in the session, get past the trust prompt, run `/status` and
- * return the screen that holds the answer. */
-export async function driveCodexStatus(pty: CodexPty): Promise<string> {
+/** Launch codex in the session (`launch` is the command line to type -
+ * `codex` plus whatever flags the host needs), get past the startup prompts,
+ * run `/status` and return the screen that holds the answer. */
+export async function driveCodexStatus(pty: CodexPty, launch = "codex"): Promise<string> {
   // `\r`, not `\n`: that's what a real Enter keypress sends (see
   // Terminal.tsx's own runCommand), and what actually submits a line on
   // Windows' ConPTY/cmd.exe - a bare `\n` just sits there unsubmitted,
   // which used to make this whole flow time out on Windows waiting for a
   // composer that never appears, well before ever getting to /status.
-  await pty.write("codex\r");
+  await pty.write(`${launch}\r`);
 
-  const appeared = await waitUntil(() => COMPOSER_RE.test(pty.screen()) || TRUST_RE.test(pty.screen()), 20000);
-  if (!appeared) throw new Error(screenTail(pty.screen(), 6) || "codex non ha risposto.");
-  if (LOGGED_OUT_RE.test(pty.screen())) throw new Error("codex login");
+  // Before anything else, get past whatever codex shows instead of its UI:
+  // the update prompt (answered "skip") or the "can't start the background
+  // server" error (codex is back at the shell prompt - rerun it the way the
+  // error asks). Both are bounded, so leftover text in the scrollback can't
+  // make them fire forever.
+  let retriedNoDaemon = /--no-daemon/.test(launch);
+  let updateSkips = 0;
+  const appeared = await waitUntil(() => {
+    const screen = pty.screen();
+    if (COMPOSER_RE.test(screen) || TRUST_RE.test(screen)) return true;
+    if (!retriedNoDaemon && NO_DAEMON_RE.test(screen)) {
+      retriedNoDaemon = true;
+      void pty.write(`${launch} --no-daemon\r`);
+    } else if (updateSkips < 3 && UPDATE_RE.test(screen)) {
+      updateSkips++;
+      void pty.write("\x1b"); // "esc skip"
+    }
+    return false;
+  }, 30000, 400);
+  if (!appeared) {
+    const screen = pty.screen();
+    throw new CodexStatusError(screenTail(screen, 6) || "codex non ha risposto.", screen);
+  }
+  if (LOGGED_OUT_RE.test(pty.screen())) throw new CodexStatusError("codex login", pty.screen());
 
   // The "Do you trust the contents of this directory?" prompt is NOT always
   // the first thing drawn: codex paints the composer first (with "model:
@@ -107,7 +148,10 @@ export async function driveCodexStatus(pty: CodexPty): Promise<string> {
       break;
     }
   }
-  if (!settled) throw new Error(screenTail(pty.screen(), 6) || "codex non è arrivato al prompt.");
+  if (!settled) {
+    const screen = pty.screen();
+    throw new CodexStatusError(screenTail(screen, 6) || "codex non è arrivato al prompt.", screen);
+  }
 
   const hasLimits = () => LIMIT_READY_RE.test(pty.screen());
 

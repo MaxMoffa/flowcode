@@ -47,6 +47,7 @@ import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
 import { SIDEBAR_MODES, EXPLORER_LINK_MODES, type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
 import { readBool, readEnum, readJson, readString, usePersistentState, writeBool, writeString } from "./lib/storage";
 import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
+import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -268,6 +269,26 @@ function cleanTitle(raw: string): string {
  * whatever real session is still running in that shell. */
 function looksLikeExecutablePath(path: string): boolean {
   return /\.(exe|com|bat|cmd|ps1|js|mjs|cjs)$/i.test(path);
+}
+
+/** cmd.exe retitles to "<cwd> - <command>" for as long as a command runs, so
+ * a title-derived Windows path may carry that suffix - and a folder name can
+ * legitimately contain " - " too ("Foo - Copia"). Longest first: the path as
+ * reported, then each shorter prefix cut at a " - ". */
+function cmdTitlePathCandidates(path: string): string[] {
+  const candidates = [path];
+  for (let i = path.lastIndexOf(" - "); i > 0; i = path.lastIndexOf(" - ", i - 1)) {
+    candidates.push(path.slice(0, i));
+  }
+  return candidates;
+}
+
+/** The first of `candidates` that is an existing directory, if any. */
+async function firstExistingDir(candidates: string[]): Promise<string | undefined> {
+  for (const candidate of candidates) {
+    if (await invoke<boolean>("is_directory", { path: candidate }).catch(() => false)) return candidate;
+  }
+  return undefined;
 }
 
 let nextTabId = 1;
@@ -504,12 +525,16 @@ function Shell() {
             // it into `wsl -d <distro> --cd <path>`): left empty, so the
             // startup-folder fill below gives it the configured start folder
             // instead.
+            //
+            // A session saved while a command was running in cmd.exe holds
+            // its "<cwd> - <command>" title as the cwd (see
+            // `cmdTitlePathCandidates`) - the real folder is recovered from
+            // it rather than dropping the tab back to the start folder.
             const wslDistro = wslDistroOfShell(t.shell);
-            const usable =
-              !!t.cwd &&
-              (wslDistro !== undefined || !t.cwd.startsWith("\\\\")) &&
-              (await invoke<boolean>("is_directory", { path: t.cwd }).catch(() => false));
-            const cwd = usable ? t.cwd : "";
+            const cwd =
+              !!t.cwd && (wslDistro !== undefined || !t.cwd.startsWith("\\\\"))
+                ? ((await firstExistingDir(wslDistro !== undefined ? [t.cwd] : cmdTitlePathCandidates(t.cwd))) ?? "")
+                : "";
             const id = `tab-${nextTabId++}`;
             restoredTabIdsRef.current.add(id);
             if (t.content) restoredContentRef.current.set(id, t.content);
@@ -599,7 +624,9 @@ function Shell() {
     setTabs((prev) =>
       prev.map((t) =>
         t.kind === "terminal" && t.cwd === ""
-          ? { ...t, cwd: initial, explorerPath: initial, label: labelForCwd(initial) }
+          ? // A restored tab whose folder is gone still keeps the name the
+            // user gave it.
+            { ...t, cwd: initial, explorerPath: initial, label: t.customLabel ? t.label : labelForCwd(initial) }
           : t,
       ),
     );
@@ -784,9 +811,10 @@ function Shell() {
    * background/saved session (one this app has no open tab for), so
    * double-clicking it drops the user straight back into that chat instead
    * of a bare shell they'd have to resume by hand. */
-  function openAgentSession(cwd: string, sessionId: string, cli: "claude" | "codex") {
+  async function openAgentSession(cwd: string, sessionId: string, cli: "claude" | "codex") {
+    const command =
+      cli === "claude" ? `claude --resume ${sessionId}` : await withCodexLaunchFlags(`codex resume ${sessionId}`);
     const id = `tab-${nextTabId++}`;
-    const command = cli === "claude" ? `claude --resume ${sessionId}` : `codex resume ${sessionId}`;
     pendingCommandsRef.current.set(id, command);
     setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd) }]);
     setActiveTabId(id);
@@ -1102,6 +1130,25 @@ function Shell() {
             });
             return { ...t, label };
           }
+          // "<cwd> - <command>" while a command runs in cmd.exe: taken at
+          // face value it's a folder that doesn't exist - and whatever is
+          // the cwd when the app closes is what session restore reopens.
+          // Resolved against the filesystem instead (deferred, like above).
+          if (rawPath.includes(" - ")) {
+            const cwdBefore = t.cwd;
+            void firstExistingDir(cmdTitlePathCandidates(rawPath)).then((dir) => {
+              if (!dir) return;
+              setTabs((prev2) =>
+                prev2.map((t2) =>
+                  // Unless a newer title already moved the tab on.
+                  t2.id === tabId && t2.kind === "terminal" && !t2.nestedShell && t2.cwd === cwdBefore
+                    ? { ...t2, cwd: dir, explorerPath: dir }
+                    : t2,
+                ),
+              );
+            });
+            return { ...t, label, nestedShell: undefined, wslDistro: undefined };
+          }
           return { ...t, cwd: rawPath, explorerPath: rawPath, label, nestedShell: undefined, wslDistro: undefined };
         }
 
@@ -1272,8 +1319,11 @@ function Shell() {
       return;
     }
 
+    // Codex needs `--no-daemon` when Flowcode's host Job Object won't let
+    // its background server detach - see plugins/codexLaunch.ts.
+    const command = cliBin === "codex" ? await withCodexLaunchFlags(launchCommand) : launchCommand;
     markAgentLaunching(tabId);
-    term?.runCommandSilently(launchCommand);
+    term?.runCommandSilently(command);
   }
 
   /** Runs the one thing a plugin (or a dialog-plugin's button) is allowed to

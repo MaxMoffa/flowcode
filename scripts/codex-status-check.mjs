@@ -36,7 +36,7 @@ const pty = {
 
 
 try {
-  const screen = await driveCodexStatus(pty);
+  const screen = await driveCodexStatus(pty, process.env.CODEX_LAUNCH ?? "codex -c check_for_update_on_startup=false");
   const limits = parseCodexLimits(screen);
   console.log(`--- cwd=${cwd}  elapsed=${((Date.now() - t0) / 1000).toFixed(1)}s ---`);
   console.log(screen.split("\n").filter((l) => /% left|Account:|Session:/.test(l)).join("\n") || "(no status rows on screen)");
