@@ -358,7 +358,10 @@ pub fn pty_spawn(
             cmd.args([
                 "-NoExit",
                 "-Command",
-                "$f = $function:prompt; function prompt { $p = (Get-Location).Path; ([char]27 + ']0;' + $p + [char]7) + ((& $f) -join '') }",
+                // Global name shared with the explorer's `cd` for a nested
+                // PowerShell (src/terminal/shellDialect.ts), which installs
+                // this same wrapper only when it isn't there yet.
+                "$global:__flowcodePrompt = $function:prompt; function global:prompt { ([char]27 + ']0;' + (Get-Location).Path + [char]7) + ((& $global:__flowcodePrompt) -join '') }",
             ]);
         }
         _ => {}
@@ -453,6 +456,140 @@ pub fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// What is at the front of a terminal tab right now, as the OS sees it -
+/// the basis for anything that types a command into a tab (the explorer's
+/// `cd`, shortcuts, runCommand plugins): it has to know whether a shell is
+/// actually waiting at its prompt, and which one, to write in its syntax.
+/// Asked of the OS rather than inferred from what the user typed, so a
+/// history recall, an alias or a script that starts a shell can't fool it.
+#[derive(Serialize)]
+pub struct Foreground {
+    /// "cmd" | "powershell" | "posix" (bash, zsh, sh, dash, ksh, csh...) |
+    /// "fish" | "nu" - a shell at its prompt, in that syntax;
+    /// "wsl" - a WSL session (whatever Linux shell runs inside it, POSIX `cd`);
+    /// "remote" - ssh/mosh/telnet: a shell, but on another machine;
+    /// "program" - anything else (a dev server, an editor, Claude Code...):
+    /// typing into it would be input to that program, not a command.
+    kind: &'static str,
+    /// Name of the foreground process, for diagnostics.
+    program: String,
+    /// "wsl" only: the distro named on its command line (`-d`), if any.
+    wsl_distro: Option<String>,
+}
+
+fn process_stem(process: &sysinfo::Process) -> String {
+    let raw = process.name().to_string_lossy().to_lowercase();
+    let raw = raw.trim_start_matches('-'); // login shells: "-zsh"
+    std::path::Path::new(raw)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| raw.to_string())
+}
+
+fn classify(process: &sysinfo::Process) -> Foreground {
+    let program = process_stem(process);
+    // `C:\Windows\System32\bash.exe` is WSL's legacy launcher, not a bash.
+    let system32_bash = cfg!(windows)
+        && program == "bash"
+        && process
+            .exe()
+            .is_some_and(|exe| exe.to_string_lossy().to_lowercase().contains(r"\windows\system32\"));
+    let kind = match program.as_str() {
+        "cmd" => "cmd",
+        "powershell" | "pwsh" => "powershell",
+        "wsl" => "wsl",
+        _ if system32_bash => "wsl",
+        "bash" | "zsh" | "sh" | "dash" | "ash" | "ksh" | "mksh" | "pdksh" | "yash" | "csh" | "tcsh" => "posix",
+        "fish" => "fish",
+        "nu" => "nu",
+        "ssh" | "mosh" | "mosh-client" | "telnet" => "remote",
+        _ => "program",
+    };
+    let wsl_distro = (kind == "wsl")
+        .then(|| {
+            let args: Vec<String> = process.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+            args.iter()
+                .position(|a| a == "-d" || a == "--distribution")
+                .and_then(|i| args.get(i + 1).cloned())
+        })
+        .flatten();
+    Foreground { kind, program, wsl_distro }
+}
+
+/// Follows the tab's process tree down from its shell: at each level the
+/// most recently started child is the one in front (the console hosts
+/// ConPTY hangs off the shell don't count). Stops at a WSL or ssh client -
+/// whatever runs past it is on the Linux/remote side. The only option on
+/// Windows, which has no notion of a terminal's foreground process; the Unix
+/// fallback when the pty can't tell.
+fn foreground_by_tree(sys: &sysinfo::System, root: sysinfo::Pid) -> Option<Foreground> {
+    let mut children_of: HashMap<sysinfo::Pid, Vec<&sysinfo::Process>> = HashMap::new();
+    for process in sys.processes().values() {
+        if let Some(parent) = process.parent() {
+            children_of.entry(parent).or_default().push(process);
+        }
+    }
+    let mut current = sys.process(root)?;
+    for _ in 0..64 {
+        let fg = classify(current);
+        if matches!(fg.kind, "wsl" | "remote") {
+            return Some(fg);
+        }
+        let next = children_of
+            .get(&current.pid())
+            .into_iter()
+            .flatten()
+            .filter(|p| !matches!(process_stem(p).as_str(), "conhost" | "openconsole"))
+            .max_by_key(|p| (p.start_time(), p.pid()));
+        match next {
+            Some(child) => current = child,
+            None => return Some(fg),
+        }
+    }
+    Some(classify(current))
+}
+
+/// Just what `classify` reads: names, parents, start times, exe paths and
+/// command lines (the WSL distro).
+fn process_snapshot() -> sysinfo::System {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::All,
+        true,
+        sysinfo::ProcessRefreshKind::new()
+            .with_exe(sysinfo::UpdateKind::OnlyIfNotSet)
+            .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet),
+    );
+    sys
+}
+
+/// `leader`: the pty's foreground process group leader, where the OS has
+/// one (Unix); `root`: the tab's own shell, for the process-tree fallback.
+fn foreground(leader: Option<u32>, root: u32) -> Option<Foreground> {
+    let sys = process_snapshot();
+    if let Some(fg) = leader.and_then(|pid| sys.process(sysinfo::Pid::from_u32(pid))).map(classify) {
+        return Some(fg);
+    }
+    foreground_by_tree(&sys, sysinfo::Pid::from_u32(root))
+}
+
+#[tauri::command]
+pub async fn pty_foreground(state: State<'_, PtyState>, id: String) -> Result<Foreground, String> {
+    let (root, leader) = {
+        let sessions = state.0.lock().unwrap();
+        let session = sessions.get(&id).ok_or("unknown pty session")?;
+        // Unix: the terminal's foreground process group - the kernel's own
+        // answer to "who gets what's typed", exact by definition.
+        #[cfg(unix)]
+        let leader = session.master.process_group_leader().map(|pid| pid as u32);
+        #[cfg(not(unix))]
+        let leader: Option<u32> = None;
+        (session.pid, leader)
+    };
+    let root = root.ok_or("pid della shell sconosciuto")?;
+    crate::blocking(move || foreground(leader, root).ok_or_else(|| "shell non trovata".to_string())).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::{emittable_len, split_wsl_unc};
@@ -478,5 +615,102 @@ mod tests {
         assert_eq!(split_wsl_unc(r"\\WSL$\Debian"), Some(("Debian".into(), "/".into())));
         assert_eq!(split_wsl_unc(r"C:\Users\me"), None);
         assert_eq!(split_wsl_unc(r"\\server\share"), None);
+    }
+
+    /// Real processes through a real ConPTY - slow (several seconds) and
+    /// Windows-only, hence ignored by default:
+    /// `cargo test --lib foreground_follows -- --ignored --nocapture`
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn foreground_follows_nested_shells_and_programs() {
+        use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+        use std::io::{Read, Write};
+        use std::time::Duration;
+
+        let pair = native_pty_system()
+            .openpty(PtySize { rows: 30, cols: 120, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
+        let child = pair.slave.spawn_command(CommandBuilder::new("cmd.exe")).unwrap();
+        let root = sysinfo::Pid::from_u32(child.process_id().unwrap());
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut writer = pair.master.take_writer().unwrap();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
+        });
+        // ConPTY opens with a cursor-position query that blocks until answered.
+        writer.write_all(b"\x1b[1;1R").unwrap();
+        let kind = || super::foreground_by_tree(&super::process_snapshot(), root).unwrap().kind;
+        std::thread::sleep(Duration::from_secs(2));
+        assert_eq!(kind(), "cmd");
+        writer.write_all(b"powershell -NoLogo\r").unwrap();
+        std::thread::sleep(Duration::from_secs(4));
+        assert_eq!(kind(), "powershell");
+        writer.write_all(b"ping -n 6 127.0.0.1\r").unwrap();
+        std::thread::sleep(Duration::from_secs(2));
+        assert_eq!(kind(), "program");
+        std::thread::sleep(Duration::from_secs(5));
+        assert_eq!(kind(), "powershell");
+        writer.write_all(b"exit\r").unwrap();
+        std::thread::sleep(Duration::from_secs(2));
+        assert_eq!(kind(), "cmd");
+        // A WSL session: the Linux side isn't visible from here, the
+        // wsl.exe client (and the distro on its command line) is.
+        if std::process::Command::new("wsl.exe").args(["-l", "-q"]).output().is_ok_and(|o| o.status.success()) {
+            writer.write_all(b"wsl.exe -d Ubuntu\r").unwrap();
+            std::thread::sleep(Duration::from_secs(5));
+            let fg = super::foreground_by_tree(&super::process_snapshot(), root).unwrap();
+            assert_eq!((fg.kind, fg.wsl_distro.as_deref()), ("wsl", Some("Ubuntu")));
+            writer.write_all(b"exit\n").unwrap();
+            std::thread::sleep(Duration::from_secs(2));
+            assert_eq!(kind(), "cmd");
+        }
+        writer.write_all(b"exit\r").unwrap();
+    }
+    /// Same idea on Unix, through the pty's foreground process group (the
+    /// path `pty_foreground` takes there):
+    /// `cargo test --lib foreground_follows -- --ignored --nocapture`
+    #[cfg(unix)]
+    #[test]
+    #[ignore]
+    fn foreground_follows_nested_shells_and_programs_unix() {
+        use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+        use std::io::{Read, Write};
+        use std::time::Duration;
+
+        let pair = native_pty_system()
+            .openpty(PtySize { rows: 30, cols: 120, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
+        let mut cmd = CommandBuilder::new("bash");
+        cmd.args(["--norc", "--noprofile", "-i"]);
+        let child = pair.slave.spawn_command(cmd).unwrap();
+        let root = child.process_id().unwrap();
+        let master = pair.master;
+        let mut reader = master.try_clone_reader().unwrap();
+        let mut writer = master.take_writer().unwrap();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
+        });
+        let kind = || {
+            let leader = master.process_group_leader().map(|pid| pid as u32);
+            let fg = super::foreground(leader, root).unwrap();
+            (fg.kind, fg.program)
+        };
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(kind().0, "posix");
+        writer.write_all(b"sh\n").unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(kind(), ("posix", "sh".to_string()));
+        writer.write_all(b"sleep 3\n").unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(kind(), ("program", "sleep".to_string()));
+        std::thread::sleep(Duration::from_secs(3));
+        assert_eq!(kind(), ("posix", "sh".to_string()));
+        writer.write_all(b"exit\n").unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(kind(), ("posix", "bash".to_string()));
+        writer.write_all(b"exit\n").unwrap();
     }
 }

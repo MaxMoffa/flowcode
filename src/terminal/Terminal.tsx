@@ -6,7 +6,6 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { invoke } from "@tauri-apps/api/core";
-import { isWindowsPlatform } from "../lib/path";
 import { killPty, resizePty, spawnPty, writePty } from "./ptyClient";
 import { useTheme } from "../themes/ThemeContext";
 import { useTerminalSettings } from "./TerminalSettingsContext";
@@ -71,21 +70,6 @@ function readTermColors() {
   };
 }
 
-/** Quotes a path for the target shell: `'it's/here'` -> `'it'\''s/here'` on
- * POSIX shells (bash/zsh/...). cmd.exe (the Windows default) doesn't strip
- * single quotes at all - they'd become literal characters in the path, so
- * `cd`'s target simply wouldn't exist - and it has no path characters that
- * need escaping inside a double-quoted string (`"` isn't legal in a Windows
- * filename), so wrapping in plain double quotes is enough there.
- * `forcePosix` overrides the app's own host-platform guess for a tab whose
- * live shell doesn't match it - a WSL bash session inside an otherwise
- * Windows tab, most notably, where the host being Windows says nothing
- * about what's actually reading this command right now. */
-function shellQuote(path: string, forcePosix = false): string {
-  if (!forcePosix && isWindowsPlatform()) return `"${path}"`;
-  return `'${path.replace(/'/g, `'\\''`)}'`;
-}
-
 export interface TerminalHandle {
   clear: () => void;
   /** Copies the current selection to the clipboard (no-op without one). */
@@ -100,13 +84,10 @@ export interface TerminalHandle {
    * for arbitrary user-defined `runCommand` plugins where the typed command
    * is expected to stay visible. */
   runCommandSilently: (cmd: string) => void;
-  /** Actually `cd`s the shell, but hides the injected command and its echo
-   * entirely - the terminal's on-screen content doesn't change at all.
-   * `forcePosix` - see `shellQuote` - is for a WSL tab: `path` there is
-   * already the POSIX path bash itself expects (translated back from the
-   * `\\wsl.localhost\...` form the explorer browses), not this app's own
-   * host-platform path. */
-  navigateSilently: (path: string, forcePosix?: boolean) => void;
+  /** Types a `cd` (built for the shell at the prompt - see shellDialect.ts's
+   * `cdCommand`), but hides it and its echo entirely - the terminal's
+   * on-screen content doesn't change at all. */
+  navigateSilently: (cdCommand: string) => void;
   /** The backend pty session id for this tab's shell, once spawned - lets
    * the Agents sidebar match a `list_agent_sessions` result back to the tab
    * that owns it. `null` before the pty has finished spawning. */
@@ -319,19 +300,11 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     runCommandSilently: (cmd: string) => writeSilently(`${cmd}\r`, 8000),
     // The collapse above only fires once xterm sees a title-change escape -
     // that's how bash/zsh's own prompt naturally signals "the injected
-    // command is done", via PROMPT_COMMAND retitling on every prompt. cmd.exe
-    // (the Windows default shell) never retitles on its own, plain `cd`
-    // included, so nothing would ever trigger the collapse there and the
-    // typed `cd` would just sit on screen looking like it did nothing.
-    // Chaining an explicit `title` onto the `cd` forces that same signal -
-    // using the real path as the title also happens to be exactly what
-    // App.tsx's title handler needs to pick the new cwd/tab label back up.
-    navigateSilently: (path: string, forcePosix = false) =>
-      writeSilently(
-        !forcePosix && isWindowsPlatform()
-          ? `cd ${shellQuote(path)} && title ${path}\r`
-          : `cd ${shellQuote(path, forcePosix)}\r`,
-      ),
+    // command is done", via PROMPT_COMMAND retitling on every prompt, and
+    // what the prompts pty.rs gives cmd.exe/PowerShell do too. That title is
+    // also exactly what App.tsx's title handler needs to pick the new
+    // cwd/tab label back up.
+    navigateSilently: (cdCommand: string) => writeSilently(`${cdCommand}\r`),
     getPtyId: () => ptyIdRef.current,
     wasUsed: () => usedRef.current,
     serialize: () =>

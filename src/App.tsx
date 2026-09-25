@@ -48,6 +48,7 @@ import { SIDEBAR_MODES, EXPLORER_LINK_MODES, type SidebarMode, type ExplorerLink
 import { readBool, readEnum, readJson, readString, usePersistentState, writeBool, writeString } from "./lib/storage";
 import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
 import { withCodexLaunchFlags } from "./plugins/codexLaunch";
+import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -754,7 +755,7 @@ function Shell() {
     if (tab?.kind === "terminal") setActiveTerminalId(id);
   }
 
-  function addTab(cwdOverride?: string, shellOverride?: string) {
+  function addTab(cwdOverride?: string, shellOverride?: string): string {
     // No longer inherits the active tab's cwd - a fresh tab always starts at
     // the configured start folder (Impostazioni > Cartella di avvio), which
     // defaults to the user's home dir when left unset, same as
@@ -793,6 +794,23 @@ function Shell() {
     ]);
     setActiveTabId(id);
     setActiveTerminalId(id);
+    return id;
+  }
+
+  /** What's at the front of a tab's terminal right now - see shellDialect.ts. */
+  function tabForeground(tabId: string): Promise<Foreground | null> {
+    return ptyForeground(termRefs.current.get(tabId)?.getPtyId());
+  }
+
+  /** Runs `command` in a new tab in the same folder and shell as `tabId` -
+   * for a command meant for a tab whose input is owned by a running program
+   * (a dev server, an editor, an agent): typed there, it would be garbage
+   * input to that program instead of a command. Returns the new tab's id. */
+  function runInTabLike(tabId: string, command: string): string {
+    const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    const id = addTab(tab?.cwd, tab ? tabShell(tab) : undefined);
+    pendingCommandsRef.current.set(id, command);
+    return id;
   }
 
   /** A fresh terminal tab whose one job is to run `command` - used for a
@@ -1218,27 +1236,13 @@ function Shell() {
    * owns the shell) - the sidebar still moves, it just stops typing into it. */
   function browseExplorer(path: string) {
     const active = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
-    // `busy` (alt-screen) alone isn't a reliable enough signal for Claude
-    // Code/Codex - not every build of either necessarily switches to the
-    // alternate screen buffer, so a click-to-`cd` could still reach a
-    // running agent's stdin as garbage input. `nestedShell === "agent"` (see
-    // handleTitleChange/checkCliAndMaybeLaunch) is the authoritative one:
-    // it's set the moment this app itself launches the CLI and only clears
-    // once a real shell prompt is verified back.
-    const linked = explorerLinkMode === "auto" && !active?.busy && active?.nestedShell !== "agent";
+    // Whether the `cd` is typed, and in which shell's syntax, is decided by
+    // asking the OS what's in front of the tab (see `cdShell`); alt-screen
+    // `busy` is just a free early-out.
+    if (explorerLinkMode === "auto" && !active?.busy) void cdShell(activeTerminalId, path);
     // `path` is whatever the explorer itself browses - for a WSL tab that's
-    // the translated Windows form (see handleTitleChange), which means
-    // nothing to the actual bash session on the other end of this pty. It
-    // needs translating back to the POSIX path bash expects, and quoting
-    // POSIX-style rather than by this app's own host platform.
+    // the translated Windows form (see handleTitleChange).
     const posixPath = active?.nestedShell === "wsl" && active.wslDistro ? toWslPath(active.wslDistro, path) : null;
-    if (linked) {
-      if (active?.nestedShell === "wsl" && active.wslDistro) {
-        if (posixPath) termRefs.current.get(activeTerminalId)?.navigateSilently(posixPath, true);
-      } else if (active?.nestedShell !== "remote") {
-        termRefs.current.get(activeTerminalId)?.navigateSilently(path);
-      }
-    }
     // Round-tripped through the POSIX form so a click that lands *inside*
     // the distro's drive mounts (`...\Ubuntu\mnt` lists fine, and `c` is
     // right there in it) becomes the `C:\...` path that can actually be
@@ -1249,6 +1253,34 @@ function Shell() {
     setTabs((prev) =>
       prev.map((t) => (t.id === activeTerminalId && t.kind === "terminal" ? { ...t, explorerPath: browsePath } : t)),
     );
+  }
+
+  /** Types the explorer's `cd` into `tabId`'s shell, in that shell's own
+   * syntax - only when the OS reports a shell actually waiting at its prompt:
+   * never into a running program, never into an ssh session (whose
+   * filesystem isn't this one). For WSL, `path` (the Windows/UNC form the
+   * explorer browses) is translated to the distro's POSIX one, and the tab's
+   * WSL tracking is aligned with what the OS reports. */
+  async function cdShell(tabId: string, path: string) {
+    const term = termRefs.current.get(tabId);
+    const fg = await tabForeground(tabId);
+    if (!term || !fg || fg.kind === "program" || fg.kind === "remote") return;
+    if (fg.kind !== "wsl") {
+      term.navigateSilently(cdCommand(path, fg.kind));
+      return;
+    }
+    const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    const distro = fg.wsl_distro ?? tab?.wslDistro ?? (await defaultWslDistro());
+    const posixPath = distro ? toWslPath(distro, path) : null;
+    if (!distro || !posixPath) return;
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === tabId && t.kind === "terminal" && (t.nestedShell !== "wsl" || !t.wslDistro)
+          ? { ...t, nestedShell: "wsl", wslDistro: distro }
+          : t,
+      ),
+    );
+    term.navigateSilently(cdCommand(posixPath, "posix"));
   }
 
   const activeTerminal = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
@@ -1291,8 +1323,7 @@ function Shell() {
     } catch {
       // Detection itself failed - don't block the shortcut over it, just
       // fall back to the plain launch as before this check existed.
-      markAgentLaunching(tabId);
-      term?.runCommandSilently(launchCommand);
+      await launchInTab(cliBin, launchCommand, term, tabId);
       return;
     }
 
@@ -1319,9 +1350,23 @@ function Shell() {
       return;
     }
 
+    await launchInTab(cliBin, launchCommand, term, tabId);
+  }
+
+  /** Types the CLI's launch command into `tabId` when a shell is at its
+   * prompt there, or runs it in a new tab alongside when something else
+   * already owns that tab's input (see `runInTabLike`). */
+  async function launchInTab(cliBin: "claude" | "codex", launchCommand: string, term: TerminalHandle | undefined, tabId: string) {
+    const fg = await tabForeground(tabId);
     // Codex needs `--no-daemon` when Flowcode's host Job Object won't let
-    // its background server detach - see plugins/codexLaunch.ts.
-    const command = cliBin === "codex" ? await withCodexLaunchFlags(launchCommand) : launchCommand;
+    // its background server detach - see plugins/codexLaunch.ts. That's this
+    // host's own codex: not one inside WSL or across ssh.
+    const hostCodex = cliBin === "codex" && fg?.kind !== "wsl" && fg?.kind !== "remote";
+    const command = hostCodex ? await withCodexLaunchFlags(launchCommand) : launchCommand;
+    if (fg && !atShellPrompt(fg)) {
+      markAgentLaunching(runInTabLike(tabId, command));
+      return;
+    }
     markAgentLaunching(tabId);
     term?.runCommandSilently(command);
   }
@@ -1357,7 +1402,12 @@ function Shell() {
           const cliBin = plugin.id === "claude-code" ? "claude" : "codex";
           checkCliAndMaybeLaunch(cliBin, plugin.command, term, activeTerminalId);
         } else {
-          term?.runCommand(plugin.command);
+          const tabId = activeTerminalId;
+          const command = plugin.command;
+          void tabForeground(tabId).then((fg) => {
+            if (fg && !atShellPrompt(fg)) runInTabLike(tabId, command);
+            else term?.runCommand(command);
+          });
         }
         break;
       }
