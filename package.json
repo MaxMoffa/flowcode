@@ -1,7 +1,8 @@
 {
   "name": "flowcode",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
+  "license": "Apache-2.0",
   "description": "Flowcode - cross-platform terminal",
   "type": "module",
   "scripts": {

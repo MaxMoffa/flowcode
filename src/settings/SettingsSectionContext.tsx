@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 
-export type SettingsSection = "generale" | "funzionalita" | "info";
+export type SettingsSection = "generale" | "terminale" | "funzionalita" | "info";
 
 interface SettingsSectionValue {
   section: SettingsSection;

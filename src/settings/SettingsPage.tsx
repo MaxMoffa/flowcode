@@ -60,12 +60,14 @@ function updateStatusText(status: UpdateStatus): string {
 
 const SECTION_TITLES = {
   generale: "Generali",
+  terminale: "Terminale",
   funzionalita: "Funzionalità",
   info: "Informazioni",
 };
 
 const SECTION_DESCRIPTIONS: Record<keyof typeof SECTION_TITLES, string> = {
-  generale: "Aspetto dell'app, comportamento del terminale integrato e della sidebar dei file.",
+  generale: "Aspetto dell'app, intestazione e comportamento della sidebar dei file.",
+  terminale: "Testo, shell, cartella di avvio e comportamento delle schede del terminale integrato.",
   funzionalita: "Attiva, disattiva, crea o installa le funzionalità (plugin) disponibili nella barra rapida.",
   info: "Versione installata, manutenzione e librerie open source su cui è costruito Flowcode.",
 };
@@ -268,7 +270,74 @@ export function SettingsPage({
             </section>
 
             <section className="settings-block">
-              <h3>Terminale</h3>
+              <h3>Intestazione</h3>
+              <p className="settings-block-desc">Scegli quali scorciatoie mostrare nella barra in alto della finestra.</p>
+              <div className="settings-field">
+                <span className="settings-field-label">Scorciatoia Preferiti nell'intestazione</span>
+                <p className="settings-field-desc">
+                  Pulsante a forma di stella nell'intestazione per aprire rapidamente i preferiti. Sempre disponibile anche
+                  dal menu "···", anche se nascosto qui.
+                </p>
+                <div className="settings-choice-row">
+                  <button
+                    type="button"
+                    className={"settings-choice" + (favoritesButtonVisible ? " is-active" : "")}
+                    onClick={() => onSetFavoritesButtonVisible(true)}
+                  >
+                    Mostra
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (!favoritesButtonVisible ? " is-active" : "")}
+                    onClick={() => onSetFavoritesButtonVisible(false)}
+                  >
+                    Nascondi
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="settings-block">
+              <h3>File explorer</h3>
+              <p className="settings-block-desc">Decide come si comporta il pannello dei file quando esplori una cartella.</p>
+              <div className="settings-field">
+                <span className="settings-field-label">Modalità sidebar</span>
+                <p className="settings-field-desc">
+                  "Automatica" passa da fissata a flottante in base alla larghezza della finestra; le altre due la
+                  bloccano sempre in uno dei due modi.
+                </p>
+                <div className="settings-choice-row">
+                  <button
+                    type="button"
+                    className={"settings-choice" + (sidebarMode === "auto" ? " is-active" : "")}
+                    onClick={() => onSetSidebarMode("auto")}
+                  >
+                    Automatica (larghezza)
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (sidebarMode === "docked" ? " is-active" : "")}
+                    onClick={() => onSetSidebarMode("docked")}
+                  >
+                    Fissato
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (sidebarMode === "floating" ? " is-active" : "")}
+                    onClick={() => onSetSidebarMode("floating")}
+                  >
+                    Flottante
+                  </button>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
+
+        {section === "terminale" && (
+          <>
+            <section className="settings-block">
+              <h3>Testo e shell</h3>
               <p className="settings-block-desc">
                 Regola la dimensione del testo e la shell usata dal terminale integrato. Il cambio di shell si
                 applica alle schede aperte da questo momento in poi, non a quelle già aperte.
@@ -330,29 +399,11 @@ export function SettingsPage({
                   </button>
                 </div>
               </div>
-              <div className="settings-field">
-                <span className="settings-field-label">Scorciatoia Preferiti nell'intestazione</span>
-                <p className="settings-field-desc">
-                  Pulsante a forma di stella nell'intestazione per aprire rapidamente i preferiti. Sempre disponibile anche
-                  dal menu "···", anche se nascosto qui.
-                </p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (favoritesButtonVisible ? " is-active" : "")}
-                    onClick={() => onSetFavoritesButtonVisible(true)}
-                  >
-                    Mostra
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (!favoritesButtonVisible ? " is-active" : "")}
-                    onClick={() => onSetFavoritesButtonVisible(false)}
-                  >
-                    Nascondi
-                  </button>
-                </div>
-              </div>
+            </section>
+
+            <section className="settings-block">
+              <h3>Avvio e schede</h3>
+              <p className="settings-block-desc">Dove si aprono i nuovi terminali, cosa ritrovi alla riapertura dell'app e come si comportano i link.</p>
               <div className="settings-field">
                 <span className="settings-field-label">Cartella di avvio</span>
                 <p className="settings-field-desc">
@@ -436,41 +487,6 @@ export function SettingsPage({
                     onClick={() => setConfirmLinkOpen(false)}
                   >
                     Apri subito
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section className="settings-block">
-              <h3>File explorer</h3>
-              <p className="settings-block-desc">Decide come si comporta il pannello dei file quando esplori una cartella.</p>
-              <div className="settings-field">
-                <span className="settings-field-label">Modalità sidebar</span>
-                <p className="settings-field-desc">
-                  "Automatica" passa da fissata a flottante in base alla larghezza della finestra; le altre due la
-                  bloccano sempre in uno dei due modi.
-                </p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (sidebarMode === "auto" ? " is-active" : "")}
-                    onClick={() => onSetSidebarMode("auto")}
-                  >
-                    Automatica (larghezza)
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (sidebarMode === "docked" ? " is-active" : "")}
-                    onClick={() => onSetSidebarMode("docked")}
-                  >
-                    Fissato
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (sidebarMode === "floating" ? " is-active" : "")}
-                    onClick={() => onSetSidebarMode("floating")}
-                  >
-                    Flottante
                   </button>
                 </div>
               </div>

@@ -46,4 +46,4 @@
 ## Backlog / idee non prioritizzate
 - Auto-update app (Tauri updater)
 - Telemetria opt-in per bug report
-- Localizzazione (i18n) IT/EN
+- Localizzazione (i18n) IT/EN — prevista per la prossima versione
