@@ -25,6 +25,10 @@
   width: 160px;
   flex: 0 0 160px;
   cursor: pointer;
+  /* A press on a tab starts a drag (see TabStrip) - selecting its label's
+     text instead got in the way. Renaming re-enables it on its input. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .term-tab.is-active {
@@ -49,6 +53,8 @@
 }
 
 .term-tab-rename-input {
+  user-select: text;
+  -webkit-user-select: text;
   flex: 1 1 auto;
   min-width: 0;
   width: 100%;
@@ -311,6 +317,8 @@
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
   opacity: 0.92;
   pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
   backdrop-filter: blur(var(--glass-blur)) saturate(130%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
 }
