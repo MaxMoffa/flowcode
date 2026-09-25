@@ -217,12 +217,26 @@ fn run_conpty_warmup() {
     }
 }
 
+/// Windows: PowerShell 7 when it's installed, Windows PowerShell (always
+/// there) otherwise - what Windows Terminal opens too. Not COMSPEC: that is
+/// cmd.exe on every Windows install, so it says nothing about what the user
+/// prefers; cmd stays one pick away in Settings.
 fn default_shell() -> String {
     if cfg!(target_os = "windows") {
-        std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".into())
+        if on_path("pwsh.exe") { "pwsh.exe".into() } else { "powershell.exe".into() }
     } else {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into())
     }
+}
+
+/// Whether `program` sits in one of PATH's directories. `symlink_metadata`,
+/// not `is_file`: a Microsoft Store pwsh is an App Execution Alias in
+/// WindowsApps, a reparse point that plain `metadata` can't follow even
+/// though CreateProcess launches it fine.
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| std::fs::symlink_metadata(dir.join(program)).is_ok()))
+        .unwrap_or(false)
 }
 
 #[derive(Serialize)]
@@ -260,6 +274,10 @@ fn wsl_installed() -> bool {
 pub fn list_shell_options() -> Vec<ShellOption> {
     let mut options = vec![ShellOption { id: "system".into(), label: "Predefinita di sistema".into() }];
     if cfg!(target_os = "windows") {
+        // Names what "system" resolves to - on Windows it's Flowcode's own
+        // pick (see `default_shell`), not something the OS reports.
+        options[0].label =
+            if on_path("pwsh.exe") { "Predefinita (PowerShell 7)" } else { "Predefinita (Windows PowerShell)" }.into();
         options.push(ShellOption { id: "cmd".into(), label: "Prompt dei comandi (cmd)".into() });
         options.push(ShellOption { id: "powershell".into(), label: "Windows PowerShell".into() });
         options.push(ShellOption { id: "pwsh".into(), label: "PowerShell 7".into() });

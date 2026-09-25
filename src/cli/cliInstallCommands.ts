@@ -7,11 +7,12 @@ export type InstallableCli = "claude" | "codex";
  *
  * Claude's official install command is written for PowerShell (`irm ... |
  * iex` - Invoke-RestMethod/Invoke-Expression, PowerShell-only aliases). This
- * app's own terminal tabs default to cmd.exe (see pty.rs's `default_shell`,
- * which resolves to COMSPEC), and cmd.exe has no `irm`/`iex` of its own to
- * fall back on - typed there as-is, it just fails with "'irm' is not
- * recognized". Wrapping it in an explicit `powershell -Command "..."` call
- * works from either a cmd.exe prompt or a headless `cmd /C` run. */
+ * app's terminal tabs default to PowerShell (see pty.rs's `default_shell`),
+ * but a tab can still be cmd.exe (picked in Settings), and cmd.exe has no
+ * `irm`/`iex` of its own to fall back on - typed there as-is, it just fails
+ * with "'irm' is not recognized". Wrapping it in an explicit
+ * `powershell -Command "..."` call works from a PowerShell or cmd.exe prompt
+ * alike, and from a headless `cmd /C` run. */
 export function cliInstallCommand(cli: InstallableCli, isWindows: boolean): string {
   if (cli === "codex") return "npm install -g @openai/codex";
   return isWindows
