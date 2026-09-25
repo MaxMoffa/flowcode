@@ -21,6 +21,55 @@ struct PtySession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     pid: Option<u32>,
+    /// Where this session's output goes - swapped when its tab moves to
+    /// another window (see `pty_detach`/`pty_attach`).
+    sink: Arc<Mutex<Sink>>,
+    /// Label of the window showing this session; `None` while its tab is in
+    /// transit between windows. Closing a window kills what it owns (see
+    /// `kill_owned_by`).
+    owner: Option<String>,
+}
+
+/// Environment variable carrying a tab's pty session id into everything it
+/// runs - see `pty_spawn` and agents.rs's WSL scan.
+pub const PTY_ID_ENV: &str = "FLOWCODE_PTY_ID";
+
+/// Cap on output held for a detached session - a tab is only ever detached
+/// for the moment it takes to move it, so this is just a backstop against a
+/// chatty program filling memory if the move never completes.
+const MAX_BUFFERED_BYTES: usize = 8 * 1024 * 1024;
+
+/// The output side of a session: the channel of the terminal currently
+/// showing it, or - between `pty_detach` and `pty_attach` - a buffer that
+/// holds everything the program prints meanwhile, handed over on attach.
+struct Sink {
+    channel: Option<Channel<PtyEvent>>,
+    buffered: Vec<PtyEvent>,
+    buffered_bytes: usize,
+    /// Sequence number of the last `Output` event produced.
+    seq: u64,
+}
+
+impl Sink {
+    fn push(&mut self, event: PtyEvent) {
+        if let Some(channel) = &self.channel {
+            if channel.send(event.clone()).is_ok() {
+                return;
+            }
+            // Its webview is gone (window closed mid-flight): keep the
+            // output instead of dropping it, like a detached session.
+            self.channel = None;
+        }
+        if let PtyEvent::Output { data, .. } = &event {
+            self.buffered_bytes += data.len();
+        }
+        self.buffered.push(event);
+        while self.buffered_bytes > MAX_BUFFERED_BYTES && self.buffered.len() > 1 {
+            if let PtyEvent::Output { data, .. } = self.buffered.remove(0) {
+                self.buffered_bytes -= data.len();
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -47,10 +96,14 @@ impl PtyState {
 /// which blocks the session until answered - can be missed), and each
 /// terminal only ever receives its own session's bytes instead of every
 /// tab filtering every other tab's output.
+///
+/// `seq` numbers every `Output` in order, per session - what lets a tab being
+/// moved to another window know it has received everything sent to it before
+/// `pty_detach` (see that command).
 #[derive(Serialize, Clone)]
-#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+#[serde(tag = "event", rename_all = "camelCase")]
 pub enum PtyEvent {
-    Output(String),
+    Output { data: String, seq: u64 },
     Exit,
 }
 
@@ -271,6 +324,7 @@ fn split_wsl_unc(path: &str) -> Option<(String, String)> {
 #[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, PtyState>,
     cwd: Option<String>,
     cols: u16,
@@ -337,6 +391,17 @@ pub fn pty_spawn(
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "Flowcode");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    // Tags everything started in this tab with the tab's session id, WSL
+    // included (WSLENV carries it across into the distro) - the only way to
+    // tell which tab an agent running *inside* WSL belongs to, since Linux
+    // processes don't show up in the Windows process tree (see agents.rs).
+    let id = uuid::Uuid::new_v4().to_string();
+    cmd.env(PTY_ID_ENV, &id);
+    let wslenv = std::env::var("WSLENV").unwrap_or_default();
+    if !wslenv.split(':').any(|v| v.split('/').next() == Some(PTY_ID_ENV)) {
+        let joined = if wslenv.is_empty() { format!("{PTY_ID_ENV}/u") } else { format!("{wslenv}:{PTY_ID_ENV}/u") };
+        cmd.env("WSLENV", joined);
+    }
     match shell_stem.as_str() {
         // cmd.exe never retitles on its own - not even after a `cd` typed by
         // hand - so the frontend's "follow the real cwd" logic would have
@@ -373,7 +438,12 @@ pub fn pty_spawn(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    let id = uuid::Uuid::new_v4().to_string();
+    let sink = Arc::new(Mutex::new(Sink {
+        channel: Some(on_event),
+        buffered: Vec::new(),
+        buffered_bytes: 0,
+        seq: 0,
+    }));
     state.0.lock().unwrap().insert(
         id.clone(),
         PtySession {
@@ -381,6 +451,8 @@ pub fn pty_spawn(
             writer: Arc::new(Mutex::new(writer)),
             killer: child.clone_killer(),
             pid: child.process_id(),
+            sink: Arc::clone(&sink),
+            owner: Some(window.label().to_string()),
         },
     );
 
@@ -388,6 +460,12 @@ pub fn pty_spawn(
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         let mut pending: Vec<u8> = Vec::new();
+        let emit = |data: String| {
+            let mut sink = sink.lock().unwrap();
+            sink.seq += 1;
+            let seq = sink.seq;
+            sink.push(PtyEvent::Output { data, seq });
+        };
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
@@ -397,17 +475,15 @@ pub fn pty_spawn(
                     if emit_len > 0 {
                         let data = String::from_utf8_lossy(&pending[..emit_len]).into_owned();
                         pending.drain(..emit_len);
-                        if on_event.send(PtyEvent::Output(data)).is_err() {
-                            break;
-                        }
+                        emit(data);
                     }
                 }
             }
         }
         if !pending.is_empty() {
-            let _ = on_event.send(PtyEvent::Output(String::from_utf8_lossy(&pending).into_owned()));
+            emit(String::from_utf8_lossy(&pending).into_owned());
         }
-        let _ = on_event.send(PtyEvent::Exit);
+        sink.lock().unwrap().push(PtyEvent::Exit);
         // The session is over either way (shell exited, or the tab killed it):
         // drop it from the map so its handles are released now rather than
         // whenever the tab happens to close, and reap the child so it doesn't
@@ -454,6 +530,62 @@ pub fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
         session.killer.kill().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// First half of moving a tab to another window: the session stops sending
+/// to its current terminal and holds its output until `pty_attach`. The
+/// program itself never notices. Returns the `seq` of the last output already
+/// sent - the old terminal waits until it has processed that one before
+/// snapshotting its screen, so nothing sent before the detach is lost.
+#[tauri::command]
+pub fn pty_detach(state: State<'_, PtyState>, id: String) -> Result<u64, String> {
+    let mut sessions = state.0.lock().unwrap();
+    let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
+    session.owner = None;
+    let mut sink = session.sink.lock().unwrap();
+    sink.channel = None;
+    Ok(sink.seq)
+}
+
+/// Second half of the move: the session's new terminal (in `window`) takes
+/// over its output, starting with whatever was held since `pty_detach`.
+#[tauri::command]
+pub fn pty_attach(
+    window: tauri::WebviewWindow,
+    state: State<'_, PtyState>,
+    id: String,
+    on_event: Channel<PtyEvent>,
+) -> Result<(), String> {
+    let mut sessions = state.0.lock().unwrap();
+    let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
+    session.owner = Some(window.label().to_string());
+    let mut sink = session.sink.lock().unwrap();
+    for event in sink.buffered.drain(..) {
+        let _ = on_event.send(event);
+    }
+    sink.buffered_bytes = 0;
+    sink.channel = Some(on_event);
+    Ok(())
+}
+
+impl PtyState {
+    /// Kills every session shown in the window `label` - called when that
+    /// window is destroyed, since its terminals (and the tabs to reach them)
+    /// are gone with it. Sessions in transit belong to no window and are left
+    /// alone.
+    pub fn kill_owned_by(&self, label: &str) {
+        let mut sessions = self.0.lock().unwrap();
+        let ids: Vec<String> = sessions
+            .iter()
+            .filter(|(_, s)| s.owner.as_deref() == Some(label))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            if let Some(mut session) = sessions.remove(&id) {
+                let _ = session.killer.kill();
+            }
+        }
+    }
 }
 
 /// What is at the front of a terminal tab right now, as the OS sees it -

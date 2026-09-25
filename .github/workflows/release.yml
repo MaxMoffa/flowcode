@@ -239,6 +239,10 @@ jobs:
           pattern: flowcode-setup-*
           path: dist-release
           merge-multiple: true
+      # The in-app updater (src-tauri/src/updater.rs) checks the installer it
+      # downloads against this file before running it.
+      - name: Checksums
+        run: cd dist-release && sha256sum -- * > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: dist-release/*

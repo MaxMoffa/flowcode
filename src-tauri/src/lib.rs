@@ -2,9 +2,13 @@ mod agents;
 mod fs;
 mod plugins;
 mod pty;
+mod session;
 mod system;
+mod updater;
+mod windows;
 
 use pty::PtyState;
+use tauri::Manager;
 
 /// Runs blocking work (filesystem walks, process spawns, process-table
 /// refreshes) on Tokio's blocking pool. Tauri runs a plain sync command on the
@@ -25,7 +29,6 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(target_os = "windows")]
             {
-                use tauri::Manager;
                 // On its own thread: `setup()` runs on the main/event-loop
                 // thread, and this app's window is already shown by the
                 // time `setup()` runs (see tauri.conf.json - not created
@@ -42,13 +45,40 @@ pub fn run() {
             }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let app = window.app_handle();
+                let label = window.label();
+                // A closed window takes its terminals with it - nothing is
+                // left to show them in.
+                app.state::<PtyState>().kill_owned_by(label);
+                app.state::<session::SessionStore>().forget_window(app, label);
+                app.state::<windows::WindowInits>().forget(label);
+                app.state::<windows::WindowTabs>().forget(label);
+            }
+        })
         .manage(PtyState::default())
         .manage(agents::ProbePids::default())
+        .manage(session::SessionStore::default())
+        .manage(windows::WindowInits::default())
+        .manage(windows::WindowTabs::default())
+        .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_detach,
+            pty::pty_attach,
+            session::session_put,
+            windows::window_open,
+            windows::window_take_init,
+            windows::window_move_to_cursor,
+            windows::window_at_cursor,
+            windows::window_report_tabs,
+            windows::window_focus_tab,
+            updater::update_check,
+            updater::update_install,
             pty::pty_foreground,
             pty::list_shell_options,
             fs::read_dir,

@@ -278,3 +278,39 @@
   color: var(--fg-muted);
   font-size: 12px;
 }
+
+/* Tab drag (see TabStrip's pointer handlers): lifted while sliding along the
+   strip, faded once pulled out of it - the ghost below follows the cursor. */
+.term-tab.is-dragging {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  cursor: grabbing;
+}
+
+.term-tab.is-detached {
+  opacity: 0.4;
+}
+
+.tab-drag-ghost {
+  position: fixed;
+  z-index: 1200;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 160px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font: 500 12.5px/1 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  opacity: 0.92;
+  pointer-events: none;
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+}

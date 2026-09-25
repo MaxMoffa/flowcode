@@ -100,6 +100,75 @@ async fn installer_pick_dir(app: tauri::AppHandle, default_dir: String) -> Optio
         .unwrap_or(None)
 }
 
+/// The in-app updater's hand-off (see main.rs): waits for the running
+/// Flowcode to quit, installs this installer's payload over `install_dir`
+/// exactly like the wizard's "update" path (desktop shortcut and integrations
+/// left as they were), and starts Flowcode again. On failure the error is
+/// shown (Windows) or logged, and whatever is installed is started anyway, so
+/// an update that couldn't run never leaves the user without their app.
+pub fn silent_update(install_dir: &str, wait_pid: Option<u32>) {
+    if let Some(pid) = wait_pid {
+        wait_for_exit(pid);
+    }
+    let result = if std::path::Path::new(install_dir).is_absolute() {
+        install::perform_install(install_dir, install::had_desktop_shortcut())
+    } else {
+        Err(format!("cartella di installazione non valida: \"{install_dir}\""))
+    };
+    if let Err(e) = &result {
+        report_update_error(e);
+    }
+    let _ = install::launch(install_dir);
+}
+
+fn report_update_error(message: &str) {
+    let text = format!("Aggiornamento di Flowcode non riuscito:\n\n{message}");
+    let _ = std::fs::write(std::env::temp_dir().join("flowcode-update-error.log"), &text);
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+        let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+        let (text, title) = (wide(&text), wide("Flowcode"));
+        // SAFETY: both strings are NUL-terminated and outlive the call.
+        unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR) };
+    }
+}
+
+/// Blocks until process `pid` has exited (at most ~30s): the files it holds
+/// can't all be replaced while it runs, and on macOS the whole app bundle is
+/// rewritten.
+fn wait_for_exit(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
+        // SAFETY: plain handle open/wait/close; a null handle means the
+        // process is already gone.
+        unsafe {
+            let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+            if !handle.is_null() {
+                WaitForSingleObject(handle, 30_000);
+                CloseHandle(handle);
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            if !alive {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

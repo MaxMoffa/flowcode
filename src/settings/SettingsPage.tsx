@@ -11,6 +11,7 @@ import type { PluginDef, PluginManifest } from "../plugins/types";
 import type { SidebarMode } from "./modes";
 import { listShellOptions, type ShellOption } from "../terminal/shellOptions";
 import { writeBool } from "../lib/storage";
+import { useUpdater, type UpdateStatus } from "../update/UpdateContext";
 import pkg from "../../package.json";
 import "./settings-page.css";
 
@@ -40,6 +41,21 @@ interface SettingsPageProps {
   onDeletePlugin: (id: string) => void;
   favoritesButtonVisible: boolean;
   onSetFavoritesButtonVisible: (visible: boolean) => void;
+}
+
+function updateStatusText(status: UpdateStatus): string {
+  switch (status.kind) {
+    case "upToDate":
+      return "Stai usando l'ultima versione.";
+    case "available":
+      return `È disponibile la versione ${status.info.version}.`;
+    case "installing":
+      return `Installazione della versione ${status.info.version} in corso…`;
+    case "error":
+      return `Controllo non riuscito: ${status.message}`;
+    default:
+      return "";
+  }
 }
 
 const SECTION_TITLES = {
@@ -84,6 +100,7 @@ export function SettingsPage({
   } = useTerminalSettings();
   const { section } = useSettingsSection();
   const confirm = useConfirmDialog();
+  const { status: updateStatus, check: checkForUpdates, openDialog: openUpdateDialog } = useUpdater();
   const [versionCopied, setVersionCopied] = useState(false);
   const versionCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -485,6 +502,28 @@ export function SettingsPage({
                   <button type="button" className="settings-choice" onClick={handleCopyVersionInfo}>
                     {versionCopied ? "Copiato" : "Copia informazioni versione"}
                   </button>
+                </div>
+              </div>
+              <div className="settings-field">
+                <span className="settings-field-label">Aggiornamenti</span>
+                <p className="settings-field-desc">
+                  Flowcode controlla le nuove versioni a ogni avvio. {updateStatusText(updateStatus)}
+                </p>
+                <div className="settings-choice-row">
+                  {updateStatus.kind === "available" || updateStatus.kind === "installing" ? (
+                    <button type="button" className="settings-choice" onClick={openUpdateDialog}>
+                      Aggiorna a {updateStatus.info.version}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="settings-choice"
+                      disabled={updateStatus.kind === "checking"}
+                      onClick={() => void checkForUpdates(true)}
+                    >
+                      {updateStatus.kind === "checking" ? "Controllo in corso…" : "Verifica aggiornamenti"}
+                    </button>
+                  )}
                 </div>
               </div>
             </section>

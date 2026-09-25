@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { listShellOptions, type ShellOption } from "./shellOptions";
 import type { AppTab } from "../tabs/types";
@@ -20,6 +20,31 @@ interface TabStripProps {
   /** Opens a second, independent copy of a tab - same cwd for a terminal,
    * same file for an editor. Not offered for the (singleton) settings tab. */
   onDuplicate: (id: string) => void;
+  /** A tab dragged along the strip, moved to slot `toIndex`. */
+  onReorder: (id: string, toIndex: number) => void;
+  /** A tab dragged out of the strip and released - it goes to whatever is
+   * under the cursor (another window, or a new one): see App.tsx's
+   * `handleTabDragOut`. */
+  onDragOut: (id: string) => void;
+}
+
+/** How far the pointer has to travel before a press on a tab becomes a drag
+ * (below it, it's a plain click). */
+const DRAG_THRESHOLD = 5;
+/** How far above/below the strip the pointer can stray while still
+ * reordering, before the tab counts as pulled out of it. */
+const DETACH_MARGIN = 30;
+
+interface TabDrag {
+  id: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  dragging: boolean;
+  /** Pulled out of the strip: dropping it now moves it out of this window. */
+  detached: boolean;
+  x: number;
+  y: number;
 }
 
 // Tabs have a fixed CSS width, so how many fit is plain arithmetic instead
@@ -209,7 +234,18 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onD
   );
 }
 
-export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, onRename, onDuplicate }: TabStripProps) {
+export function TabStrip({
+  tabs,
+  activeId,
+  dirtyIds,
+  onSelect,
+  onClose,
+  onNew,
+  onRename,
+  onDuplicate,
+  onReorder,
+  onDragOut,
+}: TabStripProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [overflowAnchorRect, setOverflowAnchorRect] = useState<DOMRect | null>(null);
@@ -219,6 +255,13 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
   const containerRef = useRef<HTMLDivElement>(null);
   const folderTabRef = useRef<HTMLDivElement>(null);
   const openMenu = useOpenContextMenu();
+  // The tab being dragged, if any - state for rendering (the ghost, the
+  // dimmed tab), mirrored in a ref for the pointer handlers.
+  const [drag, setDrag] = useState<TabDrag | null>(null);
+  const dragRef = useRef<TabDrag | null>(null);
+  // The click that follows the pointerup ending a drag must not also count
+  // as a click on the tab.
+  const suppressClickRef = useRef(false);
   // Fetched once, purely to answer "is there more than one shell to offer" -
   // same list Settings uses for the default-shell picker (see
   // list_shell_options in pty.rs), already filtered there to what's actually
@@ -301,6 +344,66 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
   // the group - reasonable stand-ins for a preview, in that order.
   const folderPreview = activeInFolder ?? rememberedTab ?? hiddenTabs[hiddenTabs.length - 1];
 
+  function handleTabPointerDown(e: ReactPointerEvent<HTMLDivElement>, tab: AppTab) {
+    if (e.button !== 0 || editingId === tab.id) return;
+    if ((e.target as HTMLElement).closest(".term-tab-close, input")) return;
+    // Captured so the drag keeps reporting even once the pointer leaves the
+    // window - which is exactly where a tab gets dropped to open elsewhere.
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      id: tab.id,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      dragging: false,
+      detached: false,
+      x: e.clientX,
+      y: e.clientY,
+    };
+  }
+
+  function handleTabPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const current = dragRef.current;
+    const strip = containerRef.current;
+    if (!current || !strip || e.pointerId !== current.pointerId) return;
+    if (!current.dragging) {
+      if (Math.hypot(e.clientX - current.startX, e.clientY - current.startY) < DRAG_THRESHOLD) return;
+      // Like a browser: the tab being dragged is the one on screen.
+      onSelect(current.id);
+    }
+    const rect = strip.getBoundingClientRect();
+    const detached =
+      e.clientY < rect.top - DETACH_MARGIN ||
+      e.clientY > rect.bottom + DETACH_MARGIN ||
+      e.clientX < 0 ||
+      e.clientX > window.innerWidth;
+    const next = { ...current, dragging: true, detached, x: e.clientX, y: e.clientY };
+    dragRef.current = next;
+    setDrag(next);
+    if (detached) return;
+    // Still in the strip: slide it into the slot under the pointer. Only
+    // among the regular tabs - the overflow folder isn't a drop slot.
+    const first = strip.querySelector(".term-tab:not(.term-tab-folder)")?.getBoundingClientRect();
+    if (!first || visibleTabs.length === 0) return;
+    const slot = Math.max(0, Math.min(visibleTabs.length - 1, Math.floor((e.clientX - first.left) / TAB_SLOT)));
+    if (tabs[slot]?.id !== current.id) onReorder(current.id, slot);
+  }
+
+  function endTabDrag(e: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) {
+    const current = dragRef.current;
+    if (!current || e.pointerId !== current.pointerId) return;
+    dragRef.current = null;
+    setDrag(null);
+    if (!current.dragging) return;
+    suppressClickRef.current = true;
+    setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
+    if (current.detached && !cancelled) onDragOut(current.id);
+  }
+
+  const draggedTab = drag?.dragging ? tabs.find((t) => t.id === drag.id) : undefined;
+
   function handleFolderTabClick() {
     if (!folderPreview) return;
     if (overflowAnchorRect) {
@@ -319,8 +422,18 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
         return (
           <div
             key={tab.id}
-            className={"term-tab" + (tab.id === activeId ? " is-active" : "")}
-            onClick={() => onSelect(tab.id)}
+            className={
+              "term-tab" +
+              (tab.id === activeId ? " is-active" : "") +
+              (draggedTab?.id === tab.id ? (drag?.detached ? " is-detached" : " is-dragging") : "")
+            }
+            onClick={() => {
+              if (!suppressClickRef.current) onSelect(tab.id);
+            }}
+            onPointerDown={(e) => handleTabPointerDown(e, tab)}
+            onPointerMove={handleTabPointerMove}
+            onPointerUp={(e) => endTabDrag(e, false)}
+            onPointerCancel={(e) => endTabDrag(e, true)}
             onContextMenu={(e) => openMenu(e, tabMenuItems(tab))}
             title={tabTitle(tab)}
           >
@@ -408,6 +521,15 @@ export function TabStrip({ tabs, activeId, dirtyIds, onSelect, onClose, onNew, o
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
       </button>
+      {draggedTab &&
+        drag?.detached &&
+        createPortal(
+          <div className="tab-drag-ghost" style={{ left: drag.x - 24, top: drag.y - 15 }}>
+            {tabIcon(draggedTab)}
+            <span className="term-tab-label">{draggedTab.label}</span>
+          </div>,
+          document.body,
+        )}
       {overflowAnchorRect && (
         <TabOverflowMenu
           tabs={hiddenTabs}

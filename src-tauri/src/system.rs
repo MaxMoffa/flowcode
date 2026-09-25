@@ -163,7 +163,7 @@ pub fn wsl_home_dir(distro: String, user: Option<String>) -> Option<String> {
 /// this app shells out to - a well-known quirk of that specific binary.
 /// Detected by null-byte density rather than assumed, since which encoding
 /// a given Windows build actually uses isn't consistent.
-fn decode_wsl_output(bytes: &[u8]) -> String {
+pub(crate) fn decode_wsl_output(bytes: &[u8]) -> String {
     let null_ratio = bytes.iter().filter(|&&b| b == 0).count() as f32 / bytes.len().max(1) as f32;
     if null_ratio > 0.3 {
         let utf16: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();

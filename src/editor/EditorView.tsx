@@ -27,9 +27,13 @@ interface EditorViewProps {
   hidden?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onRenamed?: (newPath: string) => void;
+  /** Unsaved text carried over from another window (a tab moved there with
+   * pending edits) - shown instead of what's on disk, still marked unsaved.
+   * Only read once, at mount. */
+  initialContent?: string;
 }
 
-export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hidden, onDirtyChange, onRenamed }, ref) => {
+export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hidden, onDirtyChange, onRenamed, initialContent }, ref) => {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -45,6 +49,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   const pathRef = useRef(path);
   const dirtyRef = useRef(false);
   const initialPathRef = useRef(path);
+  const initialContentRef = useRef(initialContent);
   const renameInputRef = useRef<HTMLInputElement>(null);
   // Enter commits and the blur that follows must not commit a second time.
   const renameDoneRef = useRef(false);
@@ -56,7 +61,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     invoke<string>("read_text_file", { path: initialPathRef.current })
       .then((text) => {
         originalRef.current = text;
-        setContent(text);
+        setContent(initialContentRef.current ?? text);
       })
       .catch((e) => setError(String(e)));
   }, []);
@@ -154,6 +159,11 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
 
     const view = new CMEditorView({ state, parent: hostRef.current });
     cmViewRef.current = view;
+    if (content !== originalRef.current) {
+      dirtyRef.current = true;
+      setDirty(true);
+      onDirtyChangeRef.current?.(true);
+    }
 
     return () => {
       view.destroy();

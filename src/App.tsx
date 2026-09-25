@@ -5,17 +5,20 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "rea
 // window object throws a TypeError.
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { emitTo, listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
-import { TerminalView, type TerminalHandle } from "./terminal/Terminal";
+import { TerminalView, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, TermTab, EditorTab } from "./tabs/types";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
-import { loadSession, saveSession, type SavedSession, type SavedTab } from "./session/session";
+import { loadSession, saveWindowSession, type SavedTab, type SavedWindow } from "./session/session";
+import { UpdateProvider } from "./update/UpdateContext";
 import {
   defaultWslDistro,
   sameShell,
@@ -52,6 +55,52 @@ import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./term
 import "./App.css";
 
 const appWindow = getCurrentWindow();
+/** The window Flowcode starts with - the one that restores the saved session
+ * and checks for updates. Every other window was opened from it (a tab
+ * dragged out, or a restored extra window). */
+const isMainWindow = appWindow.label === "main";
+
+/** A tab on its way to another window: what the receiving window needs to
+ * rebuild it - for a terminal its still-running session (see
+ * `TerminalHandle.release`), for an editor any unsaved text. */
+interface TabTransfer {
+  tab: AppTab;
+  terminal?: TerminalTransfer & { shell?: string; fontSize?: number };
+  editor?: { content: string; dirty: boolean };
+  /** Where it was dropped in the receiving window (CSS px), when it was
+   * dropped onto one - picks its slot in that window's tab strip. */
+  drop?: { x: number; y: number };
+}
+
+/** What a window opened by `window_open` (src-tauri/src/windows.rs) starts
+ * with. */
+type WindowInit = { kind: "adopt"; transfer: TabTransfer } | { kind: "restore"; window: SavedWindow };
+
+/** Mirrors `CursorTarget` in src-tauri/src/windows.rs. */
+interface CursorTarget {
+  label: string | null;
+  x: number;
+  y: number;
+}
+
+// Taken once per page load, not per effect run: the backend hands it out
+// only once, and a remounted effect (StrictMode in dev) must see it too.
+let windowInitPromise: Promise<WindowInit | null> | null = null;
+function takeWindowInit(): Promise<WindowInit | null> {
+  windowInitPromise ??= invoke<WindowInit | null>("window_take_init").catch(() => null);
+  return windowInitPromise;
+}
+
+/** Where in this window's tab strip a tab dropped at (x, y) goes - `undefined`
+ * (the end) when it wasn't dropped over the strip. */
+function tabStripDropIndex(drop: { x: number; y: number } | undefined): number | undefined {
+  const strip = document.querySelector(".tab-strip")?.getBoundingClientRect();
+  if (!drop || !strip || drop.y < strip.top - 30 || drop.y > strip.bottom + 30) return undefined;
+  return Array.from(document.querySelectorAll(".tab-strip > .term-tab:not(.term-tab-folder)")).filter((el) => {
+    const r = el.getBoundingClientRect();
+    return r.left + r.width / 2 < drop.x;
+  }).length;
+}
 
 // Loaded on demand: CodeMirror (every language grammar) and the flowkit
 // onboarding flow are the bulk of the bundle, and plenty of sessions never
@@ -356,12 +405,17 @@ function Shell() {
   // pendingCommandsRef above.
   const pendingShellOverrideRef = useRef(new Map<string, string>());
   const editorRefs = useRef(new Map<string, EditorHandle>());
+  // A terminal session moved here from another window, keyed by its new tab
+  // id - handed to that tab's TerminalView once, at mount (its `attach`).
+  const pendingAttachRef = useRef(new Map<string, TerminalTransfer>());
+  // Same for an editor tab moved here with unsaved edits.
+  const pendingEditorContentRef = useRef(new Map<string, string>());
   const pluginBtnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirmDialog();
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
-  const { startPath, resetTabZoom, restoreSession, shellId } = useTerminalSettings();
+  const { startPath, resetTabZoom, restoreSession, shellId, tabFontSizeOverrides, setTabFontSize } = useTerminalSettings();
   const restoreSessionRef = useRef(restoreSession);
   restoreSessionRef.current = restoreSession;
   // Previous session's terminal text, keyed by the restored tab's new id -
@@ -510,60 +564,76 @@ function Shell() {
   }, [startPath]);
 
   useEffect(() => {
-    if (!restoreSessionRef.current) {
-      setSessionChecked(true);
-      return;
-    }
     let cancelled = false;
+
+    /** Rebuilds one saved window's tabs in this window. */
+    async function applySavedWindow(saved: SavedWindow) {
+      const restored: AppTab[] = [];
+      for (const t of saved.tabs) {
+        if (t.kind === "terminal") {
+          // A folder deleted since, or a `\\wsl.localhost\...` path a
+          // Windows shell can't start in (a WSL one can - pty_spawn turns
+          // it into `wsl -d <distro> --cd <path>`): left empty, so the
+          // startup-folder fill below gives it the configured start folder
+          // instead.
+          //
+          // A session saved while a command was running in cmd.exe holds
+          // its "<cwd> - <command>" title as the cwd (see
+          // `cmdTitlePathCandidates`) - the real folder is recovered from
+          // it rather than dropping the tab back to the start folder.
+          const wslDistro = wslDistroOfShell(t.shell);
+          const cwd =
+            !!t.cwd && (wslDistro !== undefined || !t.cwd.startsWith("\\\\"))
+              ? ((await firstExistingDir(wslDistro !== undefined ? [t.cwd] : cmdTitlePathCandidates(t.cwd))) ?? "")
+              : "";
+          const id = `tab-${nextTabId++}`;
+          restoredTabIdsRef.current.add(id);
+          if (t.content) restoredContentRef.current.set(id, t.content);
+          if (t.shell) pendingShellOverrideRef.current.set(id, t.shell);
+          restored.push({
+            kind: "terminal",
+            id,
+            cwd,
+            explorerPath: cwd,
+            label: t.customLabel || !cwd ? t.label : labelForCwd(cwd),
+            customLabel: t.customLabel,
+            nestedShell: wslDistro !== undefined ? "wsl" : undefined,
+            wslDistro: wslDistro ?? undefined,
+          });
+        } else if (t.kind === "editor") {
+          restored.push({ kind: "editor", id: `editor-${nextTabId++}`, path: t.path, label: t.label });
+        } else if (!restored.some((r) => r.kind === "settings")) {
+          restored.push({ kind: "settings", id: "settings", label: "Impostazioni" });
+        }
+      }
+      if (cancelled) return;
+      if (!restored.some((r) => r.kind === "terminal")) {
+        restored.unshift({ kind: "terminal", id: "tab-0", cwd: "", explorerPath: "", label: "shell" });
+      }
+      const active = restored[Math.min(Math.max(saved.activeIndex, 0), restored.length - 1)];
+      setTabs(restored);
+      setActiveTabId(active.id);
+      setActiveTerminalId(active.kind === "terminal" ? active.id : restored.find((r) => r.kind === "terminal")!.id);
+    }
+
     (async () => {
-      const saved = await loadSession();
-      if (saved && !cancelled) {
-        const restored: AppTab[] = [];
-        for (const t of saved.tabs) {
-          if (t.kind === "terminal") {
-            // A folder deleted since, or a `\\wsl.localhost\...` path a
-            // Windows shell can't start in (a WSL one can - pty_spawn turns
-            // it into `wsl -d <distro> --cd <path>`): left empty, so the
-            // startup-folder fill below gives it the configured start folder
-            // instead.
-            //
-            // A session saved while a command was running in cmd.exe holds
-            // its "<cwd> - <command>" title as the cwd (see
-            // `cmdTitlePathCandidates`) - the real folder is recovered from
-            // it rather than dropping the tab back to the start folder.
-            const wslDistro = wslDistroOfShell(t.shell);
-            const cwd =
-              !!t.cwd && (wslDistro !== undefined || !t.cwd.startsWith("\\\\"))
-                ? ((await firstExistingDir(wslDistro !== undefined ? [t.cwd] : cmdTitlePathCandidates(t.cwd))) ?? "")
-                : "";
-            const id = `tab-${nextTabId++}`;
-            restoredTabIdsRef.current.add(id);
-            if (t.content) restoredContentRef.current.set(id, t.content);
-            if (t.shell) pendingShellOverrideRef.current.set(id, t.shell);
-            restored.push({
-              kind: "terminal",
-              id,
-              cwd,
-              explorerPath: cwd,
-              label: t.customLabel || !cwd ? t.label : labelForCwd(cwd),
-              customLabel: t.customLabel,
-              nestedShell: wslDistro !== undefined ? "wsl" : undefined,
-              wslDistro: wslDistro ?? undefined,
-            });
-          } else if (t.kind === "editor") {
-            restored.push({ kind: "editor", id: `editor-${nextTabId++}`, path: t.path, label: t.label });
-          } else if (!restored.some((r) => r.kind === "settings")) {
-            restored.push({ kind: "settings", id: "settings", label: "Impostazioni" });
+      const init = await takeWindowInit();
+      if (cancelled) return;
+      if (init?.kind === "adopt") {
+        adoptTabRef.current(init.transfer, true);
+      } else if (init?.kind === "restore") {
+        await applySavedWindow(init.window);
+      } else if (isMainWindow && restoreSessionRef.current) {
+        const saved = await loadSession();
+        if (saved && !cancelled) {
+          await applySavedWindow(saved[0]);
+          // Every other saved window reopens as a window of its own, where
+          // it was.
+          for (const extra of saved.slice(1)) {
+            const placement = extra.bounds ? { kind: "bounds", ...extra.bounds } : { kind: "atCursor" };
+            invoke("window_open", { init: { kind: "restore", window: extra }, placement }).catch(() => {});
           }
         }
-        if (cancelled) return;
-        if (!restored.some((r) => r.kind === "terminal")) {
-          restored.unshift({ kind: "terminal", id: "tab-0", cwd: "", explorerPath: "", label: "shell" });
-        }
-        const active = restored[Math.min(Math.max(saved.activeIndex, 0), restored.length - 1)];
-        setTabs(restored);
-        setActiveTabId(active.id);
-        setActiveTerminalId(active.kind === "terminal" ? active.id : restored.find((r) => r.kind === "terminal")!.id);
       }
       if (!cancelled) setSessionChecked(true);
     })();
@@ -574,7 +644,7 @@ function Shell() {
 
   useEffect(() => {
     if (!sessionChecked) return;
-    function snapshot(): SavedSession {
+    async function snapshot(): Promise<SavedWindow> {
       const { tabs, activeTabId } = latestRef.current;
       // A virgin terminal (opened, never typed into or used) isn't worth
       // bringing back. A restored one left untouched is saved with the very
@@ -584,8 +654,19 @@ function Shell() {
         if (t.kind !== "terminal") return true;
         return restoredTabIdsRef.current.has(t.id) || !!termRefs.current.get(t.id)?.wasUsed();
       });
+      // Where an extra window reopens next time (the main one keeps its
+      // default placement). Not while minimized: Windows parks a minimized
+      // window far off-screen.
+      let bounds: SavedWindow["bounds"];
+      if (!isMainWindow && !(await appWindow.isMinimized().catch(() => false))) {
+        const geometry = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]).catch(() => null);
+        if (geometry) {
+          const [pos, size] = geometry;
+          bounds = { x: pos.x, y: pos.y, width: size.width, height: size.height };
+        }
+      }
       return {
-        version: 1,
+        bounds,
         activeIndex: Math.max(0, kept.findIndex((t) => t.id === activeTabId)),
         tabs: kept.map((t): SavedTab => {
           if (t.kind === "terminal") {
@@ -605,17 +686,28 @@ function Shell() {
       };
     }
     // Setting off: overwrite with an empty session rather than leave a stale
-    // one around for whenever it's switched back on.
-    const persist = () => saveSession(restoreSessionRef.current ? snapshot() : null).catch(() => {});
+    // one around for whenever it's switched back on. Each window reports
+    // only its own part; the backend writes the file (see session.rs).
+    const persist = async (flushGen?: number) => {
+      const snap = restoreSessionRef.current ? await snapshot() : null;
+      await saveWindowSession(snap, flushGen).catch(() => {});
+    };
+    // Right away too, so a freshly opened window is part of the session
+    // from the start.
+    void persist();
     // Periodic too, not just on close - a crash or a killed process never
     // gets a close event.
-    const timer = setInterval(persist, 15000);
+    const timer = setInterval(() => void persist(), 15000);
     const unlisten = appWindow.onCloseRequested(async () => {
       await persist();
     });
+    // The backend asking every window for its latest state - right before
+    // quitting for an update (see updater.rs).
+    const unlistenFlush = listen<number>("session:flush", (e) => void persist(e.payload));
     return () => {
       clearInterval(timer);
       unlisten.then((off) => off());
+      unlistenFlush.then((off) => off());
     };
   }, [sessionChecked]);
 
@@ -751,9 +843,11 @@ function Shell() {
 
   function selectTab(id: string) {
     setActiveTabId(id);
-    const tab = tabs.find((t) => t.id === id);
+    const tab = latestRef.current.tabs.find((t) => t.id === id);
     if (tab?.kind === "terminal") setActiveTerminalId(id);
   }
+  const selectTabRef = useRef(selectTab);
+  selectTabRef.current = selectTab;
 
   function addTab(cwdOverride?: string, shellOverride?: string): string {
     // No longer inherits the active tab's cwd - a fresh tab always starts at
@@ -829,7 +923,16 @@ function Shell() {
    * background/saved session (one this app has no open tab for), so
    * double-clicking it drops the user straight back into that chat instead
    * of a bare shell they'd have to resume by hand. */
-  async function openAgentSession(cwd: string, sessionId: string, cli: "claude" | "codex") {
+  async function openAgentSession(cwd: string, sessionId: string, cli: "claude" | "codex", wslDistro?: string) {
+    if (wslDistro) {
+      // Saved inside WSL: resumed by the distro's own CLI, in a WSL tab
+      // opened on that folder (`cwd` is a Linux path there). The
+      // `--no-daemon` check is about Windows' Job Object - not WSL's concern.
+      const command = cli === "claude" ? `claude --resume ${sessionId}` : `codex resume ${sessionId}`;
+      const id = addTab(toWindowsPath(wslDistro, cwd), wslShellId(wslDistro));
+      pendingCommandsRef.current.set(id, command);
+      return;
+    }
     const command =
       cli === "claude" ? `claude --resume ${sessionId}` : await withCodexLaunchFlags(`codex resume ${sessionId}`);
     const id = `tab-${nextTabId++}`;
@@ -928,6 +1031,181 @@ function Shell() {
     setActiveTabId("settings");
   }
 
+  function reorderTab(id: string, toIndex: number) {
+    setTabs((prev) => {
+      const from = prev.findIndex((t) => t.id === id);
+      if (from === -1 || from === toIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, moved);
+      return next;
+    });
+  }
+
+  /** Receives a tab from another window (or, `replaceAll`, as the very
+   * first content of a window opened for it). Its id is re-issued here - ids
+   * are only unique per window. */
+  function adoptTab(transfer: TabTransfer, replaceAll = false) {
+    const { tab } = transfer;
+    let adopted: AppTab;
+    if (tab.kind === "terminal") {
+      const id = `tab-${nextTabId++}`;
+      if (transfer.terminal) {
+        pendingAttachRef.current.set(id, { ptyId: transfer.terminal.ptyId, snapshot: transfer.terminal.snapshot });
+        if (transfer.terminal.shell) pendingShellOverrideRef.current.set(id, transfer.terminal.shell);
+        if (transfer.terminal.fontSize !== undefined) setTabFontSize(id, transfer.terminal.fontSize);
+      }
+      adopted = { ...tab, id };
+    } else if (tab.kind === "editor") {
+      const id = `editor-${nextTabId++}`;
+      if (transfer.editor?.dirty) pendingEditorContentRef.current.set(id, transfer.editor.content);
+      adopted = { ...tab, id };
+    } else {
+      adopted = { kind: "settings", id: "settings", label: "Impostazioni" };
+    }
+
+    if (replaceAll) {
+      // A window always has a terminal: one opened for an editor/settings
+      // tab keeps its startup terminal next to it.
+      setTabs((prev) => (adopted.kind === "terminal" ? [adopted] : [...prev.filter((t) => t.kind === "terminal"), adopted]));
+    } else if (adopted.kind === "settings" && latestRef.current.tabs.some((t) => t.kind === "settings")) {
+      // Already open here (it's a singleton): just switch to it.
+    } else {
+      const index = tabStripDropIndex(transfer.drop);
+      setTabs((prev) => {
+        const next = [...prev];
+        next.splice(index ?? next.length, 0, adopted);
+        return next;
+      });
+    }
+    setActiveTabId(adopted.id);
+    if (adopted.kind === "terminal") setActiveTerminalId(adopted.id);
+  }
+  // Tells the backend which terminal tabs this window has, and which pty
+  // each one runs - so the Agents panel of every window can list (and jump
+  // to) agents running here. Re-sent periodically: a new tab's pty id only
+  // exists once its shell has spawned.
+  useEffect(() => {
+    const report = () =>
+      invoke("window_report_tabs", {
+        tabs: latestRef.current.tabs
+          .filter((t): t is TermTab => t.kind === "terminal")
+          .map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd })),
+      }).catch(() => {});
+    report();
+    const timer = setInterval(report, 3000);
+    return () => clearInterval(timer);
+  }, [tabs]);
+
+  const adoptTabRef = useRef(adoptTab);
+  adoptTabRef.current = adoptTab;
+
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
+      adoptTabRef.current(e.payload);
+      appWindow.setFocus().catch(() => {});
+    });
+    // Another window's Agents panel sending the user to one of our tabs.
+    const unlistenFocus = webview.listen<string>("tab:focus", (e) => selectTabRef.current(e.payload));
+    return () => {
+      unlisten.then((off) => off());
+      unlistenFocus.then((off) => off());
+    };
+  }, []);
+
+  /** Everything the receiving window needs to rebuild `tab` - for a terminal
+   * this detaches its running session from this window (see
+   * `TerminalHandle.release`). `null` when it can't move (a terminal whose
+   * shell hasn't started yet). */
+  async function packTab(tab: AppTab): Promise<TabTransfer | null> {
+    if (tab.kind === "terminal") {
+      const moved = await termRefs.current.get(tab.id)?.release();
+      if (!moved) return null;
+      return { tab, terminal: { ...moved, shell: tabShell(tab), fontSize: tabFontSizeOverrides[tab.id] } };
+    }
+    if (tab.kind === "editor") {
+      const handle = editorRefs.current.get(tab.id);
+      return { tab, editor: handle ? { content: handle.getContent(), dirty: handle.isDirty() } : undefined };
+    }
+    return { tab };
+  }
+
+  /** Takes a moved-away tab out of this window without closing anything -
+   * its session lives on in the other window. A window left with no
+   * terminal gets a fresh one (there's always at least one). */
+  function removeMovedTab(id: string) {
+    const current = latestRef.current;
+    const idx = current.tabs.findIndex((t) => t.id === id);
+    if (idx === -1) return;
+    let next = current.tabs.filter((t) => t.id !== id);
+    if (next.length > 0 && !next.some((t) => t.kind === "terminal")) {
+      const cwd = resolvedStartPath || homeDir;
+      next = [...next, { kind: "terminal", id: `tab-${nextTabId++}`, cwd, explorerPath: cwd, label: labelForCwd(cwd) }];
+    }
+    if (id === current.activeTabId) {
+      const fallback = next[Math.max(0, idx - 1)] ?? next[0];
+      if (fallback) setActiveTabId(fallback.id);
+    }
+    if (!next.some((t) => t.id === current.activeTerminalId)) {
+      const fallbackTerminal = next.find((t) => t.kind === "terminal");
+      if (fallbackTerminal) setActiveTerminalId(fallbackTerminal.id);
+    }
+    setTabs(next);
+    forgetTab(id);
+  }
+
+  /** A tab dragged out of the tab strip and released - see TabStrip. Where
+   * it lands depends on what's under the cursor: another Flowcode window
+   * takes it in; empty desktop (or this same window, away from its tab
+   * strip) gets a new window for it. Dragging a window's only tab just
+   * carries the whole window along, or merges it into the window it's
+   * dropped on. */
+  async function handleTabDragOut(id: string) {
+    const tab = latestRef.current.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    const target = await invoke<CursorTarget>("window_at_cursor").catch(() => null);
+    if (!target) return;
+    const alone = latestRef.current.tabs.length === 1;
+    const otherWindow = target.label !== null && target.label !== appWindow.label ? target.label : null;
+    if (!otherWindow && alone) {
+      if (target.label === null) await invoke("window_move_to_cursor").catch(() => {});
+      return;
+    }
+    const transfer = await packTab(tab);
+    if (!transfer) return;
+    if (!alone) removeMovedTab(id);
+    try {
+      if (otherWindow) {
+        await emitTo(otherWindow, "tab:adopt", { ...transfer, drop: { x: target.x, y: target.y } });
+      } else {
+        await invoke("window_open", { init: { kind: "adopt", transfer }, placement: { kind: "atCursor" } });
+      }
+    } catch {
+      // Nowhere to go after all: it comes back here, still running.
+      if (!alone) adoptTab(transfer);
+      return;
+    }
+    if (alone) appWindow.close();
+  }
+
+  /** Drops the per-tab bookkeeping kept outside `tabs` itself. */
+  function forgetTab(id: string) {
+    termRefs.current.delete(id);
+    editorRefs.current.delete(id);
+    pendingCommandsRef.current.delete(id);
+    pendingShellOverrideRef.current.delete(id);
+    pendingAttachRef.current.delete(id);
+    pendingEditorContentRef.current.delete(id);
+    resetTabZoom(id);
+    setDirtyIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
   async function closeTab(id: string) {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
@@ -993,17 +1271,7 @@ function Shell() {
       if (fallbackTerminal) setActiveTerminalId(fallbackTerminal.id);
     }
     setTabs((prev) => prev.filter((t) => t.id !== id));
-    termRefs.current.delete(id);
-    editorRefs.current.delete(id);
-    pendingCommandsRef.current.delete(id);
-    pendingShellOverrideRef.current.delete(id);
-    resetTabZoom(id);
-    setDirtyIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
+    forgetTab(id);
   }
 
   /** Recognizes the user having typed `wsl`, `ssh ...` or an interactive
@@ -1564,6 +1832,8 @@ function Shell() {
           onNew={(shellId) => addTab(undefined, shellId)}
           onRename={renameTab}
           onDuplicate={duplicateTab}
+          onReorder={reorderTab}
+          onDragOut={(id) => void handleTabDragOut(id)}
         />
 
         <div className="header-right">
@@ -1668,6 +1938,7 @@ function Shell() {
                     runOnStart={pendingCommandsRef.current.get(tab.id)}
                     shellOverride={pendingShellOverrideRef.current.get(tab.id)}
                     restoredContent={restoredContentRef.current.get(tab.id)}
+                    attach={pendingAttachRef.current.get(tab.id)}
                   />
                 );
               }
@@ -1683,6 +1954,7 @@ function Shell() {
                       hidden={tab.id !== activeTabId}
                       onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
                       onRenamed={(newPath) => handleEditorRenamed(tab.id, newPath)}
+                      initialContent={pendingEditorContentRef.current.get(tab.id)}
                     />
                   </Suspense>
                 );
@@ -1718,6 +1990,7 @@ function Shell() {
               onPointerDown={agentsResize.onHandlePointerDown}
             />
             <AgentsSidebar
+              windowLabel={appWindow.label}
               tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
               activeTabId={activeTabId}
               getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
@@ -1747,9 +2020,11 @@ export default function App() {
       <TerminalSettingsProvider>
         <SettingsSectionProvider>
           <ConfirmDialogProvider>
-            <ContextMenuProvider>
-              <Shell />
-            </ContextMenuProvider>
+            <UpdateProvider>
+              <ContextMenuProvider>
+                <Shell />
+              </ContextMenuProvider>
+            </UpdateProvider>
           </ConfirmDialogProvider>
         </SettingsSectionProvider>
       </TerminalSettingsProvider>

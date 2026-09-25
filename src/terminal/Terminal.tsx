@@ -6,7 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { invoke } from "@tauri-apps/api/core";
-import { killPty, resizePty, spawnPty, writePty } from "./ptyClient";
+import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./ptyClient";
 import { useTheme } from "../themes/ThemeContext";
 import { useTerminalSettings } from "./TerminalSettingsContext";
 import { buildAsciiBanner, type BannerSystemInfo } from "./asciiBanner";
@@ -101,6 +101,20 @@ export interface TerminalHandle {
    * A tab that's still `false` at exit is a virgin one (opened, never
    * touched), which session restore doesn't bring back. */
   wasUsed: () => boolean;
+  /** Hands this tab's running session over for a move to another window:
+   * stops its output reaching this terminal (the program keeps running),
+   * then snapshots the screen exactly as shown - scrollback, a full-screen
+   * program's alternate screen and the terminal modes it set. Once released,
+   * unmounting this view no longer kills the session. `null` when there's no
+   * session yet to move. */
+  release: () => Promise<TerminalTransfer | null>;
+}
+
+/** A running terminal session on its way to another window - see
+ * `TerminalHandle.release` and the `attach` prop. */
+export interface TerminalTransfer {
+  ptyId: string;
+  snapshot: string;
 }
 
 /** What xterm itself answers on the shell's behalf - cursor position /
@@ -149,10 +163,14 @@ interface TerminalViewProps {
    * replayed in place of the banner before the new shell starts. Only read
    * once, at mount, like `runOnStart`. */
   restoredContent?: string;
+  /** A session moved here from another window (see `release`): its screen
+   * is redrawn from the snapshot and it keeps running - nothing is spawned.
+   * Only read once, at mount. */
+  attach?: TerminalTransfer;
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, shellOverride, restoredContent }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, shellOverride, restoredContent, attach }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // xterm mounts into this padding-free inner box, not the padded container:
   // FitAddon sizes the grid off its parent's computed height, which under
@@ -164,10 +182,16 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
   const restoredContentRef = useRef(restoredContent);
   const ptyIdRef = useRef<string | null>(null);
+  const attachRef = useRef(attach);
+  // `seq` of the last output written here (see ptyClient's `detachPty`).
+  const lastSeqRef = useRef(0);
+  // Set once this tab's session has been handed to another window - its pty
+  // must then outlive this view.
+  const releasedRef = useRef(false);
   const runOnStartRef = useRef(runOnStart);
   // A tab opened to run something (agent session, install command) is in
-  // use from the start - see `wasUsed`.
-  const usedRef = useRef(!!runOnStart);
+  // use from the start - see `wasUsed`. So is one moved here mid-session.
+  const usedRef = useRef(!!runOnStart || !!attach);
   const cwdRef = useRef(cwd);
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
@@ -313,6 +337,24 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         excludeAltBuffer: true,
         excludeModes: true,
       }) ?? "",
+    release: async () => {
+      const id = ptyIdRef.current;
+      const term = xtermRef.current;
+      if (!id || !term || releasedRef.current) return null;
+      const sentSeq = await detachPty(id);
+      releasedRef.current = true;
+      // Output sent before the detach may still be in flight on the channel
+      // - wait (briefly) until the last of it has landed here.
+      const deadline = Date.now() + 500;
+      while (lastSeqRef.current < sentSeq && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      // Then let xterm finish parsing everything written so far.
+      await new Promise<void>((resolve) => term.write("", resolve));
+      const snapshot =
+        serializeAddonRef.current?.serialize({ scrollback: SESSION_SCROLLBACK_LINES }) ?? "";
+      return { ptyId: id, snapshot };
+    },
   }));
 
   useEffect(() => {
@@ -510,7 +552,39 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
 
     let disposed = false;
 
+    const attached = attachRef.current;
+    if (attached) {
+      // Moved here from another window: redraw what it was showing, then
+      // take over its output - everything it printed during the move comes
+      // first. The pty is resized to this terminal's grid by the refit below
+      // (`ptySizeRef` starts at 0x0, so it always sends), which also has a
+      // full-screen program redraw itself for the new size.
+      term.write(attached.snapshot);
+      void attachPty(attached.ptyId, {
+        onOutput: (data, seq) => {
+          lastSeqRef.current = seq;
+          if (!disposed) term.write(data);
+        },
+        onExit: () => {
+          if (!disposed) term.write("\r\n[process exited]\r\n");
+        },
+      })
+        .then(() => {
+          if (disposed) return;
+          ptyIdRef.current = attached.ptyId;
+          term.write("", () => {
+            if (disposed) return;
+            refit();
+            for (const data of pendingInput.splice(0)) writePty(attached.ptyId, data);
+          });
+        })
+        .catch((e) => {
+          if (!disposed) term.write(`\r\n[impossibile spostare il terminale: ${e}]\r\n`);
+        });
+    }
+
     (async () => {
+      if (attached) return;
       // A quiet splash above the real prompt, not a competing banner: skips
       // itself on a too-narrow tab (see buildAsciiBanner) rather than wrap
       // and look broken. Awaited before the spawn so it's always the very
@@ -540,7 +614,8 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           cols: term.cols,
           rows: term.rows,
           shell: shellIdRef.current,
-          onOutput: (data) => {
+          onOutput: (data, seq) => {
+            lastSeqRef.current = seq;
             if (!disposed) term.write(data);
           },
           onExit: () => {
@@ -583,7 +658,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       bufferDisposable.dispose();
       dataDisposable.dispose();
       if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
-      if (ptyIdRef.current) killPty(ptyIdRef.current);
+      if (ptyIdRef.current && !releasedRef.current) killPty(ptyIdRef.current);
       term.dispose();
     };
   }, []);
