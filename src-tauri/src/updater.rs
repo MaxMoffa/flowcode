@@ -200,6 +200,36 @@ fn install_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// A fresh, randomly named folder only this user can write to, for the
+/// download and the unpacked installer. On Linux the temp dir is the shared
+/// `/tmp`: a fixed name there could be pre-created by another local user, who
+/// could then swap the installer between its checksum check and its launch.
+/// `create_dir` (not `create_dir_all`) fails if the folder already exists.
+fn create_work_dir() -> Result<PathBuf, String> {
+    let temp = std::env::temp_dir();
+    // Best effort: leftovers of earlier updates (the installer ran from
+    // there, so they couldn't be removed at the time). Only ever succeeds on
+    // folders this user owns.
+    if let Ok(entries) = std::fs::read_dir(&temp) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name.to_str().is_some_and(|n| n.starts_with("flowcode-update-")) {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+    let dir = temp.join(format!("flowcode-update-{}", uuid::Uuid::new_v4().simple()));
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
 fn download(
     url: &str,
     dest: &Path,
@@ -216,7 +246,11 @@ fn download(
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(expected_size);
     let mut reader = response.into_reader();
-    let mut file = std::fs::File::create(dest).map_err(|e| e.to_string())?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dest)
+        .map_err(|e| e.to_string())?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     let mut downloaded = 0u64;
@@ -376,15 +410,14 @@ pub async fn update_install(
 
     let progress = on_progress.clone();
     let installer = crate::blocking(move || {
-        let work_dir = std::env::temp_dir().join("flowcode-update");
-        let _ = std::fs::remove_dir_all(&work_dir);
-        std::fs::create_dir_all(&work_dir).map_err(|e| e.to_string())?;
+        let work_dir = create_work_dir()?;
         let downloaded = work_dir.join(&asset_name);
         let sha256 = download(&asset_url, &downloaded, size, &progress)?;
         let _ = progress.send(UpdateProgress::Verify);
-        if let Some(url) = checksums_url {
-            verify_checksum(&url, &asset_name, &sha256)?;
-        }
+        // No checksums, no install: the installer is about to run with the
+        // user's rights, so skipping the check isn't a safe fallback.
+        let url = checksums_url.ok_or("La release non contiene SHA256SUMS: aggiornamento annullato.")?;
+        verify_checksum(&url, &asset_name, &sha256)?;
         prepare_installer(&downloaded, &work_dir)
     })
     .await?;

@@ -38,30 +38,46 @@ const PS_TITLE_PROMPT =
   "function global:prompt { ([char]27 + ']0;' + (Get-Location).Path + [char]7) + ((& $global:__flowcodePrompt) -join '') } }";
 const CMD_TITLE_PROMPT = "prompt $E]0;$P$E\\$P$G";
 
-/** The explorer's `cd`, in the syntax of the shell at the prompt. Each form
- * also retitles the terminal with the new cwd right away: that's the signal
- * the silent navigation waits for to erase the typed line, and what moves
- * the tab label / explorer along with it.
+/** PowerShell ends a single-quoted string on any of these, not just the
+ * ASCII `'` - and Windows allows the curly ones in folder names. Each is
+ * escaped by doubling it, like `''`. */
+const PS_SINGLE_QUOTES = /['‘’‚‛]/g;
+
+/** C0/C1 controls (CR/LF, ESC, CSI...): the command is typed straight into
+ * the pty, so one of these in a name could submit it early or drive the
+ * terminal. No shell's quoting covers that - such a path is refused. */
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** The explorer's `cd`, in the syntax of the shell at the prompt, or `null`
+ * when `path` can't be written safely in it (the caller then types nothing).
+ * The path is a folder name on disk - a cloned repo or an unpacked archive
+ * picks it - so this quoting is all that keeps a click from running
+ * arbitrary commands. Each form also retitles the terminal with the new cwd
+ * right away: that's the signal the silent navigation waits for to erase the
+ * typed line, and what moves the tab label / explorer along with it.
  *   - cmd: `/d` to follow a folder onto another drive; a path can't contain
  *     `"`, so plain double quotes are safe.
  *   - PowerShell: no `/d`, no `&&` in 5.1; `-LiteralPath` + single quotes,
- *     so `[`, `$` and `` ` `` in a name are literal.
+ *     so `[`, `$` and `` ` `` in a name are literal; every single-quote
+ *     variant doubled (see PS_SINGLE_QUOTES).
  *   - POSIX shells: single quotes with `'\''`; `--` so a name starting with
  *     `-` isn't an option; `printf` with octal escapes (dash has no `\e`).
  *   - fish: same quoting, its own `printf` escapes.
  *   - nu: raw single-quoted string - a `'` in the path needs nu's
- *     backtick form instead. */
-export function cdCommand(path: string, kind: ShellKind): string {
+ *     backtick form instead, and a path with both has no safe form. */
+export function cdCommand(path: string, kind: ShellKind): string | null {
+  if (CONTROL_CHARS.test(path)) return null;
   switch (kind) {
     case "cmd":
       return `cd /d "${path}" && ${CMD_TITLE_PROMPT}`;
     case "powershell":
-      return `Set-Location -LiteralPath '${path.replace(/'/g, "''")}'; ${PS_TITLE_PROMPT}`;
+      return `Set-Location -LiteralPath '${path.replace(PS_SINGLE_QUOTES, "$&$&")}'; ${PS_TITLE_PROMPT}`;
     case "posix":
       return `cd -- ${posixQuote(path)} && printf '\\033]0;%s\\007' "$PWD"`;
     case "fish":
       return `cd ${posixQuote(path)}; and printf '\\e]0;%s\\a' $PWD`;
     case "nu": {
+      if (path.includes("'") && path.includes("`")) return null;
       const quoted = path.includes("'") ? `\`${path}\`` : `'${path}'`;
       return `cd ${quoted}; print -n $"\\e]0;($env.PWD)\\a"`;
     }
