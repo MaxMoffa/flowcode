@@ -11,6 +11,7 @@ import type { PluginDef, PluginManifest } from "../plugins/types";
 import type { SidebarMode } from "./modes";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { writeBool } from "../lib/storage";
+import { ShellStartDirs } from "./ShellStartDirs";
 import { useUpdater, type UpdateStatus } from "../update/UpdateContext";
 import pkg from "../../package.json";
 import { LANGUAGES, t, useI18n, type LanguagePreference, type MessageKey } from "../i18n";
@@ -91,6 +92,7 @@ export function SettingsPage({
     setShellId,
     startPath,
     setStartPath,
+    resetShellStartPaths,
     restoreSession,
     setRestoreSession,
     confirmLinkOpen,
@@ -198,6 +200,7 @@ export function SettingsPage({
     setShellId("system");
     setCustomPathMode(false);
     setStartPathDraft("");
+    resetShellStartPaths();
     setRestoreSession(true);
     setConfirmLinkOpen(true);
     onSetSidebarMode("auto");
@@ -441,6 +444,7 @@ export function SettingsPage({
                   </>
                 )}
               </div>
+              <ShellStartDirs options={shellOptions} />
               <div className="settings-field">
                 <span className="settings-field-label">{t("settings.restore.label")}</span>
                 <p className="settings-field-desc">{t("settings.restore.desc")}</p>

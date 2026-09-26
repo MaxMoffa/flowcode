@@ -113,3 +113,29 @@ export function sameShell(a: string | undefined, b: string | undefined): boolean
   const [dx, dy] = [wslDistroOfShell(x), wslDistroOfShell(y)];
   return dx !== undefined && dy !== undefined && (dx === null || dy === null || dx === dy);
 }
+
+/** A WSL start folder setting (see `shellStartPaths` in
+ * TerminalSettingsContext) turned into the folder a WSL tab can be spawned
+ * in: `~`/`~/...` against the distro's home, a POSIX path into its
+ * `\wsl.localhost` form (or `C:\...` for `/mnt/c`, see `toWindowsPath`),
+ * a UNC or drive path as is - pty_spawn turns any of those into
+ * `wsl --cd`. `distro` is the tab's own (`null`: the default one). `null`
+ * if the distro or its home can't be resolved, or the folder doesn't
+ * exist - the plain home is taken on trust, it always does. */
+export async function resolveWslStartDir(distro: string | null, spec: string): Promise<string | null> {
+  if (wslDistroOfPath(spec) || /^[A-Za-z]:[\/]/.test(spec)) {
+    return (await invoke<boolean>("is_directory", { path: spec }).catch(() => false)) ? spec : null;
+  }
+  const resolvedDistro = distro || (await defaultWslDistro());
+  if (!resolvedDistro) return null;
+  let posixPath = spec;
+  if (spec === "~" || spec.startsWith("~/")) {
+    const home = await wslHomeDir(resolvedDistro);
+    if (!home) return null;
+    posixPath = home + spec.slice(1);
+  }
+  if (!posixPath.startsWith("/")) return null;
+  const winPath = toWindowsPath(resolvedDistro, posixPath);
+  if (spec === "~") return winPath;
+  return (await invoke<boolean>("is_directory", { path: winPath }).catch(() => false)) ? winPath : null;
+}

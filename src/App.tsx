@@ -16,11 +16,12 @@ import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, TermTab, EditorTab } from "./tabs/types";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
-import { TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
+import { shellStartKey, TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
 import { loadSession, saveWindowSession, type SavedTab, type SavedWindow } from "./session/session";
 import { UpdateProvider } from "./update/UpdateContext";
 import {
   defaultWslDistro,
+  resolveWslStartDir,
   sameShell,
   toWindowsPath,
   toWslPath,
@@ -406,9 +407,8 @@ function Shell() {
   // shellOverride prop (see the render loop below), same lifecycle as
   // pendingCommandsRef above.
   const pendingShellOverrideRef = useRef(new Map<string, string>());
-  // WSL tabs whose start folder (the distro's home) is still being looked
-  // up - see `fillWslStartDir`.
-  const wslStartPendingRef = useRef(new Set<string>());
+  // Tabs whose start folder is still being looked up - see `fillStartDir`.
+  const startDirPendingRef = useRef(new Set<string>());
   const editorRefs = useRef(new Map<string, EditorHandle>());
   // A terminal session moved here from another window, keyed by its new tab
   // id - handed to that tab's TerminalView once, at mount (its `attach`).
@@ -421,7 +421,8 @@ function Shell() {
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
-  const { startPath, resetTabZoom, restoreSession, shellId, tabFontSizeOverrides, setTabFontSize } = useTerminalSettings();
+  const { startPath, shellStartPaths, resetTabZoom, restoreSession, shellId, tabFontSizeOverrides, setTabFontSize } =
+    useTerminalSettings();
   const restoreSessionRef = useRef(restoreSession);
   restoreSessionRef.current = restoreSession;
   // Previous session's terminal text, keyed by the restored tab's new id -
@@ -720,28 +721,12 @@ function Shell() {
 
   useEffect(() => {
     if (!homeDir || !startPathChecked || !sessionChecked) return;
-    const initial = resolvedStartPath || homeDir;
-    // A WSL tab (the startup one with WSL as the default shell, or a
-    // restored one whose folder is gone) starts in the distro's home rather
-    // than the host start folder - see `fillWslStartDir`.
-    const wslStartDistro = (t: TermTab) =>
-      wslDistroOfPath(initial) ? undefined : wslDistroOfShell(pendingShellOverrideRef.current.get(t.id) ?? shellId);
+    // Every tab still without a folder (the startup one, a restored one
+    // whose folder is gone) gets its shell's start folder - see
+    // `fillStartDir`.
     for (const t of latestRef.current.tabs) {
-      if (t.kind !== "terminal" || t.cwd !== "") continue;
-      const distro = wslStartDistro(t);
-      if (distro !== undefined) fillWslStartDir(t.id, distro, initial);
+      if (t.kind === "terminal" && t.cwd === "") fillStartDir(t.id, pendingShellOverrideRef.current.get(t.id) ?? shellId);
     }
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.kind === "terminal" && t.cwd === ""
-          ? wslStartDistro(t) !== undefined
-            ? { ...t, nestedShell: "wsl" }
-            : // A restored tab whose folder is gone still keeps the name the
-              // user gave it.
-              { ...t, cwd: initial, explorerPath: initial, label: t.customLabel ? t.label : labelForCwd(initial) }
-          : t,
-      ),
-    );
   }, [homeDir, resolvedStartPath, startPathChecked, sessionChecked]);
 
   useEffect(() => {
@@ -869,17 +854,15 @@ function Shell() {
   selectTabRef.current = selectTab;
 
   function addTab(cwdOverride?: string, shellOverride?: string): string {
-    // No longer inherits the active tab's cwd - a fresh tab always starts at
-    // the configured start folder (Impostazioni > Cartella di avvio), which
-    // defaults to the user's home dir when left unset, same as
-    // `resolvedStartPath`'s own fallback below. `cwdOverride` is still how a
-    // caller that *does* want a specific folder (duplicateTab, opening a
-    // favorite, resuming an agent session) gets one.
-    const cwd = cwdOverride || resolvedStartPath || homeDir;
+    // No longer inherits the active tab's cwd - a fresh tab starts in its
+    // shell's start folder (Impostazioni > Cartella di avvio, per shell or
+    // the general one), looked up by `fillStartDir` below. `cwdOverride` is
+    // still how a caller that *does* want a specific folder (duplicateTab,
+    // opening a favorite, resuming an agent session) gets one.
     const id = `tab-${nextTabId++}`;
     // A `\\wsl.localhost\<distro>\...` folder only a WSL shell can start in,
     // whatever the caller (or the configured default) would have picked.
-    const pathDistro = wslDistroOfPath(cwd);
+    const pathDistro = cwdOverride ? wslDistroOfPath(cwdOverride) : null;
     if (pathDistro && wslDistroOfShell(shellOverride ?? shellId) === undefined) shellOverride = wslShellId(pathDistro);
     if (shellOverride) pendingShellOverrideRef.current.set(id, shellOverride);
     // A tab whose shell *is* wsl.exe from the moment it spawns never goes
@@ -887,55 +870,65 @@ function Shell() {
     // there's no host shell first for them to type into - so without this
     // its first WSL prompt's title update is read as a plain host path
     // (nestedShell undefined) and the explorer just never follows it in.
-    // `cwd` above is still a host path (there's no host shell to have had a
-    // real one) - same placeholder-until-corrected behavior as typing `wsl`
-    // into an existing tab, fixed up by applyWslTitle the moment the first
-    // prompt reports the distro's actual cwd.
     const wslDistro = wslDistroOfShell(shellOverride ?? shellId);
     const nestedShell = wslDistro !== undefined ? "wsl" : undefined;
-    // A fresh WSL tab (no folder asked for, and a start folder that isn't
-    // already inside a distro) starts in the distro's home - see
-    // `fillWslStartDir`. Left unmounted (empty cwd) until that resolves.
-    const startAtWslHome = !cwdOverride && !pathDistro && wslDistro !== undefined;
-    const tabCwd = startAtWslHome ? "" : cwd;
+    // Without a folder to open in, left unmounted (empty cwd) until
+    // `fillStartDir` has resolved one.
+    const cwd = cwdOverride ?? "";
     setTabs((prev) => [
       ...prev,
       {
         kind: "terminal",
         id,
-        cwd: tabCwd,
-        explorerPath: tabCwd,
-        label: labelForCwd(tabCwd),
+        cwd,
+        explorerPath: cwd,
+        label: labelForCwd(cwd),
         nestedShell,
         wslDistro: pathDistro ?? wslDistro ?? undefined,
       },
     ]);
-    if (startAtWslHome) fillWslStartDir(id, wslDistro, cwd);
+    if (!cwdOverride) fillStartDir(id, shellOverride ?? shellId);
     setActiveTabId(id);
     setActiveTerminalId(id);
     return id;
   }
 
-  /** Gives a fresh WSL tab the distro's home (`\\wsl.localhost\<distro>\home\
-   * <user>`) as its start folder - the same place `wsl` itself drops you
-   * with a bare `cd`. Starting it in the host start folder instead meant
-   * `/mnt/c/...`, which the explorer shows as a plain `C:\...` path: it
-   * follows the session fine, but going up stops at `C:\` - the explorer is
-   * browsing Windows, not the distro, and never reaches the Linux tree the
-   * shell lives in. From the home, going up walks the distro's own tree
-   * (`\\wsl.localhost\<distro>` is `/`), in step with the shell. pty_spawn
-   * turns the UNC cwd into `wsl -d <distro> --cd <home>`. Falls back to
-   * `fallback` (the host start folder) if the lookups fail. */
-  function fillWslStartDir(tabId: string, distro: string | null, fallback: string) {
-    if (wslStartPendingRef.current.has(tabId)) return;
-    wslStartPendingRef.current.add(tabId);
-    void (async () => {
-      const resolvedDistro = distro || (await defaultWslDistro());
-      const home = resolvedDistro ? await wslHomeDir(resolvedDistro) : null;
-      return resolvedDistro && home ? toWindowsPath(resolvedDistro, home) : null;
-    })().then((dir) => {
-      wslStartPendingRef.current.delete(tabId);
-      const cwd = dir ?? fallback;
+  /** The folder a fresh tab of `shell` starts in: that shell's own start
+   * folder if one is set (Impostazioni > Cartella di avvio per shell) and
+   * still exists, the general start folder otherwise (itself falling back
+   * to the user's home). Except WSL, whose default is the distro's home -
+   * the same place `wsl` drops you with a bare `cd`. Starting it in the
+   * general start folder instead meant `/mnt/c/...`, which the explorer
+   * shows as a plain `C:\...` path: it follows the session fine, but going
+   * up stops at `C:\` - the explorer is browsing Windows, not the distro,
+   * and never reaches the Linux tree the shell lives in. From the home,
+   * going up walks the distro's own tree (`\\wsl.localhost\<distro>` is
+   * `/`), in step with the shell. A general start folder that's already
+   * inside a distro is kept as is. */
+  async function resolveStartDir(shell: string): Promise<string> {
+    const fallback = resolvedStartPath || homeDir;
+    const custom = shellStartPaths[shellStartKey(shell)] ?? "";
+    const distro = wslDistroOfShell(shell);
+    if (distro !== undefined) {
+      if (!custom && wslDistroOfPath(fallback)) return fallback;
+      return (await resolveWslStartDir(distro, custom || "~")) ?? fallback;
+    }
+    if (custom && (await invoke<boolean>("is_directory", { path: custom }).catch(() => false))) return custom;
+    return fallback;
+  }
+
+  /** Gives a tab still without a folder its shell's start folder (see
+   * `resolveStartDir`). The tab isn't mounted until then, so its shell
+   * can still be switched: a start folder inside a distro only a WSL shell
+   * can open. */
+  function fillStartDir(tabId: string, shell: string) {
+    if (startDirPendingRef.current.has(tabId)) return;
+    startDirPendingRef.current.add(tabId);
+    void resolveStartDir(shell).then((cwd) => {
+      startDirPendingRef.current.delete(tabId);
+      const pathDistro = wslDistroOfPath(cwd);
+      const wslShell = wslDistroOfShell(shell) !== undefined;
+      if (pathDistro && !wslShell) pendingShellOverrideRef.current.set(tabId, wslShellId(pathDistro));
       setTabs((prev) =>
         prev.map((t) =>
           t.id === tabId && t.kind === "terminal" && !t.cwd
@@ -943,8 +936,11 @@ function Shell() {
                 ...t,
                 cwd,
                 explorerPath: cwd,
+                // A restored tab whose folder is gone still keeps the name
+                // the user gave it.
                 label: t.customLabel ? t.label : labelForCwd(cwd),
-                wslDistro: wslDistroOfPath(cwd) ?? t.wslDistro,
+                nestedShell: pathDistro || wslShell ? "wsl" : t.nestedShell,
+                wslDistro: pathDistro ?? t.wslDistro,
               }
             : t,
         ),

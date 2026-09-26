@@ -190,3 +190,21 @@
   color: var(--fg);
   font-weight: 500;
 }
+
+.settings-shell-start-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.settings-shell-start {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-shell-start-name {
+  color: var(--fg);
+  font-size: 12.5px;
+}

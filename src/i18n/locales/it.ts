@@ -288,12 +288,18 @@ export const it = {
   "settings.startup.desc":
     "Dove si aprono i nuovi terminali, cosa ritrovi alla riapertura dell'app e come si comportano i link.",
   "settings.startDir.label": "Cartella di avvio",
-  "settings.startDir.desc": "La cartella in cui si aprono il terminale all'avvio dell'app e ogni nuova scheda di terminale.",
+  "settings.startDir.desc": "La cartella in cui si aprono il terminale all'avvio dell'app e ogni nuova scheda di terminale, salvo le shell con una cartella propria (qui sotto).",
   "settings.startDir.home": "Home utente",
   "settings.startDir.custom": "Personalizzata",
   "settings.startDir.placeholder": "Es. C:\\Progetti oppure /home/utente/progetti",
   "settings.startDir.notFound": "Cartella non trovata.",
   "settings.startDir.valid": "Cartella valida, in uso.",
+  "settings.shellStartDir.label": "Cartella di avvio per shell",
+  "settings.shellStartDir.desc":
+    "Una cartella diversa per ogni shell, al posto di quella generale. WSL parte di default dalla home della distro; per WSL puoi usare anche percorsi Linux come ~/progetti o /opt/app.",
+  "settings.shellStartDir.default": "Usa quella generale",
+  "settings.shellStartDir.wslHome": "Home della distro",
+  "settings.shellStartDir.wslPlaceholder": "Es. ~/progetti oppure /home/utente/progetti",
   "settings.restore.label": "Schede all'avvio",
   "settings.restore.desc":
     "Con \"Ripristina\", alla riapertura trovi le schede che avevi aperto, ognuna nella sua cartella e con il testo che mostrava. I programmi in esecuzione (es. Claude Code) non riprendono: ogni terminale riparte con una shell nuova.",

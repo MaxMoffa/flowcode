@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { readBool, readNumber, readString, usePersistentState, writeBool, writeString } from "../lib/storage";
+import { readBool, readJson, readNumber, readString, usePersistentState, writeBool, writeString } from "../lib/storage";
+import { wslDistroOfShell } from "./wslPath";
 
 const STORAGE_KEY = "flowcode.terminalFontSize";
 const BANNER_KEY = "flowcode.terminalBannerEnabled";
 const SHELL_KEY = "flowcode.terminalShell";
 const START_PATH_KEY = "flowcode.terminalStartPath";
+const SHELL_START_PATHS_KEY = "flowcode.terminalStartPathByShell";
 const RESTORE_SESSION_KEY = "flowcode.restoreSession";
 const CONFIRM_LINKS_KEY = "flowcode.confirmLinkOpen";
 const MIN_SIZE = 9;
@@ -58,6 +60,16 @@ interface TerminalSettingsValue {
    * since it was set just falls back to home instead of breaking. */
   startPath: string;
   setStartPath: (path: string) => void;
+  /** Per-shell start folders, keyed by `shellStartKey` - a shell with no
+   * entry uses `startPath` above, except WSL, which defaults to the distro's
+   * home (see App.tsx's `resolveStartDir`). Like `startPath`, only ever set
+   * to a path the Settings page verified, and re-checked before use. A WSL
+   * entry may be POSIX-shaped (`~/src`, `/opt/x`) as well as a Windows/UNC
+   * path. */
+  shellStartPaths: Record<string, string>;
+  /** Empty `path` drops the shell's entry (back to the default). */
+  setShellStartPath: (shellKey: string, path: string) => void;
+  resetShellStartPaths: () => void;
   /** Whether closing the window saves the open tabs (and each terminal's
    * content) and the next launch reopens them - see `src/session/`. */
   restoreSession: boolean;
@@ -77,6 +89,13 @@ export function getConfiguredShell(): string {
   return readString(SHELL_KEY) || DEFAULT_SHELL_ID;
 }
 
+/** The `shellStartPaths` key for a shell id: every WSL one (`wsl`,
+ * `wsl:<distro>`) shares the `wsl` entry, and an empty id is `system`. */
+export function shellStartKey(shellId: string | undefined): string {
+  if (wslDistroOfShell(shellId) !== undefined) return "wsl";
+  return shellId || DEFAULT_SHELL_ID;
+}
+
 const TerminalSettingsContext = createContext<TerminalSettingsValue | null>(null);
 
 function clamp(size: number): number {
@@ -88,6 +107,13 @@ const writeNumber = (key: string, value: number) => writeString(key, String(valu
 const readBanner = (key: string) => readBool(key, true);
 const readShell = () => getConfiguredShell();
 const readStartPath = (key: string) => readString(key) ?? "";
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  !!value &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  Object.values(value).every((v) => typeof v === "string");
+const readShellStartPaths = (key: string) => readJson(key, isStringRecord, {});
+const writeJson = (key: string, value: Record<string, string>) => writeString(key, JSON.stringify(value));
 const readRestoreSession = (key: string) => readBool(key, true);
 const readConfirmLinks = (key: string) => readBool(key, true);
 
@@ -105,6 +131,22 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
   const [bannerEnabled, setBannerEnabled] = usePersistentState(BANNER_KEY, readBanner, writeBool);
   const [shellId, setShellId] = usePersistentState(SHELL_KEY, readShell, writeString);
   const [startPath, setStartPath] = usePersistentState(START_PATH_KEY, readStartPath, writeString);
+  const [shellStartPaths, setShellStartPaths] = usePersistentState(
+    SHELL_START_PATHS_KEY,
+    readShellStartPaths,
+    writeJson,
+  );
+  const setShellStartPath = useCallback(
+    (shellKey: string, path: string) =>
+      setShellStartPaths((prev) => {
+        if ((prev[shellKey] ?? "") === path) return prev;
+        const next = { ...prev };
+        if (path) next[shellKey] = path;
+        else delete next[shellKey];
+        return next;
+      }),
+    [setShellStartPaths],
+  );
   const [restoreSession, setRestoreSession] = usePersistentState(RESTORE_SESSION_KEY, readRestoreSession, writeBool);
   const [confirmLinkOpen, setConfirmLinkOpen] = usePersistentState(CONFIRM_LINKS_KEY, readConfirmLinks, writeBool);
 
@@ -140,6 +182,9 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setShellId,
       startPath,
       setStartPath,
+      shellStartPaths,
+      setShellStartPath,
+      resetShellStartPaths: () => setShellStartPaths({}),
       restoreSession,
       setRestoreSession,
       confirmLinkOpen,
@@ -157,6 +202,9 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setShellId,
       startPath,
       setStartPath,
+      shellStartPaths,
+      setShellStartPath,
+      setShellStartPaths,
       restoreSession,
       setRestoreSession,
       confirmLinkOpen,
