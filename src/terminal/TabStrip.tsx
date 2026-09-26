@@ -5,12 +5,17 @@ import type { AppTab } from "../tabs/types";
 import { FileTypeIcon } from "../sidebar/fileIcons";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { t, translationsOf, useI18n } from "../i18n";
+import { agentCliIcon } from "../plugins/icons";
+import type { TabAgent } from "../agents/agentSessions";
 import "./tabstrip.css";
 
 interface TabStripProps {
   tabs: AppTab[];
   activeId: string;
   dirtyIds?: Set<string>;
+  /** The agent CLI (Claude Code, Codex) running in a terminal tab, by tab
+   * id - shown as its logo in place of the dot, with what it's doing. */
+  agents?: Map<string, TabAgent>;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   /** Creates a new terminal tab - `shellId` (a `list_shell_options` id, from
@@ -129,8 +134,23 @@ function shellOptionIcon(id: string) {
   return <PromptIcon />;
 }
 
-function tabIcon(tab: AppTab) {
-  if (tab.kind === "terminal") return <span className="term-tab-dot" />;
+/** A terminal tab running Claude Code or Codex: the CLI's logo, followed by
+ * a spinner while it works or a "?" while it waits on the user - nothing
+ * more once its turn is over. */
+function agentTabIcon(agent: TabAgent) {
+  const title =
+    agent.state === "busy" ? t("agents.status.busy") : agent.state === "waiting" ? t("agents.status.waiting") : undefined;
+  return (
+    <span className="term-tab-agent" title={title}>
+      <span className="term-tab-agent-logo">{agentCliIcon(agent.cli)}</span>
+      {agent.state === "busy" && <span className="term-tab-agent-spinner" />}
+      {agent.state === "waiting" && <span className="term-tab-agent-question">?</span>}
+    </span>
+  );
+}
+
+function tabIcon(tab: AppTab, agent?: TabAgent) {
+  if (tab.kind === "terminal") return agent ? agentTabIcon(agent) : <span className="term-tab-dot" />;
   if (tab.kind === "settings") return <GearIcon />;
   return <FileTypeIcon name={tab.label} />;
 }
@@ -151,6 +171,7 @@ function tabTitle(tab: AppTab): string {
 interface TabOverflowMenuProps {
   tabs: AppTab[];
   activeId: string;
+  agents?: Map<string, TabAgent>;
   anchorRect: DOMRect;
   onSelect: (id: string) => void;
   onCloseTab: (id: string) => void;
@@ -159,7 +180,7 @@ interface TabOverflowMenuProps {
   onDismiss: () => void;
 }
 
-function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onDismiss }: TabOverflowMenuProps) {
+function TabOverflowMenu({ tabs, activeId, agents, anchorRect, onSelect, onCloseTab, onDismiss }: TabOverflowMenuProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -215,7 +236,7 @@ function TabOverflowMenu({ tabs, activeId, anchorRect, onSelect, onCloseTab, onD
               onDismiss();
             }}
           >
-            {tabIcon(tab)}
+            {tabIcon(tab, agents?.get(tab.id))}
             <span className="tab-overflow-item-label">{tabDisplayLabel(tab)}</span>
             <button
               type="button"
@@ -247,6 +268,7 @@ export function TabStrip({
   tabs,
   activeId,
   dirtyIds,
+  agents,
   onSelect,
   onClose,
   onNew,
@@ -444,10 +466,17 @@ export function TabStrip({
             onPointerMove={handleTabPointerMove}
             onPointerUp={(e) => endTabDrag(e, false)}
             onPointerCancel={(e) => endTabDrag(e, true)}
+            onDoubleClick={(e) => {
+              // On the whole tab, not just its label: the pointerdown above
+              // captures the pointer to the tab, so the label itself never
+              // sees the double-click.
+              if ((e.target as HTMLElement).closest(".term-tab-close, input")) return;
+              startEditing(tab);
+            }}
             onContextMenu={(e) => openMenu(e, tabMenuItems(tab))}
             title={tabTitle(tab)}
           >
-            {tabIcon(tab)}
+            {tabIcon(tab, agents?.get(tab.id))}
             {editingId === tab.id ? (
               <input
                 ref={inputRef}
@@ -462,15 +491,7 @@ export function TabStrip({
                 }}
               />
             ) : (
-              <span
-                className="term-tab-label"
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  startEditing(tab);
-                }}
-              >
-                {tabDisplayLabel(tab)}
-              </span>
+              <span className="term-tab-label">{tabDisplayLabel(tab)}</span>
             )}
             {tab.kind === "editor" && dirtyIds?.has(tab.id) && (
               <span className="term-tab-dirty-dot" title={t("app.unsaved.title")} />
@@ -535,7 +556,7 @@ export function TabStrip({
         drag?.detached &&
         createPortal(
           <div className="tab-drag-ghost" style={{ left: drag.x - 24, top: drag.y - 15 }}>
-            {tabIcon(draggedTab)}
+            {tabIcon(draggedTab, agents?.get(draggedTab.id))}
             <span className="term-tab-label">{tabDisplayLabel(draggedTab)}</span>
           </div>,
           document.body,
@@ -544,6 +565,7 @@ export function TabStrip({
         <TabOverflowMenu
           tabs={hiddenTabs}
           activeId={activeId}
+          agents={agents}
           anchorRect={overflowAnchorRect}
           onSelect={onSelect}
           onCloseTab={onClose}

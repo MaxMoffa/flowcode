@@ -158,6 +158,7 @@ export const it = {
   "agents.interrupt": "Interrompi (invia Esc a questo agente)",
   "agents.status.busy": "al lavoro",
   "agents.status.idle": "in attesa",
+  "agents.status.waiting": "chiede input",
   "agents.status.running": "in esecuzione",
   "agents.status.saved": "salvata",
   "agents.section.otherWindows": "Altre finestre",

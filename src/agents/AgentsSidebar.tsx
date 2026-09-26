@@ -4,33 +4,8 @@ import type { TermTab } from "../tabs/types";
 import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
 import { t, useI18n } from "../i18n";
+import type { AgentSession } from "./agentSessions";
 import "./agents-sidebar.css";
-
-/** Mirrors the Rust `AgentSession` struct in src-tauri/src/agents.rs field
- * for field - this app doesn't use serde's camelCase renaming anywhere
- * (see FsEntry/`is_dir` for the same convention), so these stay snake_case
- * on the wire exactly as Rust wrote them. */
-interface AgentSession {
-  pty_id: string;
-  cli: string;
-  cli_label: string;
-  pid: number;
-  started_at: number | null;
-  /** Set for an agent running inside WSL (then `pid` is a Linux pid). */
-  wsl_distro: string | null;
-  /** The agent's own working directory, when known (a Linux path in WSL). */
-  cwd: string | null;
-  /** The window and tab showing it - any window's, not just this one's. */
-  window: string | null;
-  tab_id: string | null;
-  tab_label: string | null;
-  tab_cwd: string | null;
-  /** The agent's own session - id, name (as the CLI titled it, or as the
-   * user renamed it) and Claude Code's busy/idle - when it could be read. */
-  session_id: string | null;
-  session_name: string | null;
-  status: string | null;
-}
 
 const POLL_MS = 3000;
 /** Saved Codex sessions listed before "Show more". */
@@ -92,6 +67,11 @@ interface AgentsSidebarProps {
   windowLabel: string;
   tabs: TermTab[];
   activeTabId: string;
+  /** The agents running in Flowcode tabs - see `useAgentSessions`, polled
+   * by App.tsx for the tab strip too. `null` until the first answer. */
+  sessions: AgentSession[] | null;
+  /** Polls `sessions` right away (the refresh button). */
+  refreshSessions: () => Promise<void>;
   /** The backend pty session id behind a given tab, once its shell has
    * spawned - see TerminalHandle.getPtyId in terminal/Terminal.tsx. */
   getPtyId: (tabId: string) => string | null;
@@ -111,6 +91,7 @@ interface AgentsSidebarProps {
  * row switches to that tab. */
 function statusLabel(status: string): string {
   if (status === "busy") return t("agents.status.busy");
+  if (status === "waiting") return t("agents.status.waiting");
   if (status === "idle") return t("agents.status.idle");
   return status;
 }
@@ -133,13 +114,14 @@ export function AgentsSidebar({
   windowLabel,
   tabs,
   activeTabId,
+  sessions,
+  refreshSessions,
   getPtyId,
   onOpenTab,
   onOpenSession,
   onClose,
 }: AgentsSidebarProps) {
   const { t } = useI18n();
-  const [sessions, setSessions] = useState<AgentSession[] | null>(null);
   const [claudeAgents, setClaudeAgents] = useState<ClaudeAgentEntry[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSessionEntry[]>([]);
   // Bumped every second only to re-render the running-duration text - the
@@ -150,6 +132,8 @@ export function AgentsSidebar({
   const [refreshing, setRefreshing] = useState(false);
   // The current poll's loader, for the header's refresh button.
   const loadRef = useRef<(fresh: boolean) => Promise<unknown>>(() => Promise.resolve());
+  const refreshSessionsRef = useRef(refreshSessions);
+  refreshSessionsRef.current = refreshSessions;
 
   useEffect(() => {
     let cancelled = false;
@@ -157,13 +141,9 @@ export function AgentsSidebar({
     // saved-sessions folder) - asked for by the refresh button.
     function load(fresh = false) {
       return Promise.allSettled([
-        invoke<AgentSession[]>("list_agent_sessions")
-          .then((result) => {
-            if (!cancelled) setSessions(result);
-          })
-          .catch(() => {
-            if (!cancelled) setSessions([]);
-          }),
+        // Polled on its own by App.tsx - only asked again here when the
+        // refresh button wants everything re-read now.
+        ...(fresh ? [refreshSessionsRef.current()] : []),
         // Not installed / not on PATH / old version without this subcommand
         // all resolve to the same empty list on the Rust side already - a
         // rejection here is only a genuinely unexpected failure, so just keep
@@ -262,7 +242,7 @@ export function AgentsSidebar({
       name: session.session_name || claudeInfo?.name || basename(cwd) || session.cli_label,
       cwd,
       chip: status
-        ? { kind: status === "busy" ? "busy" : "idle", label: statusLabel(status) }
+        ? { kind: status === "busy" || status === "waiting" ? status : "idle", label: statusLabel(status) }
         : { kind: "running", label: t("agents.status.running") },
     };
   }

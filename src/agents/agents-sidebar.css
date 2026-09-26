@@ -148,6 +148,10 @@
   color: var(--ansi-bright-red);
 }
 
+.agents-sidebar-chip--waiting {
+  color: var(--ansi-bright-yellow);
+}
+
 .agents-sidebar-chip--idle {
   color: var(--ansi-bright-green);
 }

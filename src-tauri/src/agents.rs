@@ -56,11 +56,10 @@ pub struct AgentSession {
     tab_id: Option<String>,
     tab_label: Option<String>,
     tab_cwd: Option<String>,
-    /// The agent's own session, when it can be read (WSL agents - see
-    /// `WSL_AGENT_SCAN`; a Windows Claude Code is matched to `claude agents`
-    /// by pid in the frontend instead): its id, its name (the title the CLI
-    /// gave it, or the one the user renamed it to) and, for Claude Code,
-    /// "busy"/"idle".
+    /// The agent's own session, when it can be read (Claude Code's registry
+    /// entry - see `claude_registry_entry` - or a Codex live thread): its id,
+    /// its name (the title the CLI gave it, or the one the user renamed it
+    /// to) and "busy"/"idle" - plus "waiting" (on the user) for Claude Code.
     session_id: Option<String>,
     session_name: Option<String>,
     status: Option<String>,
@@ -216,6 +215,8 @@ fn find_agent_sessions(shell_pids: Vec<(String, u32)>) -> Vec<AgentSession> {
                 if let Some(thread) = cwd.as_deref().and_then(|c| thread_in(threads, c)) {
                     session.apply_thread(thread);
                 }
+            } else if let Some(entry) = claude_registry_entry(pid) {
+                session.apply_claude_entry(&entry);
             }
             sessions.push(session);
         } else if let Some(distro) = find_wsl_client(&sys, root, &children_of) {
@@ -229,6 +230,15 @@ fn find_agent_sessions(shell_pids: Vec<(String, u32)>) -> Vec<AgentSession> {
 }
 
 impl AgentSession {
+    /// Id, name and "busy"/"waiting"/"idle" from a Claude Code registry
+    /// entry (see `claude_registry_entry`).
+    fn apply_claude_entry(&mut self, entry: &serde_json::Value) {
+        let text = |key: &str| entry.get(key).and_then(|v| v.as_str()).map(str::to_string);
+        self.session_id = text("sessionId");
+        self.session_name = text("name");
+        self.status = text("status");
+    }
+
     fn apply_thread(&mut self, thread: &LiveThread) {
         self.session_id = Some(thread.id.clone());
         self.session_name = thread.name.clone();
@@ -573,13 +583,10 @@ fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec<AgentSessi
                 ..AgentSession::default()
             };
             if bin == "claude" {
-                // Its own registry entry - the same kind of Claude Code's
-                // Windows sessions are read from (`claude agents`).
+                // Its own registry entry - the same kind a Windows session's
+                // is read from (see `claude_registry_entry`).
                 if let Ok(entry) = serde_json::from_str::<serde_json::Value>(&proc_.claude_json) {
-                    let text = |key: &str| entry.get(key).and_then(|v| v.as_str()).map(str::to_string);
-                    session.session_id = text("sessionId");
-                    session.session_name = text("name");
-                    session.status = text("status");
+                    session.apply_claude_entry(&entry);
                 }
             } else {
                 let threads = threads.get_or_insert_with(|| wsl_live_threads(distro));
@@ -650,17 +657,22 @@ pub struct ClaudeAgentEntry {
 /// tells them apart by `entrypoint`: "cli" for an interactive or background
 /// session, "sdk-..." for `-p`/SDK runs.
 fn is_headless_claude_run(pid: u32) -> bool {
-    let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| crate::fs::user_home().map(|h| h.join(".claude")));
-    let Some(dir) = dir else { return false };
-    let Ok(text) = std::fs::read_to_string(dir.join("sessions").join(format!("{pid}.json"))) else {
-        return false;
-    };
-    serde_json::from_str::<serde_json::Value>(&text)
-        .ok()
+    claude_registry_entry(pid)
         .and_then(|v| v.get("entrypoint").and_then(|e| e.as_str()).map(|e| e.starts_with("sdk")))
         .unwrap_or(false)
+}
+
+/// Claude Code's registry entry for the session running as `pid`
+/// (`~/.claude/sessions/<pid>.json`, or under `CLAUDE_CONFIG_DIR`) - kept up
+/// to date by the CLI itself, `status` included: "busy" while it works,
+/// "waiting" while it waits on the user (a permission prompt, a question),
+/// "idle" once its turn is over.
+fn claude_registry_entry(pid: u32) -> Option<serde_json::Value> {
+    let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| crate::fs::user_home().map(|h| h.join(".claude")))?;
+    let text = std::fs::read_to_string(dir.join("sessions").join(format!("{pid}.json"))).ok()?;
+    serde_json::from_str(&text).ok()
 }
 
 /// The terminal app a process runs under, by walking up its parents: this

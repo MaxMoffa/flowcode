@@ -159,6 +159,7 @@ export const en: Record<MessageKey, string> = {
   "agents.interrupt": "Interrupt (send Esc to this agent)",
   "agents.status.busy": "working",
   "agents.status.idle": "waiting",
+  "agents.status.waiting": "needs input",
   "agents.status.running": "running",
   "agents.status.saved": "saved",
   "agents.section.otherWindows": "Other windows",

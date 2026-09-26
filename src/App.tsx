@@ -30,6 +30,7 @@ import {
   wslHomeDir,
   wslShellId,
 } from "./terminal/wslPath";
+import { tabAgentOf, useAgentSessions, type TabAgent } from "./agents/agentSessions";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
 import { ContextMenuProvider, useOpenContextMenu, useContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
@@ -421,6 +422,7 @@ function Shell() {
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
+  const { sessions: agentSessions, refresh: refreshAgentSessions } = useAgentSessions();
   const { startPath, shellStartPaths, resetTabZoom, restoreSession, shellId, tabFontSizeOverrides, setTabFontSize } =
     useTerminalSettings();
   const restoreSessionRef = useRef(restoreSession);
@@ -1611,6 +1613,13 @@ function Shell() {
   }
 
   const activeTerminal = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
+  // The agent CLI running in each terminal tab, for its logo and status in
+  // the tab strip - matched by pty id, same as the Agents panel does.
+  const tabAgents = new Map<string, TabAgent>();
+  for (const session of agentSessions ?? []) {
+    const tab = tabs.find((t) => t.kind === "terminal" && termRefs.current.get(t.id)?.getPtyId() === session.pty_id);
+    if (tab) tabAgents.set(tab.id, tabAgentOf(session));
+  }
   const sidebarCwd = activeTerminal?.explorerPath || homeDir;
 
   const allPlugins: PluginDef[] = [...builtinPlugins(), ...customPlugins];
@@ -1886,6 +1895,7 @@ function Shell() {
           tabs={tabs}
           activeId={activeTabId}
           dirtyIds={dirtyIds}
+          agents={tabAgents}
           onSelect={selectTab}
           onClose={closeTab}
           onNew={(shellId) => addTab(undefined, shellId)}
@@ -2052,6 +2062,8 @@ function Shell() {
               windowLabel={appWindow.label}
               tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
               activeTabId={activeTabId}
+              sessions={agentSessions}
+              refreshSessions={refreshAgentSessions}
               getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
               onOpenTab={selectTab}
               onOpenSession={openAgentSession}
