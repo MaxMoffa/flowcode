@@ -406,6 +406,9 @@ function Shell() {
   // shellOverride prop (see the render loop below), same lifecycle as
   // pendingCommandsRef above.
   const pendingShellOverrideRef = useRef(new Map<string, string>());
+  // WSL tabs whose start folder (the distro's home) is still being looked
+  // up - see `fillWslStartDir`.
+  const wslStartPendingRef = useRef(new Set<string>());
   const editorRefs = useRef(new Map<string, EditorHandle>());
   // A terminal session moved here from another window, keyed by its new tab
   // id - handed to that tab's TerminalView once, at mount (its `attach`).
@@ -718,12 +721,24 @@ function Shell() {
   useEffect(() => {
     if (!homeDir || !startPathChecked || !sessionChecked) return;
     const initial = resolvedStartPath || homeDir;
+    // A WSL tab (the startup one with WSL as the default shell, or a
+    // restored one whose folder is gone) starts in the distro's home rather
+    // than the host start folder - see `fillWslStartDir`.
+    const wslStartDistro = (t: TermTab) =>
+      wslDistroOfPath(initial) ? undefined : wslDistroOfShell(pendingShellOverrideRef.current.get(t.id) ?? shellId);
+    for (const t of latestRef.current.tabs) {
+      if (t.kind !== "terminal" || t.cwd !== "") continue;
+      const distro = wslStartDistro(t);
+      if (distro !== undefined) fillWslStartDir(t.id, distro, initial);
+    }
     setTabs((prev) =>
       prev.map((t) =>
         t.kind === "terminal" && t.cwd === ""
-          ? // A restored tab whose folder is gone still keeps the name the
-            // user gave it.
-            { ...t, cwd: initial, explorerPath: initial, label: t.customLabel ? t.label : labelForCwd(initial) }
+          ? wslStartDistro(t) !== undefined
+            ? { ...t, nestedShell: "wsl" }
+            : // A restored tab whose folder is gone still keeps the name the
+              // user gave it.
+              { ...t, cwd: initial, explorerPath: initial, label: t.customLabel ? t.label : labelForCwd(initial) }
           : t,
       ),
     );
@@ -878,21 +893,63 @@ function Shell() {
     // prompt reports the distro's actual cwd.
     const wslDistro = wslDistroOfShell(shellOverride ?? shellId);
     const nestedShell = wslDistro !== undefined ? "wsl" : undefined;
+    // A fresh WSL tab (no folder asked for, and a start folder that isn't
+    // already inside a distro) starts in the distro's home - see
+    // `fillWslStartDir`. Left unmounted (empty cwd) until that resolves.
+    const startAtWslHome = !cwdOverride && !pathDistro && wslDistro !== undefined;
+    const tabCwd = startAtWslHome ? "" : cwd;
     setTabs((prev) => [
       ...prev,
       {
         kind: "terminal",
         id,
-        cwd,
-        explorerPath: cwd,
-        label: labelForCwd(cwd),
+        cwd: tabCwd,
+        explorerPath: tabCwd,
+        label: labelForCwd(tabCwd),
         nestedShell,
         wslDistro: pathDistro ?? wslDistro ?? undefined,
       },
     ]);
+    if (startAtWslHome) fillWslStartDir(id, wslDistro, cwd);
     setActiveTabId(id);
     setActiveTerminalId(id);
     return id;
+  }
+
+  /** Gives a fresh WSL tab the distro's home (`\\wsl.localhost\<distro>\home\
+   * <user>`) as its start folder - the same place `wsl` itself drops you
+   * with a bare `cd`. Starting it in the host start folder instead meant
+   * `/mnt/c/...`, which the explorer shows as a plain `C:\...` path: it
+   * follows the session fine, but going up stops at `C:\` - the explorer is
+   * browsing Windows, not the distro, and never reaches the Linux tree the
+   * shell lives in. From the home, going up walks the distro's own tree
+   * (`\\wsl.localhost\<distro>` is `/`), in step with the shell. pty_spawn
+   * turns the UNC cwd into `wsl -d <distro> --cd <home>`. Falls back to
+   * `fallback` (the host start folder) if the lookups fail. */
+  function fillWslStartDir(tabId: string, distro: string | null, fallback: string) {
+    if (wslStartPendingRef.current.has(tabId)) return;
+    wslStartPendingRef.current.add(tabId);
+    void (async () => {
+      const resolvedDistro = distro || (await defaultWslDistro());
+      const home = resolvedDistro ? await wslHomeDir(resolvedDistro) : null;
+      return resolvedDistro && home ? toWindowsPath(resolvedDistro, home) : null;
+    })().then((dir) => {
+      wslStartPendingRef.current.delete(tabId);
+      const cwd = dir ?? fallback;
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === tabId && t.kind === "terminal" && !t.cwd
+            ? {
+                ...t,
+                cwd,
+                explorerPath: cwd,
+                label: t.customLabel ? t.label : labelForCwd(cwd),
+                wslDistro: wslDistroOfPath(cwd) ?? t.wslDistro,
+              }
+            : t,
+        ),
+      );
+    });
   }
 
   /** What's at the front of a tab's terminal right now - see shellDialect.ts. */
