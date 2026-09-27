@@ -45,12 +45,16 @@ function useReleases() {
   return { load, reload };
 }
 
+/** Which tab a nav/page pair belongs to - each keeps its own pick. */
+export type ChangelogView = "changelog" | "whatsNew";
+
 interface ChangelogValue {
   load: Load;
   reload: () => void;
-  /** The release shown in the page; `null` = the latest. */
-  selected: string | null;
-  setSelected: (version: string | null) => void;
+  /** The release each view shows; `null` = its default (the latest for the
+   * changelog, the version just installed for What's new). */
+  selected: Record<ChangelogView, string | null>;
+  select: (view: ChangelogView, version: string | null) => void;
   installed: string | null;
   /** Starts the fetch - called by the page/nav once one is shown, so the
    * provider wrapping the whole app never hits GitHub on its own. */
@@ -64,7 +68,11 @@ const ChangelogCtx = createContext<ChangelogValue | null>(null);
  * settings page and SettingsNav. */
 export function ChangelogProvider({ children }: { children: ReactNode }) {
   const { load, reload } = useReleases();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Record<ChangelogView, string | null>>({ changelog: null, whatsNew: null });
+  const select = useCallback(
+    (view: ChangelogView, version: string | null) => setSelected((prev) => ({ ...prev, [view]: version })),
+    [],
+  );
   const [installed, setInstalled] = useState<string | null>(null);
   const [active, setActive] = useState(false);
   const activate = useCallback(() => setActive(true), []);
@@ -76,8 +84,8 @@ export function ChangelogProvider({ children }: { children: ReactNode }) {
   }, [active, reload]);
 
   const value = useMemo(
-    () => ({ load, reload, selected, setSelected, installed, activate }),
-    [load, reload, selected, installed, activate],
+    () => ({ load, reload, selected, select, installed, activate }),
+    [load, reload, selected, select, installed, activate],
   );
   return <ChangelogCtx.Provider value={value}>{children}</ChangelogCtx.Provider>;
 }
@@ -90,17 +98,20 @@ function useChangelog(): ChangelogValue {
   return ctx;
 }
 
-/** The side panel while the changelog tab is active: every release, newest
- * first - picking one shows its notes in the page. */
-export function ChangelogNav() {
+/** The side panel while the changelog or What's new tab is active: every
+ * release, newest first - picking one shows its notes in that tab's page.
+ * `defaultVersion` is what the page shows until something is picked (the
+ * latest release when omitted). */
+export function ChangelogNav({ view, defaultVersion }: { view: ChangelogView; defaultVersion?: string }) {
   const { t, language } = useI18n();
-  const { load, selected, setSelected, installed } = useChangelog();
+  const { load, selected, select, installed } = useChangelog();
   const releases = load.kind === "ready" ? load.releases : [];
-  const current = selected ?? releases[0]?.version;
+  const fallback = defaultVersion ?? releases[0]?.version;
+  const current = selected[view] ?? fallback;
 
   return (
     <div className="settings-nav">
-      <div className="settings-nav-header">{t("changelog.title")}</div>
+      <div className="settings-nav-header">{view === "whatsNew" ? t("whatsNew.title") : t("changelog.title")}</div>
       <div className="settings-nav-list changelog-nav-list">
         {load.kind === "loading" && <div className="changelog-nav-status">{t("common.loading")}</div>}
         {releases.map((r, i) => (
@@ -108,7 +119,7 @@ export function ChangelogNav() {
             key={r.version}
             type="button"
             className={"settings-nav-item changelog-nav-item" + (current === r.version ? " is-active" : "")}
-            onClick={() => setSelected(i === 0 ? null : r.version)}
+            onClick={() => select(view, r.version === fallback ? null : r.version)}
             title={r.title}
           >
             <span className="changelog-nav-top">
@@ -136,7 +147,7 @@ export function ChangelogPage() {
   } else if (load.releases.length === 0) {
     body = <div className="changelog-status">{t("changelog.empty")}</div>;
   } else {
-    const release = load.releases.find((r) => r.version === selected) ?? load.releases[0];
+    const release = load.releases.find((r) => r.version === selected.changelog) ?? load.releases[0];
     const isLatest = release === load.releases[0];
     body = (
       <article className="changelog-hero">
@@ -158,25 +169,30 @@ export function ChangelogPage() {
   );
 }
 
-/** The "What's new" tab opened after an update: `version`'s notes alone,
- * with a way on to the whole changelog. */
+/** The "What's new" tab opened after an update: `version`'s notes, the
+ * other releases one click away in ChangelogNav. */
 export function WhatsNewPage({ version, onOpenChangelog }: { version: string; onOpenChangelog: () => void }) {
   const { t } = useI18n();
-  const { load, reload } = useReleases();
+  const { load, reload, selected, installed } = useChangelog();
+  const shown = selected.whatsNew ?? version;
 
-  useEffect(reload, [reload]);
-
-  const release = load.kind === "ready" ? load.releases.find((r) => r.version === version) : undefined;
+  const release = load.kind === "ready" ? load.releases.find((r) => r.version === shown) : undefined;
   let body;
   if (load.kind !== "ready") {
     body = <LoadStatus load={load} reload={reload} />;
   } else if (!release) {
     body = <div className="changelog-status">{t("whatsNew.notFound")}</div>;
   } else {
+    const kicker =
+      release.version === version
+        ? t("whatsNew.kicker", { version })
+        : release === load.releases[0]
+          ? t("changelog.latest")
+          : t("changelog.previousOne");
     body = (
       <article className="changelog-hero">
-        <div className="changelog-hero-kicker">{t("whatsNew.kicker", { version })}</div>
-        <ReleaseHeader release={release} installed={version} />
+        <div className="changelog-hero-kicker">{kicker}</div>
+        <ReleaseHeader release={release} installed={installed ?? version} />
         <ReleaseNotes release={release} />
       </article>
     );

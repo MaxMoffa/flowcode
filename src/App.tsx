@@ -1127,6 +1127,7 @@ function Shell() {
   /** The "What's new" tab for `version` - replacing one already open (a
    * restored session can bring back the previous update's). */
   function openWhatsNew(version: string) {
+    setSidebarCollapsed(false);
     const tab: AppTab = { kind: "whatsNew", id: "whatsnew", label: t("whatsNew.title"), version };
     setTabs((prev) =>
       prev.some((p) => p.kind === "whatsNew") ? prev.map((p) => (p.kind === "whatsNew" ? tab : p)) : [...prev, tab],
@@ -1842,14 +1843,16 @@ function Shell() {
   // The side panel is contextual to whatever tab is active: the file
   // explorer for a terminal, a jump-to-function outline for a code file,
   // a section index for the settings page, the version list for the
-  // changelog - falling back to the explorer otherwise, since that's the
+  // changelog and What's new - falling back to the explorer otherwise, since that's the
   // most broadly useful default.
   const activeTab = tabs.find((t) => t.id === activeTabId);
   let sidebarPanel: ReactNode;
   if (activeTab?.kind === "settings") {
     sidebarPanel = <SettingsNav />;
   } else if (activeTab?.kind === "changelog") {
-    sidebarPanel = <ChangelogNav />;
+    sidebarPanel = <ChangelogNav view="changelog" />;
+  } else if (activeTab?.kind === "whatsNew") {
+    sidebarPanel = <ChangelogNav view="whatsNew" defaultVersion={activeTab.version} />;
   } else if (activeTab?.kind === "editor") {
     const editorTab: EditorTab = activeTab;
     sidebarPanel = (
