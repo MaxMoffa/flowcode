@@ -83,6 +83,15 @@ function GearIcon() {
   );
 }
 
+function ChangelogIcon() {
+  return (
+    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
+      <path d="M12 3.5 14.2 8l4.8.6-3.5 3.3.9 4.8L12 14.4l-4.4 2.3.9-4.8L5 8.6 9.8 8z" />
+      <line x1="5" y1="20.5" x2="19" y2="20.5" />
+    </svg>
+  );
+}
+
 function PromptIcon() {
   return (
     <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
@@ -152,13 +161,17 @@ function agentTabIcon(agent: TabAgent) {
 function tabIcon(tab: AppTab, agent?: TabAgent) {
   if (tab.kind === "terminal") return agent ? agentTabIcon(agent) : <span className="term-tab-dot" />;
   if (tab.kind === "settings") return <GearIcon />;
+  if (tab.kind === "changelog" || tab.kind === "whatsNew") return <ChangelogIcon />;
   return <FileTypeIcon name={tab.label} />;
 }
 
-/** The label shown for `tab`: a settings tab still carrying its default
- * name (in whichever language it was opened) is shown in the current one. */
+/** The label shown for `tab`: a settings/changelog tab still carrying its
+ * default name (in whichever language it was opened) is shown in the
+ * current one. */
 export function tabDisplayLabel(tab: AppTab): string {
   if (tab.kind === "settings" && translationsOf("settings.title").includes(tab.label)) return t("settings.title");
+  if (tab.kind === "changelog" && translationsOf("changelog.title").includes(tab.label)) return t("changelog.title");
+  if (tab.kind === "whatsNew" && translationsOf("whatsNew.title").includes(tab.label)) return t("whatsNew.title");
   return tab.label;
 }
 
@@ -338,7 +351,7 @@ export function TabStrip({
       // knowing that gesture exists.
       { label: t("tabs.rename"), onSelect: () => startEditing(tab) },
     ];
-    if (tab.kind !== "settings") {
+    if (tab.kind === "terminal" || tab.kind === "editor") {
       items.push({ label: t("tabs.duplicate"), onSelect: () => onDuplicate(tab.id) });
     }
     items.push({ separator: true, label: "sep-close" });

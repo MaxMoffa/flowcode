@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "rea
 // `availableMonitors` and friends are module-level too). Calling it off the
 // window object throws a TypeError.
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -36,6 +37,8 @@ import { useShortcuts } from "./shortcuts/useShortcuts";
 import { ContextMenuProvider, useOpenContextMenu, useContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
 import { ConfirmDialogProvider, useConfirmDialog } from "./dialog/ConfirmDialogContext";
 import { SettingsPage } from "./settings/SettingsPage";
+import { ChangelogNav, ChangelogPage, ChangelogProvider, WhatsNewPage } from "./changelog/ChangelogPage";
+import { consumeUpdatedVersion } from "./changelog/lastRunVersion";
 import { SettingsNav } from "./settings/SettingsNav";
 import { SettingsSectionProvider } from "./settings/SettingsSectionContext";
 import { PluginMenu } from "./plugins/PluginMenu";
@@ -167,6 +170,12 @@ const Icons = {
     <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  changelog: (
+    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+      <path d="M12 3.5 14.2 8l4.8.6-3.5 3.3.9 4.8L12 14.4l-4.4 2.3.9-4.8L5 8.6 9.8 8z" />
+      <line x1="5" y1="20.5" x2="19" y2="20.5" />
     </svg>
   ),
   themeAuto: (
@@ -579,6 +588,8 @@ function Shell() {
     async function applySavedWindow(saved: SavedWindow) {
       const restored: AppTab[] = [];
       const settingsLabel = t("settings.title");
+      const changelogLabel = t("changelog.title");
+      const whatsNewLabel = t("whatsNew.title");
       for (const t of saved.tabs) {
         if (t.kind === "terminal") {
           // A folder deleted since, or a `\\wsl.localhost\...` path a
@@ -612,6 +623,14 @@ function Shell() {
           });
         } else if (t.kind === "editor") {
           restored.push({ kind: "editor", id: `editor-${nextTabId++}`, path: t.path, label: t.label });
+        } else if (t.kind === "whatsNew") {
+          if (!restored.some((r) => r.kind === "whatsNew")) {
+            restored.push({ kind: "whatsNew", id: "whatsnew", label: whatsNewLabel, version: t.version });
+          }
+        } else if (t.kind === "changelog") {
+          if (!restored.some((r) => r.kind === "changelog")) {
+            restored.push({ kind: "changelog", id: "changelog", label: changelogLabel });
+          }
         } else if (!restored.some((r) => r.kind === "settings")) {
           restored.push({ kind: "settings", id: "settings", label: settingsLabel });
         }
@@ -691,6 +710,8 @@ function Shell() {
             };
           }
           if (t.kind === "editor") return { kind: "editor", path: t.path, label: t.label };
+          if (t.kind === "changelog") return { kind: "changelog" };
+          if (t.kind === "whatsNew") return { kind: "whatsNew", version: t.version };
           return { kind: "settings" };
         }),
       };
@@ -1090,6 +1111,40 @@ function Shell() {
     setActiveTabId("settings");
   }
 
+  function openChangelog() {
+    // The version list lives in the side panel - shown even if it was
+    // collapsed, like openSettings does for the settings nav.
+    setSidebarCollapsed(false);
+    const existing = tabs.find((t) => t.kind === "changelog");
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    setTabs((prev) => [...prev, { kind: "changelog", id: "changelog", label: t("changelog.title") }]);
+    setActiveTabId("changelog");
+  }
+
+  /** The "What's new" tab for `version` - replacing one already open (a
+   * restored session can bring back the previous update's). */
+  function openWhatsNew(version: string) {
+    const tab: AppTab = { kind: "whatsNew", id: "whatsnew", label: t("whatsNew.title"), version };
+    setTabs((prev) =>
+      prev.some((p) => p.kind === "whatsNew") ? prev.map((p) => (p.kind === "whatsNew" ? tab : p)) : [...prev, tab],
+    );
+    setActiveTabId(tab.id);
+  }
+
+  // First launch after an update: show what it brought. Main window only,
+  // once the restored session is in place so the tab lands after it.
+  useEffect(() => {
+    if (!isMainWindow || !sessionChecked) return;
+    getVersion()
+      .then((version) => {
+        if (consumeUpdatedVersion(version)) openWhatsNew(version);
+      })
+      .catch(() => {});
+  }, [sessionChecked]);
+
   function reorderTab(id: string, toIndex: number) {
     setTabs((prev) => {
       const from = prev.findIndex((t) => t.id === id);
@@ -1119,6 +1174,10 @@ function Shell() {
       const id = `editor-${nextTabId++}`;
       if (transfer.editor?.dirty) pendingEditorContentRef.current.set(id, transfer.editor.content);
       adopted = { ...tab, id };
+    } else if (tab.kind === "changelog") {
+      adopted = { kind: "changelog", id: "changelog", label: t("changelog.title") };
+    } else if (tab.kind === "whatsNew") {
+      adopted = { ...tab, id: "whatsnew" };
     } else {
       adopted = { kind: "settings", id: "settings", label: t("settings.title") };
     }
@@ -1127,7 +1186,10 @@ function Shell() {
       // A window always has a terminal: one opened for an editor/settings
       // tab keeps its startup terminal next to it.
       setTabs((prev) => (adopted.kind === "terminal" ? [adopted] : [...prev.filter((t) => t.kind === "terminal"), adopted]));
-    } else if (adopted.kind === "settings" && latestRef.current.tabs.some((t) => t.kind === "settings")) {
+    } else if (
+      (adopted.kind === "settings" || adopted.kind === "changelog" || adopted.kind === "whatsNew") &&
+      latestRef.current.tabs.some((t) => t.kind === adopted.kind)
+    ) {
       // Already open here (it's a singleton): just switch to it.
     } else {
       const index = tabStripDropIndex(transfer.drop);
@@ -1779,12 +1841,15 @@ function Shell() {
 
   // The side panel is contextual to whatever tab is active: the file
   // explorer for a terminal, a jump-to-function outline for a code file,
-  // a section index for the settings page - falling back to the explorer
-  // otherwise, since that's the most broadly useful default.
+  // a section index for the settings page, the version list for the
+  // changelog - falling back to the explorer otherwise, since that's the
+  // most broadly useful default.
   const activeTab = tabs.find((t) => t.id === activeTabId);
   let sidebarPanel: ReactNode;
   if (activeTab?.kind === "settings") {
     sidebarPanel = <SettingsNav />;
+  } else if (activeTab?.kind === "changelog") {
+    sidebarPanel = <ChangelogNav />;
   } else if (activeTab?.kind === "editor") {
     const editorTab: EditorTab = activeTab;
     sidebarPanel = (
@@ -1860,6 +1925,7 @@ function Shell() {
         })),
       },
       { separator: true, label: "sep-theme" },
+      { label: t("changelog.title"), icon: Icons.changelog, onSelect: openChangelog },
       { label: t("settings.title"), icon: Icons.settings, onSelect: openSettings },
     ];
   }
@@ -2029,6 +2095,10 @@ function Shell() {
                 );
               }
               if (tab.id !== activeTabId) return null;
+              if (tab.kind === "changelog") return <ChangelogPage key={tab.id} />;
+              if (tab.kind === "whatsNew") {
+                return <WhatsNewPage key={tab.id} version={tab.version} onOpenChangelog={openChangelog} />;
+              }
               return (
                 <SettingsPage
                   key={tab.id}
@@ -2090,13 +2160,15 @@ export default function App() {
       )}
       <TerminalSettingsProvider>
         <SettingsSectionProvider>
-          <ConfirmDialogProvider>
-            <UpdateProvider>
-              <ContextMenuProvider>
-                <Shell />
-              </ContextMenuProvider>
-            </UpdateProvider>
-          </ConfirmDialogProvider>
+          <ChangelogProvider>
+            <ConfirmDialogProvider>
+              <UpdateProvider>
+                <ContextMenuProvider>
+                  <Shell />
+                </ContextMenuProvider>
+              </UpdateProvider>
+            </ConfirmDialogProvider>
+          </ChangelogProvider>
         </SettingsSectionProvider>
       </TerminalSettingsProvider>
     </ThemeProvider>

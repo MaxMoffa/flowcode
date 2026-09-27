@@ -1,0 +1,244 @@
+/* Layout (scrolling page, centered column, title) comes from
+   settings-page.css - the changelog is a chrome page like Settings. */
+
+.changelog-status {
+  padding: 24px 0;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+.changelog-error {
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.changelog-button {
+  margin-top: 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl, 6px);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.changelog-button:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+/* The latest release: a card with its full notes. */
+.changelog-hero {
+  margin-top: 8px;
+  padding: 22px 24px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.changelog-hero-kicker {
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.changelog-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.changelog-head-title {
+  color: var(--fg);
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.changelog-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.changelog-version {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.changelog-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.changelog-badge.is-muted {
+  background: color-mix(in srgb, var(--fg-muted) 16%, transparent);
+  color: var(--fg-muted);
+}
+
+.changelog-hero .markdown {
+  margin-top: 14px;
+}
+
+.changelog-link {
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.changelog-empty-notes {
+  margin: 12px 0 0;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+/* The version list in the side panel. */
+.changelog-nav-list {
+  overflow-y: auto;
+}
+
+.changelog-nav-status {
+  padding: 6px 8px;
+  color: var(--fg-muted);
+}
+
+.settings-nav-item.changelog-nav-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  height: auto;
+  padding: 6px 8px;
+}
+
+.changelog-nav-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.changelog-nav-sub {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Rendered release notes. */
+.markdown {
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 18px 0 6px;
+  color: var(--fg);
+  line-height: 1.35;
+}
+
+.markdown h2 {
+  font-size: 15px;
+}
+
+.markdown h3 {
+  font-size: 13.5px;
+}
+
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.markdown p {
+  margin: 8px 0;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.markdown li {
+  margin: 4px 0;
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin: 2px 0;
+}
+
+.markdown code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.markdown pre {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+}
+
+.markdown blockquote {
+  margin: 10px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+  color: var(--fg-muted);
+}
+
+.markdown hr {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.markdown a,
+.changelog-link a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.markdown a:hover,
+.changelog-link a:hover {
+  text-decoration: underline;
+}
+
+.changelog-full {
+  margin-top: 20px;
+}

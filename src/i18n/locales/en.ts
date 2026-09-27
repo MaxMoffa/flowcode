@@ -342,6 +342,23 @@ export const en: Record<MessageKey, string> = {
   "credits.sysinfo": "detecting processes (CLI agents) running in the terminals, on the Rust side.",
   "credits.uuid": "unique identifiers for terminal sessions, on the Rust side.",
 
+  // Changelog tab
+  "changelog.title": "Changelog",
+  "changelog.desc": "What changed in each Flowcode version, straight from the GitHub releases.",
+  "changelog.latest": "Latest update",
+  "changelog.installed": "Installed",
+  "changelog.prerelease": "Pre-release",
+  "changelog.latestShort": "Latest",
+  "changelog.previousOne": "Earlier version",
+  "changelog.openOnGithub": "Open on GitHub",
+  "changelog.empty": "No releases published yet.",
+  "changelog.error": "Couldn't load the releases.",
+  "changelog.noNotes": "No notes for this version.",
+  "whatsNew.title": "What's new",
+  "whatsNew.kicker": "Updated to version {version}",
+  "whatsNew.fullChangelog": "See the full changelog",
+  "whatsNew.notFound": "The notes for this version aren't available yet.",
+
   // Update dialog
   "update.title": "Update available",
   "update.message":

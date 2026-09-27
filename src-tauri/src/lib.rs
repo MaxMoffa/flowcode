@@ -87,6 +87,7 @@ pub fn run() {
             windows::window_focus_tab,
             updater::update_check,
             updater::update_install,
+            updater::release_notes,
             pty::pty_foreground,
             pty::list_shell_options,
             fs::read_dir,

@@ -19,7 +19,9 @@ export type SavedTab =
       content?: string;
     }
   | { kind: "editor"; path: string; label: string }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  | { kind: "changelog" }
+  | { kind: "whatsNew"; version: string };
 
 /** One window's part of the session - what each window reports to the
  * backend (`session_put`, see src-tauri/src/session.rs). */

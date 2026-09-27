@@ -47,4 +47,19 @@ export interface SettingsTab {
   label: string;
 }
 
-export type AppTab = TermTab | EditorTab | SettingsTab;
+export interface ChangelogTab {
+  kind: "changelog";
+  id: string;
+  label: string;
+}
+
+/** Opened by itself on the first launch after an update: what changed in
+ * `version`, the one just installed. */
+export interface WhatsNewTab {
+  kind: "whatsNew";
+  id: string;
+  label: string;
+  version: string;
+}
+
+export type AppTab = TermTab | EditorTab | SettingsTab | ChangelogTab | WhatsNewTab;

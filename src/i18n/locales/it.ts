@@ -349,6 +349,23 @@ export const it = {
   "credits.sysinfo": "rilevamento dei processi (agenti CLI) in esecuzione nei terminali, lato Rust.",
   "credits.uuid": "identificativi univoci per le sessioni di terminale, lato Rust.",
 
+  // Changelog tab
+  "changelog.title": "Changelog",
+  "changelog.desc": "Cosa è cambiato in ogni versione di Flowcode, direttamente dalle release su GitHub.",
+  "changelog.latest": "Ultimo aggiornamento",
+  "changelog.installed": "Installata",
+  "changelog.prerelease": "Pre-release",
+  "changelog.latestShort": "Ultima",
+  "changelog.previousOne": "Versione precedente",
+  "changelog.openOnGithub": "Apri su GitHub",
+  "changelog.empty": "Nessuna release pubblicata finora.",
+  "changelog.error": "Impossibile caricare le release.",
+  "changelog.noNotes": "Nessuna nota per questa versione.",
+  "whatsNew.title": "Novità",
+  "whatsNew.kicker": "Aggiornato alla versione {version}",
+  "whatsNew.fullChangelog": "Vedi tutto il changelog",
+  "whatsNew.notFound": "Le note di questa versione non sono ancora disponibili.",
+
   // Update dialog
   "update.title": "Aggiornamento disponibile",
   "update.message":

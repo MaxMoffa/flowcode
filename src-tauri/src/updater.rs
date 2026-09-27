@@ -22,6 +22,9 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/MaxMoffa/flowcode/releases/latest";
+/// GitHub's maximum page size - far more releases than the changelog tab
+/// will realistically ever need.
+const RELEASES_URL: &str = "https://api.github.com/repos/MaxMoffa/flowcode/releases?per_page=100";
 const USER_AGENT: &str = concat!("flowcode/", env!("CARGO_PKG_VERSION"));
 const CHECKSUMS_ASSET: &str = "SHA256SUMS";
 
@@ -29,8 +32,12 @@ const CHECKSUMS_ASSET: &str = "SHA256SUMS";
 struct GhRelease {
     tag_name: String,
     #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
     body: Option<String>,
     html_url: String,
+    #[serde(default)]
+    published_at: Option<String>,
     #[serde(default)]
     draft: bool,
     #[serde(default)]
@@ -69,6 +76,20 @@ struct PendingRelease {
 
 #[derive(Default)]
 pub struct UpdaterState(Mutex<Option<PendingRelease>>);
+
+/// One published release, as the changelog tab lists it.
+#[derive(Serialize)]
+pub struct ReleaseNote {
+    pub version: String,
+    /// The release title set on GitHub (falls back to the tag).
+    pub title: String,
+    /// The release's description (markdown), as written on GitHub.
+    pub notes: String,
+    /// ISO 8601; empty when GitHub didn't give one.
+    pub published_at: String,
+    pub page_url: String,
+    pub prerelease: bool,
+}
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "stage", rename_all = "camelCase")]
@@ -118,28 +139,53 @@ fn agent() -> ureq::Agent {
         .build()
 }
 
+/// GETs one of the GitHub API URLs above and parses its JSON, with the
+/// failures a user can act on spelled out.
+fn fetch_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T, String> {
+    let response = agent()
+        .get(url)
+        .set("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| match e {
+            // Also what GitHub answers for a private repository.
+            ureq::Error::Status(404, _) => {
+                tr("Nessuna release pubblica trovata su GitHub (MaxMoffa/flowcode).", "No public release found on GitHub (MaxMoffa/flowcode).").to_string()
+            }
+            ureq::Error::Status(403, _) | ureq::Error::Status(429, _) => {
+                tr("Troppe richieste a GitHub: riprova tra qualche minuto.", "Too many requests to GitHub: try again in a few minutes.").to_string()
+            }
+            other => if is_italian() { format!("Impossibile contattare GitHub: {other}") } else { format!("Couldn't reach GitHub: {other}") },
+        })?;
+    serde_json::from_reader(response.into_reader()).map_err(|e| e.to_string())
+}
+
+/// Every published release, newest first (GitHub's own order) - drafts
+/// left out. What the changelog tab shows.
+#[tauri::command]
+pub async fn release_notes() -> Result<Vec<ReleaseNote>, String> {
+    let releases: Vec<GhRelease> = crate::blocking(|| fetch_json(RELEASES_URL)).await?;
+    Ok(releases
+        .into_iter()
+        .filter(|r| !r.draft)
+        .map(|r| {
+            let version = r.tag_name.trim_start_matches('v').to_string();
+            ReleaseNote {
+                title: r.name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| r.tag_name.clone()),
+                version,
+                notes: r.body.unwrap_or_default(),
+                published_at: r.published_at.unwrap_or_default(),
+                page_url: r.html_url,
+                prerelease: r.prerelease,
+            }
+        })
+        .collect())
+}
+
 /// `Some` when GitHub has a newer release than this build with an installer
 /// for this platform, `None` when this build is up to date.
 #[tauri::command]
 pub async fn update_check(state: State<'_, UpdaterState>) -> Result<Option<UpdateInfo>, String> {
-    let release = crate::blocking(|| {
-        let response = agent()
-            .get(LATEST_RELEASE_URL)
-            .set("Accept", "application/vnd.github+json")
-            .call()
-            .map_err(|e| match e {
-                // Also what GitHub answers for a private repository.
-                ureq::Error::Status(404, _) => {
-                    tr("Nessuna release pubblica trovata su GitHub (MaxMoffa/flowcode).", "No public release found on GitHub (MaxMoffa/flowcode).").to_string()
-                }
-                ureq::Error::Status(403, _) | ureq::Error::Status(429, _) => {
-                    tr("Troppe richieste a GitHub: riprova tra qualche minuto.", "Too many requests to GitHub: try again in a few minutes.").to_string()
-                }
-                other => if is_italian() { format!("Impossibile contattare GitHub: {other}") } else { format!("Couldn't reach GitHub: {other}") },
-            })?;
-        serde_json::from_reader::<_, GhRelease>(response.into_reader()).map_err(|e| e.to_string())
-    })
-    .await?;
+    let release: GhRelease = crate::blocking(|| fetch_json(LATEST_RELEASE_URL)).await?;
 
     let current = env!("CARGO_PKG_VERSION");
     let (Some(latest), Some(installed)) = (parse_version(&release.tag_name), parse_version(current)) else {
