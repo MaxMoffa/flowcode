@@ -147,13 +147,19 @@
 }
 
 /* Floating menus (context menus and their flyouts, the tab overflow list,
-   Funzionalità, the usage popover) sit on top of the app's own content -
-   sharp terminal text, the file tree - rather than the desktop, so the
-   panels' --glass-blur leaves what's underneath still readable through them.
-   A much stronger blur + saturation makes them read like the window's own
-   acrylic backdrop instead of a tinted see-through sheet. */
+   Funzionalità, the usage popover), dialogs and toasts sit on top of the
+   app's own content - sharp terminal text, the file tree - rather than the
+   desktop. They get their own near-opaque surface instead of the panels'
+   --surface: that one is meant to let the desktop show through (and goes as
+   see-through as the Trasparenza slider says), and the blur that was
+   supposed to make it readable over text doesn't reliably happen - in
+   WebView2's transparent-window mode the terminal text right under a menu
+   came through sharp, making it hard to read. Not tied to the slider on
+   purpose: legibility here isn't a matter of taste. The blur stays, for
+   where it does work. */
 :root {
   --menu-backdrop: blur(40px) saturate(160%);
+  --menu-surface: rgb(var(--surface-rgb) / 0.96);
 }
 
 /* The whole app is exactly one viewport tall (.app-shell is height: 100vh)

@@ -7,7 +7,7 @@
   max-width: min(420px, calc(100vw - 32px));
   padding: 10px 16px;
   border-radius: 999px;
-  background: var(--bg-elevated);
+  background: var(--menu-surface);
   border: 1px solid var(--border);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
   backdrop-filter: blur(var(--glass-blur)) saturate(130%);

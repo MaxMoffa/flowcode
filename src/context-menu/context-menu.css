@@ -3,7 +3,7 @@
   z-index: 1000;
   min-width: 190px;
   padding: 5px;
-  background: var(--bg-elevated);
+  background: var(--menu-surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14);
