@@ -407,9 +407,9 @@ fn prepare_installer(downloaded: &Path, work_dir: &Path) -> Result<PathBuf, Stri
 }
 
 /// Starts the installer detached, in its silent update mode. On Windows it's
-/// first tried outside this app's Job Object (see `job_breakaway_allowed` in
-/// plugins.rs): a job that kills its members when it closes would otherwise
-/// take the installer down with it the moment Flowcode exits.
+/// first tried outside this app's Job Object: a job that kills its members
+/// when it closes would otherwise take the installer down with it the moment
+/// Flowcode exits.
 fn launch_installer(installer: &Path, install_dir: &Path) -> Result<(), String> {
     let mut cmd = std::process::Command::new(installer);
     cmd.arg("--update")

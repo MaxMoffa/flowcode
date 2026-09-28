@@ -1757,8 +1757,8 @@ function Shell() {
    * already owns that tab's input (see `runInTabLike`). */
   async function launchInTab(cliBin: "claude" | "codex", launchCommand: string, term: TerminalHandle | undefined, tabId: string) {
     const fg = await tabForeground(tabId);
-    // Codex needs `--no-daemon` when Flowcode's host Job Object won't let
-    // its background server detach - see plugins/codexLaunch.ts. That's this
+    // Codex on Windows runs with `--no-daemon`, or its background server pops
+    // a console window per helper - see plugins/codexLaunch.ts. That's this
     // host's own codex: not one inside WSL or across ssh.
     const hostCodex = cliBin === "codex" && fg?.kind !== "wsl" && fg?.kind !== "remote";
     const command = hostCodex ? await withCodexLaunchFlags(launchCommand) : launchCommand;

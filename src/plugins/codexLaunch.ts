@@ -2,10 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 
 let needsNoDaemon: Promise<boolean> | null = null;
 
-/** Whether Codex has to be started with `--no-daemon` from this app - true
- * only when the Windows Job Object Flowcode runs in forbids breakaway, which
- * Codex needs for its shared background server (see `codex_needs_no_daemon`
- * in src-tauri/src/plugins.rs). Asked once per app run: the answer can't
+/** Whether Codex has to be started with `--no-daemon` from this app - on
+ * Windows, where its detached background server pops a console window for
+ * every MCP server/helper it starts (see `codex_needs_no_daemon` in
+ * src-tauri/src/plugins.rs). Asked once per app run: the answer can't
  * change while the process lives. A failed check isn't cached, and counts as
  * "no" - the plain launch is what ran before this check existed. */
 export function codexNeedsNoDaemon(): Promise<boolean> {

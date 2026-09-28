@@ -169,58 +169,22 @@ pub async fn run_plugin_command(command: String) -> Result<String, String> {
     flowcode_shared::run_command_for_display(command).await
 }
 
-/// Whether a process started from this app can break away from the Windows
-/// Job Object the app itself runs in - the same check Codex CLI makes before
-/// starting its shared background server ("app-server daemon"): it spawns a
-/// suspended probe with `CREATE_BREAKAWAY_FROM_JOB` and gives up with "host
-/// Job Object prevents daemon detachment" when that's refused. Whether it is
-/// refused depends entirely on whoever launched Flowcode (Windows 11 already
-/// puts Explorer-launched apps in a job that allows breakaway; some
-/// corporate/endpoint software and launchers put them in one that doesn't),
-/// so it can't be fixed from here - only detected, so Codex can be started
-/// with `--no-daemon` instead of failing. Job membership never changes for
-/// the life of the process, hence computed once.
-#[cfg(target_os = "windows")]
-fn job_breakaway_allowed() -> bool {
-    use std::os::windows::process::CommandExt;
-    use std::sync::OnceLock;
-    static ALLOWED: OnceLock<bool> = OnceLock::new();
-    *ALLOWED.get_or_init(|| {
-        const CREATE_SUSPENDED: u32 = 0x0000_0004;
-        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-        // Suspended: the probe never runs a single instruction, it only has
-        // to be *created* - which is exactly the step a no-breakaway job
-        // refuses (ERROR_ACCESS_DENIED). Outside any job the flag is ignored.
-        let spawned = std::process::Command::new("cmd.exe")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .creation_flags(CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB | flowcode_shared::CREATE_NO_WINDOW)
-            .spawn();
-        match spawned {
-            Ok(mut child) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                true
-            }
-            Err(_) => false,
-        }
-    })
-}
-
-#[cfg(not(target_os = "windows"))]
-fn job_breakaway_allowed() -> bool {
-    true
-}
-
-/// Whether `codex` has to be launched with `--no-daemon` from this app: only
-/// when the host job forbids breakaway (see `job_breakaway_allowed`) AND the
-/// installed Codex actually knows the flag - older versions have no daemon
-/// (so nothing to disable) and reject unknown flags outright.
+/// Whether `codex` has to be launched with `--no-daemon` from this app: on
+/// Windows, whenever the installed Codex knows the flag (older versions have
+/// no daemon, so nothing to disable, and reject unknown flags outright).
+///
+/// The daemon (Codex's shared background server) runs detached, with no
+/// console of its own, so every console program it starts for a session -
+/// MCP servers, `node_repl`, `codex-code-mode-host.exe` - gets a brand-new
+/// console window (a Windows Terminal one, where that's the default
+/// terminal) popping up over the app. Without it they're children of the
+/// `codex` in the tab and share its pseudoconsole instead, invisibly. It also
+/// covers hosts whose Job Object forbids breakaway, where Codex refuses to
+/// start the daemon at all ("host Job Object prevents daemon detachment").
 #[tauri::command]
 pub async fn codex_needs_no_daemon() -> Result<bool, String> {
     crate::blocking(|| {
-        if job_breakaway_allowed() {
+        if !cfg!(target_os = "windows") {
             return Ok(false);
         }
         Ok(run_command_blocking("codex --help")
