@@ -99,6 +99,12 @@ export function SettingsPage({
     setConfirmLinkOpen,
   } = useTerminalSettings();
   const { section } = useSettingsSection();
+  // One scroll container serves every section, so without this a section
+  // opens at whatever depth the previous one was scrolled to.
+  const pageRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    pageRef.current?.scrollTo({ top: 0 });
+  }, [section]);
   const confirm = useConfirmDialog();
   const { status: updateStatus, check: checkForUpdates, openDialog: openUpdateDialog } = useUpdater();
   const [versionCopied, setVersionCopied] = useState(false);
@@ -213,7 +219,7 @@ export function SettingsPage({
   }
 
   return (
-    <div className="settings-page">
+    <div className="settings-page" ref={pageRef}>
       <div className="settings-page-inner">
         <h1 className="settings-title">{t(SECTION_TITLE_KEYS[section])}</h1>
         <p className="settings-page-desc">{t(SECTION_DESCRIPTION_KEYS[section])}</p>
