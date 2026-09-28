@@ -144,15 +144,14 @@ function shellOptionIcon(id: string) {
 }
 
 /** A terminal tab running Claude Code or Codex: the CLI's logo, followed by
- * a spinner while it works or a "?" while it waits on the user - nothing
- * more once its turn is over. */
+ * a "?" while it waits on the user. No "working" indicator: both CLIs
+ * already animate their own while they work. */
 function agentTabIcon(agent: TabAgent) {
   const title =
     agent.state === "busy" ? t("agents.status.busy") : agent.state === "waiting" ? t("agents.status.waiting") : undefined;
   return (
     <span className="term-tab-agent" title={title}>
       <span className="term-tab-agent-logo">{agentCliIcon(agent.cli)}</span>
-      {agent.state === "busy" && <span className="term-tab-agent-spinner" />}
       {agent.state === "waiting" && <span className="term-tab-agent-question">?</span>}
     </span>
   );
