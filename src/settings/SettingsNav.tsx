@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSettingsSection } from "./SettingsSectionContext";
 import { SECTIONS, SECTION_SHORT_KEYS, SECTION_TITLE_KEYS, SETTINGS_INDEX, type SettingEntry } from "./settingsIndex";
+import { SectionIcon } from "./SectionIcons";
 import { useI18n } from "../i18n";
 import "./settings-nav.css";
 
@@ -87,8 +88,11 @@ export function SettingsNav() {
               className={"settings-nav-item" + (section === id ? " is-active" : "")}
               onClick={() => setSection(id)}
             >
-              <span className="settings-nav-item-title">{t(SECTION_TITLE_KEYS[id])}</span>
-              <span className="settings-nav-item-desc">{t(SECTION_SHORT_KEYS[id])}</span>
+              <SectionIcon section={id} />
+              <span className="settings-nav-item-text">
+                <span className="settings-nav-item-title">{t(SECTION_TITLE_KEYS[id])}</span>
+                <span className="settings-nav-item-desc">{t(SECTION_SHORT_KEYS[id])}</span>
+              </span>
             </button>
           ))}
         </div>

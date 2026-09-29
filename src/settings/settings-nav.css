@@ -28,9 +28,8 @@
 
 .settings-nav-item {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   padding: 6px 8px;
   margin-bottom: 1px;
@@ -168,4 +167,17 @@
 .settings-nav-item.is-active .settings-nav-item-desc {
   color: inherit;
   opacity: 0.75;
+}
+
+.settings-nav-item-icon {
+  flex: none;
+  opacity: 0.8;
+}
+
+.settings-nav-item-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
 }
