@@ -66,10 +66,6 @@ export const it = {
   "notifications.body.done": "{agent} ha finito il lavoro",
   "notifications.body.input": "{agent} ha bisogno di te",
   "notifications.body.exited": "{agent} è terminato",
-  "settings.notifications.title": "Notifiche",
-  "settings.notifications.desc": "Notifiche del desktop per gli agenti (Claude Code, Codex) in esecuzione nelle tue tab. Cliccandone una vai direttamente alla sua tab. Non ne arrivano per la tab che stai guardando; una singola tab si può silenziare dal menu del tasto destro.",
-  "settings.notifications.on": "Attive",
-  "settings.notifications.off": "Disattivate",
   "settings.notifications.done.label": "Lavoro terminato",
   "settings.notifications.done.desc": "Quando un agente completa il compito ed è pronto per la richiesta successiva.",
   "settings.notifications.input.label": "Serve il tuo intervento",
@@ -261,49 +257,62 @@ export const it = {
 
   // Settings
   "settings.title": "Impostazioni",
-  "settings.section.general": "Generali",
+  "settings.section.appearance": "Aspetto",
   "settings.section.terminal": "Terminale",
+  "settings.section.startup": "Avvio",
+  "settings.section.explorer": "File explorer",
+  "settings.section.notifications": "Notifiche",
   "settings.section.features": "Funzionalità",
   "settings.section.info": "Informazioni",
-  "settings.section.general.desc": "Lingua, aspetto dell'app, intestazione e comportamento della sidebar dei file.",
-  "settings.section.terminal.desc":
-    "Testo, shell, cartella di avvio e comportamento delle schede del terminale integrato.",
-  "settings.section.features.desc":
-    "Attiva, disattiva, crea o installa le funzionalità (plugin) disponibili nella barra rapida.",
-  "settings.section.info.desc": "Versione installata, manutenzione e librerie open source su cui è costruito Flowcode.",
+  "settings.section.appearance.desc": "Lingua, tema, trasparenza e barra in alto.",
+  "settings.section.terminal.desc": "Testo, shell e comportamento del terminale integrato.",
+  "settings.section.startup.desc": "Dove si aprono le schede e cosa ritrovi riaprendo l'app.",
+  "settings.section.explorer.desc": "Come si comporta il pannello dei file.",
+  "settings.section.notifications.desc": "Avvisi del desktop per gli agenti (Claude Code, Codex) nelle tue tab. Cliccandone uno vai alla sua tab. Non ne arrivano per la tab che stai guardando; una singola tab si può silenziare dal menu del tasto destro.",
+  "settings.section.features.desc": "Attiva, disattiva, crea o installa le funzionalità (plugin) della barra rapida.",
+  "settings.section.info.desc": "Versione, aggiornamenti, manutenzione e librerie open source di Flowcode.",
+  "settings.section.appearance.short": "Lingua, tema, trasparenza",
+  "settings.section.terminal.short": "Testo, shell, link",
+  "settings.section.startup.short": "Cartelle e schede all'avvio",
+  "settings.section.explorer.short": "Pannello e apertura cartelle",
+  "settings.section.notifications.short": "Avvisi degli agenti",
+  "settings.section.features.short": "Plugin e barra rapida",
+  "settings.section.info.short": "Versione, aggiornamenti, crediti",
+  "settings.group.interface": "Interfaccia",
+  "settings.group.header": "Barra in alto",
+  "settings.group.textShell": "Testo e shell",
+  "settings.group.behavior": "Comportamento",
+  "settings.group.startFolders": "Cartelle di avvio",
+  "settings.group.session": "Sessione",
+  "settings.group.panel": "Pannello file",
+  "settings.group.alerts": "Quando avvisarmi",
+  "settings.group.version": "Versione e aggiornamenti",
+  "settings.group.maintenance": "Manutenzione",
+  "settings.group.credits": "Crediti",
+  "settings.search.placeholder": "Cerca impostazioni…",
+  "settings.search.clear": "Cancella ricerca",
+  "settings.search.empty": "Nessuna impostazione trovata per \"{query}\".",
+  "settings.on": "Attivo",
+  "settings.off": "Disattivo",
 
-  "settings.language.title": "Lingua",
-  "settings.language.desc": "Scegli la lingua dell'interfaccia di Flowcode.",
   "settings.language.label": "Lingua dell'interfaccia",
   "settings.language.fieldDesc":
     "\"Sistema\" usa la lingua del sistema operativo, se disponibile, altrimenti l'inglese. Il cambio si applica subito a tutte le finestre.",
   "settings.language.system": "Sistema",
 
-  "settings.theme.title": "Tema",
-  "settings.theme.desc": "Scegli se l'aspetto dell'app deve seguire il sistema operativo oppure restare sempre chiaro o scuro.",
   "settings.theme.label": "Modalità tema",
   "settings.theme.fieldDesc":
     "\"Automatico\" segue il tema chiaro/scuro impostato nel sistema operativo e cambia da solo se lo cambi lì.",
-  "settings.transparency.title": "Trasparenza",
-  "settings.transparency.desc":
-    "Regola quanto sono trasparenti i pannelli dell'app (barra laterale, terminale, finestre). Su Windows e Linux il sistema operativo non applica una sfocatura reale dietro la finestra, quindi un valore troppo basso rende il testo difficile da leggere.",
   "settings.transparency.label": "Opacità pannelli",
   "settings.transparency.fieldDesc":
     "Valori più bassi rendono i pannelli più trasparenti; più alti li avvicinano a uno sfondo pieno.",
-  "settings.header.title": "Intestazione",
-  "settings.header.desc": "Scegli quali scorciatoie mostrare nella barra in alto della finestra.",
   "settings.header.favorites": "Scorciatoia Preferiti nell'intestazione",
   "settings.header.favorites.desc":
     "Pulsante a forma di stella nell'intestazione per aprire rapidamente i preferiti. Sempre disponibile anche dal menu \"···\", anche se nascosto qui.",
-  "settings.explorer.title": "File explorer",
-  "settings.explorer.desc": "Decide come si comporta il pannello dei file quando esplori una cartella.",
   "settings.explorer.label": "Modalità sidebar",
   "settings.explorer.fieldDesc":
     "\"Automatica\" passa da fissata a flottante in base alla larghezza della finestra; le altre due la bloccano sempre in uno dei due modi.",
 
-  "settings.textShell.title": "Testo e shell",
-  "settings.textShell.desc":
-    "Regola la dimensione del testo e la shell usata dal terminale integrato. Il cambio di shell si applica alle schede aperte da questo momento in poi, non a quelle già aperte.",
   "settings.zoom.label": "Zoom testo",
   "settings.zoom.desc": "Dimensione del carattere nel pannello del terminale integrato.",
   "settings.zoom.reset": "Reimposta",
@@ -313,9 +322,6 @@ export const it = {
   "settings.banner.label": "Banner Flowcode all'apertura",
   "settings.banner.desc":
     "Scritta ASCII \"Flowcode\" mostrata all'inizio di ogni scheda di terminale, prima dell'output della shell.",
-  "settings.startup.title": "Avvio e schede",
-  "settings.startup.desc":
-    "Dove si aprono i nuovi terminali, cosa ritrovi alla riapertura dell'app e come si comportano i link.",
   "settings.startDir.label": "Cartella di avvio",
   "settings.startDir.desc": "La cartella in cui si aprono il terminale all'avvio dell'app e ogni nuova scheda di terminale, salvo le shell con una cartella propria (qui sotto).",
   "settings.startDir.home": "Home utente",
@@ -344,7 +350,6 @@ export const it = {
   "settings.explorerOpen.double": "Doppio click",
   "settings.explorerOpen.single": "Click singolo",
 
-  "settings.version.title": "Versione",
   "settings.version.copyDesc":
     "Copia nome, versione e descrizione dell'app negli appunti - utile per segnalare un problema.",
   "settings.version.copy": "Copia informazioni versione",
@@ -356,7 +361,6 @@ export const it = {
   "settings.update.available": "È disponibile la versione {version}.",
   "settings.update.installing": "Installazione della versione {version} in corso…",
   "settings.update.error": "Controllo non riuscito: {error}",
-  "settings.maintenance.title": "Manutenzione",
   "settings.configDir.label": "Cartella di configurazione",
   "settings.configDir.desc":
     "Apre la cartella su disco dove sono salvate le funzionalità personalizzate e le altre impostazioni dell'app.",
@@ -369,7 +373,6 @@ export const it = {
   "settings.reset.confirm":
     "Riporta tema, zoom del testo, banner all'apertura, shell predefinita, cartella di avvio, ripristino delle schede, conferma dei link, modalità della sidebar, azioni rapide nella barra e visibilità dei file nascosti ai valori predefiniti. I plugin personalizzati non vengono toccati. L'operazione non può essere annullata.",
   "settings.reset.confirmLabel": "Ripristina",
-  "settings.credits.title": "Crediti",
   "settings.credits.desc": "Le librerie open source su cui è costruito Flowcode.",
   "credits.react": "libreria per l'interfaccia utente.",
   "credits.vite": "server di sviluppo e build del frontend.",

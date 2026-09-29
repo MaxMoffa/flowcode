@@ -16,7 +16,8 @@ import { ShellStartDirs } from "./ShellStartDirs";
 import { useUpdater, type UpdateStatus } from "../update/UpdateContext";
 import pkg from "../../package.json";
 import { LANGUAGES, t, useI18n, type LanguagePreference, type MessageKey } from "../i18n";
-import { SECTION_TITLE_KEYS } from "./SettingsNav";
+import { SECTION_DESCRIPTION_KEYS, SECTION_TITLE_KEYS } from "./settingsIndex";
+import { Segmented, SettingRow, SettingsGroup, Switch, settingDomId } from "./SettingsControls";
 import "./settings-page.css";
 
 /** Third-party libraries the app is built on, with what each is used for.
@@ -62,13 +63,6 @@ function updateStatusText(status: UpdateStatus): string {
   }
 }
 
-const SECTION_DESCRIPTION_KEYS: Record<keyof typeof SECTION_TITLE_KEYS, MessageKey> = {
-  generale: "settings.section.general.desc",
-  terminale: "settings.section.terminal.desc",
-  funzionalita: "settings.section.features.desc",
-  info: "settings.section.info.desc",
-};
-
 export function SettingsPage({
   quickActionIds,
   onToggleQuickAction,
@@ -101,14 +95,25 @@ export function SettingsPage({
     explorerDoubleClick,
     setExplorerDoubleClick,
   } = useTerminalSettings();
-  const { section } = useSettingsSection();
+  const { section, focusId, clearFocus } = useSettingsSection();
   const notificationSettings = useNotificationSettings();
   // One scroll container serves every section, so without this a section
-  // opens at whatever depth the previous one was scrolled to.
+  // opens at whatever depth the previous one was scrolled to - except when
+  // arriving from a search result, which scrolls to its own row instead.
   const pageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    pageRef.current?.scrollTo({ top: 0 });
+    if (!focusId) pageRef.current?.scrollTo({ top: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section]);
+  useEffect(() => {
+    if (!focusId) return;
+    const el = document.getElementById(settingDomId(focusId));
+    clearFocus();
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.add("is-flash");
+    window.setTimeout(() => el.classList.remove("is-flash"), 1800);
+  }, [focusId, clearFocus]);
   const confirm = useConfirmDialog();
   const { status: updateStatus, check: checkForUpdates, openDialog: openUpdateDialog } = useUpdater();
   const [versionCopied, setVersionCopied] = useState(false);
@@ -223,62 +228,44 @@ export function SettingsPage({
     writeBool(SHOW_HIDDEN_KEY, false);
   }
 
+
+  const onOff: [string, string] = [t("settings.on"), t("settings.off")];
+  const languageOptions = (["system", ...LANGUAGES.map((l) => l.code)] as LanguagePreference[]).map((code) => ({
+    value: code,
+    label: code === "system" ? t("settings.language.system") : (LANGUAGES.find((l) => l.code === code)?.name ?? code),
+  }));
+  const updateText = updateStatusText(updateStatus);
+
   return (
     <div className="settings-page" ref={pageRef}>
       <div className="settings-page-inner">
         <h1 className="settings-title">{t(SECTION_TITLE_KEYS[section])}</h1>
         <p className="settings-page-desc">{t(SECTION_DESCRIPTION_KEYS[section])}</p>
 
-        {section === "generale" && (
+        {section === "appearance" && (
           <>
-            <section className="settings-block">
-              <h3>{t("settings.language.title")}</h3>
-              <p className="settings-block-desc">{t("settings.language.desc")}</p>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.language.label")}</span>
-                <p className="settings-field-desc">{t("settings.language.fieldDesc")}</p>
-                <div className="settings-choice-row">
-                  {(["system", ...LANGUAGES.map((l) => l.code)] as LanguagePreference[]).map((code) => (
-                    <button
-                      key={code}
-                      type="button"
-                      className={"settings-choice" + (languagePreference === code ? " is-active" : "")}
-                      onClick={() => setLanguagePreference(code)}
-                    >
-                      {code === "system" ? t("settings.language.system") : LANGUAGES.find((l) => l.code === code)?.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="settings-block">
-              <h3>{t("settings.theme.title")}</h3>
-              <p className="settings-block-desc">{t("settings.theme.desc")}</p>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.theme.label")}</span>
-                <p className="settings-field-desc">{t("settings.theme.fieldDesc")}</p>
-                <div className="settings-choice-row">
-                  {(["auto", "light", "dark"] as ThemeMode[]).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      className={"settings-choice" + (mode === m ? " is-active" : "")}
-                      onClick={() => setMode(m)}
-                    >
-                      {m === "auto" ? t("theme.auto") : m === "light" ? t("theme.light") : t("theme.dark")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="settings-block">
-              <h3>{t("settings.transparency.title")}</h3>
-              <p className="settings-block-desc">{t("settings.transparency.desc")}</p>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.transparency.label")}</span>
-                <p className="settings-field-desc">{t("settings.transparency.fieldDesc")}</p>
+            <SettingsGroup title={t("settings.group.interface")}>
+              <SettingRow id="language" label={t("settings.language.label")} desc={t("settings.language.fieldDesc")}>
+                <Segmented
+                  ariaLabel={t("settings.language.label")}
+                  value={languagePreference}
+                  options={languageOptions}
+                  onChange={setLanguagePreference}
+                />
+              </SettingRow>
+              <SettingRow id="theme" label={t("settings.theme.label")} desc={t("settings.theme.fieldDesc")}>
+                <Segmented<ThemeMode>
+                  ariaLabel={t("settings.theme.label")}
+                  value={mode}
+                  options={[
+                    { value: "auto", label: t("theme.auto") },
+                    { value: "light", label: t("theme.light") },
+                    { value: "dark", label: t("theme.dark") },
+                  ]}
+                  onChange={setMode}
+                />
+              </SettingRow>
+              <SettingRow id="transparency" label={t("settings.transparency.label")} desc={t("settings.transparency.fieldDesc")}>
                 <div className="settings-zoom-row">
                   <input
                     type="range"
@@ -292,103 +279,26 @@ export function SettingsPage({
                   />
                   <span className="settings-zoom-value">{Math.round(glassOpacity * 100)}%</span>
                 </div>
-              </div>
-            </section>
+              </SettingRow>
+            </SettingsGroup>
 
-            <section className="settings-block">
-              <h3>{t("settings.header.title")}</h3>
-              <p className="settings-block-desc">{t("settings.header.desc")}</p>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.header.favorites")}</span>
-                <p className="settings-field-desc">{t("settings.header.favorites.desc")}</p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (favoritesButtonVisible ? " is-active" : "")}
-                    onClick={() => onSetFavoritesButtonVisible(true)}
-                  >
-                    {t("common.show")}
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (!favoritesButtonVisible ? " is-active" : "")}
-                    onClick={() => onSetFavoritesButtonVisible(false)}
-                  >
-                    {t("common.hide")}
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section className="settings-block">
-              <h3>{t("settings.explorer.title")}</h3>
-              <p className="settings-block-desc">{t("settings.explorer.desc")}</p>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.explorer.label")}</span>
-                <p className="settings-field-desc">{t("settings.explorer.fieldDesc")}</p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (sidebarMode === "auto" ? " is-active" : "")}
-                    onClick={() => onSetSidebarMode("auto")}
-                  >
-                    {t("sidebarMode.auto")}
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (sidebarMode === "docked" ? " is-active" : "")}
-                    onClick={() => onSetSidebarMode("docked")}
-                  >
-                    {t("sidebarMode.docked")}
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (sidebarMode === "floating" ? " is-active" : "")}
-                    onClick={() => onSetSidebarMode("floating")}
-                  >
-                    {t("sidebarMode.floating")}
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section className="settings-block">
-              <h3>{t("settings.notifications.title")}</h3>
-              <p className="settings-block-desc">{t("settings.notifications.desc")}</p>
-              {NOTIFICATION_KINDS.map((kind) => (
-                <div className="settings-field" key={kind}>
-                  <span className="settings-field-label">{t(`settings.notifications.${kind}.label`)}</span>
-                  <p className="settings-field-desc">{t(`settings.notifications.${kind}.desc`)}</p>
-                  <div className="settings-choice-row">
-                    <button
-                      type="button"
-                      className={"settings-choice" + (notificationSettings[kind] ? " is-active" : "")}
-                      onClick={() => setNotificationEnabled(kind, true)}
-                    >
-                      {t("settings.notifications.on")}
-                    </button>
-                    <button
-                      type="button"
-                      className={"settings-choice" + (!notificationSettings[kind] ? " is-active" : "")}
-                      onClick={() => setNotificationEnabled(kind, false)}
-                    >
-                      {t("settings.notifications.off")}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </section>
+            <SettingsGroup title={t("settings.group.header")}>
+              <SettingRow id="favorites" label={t("settings.header.favorites")} desc={t("settings.header.favorites.desc")}>
+                <Switch
+                  checked={favoritesButtonVisible}
+                  onChange={onSetFavoritesButtonVisible}
+                  label={t("settings.header.favorites")}
+                  stateLabels={[t("common.show"), t("common.hide")]}
+                />
+              </SettingRow>
+            </SettingsGroup>
           </>
         )}
 
-        {section === "terminale" && (
+        {section === "terminal" && (
           <>
-            <section className="settings-block">
-              <h3>{t("settings.textShell.title")}</h3>
-              <p className="settings-block-desc">{t("settings.textShell.desc")}</p>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.zoom.label")}</span>
-                <p className="settings-field-desc">{t("settings.zoom.desc")}</p>
+            <SettingsGroup title={t("settings.group.textShell")}>
+              <SettingRow id="zoom" label={t("settings.zoom.label")} desc={t("settings.zoom.desc")}>
                 <div className="settings-zoom-row">
                   <button type="button" className="settings-zoom-btn" aria-label={t("zoom.out")} onClick={zoomOut}>
                     −
@@ -401,69 +311,56 @@ export function SettingsPage({
                     {t("settings.zoom.reset")}
                   </button>
                 </div>
-              </div>
+              </SettingRow>
               {shellOptions.length > 0 && (
-                <div className="settings-field">
-                  <span className="settings-field-label">{t("settings.shell.label")}</span>
-                  <p className="settings-field-desc">{t("settings.shell.desc")}</p>
-                  <div className="settings-choice-row">
-                    {shellOptions.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={"settings-choice" + (shellId === opt.id ? " is-active" : "")}
-                        onClick={() => setShellId(opt.id)}
-                      >
-                        {shellOptionLabel(opt)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <SettingRow id="shell" label={t("settings.shell.label")} desc={t("settings.shell.desc")}>
+                  <Segmented
+                    ariaLabel={t("settings.shell.label")}
+                    value={shellId}
+                    options={shellOptions.map((opt) => ({ value: opt.id, label: shellOptionLabel(opt) }))}
+                    onChange={setShellId}
+                  />
+                </SettingRow>
               )}
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.banner.label")}</span>
-                <p className="settings-field-desc">{t("settings.banner.desc")}</p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (bannerEnabled ? " is-active" : "")}
-                    onClick={() => setBannerEnabled(true)}
-                  >
-                    {t("common.show")}
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (!bannerEnabled ? " is-active" : "")}
-                    onClick={() => setBannerEnabled(false)}
-                  >
-                    {t("common.hide")}
-                  </button>
-                </div>
-              </div>
-            </section>
+              <SettingRow id="banner" label={t("settings.banner.label")} desc={t("settings.banner.desc")}>
+                <Switch
+                  checked={bannerEnabled}
+                  onChange={setBannerEnabled}
+                  label={t("settings.banner.label")}
+                  stateLabels={[t("common.show"), t("common.hide")]}
+                />
+              </SettingRow>
+            </SettingsGroup>
 
-            <section className="settings-block">
-              <h3>{t("settings.startup.title")}</h3>
-              <p className="settings-block-desc">{t("settings.startup.desc")}</p>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.startDir.label")}</span>
-                <p className="settings-field-desc">{t("settings.startDir.desc")}</p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (!customPathMode ? " is-active" : "")}
-                    onClick={() => setCustomPathMode(false)}
-                  >
-                    {t("settings.startDir.home")}
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (customPathMode ? " is-active" : "")}
-                    onClick={() => setCustomPathMode(true)}
-                  >
-                    {t("settings.startDir.custom")}
-                  </button>
-                </div>
+            <SettingsGroup title={t("settings.group.behavior")}>
+              <SettingRow id="links" label={t("settings.links.label")} desc={t("settings.links.desc")}>
+                <Segmented
+                  ariaLabel={t("settings.links.label")}
+                  value={confirmLinkOpen ? "ask" : "open"}
+                  options={[
+                    { value: "ask", label: t("settings.links.ask") },
+                    { value: "open", label: t("settings.links.open") },
+                  ]}
+                  onChange={(v) => setConfirmLinkOpen(v === "ask")}
+                />
+              </SettingRow>
+            </SettingsGroup>
+          </>
+        )}
+
+        {section === "startup" && (
+          <>
+            <SettingsGroup title={t("settings.group.startFolders")}>
+              <SettingRow id="startDir" stacked label={t("settings.startDir.label")} desc={t("settings.startDir.desc")}>
+                <Segmented
+                  ariaLabel={t("settings.startDir.label")}
+                  value={customPathMode ? "custom" : "home"}
+                  options={[
+                    { value: "home", label: t("settings.startDir.home") },
+                    { value: "custom", label: t("settings.startDir.custom") },
+                  ]}
+                  onChange={(v) => setCustomPathMode(v === "custom")}
+                />
                 {customPathMode && (
                   <>
                     <input
@@ -481,147 +378,135 @@ export function SettingsPage({
                     )}
                   </>
                 )}
-              </div>
+              </SettingRow>
               <ShellStartDirs options={shellOptions} />
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.restore.label")}</span>
-                <p className="settings-field-desc">{t("settings.restore.desc")}</p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (restoreSession ? " is-active" : "")}
-                    onClick={() => setRestoreSession(true)}
-                  >
-                    {t("settings.restore.restore")}
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (!restoreSession ? " is-active" : "")}
-                    onClick={() => setRestoreSession(false)}
-                  >
-                    {t("settings.restore.fresh")}
-                  </button>
-                </div>
-              </div>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.links.label")}</span>
-                <p className="settings-field-desc">{t("settings.links.desc")}</p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (confirmLinkOpen ? " is-active" : "")}
-                    onClick={() => setConfirmLinkOpen(true)}
-                  >
-                    {t("settings.links.ask")}
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (!confirmLinkOpen ? " is-active" : "")}
-                    onClick={() => setConfirmLinkOpen(false)}
-                  >
-                    {t("settings.links.open")}
-                  </button>
-                </div>
-              </div>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.explorerOpen.label")}</span>
-                <p className="settings-field-desc">{t("settings.explorerOpen.desc")}</p>
-                <div className="settings-choice-row">
-                  <button
-                    type="button"
-                    className={"settings-choice" + (explorerDoubleClick ? " is-active" : "")}
-                    onClick={() => setExplorerDoubleClick(true)}
-                  >
-                    {t("settings.explorerOpen.double")}
-                  </button>
-                  <button
-                    type="button"
-                    className={"settings-choice" + (!explorerDoubleClick ? " is-active" : "")}
-                    onClick={() => setExplorerDoubleClick(false)}
-                  >
-                    {t("settings.explorerOpen.single")}
-                  </button>
-                </div>
-              </div>
-            </section>
+            </SettingsGroup>
+
+            <SettingsGroup title={t("settings.group.session")}>
+              <SettingRow id="restore" label={t("settings.restore.label")} desc={t("settings.restore.desc")}>
+                <Segmented
+                  ariaLabel={t("settings.restore.label")}
+                  value={restoreSession ? "restore" : "fresh"}
+                  options={[
+                    { value: "restore", label: t("settings.restore.restore") },
+                    { value: "fresh", label: t("settings.restore.fresh") },
+                  ]}
+                  onChange={(v) => setRestoreSession(v === "restore")}
+                />
+              </SettingRow>
+            </SettingsGroup>
           </>
         )}
 
+        {section === "explorer" && (
+          <SettingsGroup title={t("settings.group.panel")}>
+            <SettingRow id="sidebarMode" label={t("settings.explorer.label")} desc={t("settings.explorer.fieldDesc")}>
+              <Segmented<SidebarMode>
+                ariaLabel={t("settings.explorer.label")}
+                value={sidebarMode}
+                options={[
+                  { value: "auto", label: t("sidebarMode.auto") },
+                  { value: "docked", label: t("sidebarMode.docked") },
+                  { value: "floating", label: t("sidebarMode.floating") },
+                ]}
+                onChange={onSetSidebarMode}
+              />
+            </SettingRow>
+            <SettingRow id="explorerOpen" label={t("settings.explorerOpen.label")} desc={t("settings.explorerOpen.desc")}>
+              <Segmented
+                ariaLabel={t("settings.explorerOpen.label")}
+                value={explorerDoubleClick ? "double" : "single"}
+                options={[
+                  { value: "double", label: t("settings.explorerOpen.double") },
+                  { value: "single", label: t("settings.explorerOpen.single") },
+                ]}
+                onChange={(v) => setExplorerDoubleClick(v === "double")}
+              />
+            </SettingRow>
+          </SettingsGroup>
+        )}
+
+        {section === "notifications" && (
+          <SettingsGroup title={t("settings.group.alerts")}>
+            {NOTIFICATION_KINDS.map((kind) => (
+              <SettingRow
+                key={kind}
+                id={`notify-${kind}`}
+                label={t(`settings.notifications.${kind}.label`)}
+                desc={t(`settings.notifications.${kind}.desc`)}
+              >
+                <Switch
+                  checked={notificationSettings[kind]}
+                  onChange={(on) => setNotificationEnabled(kind, on)}
+                  label={t(`settings.notifications.${kind}.label`)}
+                  stateLabels={onOff}
+                />
+              </SettingRow>
+            ))}
+          </SettingsGroup>
+        )}
+
         {section === "funzionalita" && (
-          <FunzionalitaPage
-            plugins={plugins}
-            enabledIds={quickActionIds}
-            onToggleEnabled={onToggleQuickAction}
-            onAdd={onAddPlugin}
-            onDelete={onDeletePlugin}
-          />
+          <div id={settingDomId("features")}>
+            <FunzionalitaPage
+              plugins={plugins}
+              enabledIds={quickActionIds}
+              onToggleEnabled={onToggleQuickAction}
+              onAdd={onAddPlugin}
+              onDelete={onDeletePlugin}
+            />
+          </div>
         )}
 
         {section === "info" && (
           <>
-            <section className="settings-block">
-              <h3>{t("settings.version.title")}</h3>
-              <p className="settings-block-desc">{pkg.description}</p>
-              <div className="settings-field">
-                <span className="settings-field-label">
-                  {pkg.name} v{pkg.version}
-                </span>
-                <p className="settings-field-desc">{t("settings.version.copyDesc")}</p>
-                <div className="settings-choice-row">
-                  <button type="button" className="settings-choice" onClick={handleCopyVersionInfo}>
-                    {versionCopied ? t("common.copied") : t("settings.version.copy")}
+            <SettingsGroup title={t("settings.group.version")} desc={pkg.description}>
+              <SettingRow id="version" label={`${pkg.name} v${pkg.version}`} desc={t("settings.version.copyDesc")}>
+                <button type="button" className="settings-choice" onClick={handleCopyVersionInfo}>
+                  {versionCopied ? t("common.copied") : t("settings.version.copy")}
+                </button>
+              </SettingRow>
+              <SettingRow
+                id="updates"
+                label={t("settings.updates.label")}
+                desc={
+                  <>
+                    {t("settings.updates.desc")}
+                    {updateText && <span className="settings-row-status">{updateText}</span>}
+                  </>
+                }
+              >
+                {updateStatus.kind === "available" || updateStatus.kind === "installing" ? (
+                  <button type="button" className="settings-choice is-primary" onClick={openUpdateDialog}>
+                    {t("settings.updates.install", { version: updateStatus.info.version })}
                   </button>
-                </div>
-              </div>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.updates.label")}</span>
-                <p className="settings-field-desc">
-                  {t("settings.updates.desc")} {updateStatusText(updateStatus)}
-                </p>
-                <div className="settings-choice-row">
-                  {updateStatus.kind === "available" || updateStatus.kind === "installing" ? (
-                    <button type="button" className="settings-choice" onClick={openUpdateDialog}>
-                      {t("settings.updates.install", { version: updateStatus.info.version })}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="settings-choice"
-                      disabled={updateStatus.kind === "checking"}
-                      onClick={() => void checkForUpdates(true)}
-                    >
-                      {updateStatus.kind === "checking" ? t("common.checking") : t("settings.updates.check")}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </section>
+                ) : (
+                  <button
+                    type="button"
+                    className="settings-choice"
+                    disabled={updateStatus.kind === "checking"}
+                    onClick={() => void checkForUpdates(true)}
+                  >
+                    {updateStatus.kind === "checking" ? t("common.checking") : t("settings.updates.check")}
+                  </button>
+                )}
+              </SettingRow>
+            </SettingsGroup>
 
-            <section className="settings-block">
-              <h3>{t("settings.maintenance.title")}</h3>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.configDir.label")}</span>
-                <p className="settings-field-desc">{t("settings.configDir.desc")}</p>
-                <div className="settings-choice-row">
-                  <button type="button" className="settings-choice" onClick={handleOpenConfigDir}>
-                    {t("settings.configDir.open")}
-                  </button>
-                </div>
-              </div>
-              <div className="settings-field">
-                <span className="settings-field-label">{t("settings.reset.label")}</span>
-                <p className="settings-field-desc">{t("settings.reset.desc")}</p>
-                <div className="settings-choice-row">
-                  <button type="button" className="settings-choice" onClick={handleResetTerminal}>
-                    {t("settings.reset.button")}
-                  </button>
-                </div>
-              </div>
-            </section>
+            <SettingsGroup title={t("settings.group.maintenance")}>
+              <SettingRow id="configDir" label={t("settings.configDir.label")} desc={t("settings.configDir.desc")}>
+                <button type="button" className="settings-choice" onClick={handleOpenConfigDir}>
+                  {t("settings.configDir.open")}
+                </button>
+              </SettingRow>
+              <SettingRow id="reset" label={t("settings.reset.label")} desc={t("settings.reset.desc")}>
+                <button type="button" className="settings-choice is-danger" onClick={handleResetTerminal}>
+                  {t("settings.reset.button")}
+                </button>
+              </SettingRow>
+            </SettingsGroup>
 
-            <section className="settings-block">
-              <h3>{t("settings.credits.title")}</h3>
-              <p className="settings-block-desc">{t("settings.credits.desc")}</p>
+            <SettingsGroup id="credits" title={t("settings.group.credits")} desc={t("settings.credits.desc")}>
               <ul className="settings-credits-list">
                 {CREDITS.map((c) => (
                   <li key={c.name} className="settings-credits-item">
@@ -629,7 +514,7 @@ export function SettingsPage({
                   </li>
                 ))}
               </ul>
-            </section>
+            </SettingsGroup>
           </>
         )}
       </div>

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { shellStartKey, useTerminalSettings } from "../terminal/TerminalSettingsContext";
+import { SettingRow } from "./SettingsControls";
 import { resolveWslStartDir, wslDistroOfShell } from "../terminal/wslPath";
 
 /** Whether `path` is a folder a tab of this shell could start in - for WSL
@@ -101,14 +102,12 @@ export function ShellStartDirs({ options }: { options: ShellOption[] }) {
   const { t } = useI18n();
   if (options.length === 0) return null;
   return (
-    <div className="settings-field">
-      <span className="settings-field-label">{t("settings.shellStartDir.label")}</span>
-      <p className="settings-field-desc">{t("settings.shellStartDir.desc")}</p>
+    <SettingRow id="shellStartDir" stacked label={t("settings.shellStartDir.label")} desc={t("settings.shellStartDir.desc")}>
       <div className="settings-shell-start-list">
         {options.map((opt) => (
           <ShellStartDirRow key={opt.id} option={opt} />
         ))}
       </div>
-    </div>
+    </SettingRow>
   );
 }
