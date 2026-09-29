@@ -22,7 +22,7 @@
 .file-tree-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   height: var(--panel-header-h);
   padding: 0 6px 0 6px;
   box-sizing: border-box;
@@ -73,16 +73,16 @@
   letter-spacing: 0.01em;
   text-align: left;
   border: none;
-  background: transparent;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
   color: inherit;
-  padding: 3px 5px;
-  margin: 0 -5px;
+  padding: 3px 8px;
+  margin: 0 2px;
   border-radius: 4px;
   cursor: pointer;
 }
 
 .file-tree-header-label:hover {
-  background: var(--ctrl-hover-bg);
+  background: color-mix(in srgb, var(--fg) 13%, transparent);
 }
 
 .file-tree-header-rename-input {

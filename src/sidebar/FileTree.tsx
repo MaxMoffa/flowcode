@@ -59,7 +59,8 @@ const Icons = {
   newFolder: iconSvg(<><path d="M3.5 6.5a1 1 0 0 1 1-1H9l2 2h8.5a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" /><line x1="9.5" y1="10.5" x2="9.5" y2="15.5" /><line x1="7" y1="13" x2="12" y2="13" /></>),
   delete: iconSvg(<><path d="M5 7.5h14" /><path d="M9.5 7.5V5.6c0-.6.4-1 1-1h3c.6 0 1 .4 1 1v1.9" /><path d="M7 7.5 7.7 19a1.3 1.3 0 0 0 1.3 1.3h6a1.3 1.3 0 0 0 1.3-1.3l.7-11.5" /></>),
   info: iconSvg(<><circle cx="12" cy="12" r="8.7" /><line x1="12" y1="11" x2="12" y2="16.5" /><circle cx="12" cy="8" r="0.15" fill="currentColor" stroke="currentColor" strokeWidth="1.8" /></>),
-  back: iconSvg(<polyline points="14.5 5 8 12 14.5 19" />),
+  back: iconSvg(<><line x1="19" y1="12" x2="5" y2="12" /><polyline points="11 6 5 12 11 18" /></>),
+  home: iconSvg(<><path d="M4 11.5 12 4.5l8 7" /><path d="M6 10.5V19a1 1 0 0 0 1 1h3.5v-5h3v5H17a1 1 0 0 0 1-1v-8.5" /></>),
   terminal: iconSvg(<><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><polyline points="7 9.5 10.5 12.5 7 15.5" /><line x1="12.5" y1="15.5" x2="16.5" y2="15.5" /></>),
   eye: iconSvg(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.6" /></>),
   refresh: iconSvg(<><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8.5" /><path d="M20 4v4.5h-4.5" /><path d="M20 12a8 8 0 0 1-13.66 5.66L4 15.5" /><path d="M4 20v-4.5h4.5" /></>),
@@ -188,6 +189,8 @@ function InlineEditRow({ icon, initialValue, allowUnchanged, onCommit, onCancel 
 interface FileTreeProps {
   cwd: string;
   onNavigate: (path: string) => void;
+  /** Jumps to the terminal's default start folder (home). */
+  onGoHome: () => void;
   onOpenFile: (path: string) => void;
   onOpenTerminal: (path: string) => void;
   /** Shell id of the active terminal, stored with a favorite added here. */
@@ -200,6 +203,7 @@ interface FileTreeProps {
 export function FileTree({
   cwd,
   onNavigate,
+  onGoHome,
   onOpenFile,
   onOpenTerminal,
   shell,
@@ -577,6 +581,15 @@ export function FileTree({
           onClick={goUp}
         >
           {Icons.back}
+        </button>
+        <button
+          type="button"
+          className="file-tree-back"
+          aria-label={t("files.home")}
+          title={t("files.home")}
+          onClick={onGoHome}
+        >
+          {Icons.home}
         </button>
         {renamingPath === cwd ? (
           <input

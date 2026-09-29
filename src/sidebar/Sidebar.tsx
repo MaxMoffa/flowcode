@@ -5,6 +5,7 @@ import "./sidebar.css";
 interface SidebarProps {
   cwd: string;
   onNavigate: (path: string) => void;
+  onGoHome: () => void;
   onOpenFile: (path: string) => void;
   onOpenTerminal: (path: string) => void;
   /** Shell id of the active terminal - stored with a folder added to the
@@ -21,6 +22,7 @@ interface SidebarProps {
 export function Sidebar({
   cwd,
   onNavigate,
+  onGoHome,
   onOpenFile,
   onOpenTerminal,
   shell,
@@ -33,6 +35,7 @@ export function Sidebar({
       <FileTree
         cwd={cwd}
         onNavigate={onNavigate}
+        onGoHome={onGoHome}
         onOpenFile={onOpenFile}
         onOpenTerminal={onOpenTerminal}
         shell={shell}

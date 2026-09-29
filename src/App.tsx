@@ -1975,6 +1975,9 @@ function Shell() {
       <Sidebar
         cwd={sidebarCwd}
         onNavigate={browseExplorer}
+        onGoHome={() =>
+          void resolveStartDir(activeTerminal ? (tabShell(activeTerminal) ?? shellId) : shellId).then(browseExplorer)
+        }
         onOpenFile={openFile}
         onOpenTerminal={(path) => addTab(path, activeTerminal ? tabShell(activeTerminal) : undefined)}
         shell={activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined}

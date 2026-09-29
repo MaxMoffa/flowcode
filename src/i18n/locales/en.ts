@@ -123,6 +123,7 @@ export const en: Record<MessageKey, string> = {
   "files.newFolder.default": "new folder",
   "files.showHidden": "Show hidden files",
   "files.up": "Parent folder",
+  "files.home": "Terminal home",
   "files.search": "Search this folder and its subfolders",
   "files.search.placeholder": "Search files or folders, subfolders included…",
   "files.searching": "Searching…",

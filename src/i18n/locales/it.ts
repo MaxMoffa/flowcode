@@ -122,6 +122,7 @@ export const it = {
   "files.newFolder.default": "nuova cartella",
   "files.showHidden": "Mostra file nascosti",
   "files.up": "Cartella superiore",
+  "files.home": "Home del terminale",
   "files.search": "Cerca nella cartella e nelle sottocartelle",
   "files.search.placeholder": "Cerca file o cartelle, anche nelle sottocartelle…",
   "files.searching": "Ricerca in corso…",
