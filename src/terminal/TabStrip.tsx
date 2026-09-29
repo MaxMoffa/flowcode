@@ -298,10 +298,11 @@ function TabOverflowMenu({ tabs, activeId, agents, doneIds, anchorRect, onSelect
               aria-label={t("tabs.closeNamed", { name: tabDisplayLabel(tab) })}
               onClick={(e) => {
                 e.stopPropagation();
-                // Closing the last hidden tab leaves nothing left to show in
-                // this popup, so it's dismissed along with it rather than
-                // left open and empty.
-                if (filtered.length === 1) onDismiss();
+                // A stacked tab needs at least two tabs inside it: closing
+                // one of the last two leaves a lone tab that's no longer a
+                // stack, so the popup is dismissed along with it. (Counts
+                // all the stacked tabs, not just the search-filtered ones.)
+                if (tabs.length <= 2) onDismiss();
                 onCloseTab(tab.id);
               }}
             >
