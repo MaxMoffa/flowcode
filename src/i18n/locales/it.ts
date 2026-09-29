@@ -60,6 +60,7 @@ export const it = {
   "tabs.search": "Cerca tab…",
   "tabs.closeNamed": "Chiudi {name}",
   "tabs.rename": "Rinomina",
+  "tabs.notificationsMuted": "Notifiche silenziate",
   "tabs.muteNotifications": "Silenzia notifiche",
   "tabs.unmuteNotifications": "Riattiva notifiche",
   "notifications.body.done": "{agent} ha finito il lavoro",

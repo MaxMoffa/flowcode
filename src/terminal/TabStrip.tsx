@@ -85,6 +85,27 @@ function GearIcon() {
   );
 }
 
+/** Shown on a terminal tab whose agent notifications are muted. */
+function MutedIcon() {
+  return (
+    <svg
+      className="term-tab-muted"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      width="11"
+      height="11"
+      stroke="currentColor"
+      fill="none"
+      aria-label={t("tabs.notificationsMuted")}
+    >
+      <title>{t("tabs.notificationsMuted")}</title>
+      <path d="M8.7 3A6 6 0 0 1 18 8c0 2.9.6 4.9 1.3 6.1M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14M10.3 21a1.9 1.9 0 0 0 3.4 0M2 2l20 20" />
+    </svg>
+  );
+}
+
 function ChangelogIcon() {
   return (
     <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
@@ -255,6 +276,7 @@ function TabOverflowMenu({ tabs, activeId, agents, anchorRect, onSelect, onClose
           >
             {tabIcon(tab, agents?.get(tab.id))}
             <span className="tab-overflow-item-label">{tabDisplayLabel(tab)}</span>
+            {tab.kind === "terminal" && tab.notifyMuted && <MutedIcon />}
             <button
               type="button"
               className="tab-overflow-item-close"
@@ -517,6 +539,7 @@ export function TabStrip({
             ) : (
               <span className="term-tab-label">{tabDisplayLabel(tab)}</span>
             )}
+            {tab.kind === "terminal" && tab.notifyMuted && <MutedIcon />}
             {tab.kind === "editor" && dirtyIds?.has(tab.id) && (
               <span className="term-tab-dirty-dot" title={t("app.unsaved.title")} />
             )}

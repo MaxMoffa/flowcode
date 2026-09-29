@@ -115,6 +115,12 @@
   font: inherit;
 }
 
+.term-tab-muted {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  opacity: 0.55;
+}
+
 .term-tab-dirty-dot {
   width: 6px;
   height: 6px;

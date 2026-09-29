@@ -61,6 +61,7 @@ export const en: Record<MessageKey, string> = {
   "tabs.search": "Search tabs…",
   "tabs.closeNamed": "Close {name}",
   "tabs.rename": "Rename",
+  "tabs.notificationsMuted": "Notifications muted",
   "tabs.muteNotifications": "Mute notifications",
   "tabs.unmuteNotifications": "Unmute notifications",
   "notifications.body.done": "{agent} finished its work",
