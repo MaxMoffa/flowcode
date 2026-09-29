@@ -133,7 +133,7 @@ function PenguinIcon() {
  * shell-picker context menu (see TabStrip's onContextMenu handler below) -
  * `id` is the same id `pty_spawn`'s `shell` argument and `resolve_shell` in
  * pty.rs understand. */
-function shellOptionIcon(id: string) {
+export function shellOptionIcon(id: string) {
   if (id === "wsl") return <PenguinIcon />;
   if (id === "cmd") return <PromptIcon />;
   if (id === "powershell" || id === "pwsh") return <ChevronBoxIcon />;
@@ -143,22 +143,24 @@ function shellOptionIcon(id: string) {
   return <PromptIcon />;
 }
 
-/** A terminal tab running Claude Code or Codex: the CLI's logo, followed by
- * a "?" while it waits on the user. No "working" indicator: both CLIs
- * already animate their own while they work. */
-function agentTabIcon(agent: TabAgent) {
+/** A terminal tab running Claude Code or Codex: the CLI's logo. On a
+ * renamed tab (`renamed`) it's followed by a spinner while the agent works
+ * or a "?" while it waits on the user: both CLIs show that state in the
+ * title, which a custom name replaces. */
+function agentTabIcon(agent: TabAgent, renamed: boolean) {
   const title =
     agent.state === "busy" ? t("agents.status.busy") : agent.state === "waiting" ? t("agents.status.waiting") : undefined;
   return (
     <span className="term-tab-agent" title={title}>
       <span className="term-tab-agent-logo">{agentCliIcon(agent.cli)}</span>
-      {agent.state === "waiting" && <span className="term-tab-agent-question">?</span>}
+      {renamed && agent.state === "busy" && <span className="term-tab-agent-spinner" />}
+      {renamed && agent.state === "waiting" && <span className="term-tab-agent-question">?</span>}
     </span>
   );
 }
 
 function tabIcon(tab: AppTab, agent?: TabAgent) {
-  if (tab.kind === "terminal") return agent ? agentTabIcon(agent) : <span className="term-tab-dot" />;
+  if (tab.kind === "terminal") return agent ? agentTabIcon(agent, !!tab.customLabel) : <span className="term-tab-dot" />;
   if (tab.kind === "settings") return <GearIcon />;
   if (tab.kind === "changelog" || tab.kind === "whatsNew") return <ChangelogIcon />;
   return <FileTypeIcon name={tab.label} />;
@@ -168,6 +170,7 @@ function tabIcon(tab: AppTab, agent?: TabAgent) {
  * default name (in whichever language it was opened) is shown in the
  * current one. */
 export function tabDisplayLabel(tab: AppTab): string {
+  if (tab.kind === "terminal" && tab.newTab) return t("newTab.title");
   if (tab.kind === "settings" && translationsOf("settings.title").includes(tab.label)) return t("settings.title");
   if (tab.kind === "changelog" && translationsOf("changelog.title").includes(tab.label)) return t("changelog.title");
   if (tab.kind === "whatsNew" && translationsOf("whatsNew.title").includes(tab.label)) return t("whatsNew.title");

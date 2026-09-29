@@ -1,0 +1,448 @@
+/* The new tab page: a terminal's first line waiting for a command, with the
+   shells to start it in, recent terminals and favorite folders around it.
+   Same glass surface as a terminal (see terminal.css), since it turns into
+   one in place. */
+
+.newtab {
+  --newtab-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --newtab-card: color-mix(in srgb, var(--fg) 3.5%, transparent);
+  --newtab-card-hover: color-mix(in srgb, var(--fg) 6.5%, transparent);
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  background: var(--term-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(115%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(115%);
+  color: var(--fg);
+}
+
+.newtab-inner {
+  width: min(1000px, 100%);
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: clamp(28px, 7vh, 64px) 24px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+}
+
+.newtab-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font: 700 26px/1 var(--newtab-mono);
+  letter-spacing: -0.01em;
+  transition: opacity 0.2s;
+}
+
+.newtab-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.newtab-version {
+  color: var(--fg-muted);
+  font: 500 11px/1 var(--newtab-mono);
+  letter-spacing: 0.02em;
+}
+
+.newtab-frog {
+  width: 70px;
+  height: 56px;
+}
+
+/* ---------- the frog ---------- */
+
+.frog-logo {
+  display: block;
+  flex: none;
+  overflow: visible;
+  cursor: pointer;
+}
+
+.frog-logo .frog-act,
+.frog-logo .frog-breathe {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+.frog-logo .frog-breathe {
+  animation: frog-breathe 3.4s ease-in-out infinite;
+}
+
+.frog-logo .frog-lid {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+  transform: scaleY(0);
+}
+
+.frog-logo .frog-cursor {
+  animation: newtab-blink 1.1s steps(1) infinite;
+}
+
+@keyframes frog-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.025, 0.975);
+  }
+}
+
+@keyframes newtab-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ---------- command box ---------- */
+
+.newtab-box {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--fg) 18%, transparent);
+  border-radius: 14px;
+  background: var(--newtab-card);
+  overflow: hidden;
+  transition:
+    border-color 0.25s,
+    background 0.25s;
+}
+
+.newtab-prompt {
+  display: flex;
+  align-items: center;
+  padding: 20px 18px 22px;
+  font: 15px/1.5 var(--newtab-mono);
+  transform-origin: 0 0;
+  will-change: transform;
+  cursor: text;
+}
+
+.newtab-ps {
+  flex: none;
+  white-space: pre;
+  color: var(--fg-muted);
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.newtab-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  caret-color: var(--accent);
+}
+
+.newtab-input::placeholder {
+  color: var(--fg-muted);
+  opacity: 0.7;
+}
+
+.newtab-box-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--newtab-card);
+  transition: opacity 0.2s;
+}
+
+.newtab-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.newtab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: 500 12px var(--newtab-mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.newtab-chip:hover {
+  background: var(--ctrl-hover-bg);
+  color: var(--fg);
+}
+
+.newtab-chip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--sidebar-selected-bg);
+  color: var(--fg);
+}
+
+.newtab-shell-icon {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.newtab-keys {
+  color: var(--fg-muted);
+  font: 11px var(--newtab-mono);
+}
+
+/* ---------- recents and favorites ---------- */
+
+.newtab-cols {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr);
+  gap: 28px;
+  transition:
+    transform 0.42s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.22s;
+}
+
+.newtab-heading {
+  margin: 0 0 12px;
+  color: var(--fg-muted);
+  font: 600 11px var(--newtab-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.newtab-empty {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+.newtab-recents {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.newtab-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--newtab-card);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.newtab-recent:hover {
+  border-color: color-mix(in srgb, var(--fg) 18%, transparent);
+  background: var(--newtab-card-hover);
+}
+
+.newtab-recent-top,
+.newtab-recent-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.newtab-recent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 13.5px var(--newtab-mono);
+}
+
+.newtab-recent-when {
+  flex: none;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.newtab-recent-cmd {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--term-bg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12.5px var(--newtab-mono);
+}
+
+.newtab-recent-cmd::before {
+  content: "❯ ";
+  color: var(--accent);
+}
+
+.newtab-recent-resume {
+  flex: none;
+  color: var(--accent);
+  font: 600 11.5px var(--newtab-mono);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.newtab-recent:hover .newtab-recent-resume,
+.newtab-recent:focus-visible .newtab-recent-resume {
+  opacity: 1;
+}
+
+.newtab-shell-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--fg-muted);
+  font: 500 11.5px var(--newtab-mono);
+  white-space: nowrap;
+}
+
+.newtab-favorites {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.newtab-favorite {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.newtab-favorite:last-child {
+  border-bottom: 0;
+}
+
+.newtab-favorite:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.newtab-favorite-star {
+  color: var(--ansi-yellow);
+}
+
+.newtab-favorite-text {
+  min-width: 0;
+}
+
+.newtab-favorite-name {
+  display: block;
+  font: 600 13px var(--newtab-mono);
+}
+
+.newtab-favorite-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--fg-muted);
+  font: 11px var(--newtab-mono);
+}
+
+.newtab :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The command field is always focused - no ring around it. */
+.newtab .newtab-input:focus-visible {
+  outline: none;
+}
+
+/* ---------- hand-off to the terminal ---------- */
+
+.newtab.is-leaving {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.newtab.is-leaving .newtab-brand,
+.newtab.is-leaving .newtab-box-foot {
+  opacity: 0;
+}
+
+.newtab.is-leaving .newtab-box {
+  border-color: transparent;
+  background: transparent;
+}
+
+.newtab.is-leaving .newtab-input {
+  caret-color: transparent;
+}
+
+.newtab.is-leaving .newtab-cols {
+  opacity: 0;
+  transform: translateY(40px);
+}
+
+/* The terminal is mounting underneath: the page stays as an overlay with
+   the flown prompt until the shell prints its own, then fades out. */
+.newtab.is-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+
+.newtab.is-fading {
+  opacity: 0;
+  transition: opacity 0.22s ease-out;
+}
+
+@media (max-width: 760px) {
+  .newtab-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .newtab-recents {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .newtab *,
+  .newtab {
+    transition-duration: 0s !important;
+    animation: none !important;
+  }
+}

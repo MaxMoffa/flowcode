@@ -135,6 +135,17 @@ export const it = {
   "favorites.removeCurrent": "Rimuovi cartella corrente dai preferiti",
   "favorites.addCurrentShort": "Aggiungi cartella corrente",
 
+  // New tab page
+  "newTab.title": "Nuova scheda",
+  "newTab.placeholder": "cosa vuoi eseguire?",
+  "newTab.commandLabel": "Comando da eseguire",
+  "newTab.shellLabel": "Shell di partenza",
+  "newTab.keys": "↵ esegui · Alt+1–{count} shell",
+  "newTab.recents": "Recenti",
+  "newTab.recentsEmpty": "I terminali in cui esegui dei comandi compariranno qui.",
+  "newTab.favoritesEmpty": "Aggiungi una cartella ai preferiti con la ★ in alto per ritrovarla qui.",
+  "newTab.resume": "Riprendi ↵",
+
   // Editor
   "editor.error": "Errore",
   "editor.saving": "Salvataggio…",

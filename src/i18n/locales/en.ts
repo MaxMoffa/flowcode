@@ -136,6 +136,17 @@ export const en: Record<MessageKey, string> = {
   "favorites.removeCurrent": "Remove current folder from favorites",
   "favorites.addCurrentShort": "Add current folder",
 
+  // New tab page
+  "newTab.title": "New tab",
+  "newTab.placeholder": "what do you want to run?",
+  "newTab.commandLabel": "Command to run",
+  "newTab.shellLabel": "Starting shell",
+  "newTab.keys": "↵ run · Alt+1–{count} shell",
+  "newTab.recents": "Recent",
+  "newTab.recentsEmpty": "Terminals you run commands in will show up here.",
+  "newTab.favoritesEmpty": "Add a folder to your favorites with the ★ at the top to find it here.",
+  "newTab.resume": "Resume ↵",
+
   // Editor
   "editor.error": "Error",
   "editor.saving": "Saving…",

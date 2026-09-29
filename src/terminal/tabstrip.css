@@ -46,7 +46,8 @@
 }
 
 /* A tab running Claude Code / Codex: the CLI's logo in place of the dot,
-   then "?" while it waits on the user. */
+   then, on a renamed tab only, a spinner while it works or "?" while it
+   waits on the user. */
 .term-tab-agent {
   display: inline-flex;
   align-items: center;
@@ -63,6 +64,27 @@
 .term-tab-agent-logo svg {
   width: 13px;
   height: 13px;
+}
+
+.term-tab-agent-spinner {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--fg-muted);
+  border-top-color: transparent;
+  border-radius: 999px;
+  animation: term-tab-agent-spin 0.8s linear infinite;
+}
+
+@keyframes term-tab-agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-tab-agent-spinner {
+    animation-duration: 2.4s;
+  }
 }
 
 .term-tab-agent-question {

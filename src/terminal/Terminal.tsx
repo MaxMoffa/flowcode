@@ -156,6 +156,14 @@ interface TerminalViewProps {
    * Only read once, at mount - reusing a TerminalView instance for a
    * different `runOnStart` later does nothing. */
   runOnStart?: string;
+  /** Like `runOnStart`, but typed onto the prompt without submitting it -
+   * the new tab page reopens a recent terminal with its last command ready
+   * to run again, rather than running it behind the user's back. */
+  typeOnStart?: string;
+  /** Called once the shell has spawned and its first output (banner, early
+   * prompt) is parsed - lets the new tab page fade out over a terminal that
+   * already has something to show. */
+  onReady?: () => void;
   /** One-off shell for this tab, overriding the configured default (see
    * TerminalSettingsContext's `shellId`) - set by the "+" button's own
    * context menu when a specific shell (e.g. WSL) was picked instead of
@@ -172,7 +180,7 @@ interface TerminalViewProps {
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, shellOverride, restoredContent, attach }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, typeOnStart, onReady, shellOverride, restoredContent, attach }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // xterm mounts into this padding-free inner box, not the padded container:
   // FitAddon sizes the grid off its parent's computed height, which under
@@ -191,6 +199,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   // must then outlive this view.
   const releasedRef = useRef(false);
   const runOnStartRef = useRef(runOnStart);
+  const typeOnStartRef = useRef(typeOnStart);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
   // A tab opened to run something (agent session, install command) is in
   // use from the start - see `wasUsed`. So is one moved here mid-session.
   const usedRef = useRef(!!runOnStart || !!attach);
@@ -650,6 +661,8 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         // Windows retitling (cmd.exe/PowerShell never do it on their own)
         // is set up at spawn time - see pty.rs's pty_spawn.
         if (runOnStartRef.current) writePty(id, `${runOnStartRef.current}\r`);
+        else if (typeOnStartRef.current) writePty(id, typeOnStartRef.current);
+        onReadyRef.current?.();
       });
     })();
 

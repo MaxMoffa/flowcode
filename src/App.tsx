@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 // `currentMonitor` is a module-level export, NOT a `Window` method - there is
 // no `appWindow.currentMonitor()` in @tauri-apps/api v2 (only `primaryMonitor`,
 // `availableMonitors` and friends are module-level too). Calling it off the
@@ -58,6 +58,8 @@ import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatf
 import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
 import { useI18n } from "./i18n";
+import { NewTabPage, type NewTabLaunch } from "./newtab/NewTabPage";
+import { recordRecentTerminal } from "./newtab/recentTerminals";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -417,8 +419,13 @@ function Shell() {
   // shellOverride prop (see the render loop below), same lifecycle as
   // pendingCommandsRef above.
   const pendingShellOverrideRef = useRef(new Map<string, string>());
+  // A command to leave typed (not run) on a tab's first prompt - a recent
+  // terminal reopened from the new tab page. Same lifecycle as the two above.
+  const pendingTypedCommandsRef = useRef(new Map<string, string>());
   // Tabs whose start folder is still being looked up - see `fillStartDir`.
   const startDirPendingRef = useRef(new Set<string>());
+  // The shell last picked on each new tab page - see `previewNewTabShell`.
+  const newTabShellRef = useRef(new Map<string, string>());
   const editorRefs = useRef(new Map<string, EditorHandle>());
   // A terminal session moved here from another window, keyed by its new tab
   // id - handed to that tab's TerminalView once, at mount (its `attach`).
@@ -432,8 +439,20 @@ function Shell() {
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
   const { sessions: agentSessions, refresh: refreshAgentSessions } = useAgentSessions();
-  const { startPath, shellStartPaths, resetTabZoom, restoreSession, shellId, tabFontSizeOverrides, setTabFontSize } =
-    useTerminalSettings();
+  const {
+    startPath,
+    shellStartPaths,
+    resetTabZoom,
+    restoreSession,
+    shellId,
+    tabFontSizeOverrides,
+    setTabFontSize,
+    getTabFontSize,
+  } = useTerminalSettings();
+  // Tabs whose new tab page is still fading out over the terminal that just
+  // replaced it (see NewTabPage's `onLaunch`/`onDone`).
+  // The value is whether that tab's terminal has reported ready.
+  const [handoffs, setHandoffs] = useState<Map<string, boolean>>(() => new Map());
   const restoreSessionRef = useRef(restoreSession);
   restoreSessionRef.current = restoreSession;
   // Previous session's terminal text, keyed by the restored tab's new id -
@@ -863,7 +882,7 @@ function Shell() {
     clearTerminal: () => termRefs.current.get(activeTerminalId)?.clear(),
     copy: () => activeTermHandle()?.copySelection(),
     paste: () => activeTermHandle()?.paste(),
-    newTab: () => addTab(),
+    newTab: () => openNewTab(),
     closeTab: () => closeTab(activeTabId),
     toggleTheme: () => toggleTheme(),
   });
@@ -876,7 +895,14 @@ function Shell() {
   const selectTabRef = useRef(selectTab);
   selectTabRef.current = selectTab;
 
-  function addTab(cwdOverride?: string, shellOverride?: string): string {
+  /** A new tab showing the new tab page (see src/newtab) instead of
+   * starting the default shell straight away - what "+", Ctrl+T and "Nuovo
+   * terminale" open. */
+  function openNewTab(): string {
+    return addTab(undefined, undefined, true);
+  }
+
+  function addTab(cwdOverride?: string, shellOverride?: string, newTab = false): string {
     // No longer inherits the active tab's cwd - a fresh tab starts in its
     // shell's start folder (Impostazioni > Cartella di avvio, per shell or
     // the general one), looked up by `fillStartDir` below. `cwdOverride` is
@@ -905,9 +931,10 @@ function Shell() {
         id,
         cwd,
         explorerPath: cwd,
-        label: labelForCwd(cwd),
+        label: newTab ? t("newTab.title") : labelForCwd(cwd),
         nestedShell,
         wslDistro: pathDistro ?? wslDistro ?? undefined,
+        ...(newTab ? { newTab } : {}),
       },
     ]);
     if (!cwdOverride) fillStartDir(id, shellOverride ?? shellId);
@@ -961,7 +988,7 @@ function Shell() {
                 explorerPath: cwd,
                 // A restored tab whose folder is gone still keeps the name
                 // the user gave it.
-                label: t.customLabel ? t.label : labelForCwd(cwd),
+                label: t.customLabel || t.newTab ? t.label : labelForCwd(cwd),
                 nestedShell: pathDistro || wslShell ? "wsl" : t.nestedShell,
                 wslDistro: pathDistro ?? t.wslDistro,
               }
@@ -969,6 +996,54 @@ function Shell() {
         ),
       );
     });
+  }
+
+  /** The new tab page's shell selection changed: point the tab's folder
+   * (the explorer, the page's prompt) at that shell's own start folder. */
+  function previewNewTabShell(tabId: string, shell: string | undefined) {
+    const target = shell ?? shellId;
+    newTabShellRef.current.set(tabId, target);
+    void resolveStartDir(target).then((cwd) => {
+      if (newTabShellRef.current.get(tabId) !== target) return;
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === tabId && t.kind === "terminal" && t.newTab && t.cwd !== cwd ? { ...t, cwd, explorerPath: cwd } : t,
+        ),
+      );
+    });
+  }
+
+  /** Turns a tab still on the new tab page into a terminal: `shell`
+   * (default: the configured one) started in `cwd` (default: that shell's
+   * start folder), running `command` - or with it just typed, for
+   * `typeOnly`. */
+  function launchFromNewTab(tabId: string, { shell, cwd, command, typeOnly }: NewTabLaunch) {
+    const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    if (!tab?.newTab) return;
+    // The page's own cwd follows the chosen shell's start folder and
+    // whatever the explorer browsed to (see `previewNewTabShell`, `browseExplorer`).
+    const nextCwd = cwd ?? tab.cwd;
+    const pathDistro = nextCwd ? wslDistroOfPath(nextCwd) : null;
+    if (pathDistro && wslDistroOfShell(shell ?? shellId) === undefined) shell = wslShellId(pathDistro);
+    if (shell) pendingShellOverrideRef.current.set(tabId, shell);
+    if (command) (typeOnly ? pendingTypedCommandsRef : pendingCommandsRef).current.set(tabId, command);
+    const wslDistro = wslDistroOfShell(shell ?? shellId);
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === tabId && t.kind === "terminal"
+          ? {
+              ...t,
+              newTab: undefined,
+              cwd: nextCwd,
+              explorerPath: nextCwd,
+              label: t.customLabel ? t.label : labelForCwd(nextCwd),
+              nestedShell: pathDistro || wslDistro !== undefined ? "wsl" : undefined,
+              wslDistro: pathDistro ?? wslDistro ?? undefined,
+            }
+          : t,
+      ),
+    );
+    if (!nextCwd) fillStartDir(tabId, shell ?? shellId);
   }
 
   /** What's at the front of a tab's terminal right now - see shellDialect.ts. */
@@ -1045,6 +1120,10 @@ function Shell() {
   function openFavorite(fav: FavoriteFolder) {
     const pathDistro = wslDistroOfPath(fav.path);
     const shell = fav.shell ?? (pathDistro ? wslShellId(pathDistro) : undefined);
+    if (activeTerminal?.newTab && activeTabId === activeTerminal.id) {
+      launchFromNewTab(activeTerminal.id, { shell, cwd: fav.path });
+      return;
+    }
     const current = activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined;
     if (!shell || !activeTerminal || sameShell(shell, current)) {
       browseExplorer(fav.path);
@@ -1317,6 +1396,7 @@ function Shell() {
     editorRefs.current.delete(id);
     pendingCommandsRef.current.delete(id);
     pendingShellOverrideRef.current.delete(id);
+    pendingTypedCommandsRef.current.delete(id);
     pendingAttachRef.current.delete(id);
     pendingEditorContentRef.current.delete(id);
     resetTabZoom(id);
@@ -1402,6 +1482,13 @@ function Shell() {
    * to treat differently from a plain local `cd`. */
   function handleCommandLine(tabId: string, line: string) {
     const trimmed = line.trim();
+    const commandTab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    // Shown on the new tab page - only lines typed at a shell prompt (not
+    // into a full-screen program, an ssh session or an agent), where the
+    // tab's folder is really where the command ran.
+    if (commandTab && !commandTab.busy && (!commandTab.nestedShell || commandTab.nestedShell === "wsl")) {
+      recordRecentTerminal(commandTab.cwd, tabShell(commandTab), trimmed);
+    }
 
     const wslMatch = trimmed.match(/^wsl(?:\.exe)?(?:\s+(.*))?$/i);
     if (wslMatch) {
@@ -1641,7 +1728,13 @@ function Shell() {
     const browsePath =
       posixPath && active?.wslDistro ? toWindowsPath(active.wslDistro, posixPath) : path;
     setTabs((prev) =>
-      prev.map((t) => (t.id === activeTerminalId && t.kind === "terminal" ? { ...t, explorerPath: browsePath } : t)),
+      prev.map((t) =>
+        t.id === activeTerminalId && t.kind === "terminal"
+          ? // On the new tab page the browsed folder is also where the
+            // terminal will start.
+            { ...t, explorerPath: browsePath, ...(t.newTab ? { cwd: browsePath } : {}) }
+          : t,
+      ),
     );
   }
 
@@ -1776,7 +1869,7 @@ function Shell() {
   function runPlugin(plugin: PluginDef | PluginButtonDef) {
     switch (plugin.action) {
       case "newTerminal":
-        addTab();
+        openNewTab();
         break;
       case "clearTerminal":
         termRefs.current.get(activeTerminalId)?.clear();
@@ -1898,7 +1991,7 @@ function Shell() {
         custom: <ZoomRow tabId={activeTerminalId} />,
       },
       { separator: true, label: "sep-zoom" },
-      { label: t("menu.newTerminal"), icon: Icons.newTerminal, onSelect: () => addTab() },
+      { label: t("menu.newTerminal"), icon: Icons.newTerminal, onSelect: () => openNewTab() },
       {
         label: isFullscreen ? t("menu.exitFullscreen") : t("menu.fullscreen"),
         icon: isFullscreen ? Icons.fullscreenExit : Icons.fullscreen,
@@ -1967,7 +2060,7 @@ function Shell() {
           agents={tabAgents}
           onSelect={selectTab}
           onClose={closeTab}
-          onNew={(shellId) => addTab(undefined, shellId)}
+          onNew={(shellId) => (shellId ? addTab(undefined, shellId) : openNewTab())}
           onRename={renameTab}
           onDuplicate={duplicateTab}
           onReorder={reorderTab}
@@ -2056,28 +2149,59 @@ function Shell() {
           {homeDir &&
             tabs.map((tab) => {
               if (tab.kind === "terminal") {
+                const showPage = tab.newTab || handoffs.has(tab.id);
                 // The startup tab has no cwd until the start folder is
                 // resolved (see above) - mounting it earlier would spawn its
                 // shell in whatever directory the app itself started in.
-                if (!tab.cwd) return null;
+                const showTerminal = !tab.newTab && !!tab.cwd;
                 return (
-                  <TerminalView
-                    key={tab.id}
-                    tabId={tab.id}
-                    ref={(handle) => {
-                      if (handle) termRefs.current.set(tab.id, handle);
-                      else termRefs.current.delete(tab.id);
-                    }}
-                    cwd={tab.cwd || undefined}
-                    hidden={tab.id !== activeTabId}
-                    onTitleChange={(title) => handleTitleChange(tab.id, title)}
-                    onBusyChange={(busy) => handleBusyChange(tab.id, busy)}
-                    onCommandLine={(line) => handleCommandLine(tab.id, line)}
-                    runOnStart={pendingCommandsRef.current.get(tab.id)}
-                    shellOverride={pendingShellOverrideRef.current.get(tab.id)}
-                    restoredContent={restoredContentRef.current.get(tab.id)}
-                    attach={pendingAttachRef.current.get(tab.id)}
-                  />
+                  <Fragment key={tab.id}>
+                    {showTerminal && (
+                      <TerminalView
+                        tabId={tab.id}
+                        ref={(handle) => {
+                          if (handle) termRefs.current.set(tab.id, handle);
+                          else termRefs.current.delete(tab.id);
+                        }}
+                        cwd={tab.cwd || undefined}
+                        hidden={tab.id !== activeTabId}
+                        onTitleChange={(title) => handleTitleChange(tab.id, title)}
+                        onBusyChange={(busy) => handleBusyChange(tab.id, busy)}
+                        onCommandLine={(line) => handleCommandLine(tab.id, line)}
+                        runOnStart={pendingCommandsRef.current.get(tab.id)}
+                        typeOnStart={pendingTypedCommandsRef.current.get(tab.id)}
+                        shellOverride={pendingShellOverrideRef.current.get(tab.id)}
+                        restoredContent={restoredContentRef.current.get(tab.id)}
+                        attach={pendingAttachRef.current.get(tab.id)}
+                        onReady={
+                          handoffs.get(tab.id) === false
+                            ? () => setHandoffs((prev) => (prev.has(tab.id) ? new Map(prev).set(tab.id, true) : prev))
+                            : undefined
+                        }
+                      />
+                    )}
+                    {showPage && (
+                      <NewTabPage
+                        hidden={tab.id !== activeTabId}
+                        defaultShell={shellId}
+                        startDir={tab.cwd}
+                        termFontSize={getTabFontSize(tab.id)}
+                        onLaunch={(launch) => {
+                          setHandoffs((prev) => new Map(prev).set(tab.id, false));
+                          launchFromNewTab(tab.id, launch);
+                        }}
+                        onShellChange={(shell) => previewNewTabShell(tab.id, shell)}
+                        terminalReady={handoffs.get(tab.id) === true}
+                        onDone={() =>
+                          setHandoffs((prev) => {
+                            const next = new Map(prev);
+                            next.delete(tab.id);
+                            return next;
+                          })
+                        }
+                      />
+                    )}
+                  </Fragment>
                 );
               }
               if (tab.kind === "editor") {

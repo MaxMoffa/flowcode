@@ -8,6 +8,11 @@ export interface TermTab {
   explorerPath: string;
   label: string;
   customLabel?: boolean;
+  /** Still showing the new tab page (see src/newtab) - no shell has been
+   * started yet; it starts once the user picks a command, a shell, a recent
+   * terminal or a favorite. `cwd` is already the default shell's start
+   * folder, for the explorer and the page's prompt. */
+  newTab?: boolean;
   /** Whether a full-screen program (an alternate-screen app: Claude Code,
    * Codex, vim, htop...) currently owns this tab's shell - see
    * `onBusyChange` in Terminal.tsx. */
