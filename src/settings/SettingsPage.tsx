@@ -11,6 +11,7 @@ import type { PluginDef, PluginManifest } from "../plugins/types";
 import type { SidebarMode } from "./modes";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { writeBool } from "../lib/storage";
+import { NOTIFICATION_KINDS, setNotificationEnabled, useNotificationSettings } from "../notifications/notificationSettings";
 import { ShellStartDirs } from "./ShellStartDirs";
 import { useUpdater, type UpdateStatus } from "../update/UpdateContext";
 import pkg from "../../package.json";
@@ -99,6 +100,7 @@ export function SettingsPage({
     setConfirmLinkOpen,
   } = useTerminalSettings();
   const { section } = useSettingsSection();
+  const notificationSettings = useNotificationSettings();
   // One scroll container serves every section, so without this a section
   // opens at whatever depth the previous one was scrolled to.
   const pageRef = useRef<HTMLDivElement>(null);
@@ -345,6 +347,33 @@ export function SettingsPage({
                   </button>
                 </div>
               </div>
+            </section>
+
+            <section className="settings-block">
+              <h3>{t("settings.notifications.title")}</h3>
+              <p className="settings-block-desc">{t("settings.notifications.desc")}</p>
+              {NOTIFICATION_KINDS.map((kind) => (
+                <div className="settings-field" key={kind}>
+                  <span className="settings-field-label">{t(`settings.notifications.${kind}.label`)}</span>
+                  <p className="settings-field-desc">{t(`settings.notifications.${kind}.desc`)}</p>
+                  <div className="settings-choice-row">
+                    <button
+                      type="button"
+                      className={"settings-choice" + (notificationSettings[kind] ? " is-active" : "")}
+                      onClick={() => setNotificationEnabled(kind, true)}
+                    >
+                      {t("settings.notifications.on")}
+                    </button>
+                    <button
+                      type="button"
+                      className={"settings-choice" + (!notificationSettings[kind] ? " is-active" : "")}
+                      onClick={() => setNotificationEnabled(kind, false)}
+                    >
+                      {t("settings.notifications.off")}
+                    </button>
+                  </div>
+                </div>
+              ))}
             </section>
           </>
         )}

@@ -1,5 +1,6 @@
 mod agents;
 mod fs;
+mod notify;
 mod plugins;
 mod pty;
 mod session;
@@ -85,6 +86,7 @@ pub fn run() {
             windows::window_at_cursor,
             windows::window_report_tabs,
             windows::window_focus_tab,
+            notify::notify_show,
             updater::update_check,
             updater::update_install,
             updater::release_notes,

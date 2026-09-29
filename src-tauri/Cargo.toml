@@ -47,7 +47,11 @@ ureq = "2"
 sha2 = "0.10"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+tauri-winrt-notification = "0.8.1"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+notify-rust = "4.18.1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

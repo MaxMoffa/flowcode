@@ -26,6 +26,8 @@ interface TabStripProps {
   /** Opens a second, independent copy of a tab - same cwd for a terminal,
    * same file for an editor. Not offered for the (singleton) settings tab. */
   onDuplicate: (id: string) => void;
+  /** Mutes/unmutes a terminal tab's agent notifications. */
+  onToggleNotifications: (id: string) => void;
   /** A tab dragged along the strip, moved to slot `toIndex`. */
   onReorder: (id: string, toIndex: number) => void;
   /** A tab dragged out of the strip and released - it goes to whatever is
@@ -289,6 +291,7 @@ export function TabStrip({
   onNew,
   onRename,
   onDuplicate,
+  onToggleNotifications,
   onReorder,
   onDragOut,
 }: TabStripProps) {
@@ -355,6 +358,12 @@ export function TabStrip({
     ];
     if (tab.kind === "terminal" || tab.kind === "editor") {
       items.push({ label: t("tabs.duplicate"), onSelect: () => onDuplicate(tab.id) });
+    }
+    if (tab.kind === "terminal") {
+      items.push({
+        label: tab.notifyMuted ? t("tabs.unmuteNotifications") : t("tabs.muteNotifications"),
+        onSelect: () => onToggleNotifications(tab.id),
+      });
     }
     items.push({ separator: true, label: "sep-close" });
     items.push({ label: t("common.close"), danger: true, onSelect: () => onClose(tab.id) });

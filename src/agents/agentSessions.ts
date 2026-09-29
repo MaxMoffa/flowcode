@@ -34,10 +34,11 @@ export interface AgentSession {
 const POLL_MS = 2000;
 
 /** The agent CLIs running in any Flowcode tab right now (see
- * `list_agent_sessions`), polled while the window is visible - one poll
+ * `list_agent_sessions`), polled while the window is visible (or always, when `pollWhenHidden` - a minimized
+ * window still has to notify) - one poll
  * shared by the tab strip and the Agents panel. `null` until the first
  * answer. `refresh` polls right away. */
-export function useAgentSessions(): { sessions: AgentSession[] | null; refresh: () => Promise<void> } {
+export function useAgentSessions(pollWhenHidden = false): { sessions: AgentSession[] | null; refresh: () => Promise<void> } {
   const [sessions, setSessions] = useState<AgentSession[] | null>(null);
   const mountedRef = useRef(true);
 
@@ -57,7 +58,7 @@ export function useAgentSessions(): { sessions: AgentSession[] | null; refresh: 
     mountedRef.current = true;
     void refresh();
     const interval = setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
+      if (pollWhenHidden || document.visibilityState === "visible") void refresh();
     }, POLL_MS);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void refresh();
@@ -68,7 +69,7 @@ export function useAgentSessions(): { sessions: AgentSession[] | null; refresh: 
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [refresh]);
+  }, [refresh, pollWhenHidden]);
 
   return { sessions, refresh };
 }

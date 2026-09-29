@@ -8,6 +8,8 @@ export interface TermTab {
   explorerPath: string;
   label: string;
   customLabel?: boolean;
+  /** The user muted this tab's agent notifications (tab context menu). */
+  notifyMuted?: boolean;
   /** Still showing the new tab page (see src/newtab) - no shell has been
    * started yet; it starts once the user picks a command, a shell, a recent
    * terminal or a favorite. `cwd` is already the default shell's start

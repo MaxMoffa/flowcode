@@ -11,6 +11,7 @@ export type SavedTab =
       cwd: string;
       label: string;
       customLabel?: boolean;
+      notifyMuted?: boolean;
       /** `pty_spawn` shell id when the tab was opened with a specific one
        * (e.g. "wsl"), otherwise the configured default applies. */
       shell?: string;

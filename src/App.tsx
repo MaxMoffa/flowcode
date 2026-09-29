@@ -31,6 +31,8 @@ import {
   wslHomeDir,
   wslShellId,
 } from "./terminal/wslPath";
+import { useAgentNotifications } from "./notifications/useAgentNotifications";
+import { useNotificationSettings } from "./notifications/notificationSettings";
 import { tabAgentOf, useAgentSessions, type TabAgent } from "./agents/agentSessions";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
@@ -438,7 +440,10 @@ function Shell() {
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
-  const { sessions: agentSessions, refresh: refreshAgentSessions } = useAgentSessions();
+  const notificationSettings = useNotificationSettings();
+  const { sessions: agentSessions, refresh: refreshAgentSessions } = useAgentSessions(
+    Object.values(notificationSettings).some(Boolean),
+  );
   const {
     startPath,
     shellStartPaths,
@@ -637,6 +642,7 @@ function Shell() {
             explorerPath: cwd,
             label: t.customLabel || !cwd ? t.label : labelForCwd(cwd),
             customLabel: t.customLabel,
+            notifyMuted: t.notifyMuted,
             nestedShell: wslDistro !== undefined ? "wsl" : undefined,
             wslDistro: wslDistro ?? undefined,
           });
@@ -724,6 +730,7 @@ function Shell() {
               cwd: t.cwd,
               label: t.label,
               customLabel: t.customLabel,
+              notifyMuted: t.notifyMuted,
               shell: tabShell(t),
               content: term?.wasUsed() ? term.serialize() : restoredContentRef.current.get(t.id),
             };
@@ -1684,6 +1691,10 @@ function Shell() {
     );
   }
 
+  function toggleTabNotifications(id: string) {
+    setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "terminal" ? { ...t, notifyMuted: !t.notifyMuted } : t)));
+  }
+
   function handleEditorRenamed(id: string, newPath: string) {
     const label = basename(newPath);
     setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "editor" ? { ...t, path: newPath, label } : t)));
@@ -1776,6 +1787,10 @@ function Shell() {
     const tab = tabs.find((t) => t.kind === "terminal" && termRefs.current.get(t.id)?.getPtyId() === session.pty_id);
     if (tab) tabAgents.set(tab.id, tabAgentOf(session));
   }
+  useAgentNotifications(tabAgents, {
+    getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
+    isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
+  });
   const sidebarCwd = activeTerminal?.explorerPath || homeDir;
 
   const allPlugins: PluginDef[] = [...builtinPlugins(), ...customPlugins];
@@ -2063,6 +2078,7 @@ function Shell() {
           onNew={(shellId) => (shellId ? addTab(undefined, shellId) : openNewTab())}
           onRename={renameTab}
           onDuplicate={duplicateTab}
+          onToggleNotifications={toggleTabNotifications}
           onReorder={reorderTab}
           onDragOut={(id) => void handleTabDragOut(id)}
         />
