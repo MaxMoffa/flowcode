@@ -49,11 +49,11 @@
 }
 
 .context-menu-item.is-danger {
-  color: #d6544a;
+  color: var(--danger);
 }
 
 .context-menu-item.is-danger:hover:not(:disabled) {
-  background: rgba(214, 84, 74, 0.14);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 .context-menu-icon {

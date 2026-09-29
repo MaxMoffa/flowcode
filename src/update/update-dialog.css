@@ -20,7 +20,7 @@
 
 .update-error {
   margin-top: 10px;
-  color: #d6544a;
+  color: var(--danger);
   font-size: 12px;
   line-height: 1.45;
 }

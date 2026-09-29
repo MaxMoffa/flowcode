@@ -27,7 +27,7 @@ body {
    from any app/flowkit runtime state. */
 .installer-shell {
   --titlebar-text: #3a2b17;
-  --titlebar-text2: #8b7457;
+  --titlebar-text2: #765f42;
   --titlebar-surface: #fbf3e4;
   --titlebar-border: rgba(120, 80, 36, 0.16);
   --titlebar-hover: rgba(140, 88, 32, 0.06);

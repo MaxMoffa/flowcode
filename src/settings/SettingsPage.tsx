@@ -13,6 +13,8 @@ import { listShellOptions, shellOptionLabel, type ShellOption } from "../termina
 import { writeBool } from "../lib/storage";
 import { NOTIFICATION_KINDS, setNotificationEnabled, useNotificationSettings } from "../notifications/notificationSettings";
 import { ShellStartDirs } from "./ShellStartDirs";
+import { PalettePicker } from "./PalettePicker";
+import { DEFAULT_CONTRAST, DEFAULT_PALETTE_ID } from "../themes/palettes";
 import { useUpdater, type UpdateStatus } from "../update/UpdateContext";
 import pkg from "../../package.json";
 import { LANGUAGES, t, useI18n, type LanguagePreference, type MessageKey } from "../i18n";
@@ -75,7 +77,8 @@ export function SettingsPage({
   onSetFavoritesButtonVisible,
 }: SettingsPageProps) {
   const { t, preference: languagePreference, setPreference: setLanguagePreference } = useI18n();
-  const { mode, setMode, glassOpacity, setGlassOpacity } = useTheme();
+  const { mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity } =
+    useTheme();
   const {
     fontSize,
     zoomIn,
@@ -94,6 +97,8 @@ export function SettingsPage({
     setConfirmLinkOpen,
     explorerDoubleClick,
     setExplorerDoubleClick,
+    newTabPage,
+    setNewTabPage,
   } = useTerminalSettings();
   const { section, focusId, clearFocus } = useSettingsSection();
   const notificationSettings = useNotificationSettings();
@@ -209,6 +214,9 @@ export function SettingsPage({
     if (!ok) return;
 
     setMode("auto");
+    setPaletteId(DEFAULT_PALETTE_ID);
+    setTerminalPaletteId(null);
+    setContrast(DEFAULT_CONTRAST);
     resetZoom();
     setBannerEnabled(true);
     onSetFavoritesButtonVisible(true);
@@ -219,6 +227,7 @@ export function SettingsPage({
     setRestoreSession(true);
     setConfirmLinkOpen(true);
     setExplorerDoubleClick(true);
+    setNewTabPage(true);
     onSetSidebarMode("auto");
 
     const toRemove = quickActionIds.filter((id) => !DEFAULT_QUICK_ACTIONS.includes(id));
@@ -264,6 +273,44 @@ export function SettingsPage({
                   ]}
                   onChange={setMode}
                 />
+              </SettingRow>
+              <SettingRow id="palette" label={t("settings.palette.label")} desc={t("settings.palette.desc")} stacked>
+                <PalettePicker value={paletteId} onChange={setPaletteId} />
+              </SettingRow>
+              <SettingRow id="terminalPalette" label={t("settings.terminalPalette.label")} desc={t("settings.terminalPalette.desc")}>
+                <Switch
+                  checked={terminalPaletteId !== null}
+                  onChange={(on) => setTerminalPaletteId(on ? paletteId : null)}
+                  label={t("settings.terminalPalette.label")}
+                  stateLabels={onOff}
+                />
+              </SettingRow>
+              {terminalPaletteId !== null && (
+                <SettingRow id="terminalPalettePick" label={t("settings.terminalPalette.pick")} desc={t("settings.terminalPalette.pickDesc")} stacked>
+                  <PalettePicker
+                    value={terminalPaletteId}
+                    onChange={setTerminalPaletteId}
+                    ariaLabel={t("settings.terminalPalette.pick")}
+                  />
+                </SettingRow>
+              )}
+              <SettingRow id="contrast" label={t("settings.contrast.label")} desc={t("settings.contrast.desc")}>
+                <div className="settings-zoom-row">
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={contrast}
+                    onChange={(e) => setContrast(Number(e.target.value))}
+                    className="settings-opacity-slider"
+                    aria-label={t("settings.contrast.label")}
+                  />
+                  <span className="settings-zoom-value">{Math.round(contrast * 100)}%</span>
+                  <button type="button" className="settings-choice" onClick={() => setContrast(DEFAULT_CONTRAST)}>
+                    {t("settings.zoom.reset")}
+                  </button>
+                </div>
               </SettingRow>
               <SettingRow id="transparency" label={t("settings.transparency.label")} desc={t("settings.transparency.fieldDesc")}>
                 <div className="settings-zoom-row">
@@ -328,6 +375,14 @@ export function SettingsPage({
                   onChange={setBannerEnabled}
                   label={t("settings.banner.label")}
                   stateLabels={[t("common.show"), t("common.hide")]}
+                />
+              </SettingRow>
+              <SettingRow id="newTabPage" label={t("settings.newTabPage.label")} desc={t("settings.newTabPage.desc")}>
+                <Switch
+                  checked={newTabPage}
+                  onChange={setNewTabPage}
+                  label={t("settings.newTabPage.label")}
+                  stateLabels={onOff}
                 />
               </SettingRow>
             </SettingsGroup>

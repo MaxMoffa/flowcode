@@ -1,10 +1,14 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
-import { readEnum, readNumber, writeString } from "../lib/storage";
+import { readEnum, readNumber, readString, removeKey, writeString } from "../lib/storage";
+import { DEFAULT_CONTRAST, DEFAULT_PALETTE_ID, findPalette, resolvePalette } from "./palettes";
 
 export type Theme = "light" | "dark";
 export type ThemeMode = Theme | "auto";
 
 const STORAGE_KEY = "flowcode.theme";
+export const PALETTE_KEY = "flowcode.palette";
+const TERMINAL_PALETTE_KEY = "flowcode.terminalPalette";
+const CONTRAST_KEY = "flowcode.contrast";
 // Version suffix: while Windows had no working native backdrop, panels at a
 // low alpha just looked washed out, so a stored opacity of ~1 was the only
 // usable setting - and that stored value would keep hiding the acrylic
@@ -32,6 +36,18 @@ interface ThemeContextValue {
   setMode: (mode: ThemeMode) => void;
   /** Flips the resolved theme, breaking out of "auto" if that was active. */
   toggleTheme: () => void;
+  /** Id of the colour palette (see palettes.ts) - recolours the whole app and
+   * holds a light and a dark variant, so it's independent of `mode`. */
+  paletteId: string;
+  setPaletteId: (id: string) => void;
+  /** A palette used only by the terminal, or `null` when the terminal simply
+   * follows `paletteId` (the "separate terminal colours" option is off). */
+  terminalPaletteId: string | null;
+  setTerminalPaletteId: (id: string | null) => void;
+  /** Text contrast of the theme, 0-1: 0.5 is the palettes as designed, lower
+   * softens it (never below a readable floor), higher strengthens it. */
+  contrast: number;
+  setContrast: (value: number) => void;
   /** 0 (fully see-through) - 1 (fully opaque) opacity of every glass panel
    * (--surface) for the *current* theme. Defaults to whatever the current
    * platform/theme combination already uses (themes.css's own default, or
@@ -51,6 +67,17 @@ function getInitialMode(): ThemeMode {
   return readEnum<ThemeMode>(STORAGE_KEY, ["auto", "light", "dark"], "auto");
 }
 
+/** The stored palette id, or the default when unset or no longer a palette. */
+export function readPaletteId(): string {
+  const stored = readString(PALETTE_KEY);
+  return findPalette(stored) ? stored! : DEFAULT_PALETTE_ID;
+}
+
+function readTerminalPaletteId(): string | null {
+  const stored = readString(TERMINAL_PALETTE_KEY);
+  return findPalette(stored) ? stored : null;
+}
+
 /** Default --surface-alpha until the user moves the slider - the same for
  * both themes today. Can't be read back from themes.css via
  * getComputedStyle: this runs before the `data-theme` attribute that makes
@@ -66,6 +93,9 @@ function getInitialGlassOpacity(theme: Theme): number {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(getInitialMode);
   const [systemTheme, setSystemTheme] = useState<Theme>(getSystemTheme);
+  const [paletteId, setPaletteIdState] = useState<string>(readPaletteId);
+  const [contrast, setContrastState] = useState<number>(() => readNumber(CONTRAST_KEY, DEFAULT_CONTRAST, 0, 1));
+  const [terminalPaletteId, setTerminalPaletteIdState] = useState<string | null>(readTerminalPaletteId);
 
   const theme: Theme = mode === "auto" ? systemTheme : mode;
 
@@ -90,9 +120,37 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  // Same layout-effect reasoning as above. The palette is set as inline
+  // custom properties on :root, which beat themes.css's per-theme blocks
+  // (those only cover the first paint, before this runs). Runs on `theme`
+  // too, since each palette has a different variant per theme.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const palette = findPalette(paletteId);
+    if (!palette) return;
+    const vars = resolvePalette(palette[theme], theme, contrast);
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+    return () => {
+      for (const name of Object.keys(vars)) root.style.removeProperty(name);
+    };
+  }, [paletteId, theme, contrast]);
+
   useEffect(() => {
     writeString(STORAGE_KEY, mode);
   }, [mode]);
+
+  useEffect(() => {
+    writeString(PALETTE_KEY, paletteId);
+  }, [paletteId]);
+
+  useEffect(() => {
+    writeString(CONTRAST_KEY, String(contrast));
+  }, [contrast]);
+
+  useEffect(() => {
+    if (terminalPaletteId) writeString(TERMINAL_PALETTE_KEY, terminalPaletteId);
+    else removeKey(TERMINAL_PALETTE_KEY);
+  }, [terminalPaletteId]);
 
   // Switching theme swaps in that theme's own stored (or default) opacity -
   // never carries the other theme's value across.
@@ -117,10 +175,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       mode,
       setMode: setModeState,
       toggleTheme: () => setModeState(theme === "dark" ? "light" : "dark"),
+      paletteId,
+      setPaletteId: (id) => setPaletteIdState(findPalette(id) ? id : DEFAULT_PALETTE_ID),
+      contrast,
+      setContrast: (value) => setContrastState(Math.max(0, Math.min(1, value))),
+      terminalPaletteId,
+      setTerminalPaletteId: (id) => setTerminalPaletteIdState(id !== null && findPalette(id) ? id : null),
       glassOpacity,
       setGlassOpacity: (next) => setGlassOpacityState(Math.max(0, Math.min(1, next))),
     }),
-    [theme, mode, glassOpacity],
+    [theme, mode, paletteId, terminalPaletteId, contrast, glassOpacity],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

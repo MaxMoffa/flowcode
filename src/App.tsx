@@ -450,6 +450,7 @@ function Shell() {
     resetTabZoom,
     restoreSession,
     shellId,
+    newTabPage,
     tabFontSizeOverrides,
     setTabFontSize,
     getTabFontSize,
@@ -904,9 +905,10 @@ function Shell() {
 
   /** A new tab showing the new tab page (see src/newtab) instead of
    * starting the default shell straight away - what "+", Ctrl+T and "Nuovo
-   * terminale" open. */
+   * terminale" open. With the page turned off in Settings it is the default
+   * shell straight away, like the tab strip's per-shell menu entries. */
   function openNewTab(): string {
-    return addTab(undefined, undefined, true);
+    return newTabPage ? addTab(undefined, undefined, true) : addTab();
   }
 
   function addTab(cwdOverride?: string, shellOverride?: string, newTab = false): string {

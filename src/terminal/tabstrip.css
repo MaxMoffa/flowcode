@@ -31,10 +31,14 @@
   -webkit-user-select: none;
 }
 
+/* The selected tab is filled and outlined with the accent so it stands out
+   from the rest; the agent-status outlines below are declared after this and
+   still take over the border. */
 .term-tab.is-active {
-  background: var(--ctrl-hover-bg);
-  border-color: transparent;
-  color: var(--fg);
+  background: color-mix(in srgb, var(--accent-tint) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent-tint) 55%, transparent);
+  color: var(--sidebar-selected-fg);
+  font-weight: 700;
 }
 
 .term-tab-dot {
@@ -253,7 +257,7 @@
   justify-content: center;
   border-radius: 6px;
   background: var(--accent-2);
-  color: #fff;
+  color: var(--on-accent-2);
   font: 700 8.5px/1 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   pointer-events: none;
 }

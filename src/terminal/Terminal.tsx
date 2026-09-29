@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
+import { useEffect, useImperativeHandle, useRef, forwardRef, type CSSProperties } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./ptyClient";
 import { useTheme } from "../themes/ThemeContext";
+import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
 import { buildAsciiBanner, type BannerSystemInfo } from "./asciiBanner";
 import { t } from "../i18n";
@@ -22,10 +23,10 @@ import "./terminal.css";
  * treat every theme as black: dark-tuned colors were left unreadable on the
  * light theme, and apps deriving a panel shade from the reported background
  * drew it off-tone. */
-function termBackgroundHex(): string {
+function termBackgroundHex(scope: HTMLElement): string {
   const probe = document.createElement("div");
   probe.style.cssText = "position:absolute;visibility:hidden;background:var(--term-bg)";
-  document.body.appendChild(probe);
+  scope.appendChild(probe);
   const bg = getComputedStyle(probe).backgroundColor;
   probe.remove();
   const [r = 0, g = 0, b = 0] = (bg.match(/[\d.]+/g) ?? []).map(Number);
@@ -33,8 +34,10 @@ function termBackgroundHex(): string {
   return `#${hex(r)}${hex(g)}${hex(b)}00`;
 }
 
-function readTermColors() {
-  const style = getComputedStyle(document.documentElement);
+/** Reads the terminal's colours from its own container, not `:root`, so a
+ * palette set only for the terminal (see `terminalPaletteId`) is picked up. */
+function readTermColors(scope: HTMLElement) {
+  const style = getComputedStyle(scope);
   const v = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
   return {
     // The container div already paints --term-bg (same glass surface as the
@@ -44,7 +47,7 @@ function readTermColors() {
     // xterm.js only accepts hex colors here (it matches /#[\da-f]{3,8}/) -
     // the CSS keyword "transparent" and rgba() syntax silently fail to parse
     // and fall back to opaque black, so this must be 8-digit hex.
-    background: termBackgroundHex(),
+    background: termBackgroundHex(scope),
     foreground: v("--term-fg", "#e6e6e6"),
     cursor: v("--accent", "#e6e6e6"),
     cursorAccent: v("--term-bg", "#000000"),
@@ -215,7 +218,8 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   const onCommandLineRef = useRef(onCommandLine);
   onCommandLineRef.current = onCommandLine;
   const lineBufferRef = useRef("");
-  const { theme } = useTheme();
+  const { theme, paletteId, terminalPaletteId, contrast } = useTheme();
+  const terminalPalette = terminalPaletteId ? findPalette(terminalPaletteId) : undefined;
   const { getTabFontSize, bannerEnabled, shellId, confirmLinkOpen, setConfirmLinkOpen } = useTerminalSettings();
   const { show: showMenu } = useContextMenu();
   // xterm's link callbacks are registered once at mount - read the live
@@ -473,9 +477,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
 
   useEffect(() => {
     if (xtermRef.current) {
-      xtermRef.current.options.theme = readTermColors();
+      xtermRef.current.options.theme = readTermColors(containerRef.current ?? document.documentElement);
     }
-  }, [theme]);
+  }, [theme, paletteId, terminalPaletteId, contrast]);
 
   useEffect(() => {
     if (xtermRef.current) {
@@ -496,7 +500,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       cursorBlink: true,
       fontSize: initialFontSizeRef.current,
       fontFamily: "Menlo, Consolas, monospace",
-      theme: readTermColors(),
+      theme: readTermColors(containerRef.current),
       // buffer.active.type (used below to detect an alternate-screen app
       // like Claude Code before collapsing rows) is gated behind this flag
       // at runtime - without it xterm.js throws the moment it's read.
@@ -764,7 +768,10 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     <div
       ref={containerRef}
       className="terminal-container"
-      style={{ display: hidden ? "none" : "flex" }}
+      style={{
+        display: hidden ? "none" : "flex",
+        ...(terminalPalette ? (resolveTerminalPalette(terminalPalette, theme, contrast) as CSSProperties) : null),
+      }}
     >
       <div ref={hostRef} className="terminal-host" />
     </div>

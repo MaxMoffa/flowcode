@@ -8,7 +8,7 @@ import "@flowkit-io/react/style.css";
 import "./welcome-overrides.css";
 import { useTheme } from "../themes/ThemeContext";
 import { buildWelcomeFlow } from "./welcomeFlowConfig";
-import { flowcodeFlowTheme } from "./flowcodeFlowTheme";
+import { flowThemeForPalette } from "./flowcodeFlowTheme";
 import { hasSeenWelcome, markWelcomeSeen } from "./welcomeSeen";
 import { useI18n } from "../i18n";
 
@@ -19,8 +19,9 @@ import { useI18n } from "../i18n";
  * useTheme().setMode - the same store the Settings page itself writes to. */
 export function WelcomeFlow() {
   const [open, setOpen] = useState(() => !hasSeenWelcome());
-  const { theme, setMode } = useTheme();
+  const { theme, setMode, paletteId, contrast } = useTheme();
   const { t, language } = useI18n();
+  const flowTheme = useMemo(() => flowThemeForPalette(paletteId, contrast), [paletteId, contrast]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const welcomeFlow = useMemo(() => buildWelcomeFlow(), [language]);
   // The confirmation step has no review step above it, so flowkit never runs
@@ -63,7 +64,7 @@ export function WelcomeFlow() {
   return (
     <FlowOverlay
       flow={welcomeFlow}
-      theme={flowcodeFlowTheme}
+      theme={flowTheme}
       mode={flowMode}
       open={open}
       onOpenChange={handleOpenChange}

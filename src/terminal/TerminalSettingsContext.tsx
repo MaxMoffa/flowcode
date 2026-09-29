@@ -8,6 +8,7 @@ const SHELL_KEY = "flowcode.terminalShell";
 const START_PATH_KEY = "flowcode.terminalStartPath";
 const SHELL_START_PATHS_KEY = "flowcode.terminalStartPathByShell";
 const RESTORE_SESSION_KEY = "flowcode.restoreSession";
+const NEW_TAB_PAGE_KEY = "flowcode.newTabPage";
 const CONFIRM_LINKS_KEY = "flowcode.confirmLinkOpen";
 const EXPLORER_DOUBLE_CLICK_KEY = "flowcode.explorerDoubleClick";
 const MIN_SIZE = 9;
@@ -83,6 +84,10 @@ interface TerminalSettingsValue {
    * or on a single click. */
   explorerDoubleClick: boolean;
   setExplorerDoubleClick: (enabled: boolean) => void;
+  /** Whether "+" / Ctrl+T open the new tab page (favorites, recent commands
+   * and its command line) or go straight to a terminal. */
+  newTabPage: boolean;
+  setNewTabPage: (enabled: boolean) => void;
 }
 
 /** Plain (non-hook) read of the same value `shellId` above holds - for the
@@ -122,6 +127,7 @@ const writeJson = (key: string, value: Record<string, string>) => writeString(ke
 const readRestoreSession = (key: string) => readBool(key, true);
 const readConfirmLinks = (key: string) => readBool(key, true);
 const readExplorerDoubleClick = (key: string) => readBool(key, true);
+const readNewTabPage = (key: string) => readBool(key, true);
 
 /** Drops `tabId` from the overrides map (same reference if it isn't there). */
 function withoutTab(prev: Record<string, number>, tabId: string): Record<string, number> {
@@ -160,6 +166,7 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
     readExplorerDoubleClick,
     writeBool,
   );
+  const [newTabPage, setNewTabPage] = usePersistentState(NEW_TAB_PAGE_KEY, readNewTabPage, writeBool);
 
   const getTabFontSize = useCallback(
     (tabId: string) => tabFontSizeOverrides[tabId] ?? fontSize,
@@ -202,6 +209,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setConfirmLinkOpen,
       explorerDoubleClick,
       setExplorerDoubleClick,
+      newTabPage,
+      setNewTabPage,
     }),
     [
       fontSize,
@@ -224,6 +233,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setConfirmLinkOpen,
       explorerDoubleClick,
       setExplorerDoubleClick,
+      newTabPage,
+      setNewTabPage,
     ],
   );
 

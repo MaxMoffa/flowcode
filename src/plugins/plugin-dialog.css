@@ -92,7 +92,7 @@
 .plugin-dialog-btn-close {
   border-color: transparent;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .plugin-dialog-btn-close:hover {

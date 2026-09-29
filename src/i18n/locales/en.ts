@@ -304,6 +304,17 @@ export const en: Record<MessageKey, string> = {
   "settings.theme.label": "Theme mode",
   "settings.theme.fieldDesc":
     "\"Automatic\" follows the light/dark theme set in the operating system and switches on its own when you change it there.",
+  "settings.palette.label": "Colour palette",
+  "settings.palette.desc":
+    "Recolours the whole app: interface, editor and terminal. Every palette has a light and a dark variant, and the theme mode above picks which one is shown.",
+  "settings.terminalPalette.label": "Separate palette for the terminal",
+  "settings.terminalPalette.desc":
+    "Gives the terminal a palette of its own, independent of the app's. The light/dark mode stays the same for both.",
+  "settings.terminalPalette.pick": "Terminal palette",
+  "settings.terminalPalette.pickDesc": "Background, text, cursor and ANSI colours of the terminal.",
+  "settings.contrast.label": "Contrast",
+  "settings.contrast.desc":
+    "Adjusts how much text and colours stand out from the background, across the app and the terminal. 50% is the palette as designed; lower softens it, higher makes it sharper. It never drops below a readable floor.",
   "settings.transparency.label": "Panel opacity",
   "settings.transparency.fieldDesc":
     "Lower values make the panels more transparent; higher ones bring them closer to a solid background.",
@@ -319,6 +330,9 @@ export const en: Record<MessageKey, string> = {
   "settings.zoom.reset": "Reset",
   "settings.shell.label": "Default shell",
   "settings.shell.desc": "Program started in a new terminal tab. The change only applies to tabs opened from now on.",
+  "settings.newTabPage.label": "\"New tab\" page",
+  "settings.newTabPage.desc":
+    "New tabs open on the page with the command line, favorites and recent commands. Turn it off and \"+\" and Ctrl+T open a terminal with the default shell straight away.",
   "settings.banner.label": "Flowcode banner on open",
   "settings.banner.desc": "ASCII \"Flowcode\" wordmark shown at the top of every terminal tab, before the shell's output.",
   "settings.startDir.label": "Startup folder",

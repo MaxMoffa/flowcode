@@ -70,7 +70,7 @@ export const cmChromeTheme = EditorView.theme({
     borderLeftWidth: "3px",
   },
   ".cm-diagnostic-error": {
-    borderLeftColor: "#d6544a",
+    borderLeftColor: "var(--danger)",
   },
   ".cm-panels": {
     backgroundColor: "var(--bg-elevated)",

@@ -83,16 +83,16 @@
 /* Token colors: one fixed accent per syntax category, same palette family
    as the file-explorer's type icons, legible on both light and dark glass. */
 .cm-tok-keyword {
-  color: #cf5fae;
+  color: var(--ansi-bright-magenta);
 }
 
 .cm-tok-string {
-  color: #4d9a5b;
+  color: var(--ansi-green);
 }
 
 .cm-tok-number,
 .cm-tok-bool {
-  color: #c9822f;
+  color: var(--ansi-yellow);
 }
 
 .cm-tok-comment {
@@ -101,11 +101,11 @@
 }
 
 .cm-tok-function {
-  color: #4d8dee;
+  color: var(--ansi-bright-blue);
 }
 
 .cm-tok-type {
-  color: #a45bdb;
+  color: var(--ansi-magenta);
 }
 
 .cm-tok-variable {
@@ -113,7 +113,7 @@
 }
 
 .cm-tok-property {
-  color: #3f9fae;
+  color: var(--ansi-cyan);
 }
 
 .cm-tok-operator,
@@ -122,11 +122,11 @@
 }
 
 .cm-tok-tag {
-  color: #e0824b;
+  color: var(--ansi-bright-red);
 }
 
 .cm-tok-attribute {
-  color: #c9822f;
+  color: var(--ansi-yellow);
 }
 
 .cm-tok-heading {
@@ -135,6 +135,6 @@
 }
 
 .cm-tok-invalid {
-  color: #d6544a;
+  color: var(--danger);
   text-decoration: underline wavy;
 }

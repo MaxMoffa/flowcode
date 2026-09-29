@@ -149,7 +149,7 @@
 }
 
 .funzionalita-delete:hover {
-  background: rgba(214, 84, 74, 0.14);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
 

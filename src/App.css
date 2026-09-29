@@ -118,8 +118,8 @@
 }
 
 .icon-button-close:hover {
-  background: #d64545;
-  color: #fff;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 
 .app-body {

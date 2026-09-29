@@ -263,7 +263,7 @@
 .file-tree-copy-btn.is-copied {
   opacity: 1;
   pointer-events: auto;
-  color: #4cae7d;
+  color: var(--ansi-bright-green);
 }
 
 .file-tree-toast {
@@ -289,7 +289,7 @@
 .file-tree-toast svg {
   width: 12px;
   height: 12px;
-  stroke: #4cae7d;
+  stroke: var(--ansi-bright-green);
   fill: none;
   flex: 0 0 auto;
 }
@@ -329,39 +329,39 @@
 }
 
 .ft-code {
-  color: #4d8dee;
+  color: var(--ansi-bright-blue);
 }
 
 .ft-style {
-  color: #e0964b;
+  color: var(--ansi-bright-yellow);
 }
 
 .ft-markup {
-  color: #e0824b;
+  color: var(--accent-2);
 }
 
 .ft-config {
-  color: #a45bdb;
+  color: var(--ansi-bright-magenta);
 }
 
 .ft-doc {
-  color: #8b7457;
+  color: var(--fg-muted);
 }
 
 .ft-image {
-  color: #4cae7d;
+  color: var(--ansi-bright-green);
 }
 
 .ft-archive {
-  color: #c9975a;
+  color: var(--ansi-yellow);
 }
 
 .ft-shell {
-  color: #4caf7d;
+  color: var(--ansi-green);
 }
 
 .ft-git {
-  color: #e0964b;
+  color: var(--ansi-bright-red);
 }
 
 .ft-generic {

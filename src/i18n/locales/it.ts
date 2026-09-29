@@ -303,6 +303,17 @@ export const it = {
   "settings.theme.label": "Modalità tema",
   "settings.theme.fieldDesc":
     "\"Automatico\" segue il tema chiaro/scuro impostato nel sistema operativo e cambia da solo se lo cambi lì.",
+  "settings.palette.label": "Palette colori",
+  "settings.palette.desc":
+    "Ricolora tutta l'app: interfaccia, editor e terminale. Ogni palette ha una variante chiara e una scura, e la modalità tema qui sopra sceglie quale mostrare.",
+  "settings.terminalPalette.label": "Palette separata per il terminale",
+  "settings.terminalPalette.desc":
+    "Dà al terminale una palette tutta sua, indipendente da quella dell'app. La modalità chiaro/scuro resta la stessa per entrambi.",
+  "settings.terminalPalette.pick": "Palette del terminale",
+  "settings.terminalPalette.pickDesc": "Sfondo, testo, cursore e colori ANSI del terminale.",
+  "settings.contrast.label": "Contrasto",
+  "settings.contrast.desc":
+    "Regola quanto risaltano testo e colori sullo sfondo, in tutta l'app e nel terminale. 50% è la palette com'è; più basso la ammorbidisce, più alto la rende più netta. Non scende mai sotto una soglia leggibile.",
   "settings.transparency.label": "Opacità pannelli",
   "settings.transparency.fieldDesc":
     "Valori più bassi rendono i pannelli più trasparenti; più alti li avvicinano a uno sfondo pieno.",
@@ -319,6 +330,9 @@ export const it = {
   "settings.shell.label": "Shell predefinita",
   "settings.shell.desc":
     "Programma avviato in una nuova scheda di terminale. Il cambio si applica solo alle schede aperte da questo momento in poi.",
+  "settings.newTabPage.label": "Pagina \"Nuova tab\"",
+  "settings.newTabPage.desc":
+    "Le nuove tab si aprono sulla pagina con la riga di comando, i preferiti e i comandi recenti. Se la disattivi, \"+\" e Ctrl+T aprono direttamente un terminale con la shell predefinita.",
   "settings.banner.label": "Banner Flowcode all'apertura",
   "settings.banner.desc":
     "Scritta ASCII \"Flowcode\" mostrata all'inizio di ogni scheda di terminale, prima dell'output della shell.",

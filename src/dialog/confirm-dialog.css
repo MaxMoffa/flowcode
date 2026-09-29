@@ -79,7 +79,7 @@
 .confirm-btn-primary {
   border-color: transparent;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .confirm-btn-primary:hover {
@@ -87,5 +87,6 @@
 }
 
 .confirm-btn-primary.is-danger {
-  background: #d6544a;
+  background: var(--danger);
+  color: var(--on-danger);
 }

@@ -158,6 +158,13 @@
    purpose: legibility here isn't a matter of taste. The blur stays, for
    where it does work. */
 :root {
+  /* Text on top of a solid --accent / --accent-2 / --danger fill. A palette
+     (palettes.ts) picks black or white per colour so it stays readable on
+     light accents too. */
+  --accent-tint: var(--accent);
+  --on-accent: #fff;
+  --on-accent-2: #fff;
+  --on-danger: #fff;
   --menu-backdrop: blur(40px) saturate(160%);
   --menu-surface: rgb(var(--surface-rgb) / 0.96);
 }
