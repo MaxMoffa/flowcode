@@ -334,6 +334,10 @@ export const en: Record<MessageKey, string> = {
     "What happens when you click a link in the terminal: with \"Ask first\" a small menu lets you open it in the browser or copy it, with \"Open right away\" it opens straight in the default browser.",
   "settings.links.ask": "Ask first",
   "settings.links.open": "Open right away",
+  "settings.explorerOpen.label": "Opening folders in the explorer",
+  "settings.explorerOpen.desc": "How many clicks it takes to enter a folder in the file explorer.",
+  "settings.explorerOpen.double": "Double click",
+  "settings.explorerOpen.single": "Single click",
 
   "settings.version.title": "Version",
   "settings.version.copyDesc": "Copy the app's name, version and description to the clipboard - handy when reporting a problem.",

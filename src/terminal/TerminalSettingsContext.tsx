@@ -9,6 +9,7 @@ const START_PATH_KEY = "flowcode.terminalStartPath";
 const SHELL_START_PATHS_KEY = "flowcode.terminalStartPathByShell";
 const RESTORE_SESSION_KEY = "flowcode.restoreSession";
 const CONFIRM_LINKS_KEY = "flowcode.confirmLinkOpen";
+const EXPLORER_DOUBLE_CLICK_KEY = "flowcode.explorerDoubleClick";
 const MIN_SIZE = 9;
 const MAX_SIZE = 28;
 const DEFAULT_SIZE = 13;
@@ -78,6 +79,10 @@ interface TerminalSettingsValue {
    * click) or opens it in the browser straight away. */
   confirmLinkOpen: boolean;
   setConfirmLinkOpen: (enabled: boolean) => void;
+  /** Whether the file explorer enters a folder on double click (the default)
+   * or on a single click. */
+  explorerDoubleClick: boolean;
+  setExplorerDoubleClick: (enabled: boolean) => void;
 }
 
 /** Plain (non-hook) read of the same value `shellId` above holds - for the
@@ -116,6 +121,7 @@ const readShellStartPaths = (key: string) => readJson(key, isStringRecord, {});
 const writeJson = (key: string, value: Record<string, string>) => writeString(key, JSON.stringify(value));
 const readRestoreSession = (key: string) => readBool(key, true);
 const readConfirmLinks = (key: string) => readBool(key, true);
+const readExplorerDoubleClick = (key: string) => readBool(key, true);
 
 /** Drops `tabId` from the overrides map (same reference if it isn't there). */
 function withoutTab(prev: Record<string, number>, tabId: string): Record<string, number> {
@@ -149,6 +155,11 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
   );
   const [restoreSession, setRestoreSession] = usePersistentState(RESTORE_SESSION_KEY, readRestoreSession, writeBool);
   const [confirmLinkOpen, setConfirmLinkOpen] = usePersistentState(CONFIRM_LINKS_KEY, readConfirmLinks, writeBool);
+  const [explorerDoubleClick, setExplorerDoubleClick] = usePersistentState(
+    EXPLORER_DOUBLE_CLICK_KEY,
+    readExplorerDoubleClick,
+    writeBool,
+  );
 
   const getTabFontSize = useCallback(
     (tabId: string) => tabFontSizeOverrides[tabId] ?? fontSize,
@@ -189,6 +200,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setRestoreSession,
       confirmLinkOpen,
       setConfirmLinkOpen,
+      explorerDoubleClick,
+      setExplorerDoubleClick,
     }),
     [
       fontSize,
@@ -209,6 +222,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setRestoreSession,
       confirmLinkOpen,
       setConfirmLinkOpen,
+      explorerDoubleClick,
+      setExplorerDoubleClick,
     ],
   );
 

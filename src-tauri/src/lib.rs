@@ -6,6 +6,7 @@ mod pty;
 mod session;
 mod system;
 mod updater;
+mod watcher;
 mod windows;
 
 use pty::PtyState;
@@ -63,6 +64,7 @@ pub fn run() {
                 app.state::<session::SessionStore>().forget_window(app, label);
                 app.state::<windows::WindowInits>().forget(label);
                 app.state::<windows::WindowTabs>().forget(label);
+                app.state::<watcher::DirWatchers>().forget(label);
             }
         })
         .manage(PtyState::default())
@@ -70,6 +72,7 @@ pub fn run() {
         .manage(session::SessionStore::default())
         .manage(windows::WindowInits::default())
         .manage(windows::WindowTabs::default())
+        .manage(watcher::DirWatchers::default())
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
             set_ui_language,
@@ -124,6 +127,8 @@ pub fn run() {
             system::wsl_default_distro,
             system::wsl_home_dir,
             system::set_window_square_corners,
+            watcher::watch_dir,
+            watcher::unwatch_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
@@ -10,6 +11,7 @@ import type { ExplorerLinkMode } from "../settings/modes";
 import { isRootPath, parentPath, separatorOf, trimTrailingSeparators, truncatePath } from "../lib/path";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { useI18n } from "../i18n";
+import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 
 interface FsEntry {
   name: string;
@@ -119,6 +121,10 @@ function EntryIcon({ entry }: { entry: FsEntry }) {
 
 /** Exported so Settings → Informazioni's "Ripristina terminale" can clear it
  * as part of a full reset, without duplicating the key string. */
+function sameEntries(a: FsEntry[], b: FsEntry[]): boolean {
+  return a.length === b.length && a.every((e, i) => e.path === b[i].path && e.is_dir === b[i].is_dir);
+}
+
 export const SHOW_HIDDEN_KEY = "flowcode.showHiddenFiles";
 const readHiddenFlag = (key: string) => readBool(key, false);
 
@@ -202,6 +208,7 @@ export function FileTree({
   terminalBusy,
 }: FileTreeProps) {
   const { t } = useI18n();
+  const { explorerDoubleClick } = useTerminalSettings();
   const [entries, setEntries] = useState<FsEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -296,7 +303,9 @@ export function FileTree({
     invoke<FsEntry[]>("read_dir", { path: cwd, showHidden })
       .then((result) => {
         if (seq !== reloadSeqRef.current) return;
-        setEntries(result);
+        // Same listing (a watcher event that changed nothing visible, a poll):
+        // keep the old array so the tree doesn't re-render for nothing.
+        setEntries((prev) => (prev && sameEntries(prev, result) ? prev : result));
         setError(null);
       })
       .catch((e) => {
@@ -313,6 +322,43 @@ export function FileTree({
     setRenamingPath(null);
     reload();
   }, [reload]);
+
+  // Follows the folder on disk: the backend watches it and says when entries
+  // are created, removed or renamed (files deleted in another program, a
+  // build writing output, ...). Bursts are folded into one reload. A folder
+  // that can't be watched (a network/WSL share) is polled instead, while
+  // the window is in view.
+  useEffect(() => {
+    if (!cwd) return;
+    let disposed = false;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    const scheduleReload = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(reload, 150);
+    };
+    const unlisten = listen<string>("fs-changed", (event) => {
+      if (event.payload === cwd) scheduleReload();
+    });
+    invoke("watch_dir", { path: cwd }).catch(() => {
+      if (disposed) return;
+      poll = setInterval(() => {
+        if (document.visibilityState === "visible") reload();
+      }, 3000);
+    });
+    // Whatever changed while the window was hidden or asleep.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reload();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      disposed = true;
+      if (debounce) clearTimeout(debounce);
+      if (poll) clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
+      unlisten.then((fn) => fn());
+    };
+  }, [cwd, reload]);
 
   function goUp() {
     if (cwd) onNavigate(parentPath(cwd));
@@ -338,12 +384,17 @@ export function FileTree({
     onNavigate(trimmed);
   }
 
+  // A folder is entered on a single click or a double one, per the setting;
+  // either way a click selects the row, and a file only ever opens on a
+  // double click.
   function handleRowClick(entry: FsEntry) {
-    if (entry.is_dir) {
-      onNavigate(entry.path);
-    } else {
-      setSelected(entry.path);
-    }
+    if (entry.is_dir && !explorerDoubleClick) onNavigate(entry.path);
+    else setSelected(entry.path);
+  }
+
+  function handleRowDoubleClick(entry: FsEntry) {
+    if (entry.is_dir) onNavigate(entry.path);
+    else onOpenFile(entry.path);
   }
 
   async function handleDelete(entry: FsEntry) {
@@ -606,7 +657,7 @@ export function FileTree({
                 key={entry.path}
                 className={"file-tree-row" + (selected === entry.path ? " is-active" : "")}
                 onClick={() => handleRowClick(entry)}
-                onDoubleClick={() => !entry.is_dir && onOpenFile(entry.path)}
+                onDoubleClick={() => handleRowDoubleClick(entry)}
                 onContextMenu={(e) => openMenu(e, entryMenuItems(entry))}
               >
                 <EntryIcon entry={entry} />

@@ -338,6 +338,10 @@ export const it = {
     "Cosa succede quando clicchi un link nel terminale: con \"Chiedi conferma\" appare un piccolo menu per aprirlo nel browser o copiarlo, con \"Apri subito\" si apre direttamente nel browser predefinito.",
   "settings.links.ask": "Chiedi conferma",
   "settings.links.open": "Apri subito",
+  "settings.explorerOpen.label": "Apertura cartelle nell'explorer",
+  "settings.explorerOpen.desc": "Quanti click servono per entrare in una cartella nel file explorer.",
+  "settings.explorerOpen.double": "Doppio click",
+  "settings.explorerOpen.single": "Click singolo",
 
   "settings.version.title": "Versione",
   "settings.version.copyDesc":

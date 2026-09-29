@@ -98,6 +98,8 @@ export function SettingsPage({
     setRestoreSession,
     confirmLinkOpen,
     setConfirmLinkOpen,
+    explorerDoubleClick,
+    setExplorerDoubleClick,
   } = useTerminalSettings();
   const { section } = useSettingsSection();
   const notificationSettings = useNotificationSettings();
@@ -211,6 +213,7 @@ export function SettingsPage({
     resetShellStartPaths();
     setRestoreSession(true);
     setConfirmLinkOpen(true);
+    setExplorerDoubleClick(true);
     onSetSidebarMode("auto");
 
     const toRemove = quickActionIds.filter((id) => !DEFAULT_QUICK_ACTIONS.includes(id));
@@ -517,6 +520,26 @@ export function SettingsPage({
                     onClick={() => setConfirmLinkOpen(false)}
                   >
                     {t("settings.links.open")}
+                  </button>
+                </div>
+              </div>
+              <div className="settings-field">
+                <span className="settings-field-label">{t("settings.explorerOpen.label")}</span>
+                <p className="settings-field-desc">{t("settings.explorerOpen.desc")}</p>
+                <div className="settings-choice-row">
+                  <button
+                    type="button"
+                    className={"settings-choice" + (explorerDoubleClick ? " is-active" : "")}
+                    onClick={() => setExplorerDoubleClick(true)}
+                  >
+                    {t("settings.explorerOpen.double")}
+                  </button>
+                  <button
+                    type="button"
+                    className={"settings-choice" + (!explorerDoubleClick ? " is-active" : "")}
+                    onClick={() => setExplorerDoubleClick(false)}
+                  >
+                    {t("settings.explorerOpen.single")}
                   </button>
                 </div>
               </div>
