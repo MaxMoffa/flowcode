@@ -282,7 +282,11 @@ pub fn list_shell_options() -> Vec<ShellOption> {
         options[0].label = if on_path("pwsh.exe") { "PowerShell 7" } else { "Windows PowerShell" }.into();
         options.push(ShellOption { id: "cmd".into(), label: "cmd".into() });
         options.push(ShellOption { id: "powershell".into(), label: "Windows PowerShell".into() });
-        options.push(ShellOption { id: "pwsh".into(), label: "PowerShell 7".into() });
+        // Like WSL below, only when it's really there: offering it otherwise
+        // hands back a tab that can't start its shell.
+        if on_path("pwsh.exe") {
+            options.push(ShellOption { id: "pwsh".into(), label: "PowerShell 7".into() });
+        }
         #[cfg(target_os = "windows")]
         if wsl_installed() {
             options.push(ShellOption { id: "wsl".into(), label: "WSL".into() });
@@ -309,7 +313,9 @@ fn resolve_shell(id: Option<&str>) -> String {
         None | Some("") | Some("system") => default_shell(),
         Some("cmd") => "cmd.exe".into(),
         Some("powershell") => "powershell.exe".into(),
-        Some("pwsh") => "pwsh.exe".into(),
+        // A remembered pick (recent terminal, favorite, setting) can outlive
+        // the install - Windows PowerShell is what's left then.
+        Some("pwsh") => if on_path("pwsh.exe") { "pwsh.exe".into() } else { "powershell.exe".into() },
         Some("wsl") => "wsl.exe".into(),
         Some(id) if id.starts_with("wsl:") => "wsl.exe".into(),
         Some("zsh") => "zsh".into(),
