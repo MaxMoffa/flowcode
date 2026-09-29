@@ -16,6 +16,9 @@ interface TabStripProps {
   /** The agent CLI (Claude Code, Codex) running in a terminal tab, by tab
    * id - shown as its logo in place of the dot, with what it's doing. */
   agents?: Map<string, TabAgent>;
+  /** Terminal tabs whose agent finished while nobody was looking - their
+   * logo (or dot) turns green until the tab is seen. */
+  doneIds?: ReadonlySet<string>;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   /** Creates a new terminal tab - `shellId` (a `list_shell_options` id, from
@@ -170,20 +173,31 @@ export function shellOptionIcon(id: string) {
  * renamed tab (`renamed`) it's followed by a spinner while the agent works
  * or a "?" while it waits on the user: both CLIs show that state in the
  * title, which a custom name replaces. */
-function agentTabIcon(agent: TabAgent, renamed: boolean) {
+function agentAttention(agent: TabAgent | undefined, done: boolean): "waiting" | "busy" | "done" | "idle" {
+  if (agent?.state === "waiting") return "waiting";
+  if (agent?.state === "busy") return "busy";
+  return done ? "done" : "idle";
+}
+
+function agentTabIcon(agent: TabAgent, renamed: boolean, done: boolean) {
   const title =
     agent.state === "busy" ? t("agents.status.busy") : agent.state === "waiting" ? t("agents.status.waiting") : undefined;
+  // The logo itself carries the state: amber when it needs the user, blue
+  // while it works, green once it finished unseen.
+  const state = agentAttention(agent, done);
   return (
     <span className="term-tab-agent" title={title}>
-      <span className="term-tab-agent-logo">{agentCliIcon(agent.cli)}</span>
+      <span className={"term-tab-agent-logo is-" + state}>{agentCliIcon(agent.cli)}</span>
       {renamed && agent.state === "busy" && <span className="term-tab-agent-spinner" />}
       {renamed && agent.state === "waiting" && <span className="term-tab-agent-question">?</span>}
     </span>
   );
 }
 
-function tabIcon(tab: AppTab, agent?: TabAgent) {
-  if (tab.kind === "terminal") return agent ? agentTabIcon(agent, !!tab.customLabel) : <span className="term-tab-dot" />;
+function tabIcon(tab: AppTab, agent?: TabAgent, done = false) {
+  if (tab.kind === "terminal") {
+    return agent ? agentTabIcon(agent, !!tab.customLabel, done) : <span className={"term-tab-dot" + (done ? " is-done" : "")} />;
+  }
   if (tab.kind === "settings") return <GearIcon />;
   if (tab.kind === "changelog" || tab.kind === "whatsNew") return <ChangelogIcon />;
   return <FileTypeIcon name={tab.label} />;
@@ -210,6 +224,7 @@ interface TabOverflowMenuProps {
   tabs: AppTab[];
   activeId: string;
   agents?: Map<string, TabAgent>;
+  doneIds?: ReadonlySet<string>;
   anchorRect: DOMRect;
   onSelect: (id: string) => void;
   onCloseTab: (id: string) => void;
@@ -218,7 +233,7 @@ interface TabOverflowMenuProps {
   onDismiss: () => void;
 }
 
-function TabOverflowMenu({ tabs, activeId, agents, anchorRect, onSelect, onCloseTab, onDismiss }: TabOverflowMenuProps) {
+function TabOverflowMenu({ tabs, activeId, agents, doneIds, anchorRect, onSelect, onCloseTab, onDismiss }: TabOverflowMenuProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -274,7 +289,7 @@ function TabOverflowMenu({ tabs, activeId, agents, anchorRect, onSelect, onClose
               onDismiss();
             }}
           >
-            {tabIcon(tab, agents?.get(tab.id))}
+            {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id))}
             <span className="tab-overflow-item-label">{tabDisplayLabel(tab)}</span>
             {tab.kind === "terminal" && tab.notifyMuted && <MutedIcon />}
             <button
@@ -308,6 +323,7 @@ export function TabStrip({
   activeId,
   dirtyIds,
   agents,
+  doneIds,
   onSelect,
   onClose,
   onNew,
@@ -421,6 +437,15 @@ export function TabStrip({
   // one, otherwise the last one that was, otherwise the most recent tab in
   // the group - reasonable stand-ins for a preview, in that order.
   const folderPreview = activeInFolder ?? rememberedTab ?? hiddenTabs[hiddenTabs.length - 1];
+  // Tabs tucked into the folder can't show their own state, so the folder
+  // shows the most pressing one among them.
+  const folderAttention = hiddenTabs.some((tab) => agents?.get(tab.id)?.state === "waiting")
+    ? "waiting"
+    : hiddenTabs.some((tab) => doneIds?.has(tab.id))
+      ? "done"
+      : hiddenTabs.some((tab) => agents?.get(tab.id)?.state === "busy")
+        ? "busy"
+        : "idle";
 
   function handleTabPointerDown(e: ReactPointerEvent<HTMLDivElement>, tab: AppTab) {
     if (e.button !== 0 || editingId === tab.id) return;
@@ -503,6 +528,7 @@ export function TabStrip({
             className={
               "term-tab" +
               (tab.id === activeId ? " is-active" : "") +
+              (tab.kind === "terminal" ? " attn-" + agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id)) : "") +
               (draggedTab?.id === tab.id ? (drag?.detached ? " is-detached" : " is-dragging") : "")
             }
             onClick={() => {
@@ -522,7 +548,7 @@ export function TabStrip({
             onContextMenu={(e) => openMenu(e, tabMenuItems(tab))}
             title={tabTitle(tab)}
           >
-            {tabIcon(tab, agents?.get(tab.id))}
+            {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id))}
             {editingId === tab.id ? (
               <input
                 ref={inputRef}
@@ -563,11 +589,11 @@ export function TabStrip({
       {folderPreview && (
         <div
           ref={folderTabRef}
-          className={"term-tab term-tab-folder" + (activeInFolder ? " is-active" : "")}
+          className={"term-tab term-tab-folder attn-" + folderAttention + (activeInFolder ? " is-active" : "")}
           onClick={handleFolderTabClick}
           title={activeInFolder ? t("tabs.folder.clickAgain") : t("tabs.folder.grouped", { count: hiddenTabs.length })}
         >
-          <span className="term-tab-folder-icon">
+          <span className={"term-tab-folder-icon is-" + folderAttention}>
             <FolderIcon />
             <span className="tab-overflow-count">{hiddenTabs.length}</span>
           </span>
@@ -603,7 +629,7 @@ export function TabStrip({
         drag?.detached &&
         createPortal(
           <div className="tab-drag-ghost" style={{ left: drag.x - 24, top: drag.y - 15 }}>
-            {tabIcon(draggedTab, agents?.get(draggedTab.id))}
+            {tabIcon(draggedTab, agents?.get(draggedTab.id), doneIds?.has(draggedTab.id))}
             <span className="term-tab-label">{tabDisplayLabel(draggedTab)}</span>
           </div>,
           document.body,
@@ -613,6 +639,7 @@ export function TabStrip({
           tabs={hiddenTabs}
           activeId={activeId}
           agents={agents}
+          doneIds={doneIds}
           anchorRect={overflowAnchorRect}
           onSelect={onSelect}
           onCloseTab={onClose}

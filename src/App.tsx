@@ -1786,7 +1786,7 @@ function Shell() {
     const tab = tabs.find((t) => t.kind === "terminal" && termRefs.current.get(t.id)?.getPtyId() === session.pty_id);
     if (tab) tabAgents.set(tab.id, tabAgentOf(session));
   }
-  useAgentNotifications(tabAgents, {
+  const doneTabIds = useAgentNotifications(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
   });
@@ -2075,6 +2075,7 @@ function Shell() {
           activeId={activeTabId}
           dirtyIds={dirtyIds}
           agents={tabAgents}
+          doneIds={doneTabIds}
           onSelect={selectTab}
           onClose={closeTab}
           onNew={(shellId) => (shellId ? addTab(undefined, shellId) : openNewTab())}

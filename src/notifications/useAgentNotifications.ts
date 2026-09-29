@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { TabAgent } from "../agents/agentSessions";
@@ -24,20 +24,58 @@ interface Watcher {
  * notification when one finishes its turn, needs the user, or exits - unless
  * that kind is switched off in Settings, the tab is muted, or the user is
  * already looking at it. Clicking the notification brings the tab forward
- * (see notify.rs). */
-export function useAgentNotifications(agents: Map<string, TabAgent>, { getTab, isViewing }: Watcher) {
+ * (see notify.rs). The same events also drive the taskbar/Dock badge (see
+ * attention.rs): agents waiting for input, or one that finished unseen. The
+ * tabs whose agent finished unseen are returned too, for the tab strip. */
+export function useAgentNotifications(agents: Map<string, TabAgent>, { getTab, isViewing }: Watcher): ReadonlySet<string> {
   const previous = useRef<Map<string, TabAgent> | null>(null);
   const settleTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  /** Tabs whose agent finished while the user wasn't looking - cleared once
+   * they look, or the agent starts working again. */
+  const unseenDone = useRef(new Set<string>());
+  const [doneIds, setDoneIds] = useState<ReadonlySet<string>>(() => new Set());
+  const sentBadge = useRef({ waiting: 0, done: false });
+  const syncBadge = useRef<() => void>(() => {});
 
   useEffect(() => {
     const before = previous.current;
     previous.current = agents;
+
+    syncBadge.current = () => {
+      const settings = getNotificationSettings();
+      const hidden = (id: string) => {
+        const tab = getTab(id);
+        return !tab || tab.notifyMuted || isViewing(id);
+      };
+      const before = unseenDone.current.size;
+      for (const id of unseenDone.current) {
+        if (hidden(id) || agents.get(id)?.state === "busy") unseenDone.current.delete(id);
+      }
+      if (unseenDone.current.size !== before) setDoneIds(new Set(unseenDone.current));
+      let waiting = 0;
+      if (settings.input) for (const [id, agent] of agents) if (agent.state === "waiting" && !hidden(id)) waiting++;
+      const done = settings.done && unseenDone.current.size > 0;
+      const sent = sentBadge.current;
+      if (sent.waiting === waiting && sent.done === done) return;
+      sentBadge.current = { waiting, done };
+      void invoke("attention_set", {
+        label: getCurrentWindow().label,
+        waiting,
+        done,
+        flash: waiting > sent.waiting,
+      }).catch(() => {});
+    };
     // The first answer only tells what was already going on.
     if (!before) return;
 
     function notify(tabId: string, agent: TabAgent, kind: NotificationKind) {
       const tab = getTab(tabId);
       if (!tab || tab.notifyMuted || !getNotificationSettings()[kind] || isViewing(tabId)) return;
+      if (kind === "done") {
+        unseenDone.current.add(tabId);
+        setDoneIds(new Set(unseenDone.current));
+        syncBadge.current();
+      }
       void invoke("notify_show", {
         label: getCurrentWindow().label,
         tabId,
@@ -75,12 +113,24 @@ export function useAgentNotifications(agents: Map<string, TabAgent>, { getTab, i
         notify(tabId, was, "exited");
       }
     }
+    syncBadge.current();
   });
+
+  // Looking at the window is what dismisses the badge, and that changes
+  // without any agent state changing.
+  useEffect(() => {
+    const sync = () => syncBadge.current();
+    window.addEventListener("focus", sync);
+    return () => window.removeEventListener("focus", sync);
+  }, []);
 
   useEffect(
     () => () => {
       settleTimers.current.forEach(clearTimeout);
+      void invoke("attention_set", { label: getCurrentWindow().label, waiting: 0, done: false, flash: false }).catch(() => {});
     },
     [],
   );
+
+  return doneIds;
 }

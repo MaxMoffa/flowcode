@@ -14,13 +14,8 @@ pub fn notify_show(app: AppHandle, label: String, tab_id: String, title: String,
 #[cfg(target_os = "windows")]
 fn show(app: AppHandle, label: String, tab_id: String, title: String, body: String) {
     use tauri_winrt_notification::Toast;
-    // An installed build owns its identifier as toast source; a dev build
-    // isn't registered with Windows, so borrow PowerShell's like Tauri does.
-    let app_id = if tauri::is_dev() {
-        Toast::POWERSHELL_APP_ID.to_string()
-    } else {
-        app.config().identifier.clone()
-    };
+    let app_id = app.config().identifier.clone();
+    register_toast_source(&app);
     let _ = Toast::new(&app_id)
         .title(&title)
         .text1(&body)
@@ -29,6 +24,40 @@ fn show(app: AppHandle, label: String, tab_id: String, title: String, body: Stri
             Ok(())
         })
         .show();
+}
+
+/// Windows labels a toast with the name and icon registered for its source
+/// id, and falls back to the raw id (or, for an unknown one, nothing useful)
+/// otherwise - so register ours once per run. Same for dev and installed
+/// builds, which keeps the toast reading "Flowcode" instead of "Windows
+/// PowerShell". The icon has to be a file on disk, so the embedded PNG is
+/// written out to the app's local data folder first.
+#[cfg(target_os = "windows")]
+fn register_toast_source(app: &AppHandle) {
+    use std::os::windows::process::CommandExt;
+    use std::sync::Once;
+    use tauri::Manager;
+    static REGISTERED: Once = Once::new();
+    REGISTERED.call_once(|| {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let key = format!(r"HKCU\Software\Classes\AppUserModelId\{}", app.config().identifier);
+        let reg = |name: &str, value: &str| {
+            let _ = std::process::Command::new("reg")
+                .args(["add", &key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        };
+        reg("DisplayName", "Flowcode");
+        let icon = app.path().app_local_data_dir().ok().and_then(|dir| {
+            let file = dir.join("toast-icon.png");
+            std::fs::create_dir_all(&dir).ok()?;
+            std::fs::write(&file, include_bytes!("../icons/128x128.png")).ok()?;
+            Some(file)
+        });
+        if let Some(icon) = icon {
+            reg("IconUri", &icon.to_string_lossy());
+        }
+    });
 }
 
 #[cfg(not(target_os = "windows"))]

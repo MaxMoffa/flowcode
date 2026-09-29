@@ -66,6 +66,40 @@
   height: 13px;
 }
 
+/* The tab's outline takes the same colour as its logo. Declared after
+   .is-active so it also shows on the tab being looked at. */
+.term-tab.attn-waiting {
+  border-color: color-mix(in srgb, var(--ansi-bright-yellow) 65%, transparent);
+}
+
+.term-tab.attn-busy {
+  border-color: color-mix(in srgb, var(--ansi-bright-blue) 65%, transparent);
+}
+
+.term-tab.attn-done {
+  border-color: color-mix(in srgb, var(--ansi-bright-green) 65%, transparent);
+}
+
+.term-tab-agent-logo.is-waiting,
+.term-tab-folder-icon.is-waiting {
+  color: var(--ansi-bright-yellow);
+}
+
+.term-tab-agent-logo.is-busy,
+.term-tab-folder-icon.is-busy {
+  color: var(--ansi-bright-blue);
+}
+
+.term-tab-agent-logo.is-done,
+.term-tab-folder-icon.is-done,
+.term-tab-dot.is-done {
+  color: var(--ansi-bright-green);
+}
+
+.term-tab-dot.is-done {
+  background: var(--ansi-bright-green);
+}
+
 .term-tab-agent-spinner {
   width: 9px;
   height: 9px;
