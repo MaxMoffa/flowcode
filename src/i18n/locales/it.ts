@@ -162,6 +162,10 @@ export const it = {
   "newTab.recentsEmpty": "I terminali in cui esegui dei comandi compariranno qui.",
   "newTab.favoritesEmpty": "Aggiungi una cartella ai preferiti con la ★ in alto per ritrovarla qui.",
   "newTab.resume": "Riprendi ↵",
+  "newTab.system": "Questo computer",
+  "newTab.memory": "Memoria",
+  "newTab.disk": "Disco",
+  "newTab.freeOf": "{free} liberi su {total} GiB",
 
   // Editor
   "editor.error": "Errore",

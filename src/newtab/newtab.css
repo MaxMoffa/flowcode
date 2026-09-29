@@ -35,7 +35,7 @@
   gap: 14px;
   font: 700 26px/1 var(--newtab-mono);
   letter-spacing: -0.01em;
-  transition: opacity 0.2s;
+  transition: opacity 0.14s;
 }
 
 .newtab-brand-text {
@@ -103,15 +103,24 @@
 /* ---------- command box ---------- */
 
 .newtab-box {
+  position: relative;
+  z-index: 2;
   width: 100%;
+  box-sizing: border-box;
+}
+
+/* The box's surface is its own layer so the hand-off can grow it to the
+   whole page (see launch() in NewTabPage.tsx). */
+.newtab-box-bg {
+  position: absolute;
+  inset: 0;
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--fg) 18%, transparent);
   border-radius: 14px;
   background: var(--newtab-card);
-  overflow: hidden;
-  transition:
-    border-color 0.25s,
-    background 0.25s;
+  transform-origin: 0 0;
+  will-change: transform;
+  pointer-events: none;
 }
 
 .newtab-prompt {
@@ -156,10 +165,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  position: relative;
+  margin: 0 1px 1px;
   padding: 9px 12px;
   border-top: 1px solid var(--border);
+  border-radius: 0 0 13px 13px;
   background: var(--newtab-card);
-  transition: opacity 0.2s;
+  transition: opacity 0.14s;
 }
 
 .newtab-chips {
@@ -215,6 +227,70 @@
   transition:
     transform 0.42s cubic-bezier(0.32, 0.72, 0, 1),
     opacity 0.22s;
+}
+
+/* Spans both columns, under recents and favorites. */
+.newtab-system {
+  grid-column: 1 / -1;
+}
+
+.newtab-sys-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
+  border-radius: 12px;
+  background: var(--newtab-card);
+}
+
+.newtab-sys-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.newtab-sys-tile + .newtab-sys-tile {
+  border-left: 1px solid var(--border);
+}
+
+.newtab-sys-label {
+  color: var(--fg-muted);
+  font: 600 11px var(--newtab-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.newtab-sys-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 14px/1.4 var(--newtab-mono);
+}
+
+.newtab-sys-sub {
+  color: var(--fg-muted);
+  font: 12px var(--newtab-mono);
+}
+
+.newtab-sys-meter {
+  display: block;
+  height: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.newtab-sys-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.newtab-sys-meter.is-high > span {
+  background: var(--danger);
 }
 
 .newtab-heading {
@@ -432,11 +508,6 @@
   opacity: 0;
 }
 
-.newtab.is-leaving .newtab-box {
-  border-color: transparent;
-  background: transparent;
-}
-
 .newtab.is-leaving .newtab-input {
   caret-color: transparent;
 }
@@ -456,7 +527,7 @@
 
 .newtab.is-fading {
   opacity: 0;
-  transition: opacity 0.22s ease-out;
+  transition: opacity 0.12s ease-out;
 }
 
 @media (max-width: 760px) {

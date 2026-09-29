@@ -163,6 +163,10 @@ export const en: Record<MessageKey, string> = {
   "newTab.recentsEmpty": "Terminals you run commands in will show up here.",
   "newTab.favoritesEmpty": "Add a folder to your favorites with the ★ at the top to find it here.",
   "newTab.resume": "Resume ↵",
+  "newTab.system": "This computer",
+  "newTab.memory": "Memory",
+  "newTab.disk": "Disk",
+  "newTab.freeOf": "{free} free of {total} GiB",
 
   // Editor
   "editor.error": "Error",

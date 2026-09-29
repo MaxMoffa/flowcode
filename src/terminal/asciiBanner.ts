@@ -18,7 +18,7 @@ function ansiTrueColor(hex: string): string | null {
   return `\x1b[38;2;${parseInt(r, 16)};${parseInt(g, 16)};${parseInt(b, 16)}m`;
 }
 
-function gib(bytes: number): string {
+export function gib(bytes: number): string {
   return (bytes / 1024 ** 3).toFixed(1);
 }
 

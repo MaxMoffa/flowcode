@@ -6,6 +6,8 @@ import { listFavorites, subscribeFavorites, type FavoriteFolder } from "../favor
 import { listRecentTerminals, subscribeRecentTerminals, type RecentTerminal } from "./recentTerminals";
 import { isWindowsPlatform } from "../lib/path";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
+import { gib, type BannerSystemInfo } from "../terminal/asciiBanner";
 import { useI18n } from "../i18n";
 import { FrogLogo } from "./FrogLogo";
 import "./newtab.css";
@@ -43,12 +45,15 @@ interface NewTabPageProps {
   onDone: () => void;
 }
 
-const FLIGHT_MS = 520;
+/** The prompt flight and the command box growing into the terminal run
+ * together, and start as soon as the user hits Enter. */
+const FLIGHT_MS = 340;
+const HAND_OFF_EASING = "cubic-bezier(.16,1,.3,1)";
 /** Let the shell's own prompt paint before the page starts to fade. */
-const SETTLE_MS = 140;
+const SETTLE_MS = 60;
 /** Fade anyway if the terminal never reports in. */
 const READY_TIMEOUT_MS = 1800;
-const OVERLAY_FADE_MS = 260;
+const OVERLAY_FADE_MS = 120;
 
 const RECENTS_SHOWN = 6;
 
@@ -96,8 +101,10 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const rootRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLLabelElement>(null);
   const psRef = useRef<HTMLSpanElement>(null);
+  const boxBgRef = useRef<HTMLDivElement>(null);
   const timersRef = useRef<number[]>([]);
   const [version, setVersion] = useState("");
+  const [system, setSystem] = useState<BannerSystemInfo | null>(null);
   const [flightDone, setFlightDone] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -119,6 +126,18 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     void getVersion()
       .then(setVersion)
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<BannerSystemInfo>("system_info")
+      .then((info) => {
+        if (!cancelled) setSystem(info);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => () => timersRef.current.forEach(window.clearTimeout), []);
@@ -155,16 +174,18 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     timersRef.current.push(settle);
   }, [phase, flightDone, terminalReady, timedOut, onDone]);
 
-  /** Plays the hand-off - the first line flies to where the terminal's own
-   * first line will be while everything else clears away - then launches. */
+  /** Plays the hand-off - the command box grows to fill the page while the
+   * first line flies to where the terminal's own first line will be and
+   * everything else clears away - then launches. */
   function launch(next: NewTabLaunch) {
     if (leaving) return;
     setLeaving(true);
     const root = rootRef.current;
     const prompt = promptRef.current;
     const ps = psRef.current;
+    const boxBg = boxBgRef.current;
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!root || !prompt || !ps || reduceMotion) {
+    if (!root || !prompt || !ps || !boxBg || reduceMotion) {
       onLaunch(next);
       onDone();
       return;
@@ -181,9 +202,23 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     const dy = text.top - box.top;
     const targetX = to.left + 14;
     const targetY = to.top + 14 + rowHeight / 2 - (text.height * scale) / 2;
+    const bg = boxBg.getBoundingClientRect();
     setPhase("overlay");
     onLaunch(next);
     timersRef.current.push(window.setTimeout(() => setTimedOut(true), READY_TIMEOUT_MS));
+    // The box's surface grows from its own corner to the page's, dissolving
+    // into the terminal's background as it goes.
+    boxBg.animate(
+      [
+        { transform: "none" },
+        {
+          transform: `translate(${to.left - bg.left}px, ${to.top - bg.top}px) scale(${to.width / bg.width}, ${to.height / bg.height})`,
+          backgroundColor: "transparent",
+          borderColor: "transparent",
+        },
+      ],
+      { duration: FLIGHT_MS, easing: HAND_OFF_EASING, fill: "forwards" },
+    );
     const animation = prompt.animate(
       [
         { transform: "translate(0, 0) scale(1)" },
@@ -191,7 +226,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
           transform: `translate(${targetX - box.left - dx * scale}px, ${targetY - box.top - dy * scale}px) scale(${scale})`,
         },
       ],
-      { duration: FLIGHT_MS, easing: "cubic-bezier(.32,.72,0,1)", fill: "forwards" },
+      { duration: FLIGHT_MS, easing: HAND_OFF_EASING, fill: "forwards" },
     );
     animation.onfinish = () => setFlightDone(true);
   }
@@ -249,6 +284,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
         </div>
 
         <div className="newtab-box">
+          <div ref={boxBgRef} className="newtab-box-bg" aria-hidden="true" />
           <label ref={promptRef} className="newtab-prompt">
             <span ref={psRef} className="newtab-ps">{promptFor(shell, defaultLabel, startDir)}</span>
             <input
@@ -351,8 +387,47 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
               </div>
             )}
           </section>
+          {system && (
+            <section className="newtab-system">
+              <h2 className="newtab-heading">{t("newTab.system")}</h2>
+              <div className="newtab-sys-card">
+                {system.os_name && (
+                  <div className="newtab-sys-tile">
+                    <span className="newtab-sys-label">{t("banner.system")}</span>
+                    <span className="newtab-sys-value">{system.os_name}</span>
+                    <span className="newtab-sys-sub">{system.arch}</span>
+                  </div>
+                )}
+                {meterTile(t("newTab.memory"), system.memory_available, system.memory_total)}
+                {system.disk && meterTile(t("newTab.disk"), system.disk.available, system.disk.total)}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>
   );
+
+  /** A "free of total" tile with a bar showing how much is in use. */
+  function meterTile(label: string, free: number, total: number) {
+    const used = total > 0 ? Math.min(1, Math.max(0, (total - free) / total)) : 0;
+    return (
+      <div className="newtab-sys-tile">
+        <span className="newtab-sys-label">{label}</span>
+        <span className="newtab-sys-value">
+          {t("newTab.freeOf", { free: gib(free), total: gib(total) })}
+        </span>
+        <span
+          className={"newtab-sys-meter" + (used > 0.9 ? " is-high" : "")}
+          role="meter"
+          aria-label={label}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(used * 100)}
+        >
+          <span style={{ width: `${used * 100}%` }} />
+        </span>
+      </div>
+    );
+  }
 }
