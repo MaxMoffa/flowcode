@@ -125,6 +125,30 @@ pub async fn run_command_for_display(command: String) -> Result<String, String> 
 // reaches exactly to the (taskbar-aware) screen edge. Restored (and
 // Windows-Snap-tiled) windows already size themselves within the work area
 // on their own and don't need this.
+/// Windows currently minimized, so the restore can be told apart from an
+/// ordinary resize (`WM_SIZE` fires constantly while dragging an edge).
+#[cfg(target_os = "windows")]
+static MINIMIZED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<isize>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Toggles the acrylic backdrop off and on again (DWMWA_SYSTEMBACKDROP_TYPE:
+/// DWMSBT_NONE = 1, DWMSBT_TRANSIENTWINDOW = 3) and forces a full repaint.
+#[cfg(target_os = "windows")]
+unsafe fn refresh_backdrop(hwnd: windows_sys::Win32::Foundation::HWND) {
+    use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_SYSTEMBACKDROP_TYPE};
+    use windows_sys::Win32::Graphics::Gdi::{RedrawWindow, RDW_ALLCHILDREN, RDW_FRAME, RDW_INVALIDATE, RDW_UPDATENOW};
+
+    for backdrop in [1i32, 3i32] {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE as u32,
+            &backdrop as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&backdrop) as u32,
+        );
+    }
+    RedrawWindow(hwnd, core::ptr::null(), core::ptr::null_mut(), RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+}
+
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn nc_calc_size_subclass(
     hwnd: windows_sys::Win32::Foundation::HWND,
@@ -138,7 +162,33 @@ unsafe extern "system" fn nc_calc_size_subclass(
         GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows_sys::Win32::UI::Shell::DefSubclassProc;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{IsZoomed, NCCALCSIZE_PARAMS, WM_NCCALCSIZE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        IsZoomed, NCCALCSIZE_PARAMS, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND, SIZE_MINIMIZED, WM_NCCALCSIZE,
+        WM_NCDESTROY, WM_POWERBROADCAST, WM_SIZE,
+    };
+
+    // Minimizing or a sleep/resume cycle can leave DWM's acrylic backdrop
+    // painted without the webview's content on top (window looks only
+    // blurred until a click on the title bar forces a repaint). Re-apply the
+    // backdrop and force a redraw when the window comes back.
+    match msg {
+        WM_SIZE => {
+            let mut minimized = MINIMIZED.lock().unwrap_or_else(|e| e.into_inner());
+            if wparam == SIZE_MINIMIZED as usize {
+                minimized.insert(hwnd as isize);
+            } else if minimized.remove(&(hwnd as isize)) {
+                drop(minimized);
+                refresh_backdrop(hwnd);
+            }
+        }
+        WM_POWERBROADCAST if wparam == PBT_APMRESUMEAUTOMATIC as usize || wparam == PBT_APMRESUMESUSPEND as usize => {
+            refresh_backdrop(hwnd);
+        }
+        WM_NCDESTROY => {
+            MINIMIZED.lock().unwrap_or_else(|e| e.into_inner()).remove(&(hwnd as isize));
+        }
+        _ => {}
+    }
 
     let result = DefSubclassProc(hwnd, msg, wparam, lparam);
     if msg == WM_NCCALCSIZE && wparam != 0 && IsZoomed(hwnd) != 0 {
