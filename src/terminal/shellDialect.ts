@@ -65,21 +65,38 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
  *   - fish: same quoting, its own `printf` escapes.
  *   - nu: raw single-quoted string - a `'` in the path needs nu's
  *     backtick form instead, and a path with both has no safe form. */
-export function cdCommand(path: string, kind: ShellKind): string | null {
+export function cdCommand(path: string, kind: ShellKind, eraseRows?: number): string | null {
   if (CONTROL_CHARS.test(path)) return null;
+  // The command wipes its own typed rows - back up to the start of the row
+  // the prompt was on (`\e[nF`) and clear from there down (`\e[J`) - so the
+  // shell's fresh prompt is drawn in the old one's place. The shell writes
+  // it, so on Windows the pty's own screen model stays in step with it.
+  const rows = eraseRows && eraseRows > 0 ? Math.floor(eraseRows) : 0;
   switch (kind) {
     case "cmd":
       return `cd /d "${path}" && ${CMD_TITLE_PROMPT}`;
     case "powershell":
-      return `Set-Location -LiteralPath '${path.replace(PS_SINGLE_QUOTES, "$&$&")}'; ${PS_TITLE_PROMPT}`;
+      return (
+        `Set-Location -LiteralPath '${path.replace(PS_SINGLE_QUOTES, "$&$&")}'; ` +
+        (rows ? `[Console]::Write([char]27 + '[${rows}F' + [char]27 + '[J'); ` : "") +
+        PS_TITLE_PROMPT
+      );
     case "posix":
-      return `cd -- ${posixQuote(path)} && printf '\\033]0;%s\\007' "$PWD"`;
+      return (
+        `cd -- ${posixQuote(path)} && ` +
+        (rows ? `printf '\\033[${rows}F\\033[J' && ` : "") +
+        `printf '\\033]0;%s\\007' "$PWD"`
+      );
     case "fish":
-      return `cd ${posixQuote(path)}; and printf '\\e]0;%s\\a' $PWD`;
+      return (
+        `cd ${posixQuote(path)}; and ` +
+        (rows ? `printf '\\e[${rows}F\\e[J'; and ` : "") +
+        `printf '\\e]0;%s\\a' $PWD`
+      );
     case "nu": {
       if (path.includes("'") && path.includes("`")) return null;
       const quoted = path.includes("'") ? `\`${path}\`` : `'${path}'`;
-      return `cd ${quoted}; print -n $"\\e]0;($env.PWD)\\a"`;
+      return `cd ${quoted}; ` + (rows ? `print -n $"\\e[${rows}F\\e[J"; ` : "") + `print -n $"\\e]0;($env.PWD)\\a"`;
     }
   }
 }

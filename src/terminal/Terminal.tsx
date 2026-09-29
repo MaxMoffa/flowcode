@@ -88,8 +88,10 @@ export interface TerminalHandle {
   runCommandSilently: (cmd: string) => void;
   /** Types a `cd` (built for the shell at the prompt - see shellDialect.ts's
    * `cdCommand`), but hides it and its echo entirely - the terminal's
-   * on-screen content doesn't change at all. */
-  navigateSilently: (cdCommand: string) => void;
+   * on-screen content doesn't change at all. `build` gets the number of rows
+   * the typed line will occupy, so a shell that can (`erases`) makes the
+   * command wipe those rows itself, right where the shell drew them. */
+  navigateSilently: (build: (eraseRows: number) => string | null, erases: boolean) => void;
   /** The backend pty session id for this tab's shell, once spawned - lets
    * the Agents sidebar match a `list_agent_sessions` result back to the tab
    * that owns it. `null` before the pty has finished spawning. */
@@ -263,6 +265,20 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   // browsing folders never lengthens the terminal.
   const pendingCollapseRowRef = useRef<number | null>(null);
   const collapseSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When pty output last reached this component - a silent navigation waits
+  // for it to go quiet, so the prompt it settles on is the finished one.
+  const lastOutputAtRef = useRef(0);
+  // A silent `cd` in flight (see `navigateSilently`): the pty's output is
+  // held back from xterm - the screen just stays as it was, like a short
+  // delay - and applied in one go once the fresh prompt has been drawn.
+  const navRef = useRef<{
+    held: string[];
+    startRow: number;
+    erases: boolean;
+    titled: boolean;
+    timer: ReturnType<typeof setTimeout> | null;
+    safety: ReturnType<typeof setTimeout>;
+  } | null>(null);
   // Size last pushed to the pty - the ResizeObserver fires for every layout
   // tweak (sidebar drag, window resize frames), and most of those don't
   // change the cell grid at all, so there's nothing worth an IPC call.
@@ -283,11 +299,61 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     }
   }
 
+  /** Every chunk of pty output goes through here. Normally straight into
+   * xterm; while a silent navigation is in flight it is held instead, and its
+   * title escape (the shell reporting the new cwd) starts the wait for the
+   * fresh prompt to finish drawing. */
+  function receive(data: string) {
+    lastOutputAtRef.current = performance.now();
+    const term = xtermRef.current;
+    if (!term) return;
+    const nav = navRef.current;
+    if (!nav) {
+      term.write(data);
+      return;
+    }
+    nav.held.push(data);
+    if (nav.titled || !/][02];/.test(nav.held.slice(-2).join(""))) return;
+    nav.titled = true;
+    const startedAt = performance.now();
+    const settle = () => {
+      const now = performance.now();
+      if (now - lastOutputAtRef.current < 120 && now - startedAt < 1500) nav.timer = setTimeout(settle, 20);
+      else finishNav();
+    };
+    nav.timer = setTimeout(settle, 20);
+  }
+
+  /** Applies everything held during a silent navigation at once (xterm draws
+   * only the end state), and - for shells that can't erase their own typed
+   * rows - collapses them back out with a standard VT erase. */
+  function finishNav() {
+    const nav = navRef.current;
+    const term = xtermRef.current;
+    navRef.current = null;
+    if (!nav) return;
+    clearTimeout(nav.safety);
+    if (nav.timer) clearTimeout(nav.timer);
+    if (!term) return;
+    term.write(nav.held.join(""), () => {
+      const buf = term.buffer.active;
+      // A full-screen program's alternate buffer has unrelated coordinates.
+      if (nav.erases || !nav.titled || buf.type !== "normal") return;
+      const linesToDelete = buf.baseY + buf.cursorY - nav.startRow;
+      if (linesToDelete <= 0) return;
+      // Cursor Previous Line x N, then Delete Line x N: remove the rows the
+      // injected `cd` + fresh prompt added, pulling that prompt up into the
+      // old one's spot. DL leaves the cursor at column 1, so Cursor Character
+      // Absolute puts it back at the true end of the fresh prompt.
+      const endCol = Math.min(buf.cursorX, term.cols - 1);
+      term.write(`[${linesToDelete}F[${linesToDelete}M[${endCol + 1}G`);
+    });
+  }
+
   /** Arms the title-change-triggered collapse (see the `onTitleChange`
    * handler below) so the rows an injected command adds get erased once the
-   * launched program redraws a titled prompt/screen, then sends the
-   * command. Shared by `navigateSilently` (a `cd`) and `runCommandSilently`
-   * (any other command, e.g. launching a full-screen CLI). */
+   * launched program redraws a titled prompt/screen, then sends the command
+   * (`runCommandSilently`: e.g. launching a full-screen CLI). */
   function writeSilently(data: string, safetyMs = 2000) {
     const id = ptyIdRef.current;
     const term = xtermRef.current;
@@ -301,6 +367,25 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     collapseSafetyRef.current = setTimeout(() => {
       pendingCollapseRowRef.current = null;
     }, safetyMs);
+    usedRef.current = true;
+    writePty(id, data);
+  }
+
+  function writeNavigation(data: string, erases: boolean) {
+    const id = ptyIdRef.current;
+    const term = xtermRef.current;
+    if (!id || !term) return;
+    if (navRef.current) finishNav();
+    const buf = term.buffer.active;
+    navRef.current = {
+      held: [],
+      startRow: buf.baseY + buf.cursorY,
+      erases,
+      titled: false,
+      timer: null,
+      // No title ever came back (unexpected shell state): stop holding.
+      safety: setTimeout(finishNav, 2500),
+    };
     usedRef.current = true;
     writePty(id, data);
   }
@@ -341,7 +426,23 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     // what the prompts pty.rs gives cmd.exe/PowerShell do too. That title is
     // also exactly what App.tsx's title handler needs to pick the new
     // cwd/tab label back up.
-    navigateSilently: (cdCommand: string) => writeSilently(`${cdCommand}\r`),
+    navigateSilently: (build, erases) => {
+      const term = xtermRef.current;
+      if (!term) return;
+      // Rows the typed line spans once Enter is pressed: from the prompt's
+      // end column, `cols` characters per row. The command's own length
+      // (which holds this very number) settles after a pass or two.
+      const startCol = term.buffer.active.cursorX;
+      let rows = 1;
+      let command = build(rows);
+      for (let i = 0; i < 3 && command; i++) {
+        const needed = Math.max(1, Math.ceil((startCol + command.length) / term.cols));
+        if (needed === rows) break;
+        rows = needed;
+        command = build(rows);
+      }
+      if (command) writeNavigation(`${command}\r`, erases);
+    },
     getPtyId: () => ptyIdRef.current,
     wasUsed: () => usedRef.current,
     serialize: () =>
@@ -483,41 +584,19 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         }
         const startRow = pendingCollapseRowRef.current;
         pendingCollapseRowRef.current = null;
-        // The OSC title sequence is parsed (firing this callback) *before*
-        // the prompt text that follows it in the same chunk has actually
-        // been written - reading the cursor position synchronously here
-        // would catch it mid-line (column 0, right after the preceding
-        // linefeed), which is exactly why the collapse below used to land
-        // the cursor at the start of the line instead of after the prompt.
-        // Deferring a tick lets xterm finish writing the rest of the chunk
-        // first, so the position read afterward is the real one.
+        // The title escape is parsed before the prompt text that follows it in
+        // the same chunk - reading the cursor synchronously would catch it
+        // mid-line. Deferring a tick lets xterm finish the chunk first.
         setTimeout(() => {
           const buf = term.buffer.active;
-          // A launched full-screen program (e.g. Claude Code) can switch to
-          // the terminal's alternate screen buffer before its first title
-          // update - `startRow` was recorded against the primary buffer, so
-          // diffing it against the alternate buffer's own (unrelated)
-          // cursor position would be meaningless and risks erasing rows of
-          // the program's own freshly drawn UI instead of the intended
-          // leftover command line. The primary buffer is fully hidden by
-          // the alt screen anyway, so there's nothing to clean up until the
-          // program exits back to it - just give up here rather than guess.
+          // A launched full-screen program can switch to the alternate screen
+          // before its first title update; startRow belongs to the primary
+          // buffer, so give up rather than guess.
           if (buf.type !== "normal") return;
           const linesToDelete = buf.baseY + buf.cursorY - startRow;
           const endCol = buf.cursorX;
           if (linesToDelete > 0) {
-            // Cursor Previous Line x N (this also resets to column 1), then
-            // Delete Line x N: jump back up to where the old prompt sat and
-            // remove exactly the rows the injected `cd` + its fresh prompt
-            // added, pulling that fresh prompt up to reclaim the old one's
-            // spot - net zero rows added. DL leaves the cursor on that same
-            // row but still at column 1, not at the end of the (shell-drawn)
-            // prompt text it's now showing - readline still thinks it's
-            // typing from that original column, so the next keystrokes
-            // would land there and overwrite the prompt. Cursor Character
-            // Absolute moves it back to match, keyed off the column it was
-            // actually at (the true end of the fresh prompt).
-            term.write(`\x1b[${linesToDelete}F\x1b[${linesToDelete}M\x1b[${endCol + 1}G`);
+            term.write(`[${linesToDelete}F[${linesToDelete}M[${endCol + 1}G`);
           }
         }, 0);
       }
@@ -576,7 +655,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       void attachPty(attached.ptyId, {
         onOutput: (data, seq) => {
           lastSeqRef.current = seq;
-          if (!disposed) term.write(data);
+          if (!disposed) receive(data);
         },
         onExit: () => {
           if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
@@ -632,7 +711,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           shell: shellIdRef.current,
           onOutput: (data, seq) => {
             lastSeqRef.current = seq;
-            if (!disposed) term.write(data);
+            if (!disposed) receive(data);
           },
           onExit: () => {
             if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);

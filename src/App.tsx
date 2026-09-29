@@ -1760,8 +1760,8 @@ function Shell() {
     const fg = await tabForeground(tabId);
     if (!term || !fg || fg.kind === "program" || fg.kind === "remote") return;
     if (fg.kind !== "wsl") {
-      const command = cdCommand(path, fg.kind);
-      if (command) term.navigateSilently(command);
+      const kind = fg.kind;
+      term.navigateSilently((rows) => cdCommand(path, kind, rows), kind !== "cmd");
       return;
     }
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
@@ -1775,8 +1775,7 @@ function Shell() {
           : t,
       ),
     );
-    const command = cdCommand(posixPath, "posix");
-    if (command) term.navigateSilently(command);
+    term.navigateSilently((rows) => cdCommand(posixPath, "posix", rows), true);
   }
 
   const activeTerminal = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
