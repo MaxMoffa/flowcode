@@ -5,6 +5,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useContextMenu } from "../context-menu/ContextMenuContext";
+import { MenuIcons } from "../context-menu/menuIcons";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./ptyClient";
@@ -238,17 +239,18 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     }
     const shown = uri.length > 60 ? `${uri.slice(0, 57)}…` : uri;
     showMenu(event.clientX, event.clientY, [
-      { label: shown, disabled: true },
+      { label: shown, icon: MenuIcons.globe, disabled: true },
       { label: "link-separator", separator: true },
-      { label: t("link.open"), onSelect: open },
+      { label: t("link.open"), icon: MenuIcons.openExternal, onSelect: open },
       {
         label: t("link.openAlways"),
+        icon: MenuIcons.checkCircle,
         onSelect: () => {
           setConfirmLinkOpen(false);
           open();
         },
       },
-      { label: t("link.copy"), onSelect: () => navigator.clipboard.writeText(uri).catch(() => {}) },
+      { label: t("link.copy"), icon: MenuIcons.link, onSelect: () => navigator.clipboard.writeText(uri).catch(() => {}) },
     ]);
   };
   const fontSize = getTabFontSize(tabId);
@@ -768,6 +770,38 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     <div
       ref={containerRef}
       className="terminal-container"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const term = xtermRef.current;
+        showMenu(e.clientX, e.clientY, [
+          {
+            label: t("edit.copy"),
+            icon: MenuIcons.duplicate,
+            disabled: !term?.hasSelection(),
+            onSelect: () => {
+              const selection = term?.getSelection();
+              if (selection) navigator.clipboard.writeText(selection).catch(() => {});
+              term?.clearSelection();
+            },
+          },
+          {
+            label: t("edit.paste"),
+            icon: MenuIcons.paste,
+            onSelect: () => {
+              navigator.clipboard
+                .readText()
+                .then((text) => {
+                  if (text) term?.paste(text);
+                })
+                .catch(() => {});
+            },
+          },
+          { label: t("edit.selectAll"), icon: MenuIcons.selectAll, onSelect: () => term?.selectAll() },
+          { label: "terminal-menu-separator", separator: true },
+          { label: t("plugin.clearTerminal"), icon: MenuIcons.clear, onSelect: () => term?.clear() },
+        ]);
+      }}
       style={{
         display: hidden ? "none" : "flex",
         ...(terminalPalette ? (resolveTerminalPalette(terminalPalette, theme, contrast) as CSSProperties) : null),

@@ -30,6 +30,13 @@ const PATHS: Record<SettingsSection, ReactNode> = {
       <path d="M10 20.5a2 2 0 0 0 4 0" />
     </>
   ),
+  shortcuts: (
+    <>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M7 10h.01M10.5 10h.01M14 10h.01M17 10h.01" />
+      <path d="M8 14h8" />
+    </>
+  ),
   funzionalita: <path d="M13 3 5 13.5h6L10 21l8-10.5h-6z" />,
   info: (
     <>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useHoverPopover, useUsageState } from "./useUsageState";
-import { usagePopoverPosition } from "./usagePopoverLayout";
+import { usagePopoverPositionBeside } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
 import { useI18n } from "../i18n";
 import "./plugin-menu.css";
@@ -28,6 +28,11 @@ function PinIcon({ filled }: { filled: boolean }) {
       <path d="M14.5 3.5 20.5 9.5 17 13l-1 5-3-3-5 5-1-1 5-5-3-3 5-1z" />
     </svg>
   );
+}
+
+/** The menu a row belongs to, for placing its popover beside it. */
+function menuRectOf(row: HTMLElement | null): DOMRect | null {
+  return row?.closest(".plugin-menu")?.getBoundingClientRect() ?? null;
 }
 
 /** One row - same usage popover as the shortcut-bar button (PluginUsageButton)
@@ -73,7 +78,7 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
           <div
             className="plugin-usage-popover"
             data-plugin={item.id}
-            style={usagePopoverPosition(rect)}
+            style={usagePopoverPositionBeside(rect, menuRectOf(rowRef.current) ?? rect)}
             onMouseEnter={show}
             onMouseLeave={scheduleHide}
           >

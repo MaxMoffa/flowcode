@@ -1,0 +1,126 @@
+/* The welcome dialog is painted in the flow theme (--fk-*), not the app's own
+   tokens - and inverted against the app's theme - so the palette cards take
+   their chrome from those variables. Each swatch keeps the palette's own
+   colours. */
+.fk-step-theme-customize {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 8px 10px;
+  border: 1px solid var(--fk-border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--fk-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.theme-card:hover {
+  background: var(--fk-soft);
+}
+
+.theme-card:focus-visible {
+  outline: 2px solid var(--fk-accent);
+  outline-offset: 2px;
+}
+
+.theme-card.is-active {
+  border-color: var(--fk-accent);
+  box-shadow: 0 0 0 1px var(--fk-accent);
+  background: var(--fk-accent-soft);
+}
+
+.theme-card-swatch {
+  display: flex;
+  height: 84px;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.25);
+}
+
+.theme-preview {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 10px;
+  font: 11.5px/1.35 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  white-space: nowrap;
+}
+
+.theme-preview-dots {
+  display: flex;
+  gap: 4px;
+  margin-top: auto;
+}
+
+.theme-preview-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.theme-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.theme-card-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.theme-card-check {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fk-accent);
+  color: var(--fk-canvas);
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+}
+
+.theme-card.is-active .theme-card-check {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-card,
+  .theme-card-check {
+    transition-duration: 0s;
+  }
+}
+
+/* Room under the last row, so it doesn't touch the footer when scrolled to the end. */
+.fk-step-theme-customize {
+  padding-bottom: 20px;
+}

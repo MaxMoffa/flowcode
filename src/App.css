@@ -17,6 +17,30 @@
   border: 1px solid var(--window-border);
   overflow: hidden;
   box-sizing: border-box;
+  position: relative;
+  --app-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.15 0 0 0 0 0.1 0 0 0 0 0.05 0.1 0 0 0 -0.04'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+:root[data-theme="dark"] .app-shell {
+  --app-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.95 0 0 0 0 0.88 0 0 0 0 0.78 0.1 0 0 0 -0.04'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Texture over the whole window: two very soft glows of the accents in
+   opposite corners and a barely-there film grain. An overlay rather than a
+   background, so it shows on Windows/Linux too, where the panels are opaque.
+   It ignores the pointer and stays under floating menus and dialogs. */
+.app-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image:
+    var(--app-grain),
+    radial-gradient(ellipse 70% 60% at 12% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    radial-gradient(ellipse 60% 55% at 95% 100%, color-mix(in srgb, var(--accent-2, var(--accent)) 5%, transparent), transparent 70%);
+  background-size: 200px 200px, auto, auto;
 }
 
 /* `border: none`, not `border-color: transparent`: a transparent border still

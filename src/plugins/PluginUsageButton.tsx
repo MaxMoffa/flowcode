@@ -27,7 +27,7 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
   useI18n();
   const { fetcher, usage, loading, load } = useUsageState(plugin.id);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const { rect, show, scheduleHide } = useHoverPopover(btnRef, load);
+  const { rect, show, scheduleHide, hide } = useHoverPopover(btnRef, load);
 
   if (!fetcher) {
     return (
@@ -51,7 +51,7 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
   const barWarn = barPct !== undefined && barPct >= 75;
 
   return (
-    <div className="plugin-usage-anchor" data-plugin={plugin.id} onMouseEnter={show} onMouseLeave={scheduleHide}>
+    <div className="plugin-usage-anchor" data-plugin={plugin.id} onMouseEnter={show} onMouseLeave={scheduleHide} onContextMenu={hide}>
       <button
         ref={btnRef}
         type="button"

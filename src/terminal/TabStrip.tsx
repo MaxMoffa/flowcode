@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { MenuIcons } from "../context-menu/menuIcons";
 import { createPortal } from "react-dom";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "./shellOptions";
 import type { AppTab } from "../tabs/types";
@@ -393,19 +394,20 @@ export function TabStrip({
     const items: ContextMenuItem[] = [
       // Same effect as double-clicking the label - just reachable without
       // knowing that gesture exists.
-      { label: t("tabs.rename"), onSelect: () => startEditing(tab) },
+      { label: t("tabs.rename"), icon: MenuIcons.rename, onSelect: () => startEditing(tab) },
     ];
     if (tab.kind === "terminal" || tab.kind === "editor") {
-      items.push({ label: t("tabs.duplicate"), onSelect: () => onDuplicate(tab.id) });
+      items.push({ label: t("tabs.duplicate"), icon: MenuIcons.duplicate, onSelect: () => onDuplicate(tab.id) });
     }
     if (tab.kind === "terminal") {
       items.push({
         label: tab.notifyMuted ? t("tabs.unmuteNotifications") : t("tabs.muteNotifications"),
+        icon: tab.notifyMuted ? MenuIcons.bell : MenuIcons.bellOff,
         onSelect: () => onToggleNotifications(tab.id),
       });
     }
     items.push({ separator: true, label: "sep-close" });
-    items.push({ label: t("common.close"), danger: true, onSelect: () => onClose(tab.id) });
+    items.push({ label: t("common.close"), icon: MenuIcons.close, danger: true, onSelect: () => onClose(tab.id) });
     return items;
   }
 

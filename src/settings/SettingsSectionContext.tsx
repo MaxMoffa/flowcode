@@ -6,6 +6,7 @@ export type SettingsSection =
   | "startup"
   | "explorer"
   | "notifications"
+  | "shortcuts"
   | "funzionalita"
   | "info";
 

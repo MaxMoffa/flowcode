@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useI18n } from "../i18n";
+import { MenuIcons } from "./menuIcons";
 import "./context-menu.css";
 
 export interface ContextMenuItem {
@@ -37,6 +39,73 @@ export function useContextMenu() {
   return ctx;
 }
 
+/** Text inputs a Cut/Paste makes sense in (a checkbox or a button doesn't). */
+const TEXT_INPUT_TYPES = new Set(["text", "search", "url", "tel", "email", "password", "number", ""]);
+
+/** The menu for right-clicking somewhere no component has its own menu:
+ * clipboard actions on a text field or a selection, nothing otherwise. The
+ * browser's own menu is never shown - this replaces it. */
+function fallbackMenuItems(target: EventTarget | null, t: (key: "edit.cut" | "edit.copy" | "edit.paste" | "edit.selectAll") => string): ContextMenuItem[] {
+  const el = target instanceof HTMLElement ? target : null;
+  const field = el?.closest<HTMLElement>("input, textarea, [contenteditable=''], [contenteditable='true']") ?? null;
+  const isTextField =
+    field instanceof HTMLTextAreaElement ||
+    (field instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(field.type)) ||
+    (field !== null && field.isContentEditable);
+  const readOnly = !!field && ((field as HTMLInputElement).readOnly || (field as HTMLInputElement).disabled);
+  const inField = field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement;
+  const selected = inField
+    ? field.value.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0)
+    : (window.getSelection()?.toString() ?? "");
+
+  if (!isTextField) {
+    return selected ? [{ label: t("edit.copy"), icon: MenuIcons.duplicate, onSelect: () => void navigator.clipboard.writeText(selected).catch(() => {}) }] : [];
+  }
+  const focusField = () => field?.focus();
+  return [
+    {
+      label: t("edit.cut"),
+      icon: MenuIcons.cut,
+      disabled: readOnly || !selected,
+      onSelect: () => {
+        focusField();
+        document.execCommand("cut");
+      },
+    },
+    {
+      label: t("edit.copy"),
+      icon: MenuIcons.duplicate,
+      disabled: !selected,
+      onSelect: () => void navigator.clipboard.writeText(selected).catch(() => {}),
+    },
+    {
+      label: t("edit.paste"),
+      icon: MenuIcons.paste,
+      disabled: readOnly,
+      onSelect: () => {
+        navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (!text) return;
+            focusField();
+            document.execCommand("insertText", false, text);
+          })
+          .catch(() => {});
+      },
+    },
+    { label: "edit-separator", separator: true },
+    {
+      label: t("edit.selectAll"),
+      icon: MenuIcons.selectAll,
+      onSelect: () => {
+        focusField();
+        if (inField) field.select();
+        else document.execCommand("selectAll");
+      },
+    },
+  ];
+}
+
 /** Convenience wrapper: pass straight to a React element's onContextMenu. */
 export function useOpenContextMenu() {
   const { show } = useContextMenu();
@@ -50,7 +119,14 @@ export function useOpenContextMenu() {
   );
 }
 
+/** Clicking a menu row must not pull focus (and the selection with it) out of
+ * the field it was opened on - except into the menu's own inputs. */
+function keepFocus(e: React.MouseEvent) {
+  if (!(e.target as HTMLElement).closest("input, textarea")) e.preventDefault();
+}
+
 export function ContextMenuProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
@@ -72,6 +148,22 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   // Stable across menu open/close, so consumers of the context (every
   // component with a right-click menu) don't all re-render with it.
   const value = useMemo(() => ({ show, hide }), [show, hide]);
+
+  // Every right-click ends up here unless a component's own menu claimed it
+  // first (those stop the event): the browser's default menu is suppressed
+  // everywhere, and what's left gets the clipboard menu above.
+  const tRef = useRef(t);
+  tRef.current = t;
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      const items = fallbackMenuItems(e.target, tRef.current);
+      if (items.length > 0) show(e.clientX, e.clientY, items);
+      else hide();
+    };
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
+  }, [show, hide]);
 
   useEffect(() => {
     if (!menu) return;
@@ -175,7 +267,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     <ContextMenuCtx.Provider value={value}>
       {children}
       {menu && (
-        <div className="context-menu" ref={menuRef} style={style} role="menu">
+        <div className="context-menu" ref={menuRef} style={style} role="menu" onMouseDown={keepFocus}>
           {renderItems(menu.items, (index, rect) =>
             setSubmenuOpenAt((prev) =>
               prev?.index === index ? null : { index, x: rect.right + 2, y: rect.top, parentLeft: rect.left },
@@ -184,7 +276,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
         </div>
       )}
       {menu && submenuOpenAt && activeSubmenu && (
-        <div className="context-menu" ref={submenuRef} style={submenuStyle} role="menu">
+        <div className="context-menu" ref={submenuRef} style={submenuStyle} role="menu" onMouseDown={keepFocus}>
           {renderItems(activeSubmenu)}
         </div>
       )}

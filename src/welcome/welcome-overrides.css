@@ -7,3 +7,25 @@
 .fk-overlay-sheet {
   outline: none;
 }
+
+/* Info steps (icon, title, text) sit centred in the dialog, both ways, rather
+   than hugging the top-left. The wrapper is the flex item that fills the
+   scroll area; the step itself shrinks to its text. */
+.fk-step-theme-scope:has(> .fk-step-info) {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.fk-step-info {
+  max-width: 100%;
+  text-align: center;
+}
+
+.fk-step-info .fk-title {
+  justify-content: center;
+}
+
+.fk-step-info .fk-intro-badge {
+  margin-inline: auto;
+}

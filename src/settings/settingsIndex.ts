@@ -1,5 +1,6 @@
 import type { MessageKey } from "../i18n";
 import type { SettingsSection } from "./SettingsSectionContext";
+import { SHORTCUT_ACTIONS } from "../shortcuts/shortcuts";
 
 export const SECTION_TITLE_KEYS: Record<SettingsSection, MessageKey> = {
   appearance: "settings.section.appearance",
@@ -7,6 +8,7 @@ export const SECTION_TITLE_KEYS: Record<SettingsSection, MessageKey> = {
   startup: "settings.section.startup",
   explorer: "settings.section.explorer",
   notifications: "settings.section.notifications",
+  shortcuts: "settings.section.shortcuts",
   funzionalita: "settings.section.features",
   info: "settings.section.info",
 };
@@ -17,6 +19,7 @@ export const SECTION_DESCRIPTION_KEYS: Record<SettingsSection, MessageKey> = {
   startup: "settings.section.startup.desc",
   explorer: "settings.section.explorer.desc",
   notifications: "settings.section.notifications.desc",
+  shortcuts: "settings.section.shortcuts.desc",
   funzionalita: "settings.section.features.desc",
   info: "settings.section.info.desc",
 };
@@ -27,6 +30,7 @@ export const SECTION_SHORT_KEYS: Record<SettingsSection, MessageKey> = {
   startup: "settings.section.startup.short",
   explorer: "settings.section.explorer.short",
   notifications: "settings.section.notifications.short",
+  shortcuts: "settings.section.shortcuts.short",
   funzionalita: "settings.section.features.short",
   info: "settings.section.info.short",
 };
@@ -72,4 +76,12 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "configDir", section: "info", label: "settings.configDir.label", desc: "settings.configDir.desc", keywords: "configurazione config cartella folder json manutenzione" },
   { id: "reset", section: "info", label: "settings.reset.label", desc: "settings.reset.desc", keywords: "ripristina reset default predefinite manutenzione" },
   { id: "credits", section: "info", label: "settings.group.credits", desc: "settings.credits.desc", keywords: "crediti credits librerie libraries open source licenze" },
+  { id: "shortcutsGuide", section: "shortcuts", label: "shortcuts.guide.label", desc: "shortcuts.guide.settingsDesc", keywords: "scorciatoie shortcuts tastiera keyboard guida guide aiuto help combinazioni hotkey" },
+  { id: "shortcutsResetAll", section: "shortcuts", label: "shortcuts.resetAll.label", desc: "shortcuts.resetAll.desc", keywords: "scorciatoie shortcuts ripristina reset predefinite default" },
+  ...SHORTCUT_ACTIONS.map((action): SettingEntry => ({
+    id: `shortcut-${action}`,
+    section: "shortcuts",
+    label: `shortcuts.action.${action}`,
+    keywords: "scorciatoie shortcuts tastiera keyboard combinazione hotkey tab terminale terminal",
+  })),
 ];

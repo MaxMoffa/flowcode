@@ -42,7 +42,10 @@ import { SettingsPage } from "./settings/SettingsPage";
 import { ChangelogNav, ChangelogPage, ChangelogProvider, WhatsNewPage } from "./changelog/ChangelogPage";
 import { consumeUpdatedVersion } from "./changelog/lastRunVersion";
 import { SettingsNav } from "./settings/SettingsNav";
-import { SettingsSectionProvider } from "./settings/SettingsSectionContext";
+import { SettingsSectionProvider, useSettingsSection } from "./settings/SettingsSectionContext";
+import { ShortcutsProvider } from "./shortcuts/ShortcutsContext";
+import { MenuIcons } from "./context-menu/menuIcons";
+import { ShortcutsDialog } from "./shortcuts/ShortcutsDialog";
 import { PluginMenu } from "./plugins/PluginMenu";
 import { PluginUsageButton } from "./plugins/PluginUsageButton";
 import { PluginToast } from "./plugins/PluginToast";
@@ -174,6 +177,13 @@ const Icons = {
     <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  keyboard: (
+    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M7 10h.01M10.5 10h.01M14 10h.01M17 10h.01" />
+      <path d="M8 14h8" />
     </svg>
   ),
   changelog: (
@@ -366,6 +376,8 @@ function Shell() {
   // through these setters, so persisting in one place covers all of them.
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState(SIDEBAR_COLLAPSED_KEY, readFalse, writeBool);
   const [agentsSidebarOpen, setAgentsSidebarOpen] = usePersistentState(AGENTS_SIDEBAR_OPEN_KEY, readFalse, writeBool);
+  const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
+  const { setSection: setSettingsSection } = useSettingsSection();
   const [sidebarMode, setSidebarMode] = usePersistentState<SidebarMode>(SIDEBAR_MODE_KEY, readSidebarMode, writeString);
   const [explorerLinkMode, setExplorerLinkMode] = usePersistentState<ExplorerLinkMode>(
     EXPLORER_LINK_MODE_KEY,
@@ -448,6 +460,8 @@ function Shell() {
     startPath,
     shellStartPaths,
     resetTabZoom,
+    zoomTabIn,
+    zoomTabOut,
     restoreSession,
     shellId,
     newTabPage,
@@ -893,7 +907,47 @@ function Shell() {
     newTab: () => openNewTab(),
     closeTab: () => closeTab(activeTabId),
     toggleTheme: () => toggleTheme(),
+    duplicateTab: () => duplicateTab(activeTabId),
+    nextTab: () => stepTab(1),
+    prevTab: () => stepTab(-1),
+    moveTabLeft: () => moveActiveTab(-1),
+    moveTabRight: () => moveActiveTab(1),
+    selectTab1: () => selectTabAt(0),
+    selectTab2: () => selectTabAt(1),
+    selectTab3: () => selectTabAt(2),
+    selectTab4: () => selectTabAt(3),
+    selectTab5: () => selectTabAt(4),
+    selectTab6: () => selectTabAt(5),
+    selectTab7: () => selectTabAt(6),
+    selectTab8: () => selectTabAt(7),
+    lastTab: () => selectTabAt(tabs.length - 1),
+    zoomIn: () => activeTermHandle() && zoomTabIn(activeTerminalId),
+    zoomOut: () => activeTermHandle() && zoomTabOut(activeTerminalId),
+    resetZoom: () => activeTermHandle() && resetTabZoom(activeTerminalId),
+    toggleAgents: () => setAgentsSidebarOpen((o) => !o),
+    openSettings: () => openSettings(),
+    showShortcuts: () => setShortcutsDialogOpen((o) => !o),
   });
+
+  /** Ctrl+Tab / Ctrl+Shift+Tab: the next/previous tab in strip order,
+   * wrapping around at the ends. */
+  function stepTab(delta: number) {
+    if (tabs.length < 2) return;
+    const i = tabs.findIndex((t) => t.id === activeTabId);
+    selectTab(tabs[(i + delta + tabs.length) % tabs.length].id);
+  }
+
+  /** Ctrl+1..9: the tab at that position - out of range does nothing. */
+  function selectTabAt(index: number) {
+    const tab = tabs[index];
+    if (tab) selectTab(tab.id);
+  }
+
+  function moveActiveTab(delta: number) {
+    const i = tabs.findIndex((t) => t.id === activeTabId);
+    const to = i + delta;
+    if (i !== -1 && to >= 0 && to < tabs.length) reorderTab(activeTabId, to);
+  }
 
   function selectTab(id: string) {
     setActiveTabId(id);
@@ -2041,6 +2095,7 @@ function Shell() {
       },
       { separator: true, label: "sep-theme" },
       { label: t("changelog.title"), icon: Icons.changelog, onSelect: openChangelog },
+      { label: t("shortcuts.title"), icon: Icons.keyboard, onSelect: () => setShortcutsDialogOpen(true) },
       { label: t("settings.title"), icon: Icons.settings, onSelect: openSettings },
     ];
   }
@@ -2060,7 +2115,12 @@ function Shell() {
                   ["docked", t("sidebarMode.docked")],
                   ["floating", t("sidebarMode.floating")],
                 ] as [SidebarMode, string][]
-              ).map(([m, label]) => ({ label, checked: sidebarMode === m, onSelect: () => setSidebarMode(m) })),
+              ).map(([m, label]) => ({
+                label,
+                icon: m === "auto" ? MenuIcons.sidebarAuto : m === "docked" ? MenuIcons.sidebarDocked : MenuIcons.sidebarFloating,
+                checked: sidebarMode === m,
+                onSelect: () => setSidebarMode(m),
+              })),
             )
           }
           aria-label={t("app.toggleSidebar")}
@@ -2098,7 +2158,7 @@ function Shell() {
                   <div
                     key={id}
                     onContextMenu={(e) =>
-                      openMenu(e, [{ label: t("app.removeShortcut"), danger: true, onSelect: () => toggleQuickAction(id) }])
+                      openMenu(e, [{ label: t("app.removeShortcut"), icon: MenuIcons.trash, danger: true, onSelect: () => toggleQuickAction(id) }])
                     }
                   >
                     <PluginUsageButton plugin={plugin} icon={pluginIconNode(plugin)} onRun={() => runPlugin(plugin)} />
@@ -2259,6 +2319,7 @@ function Shell() {
                   onDeletePlugin={deletePlugin}
                   favoritesButtonVisible={favoritesButtonVisible}
                   onSetFavoritesButtonVisible={setFavoritesButtonVisible}
+                  onOpenShortcutsGuide={() => setShortcutsDialogOpen(true)}
                 />
               );
             })}
@@ -2290,6 +2351,16 @@ function Shell() {
           </div>
         )}
       </div>
+      {shortcutsDialogOpen && (
+        <ShortcutsDialog
+          onClose={() => setShortcutsDialogOpen(false)}
+          onCustomize={() => {
+            setShortcutsDialogOpen(false);
+            setSettingsSection("shortcuts");
+            openSettings();
+          }}
+        />
+      )}
       {pluginToast && <PluginToast message={pluginToast} />}
       {pluginDialog && (
         <PluginDialog plugin={pluginDialog} onRunButton={(button) => runPlugin(button)} onClose={() => setPluginDialog(null)} />
@@ -2312,7 +2383,9 @@ export default function App() {
             <ConfirmDialogProvider>
               <UpdateProvider>
                 <ContextMenuProvider>
-                  <Shell />
+                  <ShortcutsProvider>
+                    <Shell />
+                  </ShortcutsProvider>
                 </ContextMenuProvider>
               </UpdateProvider>
             </ConfirmDialogProvider>

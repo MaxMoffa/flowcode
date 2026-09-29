@@ -1,6 +1,8 @@
 import { parseFlow } from "@flowkit-io/core";
 import flowcodeIcon from "../assets/flowcode-icon.svg";
 import { currentLanguage, t } from "../i18n";
+// Registers the custom "themeCustomize" step type parseFlow needs below.
+import "./steps/themeCustomizeStepType";
 
 /** Shown once, on the very first launch (see WelcomeFlow.tsx / WELCOME_SEEN_KEY).
  * Content pulled from README.md/ROADMAP.md's actual feature list - kept in
@@ -80,6 +82,15 @@ export function buildWelcomeFlow() {
           { value: "dark", label: t("theme.dark"), emoji: "🌙", description: t("welcome.theme.dark") },
           { value: "auto", label: t("welcome.theme.auto.label"), emoji: "🖥️", description: t("welcome.theme.auto") },
         ],
+      },
+      {
+        id: "theme-customize",
+        type: "themeCustomize",
+        key: "theme_customize",
+        title: t("welcome.customize.title"),
+        subtitle: t("welcome.customize.subtitle"),
+        image: { kind: "emoji", value: "🖌️" },
+        required: false,
       },
       {
         id: "done",

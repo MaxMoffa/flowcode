@@ -25,3 +25,18 @@ export function usagePopoverPosition(rect: DOMRect): CSSProperties {
   }
   return { top: rect.bottom + 6, left, maxHeight: spaceBelow - VIEWPORT_MARGIN };
 }
+
+/** The popover for a row of a menu: to the left of the whole menu, level with
+ * the row, rather than over the menu's own rows below it. Falls back to the
+ * regular placement when there's no room on the left. Like the regular one it
+ * never measures the popover: near the bottom of the window it is anchored by
+ * its bottom edge to the row and grows upward instead. */
+export function usagePopoverPositionBeside(rowRect: DOMRect, menuRect: DOMRect): CSSProperties {
+  const left = menuRect.left - USAGE_POPOVER_WIDTH - 6;
+  if (left < VIEWPORT_MARGIN) return usagePopoverPosition(rowRect);
+  const spaceBelow = window.innerHeight - rowRect.top - VIEWPORT_MARGIN;
+  if (spaceBelow < MIN_SPACE_BELOW) {
+    return { bottom: window.innerHeight - rowRect.bottom, left, maxHeight: rowRect.bottom - VIEWPORT_MARGIN };
+  }
+  return { top: rowRect.top, left, maxHeight: spaceBelow };
+}

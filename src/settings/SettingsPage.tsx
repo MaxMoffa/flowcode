@@ -20,6 +20,7 @@ import pkg from "../../package.json";
 import { LANGUAGES, t, useI18n, type LanguagePreference, type MessageKey } from "../i18n";
 import { SECTION_DESCRIPTION_KEYS, SECTION_TITLE_KEYS } from "./settingsIndex";
 import { Segmented, SettingRow, SettingsGroup, Switch, settingDomId } from "./SettingsControls";
+import { ShortcutsSettings } from "../shortcuts/ShortcutsSettings";
 import "./settings-page.css";
 
 /** Third-party libraries the app is built on, with what each is used for.
@@ -48,6 +49,7 @@ interface SettingsPageProps {
   onDeletePlugin: (id: string) => void;
   favoritesButtonVisible: boolean;
   onSetFavoritesButtonVisible: (visible: boolean) => void;
+  onOpenShortcutsGuide: () => void;
 }
 
 function updateStatusText(status: UpdateStatus): string {
@@ -75,6 +77,7 @@ export function SettingsPage({
   onDeletePlugin,
   favoritesButtonVisible,
   onSetFavoritesButtonVisible,
+  onOpenShortcutsGuide,
 }: SettingsPageProps) {
   const { t, preference: languagePreference, setPreference: setLanguagePreference } = useI18n();
   const { mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity } =
@@ -500,6 +503,8 @@ export function SettingsPage({
             ))}
           </SettingsGroup>
         )}
+
+        {section === "shortcuts" && <ShortcutsSettings onOpenGuide={onOpenShortcutsGuide} />}
 
         {section === "funzionalita" && (
           <div id={settingDomId("features")}>

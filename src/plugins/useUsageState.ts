@@ -122,7 +122,14 @@ export function useHoverPopover(anchorRef: RefObject<HTMLElement | null>, onShow
     hideTimer.current = setTimeout(() => setRect(null), 160);
   };
 
+  /** Closes at once, with no grace period - for when something else (a
+   * context menu) is about to take the popover's place. */
+  const hide = () => {
+    cancelHide();
+    setRect(null);
+  };
+
   useEffect(() => cancelHide, []);
 
-  return { rect, show, scheduleHide };
+  return { rect, show, scheduleHide, hide };
 }

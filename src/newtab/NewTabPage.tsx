@@ -139,6 +139,8 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const defaultLabel = options.find((o) => o.id === "system")?.label ?? "";
   const labelOf = (id: string | undefined) => {
     const opt = options.find((o) => sameShell(o.id, id ?? defaultShell));
+    // "Predefinita (PowerShell)" is just PowerShell to the reader: name the shell.
+    if (opt?.id === "system" && opt.label) return opt.label;
     return opt ? shellOptionLabel(opt) : (id ?? "");
   };
 
@@ -288,7 +290,13 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
           <section>
             <h2 className="newtab-heading">{t("newTab.recents")}</h2>
             {recents.length === 0 ? (
-              <p className="newtab-empty">{t("newTab.recentsEmpty")}</p>
+              <div className="newtab-empty">
+                <svg className="newtab-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8.5" />
+                  <path d="M12 7.5V12l3 2" />
+                </svg>
+                <p>{t("newTab.recentsEmpty")}</p>
+              </div>
             ) : (
               <div className="newtab-recents">
                 {recents.map((r: RecentTerminal) => (
@@ -316,7 +324,12 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
           <section>
             <h2 className="newtab-heading">{t("favorites.title")}</h2>
             {favorites.length === 0 ? (
-              <p className="newtab-empty">{t("newTab.favoritesEmpty")}</p>
+              <div className="newtab-empty">
+                <svg className="newtab-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m12 3.5 2.6 5.3 5.9.85-4.25 4.15 1 5.85L12 16.9l-5.25 2.75 1-5.85L3.5 9.65l5.9-.85z" />
+                </svg>
+                <p>{t("newTab.favoritesEmpty")}</p>
+              </div>
             ) : (
               <div className="newtab-favorites">
                 {favorites.map((f: FavoriteFolder) => (

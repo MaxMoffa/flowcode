@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -12,35 +12,12 @@ import { isRootPath, parentPath, separatorOf, trimTrailingSeparators, truncatePa
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { useI18n } from "../i18n";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
+import { iconSvg } from "../context-menu/menuIcons";
 
 interface FsEntry {
   name: string;
   path: string;
   is_dir: boolean;
-}
-
-function iconSvg(children: ReactElement) {
-  return (
-    // Explicit size, not just viewBox: an inline <svg> with no width/height
-    // of its own falls back to the browser's default replaced-element size
-    // (300x150) wherever the container doesn't happen to set one via CSS -
-    // which is exactly what made the search icon balloon relative to its
-    // neighbors (kebab has its own width/height set directly, so it was
-    // never affected). This is a default, not an override - any container
-    // with its own `svg { width; height }` rule still wins over this.
-    <svg
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      fill="none"
-      stroke="currentColor"
-    >
-      {children}
-    </svg>
-  );
 }
 
 const Icons = {
