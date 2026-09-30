@@ -4,6 +4,7 @@ import { Fragment, lazy, Suspense, useEffect, useRef, useState, type ReactNode }
 // `availableMonitors` and friends are module-level too). Calling it off the
 // window object throws a TypeError.
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { installRepaintOnRestore } from "./lib/repaintOnRestore";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
@@ -11,7 +12,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
-import { TerminalView, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
+import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
@@ -76,6 +77,13 @@ const isMainWindow = appWindow.label === "main";
 /** A tab on its way to another window: what the receiving window needs to
  * rebuild it - for a terminal its still-running session (see
  * `TerminalHandle.release`), for an editor any unsaved text. */
+/** What a terminal reports to the New Tab page turning into it: where its
+ * prompt will land, and (`null`: never) where it did. */
+interface Handoff {
+  anchor?: PromptAnchor;
+  promptShown?: PromptAnchor | null;
+}
+
 interface TabTransfer {
   tab: AppTab;
   terminal?: TerminalTransfer & { shell?: string; fontSize?: number };
@@ -472,7 +480,9 @@ function Shell() {
   // Tabs whose new tab page is still fading out over the terminal that just
   // replaced it (see NewTabPage's `onLaunch`/`onDone`).
   // The value is whether that tab's terminal has reported ready.
-  const [handoffs, setHandoffs] = useState<Map<string, boolean>>(() => new Map());
+  const [handoffs, setHandoffs] = useState<Map<string, Handoff>>(() => new Map());
+  const patchHandoff = (tabId: string, patch: Handoff) =>
+    setHandoffs((prev) => (prev.has(tabId) ? new Map(prev).set(tabId, { ...prev.get(tabId), ...patch }) : prev));
   const restoreSessionRef = useRef(restoreSession);
   restoreSessionRef.current = restoreSession;
   // Previous session's terminal text, keyed by the restored tab's new id -
@@ -856,6 +866,8 @@ function Shell() {
       unlisten.then((fns) => fns.forEach((fn) => fn()));
     };
   }, []);
+
+  useEffect(() => installRepaintOnRestore(), []);
 
   useEffect(() => {
     // DWM rounds this window's corners unconditionally (see
@@ -2254,11 +2266,8 @@ function Shell() {
                         shellOverride={pendingShellOverrideRef.current.get(tab.id)}
                         restoredContent={restoredContentRef.current.get(tab.id)}
                         attach={pendingAttachRef.current.get(tab.id)}
-                        onReady={
-                          handoffs.get(tab.id) === false
-                            ? () => setHandoffs((prev) => (prev.has(tab.id) ? new Map(prev).set(tab.id, true) : prev))
-                            : undefined
-                        }
+                        onAnchor={(anchor) => patchHandoff(tab.id, { anchor })}
+                        onPromptShown={(promptShown) => patchHandoff(tab.id, { promptShown })}
                       />
                     )}
                     {showPage && (
@@ -2268,11 +2277,12 @@ function Shell() {
                         startDir={tab.cwd}
                         termFontSize={getTabFontSize(tab.id)}
                         onLaunch={(launch) => {
-                          setHandoffs((prev) => new Map(prev).set(tab.id, false));
+                          setHandoffs((prev) => new Map(prev).set(tab.id, {}));
                           launchFromNewTab(tab.id, launch);
                         }}
                         onShellChange={(shell) => previewNewTabShell(tab.id, shell)}
-                        terminalReady={handoffs.get(tab.id) === true}
+                        anchor={handoffs.get(tab.id)?.anchor}
+                        promptShown={handoffs.get(tab.id)?.promptShown}
                         onDone={() =>
                           setHandoffs((prev) => {
                             const next = new Map(prev);

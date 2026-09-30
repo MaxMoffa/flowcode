@@ -11,6 +11,14 @@
   overflow: hidden;
 }
 
+/* While the New Tab page turns into this terminal, its content stays hidden
+   (the page flies the first line over it) until the flight uncovers it - see
+   startFlight in NewTabPage.tsx, which animates this clip; the fade releases
+   it. Only the content: the surface stays, so nothing changes shade. */
+.terminal-container:has(+ .newtab.is-overlay:not(.is-fading)) .xterm {
+  clip-path: inset(0 0 100% 0);
+}
+
 .terminal-host {
   flex: 1 1 auto;
   min-width: 0;

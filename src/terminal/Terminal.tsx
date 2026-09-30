@@ -166,10 +166,14 @@ interface TerminalViewProps {
    * the new tab page reopens a recent terminal with its last command ready
    * to run again, rather than running it behind the user's back. */
   typeOnStart?: string;
-  /** Called once the shell has spawned and its first output (banner, early
-   * prompt) is parsed - lets the new tab page fade out over a terminal that
-   * already has something to show. */
-  onReady?: () => void;
+  /** Called once the banner (if any) is on screen, with where the shell's
+   * prompt will be drawn - lets the new tab page fly its first line to the
+   * row the terminal's own will land on. */
+  onAnchor?: (anchor: PromptAnchor) => void;
+  /** Called once, when the shell has drawn its first prompt (or failed to
+   * start) - lets the new tab page fade out over a terminal that already
+   * shows it. `anchor` is where that prompt really is. */
+  onPromptShown?: (anchor: PromptAnchor | null) => void;
   /** One-off shell for this tab, overriding the configured default (see
    * TerminalSettingsContext's `shellId`) - set by the "+" button's own
    * context menu when a specific shell (e.g. WSL) was picked instead of
@@ -185,8 +189,15 @@ interface TerminalViewProps {
   attach?: TerminalTransfer;
 }
 
+/** Where a terminal's prompt row is on screen (viewport pixels). */
+export interface PromptAnchor {
+  left: number;
+  top: number;
+  cellHeight: number;
+}
+
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, typeOnStart, onReady, shellOverride, restoredContent, attach }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, restoredContent, attach }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // xterm mounts into this padding-free inner box, not the padded container:
   // FitAddon sizes the grid off its parent's computed height, which under
@@ -206,8 +217,12 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   const releasedRef = useRef(false);
   const runOnStartRef = useRef(runOnStart);
   const typeOnStartRef = useRef(typeOnStart);
-  const onReadyRef = useRef(onReady);
-  onReadyRef.current = onReady;
+  const onAnchorRef = useRef(onAnchor);
+  onAnchorRef.current = onAnchor;
+  const onPromptShownRef = useRef(onPromptShown);
+  onPromptShownRef.current = onPromptShown;
+  const promptShownRef = useRef(false);
+  const startSentRef = useRef(false);
   // A tab opened to run something (agent session, install command) is in
   // use from the start - see `wasUsed`. So is one moved here mid-session.
   const usedRef = useRef(!!runOnStart || !!attach);
@@ -289,6 +304,43 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   // tweak (sidebar drag, window resize frames), and most of those don't
   // change the cell grid at all, so there's nothing worth an IPC call.
   const ptySizeRef = useRef({ cols: 0, rows: 0 });
+
+  /** Where the cursor row sits on screen, measured off xterm's own cell
+   * grid rather than estimated from the font size. */
+  function measureAnchor(): PromptAnchor | null {
+    const term = xtermRef.current;
+    const screen = term?.element?.querySelector(".xterm-screen");
+    if (!term || !screen) return null;
+    const rect = screen.getBoundingClientRect();
+    const cellHeight = rect.height / term.rows;
+    return { left: rect.left, top: rect.top + term.buffer.active.cursorY * cellHeight, cellHeight };
+  }
+
+  /** The first prompt is up (or never will be): reported once. */
+  function reportPromptShown() {
+    if (promptShownRef.current) return;
+    promptShownRef.current = true;
+    onPromptShownRef.current?.(measureAnchor());
+  }
+
+  // Typed only once the shell has really drawn its prompt: input sent while
+  // it is still starting (WSL is slow, and its first title/output arrives
+  // long before bash does) gets echoed by the tty itself, leaving a bare
+  // duplicate line above the real prompt.
+  function cursorLineLooksLikePrompt(): boolean {
+    const buf = xtermRef.current?.buffer.active;
+    if (!buf) return false;
+    const line = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true).trimEnd();
+    return !!line && /[$#%>❯»]$/.test(line);
+  }
+
+  function sendStartInput() {
+    const id = ptyIdRef.current;
+    if (!id || startSentRef.current) return;
+    startSentRef.current = true;
+    if (runOnStartRef.current) writePty(id, `${runOnStartRef.current}\r`);
+    else if (typeOnStartRef.current) writePty(id, typeOnStartRef.current);
+  }
 
   function refit() {
     const term = xtermRef.current;
@@ -606,6 +658,10 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           }
         }, 0);
       }
+      // Shells that title their prompt (see pty.rs) send this just before
+      // it: the first one means the prompt is being drawn. Deferred for the
+      // same reason as above.
+      if (!promptShownRef.current) setTimeout(reportPromptShown, 0);
       if (title) onTitleChangeRef.current?.(title);
     });
 
@@ -717,6 +773,13 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         const banner = buildAsciiBanner(term.cols, sysInfo, appVersion);
         if (banner) term.write(banner);
       }
+      // With the banner parsed, the cursor is on the row the prompt will
+      // start at.
+      term.write("", () => {
+        if (disposed) return;
+        const anchor = measureAnchor();
+        if (anchor) onAnchorRef.current?.(anchor);
+      });
 
       let id: string;
       try {
@@ -742,7 +805,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           term.write(`\r\n[${t("terminal.spawnFailed", { error: String(e) })}]\r\n`);
           // Nothing else will report in: don't leave the New Tab page
           // covering the error until its timeout.
-          onReadyRef.current?.();
+          reportPromptShown();
         }
         return;
       }
@@ -764,9 +827,41 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         for (const data of pendingInput.splice(0)) writePty(id, data);
         // Windows retitling (cmd.exe/PowerShell never do it on their own)
         // is set up at spawn time - see pty.rs's pty_spawn.
-        if (runOnStartRef.current) writePty(id, `${runOnStartRef.current}\r`);
-        else if (typeOnStartRef.current) writePty(id, typeOnStartRef.current);
-        onReadyRef.current?.();
+        // The start input waits for the prompt (see sendStartInput): a
+        // prompt-looking cursor line once output settles, or a long quiet
+        // for prompts this can't recognise, or a hard cap.
+        if (runOnStartRef.current || typeOnStartRef.current) {
+          const startedAt = performance.now();
+          // wsl.exe can stay silent for seconds while the distro boots, so a
+          // quiet stretch says nothing there: only a real prompt counts.
+          const isWsl = (shellIdRef.current ?? "").startsWith("wsl");
+          const startPoll = window.setInterval(() => {
+            const now = performance.now();
+            const idle = now - lastOutputAtRef.current;
+            const ready =
+              lastOutputAtRef.current > 0 &&
+              ((idle > 60 && cursorLineLooksLikePrompt()) || (!isWsl && idle > 600));
+            if (disposed) {
+              window.clearInterval(startPoll);
+            } else if (ready || now - startedAt > (isWsl ? 10000 : 5000)) {
+              window.clearInterval(startPoll);
+              sendStartInput();
+            }
+          }, 30);
+        }
+        // Shells that never set a title: the prompt is up once the output
+        // has gone quiet.
+        const spawnedAt = performance.now();
+        const poll = window.setInterval(() => {
+          const now = performance.now();
+          const quiet = lastOutputAtRef.current > 0 && now - lastOutputAtRef.current > 150;
+          if (disposed || promptShownRef.current || now - spawnedAt > 3000) {
+            window.clearInterval(poll);
+          } else if (quiet) {
+            window.clearInterval(poll);
+            reportPromptShown();
+          }
+        }, 50);
       });
     })();
 

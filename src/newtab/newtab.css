@@ -7,6 +7,7 @@
   --newtab-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --newtab-card: color-mix(in srgb, var(--fg) 3.5%, transparent);
   --newtab-card-hover: color-mix(in srgb, var(--fg) 6.5%, transparent);
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
@@ -533,11 +534,16 @@
   position: absolute;
   inset: 0;
   z-index: 5;
+  /* The terminal underneath shows through: its content is held back until
+     the flight uncovers it (see terminal.css and startFlight). */
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .newtab.is-fading {
   opacity: 0;
-  transition: opacity 0.12s ease-out;
+  transition: opacity 0.09s ease-out;
 }
 
 @media (max-width: 760px) {

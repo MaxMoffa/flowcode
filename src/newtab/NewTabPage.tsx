@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { shellOptionIcon } from "../terminal/TabStrip";
+import type { PromptAnchor } from "../terminal/Terminal";
 import { sameShell, toWslPath, wslDistroOfPath, wslDistroOfShell } from "../terminal/wslPath";
 import { listFavorites, subscribeFavorites, type FavoriteFolder } from "../favorites/favoritesStore";
 import { listRecentTerminals, subscribeRecentTerminals, type RecentTerminal } from "./recentTerminals";
@@ -38,8 +39,12 @@ interface NewTabPageProps {
    * up underneath while the prompt is still in the air. The page stays on
    * top (see `is-overlay`) until it has faded out and calls `onDone`. */
   onLaunch: (launch: NewTabLaunch) => void;
-  /** The terminal underneath has spawned its shell and parsed its first output. */
-  terminalReady: boolean;
+  /** Where the terminal underneath will draw its first prompt, once its
+   * banner (if any) is on screen - the flight's destination. */
+  anchor?: PromptAnchor;
+  /** The terminal's shell has drawn its first prompt (`null`: it never
+   * will - the shell failed to start). */
+  promptShown?: PromptAnchor | null;
   /** The chosen shell changed (`undefined` = the configured default) - the
    * tab's folder follows to that shell's start folder. */
   onShellChange: (shell: string | undefined) => void;
@@ -50,11 +55,15 @@ interface NewTabPageProps {
  * together, and start as soon as the user hits Enter. */
 const FLIGHT_MS = 340;
 const HAND_OFF_EASING = "cubic-bezier(.16,1,.3,1)";
-/** Let the shell's own prompt paint before the page starts to fade. */
-const SETTLE_MS = 60;
+/** Fly to the first row if the terminal hasn't reported where its prompt
+ * will be by now. */
+const ANCHOR_WAIT_MS = 80;
+/** The flown prompt slides to the real one when the shell printed lines of
+ * its own first (a profile's greeting). */
+const NUDGE_MS = 120;
 /** Fade anyway if the terminal never reports in. */
 const READY_TIMEOUT_MS = 1800;
-const OVERLAY_FADE_MS = 120;
+const OVERLAY_FADE_MS = 90;
 
 const RECENTS_SHOWN = 6;
 
@@ -86,7 +95,7 @@ function useRelativeTime() {
   };
 }
 
-export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLaunch, terminalReady, onShellChange, onDone }: NewTabPageProps) {
+export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLaunch, anchor, promptShown, onShellChange, onDone }: NewTabPageProps) {
   const { t } = useI18n();
   const relativeTime = useRelativeTime();
   const [options, setOptions] = useState<ShellOption[]>([]);
@@ -104,6 +113,21 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const promptRef = useRef<HTMLLabelElement>(null);
   const psRef = useRef<HTMLSpanElement>(null);
   const boxBgRef = useRef<HTMLDivElement>(null);
+  /** Uncovers the terminal's content from the top (see startFlight). */
+  const uncoverRef = useRef<Animation | null>(null);
+  /** The measurements the flight needs, taken when it was launched - it
+   * only starts once the terminal says where to land. */
+  const flightRef = useRef<{
+    box: DOMRect;
+    text: DOMRect;
+    to: DOMRect;
+    dx: number;
+    dy: number;
+    scale: number;
+    started: boolean;
+    landedTop: number;
+  } | null>(null);
+  const finishingRef = useRef(false);
   const timersRef = useRef<number[]>([]);
   const [version, setVersion] = useState("");
   const [system, setSystem] = useState<BannerSystemInfo | null>(null);
@@ -169,17 +193,6 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     return opt ? shellOptionLabel(opt) : (id ?? "");
   };
 
-  // Once the prompt has landed and the terminal underneath is up, fade the
-  // page out to reveal it.
-  useEffect(() => {
-    if (phase !== "overlay" || !flightDone || !(terminalReady || timedOut)) return;
-    const settle = window.setTimeout(() => {
-      setPhase("fading");
-      timersRef.current.push(window.setTimeout(onDone, OVERLAY_FADE_MS));
-    }, SETTLE_MS);
-    timersRef.current.push(settle);
-  }, [phase, flightDone, terminalReady, timedOut, onDone]);
-
   /** Plays the hand-off - the command box grows to fill the page while the
    * first line flies to where the terminal's own first line will be and
    * everything else clears away - then launches. */
@@ -208,18 +221,26 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     const text = ps.getBoundingClientRect();
     const to = root.getBoundingClientRect();
     const scale = termFontSize / parseFloat(getComputedStyle(prompt).fontSize);
-    // The prompt scales around its own corner, so aim the text - not the
-    // padded label - at the terminal's first row (14px padding, row height
-    // ~1.2 of the font size), centered on it.
-    const rowHeight = termFontSize * 1.2;
-    const dx = text.left - box.left;
-    const dy = text.top - box.top;
-    const targetX = to.left + 14;
-    const targetY = to.top + 14 + rowHeight / 2 - (text.height * scale) / 2;
+    // The prompt scales around its own corner, so the text - not the padded
+    // label - is what gets aimed at the terminal's prompt row.
+    flightRef.current = { box, text, to, dx: text.left - box.left, dy: text.top - box.top, scale, started: false, landedTop: 0 };
     const bg = boxBg.getBoundingClientRect();
     setPhase("overlay");
     onLaunch(next);
     timersRef.current.push(window.setTimeout(() => setTimedOut(true), READY_TIMEOUT_MS));
+    // Where the terminal's prompt lands depends on its banner, which it
+    // reports as soon as it is written; the first row is the fallback.
+    timersRef.current.push(
+      window.setTimeout(
+        () =>
+          startFlight({
+            left: to.left + 14,
+            top: to.top + 14,
+            cellHeight: termFontSize * 1.2,
+          }),
+        ANCHOR_WAIT_MS,
+      ),
+    );
     // The box's surface grows from its own corner to the page's, dissolving
     // into the terminal's background as it goes.
     boxBg.animate(
@@ -233,17 +254,73 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
       ],
       { duration: FLIGHT_MS, easing: HAND_OFF_EASING, fill: "forwards" },
     );
+  }
+
+  /** Flies the first line to the terminal's prompt row while the terminal's
+   * content, hidden until now (see terminal.css), is uncovered from the top
+   * down to that row - so the banner above it appears as the prompt passes,
+   * not all at once at the end. Only the content is clipped, never the
+   * terminal's own surface, so nothing changes shade underneath. */
+  function startFlight(a: PromptAnchor) {
+    const f = flightRef.current;
+    const prompt = promptRef.current;
+    if (!f || f.started || !prompt) return;
+    f.started = true;
+    f.landedTop = a.top;
+    const targetY = a.top + a.cellHeight / 2 - (f.text.height * f.scale) / 2;
+    // A longer way takes a little longer, so it doesn't read as rushed.
+    const duration = FLIGHT_MS + Math.min(60, Math.abs(targetY - f.box.top) / 10);
+    const options = { duration, easing: HAND_OFF_EASING, fill: "forwards" as const };
     const animation = prompt.animate(
       [
         { transform: "translate(0, 0) scale(1)" },
         {
-          transform: `translate(${targetX - box.left - dx * scale}px, ${targetY - box.top - dy * scale}px) scale(${scale})`,
+          transform: `translate(${a.left - f.box.left - f.dx * f.scale}px, ${targetY - f.box.top - f.dy * f.scale}px) scale(${f.scale})`,
         },
       ],
-      { duration: FLIGHT_MS, easing: HAND_OFF_EASING, fill: "forwards" },
+      options,
     );
+    const terminal = rootRef.current?.previousElementSibling;
+    const content = terminal?.matches(".terminal-container") ? terminal.querySelector<HTMLElement>(".xterm") : null;
+    if (content) {
+      const { height, bottom } = content.getBoundingClientRect();
+      uncoverRef.current = content.animate(
+        [{ clipPath: `inset(0px 0 ${height}px 0)` }, { clipPath: `inset(0px 0 ${Math.max(0, bottom - a.top)}px 0)` }],
+        options,
+      );
+    }
     animation.onfinish = () => setFlightDone(true);
   }
+
+  useEffect(() => {
+    if (anchor) startFlight(anchor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor]);
+
+  // Once the prompt has landed and the shell has drawn its own, fade the
+  // page out to reveal it - after sliding onto the real row if the shell
+  // printed something of its own first.
+  useEffect(() => {
+    if (phase !== "overlay" || !flightDone || finishingRef.current) return;
+    if (promptShown === undefined && !timedOut) return;
+    finishingRef.current = true;
+    const finish = () => {
+      uncoverRef.current?.cancel();
+      setPhase("fading");
+      timersRef.current.push(window.setTimeout(onDone, OVERLAY_FADE_MS));
+    };
+    const delta = promptShown && flightRef.current ? promptShown.top - flightRef.current.landedTop : 0;
+    const prompt = promptRef.current;
+    if (prompt && Math.abs(delta) > 2) {
+      const slide = prompt.animate(
+        [{ transform: "translateY(0)" }, { transform: `translateY(${delta}px)` }],
+        { duration: NUDGE_MS, easing: HAND_OFF_EASING, composite: "add", fill: "forwards" },
+      );
+      slide.onfinish = finish;
+    } else {
+      finish();
+    }
+  }, [phase, flightDone, promptShown, timedOut, onDone]);
 
   const shellChangedRef = useRef(false);
   useEffect(() => {
