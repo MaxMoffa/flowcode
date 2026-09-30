@@ -30,7 +30,7 @@
      anything sane, it makes the whole --surface declaration invalid, which
      computes as fully transparent everywhere it's used. */
   --surface-rgb: 255 250 241;
-  --surface-alpha: 0.55;
+  --surface-alpha: 0.6;
   --surface: rgb(var(--surface-rgb) / var(--surface-alpha));
   --bg-elevated: var(--surface);
   --fg: #3a2b17;
@@ -81,7 +81,7 @@
 
 :root[data-theme="dark"] {
   --surface-rgb: 14 10 7;
-  --surface-alpha: 0.55;
+  --surface-alpha: 0.6;
   --surface: rgb(var(--surface-rgb) / var(--surface-alpha));
   --bg-elevated: var(--surface);
   --fg: #e7d8c5;

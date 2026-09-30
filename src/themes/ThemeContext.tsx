@@ -82,7 +82,7 @@ function readTerminalPaletteId(): string | null {
  * both themes today. Can't be read back from themes.css via
  * getComputedStyle: this runs before the `data-theme` attribute that makes
  * the platform override rules match has been applied. */
-const DEFAULT_GLASS_ALPHA = 0.9;
+const DEFAULT_GLASS_ALPHA = 0.6;
 
 function getInitialGlassOpacity(theme: Theme): number {
   // readNumber treats a missing key as "use the default" - `Number(null)` is
