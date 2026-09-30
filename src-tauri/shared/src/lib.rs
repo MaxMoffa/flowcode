@@ -147,6 +147,36 @@ unsafe fn refresh_backdrop(hwnd: windows_sys::Win32::Foundation::HWND) {
         );
     }
     RedrawWindow(hwnd, core::ptr::null(), core::ptr::null_mut(), RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    nudge_size(hwnd as isize);
+}
+
+/// Grows the window by 1px and back a moment later. Re-applying the backdrop
+/// isn't always enough: the stuck state ("only the blur shows") clears the
+/// instant the window is moved or resized by hand, so do that programmatically.
+/// Delayed so the webview has resumed by then, and skipped while maximized.
+#[cfg(target_os = "windows")]
+fn nudge_size(hwnd: isize) {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, IsIconic, IsZoomed, SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER,
+    };
+
+    std::thread::spawn(move || unsafe {
+        let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        if IsZoomed(hwnd) != 0 || IsIconic(hwnd) != 0 {
+            return;
+        }
+        let mut rect: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut rect) == 0 {
+            return;
+        }
+        let (w, h) = (rect.right - rect.left, rect.bottom - rect.top);
+        let flags = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE;
+        SetWindowPos(hwnd, core::ptr::null_mut(), 0, 0, w + 1, h, flags);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        SetWindowPos(hwnd, core::ptr::null_mut(), 0, 0, w, h, flags);
+    });
 }
 
 #[cfg(target_os = "windows")]

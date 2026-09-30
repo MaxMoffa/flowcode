@@ -4,7 +4,6 @@ import { Fragment, lazy, Suspense, useEffect, useRef, useState, type ReactNode }
 // `availableMonitors` and friends are module-level too). Calling it off the
 // window object throws a TypeError.
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
-import { installRepaintOnRestore } from "./lib/repaintOnRestore";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
@@ -866,8 +865,6 @@ function Shell() {
       unlisten.then((fns) => fns.forEach((fn) => fn()));
     };
   }, []);
-
-  useEffect(() => installRepaintOnRestore(), []);
 
   useEffect(() => {
     // DWM rounds this window's corners unconditionally (see
