@@ -512,6 +512,16 @@
   caret-color: transparent;
 }
 
+/* Only what was typed flies, not the hint - and the flown prompt is shown
+   whole, like the terminal's. */
+.newtab.is-leaving .newtab-input::placeholder {
+  opacity: 0;
+}
+
+.newtab.is-leaving .newtab-ps {
+  max-width: none;
+}
+
 .newtab.is-leaving .newtab-cols {
   opacity: 0;
   transform: translateY(40px);

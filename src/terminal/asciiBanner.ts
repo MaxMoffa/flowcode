@@ -57,6 +57,22 @@ export interface BannerSystemInfo {
   disk: { total: number; available: number } | null;
 }
 
+const CACHE_MAX_AGE_MS = 60_000;
+let cache: { info?: BannerSystemInfo; version?: string; at: number } | null = null;
+
+/** Remembers what the banner needs so a terminal opening right after
+ * (e.g. from the New Tab page, which already queried it) can write the banner
+ * synchronously instead of waiting on a round trip before spawning its shell. */
+export function rememberBannerInfo(part: { info?: BannerSystemInfo; version?: string }) {
+  cache = { ...(cache ?? { at: 0 }), ...part, at: Date.now() };
+}
+
+/** The remembered info once both halves are known and still fresh. */
+export function cachedBannerInfo(): { info: BannerSystemInfo; version: string } | null {
+  if (!cache?.info || !cache.version || Date.now() - cache.at > CACHE_MAX_AGE_MS) return null;
+  return { info: cache.info, version: cache.version };
+}
+
 /** A small "splash" written once at the very top of a fresh tab, before any
  * real shell output - purely decorative/orienting (OS, free RAM/disk), never
  * load-bearing, so it quietly skips itself rather than risk looking broken:

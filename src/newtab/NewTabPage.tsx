@@ -5,9 +5,10 @@ import { sameShell, toWslPath, wslDistroOfPath, wslDistroOfShell } from "../term
 import { listFavorites, subscribeFavorites, type FavoriteFolder } from "../favorites/favoritesStore";
 import { listRecentTerminals, subscribeRecentTerminals, type RecentTerminal } from "./recentTerminals";
 import { isWindowsPlatform } from "../lib/path";
+import { flushSync } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { gib, type BannerSystemInfo } from "../terminal/asciiBanner";
+import { gib, rememberBannerInfo, type BannerSystemInfo } from "../terminal/asciiBanner";
 import { useI18n } from "../i18n";
 import { FrogLogo } from "./FrogLogo";
 import "./newtab.css";
@@ -92,6 +93,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const [shell, setShell] = useState(defaultShell || "system");
   const [command, setCommand] = useState("");
   const [leaving, setLeaving] = useState(false);
+  const [flyPrompt, setFlyPrompt] = useState<string | null>(null);
   const [phase, setPhase] = useState<"page" | "overlay" | "fading">("page");
   const favorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
   const recents = useSyncExternalStore(subscribeRecentTerminals, listRecentTerminals, listRecentTerminals).slice(
@@ -124,7 +126,10 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
 
   useEffect(() => {
     void getVersion()
-      .then(setVersion)
+      .then((v) => {
+        setVersion(v);
+        rememberBannerInfo({ version: v });
+      })
       .catch(() => {});
   }, []);
 
@@ -132,6 +137,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     let cancelled = false;
     void invoke<BannerSystemInfo>("system_info")
       .then((info) => {
+        rememberBannerInfo({ info });
         if (!cancelled) setSystem(info);
       })
       .catch(() => {});
@@ -179,7 +185,15 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
    * everything else clears away - then launches. */
   function launch(next: NewTabLaunch) {
     if (leaving) return;
-    setLeaving(true);
+    // The prompt that flies is the one the terminal will print: for a recent
+    // or favorite that is its own folder and shell, not the ones shown now.
+    // Rendered before measuring, since it changes the prompt's width.
+    flushSync(() => {
+      setLeaving(true);
+      if (next.cwd !== undefined || next.shell !== undefined) {
+        setFlyPrompt(promptFor(next.shell ?? defaultShell, defaultLabel, next.cwd ?? startDir));
+      }
+    });
     const root = rootRef.current;
     const prompt = promptRef.current;
     const ps = psRef.current;
@@ -286,7 +300,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
         <div className="newtab-box">
           <div ref={boxBgRef} className="newtab-box-bg" aria-hidden="true" />
           <label ref={promptRef} className="newtab-prompt">
-            <span ref={psRef} className="newtab-ps">{promptFor(shell, defaultLabel, startDir)}</span>
+            <span ref={psRef} className="newtab-ps">{flyPrompt ?? promptFor(shell, defaultLabel, startDir)}</span>
             <input
               ref={inputRef}
               id="newtab-command"

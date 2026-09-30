@@ -12,7 +12,7 @@ import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./
 import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
-import { buildAsciiBanner, type BannerSystemInfo } from "./asciiBanner";
+import { buildAsciiBanner, cachedBannerInfo, rememberBannerInfo, type BannerSystemInfo } from "./asciiBanner";
 import { t } from "../i18n";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
@@ -695,11 +695,25 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         // every restart.
         term.write(`${restoredContentRef.current}\x1b[0m\r\n`);
       } else if (bannerEnabledRef.current) {
-        const [sysInfo, appVersion] = await Promise.all([
-          invoke<BannerSystemInfo>("system_info").catch(() => undefined),
-          getVersion().catch(() => undefined),
-        ]);
-        if (disposed) return;
+        // The New Tab page has usually queried this already: with it cached
+        // there is no await here, so the shell spawns without waiting.
+        let sysInfo: BannerSystemInfo | undefined;
+        let appVersion: string | undefined;
+        const cached = cachedBannerInfo();
+        if (cached) {
+          sysInfo = cached.info;
+          appVersion = cached.version;
+        } else {
+          [sysInfo, appVersion] = await Promise.all([
+            invoke<BannerSystemInfo>("system_info").catch(() => undefined),
+            getVersion().catch(() => undefined),
+          ]);
+          if (disposed) return;
+          rememberBannerInfo({ info: sysInfo, version: appVersion });
+        }
+        // The container may not have been measured when xterm mounted: build
+        // the banner for the real width, not the 80 columns default.
+        refit();
         const banner = buildAsciiBanner(term.cols, sysInfo, appVersion);
         if (banner) term.write(banner);
       }
@@ -724,7 +738,12 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           },
         });
       } catch (e) {
-        if (!disposed) term.write(`\r\n[${t("terminal.spawnFailed", { error: String(e) })}]\r\n`);
+        if (!disposed) {
+          term.write(`\r\n[${t("terminal.spawnFailed", { error: String(e) })}]\r\n`);
+          // Nothing else will report in: don't leave the New Tab page
+          // covering the error until its timeout.
+          onReadyRef.current?.();
+        }
         return;
       }
       if (disposed) {
