@@ -1021,26 +1021,30 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
 
       <div className="newtab-below">
         <div id="newtab-list" className="newtab-list">
-          <h2 className="newtab-heading">
-            <span>#</span> {t("newTab.recents")}
-          </h2>
-          {recents.length === 0 ? (
-            <p className="newtab-empty">{t("newTab.recentsEmpty")}</p>
-          ) : (
-            recents.map((r, i) =>
-              row(i, r.name, r.command, false, r.shell, relativeTime(r.at), r.cwd, () => launchRecent(r)),
-            )
-          )}
-          <h2 className="newtab-heading">
-            <span>#</span> {t("favorites.title")}
-          </h2>
-          {favorites.length === 0 ? (
-            <p className="newtab-empty">{t("newTab.favoritesEmpty")}</p>
-          ) : (
-            favorites.map((f, i) =>
-              row(recents.length + i, f.name, shownPath(f.path), true, f.shell, "", f.path, () => launchFavorite(f)),
-            )
-          )}
+          <section className="newtab-section">
+            <h2 className="newtab-heading">
+              <span>#</span> {t("newTab.recents")}
+            </h2>
+            {recents.length === 0 ? (
+              <p className="newtab-empty">{t("newTab.recentsEmpty")}</p>
+            ) : (
+              recents.map((r, i) =>
+                row(i, r.name, r.command, false, r.shell, relativeTime(r.at), r.cwd, () => launchRecent(r)),
+              )
+            )}
+          </section>
+          <section className="newtab-section">
+            <h2 className="newtab-heading">
+              <span>#</span> {t("favorites.title")}
+            </h2>
+            {favorites.length === 0 ? (
+              <p className="newtab-empty">{t("newTab.favoritesEmpty")}</p>
+            ) : (
+              favorites.map((f, i) =>
+                row(recents.length + i, f.name, shownPath(f.path), true, f.shell, "", f.path, () => launchFavorite(f)),
+              )
+            )}
+          </section>
         </div>
 
         <div className="newtab-foot">

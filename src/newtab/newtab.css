@@ -104,22 +104,33 @@
      up down the list and each is as wide as its widest entry - packed to
      the left with a steady gap, not stretched across the page. */
   display: grid;
-  grid-template-columns: max-content minmax(0, max-content) minmax(0, max-content) max-content max-content;
+  grid-template-columns: max-content minmax(0, max-content) minmax(0, max-content) max-content max-content minmax(0, 1fr);
   column-gap: 3ch;
+  row-gap: 10px;
   justify-content: start;
   /* Keeps the foot off the list when the page is short. */
   margin-bottom: 16px;
 }
 
-.newtab-heading {
+/* Recents and favorites: one outlined card each, sharing the list's columns
+   (a subgrid again) so they line up from one card to the next. The last,
+   empty column stretches the cards across the page. */
+.newtab-section {
+  display: grid;
+  grid-template-columns: subgrid;
   grid-column: 1 / -1;
-  margin: 6px 0 2px;
-  color: var(--fg-muted);
-  font: inherit;
+  padding: 6px 1ch 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
-.newtab-heading:first-child {
-  margin-top: 0;
+.newtab-heading {
+  grid-column: 1 / -1;
+  margin: 0 0 2px;
+  /* Same indent as the rows' left padding, so the `#` sits over their keys. */
+  padding-left: 2ch;
+  color: var(--fg-muted);
+  font: inherit;
 }
 
 /* A comment line, like `# recenti` in a script. */
