@@ -37,9 +37,9 @@
   white-space: pre;
 }
 
-/* The frog's catch, drawn over the whole page on the same cell grid (see
-   drawCatch in NewTabPage.tsx): see-through except where the frog, its
-   tongue or the fly are. */
+/* The frog's catch, drawn over the whole page in SVG (FrogCatch.tsx) - and
+   the rare real frog's canvas under it: see-through except where the frog,
+   its tongue or the fly are. */
 .newtab-catch {
   position: absolute;
   top: 14px;
@@ -47,6 +47,67 @@
   right: 14px;
   z-index: 3;
   pointer-events: none;
+}
+
+/* ---------- the frog ---------- */
+
+/* The SVG frog, over the banner's frog box (left empty on the page). On
+   the hand-off it fades into the ASCII frog the banner then draws under
+   it - the one the terminal prints. */
+.newtab-frog {
+  position: absolute;
+  z-index: 2;
+  transition:
+    opacity 0.2s ease-out,
+    filter 0.2s ease-out;
+}
+
+.newtab-frog.is-ascii {
+  opacity: 0;
+  filter: blur(3px);
+  pointer-events: none;
+}
+
+.frog-logo {
+  display: block;
+  overflow: visible;
+  cursor: pointer;
+}
+
+.frog-logo .frog-act,
+.frog-logo .frog-breathe {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+.frog-logo .frog-breathe {
+  animation: frog-breathe 3.4s ease-in-out infinite;
+}
+
+.frog-logo .frog-lid {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+  transform: scaleY(0);
+}
+
+.frog-logo .frog-cursor {
+  animation: frog-cursor-blink 1.1s steps(1) infinite;
+}
+
+@keyframes frog-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.025, 0.975);
+  }
+}
+
+@keyframes frog-cursor-blink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .newtab-prompt {

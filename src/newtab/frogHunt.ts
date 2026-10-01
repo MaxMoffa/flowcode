@@ -30,7 +30,7 @@ export interface CatchFrame {
    * `word`: when the prey is a word typed on the prompt, the word itself,
    * carried off on the tongue. */
   fly: (Point & { flap: boolean; word?: string }) | null;
-  /** The rare catch where the frog slips out of ASCII into a real frog:
+  /** The rare catch where the frog slips out of the drawing into a real frog:
    * how far (0-1, the scene's `real`) and how hard it glitches doing it. */
   real: { amount: number; glitch: number } | null;
 }
@@ -74,7 +74,7 @@ export interface HuntPlan {
   shots: Shot[];
   turnBack: { at: number; ms: number };
   /** The rare real-frog catch: it slips into a real frog mid-turn, and once
-   * it has eaten, faces front, shakes itself and slips back into ASCII. */
+   * it has eaten, faces front, shakes itself and slips back into the drawing. */
   real: { evolveAt: number; evolveMs: number; shakeAt: number; shakeMs: number; devolveAt: number; devolveMs: number } | null;
   total: number;
   style: Style;
@@ -182,7 +182,7 @@ export function planHunt(area: FlyArea, prey?: { word: string; spot: Point }): H
   const turnBack = { at: last.at + last.reachMs + last.holdMs + last.reelMs + between(60, 260), ms: between(450, 850) };
   if (Math.random() < 0.2) {
     // Real for a moment: it slips mid-turn, then - fed - snaps round to face
-    // front, shakes the realness off and drops back into ASCII mid-shake.
+    // front, shakes the realness off and drops back into the drawing mid-shake.
     turnBack.ms = between(260, 380);
     const shakeAt = turnBack.at + turnBack.ms;
     const shakeMs = between(900, 1300);

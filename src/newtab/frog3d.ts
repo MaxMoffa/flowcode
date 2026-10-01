@@ -28,7 +28,7 @@ export interface FrogScene {
   /** The tongue: out of the mouth toward a point on screen, `out` (0-1) of
    * the way there. */
   tongue: { target: [number, number]; out: number } | null;
-  /** How far it has slipped from ASCII art into a real frog (0-1): wet,
+  /** How far it has slipped from the drawing into a real frog (0-1): wet,
    * spotted skin, golden eyes with slit pupils, a mouth for a `>_`. */
   real: number;
 }
@@ -159,7 +159,6 @@ function hitCapsule(o: Vec3, d: Vec3, a: Vec3, b: Vec3, r: number): number | nul
 }
 
 const mix = (a: Rgb, b: Rgb, k: number): Rgb => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
-const toHex = (c: Rgb) => c.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("").toUpperCase();
 
 /** Soft, modern shading - a smooth wrap-around falloff into a colored
  * shadow, a rim of light along the silhouette and a small crisp highlight -
@@ -249,18 +248,12 @@ export function sceneBounds(s: FrogScene): { left: number; right: number; top: n
   return { left, right, top, bottom };
 }
 
-/** The color of the scene at screen point (x, y), or null for nothing. */
-export function sceneColor(x: number, y: number, s: FrogScene): string | null {
-  const c = sceneRgb(x, y, s);
-  return c ? toHex(c) : null;
-}
-
 /** What a ray hit: which part, where, and the surface's normal there (all
  * in the frog's rest frame). */
 type Part = "body" | "bump" | "ball" | "pupil" | "glint" | "tongue";
 
 /** The scene's color at screen point (x, y) as RGB, or null for nothing -
- * the ASCII frog's look, the real frog's, or a blend while it slips. */
+ * the drawn frog's flat look, the real frog's, or a blend while it slips. */
 /** What every ray of a frame shares - worked out once per scene. The map
  * from screen to the frog's frame is affine, so a ray's origin is the
  * screen origin's image plus x and y steps. */

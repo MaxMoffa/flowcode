@@ -74,6 +74,9 @@ interface FrogPoseOptions {
   /** Animate at all - off while the page is hidden or handing over, when the
    * frog stands still in the pose the terminal prints. */
   active: boolean;
+  /** Hand out poses for the ASCII frog - off while the page shows the SVG
+   * one, which animates itself; the catch runs either way. */
+  drawPose: boolean;
   /** Where the frog is on screen right now (`null`: not drawn). */
   frogRect: () => DOMRect | null;
   /** Where the caret is while the user types, for the eyes to follow. */
@@ -92,7 +95,7 @@ interface FrogPoseOptions {
  * tongue has it. False when it can't go now (busy with a catch, or still). */
 export type HuntWord = (word: string, spot: Point, onCatch: () => void) => boolean;
 
-export function useFrogPose({ active, frogRect, caret, flyArea }: FrogPoseOptions): {
+export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: FrogPoseOptions): {
   pose: FrogPose;
   catching: CatchFrame | null;
   huntWord: HuntWord;
@@ -100,8 +103,8 @@ export function useFrogPose({ active, frogRect, caret, flyArea }: FrogPoseOption
   const [pose, setPose] = useState<FrogPose>(REST_POSE);
   const [catching, setCatching] = useState<CatchFrame | null>(null);
   const huntWordRef = useRef<HuntWord>(() => false);
-  const optionsRef = useRef({ frogRect, caret, flyArea });
-  optionsRef.current = { frogRect, caret, flyArea };
+  const optionsRef = useRef({ drawPose, frogRect, caret, flyArea });
+  optionsRef.current = { drawPose, frogRect, caret, flyArea };
 
   useEffect(() => {
     if (!active || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -179,7 +182,7 @@ export function useFrogPose({ active, frogRect, caret, flyArea }: FrogPoseOption
     const tick = (now: number) => {
       const frameOfCatch = catchFrame(now);
       if (frameOfCatch || hunt === null) setCatching(frameOfCatch);
-      if (frameOfCatch) {
+      if (frameOfCatch || !optionsRef.current.drawPose) {
         frame = requestAnimationFrame(tick);
         return;
       }

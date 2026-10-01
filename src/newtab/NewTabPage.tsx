@@ -19,8 +19,10 @@ import {
   rememberBannerInfo,
   type BannerSystemInfo,
 } from "../terminal/asciiBanner";
+import { FrogCatch } from "./FrogCatch";
+import { FrogLogo } from "./FrogLogo";
 import { useFrogPose, type CatchFrame, type FlyArea } from "./useFrogPose";
-import { MOUTH, sceneBounds, sceneColor, sceneRgb, toWorld, tongueTip } from "./frog3d";
+import { MOUTH, sceneBounds, sceneRgb, toWorld, tongueTip } from "./frog3d";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { historyFor } from "./commandHistory";
 import { useI18n } from "../i18n";
@@ -272,87 +274,10 @@ function toCells(segments: Segment[]): Cell[] {
   return segments.flatMap((s) => [...s.text].map((ch) => ({ ch, style: s.style })));
 }
 
-function fromCells(cells: Cell[]): Segment[] {
-  const out: Segment[] = [];
-  for (const cell of cells) {
-    const last = out[out.length - 1];
-    if (last && last.style === cell.style) last.text += cell.ch;
-    else out.push({ text: cell.ch, style: cell.style });
-  }
-  return out;
-}
-
-const hex = (color: string) => `#${color}`;
-
-/** A frame of the catch as rows of cells over the whole page - the 3D frog,
- * its tongue and the fly; blank (see-through) everywhere else. */
-function drawCatch(g: CatchGrid, frame: CatchFrame): Segment[][] {
-  const fly = frame.fly;
-  // The fly is one dark pixel with a light wing either side, beating up a
-  // pixel and back while it flies, folded level while it sits.
-  const flyPx = fly
-    ? [g.frogAt.col + Math.floor((fly.x - FROG_BOX.x) / UNIT_X), 2 * g.frogAt.top + Math.floor((fly.y - FROG_BOX.y) / UNIT_Y)]
-    : null;
-  const flyColor = (px: number, py: number): string | null => {
-    if (!flyPx || !fly) return null;
-    const [fx, fy] = flyPx;
-    if (px === fx && py === fy) return "52525B";
-    const wingRow = fly.flap ? fy - 1 : fy;
-    if ((px === fx - 1 || px === fx + 1) && py === wingRow) return "F4F4F5";
-    return null;
-  };
-  // The scene is only worth asking about where the frog and its tongue can be.
-  const box = sceneBounds(frame.scene);
-  const colOf = (x: number) => g.frogAt.col + (x - FROG_BOX.x) / UNIT_X;
-  const rowOf = (y: number) => g.frogAt.top + (y - FROG_BOX.y) / (2 * UNIT_Y);
-  const [c0, c1] = [Math.max(0, Math.floor(colOf(box.left))), Math.min(g.cols - 1, Math.ceil(colOf(box.right)))];
-  const [r0, r1] = [Math.max(0, Math.floor(rowOf(box.top))), Math.min(g.rows - 1, Math.ceil(rowOf(box.bottom)))];
-  // A word being carried off sits on the tongue's tip, its letters in the
-  // cells there - instead of a fly.
-  const word = fly?.word ? { text: [...fly.word], col: flyPx![0] - Math.floor(fly.word.length / 2), row: Math.floor(flyPx![1] / 2) } : null;
-  const rows: Segment[][] = [];
-  for (let row = 0; row < g.rows; row++) {
-    const cells: Cell[] = [];
-    const inRows = row >= r0 && row <= r1;
-    const flyRow = flyPx && !word && Math.abs(2 * row - flyPx[1]) <= 2;
-    if (!inRows && !flyRow) {
-      rows.push([]);
-      continue;
-    }
-    for (let col = 0; col < g.cols; col++) {
-      if (word && row === word.row && col >= word.col && col < word.col + word.text.length) {
-        cells.push({ ch: word.text[col - word.col], style: WORD_STYLE });
-        continue;
-      }
-      const pixel = (half: number) => {
-        const flyHere = word ? null : flyColor(col, 2 * row + half);
-        if (flyHere) return flyHere;
-        if (!inRows || col < c0 || col > c1) return null;
-        const { x, y } = toUnits(g, col, 2 * row + half);
-        return sceneColor(x, y, frame.scene);
-      };
-      const top = pixel(0);
-      const bottom = pixel(1);
-      if (!top && !bottom) cells.push({ ch: " ", style: NO_STYLE });
-      else if (top === bottom) cells.push({ ch: " ", style: { background: hex(top!) } });
-      else if (!bottom) cells.push({ ch: "\u2580", style: { color: hex(top!) } });
-      else if (!top) cells.push({ ch: "\u2584", style: { color: hex(bottom) } });
-      else cells.push({ ch: "\u2580", style: { color: hex(top), background: hex(bottom) } });
-    }
-    rows.push(fromCells(cells));
-  }
-  return rows;
-}
-
-const NO_STYLE: CSSProperties = {};
-/** A word on the tongue: the prompt's own text color, on the tongue's pink. */
-const WORD_STYLE: CSSProperties = { color: "var(--fg)", background: "#EC4899", fontWeight: 700 };
-
-/** A frame of the real-frog catch onto `canvas`, over the whole page: the
- * scene ray-traced at a pixel size that shrinks from the ASCII cell (half a
- * cell tall) to near the screen's own as the frog turns real - with bands
- * slipping sideways while it glitches - plus a soft shadow under it and a
- * real fly. */
+/** A frame of the real-frog catch onto `canvas`, over the whole page, under
+ * the SVG catch (which fades out over it as the frog turns real): the scene
+ * ray-traced at a few px - with bands slipping sideways while it glitches -
+ * plus a soft shadow under it. */
 function drawRealCatch(canvas: HTMLCanvasElement, g: CatchGrid, frame: CatchFrame) {
   const real = frame.real!;
   const width = g.cols * g.cellWidth;
@@ -395,13 +320,10 @@ function drawRealCatch(canvas: HTMLCanvasElement, g: CatchGrid, frame: CatchFram
     ctx.restore();
   }
 
-  // The pixel size: the ASCII cell's at first, fine once it's real.
-  const k = real.amount ** 0.6;
   // Not the screen's own pixels: ray-tracing those is too slow in a frame,
   // and smoothed up from a few px it reads as a real, soft image anyway.
-  const fine = 3;
-  const stepX = g.cellWidth + (fine - g.cellWidth) * k;
-  const stepY = g.cellHeight / 2 + (fine - g.cellHeight / 2) * k;
+  const stepX = 3;
+  const stepY = 3;
   const box = sceneBounds(scene);
   const x0 = Math.max(0, Math.floor(toPxX(box.left) / stepX) * stepX);
   const y0 = Math.max(0, Math.floor(toPxY(box.top) / stepY) * stepY);
@@ -439,7 +361,7 @@ function drawRealCatch(canvas: HTMLCanvasElement, g: CatchGrid, frame: CatchFram
   buffer.width = nx;
   buffer.height = ny;
   buffer.getContext("2d")!.putImageData(image, 0, 0);
-  ctx.imageSmoothingEnabled = k > 0.7;
+  ctx.imageSmoothingEnabled = true;
   if (real.glitch > 0.08) {
     // Glitching: horizontal bands of it slip sideways, a few each frame.
     const bands = 6 + Math.floor(real.glitch * 10);
@@ -451,56 +373,6 @@ function drawRealCatch(canvas: HTMLCanvasElement, g: CatchGrid, frame: CatchFram
     }
   } else {
     ctx.drawImage(buffer, x0, y0, nx * stepX, ny * stepY);
-  }
-
-  // The fly, real too once the frog mostly is.
-  const fly = frame.fly;
-  if (fly?.word) {
-    ctx.font = `700 ${g.cellHeight * 0.8}px Menlo, Consolas, monospace`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = getComputedStyle(canvas).getPropertyValue("--fg") || "#fff";
-    ctx.fillText(fly.word, toPxX(fly.x), toPxY(fly.y));
-  } else if (fly) {
-    const fx = toPxX(fly.x);
-    const fy = toPxY(fly.y);
-    if (real.amount > 0.5) {
-      ctx.save();
-      ctx.translate(fx, fy);
-      ctx.scale(1.6, 1.6);
-      for (const side of [-1, 1]) {
-        ctx.save();
-        ctx.rotate(side * (fly.flap ? 1.0 : 0.35));
-        ctx.beginPath();
-        ctx.ellipse(side * 3, -2, 3.6, 1.6, 0, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(220, 232, 255, 0.55)";
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
-        ctx.lineWidth = 0.4;
-        ctx.stroke();
-        ctx.restore();
-      }
-      ctx.beginPath();
-      ctx.ellipse(0, 0.5, 2.6, 1.8, 0, 0, Math.PI * 2);
-      ctx.fillStyle = "#1c1917";
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(-2.4, 0, 1.3, 0, Math.PI * 2);
-      ctx.fillStyle = "#3f1d1d";
-      ctx.fill();
-      ctx.restore();
-    } else {
-      // Still the pixel fly: a dark half cell with a light wing either side.
-      const col = Math.floor(fx / g.cellWidth);
-      const half = Math.floor(fy / (g.cellHeight / 2));
-      const h = g.cellHeight / 2;
-      ctx.fillStyle = "#52525B";
-      ctx.fillRect(col * g.cellWidth, half * h, g.cellWidth, h);
-      ctx.fillStyle = "#F4F4F5";
-      const wing = fly.flap ? half - 1 : half;
-      ctx.fillRect((col - 1) * g.cellWidth, wing * h, g.cellWidth, h);
-      ctx.fillRect((col + 1) * g.cellWidth, wing * h, g.cellWidth, h);
-    }
   }
 }
 
@@ -679,10 +551,12 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
       frogAt,
     };
   };
-  // The frog comes alive on the page; it stands still - the pose the
-  // terminal prints - once the hand-off starts.
+  // On the page the frog is the SVG one (FrogLogo, over the banner's frog
+  // box), alive on its own; this runs its catches. Once the hand-off starts
+  // it turns into the ASCII frog the terminal prints, in the resting pose.
   const { pose, catching, huntWord } = useFrogPose({
     active: !hidden && !leaving && !!frogAt,
+    drawPose: false,
     frogRect: () => {
       const root = rootRef.current;
       if (!root || !grid || !frogAt) return null;
@@ -706,13 +580,15 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     },
   });
   const banner =
-    catching || !bannerEnabled || !grid ? null : buildAsciiBanner(grid.cols, system ?? undefined, version || undefined, pose);
+    catching || !bannerEnabled || !grid
+      ? null
+      : buildAsciiBanner(grid.cols, system ?? undefined, version || undefined, leaving ? pose : null);
   const lines = catching ? bareLines : banner ? bannerLines(banner) : [];
   const catchGridNow = catching ? catchGrid() : null;
-  // The real-frog catch is painted on a canvas instead - except for the odd
-  // frame mid-glitch, which flickers back to the ASCII one.
-  const realFrame = !!catching?.real && !(catching.real.glitch > 0.6 && Math.random() < 0.3);
-  const catchRows = catching && catchGridNow && !realFrame ? drawCatch(catchGridNow, catching) : null;
+  // The rare real frog is painted on a canvas under the SVG one, which
+  // fades out over it - except for the odd frame mid-glitch, which flickers
+  // back to the SVG frog.
+  const realFrame = !!catching?.real && catching.real.amount > 0 && !(catching.real.glitch > 0.6 && Math.random() < 0.3);
   const realCanvasRef = useRef<HTMLCanvasElement>(null);
   useLayoutEffect(() => {
     const canvas = realCanvasRef.current;
@@ -967,18 +843,19 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     >
       {realFrame && <canvas ref={realCanvasRef} className="newtab-catch" aria-hidden="true" />}
 
-      {catchRows && (
-        <div className="newtab-catch" aria-hidden="true">
-          {catchRows.map((segments, i) => (
-            <div key={i} className="newtab-line">
-              {segments.map((s, j) => (
-                <span key={j} style={s.style}>
-                  {s.text}
-                </span>
-              ))}
-            </div>
-          ))}
-        </div>
+      {catching && catchGridNow && (
+        <FrogCatch
+          frame={catching}
+          viewBox={{
+            x: FROG_BOX.x - catchGridNow.frogAt.col * UNIT_X,
+            y: FROG_BOX.y - 2 * catchGridNow.frogAt.top * UNIT_Y,
+            width: catchGridNow.cols * UNIT_X,
+            height: 2 * catchGridNow.rows * UNIT_Y,
+          }}
+          unitsPerCell={{ x: UNIT_X, y: 2 * UNIT_Y }}
+          frogOpacity={realFrame ? 1 - catching.real!.amount : 1}
+          style={{ width: catchGridNow.cols * catchGridNow.cellWidth, height: catchGridNow.rows * catchGridNow.cellHeight }}
+        />
       )}
 
       {lines.length > 0 && (
@@ -993,6 +870,18 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
             </div>
           ))}
         </div>
+      )}
+
+      {frogAt && grid && !catching && !hidden && (
+        <FrogLogo
+          className={"newtab-frog" + (leaving ? " is-ascii" : "")}
+          style={{
+            left: TERM_PADDING_LEFT + frogAt.col * grid.cellWidth,
+            top: TERM_PADDING_TOP + frogAt.top * grid.cellHeight,
+            width: FROG_WIDTH * grid.cellWidth,
+            height: FROG_HEIGHT * grid.cellHeight,
+          }}
+        />
       )}
 
       <label ref={promptRef} className="newtab-prompt">
