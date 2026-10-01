@@ -184,3 +184,53 @@ fn friendly_arch() -> &'static str {
         other => other,
     }
 }
+
+/// PowerShell's saved command history (PSReadLine's `ConsoleHost_history.txt`,
+/// shared by Windows PowerShell and pwsh), oldest first - what the up arrow
+/// walks in a fresh PowerShell session, so the New Tab prompt can walk the
+/// same list. Empty when there is none. A command spanning several lines is
+/// saved with a trailing backtick on each line but the last; those are joined
+/// back into one entry.
+#[tauri::command(async)]
+pub fn powershell_history() -> Vec<String> {
+    const MAX_ENTRIES: usize = 500;
+    let path = if cfg!(target_os = "windows") {
+        std::env::var_os("APPDATA").map(|dir| {
+            std::path::PathBuf::from(dir).join(r"Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt")
+        })
+    } else {
+        std::env::var_os("HOME")
+            .map(|home| std::path::PathBuf::from(home).join(".local/share/powershell/PSReadLine/ConsoleHost_history.txt"))
+    };
+    let Some(text) = path.and_then(|p| std::fs::read(p).ok()).map(|b| String::from_utf8_lossy(&b).into_owned()) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    for line in text.trim_start_matches('\u{feff}').lines() {
+        if let Some(head) = line.strip_suffix('`') {
+            pending.push_str(head);
+            pending.push('\n');
+            continue;
+        }
+        pending.push_str(line);
+        let command = std::mem::take(&mut pending);
+        if is_flowcode_command(&command) {
+            continue;
+        }
+        let command = command.trim();
+        if !command.is_empty() && entries.last().map(String::as_str) != Some(command) {
+            entries.push(command.to_string());
+        }
+    }
+    let skip = entries.len().saturating_sub(MAX_ENTRIES);
+    entries.split_off(skip)
+}
+
+/// A line Flowcode typed into a PowerShell on its own rather than the user:
+/// sent with a leading space (see `unrecorded` in src/terminal/shellDialect.ts),
+/// or - saved before that was skipped - an explorer `cd`, which carries the
+/// prompt wrapper's name, or the Codex usage probe.
+fn is_flowcode_command(line: &str) -> bool {
+    line.starts_with(' ') || line.contains("__flowcodePrompt") || line.contains("check_for_update_on_startup=false")
+}

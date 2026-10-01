@@ -445,6 +445,13 @@ pub fn pty_spawn(
         // than replacing it - only the OSC 0 title is prefixed. Written with
         // single quotes and `[char]` escapes so it survives CreateProcess as
         // one argument without quote juggling.
+        //
+        // It also keeps the commands the app types on its own (an explorer
+        // `cd`, a CLI launched from a shortcut - sent with a leading space,
+        // see Terminal.tsx) out of PSReadLine's history, the way bash's
+        // `ignorespace` does: a line starting with a space is skipped, any
+        // other goes through the handler that was there before (the
+        // profile's, or PSReadLine's own sensitive-data filter).
         "powershell" | "pwsh" => {
             cmd.args([
                 "-NoExit",
@@ -452,7 +459,14 @@ pub fn pty_spawn(
                 // Global name shared with the explorer's `cd` for a nested
                 // PowerShell (src/terminal/shellDialect.ts), which installs
                 // this same wrapper only when it isn't there yet.
-                "$global:__flowcodePrompt = $function:prompt; function global:prompt { ([char]27 + ']0;' + (Get-Location).Path + [char]7) + ((& $global:__flowcodePrompt) -join '') }",
+                concat!(
+                    "$global:__flowcodePrompt = $function:prompt; function global:prompt { ([char]27 + ']0;' + (Get-Location).Path + [char]7) + ((& $global:__flowcodePrompt) -join '') }; ",
+                    "try { $global:__flowcodeHistory = (Get-PSReadLineOption).AddToHistoryHandler; ",
+                    "Set-PSReadLineOption -AddToHistoryHandler { param($line) ",
+                    "if ($line.StartsWith([string][char]32)) { return $false }; ",
+                    "$h = $global:__flowcodeHistory; if ($h -is [scriptblock]) { return & $h $line }; ",
+                    "if ($h) { return $h.Invoke($line) }; return $true } } catch { }",
+                ),
             ]);
         }
         _ => {}

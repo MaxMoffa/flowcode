@@ -100,3 +100,13 @@ export function cdCommand(path: string, kind: ShellKind, eraseRows?: number): st
     }
   }
 }
+
+/** A command the app types on its own (an explorer `cd`, a CLI launched from
+ * a shortcut, the Codex usage probe), prefixed with a space: shells leave such
+ * lines out of their history - bash with `ignorespace` (on in Ubuntu's
+ * default `ignoreboth`), fish always, zsh with `HIST_IGNORE_SPACE`, PowerShell
+ * through the handler pty.rs installs - so the up arrow only brings back what
+ * the user typed. */
+export function unrecorded(command: string): string {
+  return command.startsWith(" ") ? command : ` ${command}`;
+}

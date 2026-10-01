@@ -29,7 +29,8 @@ pub struct PluginManifest {
     pub description: String,
     /// One of "newTerminal" | "clearTerminal" | "toggleSidebar" |
     /// "toggleAgentsSidebar" | "runCommand" | "notify" | "dialog" |
-    /// "commandOutput" - see `PluginAction` in src/plugins/types.ts.
+    /// "commandOutput" | "openInVsCode" - see `PluginAction` in
+    /// src/plugins/types.ts.
     pub action: String,
     /// runCommand: typed into the active terminal exactly as if the user had
     /// typed it themselves. commandOutput: run headlessly (no terminal,
@@ -190,6 +191,85 @@ pub async fn codex_needs_no_daemon() -> Result<bool, String> {
         Ok(run_command_blocking("codex --help")
             .map(|o| combined_output(&o).contains("--no-daemon"))
             .unwrap_or(false))
+    })
+    .await
+}
+
+/// What `open_in_vscode` fails with when no VS Code install can be found -
+/// matched by the frontend to show its own translated message instead of
+/// this raw text.
+const VSCODE_NOT_FOUND: &str = "vscode-not-found";
+
+/// VS Code's own executable: on Windows `Code.exe` (a GUI program, so
+/// launching it directly never flashes a console the way going through
+/// `code.cmd` would), elsewhere the bundled `code` CLI. Looked up on PATH
+/// first, then in the standard install locations - an app started from the
+/// Start menu can have a PATH older than the VS Code install.
+#[cfg(target_os = "windows")]
+fn find_vscode() -> Option<PathBuf> {
+    // `where code` finds `<install>\bin\code.cmd`; Code.exe sits one level up.
+    let from_path = run_command_blocking("where code.cmd")
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter_map(|line| PathBuf::from(line.trim()).parent()?.parent().map(|dir| dir.join("Code.exe")))
+                .find(|exe| exe.is_file())
+        });
+    from_path.or_else(|| {
+        ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"]
+            .iter()
+            .filter_map(|var| std::env::var_os(var))
+            .map(|base| {
+                let base = PathBuf::from(base);
+                // Per-user installs land in %LOCALAPPDATA%\Programs.
+                let base = if base.ends_with("Local") { base.join("Programs") } else { base };
+                base.join("Microsoft VS Code").join("Code.exe")
+            })
+            .find(|exe| exe.is_file())
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn find_vscode() -> Option<PathBuf> {
+    let from_path = run_command_blocking("command -v code")
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+        .filter(|p| p.is_file());
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let candidates = [
+        PathBuf::from("/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"),
+        home.join("Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"),
+        PathBuf::from("/usr/bin/code"),
+        PathBuf::from("/usr/local/bin/code"),
+        PathBuf::from("/snap/bin/code"),
+    ];
+    from_path.or_else(|| candidates.into_iter().find(|p| p.is_file()))
+}
+
+/// The built-in "Apri in VS Code" feature: opens `folder` in VS Code, or
+/// fails with `VSCODE_NOT_FOUND` when it isn't installed. With `wsl_distro`,
+/// `folder` is a Linux path inside that distro and opens through VS Code's
+/// WSL remote, like `code .` typed in a WSL shell - not as a
+/// `\wsl.localhost\...` share, which VS Code only opens behind a warning.
+#[tauri::command]
+pub async fn open_in_vscode(folder: String, wsl_distro: Option<String>) -> Result<(), String> {
+    crate::blocking(move || {
+        let exe = find_vscode().ok_or_else(|| VSCODE_NOT_FOUND.to_string())?;
+        let mut command = std::process::Command::new(exe);
+        if let Some(distro) = wsl_distro.filter(|d| !d.is_empty()) {
+            command.args(["--remote", &format!("wsl+{distro}")]);
+        }
+        command
+            .arg(&folder)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     })
     .await
 }

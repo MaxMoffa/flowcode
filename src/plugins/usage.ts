@@ -5,6 +5,7 @@ import { killPty, spawnPty, writePty } from "../terminal/ptyClient";
 import pkg from "../../package.json";
 import { t } from "../i18n";
 import { withCodexLaunchFlags } from "./codexLaunch";
+import { unrecorded } from "../terminal/shellDialect";
 import {
   CODEX_COLS,
   CODEX_ROWS,
@@ -113,7 +114,8 @@ async function readCodexStatusScreen(): Promise<string> {
     // No update check: codex's "Update available · 1. Update now ..." prompt
     // would sit in front of the composer this probe waits for. The user
     // still gets it in their own sessions, where it can be answered.
-    const launch = await withCodexLaunchFlags("codex -c check_for_update_on_startup=false");
+    // Typed with a leading space so it stays out of the shell's history.
+    const launch = unrecorded(await withCodexLaunchFlags("codex -c check_for_update_on_startup=false"));
     return await driveCodexStatus(
       {
         write: (data) => writePty(ptyId, data),

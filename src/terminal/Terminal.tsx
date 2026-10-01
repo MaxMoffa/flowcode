@@ -12,7 +12,8 @@ import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./
 import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
-import { buildAsciiBanner, cachedBannerInfo, rememberBannerInfo, type BannerSystemInfo } from "./asciiBanner";
+import { buildAsciiBanner, cachedBannerInfo, rememberBannerInfo, rememberTermGrid, type BannerSystemInfo } from "./asciiBanner";
+import { unrecorded } from "./shellDialect";
 import { t } from "../i18n";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
@@ -349,6 +350,24 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     if (!term || !fitAddon || !container) return;
     if (container.clientWidth === 0 || container.clientHeight === 0) return;
     fitAddon.fit();
+    // The renderer's own cell size: `.xterm-screen` is stretched to the full
+    // width (see terminal.css), so dividing its box would overstate it. Same
+    // private field FitAddon reads; its getter throws until the renderer is up.
+    try {
+      const core = (term as unknown as { _core: { _renderService: { dimensions: { css: { cell: { width: number; height: number } } } } } })._core;
+      const cell = core._renderService.dimensions.css.cell;
+      if (cell.width > 0 && cell.height > 0) {
+        rememberTermGrid({
+          fontSize: term.options.fontSize ?? 0,
+          width: container.getBoundingClientRect().width,
+          cols: term.cols,
+          cellWidth: cell.width,
+          cellHeight: cell.height,
+        });
+      }
+    } catch {
+      // Not rendered yet: the next refit records it.
+    }
     const id = ptyIdRef.current;
     const last = ptySizeRef.current;
     if (id && (last.cols !== term.cols || last.rows !== term.rows)) {
@@ -477,7 +496,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     // A launched full-screen CLI can take a while to draw its first titled
     // frame (cold start, update check, ...), longer than a plain `cd`'s
     // fresh prompt - a more generous safety window than navigateSilently's.
-    runCommandSilently: (cmd: string) => writeSilently(`${cmd}\r`, 8000),
+    // Sent with a leading space, like every command the app types on its
+    // own, to keep it out of the shell's history (see `unrecorded`).
+    runCommandSilently: (cmd: string) => writeSilently(`${unrecorded(cmd)}\r`, 8000),
     // The collapse above only fires once xterm sees a title-change escape -
     // that's how bash/zsh's own prompt naturally signals "the injected
     // command is done", via PROMPT_COMMAND retitling on every prompt, and
@@ -491,13 +512,17 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       // end column, `cols` characters per row. The command's own length
       // (which holds this very number) settles after a pass or two.
       const startCol = term.buffer.active.cursorX;
+      const built = (n: number) => {
+        const c = build(n);
+        return c ? unrecorded(c) : c;
+      };
       let rows = 1;
-      let command = build(rows);
+      let command = built(rows);
       for (let i = 0; i < 3 && command; i++) {
         const needed = Math.max(1, Math.ceil((startCol + command.length) / term.cols));
         if (needed === rows) break;
         rows = needed;
-        command = build(rows);
+        command = built(rows);
       }
       if (command) writeNavigation(`${command}\r`, erases);
     },

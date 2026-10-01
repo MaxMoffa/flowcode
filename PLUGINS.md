@@ -52,7 +52,8 @@ type PluginAction =
   | "runCommand"      // digita `command` nel terminale attivo, come se l'utente l'avesse scritto
   | "notify"          // mostra `message` in un popup (toast) temporaneo
   | "dialog"          // apre un dialog con `title` + `message` e i pulsanti `buttons`
-  | "commandOutput";  // esegue `command` senza terminale (niente stdin) e ne mostra l'output in un popup
+  | "commandOutput"  // esegue `command` senza terminale (niente stdin) e ne mostra l'output in un popup
+  | "openInVsCode";  // apre la cartella del terminale attivo in VS Code (se installato)
 
 interface PluginButton {
   label: string;
@@ -188,3 +189,14 @@ personalizzato) ha un interruttore che lo aggiunge/rimuove dalla barra delle
 scorciatoie in alto. I plugin di base (quelli inclusi con l'app) non possono
 essere eliminati, solo disattivati. I plugin personalizzati si possono
 eliminare dalla stessa pagina.
+
+## Apri in VS Code
+
+`openInVsCode` apre in Visual Studio Code la cartella del terminale attivo
+(quella in cui si trova la shell, o quella del file explorer se la shell
+non l'ha ancora comunicata). Il backend (`open_in_vscode` in
+`src-tauri/src/plugins.rs`) cerca VS Code prima nel PATH e poi nelle
+cartelle di installazione standard; se non lo trova, mostra un avviso invece
+di non fare nulla. Una cartella dentro WSL si apre tramite il remote WSL di
+VS Code (`--remote wsl+<distro>`), come `code .` digitato nella shell WSL.
+Le sessioni remote (ssh) non sono supportate.

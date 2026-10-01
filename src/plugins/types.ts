@@ -13,7 +13,8 @@ export type PluginAction =
   | "runCommand"
   | "notify"
   | "dialog"
-  | "commandOutput";
+  | "commandOutput"
+  | "openInVsCode";
 
 /** What a dialog-plugin's button does when clicked - the same fixed
  * vocabulary, minus "dialog" itself (dialogs don't nest). */
@@ -60,4 +61,5 @@ export const PLUGIN_ACTION_LABELS: Record<PluginAction, MessageKey> = {
   notify: "pluginAction.notify",
   dialog: "pluginAction.dialog",
   commandOutput: "pluginAction.commandOutput",
+  openInVsCode: "pluginAction.openInVsCode",
 };

@@ -23,6 +23,13 @@ export function builtinPlugins(): PluginDef[] {
       action: "toggleAgentsSidebar",
       builtin: true,
     },
+    {
+      id: "openInVsCode",
+      label: t("plugin.openInVsCode"),
+      description: t("plugin.openInVsCode.description"),
+      action: "openInVsCode",
+      builtin: true,
+    },
   ];
 }
 

@@ -65,6 +65,7 @@ import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./term
 import { useI18n } from "./i18n";
 import { NewTabPage, type NewTabLaunch } from "./newtab/NewTabPage";
 import { recordRecentTerminal } from "./newtab/recentTerminals";
+import { recordCommand } from "./newtab/commandHistory";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -375,7 +376,14 @@ async function firstExistingDir(candidates: string[]): Promise<string | undefine
   return undefined;
 }
 
-let nextTabId = 1;
+// Carried across hot reloads in dev: Fast Refresh re-runs this module but
+// keeps the tabs in state, so a counter back at 1 would hand the next tab an
+// id one of them already has - and two tabs with the same id both count as
+// active, rendering side by side.
+let nextTabId: number = import.meta.hot?.data.nextTabId ?? 1;
+import.meta.hot?.dispose((data) => {
+  data.nextTabId = nextTabId;
+});
 
 function Shell() {
   // All persisted across restarts - every toggle path (header button,
@@ -1560,6 +1568,7 @@ function Shell() {
     // tab's folder is really where the command ran.
     if (commandTab && !commandTab.busy && (!commandTab.nestedShell || commandTab.nestedShell === "wsl")) {
       recordRecentTerminal(commandTab.cwd, tabShell(commandTab), trimmed);
+      recordCommand(tabShell(commandTab), trimmed);
     }
 
     const wslMatch = trimmed.match(/^wsl(?:\.exe)?(?:\s+(.*))?$/i);
@@ -1998,6 +2007,36 @@ function Shell() {
             setPluginDialog({ id: "__result", label: plugin.label, action: "dialog", title: plugin.label, message: String(err) }),
           );
         break;
+      case "openInVsCode":
+        void openInVsCode();
+        break;
+    }
+  }
+
+  /** The "Apri in VS Code" feature: the active terminal's folder (or the
+   * one the explorer is on, before the shell has reported any). A folder
+   * inside WSL opens through VS Code's WSL remote, by its Linux path. */
+  async function openInVsCode() {
+    const tab = activeTerminal;
+    if (tab?.nestedShell === "remote") {
+      showPluginToast(t("plugin.openInVsCode.remote"));
+      return;
+    }
+    const folder = tab?.cwd || tab?.explorerPath || "";
+    if (!folder) {
+      showPluginToast(t("plugin.openInVsCode.noFolder"));
+      return;
+    }
+    const distro = wslDistroOfPath(folder);
+    const posix = distro ? toWslPath(distro, folder) : null;
+    try {
+      await invoke("open_in_vscode", { folder: posix ?? folder, wslDistro: posix ? distro : null });
+    } catch (e) {
+      showPluginToast(
+        String(e) === "vscode-not-found"
+          ? t("plugin.openInVsCode.notInstalled")
+          : t("app.openFailed", { name: "VS Code", error: String(e) }),
+      );
     }
   }
 
