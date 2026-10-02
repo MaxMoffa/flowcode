@@ -12,7 +12,18 @@ import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./
 import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
-import { buildAsciiBanner, cachedBannerInfo, rememberBannerInfo, rememberTermGrid, type BannerSystemInfo } from "./asciiBanner";
+import {
+  FROG_HEIGHT,
+  FROG_WIDTH,
+  REST_POSE,
+  buildAsciiBanner,
+  cachedBannerInfo,
+  drawFrog,
+  frogPlacement,
+  rememberBannerInfo,
+  rememberTermGrid,
+  type BannerSystemInfo,
+} from "./asciiBanner";
 import { unrecorded } from "./shellDialect";
 import { t } from "../i18n";
 import "@xterm/xterm/css/xterm.css";
@@ -796,7 +807,39 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         // the banner for the real width, not the 80 columns default.
         refit();
         const banner = buildAsciiBanner(term.cols, sysInfo, appVersion);
-        if (banner) term.write(banner);
+        if (banner) {
+          term.write(banner);
+          // The frog over the cells the banner left blank for it: a still
+          // picture, finer than characters can draw - the New Tab page's
+          // frog at rest. Tied to its first line, so it scrolls with the
+          // banner and goes when that leaves the scrollback (a session
+          // restore brings back the text, not the frog).
+          const place = frogPlacement(term.cols);
+          const lineCount = banner.split("\r\n").length - 1;
+          if (place) {
+            term.write("", () => {
+              if (disposed) return;
+              // The cursor is on the row under the banner now.
+              const marker = term.registerMarker(place.top - lineCount);
+              const decoration = marker
+                ? term.registerDecoration({ marker, x: place.col, width: FROG_WIDTH, height: FROG_HEIGHT })
+                : undefined;
+              decoration?.onRender((el) => {
+                el.style.pointerEvents = "none";
+                let canvas = el.querySelector("canvas");
+                if (!canvas) {
+                  canvas = document.createElement("canvas");
+                  canvas.className = "terminal-frog";
+                  el.appendChild(canvas);
+                }
+                const { clientWidth: width, clientHeight: height } = el;
+                if (canvas.dataset.size === `${width}x${height}`) return;
+                canvas.dataset.size = `${width}x${height}`;
+                drawFrog(canvas, REST_POSE, width, height);
+              });
+            });
+          }
+        }
       }
       // With the banner parsed, the cursor is on the row the prompt will
       // start at.

@@ -14,16 +14,17 @@ import {
   FROG_HEIGHT,
   FROG_WIDTH,
   buildAsciiBanner,
-  frogPixels,
+  FROG_PIXELS,
+  drawFrog,
   frogPlacement,
   REST_POSE,
+  TAGLINE_LINE,
   lastTermGrid,
   rememberBannerInfo,
   type BannerSystemInfo,
-  type FrogPose,
 } from "../terminal/asciiBanner";
 import { FrogCatch } from "./FrogCatch";
-import { FROG_PIXELS, useFrogPose, type CatchFrame, type FlyArea } from "./useFrogPose";
+import { useFrogPose, type CatchFrame, type FlyArea } from "./useFrogPose";
 import { MOUTH, sceneBounds, sceneRgb, toWorld, tongueTip } from "./frog3d";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { historyFor } from "./commandHistory";
@@ -249,7 +250,7 @@ function flyArea(g: CatchGrid, lines: Segment[][], root: HTMLElement): FlyArea {
   };
   // The wordmark's top row of blocks, the tagline under it, the table's top.
   groups.push(onLine(1, (ch) => ch === "\u2588"));
-  groups.push(onLine(7, (ch) => ch !== " "));
+  groups.push(onLine(TAGLINE_LINE, (ch) => ch !== " "));
   const tableTop = lines.findIndex((l) => toCells(l).some((c) => c.ch === "\u250c"));
   if (tableTop >= 0) groups.push(onLine(tableTop, (ch) => ch === "\u2500"));
   for (const selector of LANDING_SELECTORS) {
@@ -378,33 +379,6 @@ function drawRealCatch(canvas: HTMLCanvasElement, g: CatchGrid, frame: CatchFram
     }
   } else {
     ctx.drawImage(buffer, x0, y0, nx * stepX, ny * stepY);
-  }
-}
-
-/** The frog in `pose` onto `canvas`, `width` x `height` px: FROG_PIXELS
- * squares, snapped to device pixels so they stay crisp. */
-function drawFrog(canvas: HTMLCanvasElement, pose: FrogPose, width: number, height: number) {
-  const dpr = window.devicePixelRatio || 1;
-  const w = Math.round(width * dpr);
-  const h = Math.round(height * dpr);
-  if (canvas.width !== w || canvas.height !== h) {
-    canvas.width = w;
-    canvas.height = h;
-  }
-  const ctx = canvas.getContext("2d")!;
-  ctx.clearRect(0, 0, w, h);
-  const { width: cols, height: rows } = FROG_PIXELS;
-  const pixels = frogPixels(pose, cols, rows);
-  for (let r = 0; r < rows; r++) {
-    const y0 = Math.round((r * h) / rows);
-    const y1 = Math.round(((r + 1) * h) / rows);
-    for (let c = 0; c < cols; c++) {
-      const color = pixels[r * cols + c];
-      if (!color) continue;
-      const x0 = Math.round((c * w) / cols);
-      ctx.fillStyle = `#${color}`;
-      ctx.fillRect(x0, y0, Math.round(((c + 1) * w) / cols) - x0, y1 - y0);
-    }
   }
 }
 
@@ -577,11 +551,11 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
 
   // The same banner a fresh terminal writes (none when it's turned off or
   // the tab is too narrow for it), so the prompt below it sits on the row
-  // the shell will print its own on. Built without the frog first: that's
-  // what the frog is placed against, and what the catch is drawn over.
-  const bare = bannerEnabled && grid ? buildAsciiBanner(grid.cols, system ?? undefined, version || undefined, null) : null;
-  const bareLines = bare ? bannerLines(bare) : [];
-  const frogAt = grid && bareLines.length > 0 ? frogPlacement(grid.cols) : null;
+  // the shell will print its own on. Its frog's cells are blank: the frog is
+  // drawn over them, here as in the terminal.
+  const banner = bannerEnabled && grid ? buildAsciiBanner(grid.cols, system ?? undefined, version || undefined) : null;
+  const lines = banner ? bannerLines(banner) : [];
+  const frogAt = grid && lines.length > 0 ? frogPlacement(grid.cols) : null;
   /** The page's cell grid as it stands, for the catch. */
   const catchGrid = (): CatchGrid | null => {
     const root = rootRef.current;
@@ -622,14 +596,9 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     },
     flyArea: () => {
       const g = catchGrid();
-      return g && rootRef.current ? flyArea(g, bareLines, rootRef.current) : null;
+      return g && rootRef.current ? flyArea(g, lines, rootRef.current) : null;
     },
   });
-  const banner =
-    catching || !bannerEnabled || !grid
-      ? null
-      : buildAsciiBanner(grid.cols, system ?? undefined, version || undefined, leaving ? REST_POSE : null);
-  const lines = catching ? bareLines : banner ? bannerLines(banner) : [];
   const catchGridNow = catching ? catchGrid() : null;
   // The rare real frog is painted on a canvas under the pixel-art catch, which
   // fades out over it - except for the odd frame mid-glitch, which flickers
@@ -637,8 +606,9 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const realFrame = !!catching?.real && catching.real.amount > 0 && !(catching.real.glitch > 0.6 && Math.random() < 0.3);
   const realCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  // The page's frog, drawn on its canvas; on the hand-off it fades into the
-  // banner's, the one the terminal prints.
+  // The page's frog, drawn on its canvas - at rest on the hand-off, the very
+  // frog the terminal draws over its banner, so it stays put as the page
+  // fades away.
   const frogCanvasRef = useRef<HTMLCanvasElement>(null);
   const frogPose = leaving ? REST_POSE : pose;
   useLayoutEffect(() => {
@@ -934,7 +904,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
       {frogAt && grid && !catching && (
         <canvas
           ref={frogCanvasRef}
-          className={"newtab-frog" + (leaving ? " is-ascii" : "")}
+          className="newtab-frog"
           aria-hidden="true"
           onPointerEnter={wakeFrog}
           onPointerLeave={letFrogSleep}

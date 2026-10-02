@@ -10,6 +10,9 @@ const FLOWCODE_ART = [
   "╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝",
 ];
 const ART_WIDTH = FLOWCODE_ART[0].length;
+/** The banner's line with the tagline: under the blank first line, the
+ * wordmark and a blank line of air. */
+export const TAGLINE_LINE = FLOWCODE_ART.length + 2;
 
 function ansiTrueColor(hex: string): string | null {
   const match = hex.trim().match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
@@ -79,13 +82,7 @@ export function cachedBannerInfo(): { info: BannerSystemInfo; version: string } 
  * too narrow a terminal for the art, or no accent color available yet.
  * `info` is optional - if the backend query hasn't resolved (or failed), the
  * banner still shows, just without the info lines below it. */
-export function buildAsciiBanner(
-  cols: number,
-  info?: BannerSystemInfo,
-  appVersion?: string,
-  /** `null` leaves the frog out (the New Tab page draws its own over it). */
-  pose: FrogPose | null = REST_POSE,
-): string | null {
+export function buildAsciiBanner(cols: number, info?: BannerSystemInfo, appVersion?: string): string | null {
   if (cols < ART_WIDTH + 4) return null;
 
   const style = getComputedStyle(document.documentElement);
@@ -116,6 +113,7 @@ export function buildAsciiBanner(
 
   const lines: string[] = [""];
   for (const row of FLOWCODE_ART) lines.push(`  ${accent}${row}${reset}`);
+  lines.push("");
   // Plain text, not part of the block-font art - same accent color as the
   // wordmark above it (the theme's `--accent`, moss-green in both the light
   // and dark palette, so this reads as "always green" without hardcoding a
@@ -125,18 +123,9 @@ export function buildAsciiBanner(
   for (const tableLine of buildInfoTable(rows, accent, dim, reset)) lines.push(`  ${tableLine}`);
   lines.push("");
 
-  // The frog, right beside the wordmark when the tab is wide enough for it -
-  // placed with an absolute column move, so the lines beside it keep their
-  // own text untouched.
-  const place = pose ? frogPlacement(cols) : null;
-  if (place && pose) {
-    const frog = frogRows(pose);
-    while (lines.length < place.top + frog.length) lines.push("");
-    frog.forEach((row, i) => {
-      lines[place.top + i] += `\x1b[${place.col + 1}G${row}${reset}`;
-    });
-  }
-
+  // No frog in the text: its cells beside the wordmark (frogPlacement) are
+  // left blank, and the terminal and the New Tab page draw it over them, finer
+  // than characters can.
   return lines.join("\r\n") + "\r\n";
 }
 
@@ -189,7 +178,7 @@ export function frogPalette(vivid = 0): FrogPalette {
 /** How the frog stands: where its pupils look (units, up to ~30 each way),
  * how far its lids are down (0 open - 1 shut), the body's scale, rotation
  * (degrees) and lift (units, up is negative) around its bottom center, and
- * whether the `_` cursor on its belly is lit. The terminal always prints
+ * whether the `_` cursor on its belly is lit. The terminal always shows
  * REST_POSE; the New Tab page animates the rest. */
 export interface FrogPose {
   lookX: number;
@@ -250,11 +239,9 @@ function frogPixel(px: number, py: number, pose: FrogPose, palette: FrogPalette)
   return body ? FROG_GREEN : null;
 }
 
-let restCache: string[] | null = null;
-
 /** The frog in `pose` as a `width` x `height` grid of pixels over FROG_BOX,
  * row by row: each one's color (hex, no `#`) or null where there's no frog.
- * The banner draws it two pixels a cell; the New Tab page, finer. */
+ * See FROG_PIXELS for the grid the terminal and the New Tab page draw. */
 export function frogPixels(pose: FrogPose, width: number, height: number): (string | null)[] {
   const out: (string | null)[] = [];
   const palette = frogPalette(pose.vivid);
@@ -267,32 +254,36 @@ export function frogPixels(pose: FrogPose, width: number, height: number): (stri
   return out;
 }
 
-/** The frog as FROG_HEIGHT lines of FROG_WIDTH cells, in `pose`. A cell with
- * one color is a space on that background (backgrounds are never
- * contrast-adjusted, unlike foregrounds); one with two is an upper half
- * block, top color as foreground over the bottom one. */
-export function frogRows(pose: FrogPose = REST_POSE): string[] {
-  if (pose === REST_POSE && restCache) return restCache;
-  const sgr = (code: 38 | 48, hex: string) =>
-    `\x1b[${code};2;${parseInt(hex.slice(0, 2), 16)};${parseInt(hex.slice(2, 4), 16)};${parseInt(hex.slice(4), 16)}m`;
-  const pixels = frogPixels(pose, FROG_WIDTH, FROG_HEIGHT * 2);
-  const sample = (col: number, row: number) => pixels[row * FROG_WIDTH + col];
-  const rows: string[] = [];
-  for (let r = 0; r < FROG_HEIGHT; r++) {
-    let line = "";
-    for (let c = 0; c < FROG_WIDTH; c++) {
-      const top = sample(c, 2 * r);
-      const bottom = sample(c, 2 * r + 1);
-      if (!top && !bottom) line += "\x1b[0m ";
-      else if (top === bottom) line += `\x1b[0m${sgr(48, top!)} `;
-      else if (!bottom) line += `\x1b[0m${sgr(38, top!)}▀`;
-      else if (!top) line += `\x1b[0m${sgr(38, bottom)}▄`;
-      else line += `\x1b[0m${sgr(38, top)}${sgr(48, bottom)}▀`;
-    }
-    rows.push(line);
+/** The frog's pixel grid, over its FROG_WIDTH x FROG_HEIGHT cells: two
+ * pixels across and four down a cell, near enough square - finer than the
+ * half blocks a terminal could print. */
+export const FROG_PIXELS = { width: FROG_WIDTH * 2, height: FROG_HEIGHT * 4 };
+
+/** The frog in `pose` onto `canvas`, `width` x `height` CSS px: FROG_PIXELS
+ * squares, snapped to device pixels so they stay crisp. */
+export function drawFrog(canvas: HTMLCanvasElement, pose: FrogPose, width: number, height: number) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(width * dpr);
+  const h = Math.round(height * dpr);
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
   }
-  if (pose === REST_POSE) restCache = rows;
-  return rows;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, w, h);
+  const { width: cols, height: rows } = FROG_PIXELS;
+  const pixels = frogPixels(pose, cols, rows);
+  for (let r = 0; r < rows; r++) {
+    const y0 = Math.round((r * h) / rows);
+    const y1 = Math.round(((r + 1) * h) / rows);
+    for (let c = 0; c < cols; c++) {
+      const color = pixels[r * cols + c];
+      if (!color) continue;
+      const x0 = Math.round((c * w) / cols);
+      ctx.fillStyle = `#${color}`;
+      ctx.fillRect(x0, y0, Math.round(((c + 1) * w) / cols) - x0, y1 - y0);
+    }
+  }
 }
 
 /** The cell grid of the last terminal laid out, so the New Tab page can draw

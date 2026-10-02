@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FROG_BOX, FROG_HEIGHT, FROG_WIDTH, REST_POSE, frogPixels, type FrogPose } from "../terminal/asciiBanner";
+import { FROG_BOX, FROG_PIXELS, REST_POSE, frogPixels, type FrogPose } from "../terminal/asciiBanner";
 import { catchTime, huntFrame, planHunt, type CatchFrame, type FlyArea, type HuntPlan, type Point } from "./frogHunt";
 
 export type { CatchFrame, FlyArea };
@@ -18,9 +18,6 @@ const BLINK_MS = 190;
  * colors, breath, cursor - eases toward awake or asleep by. */
 const LIFE_EASE_MS = 160;
 
-/** The page's frog: the banner's cells, four times as many pixels - two
- * across and four down a cell, near enough square. */
-export const FROG_PIXELS = { width: FROG_WIDTH * 2, height: FROG_HEIGHT * 4 };
 const drawingOf = (pose: FrogPose) => frogPixels(pose, FROG_PIXELS.width, FROG_PIXELS.height).join();
 const restDrawing = drawingOf(REST_POSE);
 

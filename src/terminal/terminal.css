@@ -37,6 +37,14 @@
   background-color: transparent !important;
 }
 
+/* The banner's frog, a decoration over the cells it leaves blank for it
+   (Terminal.tsx): its canvas is drawn at device pixels, sized here. */
+.terminal-container .terminal-frog {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 /* xterm draws its own scrollbar (VS Code's), 14px wide and square, with
    its size and colors set inline - so the app's themed scrollbar
    (themes.css) doesn't reach it. Same look as that one here: a 10px track,

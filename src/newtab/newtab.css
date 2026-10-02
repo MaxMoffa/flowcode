@@ -55,18 +55,12 @@
 /* The frog, pixel art on the banner's frog cells - finer than the
    terminal's two pixels a cell - still until the pointer comes over it and
    wakes it (NewTabPage.tsx); a click sends it after a fly. On the hand-off
-   it fades into the banner's, the one the terminal prints. */
+   it rests, and stays: the terminal draws the same frog in the same place. */
 .newtab-frog {
   position: absolute;
   z-index: 2;
   display: block;
   cursor: pointer;
-  transition: opacity 0.2s ease-out;
-}
-
-.newtab-frog.is-ascii {
-  opacity: 0;
-  pointer-events: none;
 }
 
 .newtab-prompt {
@@ -111,11 +105,17 @@
 
 /* ---------- below the prompt: one list, then the shells ---------- */
 
+/* Set off from the prompt by a rule across the page's full width, like the
+   foot's, halfway down the blank row between them - so the list stays on
+   the row it had. */
 .newtab-below {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  margin: calc(var(--newtab-cell) / 2) -14px 0;
+  padding-inline: 14px;
+  border-top: 1px dashed var(--border);
   transition: opacity 0.14s;
 }
 
@@ -128,7 +128,7 @@
   column-gap: 3ch;
   row-gap: var(--newtab-cell);
   max-width: 100%;
-  margin-top: var(--newtab-cell);
+  margin-top: calc(var(--newtab-cell) / 2 - 1px);
   margin-bottom: 16px;
 }
 
