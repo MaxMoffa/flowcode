@@ -256,6 +256,12 @@ fn find_vscode() -> Option<PathBuf> {
 /// `\wsl.localhost\...` share, which VS Code only opens behind a warning.
 #[tauri::command]
 pub async fn open_in_vscode(folder: String, wsl_distro: Option<String>) -> Result<(), String> {
+    // Never a folder VS Code could read as one of its options (`--inspect`,
+    // `--install-extension`, ...): only absolute paths come here today, but
+    // an argument starting with `-` must not reach it whatever the caller.
+    if folder.is_empty() || folder.starts_with('-') {
+        return Err(format!("Not a folder: {folder}"));
+    }
     crate::blocking(move || {
         let exe = find_vscode().ok_or_else(|| VSCODE_NOT_FOUND.to_string())?;
         let mut command = std::process::Command::new(exe);

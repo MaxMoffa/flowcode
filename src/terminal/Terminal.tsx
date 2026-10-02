@@ -565,10 +565,17 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     },
   }));
 
+  /** The banner's frog canvas, redrawn here when the theme changes its
+   * colors (they follow the accent). */
+  const frogCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   useEffect(() => {
     if (xtermRef.current) {
       xtermRef.current.options.theme = readTermColors(containerRef.current ?? document.documentElement);
     }
+    const frog = frogCanvasRef.current;
+    const box = frog?.parentElement;
+    if (frog && box) drawFrog(frog, REST_POSE, box.clientWidth, box.clientHeight);
   }, [theme, paletteId, terminalPaletteId, contrast]);
 
   useEffect(() => {
@@ -806,7 +813,11 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         // The container may not have been measured when xterm mounted: build
         // the banner for the real width, not the 80 columns default.
         refit();
-        const banner = buildAsciiBanner(term.cols, sysInfo, appVersion);
+        // In this terminal's own palette, when it has one.
+        const accent = containerRef.current
+          ? getComputedStyle(containerRef.current).getPropertyValue("--accent").trim()
+          : undefined;
+        const banner = buildAsciiBanner(term.cols, sysInfo, appVersion, accent || undefined);
         if (banner) {
           term.write(banner);
           // The frog over the cells the banner left blank for it: a still
@@ -831,6 +842,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
                   canvas = document.createElement("canvas");
                   canvas.className = "terminal-frog";
                   el.appendChild(canvas);
+                  frogCanvasRef.current = canvas;
                 }
                 const { clientWidth: width, clientHeight: height } = el;
                 if (canvas.dataset.size === `${width}x${height}`) return;

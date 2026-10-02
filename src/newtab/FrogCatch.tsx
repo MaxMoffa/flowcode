@@ -273,7 +273,7 @@ export function FrogCatch({
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, w, h);
     ctx.imageSmoothingEnabled = false;
-    const palette = frogPalette(frame.vivid ?? 1);
+    const palette = frogPalette(frame.vivid ?? 1, canvas);
     const colors = { green: `#${palette.green}`, dark: `#${palette.dark}`, white: `#${palette.white}` };
     if (frogOpacity > 0) {
       pixelPass(small, toPixels, ctx, frogOpacity, (s) => {

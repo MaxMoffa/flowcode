@@ -331,6 +331,19 @@ export function flowColors(raw: PaletteVariant, kind: ThemeKind, level = DEFAULT
   };
 }
 
+/** The custom properties to set on the New Tab page - the first screen of
+ * a terminal - for a terminal palette of its own: the whole palette, since
+ * the page is drawn in the app's own tokens, with `--term-bg` spelled out as
+ * for the terminal (see below). */
+export function resolveTerminalPagePalette(
+  palette: Palette,
+  kind: ThemeKind,
+  level = DEFAULT_CONTRAST,
+): Record<string, string> {
+  const all = resolvePalette(palette[kind], kind, level);
+  return { ...all, "--term-bg": `rgb(${all["--surface-rgb"]} / var(--surface-alpha))` };
+}
+
 /** The custom properties to set on a terminal's own container to give just
  * that terminal a palette, whatever the rest of the app uses. `--accent` is
  * the cursor colour; `--term-bg` is spelled out with the panel opacity

@@ -29,6 +29,8 @@ import { MOUTH, sceneBounds, sceneRgb, toWorld, tongueTip } from "./frog3d";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { historyFor } from "./commandHistory";
 import { useI18n } from "../i18n";
+import { useTheme } from "../themes/ThemeContext";
+import { findPalette, resolveTerminalPagePalette } from "../themes/palettes";
 import "./newtab.css";
 
 /** What the page hands back once the user picks something: the shell to
@@ -409,6 +411,11 @@ function useTermGrid(fontSize: number, width: number) {
 export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLaunch, anchor, promptShown, onShellChange, onDone }: NewTabPageProps) {
   const { t } = useI18n();
   const { bannerEnabled } = useTerminalSettings();
+  const { theme, paletteId, terminalPaletteId, contrast } = useTheme();
+  // The page is the terminal's first screen: in the terminal's own palette,
+  // when it has one.
+  const terminalPalette = terminalPaletteId ? findPalette(terminalPaletteId) : undefined;
+  const paletteVars = terminalPalette ? resolveTerminalPagePalette(terminalPalette, theme, contrast) : null;
   const relativeTime = useRelativeTime();
   const [options, setOptions] = useState<ShellOption[]>([]);
   const [shell, setShell] = useState(defaultShell || "system");
@@ -553,7 +560,10 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   // the tab is too narrow for it), so the prompt below it sits on the row
   // the shell will print its own on. Its frog's cells are blank: the frog is
   // drawn over them, here as in the terminal.
-  const banner = bannerEnabled && grid ? buildAsciiBanner(grid.cols, system ?? undefined, version || undefined) : null;
+  const banner =
+    bannerEnabled && grid
+      ? buildAsciiBanner(grid.cols, system ?? undefined, version || undefined, paletteVars?.["--accent"])
+      : null;
   const lines = banner ? bannerLines(banner) : [];
   const frogAt = grid && lines.length > 0 ? frogPlacement(grid.cols) : null;
   /** The page's cell grid as it stands, for the catch. */
@@ -611,10 +621,16 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   // fades away.
   const frogCanvasRef = useRef<HTMLCanvasElement>(null);
   const frogPose = leaving ? REST_POSE : pose;
-  useLayoutEffect(() => {
+  const redrawFrog = () => {
     const canvas = frogCanvasRef.current;
     if (canvas && grid) drawFrog(canvas, frogPose, FROG_WIDTH * grid.cellWidth, FROG_HEIGHT * grid.cellHeight);
-  });
+  };
+  const redrawFrogRef = useRef(redrawFrog);
+  redrawFrogRef.current = redrawFrog;
+  useLayoutEffect(redrawFrog);
+  // Its colors follow the theme's accent, which the theme sets in a layout
+  // effect of its own - after this page's: redraw once it's in.
+  useEffect(() => redrawFrogRef.current(), [theme, paletteId, terminalPaletteId, contrast]);
   useLayoutEffect(() => {
     const canvas = realCanvasRef.current;
     if (canvas && realFrame && catching && catchGridNow) drawRealCatch(canvas, catchGridNow, catching);
@@ -850,6 +866,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   );
 
   const style = {
+    ...paletteVars,
     "--newtab-cell": grid ? `${grid.cellHeight}px` : `${Math.round(termFontSize * 1.2)}px`,
     fontSize: termFontSize,
   } as CSSProperties;
