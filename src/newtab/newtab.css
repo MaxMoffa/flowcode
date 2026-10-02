@@ -1,6 +1,7 @@
 /* The new tab page: the terminal's first screen - its banner and, on the
    very row the shell will print it, the prompt waiting for a command - with
-   recent terminals, favorite folders and the shells to start in below.
+   recent terminals and favorite folders below as plain text on the
+   terminal's cells, and the shells to start in at the foot.
    Same glass surface, padding and cell grid as a terminal (see terminal.css
    and Terminal.tsx), since it turns into one in place. */
 
@@ -51,63 +52,21 @@
 
 /* ---------- the frog ---------- */
 
-/* The SVG frog, over the banner's frog box (left empty on the page). On
-   the hand-off it fades into the ASCII frog the banner then draws under
-   it - the one the terminal prints. */
+/* The frog, pixel art on the banner's frog cells - finer than the
+   terminal's two pixels a cell - still until the pointer comes over it and
+   wakes it (NewTabPage.tsx); a click sends it after a fly. On the hand-off
+   it fades into the banner's, the one the terminal prints. */
 .newtab-frog {
   position: absolute;
   z-index: 2;
-  transition:
-    opacity 0.2s ease-out,
-    filter 0.2s ease-out;
+  display: block;
+  cursor: pointer;
+  transition: opacity 0.2s ease-out;
 }
 
 .newtab-frog.is-ascii {
   opacity: 0;
-  filter: blur(3px);
   pointer-events: none;
-}
-
-.frog-logo {
-  display: block;
-  overflow: visible;
-  cursor: pointer;
-}
-
-.frog-logo .frog-act,
-.frog-logo .frog-breathe {
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-}
-
-.frog-logo .frog-breathe {
-  animation: frog-breathe 3.4s ease-in-out infinite;
-}
-
-.frog-logo .frog-lid {
-  transform-box: fill-box;
-  transform-origin: 50% 0;
-  transform: scaleY(0);
-}
-
-.frog-logo .frog-cursor {
-  animation: frog-cursor-blink 1.1s steps(1) infinite;
-}
-
-@keyframes frog-breathe {
-  0%,
-  100% {
-    transform: scale(1, 1);
-  }
-  50% {
-    transform: scale(1.025, 0.975);
-  }
-}
-
-@keyframes frog-cursor-blink {
-  50% {
-    opacity: 0;
-  }
 }
 
 .newtab-prompt {
@@ -156,40 +115,34 @@
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  margin-top: var(--newtab-cell);
+  align-items: flex-start;
   transition: opacity 0.14s;
 }
 
 .newtab-list {
   /* One grid for every row (each row a subgrid of it), so the columns line
-     up down the list and each is as wide as its widest entry - packed to
-     the left with a steady gap, not stretched across the page. */
+     up down the list and each is as wide as its widest entry - and the list
+     only as wide as its columns, not stretched across the page. */
   display: grid;
-  grid-template-columns: max-content minmax(0, max-content) minmax(0, max-content) max-content max-content minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, max-content) minmax(0, max-content) max-content max-content;
   column-gap: 3ch;
-  row-gap: 10px;
-  justify-content: start;
-  /* Keeps the foot off the list when the page is short. */
+  row-gap: var(--newtab-cell);
+  max-width: 100%;
+  margin-top: var(--newtab-cell);
   margin-bottom: 16px;
 }
 
-/* Recents and favorites: one outlined card each, sharing the list's columns
-   (a subgrid again) so they line up from one card to the next. The last,
-   empty column stretches the cards across the page. */
+/* Recents and favorites: a heading and its rows each, sharing the list's
+   columns (a subgrid again) so they line up from one to the next. */
 .newtab-section {
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
-  padding: 6px 1ch 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
 }
 
 .newtab-heading {
   grid-column: 1 / -1;
   margin: 0 0 2px;
-  /* Same indent as the rows' left padding, so the `#` sits over their keys. */
-  padding-left: 2ch;
   color: var(--fg-muted);
   font: inherit;
 }
@@ -201,20 +154,23 @@
 
 .newtab-empty {
   grid-column: 1 / -1;
-  margin: 0 0 0 2ch;
+  margin: 0;
   color: var(--fg-muted);
 }
 
+/* Starting on the prompt's column, like everything the shell prints; the
+   highlight behind it reaches out into the page's padding, where the
+   selection mark sits. */
 .newtab-row {
   position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   align-items: center;
   height: calc(var(--newtab-cell) + 6px);
-  padding: 0 1ch 0 2ch;
+  padding: 0;
   border: 0;
-  border-radius: 3px;
   background: transparent;
   color: var(--fg);
   font: inherit;
@@ -222,18 +178,26 @@
   cursor: pointer;
 }
 
-.newtab-row:hover {
+.newtab-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 -1ch 0 -1.6ch;
+  z-index: -1;
+  border-radius: 3px;
+}
+
+.newtab-row:hover::before {
   background: var(--ctrl-hover-bg);
 }
 
-.newtab-row.is-selected {
+.newtab-row.is-selected::before {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .newtab-row-mark {
-  /* In the row's left padding, out of the grid: no column of its own. */
+  /* Out in the page's padding, out of the grid: no column of its own. */
   position: absolute;
-  left: 4px;
+  left: -1.4ch;
   color: var(--accent-2);
   font-weight: 700;
 }
@@ -296,14 +260,19 @@
   flex: none;
 }
 
+/* The shells to start in and the keys, at the page's foot under a rule. */
 .newtab-foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  align-self: stretch;
   justify-content: space-between;
   gap: 10px;
   margin-top: auto;
-  padding-top: 10px;
+  /* The rule runs the page's full width, out over its side padding (see
+     .newtab); the content stays on the page's columns. */
+  margin-inline: -14px;
+  padding: 10px 14px 0;
   border-top: 1px solid var(--border);
   font-size: 12px;
 }

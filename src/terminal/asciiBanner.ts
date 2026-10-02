@@ -125,10 +125,10 @@ export function buildAsciiBanner(
   for (const tableLine of buildInfoTable(rows, accent, dim, reset)) lines.push(`  ${tableLine}`);
   lines.push("");
 
-  // The frog, centered in the space right of the wordmark when the tab is
-  // wide enough for it - placed with an absolute column move, so the lines
-  // beside it keep their own text untouched.
-  const place = pose ? frogPlacement(cols, lines.length) : null;
+  // The frog, right beside the wordmark when the tab is wide enough for it -
+  // placed with an absolute column move, so the lines beside it keep their
+  // own text untouched.
+  const place = pose ? frogPlacement(cols) : null;
   if (place && pose) {
     const frog = frogRows(pose);
     while (lines.length < place.top + frog.length) lines.push("");
@@ -142,20 +142,47 @@ export function buildAsciiBanner(
 
 /** First column right of the wordmark (its 2-space indent, the art, a gap). */
 const FROG_COLUMN = ART_WIDTH + 4;
-export const FROG_WIDTH = 40;
-export const FROG_HEIGHT = 16;
-/** The frog's drawing area in its own units (FrogLogo's viewBox, with room
+export const FROG_WIDTH = 15;
+export const FROG_HEIGHT = 6;
+/** The frog's drawing area in its own units (the catch's SVG viewBox, with room
  * above the head for a hop): one pixel is about 19 x 20 units, half a cell. */
 export const FROG_BOX = { x: 130, y: 205, width: 764, height: 650 };
 
-/** Where the frog goes in a banner of `lineCount` lines on a `cols`-wide
- * tab - 0-based column and line - or `null` when there's no room for it. */
-export function frogPlacement(cols: number, lineCount: number): { col: number; top: number } | null {
-  const free = cols - FROG_COLUMN;
-  if (cols < ART_WIDTH + 4 || free < FROG_WIDTH + 4) return null;
+/** Where the frog goes on a `cols`-wide tab - 0-based column and line - or
+ * `null` when there's no room for it: right beside the wordmark and just as
+ * tall, however wide the tab - like one more glyph of it. */
+export function frogPlacement(cols: number): { col: number; top: number } | null {
+  if (cols < FROG_COLUMN + FROG_WIDTH + 2) return null;
+  return { col: FROG_COLUMN, top: 1 };
+}
+
+/** The logo's colors (lime body, dark green, white) for an awake frog, and
+ * toned down (saturate(.45) brightness(.92)) for one at rest - the one every
+ * terminal prints, which shouldn't be the brightest thing on screen. */
+const AWAKE_COLORS = { green: "A3E635", dark: "14532D", white: "FFFFFF" };
+const REST_COLORS = { green: "AAC67D", dark: "2A4434", white: "EBEBEB" };
+
+export type FrogPalette = typeof AWAKE_COLORS;
+
+/** The frog's colors `vivid` (0-1) of the way from resting to awake. */
+export function frogPalette(vivid = 0): FrogPalette {
+  if (vivid <= 0) return REST_COLORS;
+  if (vivid >= 1) return AWAKE_COLORS;
+  const mix = (a: string, b: string) =>
+    [0, 2, 4]
+      .map((i) => {
+        const from = parseInt(a.slice(i, i + 2), 16);
+        const to = parseInt(b.slice(i, i + 2), 16);
+        return Math.round(from + (to - from) * vivid)
+          .toString(16)
+          .padStart(2, "0");
+      })
+      .join("")
+      .toUpperCase();
   return {
-    col: FROG_COLUMN + Math.floor((free - FROG_WIDTH) / 2),
-    top: Math.max(0, Math.floor((Math.max(lineCount, FROG_HEIGHT + 2) - FROG_HEIGHT) / 2)),
+    green: mix(REST_COLORS.green, AWAKE_COLORS.green),
+    dark: mix(REST_COLORS.dark, AWAKE_COLORS.dark),
+    white: mix(REST_COLORS.white, AWAKE_COLORS.white),
   };
 }
 
@@ -173,6 +200,9 @@ export interface FrogPose {
   rotate: number;
   lift: number;
   cursor: boolean;
+  /** How far (0-1) it's drawn in the logo's own colors rather than the
+   * resting ones - the New Tab's frog, waking up and dozing off. */
+  vivid?: number;
 }
 
 export const REST_POSE: FrogPose = { lookX: 0, lookY: 6, lid: 0, scaleX: 1, scaleY: 1, rotate: 0, lift: 0, cursor: true };
@@ -181,7 +211,8 @@ export const REST_POSE: FrogPose = { lookX: 0, lookY: 6, lid: 0, scaleX: 1, scal
  * old SVG logo, viewBox 130 245 764 610) at a point, in `pose`. No outline: a
  * dark outline drawn as a foreground color against the terminal's own
  * background would get repainted by xterm's minimumContrastRatio. */
-function frogPixel(px: number, py: number, pose: FrogPose): string | null {
+function frogPixel(px: number, py: number, pose: FrogPose, palette: FrogPalette): string | null {
+  const { green: FROG_GREEN, dark: FROG_DARK, white: FROG_WHITE } = palette;
   // Undo the body's transform around its bottom center to find the point
   // on the frog at rest.
   const ox = 512;
@@ -200,26 +231,41 @@ function frogPixel(px: number, py: number, pose: FrogPose): string | null {
   };
   for (const cx of [340, 684]) {
     // The lid comes down from the top of the eye, as far as `lid` says.
-    if (pose.lid > 0 && Math.hypot(x - cx, y - 393) <= 89 && y <= 304 + 178 * pose.lid) return "A3E635";
+    if (pose.lid > 0 && Math.hypot(x - cx, y - 393) <= 89 && y <= 304 + 178 * pose.lid) return FROG_GREEN;
     // The glint is a bit larger than the logo's so it survives this size.
-    if (Math.hypot(x - (cx + 14 + pose.lookX), y - 378 - pose.lookY) <= 16) return "FFFFFF";
-    if (Math.hypot(x - (cx + pose.lookX), y - 393 - pose.lookY) <= 45) return "14532D";
-    if (Math.hypot(x - cx, y - 393) <= 85) return "FFFFFF";
+    if (Math.hypot(x - (cx + 14 + pose.lookX), y - 378 - pose.lookY) <= 16) return FROG_WHITE;
+    if (Math.hypot(x - (cx + pose.lookX), y - 393 - pose.lookY) <= 45) return FROG_DARK;
+    if (Math.hypot(x - cx, y - 393) <= 85) return FROG_WHITE;
   }
   const strokes: [number, number, number, number][] = [
     [396, 575, 472, 632],
     [472, 632, 396, 689],
   ];
   if (pose.cursor) strokes.push([526, 689, 636, 689]);
-  if (strokes.some((s) => segment(...s) <= 24)) return "14532D";
+  if (strokes.some((s) => segment(...s) <= 24)) return FROG_DARK;
   const body =
     Math.hypot(x - 340, y - 400) <= 135 ||
     Math.hypot(x - 684, y - 400) <= 135 ||
     ((x - 512) / 360) ** 2 + ((y - 610) / 220) ** 2 <= 1;
-  return body ? "A3E635" : null;
+  return body ? FROG_GREEN : null;
 }
 
 let restCache: string[] | null = null;
+
+/** The frog in `pose` as a `width` x `height` grid of pixels over FROG_BOX,
+ * row by row: each one's color (hex, no `#`) or null where there's no frog.
+ * The banner draws it two pixels a cell; the New Tab page, finer. */
+export function frogPixels(pose: FrogPose, width: number, height: number): (string | null)[] {
+  const out: (string | null)[] = [];
+  const palette = frogPalette(pose.vivid);
+  for (let row = 0; row < height; row++) {
+    const y = FROG_BOX.y + ((row + 0.5) * FROG_BOX.height) / height;
+    for (let col = 0; col < width; col++) {
+      out.push(frogPixel(FROG_BOX.x + ((col + 0.5) * FROG_BOX.width) / width, y, pose, palette));
+    }
+  }
+  return out;
+}
 
 /** The frog as FROG_HEIGHT lines of FROG_WIDTH cells, in `pose`. A cell with
  * one color is a space on that background (backgrounds are never
@@ -229,12 +275,8 @@ export function frogRows(pose: FrogPose = REST_POSE): string[] {
   if (pose === REST_POSE && restCache) return restCache;
   const sgr = (code: 38 | 48, hex: string) =>
     `\x1b[${code};2;${parseInt(hex.slice(0, 2), 16)};${parseInt(hex.slice(2, 4), 16)};${parseInt(hex.slice(4), 16)}m`;
-  const sample = (col: number, row: number) =>
-    frogPixel(
-      FROG_BOX.x + ((col + 0.5) * FROG_BOX.width) / FROG_WIDTH,
-      FROG_BOX.y + ((row + 0.5) * FROG_BOX.height) / (FROG_HEIGHT * 2),
-      pose,
-    );
+  const pixels = frogPixels(pose, FROG_WIDTH, FROG_HEIGHT * 2);
+  const sample = (col: number, row: number) => pixels[row * FROG_WIDTH + col];
   const rows: string[] = [];
   for (let r = 0; r < FROG_HEIGHT; r++) {
     let line = "";

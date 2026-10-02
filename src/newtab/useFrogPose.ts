@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FROG_BOX, REST_POSE, frogRows, type FrogPose } from "../terminal/asciiBanner";
+import { FROG_BOX, FROG_HEIGHT, FROG_WIDTH, REST_POSE, frogPixels, type FrogPose } from "../terminal/asciiBanner";
 import { catchTime, huntFrame, planHunt, type CatchFrame, type FlyArea, type HuntPlan, type Point } from "./frogHunt";
 
 export type { CatchFrame, FlyArea };
@@ -14,6 +14,15 @@ const HOP_LIFT = -60;
 const BREATH_MS = 3400;
 const CURSOR_BLINK_MS = 1100;
 const BLINK_MS = 190;
+/** How quickly it wakes up and dozes off: the time constant (ms) its life -
+ * colors, breath, cursor - eases toward awake or asleep by. */
+const LIFE_EASE_MS = 160;
+
+/** The page's frog: the banner's cells, four times as many pixels - two
+ * across and four down a cell, near enough square. */
+export const FROG_PIXELS = { width: FROG_WIDTH * 2, height: FROG_HEIGHT * 4 };
+const drawingOf = (pose: FrogPose) => frogPixels(pose, FROG_PIXELS.width, FROG_PIXELS.height).join();
+const restDrawing = drawingOf(REST_POSE);
 
 type Action = "hop" | "tilt" | "puff" | "look";
 
@@ -74,9 +83,10 @@ interface FrogPoseOptions {
   /** Animate at all - off while the page is hidden or handing over, when the
    * frog stands still in the pose the terminal prints. */
   active: boolean;
-  /** Hand out poses for the ASCII frog - off while the page shows the SVG
-   * one, which animates itself; the catch runs either way. */
-  drawPose: boolean;
+  /** Awake: it breathes, blinks, looks about and moves on its own. Asleep it
+   * eases back to the pose the terminal prints, and stays there; a catch
+   * wakes it for as long as it lasts. */
+  awake: boolean;
   /** Where the frog is on screen right now (`null`: not drawn). */
   frogRect: () => DOMRect | null;
   /** Where the caret is while the user types, for the eyes to follow. */
@@ -85,17 +95,16 @@ interface FrogPoseOptions {
   flyArea: () => FlyArea | null;
 }
 
-/** The ASCII frog's pose over time - the old SVG frog's life, redrawn into
- * the banner: the pupils follow the pointer (or the caret while typing),
- * it breathes, blinks, and now and then hops, tilts its head, puffs up or
- * looks around; the pointer coming over it makes it hop. A new pose is only
- * handed out when it changes the drawing, which at this resolution is far
- * less often than every frame. */
+/** The page frog's pose over time. Awake, the pupils follow the pointer (or
+ * the caret while typing), it breathes, blinks, and now and then hops,
+ * tilts its head, puffs up or looks around; asleep, it eases back into the
+ * pose the terminal prints - colors and all - and holds still. A new pose
+ * is only handed out when it changes the drawing. */
 /** Sends the frog after a word on the prompt; `onCatch` runs the moment the
  * tongue has it. False when it can't go now (busy with a catch, or still). */
 export type HuntWord = (word: string, spot: Point, onCatch: () => void) => boolean;
 
-export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: FrogPoseOptions): {
+export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPoseOptions): {
   pose: FrogPose;
   catching: CatchFrame | null;
   huntWord: HuntWord;
@@ -103,8 +112,8 @@ export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: Frog
   const [pose, setPose] = useState<FrogPose>(REST_POSE);
   const [catching, setCatching] = useState<CatchFrame | null>(null);
   const huntWordRef = useRef<HuntWord>(() => false);
-  const optionsRef = useRef({ drawPose, frogRect, caret, flyArea });
-  optionsRef.current = { drawPose, frogRect, caret, flyArea };
+  const optionsRef = useRef({ awake, frogRect, caret, flyArea });
+  optionsRef.current = { awake, frogRect, caret, flyArea };
 
   useEffect(() => {
     if (!active || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -119,7 +128,10 @@ export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: Frog
     let move: { keys: Key[]; duration: number; at: number } | null = null;
     let blink: { at: number; times: number } | null = null;
     let hunt: { at: number; plan: HuntPlan; onCatch?: () => void } | null = null;
-    let drawn = frogRows(REST_POSE).join("");
+    let drawn = restDrawing;
+    /** 0 asleep - 1 awake, eased between the two. */
+    let life = 0;
+    let lastTick = start;
     let frame = 0;
     const timers = new Set<number>();
     const later = (fn: () => void, ms: number) => {
@@ -180,9 +192,21 @@ export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: Frog
     };
 
     const tick = (now: number) => {
+      const awakeNow = optionsRef.current.awake || hunt !== null;
+      const goal = awakeNow ? 1 : 0;
+      life += (goal - life) * (1 - Math.exp(-(now - lastTick) / LIFE_EASE_MS));
+      if (Math.abs(goal - life) < 0.01) life = goal;
+      lastTick = now;
       const frameOfCatch = catchFrame(now);
-      if (frameOfCatch || hunt === null) setCatching(frameOfCatch);
-      if (frameOfCatch || !optionsRef.current.drawPose) {
+      if (frameOfCatch || hunt === null) setCatching(frameOfCatch && { ...frameOfCatch, vivid: life });
+      // Asleep and settled: nothing to draw until something wakes it.
+      const settled =
+        !awakeNow && life === 0 && !move && !blink && Math.abs(look.x - REST_POSE.lookX) < 0.5 && Math.abs(look.y - REST_POSE.lookY) < 0.5;
+      if (frameOfCatch || settled) {
+        if (settled && drawn !== restDrawing) {
+          drawn = restDrawing;
+          setPose(REST_POSE);
+        }
         frame = requestAnimationFrame(tick);
         return;
       }
@@ -190,7 +214,7 @@ export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: Frog
       // Eyes: a glance, else the caret while typing, else the pointer while
       // it moves, else straight ahead.
       let target = { x: REST_POSE.lookX, y: REST_POSE.lookY };
-      if (rect && rect.width > 0) {
+      if (rect && rect.width > 0 && awakeNow) {
         const unit = FROG_BOX.width / rect.width;
         const eyeY = rect.top + ((393 - FROG_BOX.y) / FROG_BOX.height) * rect.height;
         const eyeX = rect.left + ((512 - FROG_BOX.x) / FROG_BOX.width) * rect.width;
@@ -212,7 +236,7 @@ export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: Frog
       look.y += (target.y - look.y) * 0.18;
 
       const breath = (1 - Math.cos((2 * Math.PI * (now - start)) / BREATH_MS)) / 2;
-      let [lift, scaleX, scaleY, rotate] = [0, 1 + 0.025 * breath, 1 - 0.025 * breath, 0];
+      let [lift, scaleX, scaleY, rotate] = [0, 1 + 0.025 * breath * life, 1 - 0.025 * breath * life, 0];
       if (move) {
         const t = (now - move.at) / move.duration;
         if (t >= 1) move = null;
@@ -238,9 +262,11 @@ export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: Frog
         scaleY,
         rotate,
         lift,
-        cursor: (now - start) % CURSOR_BLINK_MS < CURSOR_BLINK_MS / 2,
+        // Lit while it sleeps, like the terminal's; blinking once awake.
+        cursor: life < 0.5 || (now - start) % CURSOR_BLINK_MS < CURSOR_BLINK_MS / 2,
+        vivid: life,
       };
-      const drawing = frogRows(next).join("");
+      const drawing = drawingOf(next);
       if (drawing !== drawn) {
         drawn = drawing;
         setPose(next);
@@ -265,6 +291,10 @@ export function useFrogPose({ active, drawPose, frogRect, caret, flyArea }: Frog
 
     const schedule = () => {
       later(() => {
+        if (!optionsRef.current.awake) {
+          schedule();
+          return;
+        }
         if (Math.random() < 0.55) {
           later(() => {
             blink = { at: performance.now(), times: Math.random() < 0.25 ? 2 : 1 };

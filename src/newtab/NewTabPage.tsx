@@ -14,14 +14,16 @@ import {
   FROG_HEIGHT,
   FROG_WIDTH,
   buildAsciiBanner,
+  frogPixels,
   frogPlacement,
+  REST_POSE,
   lastTermGrid,
   rememberBannerInfo,
   type BannerSystemInfo,
+  type FrogPose,
 } from "../terminal/asciiBanner";
 import { FrogCatch } from "./FrogCatch";
-import { FrogLogo } from "./FrogLogo";
-import { useFrogPose, type CatchFrame, type FlyArea } from "./useFrogPose";
+import { FROG_PIXELS, useFrogPose, type CatchFrame, type FlyArea } from "./useFrogPose";
 import { MOUTH, sceneBounds, sceneRgb, toWorld, tongueTip } from "./frog3d";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { historyFor } from "./commandHistory";
@@ -81,6 +83,9 @@ const READY_TIMEOUT_MS = 1800;
 const OVERLAY_FADE_MS = 90;
 
 const RECENTS_SHOWN = 6;
+
+/** How long the frog stays awake once the pointer has left it. */
+const FROG_AWAKE_MS = 3000;
 
 /** The terminal's font (see Terminal.tsx) - the page's banner and prompt are
  * set in it so they line up cell for cell with what replaces them. */
@@ -275,7 +280,7 @@ function toCells(segments: Segment[]): Cell[] {
 }
 
 /** A frame of the real-frog catch onto `canvas`, over the whole page, under
- * the SVG catch (which fades out over it as the frog turns real): the scene
+ * the pixel-art catch (which fades out over it as the frog turns real): the scene
  * ray-traced at a few px - with bands slipping sideways while it glitches -
  * plus a soft shadow under it. */
 function drawRealCatch(canvas: HTMLCanvasElement, g: CatchGrid, frame: CatchFrame) {
@@ -376,6 +381,33 @@ function drawRealCatch(canvas: HTMLCanvasElement, g: CatchGrid, frame: CatchFram
   }
 }
 
+/** The frog in `pose` onto `canvas`, `width` x `height` px: FROG_PIXELS
+ * squares, snapped to device pixels so they stay crisp. */
+function drawFrog(canvas: HTMLCanvasElement, pose: FrogPose, width: number, height: number) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(width * dpr);
+  const h = Math.round(height * dpr);
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, w, h);
+  const { width: cols, height: rows } = FROG_PIXELS;
+  const pixels = frogPixels(pose, cols, rows);
+  for (let r = 0; r < rows; r++) {
+    const y0 = Math.round((r * h) / rows);
+    const y1 = Math.round(((r + 1) * h) / rows);
+    for (let c = 0; c < cols; c++) {
+      const color = pixels[r * cols + c];
+      if (!color) continue;
+      const x0 = Math.round((c * w) / cols);
+      ctx.fillStyle = `#${color}`;
+      ctx.fillRect(x0, y0, Math.round(((c + 1) * w) / cols) - x0, y1 - y0);
+    }
+  }
+}
+
 /** The terminal's cell grid at `width`: the last terminal's own measurements
  * when it was laid out at this font size (and its column count when at this
  * very width), otherwise the font measured here the way xterm measures it. */
@@ -436,6 +468,10 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const [system, setSystem] = useState<BannerSystemInfo | null>(null);
   const [flightDone, setFlightDone] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
+  /** The frog sits still in the banner, like the one the terminal prints,
+   * until the pointer comes over it: then it comes alive for a while. */
+  const [awake, setAwake] = useState(false);
+  const sleepTimerRef = useRef<number | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
   const grid = useTermGrid(termFontSize, width);
 
@@ -475,6 +511,16 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   }, []);
 
   useEffect(() => () => timersRef.current.forEach(window.clearTimeout), []);
+  useEffect(() => () => window.clearTimeout(sleepTimerRef.current), []);
+
+  const wakeFrog = () => {
+    window.clearTimeout(sleepTimerRef.current);
+    setAwake(true);
+  };
+  const letFrogSleep = () => {
+    window.clearTimeout(sleepTimerRef.current);
+    sleepTimerRef.current = window.setTimeout(() => setAwake(false), FROG_AWAKE_MS);
+  };
 
   useEffect(() => {
     if (!hidden) inputRef.current?.focus({ preventScroll: true });
@@ -535,7 +581,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   // what the frog is placed against, and what the catch is drawn over.
   const bare = bannerEnabled && grid ? buildAsciiBanner(grid.cols, system ?? undefined, version || undefined, null) : null;
   const bareLines = bare ? bannerLines(bare) : [];
-  const frogAt = grid && bareLines.length > 0 ? frogPlacement(grid.cols, bareLines.length) : null;
+  const frogAt = grid && bareLines.length > 0 ? frogPlacement(grid.cols) : null;
   /** The page's cell grid as it stands, for the catch. */
   const catchGrid = (): CatchGrid | null => {
     const root = rootRef.current;
@@ -551,12 +597,12 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
       frogAt,
     };
   };
-  // On the page the frog is the SVG one (FrogLogo, over the banner's frog
-  // box), alive on its own; this runs its catches. Once the hand-off starts
-  // it turns into the ASCII frog the terminal prints, in the resting pose.
+  // The frog is pixel art on the banner's frog cells, finer than the
+  // terminal's: still, like the terminal's, until the pointer wakes it, and
+  // easing in and out of life. Its catches run either way.
   const { pose, catching, huntWord } = useFrogPose({
     active: !hidden && !leaving && !!frogAt,
-    drawPose: false,
+    awake,
     frogRect: () => {
       const root = rootRef.current;
       if (!root || !grid || !frogAt) return null;
@@ -582,14 +628,23 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const banner =
     catching || !bannerEnabled || !grid
       ? null
-      : buildAsciiBanner(grid.cols, system ?? undefined, version || undefined, leaving ? pose : null);
+      : buildAsciiBanner(grid.cols, system ?? undefined, version || undefined, leaving ? REST_POSE : null);
   const lines = catching ? bareLines : banner ? bannerLines(banner) : [];
   const catchGridNow = catching ? catchGrid() : null;
-  // The rare real frog is painted on a canvas under the SVG one, which
+  // The rare real frog is painted on a canvas under the pixel-art catch, which
   // fades out over it - except for the odd frame mid-glitch, which flickers
-  // back to the SVG frog.
+  // back to the pixel frog.
   const realFrame = !!catching?.real && catching.real.amount > 0 && !(catching.real.glitch > 0.6 && Math.random() < 0.3);
   const realCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // The page's frog, drawn on its canvas; on the hand-off it fades into the
+  // banner's, the one the terminal prints.
+  const frogCanvasRef = useRef<HTMLCanvasElement>(null);
+  const frogPose = leaving ? REST_POSE : pose;
+  useLayoutEffect(() => {
+    const canvas = frogCanvasRef.current;
+    if (canvas && grid) drawFrog(canvas, frogPose, FROG_WIDTH * grid.cellWidth, FROG_HEIGHT * grid.cellHeight);
+  });
   useLayoutEffect(() => {
     const canvas = realCanvasRef.current;
     if (canvas && realFrame && catching && catchGridNow) drawRealCatch(canvas, catchGridNow, catching);
@@ -852,6 +907,10 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
             width: catchGridNow.cols * UNIT_X,
             height: 2 * catchGridNow.rows * UNIT_Y,
           }}
+          pixels={{
+            width: (catchGridNow.cols * FROG_PIXELS.width) / FROG_WIDTH,
+            height: (catchGridNow.rows * FROG_PIXELS.height) / FROG_HEIGHT,
+          }}
           unitsPerCell={{ x: UNIT_X, y: 2 * UNIT_Y }}
           frogOpacity={realFrame ? 1 - catching.real!.amount : 1}
           style={{ width: catchGridNow.cols * catchGridNow.cellWidth, height: catchGridNow.rows * catchGridNow.cellHeight }}
@@ -872,9 +931,13 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
         </div>
       )}
 
-      {frogAt && grid && !catching && !hidden && (
-        <FrogLogo
+      {frogAt && grid && !catching && (
+        <canvas
+          ref={frogCanvasRef}
           className={"newtab-frog" + (leaving ? " is-ascii" : "")}
+          aria-hidden="true"
+          onPointerEnter={wakeFrog}
+          onPointerLeave={letFrogSleep}
           style={{
             left: TERM_PADDING_LEFT + frogAt.col * grid.cellWidth,
             top: TERM_PADDING_TOP + frogAt.top * grid.cellHeight,
@@ -909,6 +972,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
       </label>
 
       <div className="newtab-below">
+
         <div id="newtab-list" className="newtab-list">
           <section className="newtab-section">
             <h2 className="newtab-heading">

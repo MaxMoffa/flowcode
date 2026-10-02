@@ -1,18 +1,20 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import { frogPalette } from "../terminal/asciiBanner";
 import { MOUTH, toWorld, tongueTip, type FrogScene, type Vec3 } from "./frog3d";
 import type { CatchFrame } from "./frogHunt";
 
-/** The catch drawn as SVG over the page - the FrogLogo frog, turned in 3D:
- * the scene's body and eye spheres are projected exactly (an ellipsoid seen
- * from the front is an ellipse), the `>_` follows the belly's curve, and
- * the tongue and the fly are drawn on top. Same colors and outline as the
- * logo, so the catch starts and ends on the frog that was there.
+/** The catch drawn over the page as pixel art, on the page frog's pixel
+ * grid (two pixels across and four down a cell): the logo's frog, turned in
+ * 3D - the scene's body and eye spheres are projected exactly (an ellipsoid
+ * seen from the front is an ellipse), the `>_` follows the belly's curve -
+ * with the tongue and the fly on top, drawn small and blown up square. Same
+ * colors as the page frog, so the catch starts and ends on the frog that was
+ * there. A word off the prompt rides the tongue as crisp text, to stay
+ * readable.
  *
- * Everything is in the frog's drawing units (FROG_BOX): the SVG's viewBox
- * maps them onto the page the way the banner's cell grid does. */
+ * Everything is in the frog's drawing units (FROG_BOX): `viewBox` maps them
+ * onto the page the way the banner's cell grid does. */
 
-const GREEN = "#A3E635";
-const DARK = "#14532D";
 const PINK = "#F472B6";
 const OUTLINE = 30;
 const STROKE = 44;
@@ -60,20 +62,6 @@ function project(c: Vec3, r: Vec3, s: FrogScene): Ellipse {
 
 const sphere = (c: Vec3, r: number, s: FrogScene) => project(c, [r, r, r], s);
 
-function shape(e: Ellipse, props: Record<string, string | number> = {}, key?: string | number) {
-  return (
-    <ellipse
-      key={key}
-      cx={e.cx}
-      cy={e.cy}
-      rx={e.rx}
-      ry={e.ry}
-      transform={`rotate(${e.angle.toFixed(2)} ${e.cx.toFixed(1)} ${e.cy.toFixed(1)})`}
-      {...props}
-    />
-  );
-}
-
 /** A point of the belly's front at (x, y), on the body's surface. */
 function onBelly(x: number, y: number): Vec3 {
   const [cx, cy, cz] = BODY.c;
@@ -83,151 +71,233 @@ function onBelly(x: number, y: number): Vec3 {
 }
 
 /** The `>_` painted on the belly, bent round it: each stroke as a polyline. */
-function bellyMark(s: FrogScene): string[] {
+function bellyMark(s: FrogScene): [number, number][][] {
   const strokes: [number, number, number, number][] = [
     [396, 575, 472, 632],
     [472, 632, 396, 689],
   ];
   const along = ([ax, ay, bx, by]: [number, number, number, number]) =>
-    Array.from({ length: 7 }, (_, i) => {
+    Array.from({ length: 7 }, (_, i): [number, number] => {
       const t = i / 6;
       const [x, y] = toWorld(onBelly(ax + (bx - ax) * t, ay + (by - ay) * t), s);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
+      return [x, y];
     });
   // The chevron as one line, so its corner joins round.
-  const chevron = [...along(strokes[0]), ...along(strokes[1]).slice(1)].join(" ");
-  const out = [chevron];
-  if (s.cursor) out.push(along([526, 689, 636, 689]).join(" "));
+  const out = [[...along(strokes[0]), ...along(strokes[1]).slice(1)]];
+  if (s.cursor) out.push(along([526, 689, 636, 689]));
   return out;
 }
 
-function Frog({ scene }: { scene: FrogScene }) {
+type Ctx = CanvasRenderingContext2D;
+type Colors = { green: string; dark: string; white: string };
+
+function ellipse(ctx: Ctx, e: Ellipse) {
+  ctx.beginPath();
+  ctx.ellipse(e.cx, e.cy, e.rx, e.ry, (e.angle * Math.PI) / 180, 0, 2 * Math.PI);
+}
+
+function drawFrog(ctx: Ctx, scene: FrogScene, c: Colors) {
   const body = project(BODY.c, BODY.r, scene);
   const bumps = EYES.map((cx) => sphere([cx, 400, EYE_Z], 135, scene));
   const green = [body, ...bumps];
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  // No outline, like the page frog it turns from.
+  ctx.fillStyle = c.green;
+  for (const e of green) {
+    ellipse(ctx, e);
+    ctx.fill();
+  }
   // Each eye: its white, pupil and glint, nearer eye drawn last.
   const eyes = EYES.map((cx, i) => {
     const pupil: Vec3 = [cx + scene.lookX, 393 + scene.lookY, EYE_Z + 215];
-    return {
-      z: bumps[i].z,
-      parts: [
-        shape(sphere([cx, 393, EYE_Z + 140], 85, scene), { fill: "#FFFFFF" }, "white"),
-        shape(sphere(pupil, 45, scene), { fill: DARK }, "pupil"),
-        shape(sphere([pupil[0] + 14, pupil[1] - 15, pupil[2] + 40], 11, scene), { fill: "#FFFFFF" }, "glint"),
-      ],
-    };
+    const parts: [Ellipse, string][] = [
+      [sphere([cx, 393, EYE_Z + 140], 85, scene), c.white],
+      [sphere(pupil, 45, scene), c.dark],
+      [sphere([pupil[0] + 14, pupil[1] - 15, pupil[2] + 40], 11, scene), c.white],
+    ];
+    return { z: bumps[i].z, parts };
   }).sort((a, b) => a.z - b.z);
-  return (
-    <>
-      <g fill={DARK} stroke={DARK} strokeWidth={OUTLINE} strokeLinejoin="round">
-        {green.map((e, i) => shape(e, {}, i))}
-      </g>
-      <g fill={GREEN}>{green.map((e, i) => shape(e, {}, i))}</g>
-      {eyes.map((eye, i) => (
-        <g key={i}>{eye.parts}</g>
-      ))}
-      <g fill="none" stroke={DARK} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round">
-        {bellyMark(scene).map((points, i) => (
-          <polyline key={i} points={points} />
-        ))}
-      </g>
-    </>
-  );
+  for (const eye of eyes) {
+    for (const [e, color] of eye.parts) {
+      ctx.fillStyle = color;
+      ellipse(ctx, e);
+      ctx.fill();
+    }
+  }
+  ctx.strokeStyle = c.dark;
+  ctx.lineWidth = STROKE;
+  for (const points of bellyMark(scene)) {
+    ctx.beginPath();
+    points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+  }
 }
 
-function Tongue({ scene }: { scene: FrogScene }) {
+function drawTongue(ctx: Ctx, scene: FrogScene, c: Colors) {
   const tip = tongueTip(scene);
-  if (!tip || Math.hypot(...sub(tip, MOUTH)) <= 30) return null;
+  if (!tip || Math.hypot(...sub(tip, MOUTH)) <= 30) return;
   const [mx, my] = toWorld(MOUTH, scene);
   const [tx, ty] = toWorld(tip, scene);
-  const d = `M${mx.toFixed(1)} ${my.toFixed(1)} L${tx.toFixed(1)} ${ty.toFixed(1)}`;
+  ctx.lineCap = "round";
+  // Outlined in the dark green, like the frog: the outline first, wider.
+  const layers: [string, number][] = [
+    [c.dark, OUTLINE],
+    [PINK, 0],
+  ];
+  for (const [color, grow] of layers) {
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = STROKE + grow;
+    ctx.beginPath();
+    ctx.moveTo(mx, my);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(tx, ty, 34 + grow / 2, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+}
+
+/** The fly: a dark body and head, two pale wings beating up while it flies
+ * and folded down while it sits. */
+function drawFly(ctx: Ctx, fly: NonNullable<CatchFrame["fly"]>) {
+  ctx.save();
+  ctx.translate(fly.x, fly.y);
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.rotate((side * (fly.flap ? -35 : 18) * Math.PI) / 180);
+    ctx.fillStyle = "#DCE8FF";
+    ctx.beginPath();
+    ctx.ellipse(side * 16, -10, 18, 8, 0, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.fillStyle = "#27272A";
+  ctx.beginPath();
+  ctx.ellipse(2, 2, 14, 10, 0, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.fillStyle = "#52525B";
+  ctx.beginPath();
+  ctx.arc(-12, 0, 7, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** A word off the prompt, on a pink tag - crisp, over the pixels. */
+function WordFly({ fly, unitsPerCell }: { fly: NonNullable<CatchFrame["fly"]>; unitsPerCell: { x: number; y: number } }) {
+  const width = (fly.word!.length + 1) * unitsPerCell.x;
+  const height = unitsPerCell.y;
   return (
-    <g strokeLinecap="round">
-      <path d={d} stroke={DARK} strokeWidth={STROKE + OUTLINE} />
-      <circle cx={tx} cy={ty} r={34 + OUTLINE / 2} fill={DARK} />
-      <path d={d} stroke={PINK} strokeWidth={STROKE} />
-      <circle cx={tx} cy={ty} r={34} fill={PINK} />
+    <g>
+      <rect x={fly.x - width / 2} y={fly.y - height / 2} width={width} height={height} rx={height / 4} fill="#EC4899" />
+      <text
+        x={fly.x}
+        y={fly.y}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill="var(--fg)"
+        fontFamily="Menlo, Consolas, monospace"
+        fontWeight={700}
+        fontSize={height * 0.8}
+      >
+        {fly.word}
+      </text>
     </g>
   );
 }
 
-/** The fly: a dark body and head, two glassy wings beating up while it
- * flies and folded down while it sits - or, for a word off the prompt, the
- * word on a pink tag. */
-function Fly({ fly, unitsPerCell }: { fly: NonNullable<CatchFrame["fly"]>; unitsPerCell: { x: number; y: number } }) {
-  if (fly.word) {
-    const width = (fly.word.length + 1) * unitsPerCell.x;
-    const height = unitsPerCell.y;
-    return (
-      <g>
-        <rect x={fly.x - width / 2} y={fly.y - height / 2} width={width} height={height} rx={height / 4} fill="#EC4899" />
-        <text
-          x={fly.x}
-          y={fly.y}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill="var(--fg)"
-          fontFamily="Menlo, Consolas, monospace"
-          fontWeight={700}
-          fontSize={height * 0.8}
-        >
-          {fly.word}
-        </text>
-      </g>
-    );
-  }
-  const wing = (side: -1 | 1): ReactNode => (
-    <ellipse
-      cx={side * 16}
-      cy={-10}
-      rx={18}
-      ry={8}
-      transform={`rotate(${side * (fly.flap ? -35 : 18)})`}
-      fill="rgba(220, 232, 255, 0.7)"
-      stroke="rgba(255, 255, 255, 0.8)"
-      strokeWidth={2}
-    />
-  );
-  return (
-    <g transform={`translate(${fly.x.toFixed(1)} ${fly.y.toFixed(1)})`}>
-      {wing(-1)}
-      {wing(1)}
-      <ellipse cx={2} cy={2} rx={14} ry={10} fill="#27272A" />
-      <circle cx={-12} cy={0} r={7} fill="#52525B" />
-    </g>
-  );
+/** Paints `paint` (in drawing units, through `toPixels`) onto `small`, one
+ * canvas pixel a frog pixel and hard-edged - each pixel all there or not at
+ * all - then blows it up square over the whole of `ctx`. */
+function pixelPass(
+  small: HTMLCanvasElement,
+  toPixels: DOMMatrix2DInit,
+  ctx: Ctx,
+  opacity: number,
+  paint: (s: Ctx) => void,
+) {
+  const s = small.getContext("2d", { willReadFrequently: true })!;
+  s.resetTransform();
+  s.clearRect(0, 0, small.width, small.height);
+  s.setTransform(toPixels);
+  paint(s);
+  const image = s.getImageData(0, 0, small.width, small.height);
+  const data = image.data;
+  for (let i = 3; i < data.length; i += 4) data[i] = data[i] < 128 ? 0 : 255;
+  s.putImageData(image, 0, 0);
+  ctx.globalAlpha = opacity;
+  ctx.drawImage(small, 0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.globalAlpha = 1;
 }
 
 export function FrogCatch({
   frame,
   viewBox,
+  pixels,
   unitsPerCell,
   frogOpacity = 1,
   style,
 }: {
   frame: CatchFrame;
   viewBox: { x: number; y: number; width: number; height: number };
+  /** The page's frog pixels across and down the whole viewBox. */
+  pixels: { width: number; height: number };
   unitsPerCell: { x: number; y: number };
   /** Below 1 while the real frog (painted under it) shows through. */
   frogOpacity?: number;
-  style?: CSSProperties;
+  style: CSSProperties & { width: number; height: number };
 }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const smallRef = useRef<HTMLCanvasElement | null>(null);
   const { scene, fly } = frame;
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(style.width * dpr);
+    const h = Math.round(style.height * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const small = (smallRef.current ??= document.createElement("canvas"));
+    if (small.width !== pixels.width || small.height !== pixels.height) {
+      small.width = pixels.width;
+      small.height = pixels.height;
+    }
+    const sx = pixels.width / viewBox.width;
+    const sy = pixels.height / viewBox.height;
+    const toPixels = { a: sx, b: 0, c: 0, d: sy, e: -viewBox.x * sx, f: -viewBox.y * sy };
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, w, h);
+    ctx.imageSmoothingEnabled = false;
+    const palette = frogPalette(frame.vivid ?? 1);
+    const colors = { green: `#${palette.green}`, dark: `#${palette.dark}`, white: `#${palette.white}` };
+    if (frogOpacity > 0) {
+      pixelPass(small, toPixels, ctx, frogOpacity, (s) => {
+        drawFrog(s, scene, colors);
+        drawTongue(s, scene, colors);
+      });
+    }
+    if (fly && !fly.word) pixelPass(small, toPixels, ctx, 1, (s) => drawFly(s, fly));
+  });
+
   return (
-    <svg
-      className="newtab-catch"
-      style={style}
-      viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      {frogOpacity > 0 && (
-        <g opacity={frogOpacity}>
-          <Frog scene={scene} />
-          <Tongue scene={scene} />
-        </g>
+    <>
+      <canvas ref={canvasRef} className="newtab-catch" style={style} aria-hidden="true" />
+      {fly?.word && (
+        <svg
+          className="newtab-catch"
+          style={style}
+          viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <WordFly fly={fly} unitsPerCell={unitsPerCell} />
+        </svg>
       )}
-      {fly && <Fly fly={fly} unitsPerCell={unitsPerCell} />}
-    </svg>
+    </>
   );
 }

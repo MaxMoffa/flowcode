@@ -33,6 +33,8 @@ export interface CatchFrame {
   /** The rare catch where the frog slips out of the drawing into a real frog:
    * how far (0-1, the scene's `real`) and how hard it glitches doing it. */
   real: { amount: number; glitch: number } | null;
+  /** How awake the frog is (0-1), for its colors - see FrogPose. */
+  vivid?: number;
 }
 
 export type Reaction = "puff" | "hop" | "blink" | "none";
