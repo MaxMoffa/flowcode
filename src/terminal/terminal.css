@@ -36,3 +36,26 @@
 .terminal-container .xterm .xterm-viewport {
   background-color: transparent !important;
 }
+
+/* xterm draws its own scrollbar (VS Code's), 14px wide and square, with
+   its size and colors set inline - so the app's themed scrollbar
+   (themes.css) doesn't reach it. Same look as that one here: a 10px track,
+   a rounded thumb inset 2px all round, the theme's border color. */
+.terminal-container .xterm .xterm-scrollable-element > .scrollbar.vertical {
+  width: 10px !important;
+}
+
+.terminal-container .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  left: 0 !important;
+  width: 10px !important;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  background-clip: padding-box;
+  background-color: var(--border) !important;
+}
+
+.terminal-container .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider:hover,
+.terminal-container .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider.active {
+  background-color: var(--fg-muted) !important;
+}
