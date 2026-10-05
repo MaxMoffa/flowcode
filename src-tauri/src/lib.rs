@@ -1,5 +1,6 @@
 mod agents;
 mod fs;
+mod gpu;
 mod attention;
 mod notify;
 mod plugins;
@@ -34,6 +35,7 @@ fn set_ui_language(language: String) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    gpu::apply_at_startup();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|_app| {
@@ -77,6 +79,8 @@ pub fn run() {
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
             set_ui_language,
+            gpu::get_hardware_acceleration,
+            gpu::set_hardware_acceleration,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

@@ -392,6 +392,11 @@ export const it = {
     "Apre la cartella su disco dove sono salvate le funzionalità personalizzate e le altre impostazioni dell'app.",
   "settings.configDir.open": "Apri cartella di configurazione",
   "settings.configDir.error": "Impossibile aprire la cartella di configurazione: {error}",
+  "settings.gpu.label": "Accelerazione hardware",
+  "settings.gpu.desc":
+    "Usa la scheda video per disegnare la finestra. Disattivala se compaiono zone grigie o bande colorate: alcuni driver, soprattutto sui portatili con due schede video, non vanno d'accordo con WebView2.",
+  "settings.gpu.restart": "Riavvia Flowcode per applicare la modifica.",
+  "settings.gpu.error": "Impossibile salvare l'impostazione: {error}",
   "settings.reset.label": "Ripristina impostazioni",
   "settings.reset.desc":
     "Riporta tema, terminale, sidebar e azioni rapide ai valori predefiniti. I plugin personalizzati non vengono toccati.",

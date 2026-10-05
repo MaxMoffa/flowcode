@@ -74,6 +74,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "version", section: "info", label: "settings.group.version", desc: "settings.version.copyDesc", keywords: "versione version copia copy" },
   { id: "updates", section: "info", label: "settings.updates.label", desc: "settings.updates.desc", keywords: "aggiornamenti updates aggiorna upgrade" },
   { id: "configDir", section: "info", label: "settings.configDir.label", desc: "settings.configDir.desc", keywords: "configurazione config cartella folder json manutenzione" },
+  { id: "gpu", section: "info", label: "settings.gpu.label", desc: "settings.gpu.desc", keywords: "gpu accelerazione hardware acceleration scheda video graphics glitch grafica rendering driver" },
   { id: "reset", section: "info", label: "settings.reset.label", desc: "settings.reset.desc", keywords: "ripristina reset default predefinite manutenzione" },
   { id: "credits", section: "info", label: "settings.group.credits", desc: "settings.credits.desc", keywords: "crediti credits librerie libraries open source licenze" },
   { id: "shortcutsGuide", section: "shortcuts", label: "shortcuts.guide.label", desc: "shortcuts.guide.settingsDesc", keywords: "scorciatoie shortcuts tastiera keyboard guida guide aiuto help combinazioni hotkey" },

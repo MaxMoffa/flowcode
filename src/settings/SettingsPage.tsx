@@ -21,6 +21,7 @@ import { LANGUAGES, t, useI18n, type LanguagePreference, type MessageKey } from 
 import { SECTION_DESCRIPTION_KEYS, SECTION_TITLE_KEYS } from "./settingsIndex";
 import { Segmented, SettingRow, SettingsGroup, Switch, settingDomId } from "./SettingsControls";
 import { ShortcutsSettings } from "../shortcuts/ShortcutsSettings";
+import { isWindowsPlatform } from "../lib/path";
 import "./settings-page.css";
 
 /** Third-party libraries the app is built on, with what each is used for.
@@ -126,6 +127,25 @@ export function SettingsPage({
   const { status: updateStatus, check: checkForUpdates, openDialog: openUpdateDialog } = useUpdater();
   const [versionCopied, setVersionCopied] = useState(false);
   const versionCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Read from disk (not storage) since the backend applies it at launch -
+  // see gpu.rs. `null` until loaded; `gpuChanged` flags a pending restart.
+  const [hardwareAcceleration, setHardwareAcceleration] = useState<boolean | null>(null);
+  const [gpuChanged, setGpuChanged] = useState(false);
+
+  useEffect(() => {
+    if (!isWindowsPlatform()) return;
+    invoke<boolean>("get_hardware_acceleration").then(setHardwareAcceleration, () => {});
+  }, []);
+
+  async function handleSetHardwareAcceleration(enabled: boolean) {
+    try {
+      await invoke("set_hardware_acceleration", { enabled });
+      setHardwareAcceleration(enabled);
+      setGpuChanged(true);
+    } catch (e) {
+      window.alert(t("settings.gpu.error", { error: String(e) }));
+    }
+  }
 
   // Which of the two "Cartella di avvio" choices is selected - kept as its
   // own bit of state rather than derived from `startPath !== ""`, because
@@ -559,6 +579,25 @@ export function SettingsPage({
                   {t("settings.configDir.open")}
                 </button>
               </SettingRow>
+              {hardwareAcceleration !== null && (
+                <SettingRow
+                  id="gpu"
+                  label={t("settings.gpu.label")}
+                  desc={
+                    <>
+                      {t("settings.gpu.desc")}
+                      {gpuChanged && <span className="settings-row-status">{t("settings.gpu.restart")}</span>}
+                    </>
+                  }
+                >
+                  <Switch
+                    checked={hardwareAcceleration}
+                    onChange={(on) => void handleSetHardwareAcceleration(on)}
+                    label={t("settings.gpu.label")}
+                    stateLabels={onOff}
+                  />
+                </SettingRow>
+              )}
               <SettingRow id="reset" label={t("settings.reset.label")} desc={t("settings.reset.desc")}>
                 <button type="button" className="settings-choice is-danger" onClick={handleResetTerminal}>
                   {t("settings.reset.button")}
