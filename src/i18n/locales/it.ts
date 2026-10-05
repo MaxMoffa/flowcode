@@ -394,7 +394,7 @@ export const it = {
   "settings.configDir.error": "Impossibile aprire la cartella di configurazione: {error}",
   "settings.gpu.label": "Accelerazione hardware",
   "settings.gpu.desc":
-    "Usa la scheda video per disegnare la finestra. Disattivala se compaiono zone grigie o bande colorate: alcuni driver, soprattutto sui portatili con due schede video, non vanno d'accordo con WebView2.",
+    "Usa la scheda video per disegnare il contenuto della finestra. Disattivala se compaiono zone grigie o bande colorate: alcuni driver, soprattutto sui portatili con due schede video, non vanno d'accordo con WebView2.",
   "settings.gpu.restart": "Riavvia Flowcode per applicare la modifica.",
   "settings.gpu.error": "Impossibile salvare l'impostazione: {error}",
   "settings.reset.label": "Ripristina impostazioni",

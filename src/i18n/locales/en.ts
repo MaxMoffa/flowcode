@@ -391,7 +391,7 @@ export const en: Record<MessageKey, string> = {
   "settings.configDir.error": "Couldn't open the configuration folder: {error}",
   "settings.gpu.label": "Hardware acceleration",
   "settings.gpu.desc":
-    "Use the graphics card to draw the window. Turn it off if gray areas or colored bands appear: some drivers, especially on laptops with two graphics cards, don't get along with WebView2.",
+    "Use the graphics card to draw the window's content. Turn it off if gray areas or colored bands appear: some drivers, especially on laptops with two graphics cards, don't get along with WebView2.",
   "settings.gpu.restart": "Restart Flowcode to apply the change.",
   "settings.gpu.error": "Couldn't save the setting: {error}",
   "settings.reset.label": "Reset settings",

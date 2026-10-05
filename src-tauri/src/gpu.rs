@@ -1,8 +1,11 @@
 //! "Hardware acceleration" setting. Some GPU setups (seen on a hybrid
 //! AMD + NVIDIA laptop with WebView2 154) hand WebView2 garbage tiles: bands
 //! of the window come out gray or as red/green UV-gradient test patterns.
-//! Launching with `--disable-gpu` makes it render cleanly, so the app lets
-//! the user turn GPU rendering off.
+//! The tiles are what breaks, not the hand-off to DWM: on that machine
+//! `--disable-gpu-rasterization` fixes it (so does `--disable-direct-composition`,
+//! while `--use-angle=d3d11 --force_low_power_gpu` doesn't). Rasterizing on
+//! the CPU keeps compositing on the GPU, so it costs far less than
+//! `--disable-gpu`.
 //!
 //! WebView2 reads its browser arguments only when its environment is created,
 //! i.e. before the first window exists, so the choice is a file in the config
@@ -38,14 +41,15 @@ pub fn apply_at_startup() {
     }
     const VAR: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
     const WRY_DEFAULTS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+    const FLAG: &str = "--disable-gpu-rasterization";
     let existing = std::env::var(VAR).unwrap_or_default();
     let base = if existing.trim().is_empty() { WRY_DEFAULTS.to_string() } else { existing };
-    if base.contains("--disable-gpu") {
+    if base.split_whitespace().any(|arg| arg == FLAG || arg == "--disable-gpu") {
         return;
     }
     // Runs at the top of `run()`, before Tauri or any other thread that could
     // read the environment has started.
-    std::env::set_var(VAR, format!("{base} --disable-gpu"));
+    std::env::set_var(VAR, format!("{base} {FLAG}"));
 }
 
 #[tauri::command]
