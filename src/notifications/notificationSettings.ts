@@ -1,11 +1,12 @@
 import { useSyncExternalStore } from "react";
 import { readBool, writeBool } from "../lib/storage";
 
-/** What an agent in a tab can notify about. */
-export type NotificationKind = "done" | "input" | "exited";
-export const NOTIFICATION_KINDS: readonly NotificationKind[] = ["done", "input", "exited"];
+/** What an agent in a tab can notify about - plus `limitReset`, an account's
+ * usage limit lifting again (see limitResetWatcher.ts). */
+export type NotificationKind = "done" | "input" | "exited" | "limitReset";
+export const NOTIFICATION_KINDS: readonly NotificationKind[] = ["done", "input", "exited", "limitReset"];
 
-const DEFAULTS: Record<NotificationKind, boolean> = { done: true, input: true, exited: false };
+const DEFAULTS: Record<NotificationKind, boolean> = { done: true, input: true, exited: false, limitReset: true };
 const key = (kind: NotificationKind) => `flowcode.notify.${kind}`;
 
 type Enabled = Record<NotificationKind, boolean>;
@@ -15,6 +16,7 @@ function read(): Enabled {
     done: readBool(key("done"), DEFAULTS.done),
     input: readBool(key("input"), DEFAULTS.input),
     exited: readBool(key("exited"), DEFAULTS.exited),
+    limitReset: readBool(key("limitReset"), DEFAULTS.limitReset),
   };
 }
 

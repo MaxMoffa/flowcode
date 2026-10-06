@@ -11,6 +11,19 @@ pub fn notify_show(app: AppHandle, label: String, tab_id: String, title: String,
     show(app, label, tab_id, title, body);
 }
 
+/// Like `notify_show`, not tied to a tab, and shown once per `key` however
+/// many windows ask - each window watches the same usage limits (see
+/// src/notifications/limitResetWatcher.ts).
+#[tauri::command]
+pub fn notify_once(app: AppHandle, key: String, label: String, title: String, body: String) {
+    use std::collections::HashSet;
+    use std::sync::{LazyLock, Mutex};
+    static SHOWN: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+    if SHOWN.lock().unwrap_or_else(|e| e.into_inner()).insert(key) {
+        show(app, label, String::new(), title, body);
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn show(app: AppHandle, label: String, tab_id: String, title: String, body: String) {
     use tauri_winrt_notification::Toast;

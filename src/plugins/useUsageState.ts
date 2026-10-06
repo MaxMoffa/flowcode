@@ -38,6 +38,16 @@ function entryFor(pluginId: string): Entry {
   return entry;
 }
 
+/** Told about every usage result fetched, whichever plugin and component
+ * asked for it - lets the limit-reset notifications (see
+ * limitResetWatcher.ts) follow along without fetching anything themselves. */
+const fetchedListeners = new Set<(pluginId: string, usage: UsageInfo) => void>();
+
+export function onUsageFetched(listener: (pluginId: string, usage: UsageInfo) => void): () => void {
+  fetchedListeners.add(listener);
+  return () => fetchedListeners.delete(listener);
+}
+
 function update(entry: Entry, patch: Partial<Snapshot>) {
   entry.snapshot = { ...entry.snapshot, ...patch };
   entry.listeners.forEach((listener) => listener());
@@ -54,7 +64,10 @@ function loadUsage(pluginId: string, force = false) {
   entry.lastFetch = Date.now();
   update(entry, { loading: true });
   fetcher()
-    .then((usage) => update(entry, { usage }))
+    .then((usage) => {
+      update(entry, { usage });
+      fetchedListeners.forEach((listener) => listener(pluginId, usage));
+    })
     // The fetchers already turn real failures into an `ok: false` result -
     // this only keeps an unexpected throw from wedging `loading` forever.
     .catch(() => {})

@@ -33,6 +33,7 @@ import {
   wslShellId,
 } from "./terminal/wslPath";
 import { useAgentNotifications } from "./notifications/useAgentNotifications";
+import { watchLimitResets } from "./notifications/limitResetWatcher";
 import { useNotificationSettings } from "./notifications/notificationSettings";
 import { tabAgentOf, useAgentSessions, type TabAgent } from "./agents/agentSessions";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
@@ -1389,7 +1390,10 @@ function Shell() {
       appWindow.setFocus().catch(() => {});
     });
     // Another window's Agents panel sending the user to one of our tabs.
-    const unlistenFocus = webview.listen<string>("tab:focus", (e) => selectTabRef.current(e.payload));
+    const unlistenFocus = webview.listen<string>("tab:focus", (e) => {
+      // Empty for a notification about no tab in particular (notify_once).
+      if (latestRef.current.tabs.some((t) => t.id === e.payload)) selectTabRef.current(e.payload);
+    });
     return () => {
       unlisten.then((off) => off());
       unlistenFocus.then((off) => off());
@@ -1861,6 +1865,7 @@ function Shell() {
     const tab = tabs.find((t) => t.kind === "terminal" && termRefs.current.get(t.id)?.getPtyId() === session.pty_id);
     if (tab) tabAgents.set(tab.id, tabAgentOf(session));
   }
+  useEffect(watchLimitResets, []);
   const doneTabIds = useAgentNotifications(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
