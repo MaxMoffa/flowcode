@@ -1073,6 +1073,7 @@ dependencies = [
  "tauri-winrt-notification",
  "ureq",
  "uuid",
+ "webview2-com",
  "windows-sys 0.59.0",
 ]
 

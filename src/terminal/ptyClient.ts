@@ -56,8 +56,18 @@ export function attachPty(id: string, handlers: PtyHandlers): Promise<void> {
   return invoke<void>("pty_attach", { id, onEvent: eventChannel(handlers) });
 }
 
+/** Pty id -> when an Enter last went to it (ms). */
+const submittedAt = new Map<string, number>();
+
 export function writePty(id: string, data: string): Promise<void> {
+  if (data.includes("\r")) submittedAt.set(id, Date.now());
   return invoke<void>("pty_write", { id, data }).catch(() => {});
+}
+
+/** When the pty last got an Enter - a prompt sent to the agent running in
+ * it, as far as the outside can tell. 0 if never. */
+export function lastSubmitAt(id: string | null | undefined): number {
+  return (id && submittedAt.get(id)) || 0;
 }
 
 export function resizePty(id: string, cols: number, rows: number): Promise<void> {
@@ -65,5 +75,6 @@ export function resizePty(id: string, cols: number, rows: number): Promise<void>
 }
 
 export function killPty(id: string): Promise<void> {
+  submittedAt.delete(id);
   return invoke<void>("pty_kill", { id }).catch(() => {});
 }

@@ -334,6 +334,9 @@ export function FileTree({
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       disposed = true;
+      // The window's one watcher - a new cwd's `watch_dir` replaces it, but
+      // a closed explorer would otherwise keep it running.
+      invoke("unwatch_dir").catch(() => {});
       if (debounce) clearTimeout(debounce);
       if (poll) clearInterval(poll);
       document.removeEventListener("visibilitychange", onVisible);

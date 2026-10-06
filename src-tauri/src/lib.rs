@@ -58,6 +58,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(target_os = "windows")]
+            if let tauri::WindowEvent::Resized(_) = event {
+                windows::sync_webview_visibility(window);
+            }
             if let tauri::WindowEvent::Destroyed = event {
                 let app = window.app_handle();
                 let label = window.label();

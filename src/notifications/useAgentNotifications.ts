@@ -18,6 +18,8 @@ interface Watcher {
   getTab: (id: string) => TermTab | undefined;
   /** Whether the user is looking at that tab right now. */
   isViewing: (id: string) => boolean;
+  /** When the user last pressed Enter in that tab (ms, 0 if never). */
+  lastSubmitAt: (id: string) => number;
 }
 
 /** Watches the agents running in this window's tabs and raises a native
@@ -27,9 +29,17 @@ interface Watcher {
  * (see notify.rs). The same events also drive the taskbar/Dock badge (see
  * attention.rs): agents waiting for input, or one that finished unseen. The
  * tabs whose agent finished unseen are returned too, for the tab strip. */
-export function useAgentNotifications(agents: Map<string, TabAgent>, { getTab, isViewing }: Watcher): ReadonlySet<string> {
+export function useAgentNotifications(
+  agents: Map<string, TabAgent>,
+  { getTab, isViewing, lastSubmitAt }: Watcher,
+): ReadonlySet<string> {
   const previous = useRef<Map<string, TabAgent> | null>(null);
   const settleTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  /** When each tab's agent last finished a turn (ms). An agent can start a
+   * turn of its own - Claude Code wakes itself up when a background command
+   * or sub-agent it left running ends, then finishes again - and that's not
+   * news: only a turn the user asked for (an Enter in the tab since) is. */
+  const lastDoneAt = useRef(new Map<string, number>());
   /** Tabs whose agent finished while the user wasn't looking - cleared once
    * they look, or the agent starts working again. */
   const unseenDone = useRef(new Set<string>());
@@ -100,6 +110,9 @@ export function useAgentNotifications(agents: Map<string, TabAgent>, { getTab, i
           tabId,
           setTimeout(() => {
             settleTimers.current.delete(tabId);
+            const previousDone = lastDoneAt.current.get(tabId);
+            lastDoneAt.current.set(tabId, Date.now());
+            if (previousDone !== undefined && lastSubmitAt(tabId) < previousDone) return;
             notify(tabId, agent, "done");
           }, DONE_SETTLE_MS),
         );
@@ -110,6 +123,7 @@ export function useAgentNotifications(agents: Map<string, TabAgent>, { getTab, i
         const timer = settleTimers.current.get(tabId);
         if (timer) clearTimeout(timer);
         settleTimers.current.delete(tabId);
+        lastDoneAt.current.delete(tabId);
         notify(tabId, was, "exited");
       }
     }

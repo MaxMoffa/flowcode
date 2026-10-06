@@ -6,6 +6,27 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use flowcode_shared::CREATE_NO_WINDOW;
 
+/// The app's one process table, kept between uses: the agents poll (every
+/// couple of seconds) and the tab foreground checks only have to read the
+/// command line, exe and working directory of processes that started since,
+/// instead of every process on the machine each time. Those don't change
+/// over a process's life; names and parents are refreshed every time, and
+/// exited processes dropped.
+pub fn with_processes<T>(f: impl FnOnce(&System) -> T) -> T {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+    static SYS: std::sync::LazyLock<std::sync::Mutex<System>> = std::sync::LazyLock::new(Default::default);
+    let mut sys = SYS.lock().unwrap_or_else(|e| e.into_inner());
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::new()
+            .with_cmd(UpdateKind::OnlyIfNotSet)
+            .with_exe(UpdateKind::OnlyIfNotSet)
+            .with_cwd(UpdateKind::OnlyIfNotSet),
+    );
+    f(&sys)
+}
+
 #[derive(Serialize)]
 pub struct DiskInfo {
     total: u64,

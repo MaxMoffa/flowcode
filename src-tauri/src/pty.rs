@@ -721,28 +721,15 @@ fn foreground_by_tree(sys: &sysinfo::System, root: sysinfo::Pid) -> Option<Foreg
     Some(classify(current))
 }
 
-/// Just what `classify` reads: names, parents, start times, exe paths and
-/// command lines (the WSL distro).
-fn process_snapshot() -> sysinfo::System {
-    let mut sys = sysinfo::System::new();
-    sys.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::All,
-        true,
-        sysinfo::ProcessRefreshKind::new()
-            .with_exe(sysinfo::UpdateKind::OnlyIfNotSet)
-            .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet),
-    );
-    sys
-}
-
 /// `leader`: the pty's foreground process group leader, where the OS has
 /// one (Unix); `root`: the tab's own shell, for the process-tree fallback.
 fn foreground(leader: Option<u32>, root: u32) -> Option<Foreground> {
-    let sys = process_snapshot();
-    if let Some(fg) = leader.and_then(|pid| sys.process(sysinfo::Pid::from_u32(pid))).map(classify) {
-        return Some(fg);
-    }
-    foreground_by_tree(&sys, sysinfo::Pid::from_u32(root))
+    crate::system::with_processes(|sys| {
+        if let Some(fg) = leader.and_then(|pid| sys.process(sysinfo::Pid::from_u32(pid))).map(classify) {
+            return Some(fg);
+        }
+        foreground_by_tree(sys, sysinfo::Pid::from_u32(root))
+    })
 }
 
 #[tauri::command]
@@ -813,7 +800,7 @@ mod tests {
         });
         // ConPTY opens with a cursor-position query that blocks until answered.
         writer.write_all(b"\x1b[1;1R").unwrap();
-        let kind = || super::foreground_by_tree(&super::process_snapshot(), root).unwrap().kind;
+        let kind = || crate::system::with_processes(|sys| super::foreground_by_tree(sys, root)).unwrap().kind;
         std::thread::sleep(Duration::from_secs(2));
         assert_eq!(kind(), "cmd");
         writer.write_all(b"powershell -NoLogo\r").unwrap();
@@ -832,7 +819,7 @@ mod tests {
         if std::process::Command::new("wsl.exe").args(["-l", "-q"]).output().is_ok_and(|o| o.status.success()) {
             writer.write_all(b"wsl.exe -d Ubuntu\r").unwrap();
             std::thread::sleep(Duration::from_secs(5));
-            let fg = super::foreground_by_tree(&super::process_snapshot(), root).unwrap();
+            let fg = crate::system::with_processes(|sys| super::foreground_by_tree(sys, root)).unwrap();
             assert_eq!((fg.kind, fg.wsl_distro.as_deref()), ("wsl", Some("Ubuntu")));
             writer.write_all(b"exit\n").unwrap();
             std::thread::sleep(Duration::from_secs(2));

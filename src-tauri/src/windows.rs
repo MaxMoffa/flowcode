@@ -144,7 +144,7 @@ pub fn window_at_cursor(app: AppHandle) -> Result<CursorTarget, String> {
 /// Windows: asks the OS which top-level window is really under the point,
 /// so overlapping Flowcode windows resolve to the one actually on top.
 #[cfg(target_os = "windows")]
-fn topmost_at<'a>(windows: &'a HashMap<String, WebviewWindow>, cursor: PhysicalPosition<f64>) -> Option<&'a WebviewWindow> {
+fn topmost_at(windows: &HashMap<String, WebviewWindow>, cursor: PhysicalPosition<f64>) -> Option<&WebviewWindow> {
     use windows_sys::Win32::Foundation::POINT;
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT};
 
@@ -230,4 +230,31 @@ pub fn window_focus_tab(app: AppHandle, label: String, tab_id: String) -> Result
     let _ = window.show();
     let _ = window.set_focus();
     window.emit_to(label.as_str(), "tab:focus", tab_id).map_err(|e| e.to_string())
+}
+
+/// Hides the WebView2 controller while its window is minimized and shows it
+/// again on restore - what Microsoft asks hosts to do, and what wry leaves
+/// out. Without it a transparent window sometimes comes back from the
+/// taskbar with nothing but its acrylic backdrop: the webview never draws a
+/// frame again until it's resized. Called on every resize; acts only when
+/// the minimized state flips.
+#[cfg(target_os = "windows")]
+pub fn sync_webview_visibility(window: &tauri::Window) {
+    use std::collections::HashSet;
+    static MINIMIZED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+    let minimized = window.is_minimized().unwrap_or(false);
+    let label = window.label().to_string();
+    let changed = {
+        let mut set = MINIMIZED.lock().unwrap();
+        let set = set.get_or_insert_with(HashSet::new);
+        if minimized { set.insert(label.clone()) } else { set.remove(&label) }
+    };
+    if !changed {
+        return;
+    }
+    let Some(webview) = window.app_handle().get_webview_window(&label) else { return };
+    let _ = webview.with_webview(move |platform| unsafe {
+        let _ = platform.controller().SetIsVisible(!minimized);
+    });
 }

@@ -153,6 +153,10 @@ fn cli_is_logged_in(cli: &str) -> bool {
 /// login prompt with no explanation).
 #[tauri::command]
 pub async fn check_cli_status(cli: String) -> Result<CliStatus, String> {
+    // `cli` ends up inside a shell command line - only the names this knows.
+    if !matches!(cli.as_str(), "claude" | "codex") {
+        return Ok(CliStatus { installed: false, logged_in: false });
+    }
     crate::blocking(move || {
         let installed = cli_is_installed(&cli);
         let logged_in = installed && cli_is_logged_in(&cli);
@@ -220,7 +224,7 @@ fn find_vscode() -> Option<PathBuf> {
     from_path.or_else(|| {
         ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"]
             .iter()
-            .filter_map(|var| std::env::var_os(var))
+            .filter_map(std::env::var_os)
             .map(|base| {
                 let base = PathBuf::from(base);
                 // Per-user installs land in %LOCALAPPDATA%\Programs.

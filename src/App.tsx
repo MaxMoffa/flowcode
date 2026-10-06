@@ -13,6 +13,7 @@ import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
+import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, TermTab, EditorTab } from "./tabs/types";
@@ -1863,6 +1864,7 @@ function Shell() {
   const doneTabIds = useAgentNotifications(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
+    lastSubmitAt: (id) => lastSubmitAt(termRefs.current.get(id)?.getPtyId()),
   });
   const sidebarCwd = activeTerminal?.explorerPath || homeDir;
 
@@ -2372,7 +2374,11 @@ function Shell() {
         </div>
         {effectiveSidebarMode === "floating" && !sidebarCollapsed && (
           <div className="sidebar-floating-backdrop" onClick={() => setSidebarCollapsed(true)}>
-            <div className="sidebar-floating-panel" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="sidebar-floating-panel"
+              style={{ width: sidebarResize.width }}
+              onClick={(e) => e.stopPropagation()}
+            >
               {sidebarPanel}
             </div>
           </div>

@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use sysinfo::{Pid, ProcessesToUpdate, System};
+use std::sync::{LazyLock, Mutex};
+use sysinfo::{Pid, System};
 use tauri::State;
 
 #[cfg(target_os = "windows")]
@@ -174,55 +174,50 @@ fn find_wsl_client(sys: &System, root_pid: Pid, children_of: &HashMap<Pid, Vec<P
 }
 
 fn find_agent_sessions(shell_pids: Vec<(String, u32)>) -> Vec<AgentSession> {
-    let mut sys = System::new();
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::All,
-        true,
-        sysinfo::ProcessRefreshKind::new()
-            .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet)
-            .with_cwd(sysinfo::UpdateKind::OnlyIfNotSet),
-    );
-
-    let mut children_of: HashMap<Pid, Vec<Pid>> = HashMap::new();
-    for (pid, process) in sys.processes() {
-        if let Some(parent) = process.parent() {
-            children_of.entry(parent).or_default().push(*pid);
-        }
-    }
-
-    let mut sessions = Vec::new();
-    let mut host_threads: Option<Vec<LiveThread>> = None;
     // Distro -> the tabs whose agent (if any) can only be found inside it.
     let mut wsl_tabs: HashMap<Option<String>, HashSet<String>> = HashMap::new();
-    for (pty_id, shell_pid) in shell_pids {
-        let root = Pid::from_u32(shell_pid);
-        if let Some((cli, cli_label, pid, started_at)) = find_agent(&sys, root, &children_of) {
-            let cwd = sys
-                .process(Pid::from_u32(pid))
-                .and_then(|p| p.cwd())
-                .map(|c| c.to_string_lossy().trim_end_matches(['\\', '/']).to_string());
-            let mut session = AgentSession {
-                pty_id,
-                cli: cli.to_string(),
-                cli_label: cli_label.to_string(),
-                pid,
-                started_at,
-                cwd: cwd.clone(),
-                ..AgentSession::default()
-            };
-            if cli == "codex" {
-                let threads = host_threads.get_or_insert_with(host_live_threads);
-                if let Some(thread) = cwd.as_deref().and_then(|c| thread_in(threads, c)) {
-                    session.apply_thread(thread);
-                }
-            } else if let Some(entry) = claude_registry_entry(pid) {
-                session.apply_claude_entry(&entry);
+    let mut sessions = crate::system::with_processes(|sys| {
+        let mut children_of: HashMap<Pid, Vec<Pid>> = HashMap::new();
+        for (pid, process) in sys.processes() {
+            if let Some(parent) = process.parent() {
+                children_of.entry(parent).or_default().push(*pid);
             }
-            sessions.push(session);
-        } else if let Some(distro) = find_wsl_client(&sys, root, &children_of) {
-            wsl_tabs.entry(distro).or_default().insert(pty_id);
         }
-    }
+
+        let mut sessions = Vec::new();
+        let mut host_threads: Option<Vec<LiveThread>> = None;
+        for (pty_id, shell_pid) in shell_pids {
+            let root = Pid::from_u32(shell_pid);
+            if let Some((cli, cli_label, pid, started_at)) = find_agent(sys, root, &children_of) {
+                let cwd = sys
+                    .process(Pid::from_u32(pid))
+                    .and_then(|p| p.cwd())
+                    .map(|c| c.to_string_lossy().trim_end_matches(['\\', '/']).to_string());
+                let mut session = AgentSession {
+                    pty_id,
+                    cli: cli.to_string(),
+                    cli_label: cli_label.to_string(),
+                    pid,
+                    started_at,
+                    cwd: cwd.clone(),
+                    ..AgentSession::default()
+                };
+                if cli == "codex" {
+                    let threads = host_threads.get_or_insert_with(host_live_threads);
+                    if let Some(thread) = cwd.as_deref().and_then(|c| thread_in(threads, c)) {
+                        session.apply_thread(thread);
+                    }
+                } else if let Some(entry) = claude_registry_entry(pid) {
+                    session.apply_claude_entry(&entry);
+                }
+                sessions.push(session);
+            } else if let Some(distro) = find_wsl_client(sys, root, &children_of) {
+                wsl_tabs.entry(distro).or_default().insert(pty_id);
+            }
+        }
+        sessions
+    });
+    // Outside the process table's lock: this runs `wsl.exe`.
     for (distro, pty_ids) in wsl_tabs {
         sessions.extend(wsl_agents(distro.as_deref(), &pty_ids));
     }
@@ -255,22 +250,88 @@ struct LiveThread {
     name: Option<String>,
     /// When its rollout was last written (ms).
     updated_at: Option<u64>,
+    /// Whether a turn is under way, from the rollout's own events (see
+    /// `rollout_turn_open`) - `None` when they couldn't be read.
+    turn_open: Option<bool>,
     wsl_distro: Option<String>,
     /// The Flowcode tab running it, when that tab says so (see `PTY_ID_ENV`).
     pty_id: Option<String>,
 }
 
-/// How recently a thread must have written its rollout to count as working.
+/// How recently a thread must have written its rollout to count as working,
+/// when its turn events can't be read.
 const BUSY_WINDOW_MS: u64 = 8_000;
 
 impl LiveThread {
     fn status(&self) -> &'static str {
+        if let Some(open) = self.turn_open {
+            return if open { "busy" } else { "idle" };
+        }
         let now = crate::fs::system_time_to_millis(Ok(std::time::SystemTime::now())).unwrap_or(0);
         match self.updated_at {
             Some(at) if now.saturating_sub(at) < BUSY_WINDOW_MS => "busy",
             _ => "idle",
         }
     }
+}
+
+/// Whether the rollout's last turn is still open: its latest `task_started`
+/// has no `task_complete` / `turn_aborted` after it. Codex writes nothing
+/// while a command runs or an approval waits on the user, so how recently
+/// the file changed can't tell a long step from a finished turn - these
+/// events can. Read backwards from the end, and only again once the file
+/// has grown.
+fn rollout_turn_open(path: &Path) -> Option<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    const CHUNK: u64 = 64 * 1024;
+    /// A turn's output can be long; past this, give up and let the caller
+    /// fall back to the file's mtime.
+    const MAX_SCAN: u64 = 4 * 1024 * 1024;
+    /// Path -> (file length when read, answer).
+    type TurnCache = HashMap<PathBuf, (u64, Option<bool>)>;
+    static CACHE: LazyLock<Mutex<TurnCache>> = LazyLock::new(Default::default);
+
+    let len = std::fs::metadata(path).ok()?.len();
+    if let Some((at, open)) = CACHE.lock().unwrap().get(path) {
+        if *at == len {
+            return *open;
+        }
+    }
+    let open = (|| {
+        let mut file = std::fs::File::open(path).ok()?;
+        let mut end = len;
+        // Bytes of the line cut off at the start of the previous chunk.
+        let mut carry: Vec<u8> = Vec::new();
+        while end > 0 && len - end < MAX_SCAN {
+            let start = end.saturating_sub(CHUNK);
+            let mut buf = vec![0u8; (end - start) as usize];
+            file.seek(SeekFrom::Start(start)).ok()?;
+            file.read_exact(&mut buf).ok()?;
+            buf.extend_from_slice(&carry);
+            // Unless this chunk starts the file, its first line may be partial.
+            let (head, lines) = match buf.iter().position(|&b| b == b'\n') {
+                _ if start == 0 => (Vec::new(), &buf[..]),
+                Some(i) => (buf[..i].to_vec(), &buf[i + 1..]),
+                None => (buf.clone(), &buf[..0]),
+            };
+            for line in lines.split(|&b| b == b'\n').rev() {
+                // Escaped inside any message text, so only a real event's
+                // own payload matches.
+                let has = |needle: &[u8]| line.windows(needle.len()).any(|w| w == needle);
+                if has(br#"{"type":"task_started""#) {
+                    return Some(true);
+                }
+                if has(br#"{"type":"task_complete""#) || has(br#"{"type":"turn_aborted""#) {
+                    return Some(false);
+                }
+            }
+            carry = head;
+            end = start;
+        }
+        None
+    })();
+    CACHE.lock().unwrap().insert(path.to_path_buf(), (len, open));
+    open
 }
 
 /// Paths compared the way the OS would: separators and case (Windows) aside.
@@ -298,8 +359,8 @@ struct RolloutMeta {
 }
 
 fn rollout_meta(path: &Path) -> Option<RolloutMeta> {
-    static CACHE: Mutex<Option<HashMap<PathBuf, Option<RolloutMeta>>>> = Mutex::new(None);
-    if let Some(hit) = CACHE.lock().unwrap().get_or_insert_with(HashMap::new).get(path) {
+    static CACHE: LazyLock<Mutex<HashMap<PathBuf, Option<RolloutMeta>>>> = LazyLock::new(Default::default);
+    if let Some(hit) = CACHE.lock().unwrap().get(path) {
         return hit.clone();
     }
     let meta = (|| {
@@ -318,18 +379,18 @@ fn rollout_meta(path: &Path) -> Option<RolloutMeta> {
                 || payload.get("source").and_then(|s| s.get("subagent")).is_some(),
         })
     })();
-    CACHE.lock().unwrap().get_or_insert_with(HashMap::new).insert(path.to_path_buf(), meta.clone());
+    CACHE.lock().unwrap().insert(path.to_path_buf(), meta.clone());
     meta
 }
 
 /// Thread names from a Codex home's `session_index.jsonl` - re-read only
 /// when the file changes.
 fn thread_names_in(codex_home: &Path) -> HashMap<String, String> {
-    static CACHE: Mutex<Option<HashMap<PathBuf, (Option<u64>, HashMap<String, String>)>>> = Mutex::new(None);
+    type NameCache = HashMap<PathBuf, (Option<u64>, HashMap<String, String>)>;
+    static CACHE: LazyLock<Mutex<NameCache>> = LazyLock::new(Default::default);
     let index = codex_home.join("session_index.jsonl");
     let mtime = crate::fs::system_time_to_millis(std::fs::metadata(&index).and_then(|m| m.modified()));
     let mut cache = CACHE.lock().unwrap();
-    let cache = cache.get_or_insert_with(HashMap::new);
     if let Some((at, names)) = cache.get(&index) {
         if *at == mtime {
             return names.clone();
@@ -392,6 +453,7 @@ fn host_live_threads() -> Vec<LiveThread> {
                 id: meta.id,
                 cwd: meta.cwd,
                 updated_at: crate::fs::system_time_to_millis(std::fs::metadata(path).and_then(|m| m.modified())),
+                turn_open: rollout_turn_open(path),
                 wsl_distro: None,
                 pty_id: None,
             })
@@ -541,6 +603,7 @@ fn wsl_live_threads(distro: Option<&str>) -> Vec<LiveThread> {
                 id: meta.id,
                 cwd: meta.cwd,
                 updated_at: mtime.map(|s| s * 1000),
+                turn_open: rollout_turn_open(&wsl_unc(&distro_name, path)),
                 wsl_distro: Some(distro_name.clone()),
                 pty_id: terminal.pty_id.clone(),
             })
@@ -726,16 +789,16 @@ pub async fn list_claude_agents(probe_pids: State<'_, ProbePids>) -> Result<Vec<
         return Ok(entries);
     }
     crate::blocking(move || {
-        let mut sys = System::new();
-        sys.refresh_processes(ProcessesToUpdate::All, true);
-        Ok(entries
-            .into_iter()
-            .filter(|e| !is_headless_claude_run(e.pid))
-            .map(|mut e| {
-                e.host_app = host_app_of(&sys, e.pid);
-                e
-            })
-            .collect())
+        let entries: Vec<ClaudeAgentEntry> = entries.into_iter().filter(|e| !is_headless_claude_run(e.pid)).collect();
+        Ok(crate::system::with_processes(|sys| {
+            entries
+                .into_iter()
+                .map(|mut e| {
+                    e.host_app = host_app_of(sys, e.pid);
+                    e
+                })
+                .collect()
+        }))
     })
     .await
 }
@@ -1084,7 +1147,7 @@ fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>) -> Vec<CodexSessio
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_of, read_codex_session};
+    use super::{agent_of, read_codex_session, rollout_turn_open};
 
     #[test]
     fn recognizes_agents_inside_wsl() {
@@ -1129,6 +1192,32 @@ mod tests {
             r#"{"type":"session_meta","payload":{"id":"t","parent_thread_id":"p","cwd":"/x","source":{"subagent":{"other":"guardian"}}}}"#,
         );
         assert!(read_codex_session(&path, None, None).is_none());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn tells_an_open_turn_from_a_finished_one() {
+        let started = r#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"1"}}"#;
+        let complete = r#"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"1"}}"#;
+        // A long tool output after the turn started, longer than a read chunk,
+        // that only mentions the events inside (escaped) text.
+        let filler = format!(
+            r#"{{"type":"response_item","payload":{{"type":"function_call_output","output":"{} {{\"type\":\"task_complete\"}}"}}}}"#,
+            "x".repeat(100 * 1024)
+        );
+        let path = rollout(r#"{"type":"session_meta","payload":{"id":"t","cwd":"/x"}}"#);
+        let append = |line: &str| {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+            writeln!(f, "{line}").unwrap();
+        };
+        assert_eq!(rollout_turn_open(&path), None);
+        append(started);
+        append(&filler);
+        assert_eq!(rollout_turn_open(&path), Some(true));
+        append(complete);
+        append(r#"{"type":"event_msg","payload":{"type":"token_count"}}"#);
+        assert_eq!(rollout_turn_open(&path), Some(false));
         let _ = std::fs::remove_file(path);
     }
 }
