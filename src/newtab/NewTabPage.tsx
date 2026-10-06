@@ -610,6 +610,13 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     },
   });
   const catchGridNow = catching ? catchGrid() : null;
+  // The frog's canvas goes away during a catch (and with the page hidden),
+  // taking the pointer's `pointerleave` with it: send the frog to sleep as if
+  // the pointer had left, or it stays awake until hovered and left again.
+  const frogShown = !!frogAt && !!grid && !catching && !hidden;
+  useEffect(() => {
+    if (!frogShown) letFrogSleep();
+  }, [frogShown]);
   // The rare real frog is painted on a canvas under the pixel-art catch, which
   // fades out over it - except for the odd frame mid-glitch, which flickers
   // back to the pixel frog.
@@ -934,7 +941,8 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
         />
       )}
 
-      <label ref={promptRef} className="newtab-prompt">
+      {/* A click on the prompt leaves the list for the command line. */}
+      <label ref={promptRef} className="newtab-prompt" onPointerDown={() => setSelected(-1)}>
         <span ref={psRef} className="newtab-ps">
           {flyPrompt ?? promptFor(shell, defaultLabel, startDir)}
         </span>

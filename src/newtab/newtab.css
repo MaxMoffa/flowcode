@@ -109,7 +109,10 @@
    foot's, halfway down the blank row between them - so the list stays on
    the row it had. */
 .newtab-below {
-  flex: 1 0 auto;
+  /* Takes what the banner and prompt leave, no more - the list scrolls
+     inside it rather than pushing the foot off the page. */
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -121,15 +124,24 @@
 
 .newtab-list {
   /* One grid for every row (each row a subgrid of it), so the columns line
-     up down the list and each is as wide as its widest entry - and the list
-     only as wide as its columns, not stretched across the page. */
+     up down the list and each is as wide as its widest entry - packed to
+     the left, not stretched across the page. */
   display: grid;
   grid-template-columns: max-content minmax(0, max-content) minmax(0, max-content) max-content max-content;
   column-gap: 3ch;
   row-gap: var(--newtab-cell);
-  max-width: 100%;
-  margin-top: calc(var(--newtab-cell) / 2 - 1px);
-  margin-bottom: 16px;
+  justify-content: start;
+  /* Scrolls on its own when it's too long, cut off at the foot's rule. It
+     spans the page out to its right edge, so the scrollbar sits where the
+     terminal's does, and reaches into the left padding, where the rows'
+     highlight and selection mark go, so those aren't clipped. */
+  align-self: stretch;
+  min-height: 0;
+  overflow-y: auto;
+  /* No gap under it: scrolled rows run right up to the foot's rule; the
+     space after the last row is padding, inside the scroll. */
+  margin: calc(var(--newtab-cell) / 2 - 1px) -14px 0 -2ch;
+  padding: 0 0 16px 2ch;
 }
 
 /* Recents and favorites: a heading and its rows each, sharing the list's
@@ -260,7 +272,9 @@
   flex: none;
 }
 
-/* The shells to start in and the keys, at the page's foot under a rule. */
+/* The shells to start in and the keys, at the page's foot under a rule -
+   always in view: a list too long for the page scrolls on its own above it
+   (see .newtab-list). */
 .newtab-foot {
   display: flex;
   flex-wrap: wrap;
