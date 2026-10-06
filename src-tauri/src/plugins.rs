@@ -142,6 +142,9 @@ fn cli_is_logged_in(cli: &str) -> bool {
         "codex" => run_command_blocking("codex login status")
             .ok()
             .is_some_and(|o| o.status.success() && !combined_output(&o).to_lowercase().contains("not logged in")),
+        // Vibe has no status command: it's "signed in" once a Mistral API key
+        // is set - `vibe --setup` saves it to `~/.vibe/.env`.
+        "vibe" => crate::vibe::has_api_key(),
         _ => false,
     }
 }
@@ -154,7 +157,7 @@ fn cli_is_logged_in(cli: &str) -> bool {
 #[tauri::command]
 pub async fn check_cli_status(cli: String) -> Result<CliStatus, String> {
     // `cli` ends up inside a shell command line - only the names this knows.
-    if !matches!(cli.as_str(), "claude" | "codex") {
+    if !matches!(cli.as_str(), "claude" | "codex" | "vibe") {
         return Ok(CliStatus { installed: false, logged_in: false });
     }
     crate::blocking(move || {
@@ -163,6 +166,62 @@ pub async fn check_cli_status(cli: String) -> Result<CliStatus, String> {
         Ok(CliStatus { installed, logged_in })
     })
     .await
+}
+
+/// How a CLI is paid for, as far as its own status command tells:
+/// `"subscription"` (a Claude / ChatGPT plan, with usage limits to show),
+/// `"api"` (billed per token - an API key, or for Claude Code a cloud
+/// provider such as Bedrock or Vertex - with spend to show instead) or
+/// `"unknown"` (signed out, not installed, unreadable). Decides which popup
+/// the CLI's shortcut shows - see src/plugins/usage.ts.
+#[tauri::command]
+pub async fn cli_billing_mode(cli: String) -> Result<&'static str, String> {
+    crate::blocking(move || {
+        Ok(match cli.as_str() {
+            "claude" => run_command_blocking("claude auth status")
+                .ok()
+                .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
+                .map_or("unknown", |status| claude_billing_mode(&status)),
+            "codex" => run_command_blocking("codex login status")
+                .ok()
+                .map_or("unknown", |o| codex_billing_mode(&combined_output(&o))),
+            "vibe" => "api",
+            _ => "unknown",
+        })
+    })
+    .await
+}
+
+/// From `claude auth status`'s JSON: signed in through claude.ai (a Pro /
+/// Max / Team plan) is a subscription; any other signed-in method - an API
+/// key, a token, a cloud provider - is billed per token.
+fn claude_billing_mode(status: &serde_json::Value) -> &'static str {
+    if status.get("loggedIn").and_then(|v| v.as_bool()) != Some(true) {
+        return "unknown";
+    }
+    let method = status.get("authMethod").and_then(|v| v.as_str()).unwrap_or_default();
+    let provider = status.get("apiProvider").and_then(|v| v.as_str()).unwrap_or("firstParty");
+    if method == "claude.ai" && provider == "firstParty" {
+        "subscription"
+    } else {
+        "api"
+    }
+}
+
+/// From `codex login status`: "Logged in using ChatGPT" is a plan, "Logged
+/// in using an API key" is billed per token. English text matched on
+/// purpose - it's Codex's own wording, not the OS's (see `cli_is_logged_in`).
+fn codex_billing_mode(output: &str) -> &'static str {
+    let text = output.to_lowercase();
+    if text.contains("not logged in") {
+        "unknown"
+    } else if text.contains("api key") {
+        "api"
+    } else if text.contains("chatgpt") {
+        "subscription"
+    } else {
+        "unknown"
+    }
 }
 
 /// Runs a plugin's `commandOutput` command headlessly and returns its
@@ -282,4 +341,23 @@ pub async fn open_in_vscode(folder: String, wsl_distro: Option<String>) -> Resul
             .map_err(|e| e.to_string())
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{claude_billing_mode, codex_billing_mode};
+
+    #[test]
+    fn tells_a_plan_from_pay_per_use() {
+        let status = |method: &str, provider: &str| {
+            serde_json::json!({ "loggedIn": true, "authMethod": method, "apiProvider": provider })
+        };
+        assert_eq!(claude_billing_mode(&status("claude.ai", "firstParty")), "subscription");
+        assert_eq!(claude_billing_mode(&status("api_key", "firstParty")), "api");
+        assert_eq!(claude_billing_mode(&status("claude.ai", "bedrock")), "api");
+        assert_eq!(claude_billing_mode(&serde_json::json!({ "loggedIn": false })), "unknown");
+        assert_eq!(codex_billing_mode("Logged in using ChatGPT"), "subscription");
+        assert_eq!(codex_billing_mode("Logged in using an API key - sk-proj-***"), "api");
+        assert_eq!(codex_billing_mode("Not logged in"), "unknown");
+    }
 }

@@ -140,6 +140,22 @@ const SIDEBAR_AUTO_BREAKPOINT = 880;
 const QUICK_ACTIONS_KEY = "flowcode.quickActions";
 const PLUGINS_SEEDED_KEY = "flowcode.pluginsSeeded";
 const PLUGINS_MIGRATED_KEY = "flowcode.pluginsActionMigrated";
+/** Set once the Mistral Vibe plugin, shipped after the others, has been
+ * offered to an install that had already seeded them. */
+const VIBE_PLUGIN_SEEDED_KEY = "flowcode.vibePluginSeeded";
+const VIBE_PLUGIN_ID = "mistral-vibe";
+
+/** The agent CLIs a shortcut can launch with an install/login check first,
+ * by the id of the example plugin that launches each one. */
+type AgentCli = "claude" | "codex" | "vibe";
+const PLUGIN_AGENT_CLI: Record<string, AgentCli | undefined> = {
+  "claude-code": "claude",
+  "codex-cli": "codex",
+  [VIBE_PLUGIN_ID]: "vibe",
+};
+const AGENT_CLI_LABELS: Record<AgentCli, string> = { claude: "Claude Code", codex: "Codex CLI", vibe: "Mistral Vibe" };
+/** What signs each CLI in - for Vibe, its setup asking for the API key. */
+const AGENT_CLI_LOGIN: Record<AgentCli, string> = { claude: "claude auth login", codex: "codex login", vibe: "vibe --setup" };
 const FAVORITES_BUTTON_VISIBLE_KEY = "flowcode.favoritesButtonVisible";
 const SIDEBAR_COLLAPSED_KEY = "flowcode.sidebarCollapsed";
 const AGENTS_SIDEBAR_OPEN_KEY = "flowcode.agentsSidebarOpen";
@@ -520,8 +536,11 @@ function Shell() {
    * later doesn't bring it back on the next launch. Also runs a one-time
    * migration for anyone who already had the first shipped shape of these
    * two (a "dialog" chooser popup) - superseded by launching directly on
-   * click, with account status moved to the hover popover instead. */
+   * click, with account status moved to the hover popover instead.
+   * An install seeded before Mistral Vibe shipped gets its plugin added once
+   * too - listed in the plugin menu, not pinned to a bar the user arranged. */
   async function seedExamplePlugins() {
+    const seededBefore = !!readString(PLUGINS_SEEDED_KEY);
     try {
       const existing = await invoke<PluginManifest[]>("list_plugins");
       const byId = new Map(existing.map((p) => [p.id, p]));
@@ -565,12 +584,16 @@ function Shell() {
           }
         }
         pinToQuickActions(newIds);
+      } else if (seededBefore && !chosen && !readString(VIBE_PLUGIN_SEEDED_KEY) && !byId.has(VIBE_PLUGIN_ID)) {
+        const vibe = examplePlugins().find((p) => p.id === VIBE_PLUGIN_ID);
+        if (vibe) await invoke("save_plugin", { plugin: vibe });
       }
     } catch {
       /* plugins folder unavailable (e.g. dev in a plain browser) */
     }
     writeString(PLUGINS_MIGRATED_KEY, "1");
     writeString(PLUGINS_SEEDED_KEY, "1");
+    writeString(VIBE_PLUGIN_SEEDED_KEY, "1");
   }
 
   async function reloadCustomPlugins() {
@@ -1160,18 +1183,27 @@ function Shell() {
    * background/saved session (one this app has no open tab for), so
    * double-clicking it drops the user straight back into that chat instead
    * of a bare shell they'd have to resume by hand. */
-  async function openAgentSession(cwd: string, sessionId: string, cli: "claude" | "codex", wslDistro?: string) {
+  async function openAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string) {
     if (wslDistro) {
       // Saved inside WSL: resumed by the distro's own CLI, in a WSL tab
       // opened on that folder (`cwd` is a Linux path there). The
       // `--no-daemon` check is about Windows' Job Object - not WSL's concern.
-      const command = cli === "claude" ? `claude --resume ${sessionId}` : `codex resume ${sessionId}`;
+      const command =
+        cli === "claude"
+          ? `claude --resume ${sessionId}`
+          : cli === "vibe"
+            ? `vibe --resume ${sessionId}`
+            : `codex resume ${sessionId}`;
       const id = addTab(toWindowsPath(wslDistro, cwd), wslShellId(wslDistro));
       pendingCommandsRef.current.set(id, command);
       return;
     }
     const command =
-      cli === "claude" ? `claude --resume ${sessionId}` : await withCodexLaunchFlags(`codex resume ${sessionId}`);
+      cli === "claude"
+        ? `claude --resume ${sessionId}`
+        : cli === "vibe"
+          ? `vibe --resume ${sessionId}`
+          : await withCodexLaunchFlags(`codex resume ${sessionId}`);
     const id = `tab-${nextTabId++}`;
     pendingCommandsRef.current.set(id, command);
     setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd) }]);
@@ -1602,7 +1634,7 @@ function Shell() {
     // Same tracking as `markAgentLaunching` (see its doc comment), but for
     // the CLI typed straight into the prompt rather than launched through a
     // shortcut - `checkCliAndMaybeLaunch` only ever sees the shortcut path.
-    if (/^(claude|codex)(\.exe)?(?:\s|$)/i.test(trimmed)) {
+    if (/^(claude|codex|vibe)(\.exe)?(?:\s|$)/i.test(trimmed)) {
       setTabs((prev) =>
         prev.map((t) => (t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "agent", wslDistro: undefined } : t)),
       );
@@ -1893,17 +1925,17 @@ function Shell() {
     );
   }
 
-  /** Before launching Claude Code / Codex, offers a one-click install (if
+  /** Before launching Claude Code / Codex / Mistral Vibe, offers a one-click install (if
    * missing) or login (if installed but signed out) in a fresh terminal
    * instead of the shortcut just quietly doing nothing useful. `check_cli_status`
    * (src-tauri/src/plugins.rs) does the actual detection. */
   async function checkCliAndMaybeLaunch(
-    cliBin: "claude" | "codex",
+    cliBin: AgentCli,
     launchCommand: string,
     term: TerminalHandle | undefined,
     tabId: string,
   ) {
-    const label = cliBin === "claude" ? "Claude Code" : "Codex CLI";
+    const label = AGENT_CLI_LABELS[cliBin];
     let status: { installed: boolean; logged_in: boolean };
     try {
       status = await invoke("check_cli_status", { cli: cliBin });
@@ -1927,13 +1959,13 @@ function Shell() {
     }
 
     if (!status.logged_in) {
-      const loginCommand = cliBin === "claude" ? "claude auth login" : "codex login";
       const ok = await confirm({
         title: t("app.cli.login.title", { name: label }),
-        message: t("app.cli.login.message", { name: label }),
+        // Vibe signs in with a Mistral API key, not an account login.
+        message: t(cliBin === "vibe" ? "app.cli.login.vibeMessage" : "app.cli.login.message", { name: label }),
         confirmLabel: t("app.cli.login"),
       });
-      if (ok) openTerminalWithCommand(loginCommand);
+      if (ok) openTerminalWithCommand(AGENT_CLI_LOGIN[cliBin]);
       return;
     }
 
@@ -1943,8 +1975,15 @@ function Shell() {
   /** Types the CLI's launch command into `tabId` when a shell is at its
    * prompt there, or runs it in a new tab alongside when something else
    * already owns that tab's input (see `runInTabLike`). */
-  async function launchInTab(cliBin: "claude" | "codex", launchCommand: string, term: TerminalHandle | undefined, tabId: string) {
+  async function launchInTab(cliBin: AgentCli, launchCommand: string, term: TerminalHandle | undefined, tabId: string) {
     const fg = await tabForeground(tabId);
+    // Mistral Large 4 isn't one of Vibe's own models yet: registered in its
+    // config (and made the default, unless the user picked another) before
+    // each launch - a no-op once it's there. This host's Vibe only, same as
+    // the Codex flags below. Never in the way of the launch itself.
+    if (cliBin === "vibe" && fg?.kind !== "wsl" && fg?.kind !== "remote") {
+      await invoke("vibe_ensure_model").catch(() => {});
+    }
     // Codex on Windows runs with `--no-daemon`, or its background server pops
     // a console window per helper - see plugins/codexLaunch.ts. That's this
     // host's own codex: not one inside WSL or across ssh.
@@ -1978,15 +2017,15 @@ function Shell() {
       case "runCommand": {
         if (!plugin.command) break;
         const term = termRefs.current.get(activeTerminalId);
-        // Claude Code / Codex CLI take over the whole screen the moment
+        // Claude Code / Codex CLI / Mistral Vibe take over the whole screen the moment
         // they start - unlike an arbitrary user-defined runCommand plugin,
         // there's no reason to leave the typed launch command sitting in
         // the scrollback above their UI. They're also the only plugins with
         // a known CLI binary behind them, which is what makes the
         // install/login pre-check possible - a plain runCommand plugin has
         // no such notion and always just runs.
-        if ("id" in plugin && (plugin.id === "claude-code" || plugin.id === "codex-cli")) {
-          const cliBin = plugin.id === "claude-code" ? "claude" : "codex";
+        const cliBin = "id" in plugin ? PLUGIN_AGENT_CLI[plugin.id] : undefined;
+        if (cliBin) {
           checkCliAndMaybeLaunch(cliBin, plugin.command, term, activeTerminalId);
         } else {
           const tabId = activeTerminalId;

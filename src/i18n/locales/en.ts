@@ -48,6 +48,7 @@ export const en: Record<MessageKey, string> = {
   "app.cli.install": "Install",
   "app.cli.login.title": "Sign-in to {name} required",
   "app.cli.login.message": "{name} is installed but you haven't signed in yet. Sign in now in a new terminal?",
+  "app.cli.login.vibeMessage": "{name} is installed but has no Mistral API key yet. Set it up now in a new terminal?",
   "app.cli.login": "Sign in",
 
   "zoom.in": "Zoom in",
@@ -229,6 +230,7 @@ export const en: Record<MessageKey, string> = {
   "plugin.openInVsCode.noFolder": "No folder to open: the active terminal doesn't have one yet.",
   "plugin.openInVsCode.remote": "A remote session's folder can't be opened in VS Code from here.",
   "plugin.cli.description": "Start a {name} session. Hover the icon in the bar for the account status.",
+  "plugin.vibe.description": "Start a Mistral Vibe session with Mistral Large 4. Hover the icon in the bar for your spend.",
   "pluginAction.newTerminal": "Open a new terminal",
   "pluginAction.clearTerminal": "Clear the active terminal",
   "pluginAction.toggleSidebar": "Show/hide the side panel",
@@ -246,6 +248,16 @@ export const en: Record<MessageKey, string> = {
   "usage.notLinked": "Not connected",
   "usage.loginHint": "Run \"{command}\" in the terminal to connect an account.",
   "usage.copyDebug": "Copy debug info",
+  "usage.noApiKey": "API key missing",
+  "usage.apiKeyHint": "Run \"{command}\" in the terminal to enter your Mistral API key.",
+  "usage.spend.today": "Today",
+  "usage.spend.week": "Last 7 days",
+  "usage.spend.month": "Last 30 days",
+  "usage.spend.detail": "{tokens} tokens · {sessions} sessions",
+  "usage.model": "Model",
+  "usage.billing.api": "Pay-per-use (API key)",
+  "usage.billing.estimate": "Estimated at list prices, from the sessions on this computer.",
+  "usage.unpriced": "Unknown price, cost not included",
 
   "features.intro":
     "Every feature is a small plugin: the built-in ones are part of the app and can't be deleted, but all of them can be turned on or off in the quick bar. The full standard for creating new ones (commands, popups, dialogs with several buttons, actions with dynamic output) is documented in {file} in the repository - from there you can also hand-write a more advanced plugin than the ones you can create here, and install it with \"Import from file\".",
@@ -497,6 +509,8 @@ export const en: Record<MessageKey, string> = {
     "Choose which integrations to enable in Flowcode: each one adds a button to the shortcuts bar. You can change them later in Settings > Features.",
   "installer.components.cli":
     "Starts {name} in one click and shows the account status. If the CLI is missing, Flowcode offers to install it the first time you use it.",
+  "installer.components.vibe":
+    "Starts Mistral's agent with Mistral Large 4 in one click and shows what you've spent. If the CLI is missing, Flowcode offers to install it the first time you use it.",
   "installer.existing.title": "Flowcode is already installed",
   "installer.existing.same":
     "{installed} is already in {dir}. Reinstall it as it is, or choose the options again?",

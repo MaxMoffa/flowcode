@@ -47,6 +47,8 @@ export const it = {
   "app.cli.login.title": "Accesso a {name} richiesto",
   "app.cli.login.message":
     "{name} è installato ma non hai ancora effettuato l'accesso. Vuoi farlo ora in un nuovo terminale?",
+  "app.cli.login.vibeMessage":
+    "{name} è installato ma manca la chiave API di Mistral. Vuoi configurarla ora in un nuovo terminale?",
   "app.cli.login": "Accedi",
 
   "zoom.in": "Aumenta zoom",
@@ -228,6 +230,8 @@ export const it = {
   "plugin.openInVsCode.noFolder": "Nessuna cartella da aprire: il terminale attivo non ne ha ancora una.",
   "plugin.openInVsCode.remote": "La cartella di una sessione remota non si può aprire in VS Code da qui.",
   "plugin.cli.description": "Avvia una sessione di {name}. Passa il mouse sull'icona nella barra per lo stato dell'account.",
+  "plugin.vibe.description":
+    "Avvia una sessione di Mistral Vibe con Mistral Large 4. Passa il mouse sull'icona nella barra per i consumi.",
   "pluginAction.newTerminal": "Apri un nuovo terminale",
   "pluginAction.clearTerminal": "Pulisci il terminale attivo",
   "pluginAction.toggleSidebar": "Mostra/nascondi il pannello laterale",
@@ -245,6 +249,16 @@ export const it = {
   "usage.notLinked": "Non collegato",
   "usage.loginHint": "Esegui \"{command}\" nel terminale per collegare un account.",
   "usage.copyDebug": "Copia info di debug",
+  "usage.noApiKey": "Chiave API mancante",
+  "usage.apiKeyHint": "Esegui \"{command}\" nel terminale per inserire la chiave API di Mistral.",
+  "usage.spend.today": "Oggi",
+  "usage.spend.week": "Ultimi 7 giorni",
+  "usage.spend.month": "Ultimi 30 giorni",
+  "usage.spend.detail": "{tokens} token · {sessions} sessioni",
+  "usage.model": "Modello",
+  "usage.billing.api": "A consumo (chiave API)",
+  "usage.billing.estimate": "Stima ai prezzi di listino, dalle sessioni su questo computer.",
+  "usage.unpriced": "Prezzo non noto, costo escluso",
 
   "features.intro":
     "Ogni funzionalità è un piccolo plugin: quelle di base servono al programma e non si possono eliminare, ma tutte si possono attivare o disattivare nella barra rapida. Lo standard completo per crearne di nuovi (comandi, popup, dialog con più pulsanti, azioni con output dinamico) è documentato in {file} nel repository - da lì si può anche scrivere a mano un plugin più avanzato di quelli creabili qui, e installarlo con \"Importa da file\".",
@@ -502,6 +516,8 @@ export const it = {
     "Scegli quali integrazioni attivare in Flowcode: ognuna aggiunge un pulsante alla barra degli shortcut. Puoi cambiarle in seguito da Impostazioni > Funzionalità.",
   "installer.components.cli":
     "Avvia {name} con un clic e mostra lo stato dell'account. Se la CLI non c'è, Flowcode ti propone di installarla al primo uso.",
+  "installer.components.vibe":
+    "Avvia l'agente di Mistral con Mistral Large 4 con un clic e mostra quanto hai speso. Se la CLI non c'è, Flowcode ti propone di installarla al primo uso.",
   "installer.existing.title": "Flowcode è già installato",
   "installer.existing.same":
     "{installed} si trova già in {dir}. Vuoi reinstallarlo così com'è o scegliere di nuovo le opzioni?",

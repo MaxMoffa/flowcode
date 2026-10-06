@@ -50,13 +50,19 @@ export function UsagePopoverContent({
       {loading && !usage && <div className="plugin-usage-popover-loading">{t("common.checking")}</div>}
       {usage?.metrics.map((m, i) => {
         const warn = m.percent !== undefined && m.percent >= 0.75;
-        const { label, detail } = metricText(m);
+        const { label, detail, value } = metricText(m);
         return (
           <div key={i} className={`plugin-usage-metric${warn ? " plugin-usage-metric--warn" : ""}`}>
             <div className="plugin-usage-metric-top">
               <span className="plugin-usage-metric-label">{label}</span>
-              {m.percent !== undefined && (
+              {m.percent !== undefined ? (
                 <span className="plugin-usage-metric-pct">{Math.round(m.percent * 100)}%</span>
+              ) : (
+                value && (
+                  <span className={`plugin-usage-metric-pct${m.kind === "model" ? " plugin-usage-metric-pct--text" : ""}`}>
+                    {value}
+                  </span>
+                )
               )}
             </div>
             {m.percent !== undefined && (

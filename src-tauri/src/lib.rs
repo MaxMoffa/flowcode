@@ -6,8 +6,10 @@ mod notify;
 mod plugins;
 mod pty;
 mod session;
+mod spend;
 mod system;
 mod updater;
+mod vibe;
 mod watcher;
 mod windows;
 
@@ -134,6 +136,11 @@ pub fn run() {
             agents::list_claude_agents,
             agents::list_codex_sessions,
             agents::run_claude_usage_probe,
+            spend::cli_spend,
+            plugins::cli_billing_mode,
+            vibe::list_vibe_sessions,
+            vibe::vibe_usage_stats,
+            vibe::vibe_ensure_model,
             system::system_info,
             system::open_with_default_app,
             system::wsl_default_distro,

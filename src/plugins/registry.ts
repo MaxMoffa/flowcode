@@ -40,7 +40,9 @@ export function builtinPlugins(): PluginDef[] {
  * status shown on hover, with a fill ring when a number is available, is
  * separate special-cased logic keyed by these exact ids - see
  * plugins/usage.ts for why no numeric usage/limit percentage is shown
- * today (neither CLI exposes one outside an interactive session).
+ * today (neither CLI exposes one outside an interactive session) - and
+ * why Mistral Vibe's popover shows its spend instead: it's billed per token
+ * on an API key, not against a usage limit.
  * Descriptions are written in the UI language current at install time -
  * from then on they're the user's own files. */
 export function examplePlugins(): PluginManifest[] {
@@ -60,6 +62,14 @@ export function examplePlugins(): PluginManifest[] {
       action: "runCommand",
       command: "claude",
       icon: "M12 3v18M4.5 7.5l15 9M19.5 7.5l-15 9",
+    },
+    {
+      id: "mistral-vibe",
+      label: "Mistral Vibe",
+      description: t("plugin.vibe.description"),
+      action: "runCommand",
+      command: "vibe",
+      icon: "M4 5h4v4H4zM16 5h4v4h-4zM4 10h16v4H4zM4 15h4v4H4zM16 15h4v4h-4z",
     },
   ];
 }

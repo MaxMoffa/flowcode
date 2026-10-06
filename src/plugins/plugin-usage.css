@@ -181,3 +181,14 @@
 [data-plugin="codex-cli"] {
   --usage-accent: var(--accent-2);
 }
+
+/* Mistral's orange, as close as the terminal palette gets. */
+[data-plugin="mistral-vibe"] {
+  --usage-accent: var(--ansi-yellow);
+}
+
+/* A value that's a name (Vibe's model), not a figure. */
+.plugin-usage-metric-pct--text {
+  font-family: inherit;
+  font-weight: 600;
+}

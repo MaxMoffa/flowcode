@@ -33,9 +33,9 @@ Flowcode parte da un'idea semplice: **il terminale è il centro, tutto il resto 
 
 - **Una cartella, un contesto.** Il file explorer e l'editor seguono la cartella del terminale
   attivo, anche dentro WSL. Fai `cd`, e il resto dell'app ti viene dietro.
-- **Gli agenti AI sono di casa.** Claude Code e Codex CLI non sono "un programma qualsiasi nella
-  shell": Flowcode li riconosce, li mostra in un pannello dedicato e ti fa vedere quanto utilizzo
-  ti resta.
+- **Gli agenti AI sono di casa.** Claude Code, Codex CLI e Mistral Vibe non sono "un programma
+  qualsiasi nella shell": Flowcode li riconosce, li mostra in un pannello dedicato e ti fa vedere
+  quanto utilizzo ti resta - o, per Mistral Vibe, quanto hai speso.
 - **Leggero e nativo.** Costruito su Tauri, non su Electron: si installa in un attimo, parte subito
   e usa poca memoria.
 - **Estendibile senza rischi.** I plugin sono file JSON dichiarativi, non codice: puoi installare
@@ -50,7 +50,7 @@ Flowcode parte da un'idea semplice: **il terminale è il centro, tutto il resto 
 | 🗂️ **Terminale a schede** | Più sessioni in parallelo, trascinabili tra finestre diverse, raggruppate in automatico quando non entrano nella barra. Zoom del testo per singola scheda. |
 | 📁 **File explorer laterale** | Naviga, cerca ricorsivamente e gestisci i file della cartella del terminale attivo. ⭐ Preferiti per le cartelle che usi più spesso. |
 | ✏️ **Editor integrato** | Apri e modifica file al volo, con evidenziazione sintattica e struttura dei simboli, senza lasciare l'app. |
-| 🤖 **Pannello Agenti** | Vedi ogni sessione di Claude Code e Codex CLI aperta, riprendila con un clic e tieni d'occhio l'utilizzo residuo. |
+| 🤖 **Pannello Agenti** | Vedi ogni sessione di Claude Code, Codex CLI e Mistral Vibe aperta, riprendila con un clic e tieni d'occhio l'utilizzo residuo (o la spesa su Mistral). Mistral Vibe usa Mistral Large 4. |
 | ⚡ **Funzionalità e shortcut** | Una barra di azioni rapide personalizzabile: comandi, popup di stato, scorciatoie verso i tuoi strumenti. |
 | 🐧 **Shell a scelta** | PowerShell, cmd, bash, zsh, WSL… scegli quella predefinita per le nuove schede. |
 | 🎨 **Temi chiaro, scuro e automatico** | Pannelli in vetro smerigliato con opacità regolabile. |

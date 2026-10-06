@@ -33,8 +33,9 @@ Flowcode starts from a simple idea: **the terminal is the center, everything els
 
 - **One folder, one context.** The file explorer and the editor follow the active terminal's folder,
   even inside WSL. You `cd`, and the rest of the app comes along.
-- **AI agents feel at home.** Claude Code and Codex CLI aren't "just another program in the shell":
-  Flowcode recognizes them, shows them in a dedicated panel and tells you how much usage you have left.
+- **AI agents feel at home.** Claude Code, Codex CLI and Mistral Vibe aren't "just another program in
+  the shell": Flowcode recognizes them, shows them in a dedicated panel and tells you how much usage
+  you have left - or, for Mistral Vibe, how much you've spent.
 - **Light and native.** Built on Tauri, not Electron: it installs in a moment, starts instantly and
   uses little memory.
 - **Extensible without risk.** Plugins are declarative JSON files, not code: you can install a
@@ -49,7 +50,7 @@ Flowcode starts from a simple idea: **the terminal is the center, everything els
 | 🗂️ **Tabbed terminal** | Several sessions side by side, draggable between windows, grouped automatically when they don't fit the bar. Per-tab text zoom. |
 | 📁 **Side file explorer** | Browse, search recursively and manage the files of the active terminal's folder. ⭐ Favorites for the folders you use most. |
 | ✏️ **Built-in editor** | Open and edit files on the fly, with syntax highlighting and a symbol outline, without leaving the app. |
-| 🤖 **Agents panel** | See every open Claude Code and Codex CLI session, resume it with one click and keep an eye on your remaining usage. |
+| 🤖 **Agents panel** | See every open Claude Code, Codex CLI and Mistral Vibe session, resume it with one click and keep an eye on your remaining usage (or your Mistral spend). Mistral Vibe runs on Mistral Large 4. |
 | ⚡ **Features and shortcuts** | A customizable quick-action bar: commands, status popups, shortcuts to your own tools. |
 | 🐧 **Your shell of choice** | PowerShell, cmd, bash, zsh, WSL… pick the default one for new tabs. |
 | 🎨 **Light, dark and automatic themes** | Frosted-glass panels with adjustable opacity. |

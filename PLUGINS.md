@@ -133,16 +133,16 @@ dall'app, oltre a quelli elencati in `buttons`.
 }
 ```
 
-## Codex CLI / Claude Code: un caso a parte
+## Codex CLI / Claude Code / Mistral Vibe: un caso a parte
 
-I due plugin "Codex CLI" e "Claude Code" installati automaticamente al primo
+I plugin "Codex CLI", "Claude Code" e "Mistral Vibe" installati automaticamente al primo
 avvio sono manifest normalissimi (`action: "runCommand"`, avviano la CLI nel
 terminale al click) - non c'è nulla di speciale nel file `.json` in sé, si
 possono eliminare o clonare come qualsiasi altro plugin.
 
 Quello che **non** fa parte dello standard è il popup di stato account che
 appare passando il mouse sull'icona nella barra delle scorciatoie: è logica
-scritta apposta per questi due `id` (`src/plugins/usage.ts`), non qualcosa
+scritta apposta per questi `id` (`src/plugins/usage.ts`), non qualcosa
 che un manifest JSON può descrivere.
 
 - **Claude Code**: `claude -p "/usage"` - "/usage" è uno slash command
@@ -161,12 +161,32 @@ che un manifest JSON può descrivere.
   renderizzato dopo aver inviato `/status` (stesso meccanismo pty dei tab
   terminale veri, nessun DOM). La sessione viene chiusa subito dopo aver
   letto i dati - non resta mai in background.
+- **A consumo (chiave API)**: Claude Code e Codex possono girare anche su
+  una chiave API invece che su un abbonamento - allora non hanno limiti da
+  mostrare. Prima di ogni aggiornamento del popup Flowcode chiede alla CLI
+  come è collegata (`claude auth status`: `authMethod` `claude.ai` =
+  abbonamento, altro o un provider cloud = a consumo; `codex login status`:
+  "ChatGPT" = abbonamento, "API key" = a consumo) e in modalità a consumo
+  mostra la spesa invece dei limiti: token di ogni chiamata letti dai
+  transcript locali (`~/.claude/projects/**/*.jsonl`, `usage` dei messaggi;
+  `~/.codex/sessions/**/rollout-*.jsonl`, eventi `token_count`) e moltiplicati
+  per i prezzi di listino (`src-tauri/src/spend.rs`). È una stima: prezzi
+  negoziati, Bedrock/Vertex e sessioni su altri computer non sono inclusi.
+  I file sono letti in modo incrementale (solo le righe nuove).
+- **Mistral Vibe**: si paga a token su una chiave API di Mistral, non ha
+  limiti di utilizzo da mostrare. Il popup mostra invece la spesa (oggi,
+  ultimi 7 e 30 giorni: costo, token, sessioni) sommando i `meta.json` che
+  Vibe salva per ogni sessione in `~/.vibe/logs/session/`
+  (`src-tauri/src/vibe.rs`) - nessun processo avviato, nessuna chiamata di
+  rete. Prima di ogni avvio Flowcode registra Mistral Large 4 in
+  `~/.vibe/config.toml` (con prezzi e contesto da 1M) e lo rende il modello
+  attivo, a meno che l'utente non ne abbia già scelto un altro.
 
 ## Pannello "Agenti attivi"
 
 `toggleAgentsSidebar` mostra/nasconde un pannello a destra (stessa
 dimensione/struttura del file explorer a sinistra) con l'elenco delle tab
-terminale che hanno in corso un processo `claude` o `codex` riconoscibile
+terminale che hanno in corso un processo `claude`, `codex` o `vibe` riconoscibile
 nell'albero dei processi della loro shell (`src-tauri/src/agents.rs`,
 comando `list_agent_sessions`). È rilevamento onesto, non introspezione
 della CLI: mostra quale CLI gira, in quale tab, da quanto tempo - non uno

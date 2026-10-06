@@ -11,7 +11,7 @@ import { getNotificationSettings, type NotificationKind } from "./notificationSe
  * has stayed idle this long. */
 const DONE_SETTLE_MS = 3000;
 
-const CLI_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex" };
+const CLI_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", vibe: "Mistral Vibe" };
 
 interface Watcher {
   /** The terminal tab, or undefined once it's gone. */

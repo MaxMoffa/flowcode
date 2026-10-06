@@ -8,7 +8,7 @@ import type { AgentSession } from "./agentSessions";
 import "./agents-sidebar.css";
 
 const POLL_MS = 3000;
-/** Saved Codex sessions listed before "Show more". */
+/** Saved Codex / Vibe sessions listed before "Show more". */
 const SAVED_SESSIONS_SHOWN = 3;
 
 function formatDuration(startedAt: number | null): string {
@@ -61,6 +61,23 @@ interface CodexSessionEntry {
   inFlowcode: boolean;
 }
 
+/** One saved Mistral Vibe session, read off its `meta.json` - see
+ * `list_vibe_sessions` in src-tauri/src/vibe.rs. Like Codex, Vibe keeps no
+ * registry of what's running, so these are only ever "something to resume". */
+interface VibeSessionEntry {
+  cwd: string;
+  sessionId: string;
+  /** When it last wrote. */
+  startedAt: number | null;
+  /** Saved by Vibe inside this WSL distro - `cwd` is then a Linux path. */
+  wslDistro: string | null;
+  /** The title Vibe gave it, when it has one. */
+  name: string | null;
+}
+
+/** A row of the "saved" list - either CLI's, newest first. */
+type SavedSession = { cli: "codex" | "vibe"; cwd: string; sessionId: string; startedAt: number | null; wslDistro: string | null; name: string | null };
+
 interface AgentsSidebarProps {
   /** This window's label - agents in tabs of other windows are listed
    * separately, and double-clicking one brings that window forward. */
@@ -77,15 +94,16 @@ interface AgentsSidebarProps {
   getPtyId: (tabId: string) => string | null;
   onOpenTab: (tabId: string) => void;
   /** Opens a fresh terminal tab in `cwd` and resumes that session
-   * (`claude --resume <sessionId>` / `codex resume <sessionId>`) - used for
-   * a background/saved session with no local tab of its own to switch to. */
-  onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex", wslDistro?: string) => void;
+   * (`claude --resume <sessionId>` / `codex resume <sessionId>` /
+   * `vibe --resume <sessionId>`) - used for a background/saved session with
+   * no local tab of its own to switch to. */
+  onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex" | "vibe", wslDistro?: string) => void;
   onClose: () => void;
 }
 
 /** Right-side panel, same size/structure as the left file explorer, listing
  * every terminal tab that currently has a recognized AI coding agent (Claude
- * Code, Codex CLI) running in it - see src-tauri/src/agents.rs for how a tab
+ * Code, Codex CLI, Mistral Vibe) running in it - see src-tauri/src/agents.rs for how a tab
  * is matched to a running agent (its shell's own process tree, not anything
  * the agent CLI itself reports - there's no API for that). Double-clicking a
  * row switches to that tab. */
@@ -124,6 +142,7 @@ export function AgentsSidebar({
   const { t } = useI18n();
   const [claudeAgents, setClaudeAgents] = useState<ClaudeAgentEntry[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSessionEntry[]>([]);
+  const [vibeSessions, setVibeSessions] = useState<VibeSessionEntry[]>([]);
   // Bumped every second only to re-render the running-duration text - the
   // session list itself still only refetches every POLL_MS.
   const [, setTick] = useState(0);
@@ -156,6 +175,11 @@ export function AgentsSidebar({
         invoke<CodexSessionEntry[]>("list_codex_sessions", { fresh })
           .then((result) => {
             if (!cancelled) setCodexSessions(result);
+          })
+          .catch(() => {}),
+        invoke<VibeSessionEntry[]>("list_vibe_sessions", { fresh })
+          .then((result) => {
+            if (!cancelled) setVibeSessions(result);
           })
           .catch(() => {}),
       ]);
@@ -208,18 +232,26 @@ export function AgentsSidebar({
   // Codex already running in a tab works in that exact folder, rather than
   // shown as a second, redundant "resume" entry for the thing already
   // running.
-  const runningCodexCwds = new Set(
-    allRunning.filter((s) => s.cli === "codex").flatMap((s) => [s.cwd, s.tab_cwd].filter((c): c is string => !!c)),
-  );
+  const runningCwds = (cli: string) =>
+    new Set(allRunning.filter((s) => s.cli === cli).flatMap((s) => [s.cwd, s.tab_cwd].filter((c): c is string => !!c)));
+  const runningCodexCwds = runningCwds("codex");
+  const runningVibeCwds = runningCwds("vibe");
   const runningSessionIds = new Set(allRunning.map((s) => s.session_id).filter((id): id is string => !!id));
   // Codex threads open right now in a terminal this app doesn't show (another
   // Flowcode, another terminal app) - running, not merely saved.
   const liveCodexElsewhere = codexSessions.filter((s) => s.live && !runningSessionIds.has(s.sessionId));
-  const backgroundCodexSessions = codexSessions.filter((s) => !s.live && !runningCodexCwds.has(s.cwd));
+  const savedSessions: SavedSession[] = [
+    ...codexSessions
+      .filter((s) => !s.live && !runningCodexCwds.has(s.cwd))
+      .map((s): SavedSession => ({ cli: "codex", cwd: s.cwd, sessionId: s.sessionId, startedAt: s.startedAt, wslDistro: s.wslDistro, name: s.name })),
+    ...vibeSessions
+      .filter((s) => !runningVibeCwds.has(s.cwd) && !runningSessionIds.has(s.sessionId))
+      .map((s): SavedSession => ({ cli: "vibe", ...s })),
+  ].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 
   // Saved sessions are only a way back into an old chat: the latest few are
   // shown, the rest one click away, so they never crowd out what's running.
-  const shownCodexSessions = showAllSaved ? backgroundCodexSessions : backgroundCodexSessions.slice(0, SAVED_SESSIONS_SHOWN);
+  const shownSavedSessions = showAllSaved ? savedSessions : savedSessions.slice(0, SAVED_SESSIONS_SHOWN);
 
   const loading = sessions === null;
   const isEmpty =
@@ -228,7 +260,7 @@ export function AgentsSidebar({
     otherWindowRows.length === 0 &&
     backgroundClaudeAgents.length === 0 &&
     liveCodexElsewhere.length === 0 &&
-    backgroundCodexSessions.length === 0;
+    savedSessions.length === 0;
 
   /** Name, folder and chip of an agent running in a tab (this window's or
    * another's): the session's own name when it's known (see `AgentSession`
@@ -356,25 +388,25 @@ export function AgentsSidebar({
             onOpen={() => onOpenSession(agent.cwd, agent.sessionId, "claude")}
           />
         ))}
-        {backgroundCodexSessions.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.saved")}</div>}
-        {shownCodexSessions.map((s) => (
+        {savedSessions.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.saved")}</div>}
+        {shownSavedSessions.map((s) => (
           <AgentRow
-            key={s.sessionId}
+            key={`${s.cli}:${s.sessionId}`}
             background
-            cli="codex"
+            cli={s.cli}
             name={s.name || basename(s.cwd)}
             cwd={s.cwd}
-            meta={`Codex CLI${s.wslDistro ? ` · WSL` : ""}${s.startedAt !== null ? ` · ${t("agents.ago", { duration: formatDuration(s.startedAt) })}` : ""}`}
+            meta={`${s.cli === "vibe" ? "Mistral Vibe" : "Codex CLI"}${s.wslDistro ? ` · WSL` : ""}${s.startedAt !== null ? ` · ${t("agents.ago", { duration: formatDuration(s.startedAt) })}` : ""}`}
             chip={{ kind: "saved", label: t("agents.status.saved") }}
             hint={t("agents.hint.resume")}
-            onOpen={() => onOpenSession(s.cwd, s.sessionId, "codex", s.wslDistro ?? undefined)}
+            onOpen={() => onOpenSession(s.cwd, s.sessionId, s.cli, s.wslDistro ?? undefined)}
           />
         ))}
-        {backgroundCodexSessions.length > SAVED_SESSIONS_SHOWN && (
+        {savedSessions.length > SAVED_SESSIONS_SHOWN && (
           <button type="button" className="agents-sidebar-more" onClick={() => setShowAllSaved((v) => !v)}>
             {showAllSaved
               ? t("agents.showLess")
-              : t("agents.showMore", { count: backgroundCodexSessions.length - SAVED_SESSIONS_SHOWN })}
+              : t("agents.showMore", { count: savedSessions.length - SAVED_SESSIONS_SHOWN })}
           </button>
         )}
       </div>

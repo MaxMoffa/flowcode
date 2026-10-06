@@ -9,7 +9,7 @@ import { currentLanguage, t } from "../i18n";
  * plugin offers to install/log in to the CLI the first time it's clicked, if
  * it's missing). Kept as a named list so InstallerFlow.tsx and this step's
  * `options` can't silently drift apart. */
-export const INSTALLABLE_COMPONENTS = ["claude-code", "codex-cli"] as const;
+export const INSTALLABLE_COMPONENTS = ["claude-code", "codex-cli", "mistral-vibe"] as const;
 export type InstallableComponent = (typeof INSTALLABLE_COMPONENTS)[number];
 
 /** Set by main.tsx before this lazily-loaded module is ever imported. The
@@ -108,6 +108,11 @@ export function buildInstallerFlow(existing: ExistingInstall | null, installerVe
           value: "codex-cli" satisfies InstallableComponent,
           label: "Codex",
           description: t("installer.components.cli", { name: "Codex" }),
+        },
+        {
+          value: "mistral-vibe" satisfies InstallableComponent,
+          label: "Mistral Vibe",
+          description: t("installer.components.vibe"),
         },
       ],
     },

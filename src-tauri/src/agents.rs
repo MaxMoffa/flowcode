@@ -31,14 +31,31 @@ pub struct ProbePids(Mutex<HashSet<u32>>);
 /// from the outside: which CLI is running, where, since when - no notion of
 /// "orchestrator vs sub-agent" (that's internal to the CLI itself and isn't
 /// exposed by any process-tree signal).
-const AGENT_BINARIES: &[(&str, &str)] = &[("claude", "Claude Code"), ("codex", "Codex CLI")];
+/// Mistral Vibe's `vibe` is a Python console script: on Windows a `vibe.exe`
+/// launcher (uv/pip) starting Python, elsewhere a script whose process takes
+/// its name - and `vibe-rs` when it runs its Rust TUI.
+const AGENT_BINARIES: &[(&str, &str)] =
+    &[("claude", "Claude Code"), ("codex", "Codex CLI"), ("vibe", "Mistral Vibe")];
+
+/// Matches a process name against `AGENT_BINARIES` - the binary itself or a
+/// `<bin>-...` variant of it, except for Vibe's editor/desktop servers
+/// (`vibe-acp`, `vibe-app-server`), which aren't a session in a terminal.
+fn agent_binary(name: &str) -> Option<(&'static str, &'static str)> {
+    if name.starts_with("vibe-acp") || name.starts_with("vibe-app") {
+        return None;
+    }
+    AGENT_BINARIES
+        .iter()
+        .find(|(bin, _)| name == *bin || name.starts_with(&format!("{bin}-")))
+        .copied()
+}
 
 #[derive(Serialize, Clone, Default)]
 pub struct AgentSession {
     /// The app's own pty session id - lets the frontend match this back to
     /// whichever terminal tab owns that pty.
     pty_id: String,
-    /// Short id of the matched binary (`"claude"` / `"codex"`), for icon/theming.
+    /// Short id of the matched binary (`"claude"` / `"codex"` / `"vibe"`), for icon/theming.
     cli: String,
     cli_label: String,
     pid: u32,
@@ -57,7 +74,8 @@ pub struct AgentSession {
     tab_label: Option<String>,
     tab_cwd: Option<String>,
     /// The agent's own session, when it can be read (Claude Code's registry
-    /// entry - see `claude_registry_entry` - or a Codex live thread): its id,
+    /// entry - see `claude_registry_entry` - a Codex live thread, or the Vibe
+    /// session last written in its folder - see `vibe::live_session_in`): its id,
     /// its name (the title the CLI gave it, or the one the user renamed it
     /// to) and "busy"/"idle" - plus "waiting" (on the user) for Claude Code.
     session_id: Option<String>,
@@ -97,10 +115,7 @@ fn find_agent(
                     .file_stem()
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or(raw_name);
-                if let Some(&(bin, label)) = AGENT_BINARIES
-                    .iter()
-                    .find(|(bin, _)| name == *bin || name.starts_with(&format!("{bin}-")))
-                {
+                if let Some((bin, label)) = agent_binary(&name) {
                     let started_at = process.start_time().checked_mul(1000);
                     return Some((bin, label, pid.as_u32(), started_at));
                 }
@@ -207,6 +222,10 @@ fn find_agent_sessions(shell_pids: Vec<(String, u32)>) -> Vec<AgentSession> {
                     if let Some(thread) = cwd.as_deref().and_then(|c| thread_in(threads, c)) {
                         session.apply_thread(thread);
                     }
+                } else if cli == "vibe" {
+                    if let Some(found) = cwd.as_deref().and_then(|c| crate::vibe::live_session_in(c, started_at)) {
+                        session.apply_vibe_session(found);
+                    }
                 } else if let Some(entry) = claude_registry_entry(pid) {
                     session.apply_claude_entry(&entry);
                 }
@@ -232,6 +251,12 @@ impl AgentSession {
         self.session_id = text("sessionId");
         self.session_name = text("name");
         self.status = text("status");
+    }
+
+    fn apply_vibe_session(&mut self, (id, name, status): (String, Option<String>, &'static str)) {
+        self.session_id = Some(id);
+        self.session_name = name;
+        self.status = Some(status.to_string());
     }
 
     fn apply_thread(&mut self, thread: &LiveThread) {
@@ -492,7 +517,7 @@ struct WslProc {
 /// tab-separated.
 const WSL_SCAN: &str = r#"for d in /proc/[0-9]*; do
   read -r c < "$d/comm" 2>/dev/null || continue
-  case "$c" in claude|codex|codex-*|node|MainThread) ;; *) continue ;; esac
+  case "$c" in claude|codex|codex-*|vibe|vibe-*|node|MainThread) ;; *) continue ;; esac
   p=${d#/proc/}
   case "$c" in codex*)
     for f in "$d"/fd/*; do
@@ -651,6 +676,11 @@ fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec<AgentSessi
                 if let Ok(entry) = serde_json::from_str::<serde_json::Value>(&proc_.claude_json) {
                     session.apply_claude_entry(&entry);
                 }
+            } else if bin == "vibe" {
+                // Vibe's sessions inside the distro, through its file share.
+                if let Some(found) = distro_name.as_deref().and_then(|d| wsl_vibe_session(d, proc_)) {
+                    session.apply_vibe_session(found);
+                }
             } else {
                 let threads = threads.get_or_insert_with(|| wsl_live_threads(distro));
                 if let Some(thread) = threads
@@ -666,21 +696,35 @@ fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec<AgentSessi
         .collect()
 }
 
+/// The Vibe session a `vibe` inside WSL works on - read from `~/.vibe` of
+/// the distro's default user (its home asked once per run), through the
+/// distro's file share.
+fn wsl_vibe_session(distro: &str, proc_: &WslProc) -> Option<(String, Option<String>, &'static str)> {
+    static HOMES: Mutex<Vec<(String, Option<String>)>> = Mutex::new(Vec::new());
+    let home = {
+        let mut homes = HOMES.lock().unwrap();
+        match homes.iter().find(|(d, _)| d == distro) {
+            Some((_, home)) => home.clone(),
+            None => {
+                let home = crate::system::wsl_home_dir(distro.to_string(), None);
+                homes.push((distro.to_string(), home.clone()));
+                home
+            }
+        }
+    }?;
+    let root = wsl_unc(distro, &format!("{}/.vibe/logs/session", home.trim_end_matches('/')));
+    crate::vibe::live_session_under(&root, &proc_.cwd, proc_.started_at)
+}
+
 /// Which agent CLI a Linux process is: by its own name, or - for a Node
-/// wrapper (`node .../codex.js`, `node .../claude/cli.js`) - by the script it
-/// runs.
+/// wrapper (`node .../codex.js`, `node .../claude/cli.js`) or Python
+/// (`python .../bin/vibe`) - by the script it runs.
 fn agent_of(comm: &str, argv: &str) -> Option<(&'static str, &'static str)> {
-    let by_name = |name: &str| {
-        AGENT_BINARIES
-            .iter()
-            .find(|(bin, _)| name == *bin || name.starts_with(&format!("{bin}-")))
-            .copied()
-    };
-    if let Some(found) = by_name(comm) {
+    if let Some(found) = agent_binary(comm) {
         return Some(found);
     }
     let script = argv.split_whitespace().nth(1)?.to_lowercase();
-    script.split('/').find_map(|part| by_name(part.trim_end_matches(".js")))
+    script.split('/').find_map(|part| agent_binary(part.trim_end_matches(".js").trim_end_matches(".py")))
 }
 
 /// The default WSL distro's name, asked once per app run (a `wsl.exe` call).
@@ -1161,6 +1205,10 @@ mod tests {
             agent_of("node", "node /home/u/.npm/node_modules/@anthropic-ai/claude-code/cli.js").map(|a| a.0),
             Some("claude")
         );
+        assert_eq!(agent_of("vibe", "/home/u/.local/share/uv/tools/mistral-vibe/bin/python /home/u/.local/bin/vibe").map(|a| a.0), Some("vibe"));
+        assert_eq!(agent_of("python3", "python3 /home/u/.local/bin/vibe --resume x").map(|a| a.0), Some("vibe"));
+        assert_eq!(agent_of("vibe-rs", "vibe-rs").map(|a| a.0), Some("vibe"));
+        assert_eq!(agent_of("vibe-app-serv", "/home/u/.local/bin/vibe-app-server"), None);
         assert_eq!(agent_of("node", "node server.js"), None);
         assert_eq!(agent_of("bash", "bash"), None);
     }

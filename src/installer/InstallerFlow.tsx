@@ -188,7 +188,7 @@ export function InstallerFlow() {
             onSubmit={handleSubmit}
             onSubmitError={installErrorMessage}
             onStepChange={handleStepChange}
-            // Both integrations pre-checked: matches what a Flowcode started
+            // Every integration pre-checked: matches what a Flowcode started
             // without the installer gets (every example plugin, pinned).
             initialAnswers={{ location: defaultLocation, desktop_shortcut: true, components: [...INSTALLABLE_COMPONENTS] }}
             presentation="fullscreen"
