@@ -3,6 +3,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readString, writeString } from "../lib/storage";
 import { useI18n } from "../i18n";
+import { Markdown } from "../changelog/markdown";
 import "./update-dialog.css";
 
 /** Mirrors `UpdateInfo` in src-tauri/src/updater.rs. */
@@ -119,7 +120,11 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
             <div className="confirm-message">
               {t("update.message", { version: dialogInfo.version, current: dialogInfo.current_version })}
             </div>
-            {dialogInfo.notes.trim() && <div className="update-notes">{dialogInfo.notes.trim()}</div>}
+            {dialogInfo.notes.trim() && (
+              <div className="update-notes">
+                <Markdown source={dialogInfo.notes.trim()} />
+              </div>
+            )}
             {status.kind === "installing" && <UpdateProgressBar progress={status.progress} size={dialogInfo.size} />}
             {status.kind === "error" && <div className="update-error">{status.message}</div>}
             <div className="confirm-actions">
