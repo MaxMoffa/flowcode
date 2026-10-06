@@ -189,7 +189,7 @@ unsafe extern "system" fn nc_calc_size_subclass(
     _ref_data: usize,
 ) -> windows_sys::Win32::Foundation::LRESULT {
     use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows_sys::Win32::UI::Shell::DefSubclassProc;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -222,11 +222,16 @@ unsafe extern "system" fn nc_calc_size_subclass(
 
     let result = DefSubclassProc(hwnd, msg, wparam, lparam);
     if msg == WM_NCCALCSIZE && wparam != 0 && IsZoomed(hwnd) != 0 {
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let params = &mut *(lparam as *mut NCCALCSIZE_PARAMS);
+        // The monitor the window is going to, from the proposed rect - not
+        // MonitorFromWindow, which still sees where it is now. A window
+        // restored from the taskbar maximized onto another monitor would
+        // otherwise get the old monitor's work area as its client area:
+        // off the window entirely, leaving nothing but the acrylic backdrop.
+        let monitor = MonitorFromRect(&params.rgrc[0], MONITOR_DEFAULTTONEAREST);
         let mut info: MONITORINFO = std::mem::zeroed();
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
         if GetMonitorInfoW(monitor, &mut info) != 0 {
-            let params = &mut *(lparam as *mut NCCALCSIZE_PARAMS);
             params.rgrc[0] = info.rcWork;
         }
     }
