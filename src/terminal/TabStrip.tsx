@@ -170,9 +170,9 @@ export function shellOptionIcon(id: string) {
   return <PromptIcon />;
 }
 
-/** A terminal tab running Claude Code or Codex: the CLI's logo. On a
- * renamed tab (`renamed`) it's followed by a spinner while the agent works
- * or a "?" while it waits on the user: both CLIs show that state in the
+/** A terminal tab running an agent CLI: its logo, which slowly turns and
+ * pulses while the agent works. On a renamed tab (`renamed`) it's followed
+ * by a "?" while it waits on the user: the CLIs show that state in the
  * title, which a custom name replaces. */
 function agentAttention(agent: TabAgent | undefined, done: boolean): "waiting" | "busy" | "done" | "idle" {
   if (agent?.state === "waiting") return "waiting";
@@ -189,7 +189,6 @@ function agentTabIcon(agent: TabAgent, renamed: boolean, done: boolean) {
   return (
     <span className="term-tab-agent" title={title}>
       <span className={"term-tab-agent-logo is-" + state}>{agentCliIcon(agent.cli)}</span>
-      {renamed && agent.state === "busy" && <span className="term-tab-agent-spinner" />}
       {renamed && agent.state === "waiting" && <span className="term-tab-agent-question">?</span>}
     </span>
   );

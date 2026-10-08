@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TermTab } from "../tabs/types";
 import { agentCliIcon } from "../plugins/icons";
-import { basename } from "../lib/path";
+import { basename, isRootPath, isWindowsHostPath, separatorOf, trimTrailingSeparators } from "../lib/path";
+import { readEnum, usePersistentState, writeString } from "../lib/storage";
+import { toWslPath, wslDistroOfPath } from "../terminal/wslPath";
 import { t, useI18n } from "../i18n";
 import type { AgentSession } from "./agentSessions";
 import "./agents-sidebar.css";
@@ -10,6 +12,47 @@ import "./agents-sidebar.css";
 const POLL_MS = 3000;
 /** Saved Codex / Vibe sessions listed before "Show more". */
 const SAVED_SESSIONS_SHOWN = 3;
+
+const AGENTS_SCOPE_KEY = "flowcode.agentsScope";
+/** Which agents the panel lists: those working in the active tab's folder, or all. */
+type AgentsScope = "project" | "all";
+const SCOPES = ["project", "all"] as const;
+
+/** A path in a comparable form: on a Windows host, one separator and no case
+ * (the file system ignores it); trailing separators never count. */
+function normalize(p: string): string {
+  const host = isWindowsHostPath(p) ? p.replace(/\//g, "\\").toLowerCase() : p;
+  return trimTrailingSeparators(host);
+}
+
+/** Whether an agent works in the project folder or somewhere below it. An
+ * agent inside WSL reports a Linux path, so the project folder is brought to
+ * that form first; a folder on another machine's file system never matches.
+ * A tab sitting on a root ("C:\", "/") is not a project. */
+function inProject(
+  agentCwd: string | null | undefined,
+  agentWslDistro: string | null | undefined,
+  projectCwd: string,
+  projectWslDistro: string | undefined,
+): boolean {
+  if (!agentCwd) return false;
+  let project = projectCwd;
+  if (agentWslDistro) {
+    const projectDistro = wslDistroOfPath(projectCwd) ?? projectWslDistro;
+    if (projectDistro && projectDistro.toLowerCase() !== agentWslDistro.toLowerCase()) return false;
+    if (!project.startsWith("/")) {
+      const converted = toWslPath(agentWslDistro, project);
+      if (converted === null) return false;
+      project = converted;
+    }
+  } else if (project.startsWith("/") && isWindowsHostPath(agentCwd)) {
+    return false;
+  }
+  const a = normalize(agentCwd);
+  const b = normalize(project);
+  if (isRootPath(b)) return false;
+  return a === b || a.startsWith(b + separatorOf(b));
+}
 
 function formatDuration(startedAt: number | null): string {
   if (startedAt === null) return "";
@@ -84,6 +127,11 @@ interface AgentsSidebarProps {
   windowLabel: string;
   tabs: TermTab[];
   activeTabId: string;
+  /** The active terminal tab's folder - the "This project" scope lists the
+   * agents working in it or below it. */
+  projectCwd?: string;
+  /** That tab's WSL distro, when it runs inside WSL. */
+  projectWslDistro?: string;
   /** The agents running in Flowcode tabs - see `useAgentSessions`, polled
    * by App.tsx for the tab strip too. `null` until the first answer. */
   sessions: AgentSession[] | null;
@@ -106,7 +154,8 @@ interface AgentsSidebarProps {
  * Code, Codex CLI, Mistral Vibe) running in it - see src-tauri/src/agents.rs for how a tab
  * is matched to a running agent (its shell's own process tree, not anything
  * the agent CLI itself reports - there's no API for that). Double-clicking a
- * row switches to that tab. */
+ * row switches to that tab. The header's scope selector narrows the list to the
+ * active tab's folder ("this project", running agents only) or shows everything. */
 function statusLabel(status: string): string {
   if (status === "busy") return t("agents.status.busy");
   if (status === "waiting") return t("agents.status.waiting");
@@ -132,6 +181,8 @@ export function AgentsSidebar({
   windowLabel,
   tabs,
   activeTabId,
+  projectCwd,
+  projectWslDistro,
   sessions,
   refreshSessions,
   getPtyId,
@@ -140,6 +191,7 @@ export function AgentsSidebar({
   onClose,
 }: AgentsSidebarProps) {
   const { t } = useI18n();
+  const [scope, setScope] = usePersistentState<AgentsScope>(AGENTS_SCOPE_KEY, (k) => readEnum(k, SCOPES, "all"), writeString);
   const [claudeAgents, setClaudeAgents] = useState<ClaudeAgentEntry[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSessionEntry[]>([]);
   const [vibeSessions, setVibeSessions] = useState<VibeSessionEntry[]>([]);
@@ -249,18 +301,52 @@ export function AgentsSidebar({
       .map((s): SavedSession => ({ cli: "vibe", ...s })),
   ].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 
+  // The "This project" scope: only what's running in the active tab's folder
+  // (or below it) - saved sessions are left out. Folding above stays on the
+  // unfiltered lists; only what's rendered is narrowed.
+  const projectScope = scope === "project";
+  const projectReady = projectScope && !!projectCwd;
+  const inActiveProject = (cwd: string | null | undefined, wslDistro: string | null | undefined) =>
+    !!projectCwd && inProject(cwd, wslDistro, projectCwd, projectWslDistro);
+  const projectLocalRows = localRows.filter(
+    ({ session, tab }) =>
+      inActiveProject(session.cwd, session.wsl_distro) || inActiveProject(session.tab_cwd ?? tab.cwd, session.wsl_distro),
+  );
+  const projectOtherWindowRows = otherWindowRows.filter(
+    (s) => inActiveProject(s.cwd, s.wsl_distro) || inActiveProject(s.tab_cwd, s.wsl_distro),
+  );
+  const projectBackgroundClaudeAgents = backgroundClaudeAgents.filter((a) => inActiveProject(a.cwd, null));
+  const projectLiveCodexElsewhere = liveCodexElsewhere.filter((s) => inActiveProject(s.cwd, s.wslDistro));
+  const projectCount =
+    projectLocalRows.length +
+    projectOtherWindowRows.length +
+    projectBackgroundClaudeAgents.length +
+    projectLiveCodexElsewhere.length;
+  const allCount = localRows.length + otherWindowRows.length + backgroundClaudeAgents.length + liveCodexElsewhere.length;
+
+  const shownLocalRows = projectScope ? (projectReady ? projectLocalRows : []) : localRows;
+  const shownOtherWindowRows = projectScope ? (projectReady ? projectOtherWindowRows : []) : otherWindowRows;
+  const shownBackgroundClaudeAgents = projectScope ? (projectReady ? projectBackgroundClaudeAgents : []) : backgroundClaudeAgents;
+  const shownLiveCodexElsewhere = projectScope ? (projectReady ? projectLiveCodexElsewhere : []) : liveCodexElsewhere;
+  const listedSavedSessions = projectScope ? [] : savedSessions;
+
   // Saved sessions are only a way back into an old chat: the latest few are
   // shown, the rest one click away, so they never crowd out what's running.
-  const shownSavedSessions = showAllSaved ? savedSessions : savedSessions.slice(0, SAVED_SESSIONS_SHOWN);
+  const shownSavedSessions = showAllSaved ? listedSavedSessions : listedSavedSessions.slice(0, SAVED_SESSIONS_SHOWN);
 
   const loading = sessions === null;
   const isEmpty =
     !loading &&
-    localRows.length === 0 &&
-    otherWindowRows.length === 0 &&
-    backgroundClaudeAgents.length === 0 &&
-    liveCodexElsewhere.length === 0 &&
-    savedSessions.length === 0;
+    shownLocalRows.length === 0 &&
+    shownOtherWindowRows.length === 0 &&
+    shownBackgroundClaudeAgents.length === 0 &&
+    shownLiveCodexElsewhere.length === 0 &&
+    listedSavedSessions.length === 0;
+  const emptyMessage = !projectScope
+    ? t("agents.empty")
+    : projectCwd
+      ? t("agents.scope.emptyProject", { folder: basename(projectCwd) })
+      : t("agents.scope.noProject");
 
   /** Name, folder and chip of an agent running in a tab (this window's or
    * another's): the session's own name when it's known (see `AgentSession`
@@ -315,10 +401,33 @@ export function AgentsSidebar({
           <RefreshIcon />
         </button>
       </div>
+      <div className="agents-sidebar-scope" role="tablist" aria-label={t("agents.scope.label")}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={scope === "project"}
+          className={"agents-sidebar-scope-option" + (scope === "project" ? " is-selected" : "")}
+          title={projectCwd ?? t("agents.scope.noProject")}
+          onClick={() => setScope("project")}
+        >
+          <span className="agents-sidebar-scope-text">{projectCwd ? basename(projectCwd) : t("agents.scope.project")}</span>
+          {projectCount > 0 && <span className="agents-sidebar-scope-count">{projectCount}</span>}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={scope === "all"}
+          className={"agents-sidebar-scope-option" + (scope === "all" ? " is-selected" : "")}
+          onClick={() => setScope("all")}
+        >
+          <span className="agents-sidebar-scope-text">{t("agents.scope.all")}</span>
+          {allCount > 0 && <span className="agents-sidebar-scope-count">{allCount}</span>}
+        </button>
+      </div>
       <div className="agents-sidebar-list">
         {loading && <div className="agents-sidebar-empty">{t("common.checking")}</div>}
-        {isEmpty && <div className="agents-sidebar-empty">{t("agents.empty")}</div>}
-        {localRows.map(({ session, tab }) => {
+        {isEmpty && <div className="agents-sidebar-empty">{emptyMessage}</div>}
+        {shownLocalRows.map(({ session, tab }) => {
           const { name, cwd, chip } = describeRunning(session, tab.cwd);
           return (
             <AgentRow
@@ -336,8 +445,8 @@ export function AgentsSidebar({
             />
           );
         })}
-        {otherWindowRows.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.otherWindows")}</div>}
-        {otherWindowRows.map((session) => {
+        {shownOtherWindowRows.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.otherWindows")}</div>}
+        {shownOtherWindowRows.map((session) => {
           const { name, cwd, chip } = describeRunning(session, session.tab_cwd);
           return (
             <AgentRow
@@ -355,10 +464,10 @@ export function AgentsSidebar({
             />
           );
         })}
-        {(backgroundClaudeAgents.length > 0 || liveCodexElsewhere.length > 0) && (
+        {(shownBackgroundClaudeAgents.length > 0 || shownLiveCodexElsewhere.length > 0) && (
           <div className="agents-sidebar-section-label">{t("agents.section.background")}</div>
         )}
-        {liveCodexElsewhere.map((s) => (
+        {shownLiveCodexElsewhere.map((s) => (
           <AgentRow
             key={s.sessionId}
             background
@@ -374,7 +483,7 @@ export function AgentsSidebar({
             onOpen={() => {}}
           />
         ))}
-        {backgroundClaudeAgents.map((agent) => (
+        {shownBackgroundClaudeAgents.map((agent) => (
           <AgentRow
             key={agent.sessionId}
             background
@@ -388,7 +497,7 @@ export function AgentsSidebar({
             onOpen={() => onOpenSession(agent.cwd, agent.sessionId, "claude")}
           />
         ))}
-        {savedSessions.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.saved")}</div>}
+        {listedSavedSessions.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.saved")}</div>}
         {shownSavedSessions.map((s) => (
           <AgentRow
             key={`${s.cli}:${s.sessionId}`}
@@ -402,11 +511,11 @@ export function AgentsSidebar({
             onOpen={() => onOpenSession(s.cwd, s.sessionId, s.cli, s.wslDistro ?? undefined)}
           />
         ))}
-        {savedSessions.length > SAVED_SESSIONS_SHOWN && (
+        {listedSavedSessions.length > SAVED_SESSIONS_SHOWN && (
           <button type="button" className="agents-sidebar-more" onClick={() => setShowAllSaved((v) => !v)}>
             {showAllSaved
               ? t("agents.showLess")
-              : t("agents.showMore", { count: savedSessions.length - SAVED_SESSIONS_SHOWN })}
+              : t("agents.showMore", { count: listedSavedSessions.length - SAVED_SESSIONS_SHOWN })}
           </button>
         )}
       </div>

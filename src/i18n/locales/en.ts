@@ -211,6 +211,11 @@ export const en: Record<MessageKey, string> = {
   "agents.showMore": "Show {count} more",
   "agents.tabOtherWindow": "Tab in another window",
   "agents.tabHere": "Tab it's open in",
+  "agents.scope.label": "Show agents",
+  "agents.scope.project": "This project",
+  "agents.scope.all": "All",
+  "agents.scope.noProject": "No tab is open on a folder.",
+  "agents.scope.emptyProject": "No active agents in {folder}.",
 
   // Plugins / features
   "plugins.search": "Search features…",

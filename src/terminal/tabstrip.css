@@ -49,9 +49,9 @@
   flex: 0 0 auto;
 }
 
-/* A tab running Claude Code / Codex: the CLI's logo in place of the dot,
-   then, on a renamed tab only, a spinner while it works or "?" while it
-   waits on the user. */
+/* A tab running an agent CLI: its logo in place of the dot, turning while
+   the agent works, then, on a renamed tab only, "?" while it waits on the
+   user. */
 .term-tab-agent {
   display: inline-flex;
   align-items: center;
@@ -104,13 +104,15 @@
   background: var(--ansi-bright-green);
 }
 
-.term-tab-agent-spinner {
-  width: 9px;
-  height: 9px;
-  border: 1.5px solid var(--fg-muted);
-  border-top-color: transparent;
-  border-radius: 999px;
-  animation: term-tab-agent-spin 0.8s linear infinite;
+/* While the agent works the logo turns slowly and breathes a little:
+   the pulse sits on the wrapper, the turn on the svg, so the two run
+   independently. */
+.term-tab-agent-logo.is-busy {
+  animation: term-tab-agent-pulse 1.6s ease-in-out infinite;
+}
+
+.term-tab-agent-logo.is-busy svg {
+  animation: term-tab-agent-spin 3s linear infinite;
 }
 
 @keyframes term-tab-agent-spin {
@@ -119,9 +121,19 @@
   }
 }
 
+@keyframes term-tab-agent-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.82);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .term-tab-agent-spinner {
-    animation-duration: 2.4s;
+  .term-tab-agent-logo.is-busy svg {
+    animation: none;
   }
 }
 

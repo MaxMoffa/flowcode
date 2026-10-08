@@ -211,6 +211,11 @@ export const it = {
   "agents.showMore": "Mostra altre {count}",
   "agents.tabOtherWindow": "Scheda di un'altra finestra",
   "agents.tabHere": "Scheda in cui è aperto",
+  "agents.scope.label": "Mostra agenti",
+  "agents.scope.project": "Questo progetto",
+  "agents.scope.all": "Tutti",
+  "agents.scope.noProject": "Nessuna scheda aperta su una cartella.",
+  "agents.scope.emptyProject": "Nessun agente attivo in {folder}.",
 
   // Plugins / features
   "plugins.search": "Cerca funzionalità…",

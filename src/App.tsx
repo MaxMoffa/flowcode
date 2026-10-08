@@ -2437,6 +2437,8 @@ function Shell() {
               windowLabel={appWindow.label}
               tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
               activeTabId={activeTabId}
+              projectCwd={activeTerminal ? activeTerminal.cwd || activeTerminal.explorerPath || undefined : undefined}
+              projectWslDistro={activeTerminal?.wslDistro ?? undefined}
               sessions={agentSessions}
               refreshSessions={refreshAgentSessions}
               getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
