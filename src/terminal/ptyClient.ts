@@ -16,6 +16,9 @@ export interface SpawnPtyOptions extends PtyHandlers {
   rows: number;
   /** A `list_shell_options` id; the configured default when omitted. */
   shell?: string;
+  /** An account profile id (see src/profiles); the default profile when
+   * omitted. The backend sets the CLIs' config-dir env vars from it. */
+  profile?: string;
 }
 
 function eventChannel({ onOutput, onExit }: PtyHandlers): Channel<PtyEvent> {
@@ -37,9 +40,9 @@ function eventChannel({ onOutput, onExit }: PtyHandlers): Channel<PtyEvent> {
  * those bytes). A per-session channel also means each terminal receives only
  * its own session's output, instead of every tab filtering every other tab's
  * bytes off one global event. */
-export async function spawnPty({ cwd, cols, rows, shell, ...handlers }: SpawnPtyOptions): Promise<string> {
+export async function spawnPty({ cwd, cols, rows, shell, profile, ...handlers }: SpawnPtyOptions): Promise<string> {
   const onEvent = eventChannel(handlers);
-  return invoke<string>("pty_spawn", { cwd: cwd || null, cols, rows, shell: shell ?? null, onEvent });
+  return invoke<string>("pty_spawn", { cwd: cwd || null, cols, rows, shell: shell ?? null, profile: profile ?? null, onEvent });
 }
 
 /** Stops `id`'s output reaching this window - the first step of moving its

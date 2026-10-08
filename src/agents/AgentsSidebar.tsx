@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TermTab } from "../tabs/types";
+import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
 import { agentCliIcon } from "../plugins/icons";
 import { basename, isRootPath, isWindowsHostPath, separatorOf, trimTrailingSeparators } from "../lib/path";
 import { readEnum, usePersistentState, writeString } from "../lib/storage";
@@ -83,6 +84,8 @@ interface ClaudeAgentEntry {
   status: string;
   /** The terminal app it runs in, when recognizable. */
   hostApp: string | null;
+  /** The account profile it belongs to - `null` for the default one. */
+  profile: string | null;
 }
 
 /** One saved Codex CLI session read directly off disk - see
@@ -105,6 +108,8 @@ interface CodexSessionEntry {
   status: string | null;
   /** Running in a Flowcode tab (of this app or another instance). */
   inFlowcode: boolean;
+  /** The account profile it belongs to - `null` for the default one. */
+  profile: string | null;
 }
 
 /** One saved Mistral Vibe session, read off its `meta.json` - see
@@ -119,10 +124,12 @@ interface VibeSessionEntry {
   wslDistro: string | null;
   /** The title Vibe gave it, when it has one. */
   name: string | null;
+  /** The account profile it belongs to - `null` for the default one. */
+  profile: string | null;
 }
 
 /** A row of the "saved" list - either CLI's, newest first. */
-type SavedSession = { cli: "codex" | "vibe"; cwd: string; sessionId: string; startedAt: number | null; wslDistro: string | null; name: string | null };
+type SavedSession = { cli: "codex" | "vibe"; cwd: string; sessionId: string; startedAt: number | null; wslDistro: string | null; name: string | null; profile: string | null };
 
 interface AgentsSidebarProps {
   /** This window's label - agents in tabs of other windows are listed
@@ -147,15 +154,17 @@ interface AgentsSidebarProps {
   /** Opens a fresh terminal tab in `cwd` and resumes that session
    * (`claude --resume <sessionId>` / `codex resume <sessionId>` /
    * `vibe --resume <sessionId>`) - used for a background/saved session with
-   * no local tab of its own to switch to. */
-  onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex" | "vibe", wslDistro?: string) => void;
+   * no local tab of its own to switch to. `profileId` is the account profile
+   * that owns the session, so it resumes under the same account. */
+  onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex" | "vibe", wslDistro?: string, profileId?: string) => void;
   /** The shell id the active tab runs (see `tabShell` in App.tsx), so an
    * agent started in the project folder lands in the same kind of terminal. */
   projectShell?: string;
   /** Starts an agent in a NEW tab opened in `cwd` (the "+" menu). `shell` is
    * the shell to open it in - absent for a fresh worktree, which is on the
-   * host file system. */
-  onLaunchAgent: (cli: "claude" | "codex" | "vibe", cwd: string, shell?: string) => void;
+   * host file system. `profileId` is the account profile to run it under
+   * (the default one when absent). */
+  onLaunchAgent: (cli: "claude" | "codex" | "vibe", cwd: string, shell?: string, profileId?: string) => void;
   /** Opens a plain terminal tab in a folder (a worktree). */
   onOpenFolder: (cwd: string) => void;
   onClose: () => void;
@@ -206,6 +215,9 @@ export function AgentsSidebar({
   onClose,
 }: AgentsSidebarProps) {
   const { t } = useI18n();
+  const profilesState = useProfiles();
+  /** The profile with this id, for the badge on a row - none for the default. */
+  const profileOf = (id: string | null | undefined) => profileById(profilesState, id);
   const [scope, setScope] = usePersistentState<AgentsScope>(AGENTS_SCOPE_KEY, (k) => readEnum(k, SCOPES, "all"), writeString);
   const [claudeAgents, setClaudeAgents] = useState<ClaudeAgentEntry[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSessionEntry[]>([]);
@@ -367,7 +379,7 @@ export function AgentsSidebar({
   const savedSessions: SavedSession[] = [
     ...codexSessions
       .filter((s) => !s.live && !runningCodexCwds.has(s.cwd))
-      .map((s): SavedSession => ({ cli: "codex", cwd: s.cwd, sessionId: s.sessionId, startedAt: s.startedAt, wslDistro: s.wslDistro, name: s.name })),
+      .map((s): SavedSession => ({ cli: "codex", cwd: s.cwd, sessionId: s.sessionId, startedAt: s.startedAt, wslDistro: s.wslDistro, name: s.name, profile: s.profile })),
     ...vibeSessions
       .filter((s) => !runningVibeCwds.has(s.cwd) && !runningSessionIds.has(s.sessionId))
       .map((s): SavedSession => ({ cli: "vibe", ...s })),
@@ -483,16 +495,16 @@ export function AgentsSidebar({
   );
 
   /** Starts `cli` in the project folder, or in a fresh worktree of its repo. */
-  async function launch(cli: "claude" | "codex" | "vibe", inWorktree: boolean) {
+  async function launch(cli: "claude" | "codex" | "vibe", inWorktree: boolean, profileId?: string) {
     if (!projectCwd) return;
     if (!inWorktree || !repoRoot) {
-      onLaunchAgent(cli, projectCwd, projectShell);
+      onLaunchAgent(cli, projectCwd, projectShell, profileId);
       return;
     }
     setCreating(true);
     try {
       const wt = await gitWorktreeAdd(repoRoot, cli);
-      onLaunchAgent(cli, wt.path, undefined);
+      onLaunchAgent(cli, wt.path, undefined, profileId);
       void loadRepo();
     } catch (err) {
       setError(t("agents.worktree.addFailed", { message: String(err) }));
@@ -536,7 +548,7 @@ export function AgentsSidebar({
             projectCwd={projectCwd}
             repoRoot={repoRoot}
             worktreeCapable={worktreeCapable}
-            onLaunch={(cli, inWorktree) => void launch(cli, inWorktree)}
+            onLaunch={(cli, inWorktree, profileId) => void launch(cli, inWorktree, profileId)}
             onClose={() => setMenuOpen(false)}
           />
         )}
@@ -585,6 +597,7 @@ export function AgentsSidebar({
               cwd={cwd}
               terminal={tab.label}
               meta={withBranch(runningMeta(session), cwd)}
+              profile={profileOf(session.profile)}
               chip={chip}
               active={tab.id === activeTabId}
               hint={t("agents.hint.openTab")}
@@ -605,6 +618,7 @@ export function AgentsSidebar({
               terminal={session.tab_label ?? ""}
               otherWindow
               meta={withBranch(runningMeta(session), cwd)}
+              profile={profileOf(session.profile)}
               chip={chip}
               hint={t("agents.hint.otherWindow")}
               onOpen={() => focusOtherWindow(session)}
@@ -624,6 +638,7 @@ export function AgentsSidebar({
             cwd={s.cwd}
             terminal={s.inFlowcode ? t("agents.otherFlowcode") : t("agents.otherTerminal")}
             meta={`Codex CLI${s.wslDistro ? " · WSL" : ""}`}
+            profile={profileOf(s.profile)}
             chip={{ kind: s.status === "busy" ? "busy" : "idle", label: statusLabel(s.status ?? "idle") }}
             hint={t("agents.hint.runningElsewhere")}
             // Already open there - resuming it here too would put two
@@ -640,9 +655,10 @@ export function AgentsSidebar({
             cwd={agent.cwd}
             terminal={agent.hostApp ?? t("agents.otherTerminal")}
             meta={`Claude Code${agent.startedAt !== null ? ` · ${formatDuration(agent.startedAt)}` : ""}`}
+            profile={profileOf(agent.profile)}
             chip={{ kind: agent.status === "busy" ? "busy" : "idle", label: statusLabel(agent.status) }}
             hint={t("agents.hint.outsideFlowcode")}
-            onOpen={() => onOpenSession(agent.cwd, agent.sessionId, "claude")}
+            onOpen={() => onOpenSession(agent.cwd, agent.sessionId, "claude", undefined, agent.profile ?? undefined)}
           />
         ))}
         {listedSavedSessions.length > 0 && <div className="agents-sidebar-section-label">{t("agents.section.saved")}</div>}
@@ -654,9 +670,10 @@ export function AgentsSidebar({
             name={s.name || basename(s.cwd)}
             cwd={s.cwd}
             meta={`${s.cli === "vibe" ? "Mistral Vibe" : "Codex CLI"}${s.wslDistro ? ` · WSL` : ""}${s.startedAt !== null ? ` · ${t("agents.ago", { duration: formatDuration(s.startedAt) })}` : ""}`}
+            profile={profileOf(s.profile)}
             chip={{ kind: "saved", label: t("agents.status.saved") }}
             hint={t("agents.hint.resume")}
-            onOpen={() => onOpenSession(s.cwd, s.sessionId, s.cli, s.wslDistro ?? undefined)}
+            onOpen={() => onOpenSession(s.cwd, s.sessionId, s.cli, s.wslDistro ?? undefined, s.profile ?? undefined)}
           />
         ))}
         {listedSavedSessions.length > SAVED_SESSIONS_SHOWN && (
@@ -693,6 +710,8 @@ interface AgentRowProps {
   otherWindow?: boolean;
   /** CLI, WSL, how long - the small print after the terminal. */
   meta: string;
+  /** The account profile it runs under - absent for the default one. */
+  profile?: ProfileInfo;
   chip: { kind: string; label: string };
   active?: boolean;
   background?: boolean;
@@ -704,7 +723,7 @@ interface AgentRowProps {
 
 /** One agent: its session name, the folder it works in, and which terminal
  * it runs in. */
-function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, chip, active, background, hint, onOpen, action }: AgentRowProps) {
+function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, profile, chip, active, background, hint, onOpen, action }: AgentRowProps) {
   const { t } = useI18n();
   return (
     <div
@@ -714,7 +733,10 @@ function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, chip, active, b
       onDoubleClick={onOpen}
       title={`${name}\n${cwd}\n${hint}`}
     >
-      <span className="agents-sidebar-icon">{agentCliIcon(cli)}</span>
+      <span className="agents-sidebar-icon">
+        {agentCliIcon(cli)}
+        {profile && <span className="agents-sidebar-profile-dot" style={{ background: profile.color }} />}
+      </span>
       <div className="agents-sidebar-row-body">
         <span className="agents-sidebar-tab-label">{name}</span>
         {cwd && (
@@ -735,7 +757,7 @@ function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, chip, active, b
               <span className="agents-sidebar-terminal-label">{terminal}</span>
             </span>
           )}
-          <span className="agents-sidebar-meta-text">{meta}</span>
+          <span className="agents-sidebar-meta-text">{profile ? `${meta} · ${profile.name}` : meta}</span>
         </span>
       </div>
       <StatusChip kind={chip.kind} label={chip.label} />

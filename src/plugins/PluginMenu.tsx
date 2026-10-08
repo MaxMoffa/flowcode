@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useHoverPopover, useUsageState } from "./useUsageState";
+import { useHoverPopover, useUsageProfile, useUsageState } from "./useUsageState";
 import { usagePopoverPositionBeside } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
 import { useI18n } from "../i18n";
@@ -41,7 +41,8 @@ function menuRectOf(row: HTMLElement | null): DOMRect | null {
  * every row regardless: it's a no-op for a plugin with no fetcher. */
 function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () => void }) {
   const { t } = useI18n();
-  const { fetcher, usage, loading, load } = useUsageState(item.id);
+  const [profile, setProfile, profileReady] = useUsageProfile(item.id);
+  const { fetcher, usage, loading, load } = useUsageState(item.id, profile, profileReady);
   const rowRef = useRef<HTMLDivElement>(null);
   const popover = useHoverPopover(rowRef, load);
   const rect = fetcher ? popover.rect : null;
@@ -82,7 +83,13 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
             onMouseEnter={show}
             onMouseLeave={scheduleHide}
           >
-            <UsagePopoverContent label={item.label} usage={usage} loading={loading} />
+            <UsagePopoverContent
+              label={item.label}
+              usage={usage}
+              loading={loading}
+              profile={profile}
+              onProfileChange={setProfile}
+            />
           </div>,
           document.body,
         )}

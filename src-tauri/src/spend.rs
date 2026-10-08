@@ -407,43 +407,32 @@ fn now_ms() -> u64 {
     crate::fs::system_time_to_millis(Ok(std::time::SystemTime::now())).unwrap_or(0)
 }
 
-/// Claude Code's config folder: `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
-fn claude_home() -> Option<PathBuf> {
-    match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()) {
-        Some(dir) => Some(PathBuf::from(dir)),
-        None => Some(crate::fs::user_home()?.join(".claude")),
-    }
-}
-
-/// Codex's home: `$CODEX_HOME`, else `~/.codex`.
-fn codex_home() -> Option<PathBuf> {
-    match std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
-        Some(dir) => Some(PathBuf::from(dir)),
-        None => Some(crate::fs::user_home()?.join(".codex")),
-    }
-}
-
 /// Spend of an agent CLI on this machine - `cli` is `"claude"` or
 /// `"codex"` - today (from the frontend's local midnight, `today_start`)
 /// and over the last 7 / 30 days. See the module docs for what it counts.
+/// `profile` picks the account profile whose folders are read (`None`: the
+/// default one). The transcript cache is keyed by full file path, so two
+/// profiles - which live in different folders - never share cached totals.
 #[tauri::command]
-pub async fn cli_spend(cli: String, today_start: Option<u64>) -> Result<CliSpend, String> {
+pub async fn cli_spend(
+    app: tauri::AppHandle,
+    cli: String,
+    today_start: Option<u64>,
+    profile: Option<String>,
+) -> Result<CliSpend, String> {
     crate::blocking(move || {
+        let dirs = crate::profiles::dirs(&app, profile.as_deref()).ok_or("Unknown profile")?;
         let now = now_ms();
         let today = today_start.filter(|t| *t <= now).unwrap_or(now - now % DAY_MS);
         let since = now.saturating_sub(31 * DAY_MS);
         let mut files = Vec::new();
         let (filter, parse): (LineFilter, ParseLine) = match cli.as_str() {
             "claude" => {
-                if let Some(home) = claude_home() {
-                    recent_files(&home.join("projects"), 5, |n| n.ends_with(".jsonl"), since, &mut files);
-                }
+                recent_files(&dirs.claude.join("projects"), 5, |n| n.ends_with(".jsonl"), since, &mut files);
                 (claude_filter, parse_claude_line)
             }
             "codex" => {
-                if let Some(home) = codex_home() {
-                    recent_files(&home.join("sessions"), 5, |n| n.starts_with("rollout-") && n.ends_with(".jsonl"), since, &mut files);
-                }
+                recent_files(&dirs.codex.join("sessions"), 5, |n| n.starts_with("rollout-") && n.ends_with(".jsonl"), since, &mut files);
                 (codex_filter, parse_codex_line)
             }
             _ => return Err(format!("unknown CLI: {cli}")),

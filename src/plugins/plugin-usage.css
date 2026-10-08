@@ -93,6 +93,59 @@
   font-weight: 700;
 }
 
+/* The account switcher under the title: small pills, the shown one lit. */
+.plugin-usage-profiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.plugin-usage-profile {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.plugin-usage-profile:hover {
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
+.plugin-usage-profile.is-active {
+  border-color: var(--usage-accent);
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
+.plugin-usage-profile-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+/* The shortcut-bar button's profile badge: a 6px dot on its top-right corner. */
+.plugin-usage-profile-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px var(--surface);
+  pointer-events: none;
+}
+
 .plugin-usage-popover-loading {
   color: var(--fg-muted);
   font-size: 12px;

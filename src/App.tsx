@@ -68,6 +68,7 @@ import { useI18n } from "./i18n";
 import { NewTabPage, type NewTabLaunch } from "./newtab/NewTabPage";
 import { recordRecentTerminal } from "./newtab/recentTerminals";
 import { recordCommand } from "./newtab/commandHistory";
+import { profileForPath } from "./profiles/profiles";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -702,6 +703,7 @@ function Shell() {
             notifyMuted: t.notifyMuted,
             nestedShell: wslDistro !== undefined ? "wsl" : undefined,
             wslDistro: wslDistro ?? undefined,
+            profileId: t.profileId,
           });
         } else if (t.kind === "editor") {
           restored.push({ kind: "editor", id: `editor-${nextTabId++}`, path: t.path, label: t.label });
@@ -789,6 +791,7 @@ function Shell() {
               customLabel: t.customLabel,
               notifyMuted: t.notifyMuted,
               shell: tabShell(t),
+              profileId: t.profileId,
               content: term?.wasUsed() ? term.serialize() : restoredContentRef.current.get(t.id),
             };
           }
@@ -1007,7 +1010,7 @@ function Shell() {
     return newTabPage ? addTab(undefined, undefined, true) : addTab();
   }
 
-  function addTab(cwdOverride?: string, shellOverride?: string, newTab = false): string {
+  function addTab(cwdOverride?: string, shellOverride?: string, newTab = false, profileId?: string): string {
     // No longer inherits the active tab's cwd - a fresh tab starts in its
     // shell's start folder (Impostazioni > Cartella di avvio, per shell or
     // the general one), looked up by `fillStartDir` below. `cwdOverride` is
@@ -1039,6 +1042,8 @@ function Shell() {
         label: newTab ? t("newTab.title") : labelForCwd(cwd),
         nestedShell,
         wslDistro: pathDistro ?? wslDistro ?? undefined,
+        // Env vars don't reach a WSL distro, so a profile means nothing there.
+        ...(profileId && wslDistro === undefined && !pathDistro ? { profileId } : {}),
         ...(newTab ? { newTab } : {}),
       },
     ]);
@@ -1170,10 +1175,10 @@ function Shell() {
   /** A fresh terminal tab whose one job is to run `command` - used for a
    * CLI's install/login step offered from the setup-check dialog, so the
    * user's actual working terminal is never hijacked for it. */
-  function openTerminalWithCommand(command: string) {
+  function openTerminalWithCommand(command: string, profileId?: string) {
     const id = `tab-${nextTabId++}`;
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, { kind: "terminal", id, cwd: homeDir, explorerPath: homeDir, label: "setup" }]);
+    setTabs((prev) => [...prev, { kind: "terminal", id, cwd: homeDir, explorerPath: homeDir, label: "setup", profileId }]);
     setActiveTabId(id);
     setActiveTerminalId(id);
   }
@@ -1183,7 +1188,7 @@ function Shell() {
    * background/saved session (one this app has no open tab for), so
    * double-clicking it drops the user straight back into that chat instead
    * of a bare shell they'd have to resume by hand. */
-  async function openAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string) {
+  async function openAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string) {
     if (wslDistro) {
       // Saved inside WSL: resumed by the distro's own CLI, in a WSL tab
       // opened on that folder (`cwd` is a Linux path there). The
@@ -1206,7 +1211,7 @@ function Shell() {
           : await withCodexLaunchFlags(`codex resume ${sessionId}`);
     const id = `tab-${nextTabId++}`;
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd) }]);
+    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd), profileId }]);
     setActiveTabId(id);
     setActiveTerminalId(id);
   }
@@ -1256,7 +1261,7 @@ function Shell() {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
     if (tab.kind === "terminal") {
-      addTab(tab.cwd, tabShell(tab));
+      addTab(tab.cwd, tabShell(tab), false, tab.profileId);
       return;
     }
     if (tab.kind === "editor") {
@@ -1931,12 +1936,14 @@ function Shell() {
    * (src-tauri/src/plugins.rs) does the actual detection. Resolves to whether
    * the CLI is ready to launch: true when it is installed and logged in, or
    * when detection itself failed (don't block the launch over it); false after
-   * a dialog was shown. */
-  async function ensureCliReady(cliBin: AgentCli): Promise<boolean> {
+   * a dialog was shown. `profileId` is the account profile the CLI will run
+   * under: its login state is the one checked, and the login offer opens a
+   * terminal under it. */
+  async function ensureCliReady(cliBin: AgentCli, profileId?: string): Promise<boolean> {
     const label = AGENT_CLI_LABELS[cliBin];
     let status: { installed: boolean; logged_in: boolean };
     try {
-      status = await invoke("check_cli_status", { cli: cliBin });
+      status = await invoke("check_cli_status", { cli: cliBin, profile: profileId ?? null });
     } catch {
       // Detection itself failed - don't block the shortcut over it, just
       // fall back to the plain launch as before this check existed.
@@ -1962,46 +1969,68 @@ function Shell() {
         message: t(cliBin === "vibe" ? "app.cli.login.vibeMessage" : "app.cli.login.message", { name: label }),
         confirmLabel: t("app.cli.login"),
       });
-      if (ok) openTerminalWithCommand(AGENT_CLI_LOGIN[cliBin]);
+      if (ok) openTerminalWithCommand(AGENT_CLI_LOGIN[cliBin], profileId);
       return false;
     }
 
     return true;
   }
 
+  /** A CLI shortcut pressed in `tabId`. The project's default profile (see
+   * src/profiles) decides which account the CLI should run under; a shell's
+   * profile is fixed at spawn (env vars can't change on a running process),
+   * so when the tab's own profile differs the CLI is started in a NEW tab
+   * under the wanted one instead of being typed into this one. */
   async function checkCliAndMaybeLaunch(
     cliBin: AgentCli,
     launchCommand: string,
     term: TerminalHandle | undefined,
     tabId: string,
   ) {
-    if (await ensureCliReady(cliBin)) await launchInTab(cliBin, launchCommand, term, tabId);
+    const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    const wanted = tab?.cwd ? await profileForPath(tab.cwd) : null;
+    // A WSL tab can't take a profile (the env vars don't reach the distro).
+    // Only a project that *has* a default redirects: with none, the tab's own
+    // profile (picked from the "+" menu, or a duplicated tab's) is respected.
+    if (tab && wanted && tab.nestedShell !== "wsl" && wslDistroOfShell(tabShell(tab)) === undefined && wanted !== tab.profileId) {
+      void launchAgentInNewTab(cliBin, tab.cwd, tabShell(tab), wanted);
+      return;
+    }
+    if (await ensureCliReady(cliBin, tab?.profileId)) await launchInTab(cliBin, launchCommand, term, tabId);
+  }
+
+  /** Signs `cli` in under `profileId`: its login command in a fresh terminal
+   * started under that profile (Settings > Profiles). */
+  function loginProfile(profileId: string, cli: AgentCli) {
+    openTerminalWithCommand(AGENT_CLI_LOGIN[cli], profileId);
   }
 
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the
    * project folder, or a fresh git worktree of it). `shell` is the shell the
    * project's own tab runs. Uses the CLI plugin's command, which may carry the
    * user's flags. A WSL shell runs the distro's own CLI, so it skips the host
-   * install check and the host-only flags, like `openAgentSession`. */
-  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string) {
+   * install check and the host-only flags, like `openAgentSession`. The new
+   * tab runs under account profile `profileId` (default profile when
+   * omitted) - ignored for WSL, where the env vars don't reach. */
+  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string, profileId?: string) {
     let command = allPlugins.find((p) => PLUGIN_AGENT_CLI[p.id] === cli)?.command ?? cli;
     if (wslDistroOfShell(shell) !== undefined) {
       const id = addTab(cwd, shell);
       pendingCommandsRef.current.set(id, command);
       return;
     }
-    if (!(await ensureCliReady(cli))) return;
-    if (cli === "vibe") await invoke("vibe_ensure_model").catch(() => {});
+    if (!(await ensureCliReady(cli, profileId))) return;
+    if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     if (cli === "codex") command = await withCodexLaunchFlags(command);
     if (shell) {
       // addTab also activates the new tab.
-      const id = addTab(cwd, shell);
+      const id = addTab(cwd, shell, false, profileId);
       pendingCommandsRef.current.set(id, command);
       return;
     }
     const id = `tab-${nextTabId++}`;
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd) }]);
+    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd), profileId }]);
     setActiveTabId(id);
     setActiveTerminalId(id);
   }
@@ -2021,7 +2050,8 @@ function Shell() {
     // each launch - a no-op once it's there. This host's Vibe only, same as
     // the Codex flags below. Never in the way of the launch itself.
     if (cliBin === "vibe" && fg?.kind !== "wsl" && fg?.kind !== "remote") {
-      await invoke("vibe_ensure_model").catch(() => {});
+      const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+      await invoke("vibe_ensure_model", { profile: tab?.profileId ?? null }).catch(() => {});
     }
     // Codex on Windows runs with `--no-daemon`, or its background server pops
     // a console window per helper - see plugins/codexLaunch.ts. That's this
@@ -2385,6 +2415,7 @@ function Shell() {
                         runOnStart={pendingCommandsRef.current.get(tab.id)}
                         typeOnStart={pendingTypedCommandsRef.current.get(tab.id)}
                         shellOverride={pendingShellOverrideRef.current.get(tab.id)}
+                        profileId={tab.profileId}
                         restoredContent={restoredContentRef.current.get(tab.id)}
                         attach={pendingAttachRef.current.get(tab.id)}
                         onAnchor={(anchor) => patchHandoff(tab.id, { anchor })}
@@ -2451,6 +2482,7 @@ function Shell() {
                   favoritesButtonVisible={favoritesButtonVisible}
                   onSetFavoritesButtonVisible={setFavoritesButtonVisible}
                   onOpenShortcutsGuide={() => setShortcutsDialogOpen(true)}
+                  onProfileLogin={loginProfile}
                 />
               );
             })}
@@ -2484,7 +2516,7 @@ function Shell() {
               onOpenTab={selectTab}
               onOpenSession={openAgentSession}
               projectShell={activeTerminal ? tabShell(activeTerminal) : undefined}
-              onLaunchAgent={(cli, cwd, shell) => void launchAgentInNewTab(cli, cwd, shell)}
+              onLaunchAgent={(cli, cwd, shell, profileId) => void launchAgentInNewTab(cli, cwd, shell, profileId)}
               onOpenFolder={openFolderTab}
               onClose={() => setAgentsSidebarOpen(false)}
             />

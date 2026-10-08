@@ -1,11 +1,12 @@
 import { useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PluginDef } from "./types";
-import { useHoverPopover, useUsageState } from "./useUsageState";
+import { useHoverPopover, useUsageProfile, useUsageState } from "./useUsageState";
 import { usagePopoverPosition } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
 import { metricText } from "./usage";
 import { useI18n } from "../i18n";
+import { profileById, useProfiles } from "../profiles/profiles";
 import "./plugin-usage.css";
 
 interface PluginUsageButtonProps {
@@ -25,7 +26,9 @@ interface PluginUsageButtonProps {
  * stay in sync instead of drifting into two different caches/looks. */
 export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProps) {
   useI18n();
-  const { fetcher, usage, loading, load } = useUsageState(plugin.id);
+  const [profile, setProfile, profileReady] = useUsageProfile(plugin.id);
+  const { fetcher, usage, loading, load } = useUsageState(plugin.id, profile, profileReady);
+  const profileInfo = profileById(useProfiles(), profile);
   const btnRef = useRef<HTMLButtonElement>(null);
   const { rect, show, scheduleHide, hide } = useHoverPopover(btnRef, load);
 
@@ -61,6 +64,7 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
         onClick={onRun}
       >
         {icon}
+        {profileInfo && <span className="plugin-usage-profile-badge" style={{ background: profileInfo.color }} />}
         {barPct !== undefined && (
           <span
             className={`plugin-usage-mini${barWarn ? " plugin-usage-mini--warn" : ""}`}
@@ -79,7 +83,13 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
             onMouseEnter={show}
             onMouseLeave={scheduleHide}
           >
-            <UsagePopoverContent label={plugin.label} usage={usage} loading={loading} />
+            <UsagePopoverContent
+              label={plugin.label}
+              usage={usage}
+              loading={loading}
+              profile={profile}
+              onProfileChange={setProfile}
+            />
           </div>,
           document.body,
         )}

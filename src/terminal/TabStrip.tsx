@@ -8,6 +8,7 @@ import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/Contex
 import { t, translationsOf, useI18n } from "../i18n";
 import { agentCliIcon } from "../plugins/icons";
 import type { TabAgent } from "../agents/agentSessions";
+import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
 import "./tabstrip.css";
 
 interface TabStripProps {
@@ -194,9 +195,24 @@ function agentTabIcon(agent: TabAgent, renamed: boolean, done: boolean) {
   );
 }
 
-function tabIcon(tab: AppTab, agent?: TabAgent, done = false) {
+/** The account profile a terminal tab runs under, if it still exists. */
+function tabProfile(profiles: ReturnType<typeof useProfiles>, tab: AppTab): ProfileInfo | undefined {
+  return tab.kind === "terminal" ? profileById(profiles, tab.profileId) : undefined;
+}
+
+/** `profile`: the tab's account profile, shown as a small colored dot on the
+ * corner of its icon. The dot sits on a wrapper of its own, not on the logo,
+ * so it doesn't turn with a busy agent's. */
+function tabIcon(tab: AppTab, agent?: TabAgent, done = false, profile?: ProfileInfo) {
   if (tab.kind === "terminal") {
-    return agent ? agentTabIcon(agent, !!tab.customLabel, done) : <span className={"term-tab-dot" + (done ? " is-done" : "")} />;
+    const icon = agent ? agentTabIcon(agent, !!tab.customLabel, done) : <span className={"term-tab-dot" + (done ? " is-done" : "")} />;
+    if (!profile) return icon;
+    return (
+      <span className="term-tab-profiled">
+        {icon}
+        <span className="term-tab-profile-badge" style={{ background: profile.color }} />
+      </span>
+    );
   }
   if (tab.kind === "settings") return <GearIcon />;
   if (tab.kind === "changelog" || tab.kind === "whatsNew") return <ChangelogIcon />;
@@ -214,8 +230,8 @@ export function tabDisplayLabel(tab: AppTab): string {
   return tab.label;
 }
 
-function tabTitle(tab: AppTab): string {
-  if (tab.kind === "terminal") return tab.cwd;
+function tabTitle(tab: AppTab, profile?: ProfileInfo): string {
+  if (tab.kind === "terminal") return profile ? `${tab.cwd}\n${t("tabs.profile", { name: profile.name })}` : tab.cwd;
   if (tab.kind === "editor") return tab.path;
   return tabDisplayLabel(tab);
 }
@@ -234,6 +250,7 @@ interface TabOverflowMenuProps {
 }
 
 function TabOverflowMenu({ tabs, activeId, agents, doneIds, anchorRect, onSelect, onCloseTab, onDismiss }: TabOverflowMenuProps) {
+  const profiles = useProfiles();
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -289,7 +306,7 @@ function TabOverflowMenu({ tabs, activeId, agents, doneIds, anchorRect, onSelect
               onDismiss();
             }}
           >
-            {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id))}
+            {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id), tabProfile(profiles, tab))}
             <span className="tab-overflow-item-label">{tabDisplayLabel(tab)}</span>
             {tab.kind === "terminal" && tab.notifyMuted && <MutedIcon />}
             <button
@@ -335,6 +352,7 @@ export function TabStrip({
   onDragOut,
 }: TabStripProps) {
   const { t } = useI18n();
+  const profiles = useProfiles();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [overflowAnchorRect, setOverflowAnchorRect] = useState<DOMRect | null>(null);
@@ -548,9 +566,9 @@ export function TabStrip({
               startEditing(tab);
             }}
             onContextMenu={(e) => openMenu(e, tabMenuItems(tab))}
-            title={tabTitle(tab)}
+            title={tabTitle(tab, tabProfile(profiles, tab))}
           >
-            {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id))}
+            {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id), tabProfile(profiles, tab))}
             {editingId === tab.id ? (
               <input
                 ref={inputRef}
@@ -631,7 +649,7 @@ export function TabStrip({
         drag?.detached &&
         createPortal(
           <div className="tab-drag-ghost" style={{ left: drag.x - 24, top: drag.y - 15 }}>
-            {tabIcon(draggedTab, agents?.get(draggedTab.id), doneIds?.has(draggedTab.id))}
+            {tabIcon(draggedTab, agents?.get(draggedTab.id), doneIds?.has(draggedTab.id), tabProfile(profiles, draggedTab))}
             <span className="term-tab-label">{tabDisplayLabel(draggedTab)}</span>
           </div>,
           document.body,

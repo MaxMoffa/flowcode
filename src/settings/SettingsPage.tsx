@@ -5,6 +5,7 @@ import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { useSettingsSection } from "./SettingsSectionContext";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { FunzionalitaPage } from "./FunzionalitaPage";
+import { ProfilesSettings } from "./ProfilesSettings";
 import { DEFAULT_QUICK_ACTIONS } from "../plugins/registry";
 import { SHOW_HIDDEN_KEY } from "../sidebar/FileTree";
 import type { PluginDef, PluginManifest } from "../plugins/types";
@@ -51,6 +52,8 @@ interface SettingsPageProps {
   favoritesButtonVisible: boolean;
   onSetFavoritesButtonVisible: (visible: boolean) => void;
   onOpenShortcutsGuide: () => void;
+  /** Opens a tab running `cli`'s login under the profile. */
+  onProfileLogin?: (profileId: string, cli: "claude" | "codex" | "vibe") => void;
 }
 
 function updateStatusText(status: UpdateStatus): string {
@@ -79,6 +82,7 @@ export function SettingsPage({
   favoritesButtonVisible,
   onSetFavoritesButtonVisible,
   onOpenShortcutsGuide,
+  onProfileLogin,
 }: SettingsPageProps) {
   const { t, preference: languagePreference, setPreference: setLanguagePreference } = useI18n();
   const { mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity } =
@@ -537,6 +541,8 @@ export function SettingsPage({
             />
           </div>
         )}
+
+        {section === "profiles" && <ProfilesSettings onLogin={onProfileLogin} />}
 
         {section === "info" && (
           <>

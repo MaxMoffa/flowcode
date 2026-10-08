@@ -28,6 +28,9 @@ struct PtySession {
     /// transit between windows. Closing a window kills what it owns (see
     /// `kill_owned_by`).
     owner: Option<String>,
+    /// Account profile this tab was launched under (`None` = the default
+    /// one) - lets other modules tell which account an agent in it uses.
+    profile: Option<String>,
 }
 
 /// Environment variable carrying a tab's pty session id into everything it
@@ -74,6 +77,12 @@ impl Sink {
 
 #[derive(Default)]
 pub struct PtyState(Mutex<HashMap<String, PtySession>>);
+
+/// Account profile the pty session `pty_id` was launched under. Sessions are
+/// dropped from the map when they end, so this needs no separate cleanup.
+pub fn profile_of(state: &PtyState, pty_id: &str) -> Option<String> {
+    state.0.lock().unwrap().get(pty_id)?.profile.clone()
+}
 
 impl PtyState {
     /// (pty session id, shell PID) for every live session - just enough for
@@ -357,6 +366,7 @@ pub fn pty_spawn(
     rows: u16,
     shell: Option<String>,
     on_event: Channel<PtyEvent>,
+    profile: Option<String>,
 ) -> Result<String, String> {
     // No-op once the warmup has run (the common case, since setup() starts it
     // at launch); blocks only if this spawn really did beat it - see
@@ -417,6 +427,13 @@ pub fn pty_spawn(
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "Flowcode");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    // Account profile: point the agent CLIs at the profile's own folders. Not
+    // for WSL - these are Windows paths, meaningless inside the distro.
+    if wsl_distro.is_none() && shell_stem != "wsl" {
+        for (k, v) in crate::profiles::env_for(&app, profile.as_deref()) {
+            cmd.env(k, v);
+        }
+    }
     // Tags everything started in this tab with the tab's session id, WSL
     // included (WSLENV carries it across into the distro) - the only way to
     // tell which tab an agent running *inside* WSL belongs to, since Linux
@@ -493,6 +510,7 @@ pub fn pty_spawn(
             pid: child.process_id(),
             sink: Arc::clone(&sink),
             owner: Some(window.label().to_string()),
+            profile: profile.clone(),
         },
     );
 

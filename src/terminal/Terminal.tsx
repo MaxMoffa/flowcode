@@ -191,6 +191,9 @@ interface TerminalViewProps {
    * context menu when a specific shell (e.g. WSL) was picked instead of
    * just clicking it. Only read once, at spawn, same as `runOnStart`. */
   shellOverride?: string;
+  /** Account profile (see src/profiles) the shell is started under - read
+   * once, at spawn, like `shellOverride`. `undefined` = the default profile. */
+  profileId?: string;
   /** Text saved from this tab in the previous session (see `serialize`) -
    * replayed in place of the banner before the new shell starts. Only read
    * once, at mount, like `runOnStart`. */
@@ -209,7 +212,7 @@ export interface PromptAnchor {
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, restoredContent, attach }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // xterm mounts into this padding-free inner box, not the padded container:
   // FitAddon sizes the grid off its parent's computed height, which under
@@ -288,6 +291,8 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   // whatever's already running in existing ones.
   const shellIdRef = useRef(shellOverride ?? shellId);
   shellIdRef.current = shellOverride ?? shellId;
+  const profileIdRef = useRef(profileId);
+  profileIdRef.current = profileId;
   const initialFontSizeRef = useRef(fontSize);
 
   // Absolute row (scrollback-inclusive) where a pending silent navigation's
@@ -872,6 +877,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           cols: term.cols,
           rows: term.rows,
           shell: shellIdRef.current,
+          profile: profileIdRef.current,
           onOutput: (data, seq) => {
             lastSeqRef.current = seq;
             if (!disposed) receive(data);

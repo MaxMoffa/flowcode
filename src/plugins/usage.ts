@@ -118,7 +118,9 @@ function unavailable(cli: string, sections: Record<string, string | undefined>):
   };
 }
 
-type UsageFetcher = () => Promise<UsageInfo>;
+/** `profile`: an account profile id (src/profiles), the default account when
+ * omitted. */
+type UsageFetcher = (profile?: string) => Promise<UsageInfo>;
 
 /** Codex CLI's numeric rate-limit data only exists behind the interactive
  * TUI's `/status` slash command - `codex exec` doesn't expose it (a slash
@@ -128,7 +130,7 @@ type UsageFetcher = () => Promise<UsageInfo>;
  * `/status` and read the rendered screen back, using `@xterm/headless`
  * (no DOM) to parse the pty stream exactly like a visible terminal tab
  * would. Killed the moment the numbers are read - never left running. */
-async function readCodexStatusScreen(): Promise<string> {
+async function readCodexStatusScreen(profile?: string): Promise<string> {
   // A little scrollback, not none: the `/status` box is tall, and in a session
   // that already printed something (shell banner, codex tips) its first rows
   // can scroll above the viewport - buffer.active spans the scrollback too,
@@ -149,6 +151,7 @@ async function readCodexStatusScreen(): Promise<string> {
       cols: CODEX_COLS,
       rows: CODEX_ROWS,
       shell: getConfiguredShell(),
+      profile,
       onOutput: (data) => {
         if (!done) term.write(data);
       },
@@ -182,13 +185,13 @@ function errorSections(e: unknown): Record<string, string | undefined> {
   };
 }
 
-async function fetchCodexUsage(): Promise<UsageInfo> {
+async function fetchCodexUsage(profile?: string): Promise<UsageInfo> {
   // On an API key there's no plan limit for `/status` to show - and no
   // reason to start a hidden Codex session: the spend is read off disk.
-  if ((await billingMode("codex")) === "api") return fetchCliSpend("codex", "Codex CLI");
+  if ((await billingMode("codex", profile)) === "api") return fetchCliSpend("codex", "Codex CLI", profile);
   let screen: string;
   try {
-    screen = await readCodexStatusScreen();
+    screen = await readCodexStatusScreen(profile);
   } catch (e) {
     const loggedOut = /sign.?in|log.?in/i.test(String(e));
     if (loggedOut) {
@@ -207,7 +210,7 @@ async function fetchCodexUsage(): Promise<UsageInfo> {
     // "please log in" is a real signal, not a fluke - no point retrying
     // that.
     try {
-      screen = await readCodexStatusScreen();
+      screen = await readCodexStatusScreen(profile);
     } catch (e2) {
       return unavailable("Codex CLI", {
         "First attempt": errorSections(e).Error,
@@ -249,14 +252,14 @@ function claudeUsageKind(raw: string): UsageMetric["kind"] {
   return "other";
 }
 
-async function fetchClaudeUsage(): Promise<UsageInfo> {
-  if ((await billingMode("claude")) === "api") return fetchCliSpend("claude", "Claude Code");
+async function fetchClaudeUsage(profile?: string): Promise<UsageInfo> {
+  if ((await billingMode("claude", profile)) === "api") return fetchCliSpend("claude", "Claude Code", profile);
   let out: string;
   try {
     // Dedicated command (not the generic `run_plugin_command`): it
     // tracks this probe's real pid on the Rust side so `list_claude_agents`
     // can exclude it - see `run_claude_usage_probe` in src-tauri/src/agents.rs.
-    out = await invoke<string>("run_claude_usage_probe");
+    out = await invoke<string>("run_claude_usage_probe", { profile: profile ?? null });
   } catch (e) {
     const message = String(e);
     if (/not.{0,3}logged.?in|unauthoriz|\/login\b|auth(?:entication)? (?:failed|required|error)/i.test(message)) {
@@ -298,9 +301,9 @@ async function fetchClaudeUsage(): Promise<UsageInfo> {
  * API key (or back) shows in the popup on its next refresh. */
 type BillingMode = "subscription" | "api" | "unknown";
 
-async function billingMode(cli: "claude" | "codex"): Promise<BillingMode> {
+async function billingMode(cli: "claude" | "codex", profile?: string): Promise<BillingMode> {
   try {
-    return await invoke<BillingMode>("cli_billing_mode", { cli });
+    return await invoke<BillingMode>("cli_billing_mode", { cli, profile: profile ?? null });
   } catch {
     return "unknown";
   }
@@ -373,10 +376,10 @@ function modelDisplayName(id: string): string {
  * session transcripts on this machine and priced at list prices (see
  * spend.rs), which the popup says: the vendor's console stays the
  * authority for the bill. */
-async function fetchCliSpend(cli: "claude" | "codex", name: string): Promise<UsageInfo> {
+async function fetchCliSpend(cli: "claude" | "codex", name: string, profile?: string): Promise<UsageInfo> {
   let usage: CliSpend;
   try {
-    usage = await invoke<CliSpend>("cli_spend", { cli, todayStart: todayStart() });
+    usage = await invoke<CliSpend>("cli_spend", { cli, todayStart: todayStart(), profile: profile ?? null });
   } catch (e) {
     return unavailable(name, { Error: String(e) });
   }
@@ -398,10 +401,10 @@ const VIBE_MODEL_NAMES: Record<string, string> = {
  * the last 7 / 30 days, summed from the sessions Vibe saved on disk (no
  * process started, no network call). Mistral's own console stays the
  * authority for the bill: a session run on another machine isn't here. */
-async function fetchVibeUsage(): Promise<UsageInfo> {
+async function fetchVibeUsage(profile?: string): Promise<UsageInfo> {
   let usage: VibeUsage;
   try {
-    usage = await invoke<VibeUsage>("vibe_usage_stats", { todayStart: todayStart() });
+    usage = await invoke<VibeUsage>("vibe_usage_stats", { todayStart: todayStart(), profile: profile ?? null });
   } catch (e) {
     return unavailable("Mistral Vibe", { Error: String(e) });
   }

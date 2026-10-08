@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { metricText, type UsageInfo } from "./usage";
 import { useI18n } from "../i18n";
+import { useProfiles } from "../profiles/profiles";
 
 /** Small "copy debug info" button under a failed probe's "Unavailable":
  * the raw error/CLI output is useful for a bug report but just noise in the
@@ -31,6 +32,44 @@ function CopyDebugButton({ text }: { text: string }) {
   );
 }
 
+/** "Default | Work | Personal": which account's usage the popover shows. Only
+ * rendered once at least one profile exists. */
+function ProfileSwitcher({
+  profile,
+  onChange,
+}: {
+  profile: string | undefined;
+  onChange: (next: string | undefined) => void;
+}) {
+  const { t } = useI18n();
+  const { profiles } = useProfiles();
+  if (profiles.length === 0) return null;
+  return (
+    <div className="plugin-usage-profiles" role="group" aria-label={t("usage.profile.label")}>
+      <button
+        type="button"
+        className={"plugin-usage-profile" + (profile === undefined ? " is-active" : "")}
+        aria-pressed={profile === undefined}
+        onClick={() => onChange(undefined)}
+      >
+        {t("agents.profile.default")}
+      </button>
+      {profiles.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          className={"plugin-usage-profile" + (profile === p.id ? " is-active" : "")}
+          aria-pressed={profile === p.id}
+          onClick={() => onChange(p.id)}
+        >
+          <span className="plugin-usage-profile-dot" style={{ background: p.color }} />
+          {p.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** The popover's inner content (title + metric rows) - just the markup,
  * no positioning or portal, so the shortcut-bar button and the plugin menu
  * can each wrap it in their own trigger/portal while rendering identically. */
@@ -38,15 +77,22 @@ export function UsagePopoverContent({
   label,
   usage,
   loading,
+  profile,
+  onProfileChange,
 }: {
   label: string;
   usage: UsageInfo | null;
   loading: boolean;
+  /** The account shown, and how to switch it - omitted for a plugin whose
+   * usage doesn't depend on one, which gets no switcher. */
+  profile?: string;
+  onProfileChange?: (next: string | undefined) => void;
 }) {
   const { t } = useI18n();
   return (
     <>
       <div className="plugin-usage-popover-title">{label}</div>
+      {onProfileChange && <ProfileSwitcher profile={profile} onChange={onProfileChange} />}
       {loading && !usage && <div className="plugin-usage-popover-loading">{t("common.checking")}</div>}
       {usage?.metrics.map((m, i) => {
         const warn = m.percent !== undefined && m.percent >= 0.75;

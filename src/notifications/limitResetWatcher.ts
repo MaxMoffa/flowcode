@@ -6,9 +6,10 @@ import type { UsageInfo } from "../plugins/usage";
 import { onUsageFetched } from "../plugins/useUsageState";
 import { getNotificationSettings } from "./notificationSettings";
 
-/** Plugin id -> when its blocking limit lifts (ms). In storage, so a reset
- * still gets its notification after the app restarts - and every window
- * shares it (notify_once keeps that to a single notification). */
+/** Account -> when its blocking limit lifts (ms); see `pendingKey` for what
+ * identifies an account. In storage, so a reset still gets its notification
+ * after the app restarts - and every window shares it (notify_once keeps that
+ * to a single notification). */
 type Pending = Record<string, number>;
 
 const KEY = "flowcode.limitResets";
@@ -16,6 +17,27 @@ const CHECK_MS = 30_000;
 /** A reset that passed this long ago (the app was closed, the computer
  * asleep) isn't news anymore. */
 const LATE_MS = 15 * 60_000;
+
+/** The default account is the bare plugin id (what older versions stored);
+ * an account profile's is `<plugin id>\u0000<profile id>`. */
+function pendingKey(pluginId: string, profile?: string): string {
+  return profile ? `${pluginId}\u0000${profile}` : pluginId;
+}
+
+function splitKey(key: string): [string, string | undefined] {
+  const [pluginId, profile] = key.split("\u0000");
+  return [pluginId, profile];
+}
+
+/** A profile's display name, its id when it can't be read any more. */
+async function profileName(profile: string): Promise<string> {
+  try {
+    const state = await invoke<{ profiles: { id: string; name: string }[] }>("profiles_list");
+    return state.profiles.find((p) => p.id === profile)?.name ?? profile;
+  } catch {
+    return profile;
+  }
+}
 
 const NAMES: Record<string, string> = { "claude-code": "Claude Code", "codex-cli": "Codex" };
 
@@ -68,11 +90,14 @@ function writePending(pending: Pending) {
   writeString(KEY, JSON.stringify(pending));
 }
 
-function notifyReset(pluginId: string, at: number) {
+/** A non-default account is named after the agent: "Claude Code (Work)". */
+async function notifyReset(key: string, at: number) {
   if (!getNotificationSettings().limitReset) return;
-  const agent = NAMES[pluginId] ?? pluginId;
+  const [pluginId, profile] = splitKey(key);
+  const name = NAMES[pluginId] ?? pluginId;
+  const agent = profile ? `${name} (${await profileName(profile)})` : name;
   void invoke("notify_once", {
-    key: `${pluginId}:${at}`,
+    key: `${key}:${at}`,
     label: getCurrentWindow().label,
     title: agent,
     body: t("notifications.body.limitReset", { agent }),
@@ -89,18 +114,19 @@ function blockedUntil(usage: UsageInfo): number | null {
   return resets.length ? Math.max(...resets) : null;
 }
 
-function onUsage(pluginId: string, usage: UsageInfo) {
+function onUsage(pluginId: string, usage: UsageInfo, profile?: string) {
   if (!usage.ok || !NAMES[pluginId]) return;
+  const key = pendingKey(pluginId, profile);
   const pending = readPending();
   const until = blockedUntil(usage);
   if (until !== null) {
-    if (pending[pluginId] === until) return;
-    pending[pluginId] = until;
-  } else if (pluginId in pending) {
+    if (pending[key] === until) return;
+    pending[key] = until;
+  } else if (key in pending) {
     // Free again: right on time is the reset itself (the poll beat the
     // timer); well before it, the limit lifted some other way.
-    if (pending[pluginId] <= Date.now() + 60_000) notifyReset(pluginId, pending[pluginId]);
-    delete pending[pluginId];
+    if (pending[key] <= Date.now() + 60_000) void notifyReset(key, pending[key]);
+    delete pending[key];
   } else {
     return;
   }
@@ -111,10 +137,10 @@ function check() {
   const pending = readPending();
   const now = Date.now();
   let changed = false;
-  for (const [pluginId, at] of Object.entries(pending)) {
+  for (const [key, at] of Object.entries(pending)) {
     if (now < at) continue;
-    if (now - at < LATE_MS) notifyReset(pluginId, at);
-    delete pending[pluginId];
+    if (now - at < LATE_MS) void notifyReset(key, at);
+    delete pending[key];
     changed = true;
   }
   if (changed) writePending(pending);

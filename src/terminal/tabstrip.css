@@ -49,6 +49,27 @@
   flex: 0 0 auto;
 }
 
+/* Account profile badge: a small dot in the profile's color on the corner of
+   the tab's icon. It lives on a wrapper around the icon so a busy agent's
+   spinning logo doesn't carry it round; the ring keeps it readable on any
+   tab background. */
+.term-tab-profiled {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.term-tab-profile-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
 /* A tab running an agent CLI: its logo in place of the dot, turning while
    the agent works, then, on a renamed tab only, "?" while it waits on the
    user. */

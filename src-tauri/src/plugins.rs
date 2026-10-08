@@ -131,22 +131,51 @@ fn cli_is_installed(cli: &str) -> bool {
 /// "Not logged in" text it's documented to print (same kind of heuristic
 /// src/plugins/codexStatus.ts already uses against Codex's interactive
 /// screen - there's no more reliable signal available for it).
-fn cli_is_logged_in(cli: &str) -> bool {
+fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
+    let envs = crate::profiles::env_for(app, profile);
     match cli {
-        "claude" => run_command_blocking("claude auth status")
+        "claude" => run_command_with_env("claude auth status", &envs)
             .ok()
             .filter(|o| o.status.success())
             .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
             .and_then(|v| v.get("loggedIn").and_then(|b| b.as_bool()))
             .unwrap_or(false),
-        "codex" => run_command_blocking("codex login status")
+        "codex" => run_command_with_env("codex login status", &envs)
             .ok()
             .is_some_and(|o| o.status.success() && !combined_output(&o).to_lowercase().contains("not logged in")),
         // Vibe has no status command: it's "signed in" once a Mistral API key
-        // is set - `vibe --setup` saves it to `~/.vibe/.env`.
-        "vibe" => crate::vibe::has_api_key(),
+        // is set - `vibe --setup` saves it to `<vibe home>/.env`.
+        "vibe" => {
+            let home = crate::profiles::dirs(app, profile).map(|d| d.vibe);
+            crate::vibe::has_api_key(home.as_deref())
+        }
         _ => false,
     }
+}
+
+/// `run_command_blocking` with extra environment variables on the child - how
+/// a status command is pointed at an account profile's own folders.
+pub(crate) fn run_command_with_env(command: &str, envs: &[(String, String)]) -> std::io::Result<std::process::Output> {
+    if envs.is_empty() {
+        return run_command_blocking(command);
+    }
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("cmd");
+        // Same as `run_command_blocking`: the text goes to cmd.exe verbatim
+        // and no console window flashes open.
+        cmd.arg("/C").raw_arg(command).creation_flags(flowcode_shared::CREATE_NO_WINDOW);
+        cmd
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let mut cmd = std::process::Command::new(shell);
+        cmd.args(["-lc", command]);
+        cmd
+    };
+    cmd.envs(envs.iter().map(|(k, v)| (k, v))).stdin(std::process::Stdio::null()).output()
 }
 
 /// Checked before a "runCommand" shortcut for a known CLI (Claude Code,
@@ -155,14 +184,14 @@ fn cli_is_logged_in(cli: &str) -> bool {
 /// doing nothing (or, for Codex, launching straight into its interactive
 /// login prompt with no explanation).
 #[tauri::command]
-pub async fn check_cli_status(cli: String) -> Result<CliStatus, String> {
+pub async fn check_cli_status(app: AppHandle, cli: String, profile: Option<String>) -> Result<CliStatus, String> {
     // `cli` ends up inside a shell command line - only the names this knows.
     if !matches!(cli.as_str(), "claude" | "codex" | "vibe") {
         return Ok(CliStatus { installed: false, logged_in: false });
     }
     crate::blocking(move || {
         let installed = cli_is_installed(&cli);
-        let logged_in = installed && cli_is_logged_in(&cli);
+        let logged_in = installed && cli_is_logged_in(&app, &cli, profile.as_deref());
         Ok(CliStatus { installed, logged_in })
     })
     .await
@@ -175,14 +204,19 @@ pub async fn check_cli_status(cli: String) -> Result<CliStatus, String> {
 /// `"unknown"` (signed out, not installed, unreadable). Decides which popup
 /// the CLI's shortcut shows - see src/plugins/usage.ts.
 #[tauri::command]
-pub async fn cli_billing_mode(cli: String) -> Result<&'static str, String> {
+pub async fn cli_billing_mode(
+    app: AppHandle,
+    cli: String,
+    profile: Option<String>,
+) -> Result<&'static str, String> {
     crate::blocking(move || {
+        let envs = crate::profiles::env_for(&app, profile.as_deref());
         Ok(match cli.as_str() {
-            "claude" => run_command_blocking("claude auth status")
+            "claude" => run_command_with_env("claude auth status", &envs)
                 .ok()
                 .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
                 .map_or("unknown", |status| claude_billing_mode(&status)),
-            "codex" => run_command_blocking("codex login status")
+            "codex" => run_command_with_env("codex login status", &envs)
                 .ok()
                 .map_or("unknown", |o| codex_billing_mode(&combined_output(&o))),
             "vibe" => "api",

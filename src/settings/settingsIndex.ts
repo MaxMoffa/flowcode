@@ -10,6 +10,7 @@ export const SECTION_TITLE_KEYS: Record<SettingsSection, MessageKey> = {
   notifications: "settings.section.notifications",
   shortcuts: "settings.section.shortcuts",
   funzionalita: "settings.section.features",
+  profiles: "settings.section.profiles",
   info: "settings.section.info",
 };
 
@@ -21,6 +22,7 @@ export const SECTION_DESCRIPTION_KEYS: Record<SettingsSection, MessageKey> = {
   notifications: "settings.section.notifications.desc",
   shortcuts: "settings.section.shortcuts.desc",
   funzionalita: "settings.section.features.desc",
+  profiles: "settings.section.profiles.desc",
   info: "settings.section.info.desc",
 };
 
@@ -32,6 +34,7 @@ export const SECTION_SHORT_KEYS: Record<SettingsSection, MessageKey> = {
   notifications: "settings.section.notifications.short",
   shortcuts: "settings.section.shortcuts.short",
   funzionalita: "settings.section.features.short",
+  profiles: "settings.section.profiles.short",
   info: "settings.section.info.short",
 };
 
@@ -72,6 +75,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "notify-limitReset", section: "notifications", label: "settings.notifications.limitReset.label", desc: "settings.notifications.limitReset.desc", keywords: "notifiche notifications limite limit reset sessione session utilizzo usage claude codex 5 ore hours" },
   { id: "notify-exited", section: "notifications", label: "settings.notifications.exited.label", desc: "settings.notifications.exited.desc", keywords: "notifiche notifications agente agent claude codex vibe mistral avvisi chiuso closed" },
   { id: "features", section: "funzionalita", label: "settings.section.features", desc: "settings.section.features.desc", keywords: "plugin funzionalità features barra rapida quick bar shortcuts scorciatoie importa crea" },
+  { id: "profiles", section: "profiles", label: "settings.section.profiles", desc: "settings.section.profiles.desc", keywords: "profili profiles account login accedi accesso multi utente claude codex vibe mistral cartella config" },
   { id: "version", section: "info", label: "settings.group.version", desc: "settings.version.copyDesc", keywords: "versione version copia copy" },
   { id: "updates", section: "info", label: "settings.updates.label", desc: "settings.updates.desc", keywords: "aggiornamenti updates aggiorna upgrade" },
   { id: "configDir", section: "info", label: "settings.configDir.label", desc: "settings.configDir.desc", keywords: "configurazione config cartella folder json manutenzione" },

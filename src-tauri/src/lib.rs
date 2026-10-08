@@ -5,6 +5,7 @@ mod gpu;
 mod attention;
 mod notify;
 mod plugins;
+mod profiles;
 mod pty;
 mod session;
 mod spend;
@@ -141,6 +142,13 @@ pub fn run() {
             git::git_worktrees,
             git::git_worktree_add,
             git::git_worktree_remove,
+            profiles::profiles_list,
+            profiles::profile_create,
+            profiles::profile_update,
+            profiles::profile_delete,
+            profiles::profile_set_project_default,
+            profiles::profile_for_path,
+            profiles::profile_login_state,
             spend::cli_spend,
             plugins::cli_billing_mode,
             vibe::list_vibe_sessions,

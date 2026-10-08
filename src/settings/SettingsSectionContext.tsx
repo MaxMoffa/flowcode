@@ -8,6 +8,7 @@ export type SettingsSection =
   | "notifications"
   | "shortcuts"
   | "funzionalita"
+  | "profiles"
   | "info";
 
 interface SettingsSectionValue {

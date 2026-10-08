@@ -148,6 +148,22 @@
   height: 18px;
 }
 
+/* Account profile badge: a small dot in the profile's color on the corner of
+   the CLI icon (same look as the tab strip's). */
+.agents-sidebar-icon {
+  position: relative;
+}
+
+.agents-sidebar-profile-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
 .agents-sidebar-icon svg {
   width: 18px;
   height: 18px;
@@ -384,6 +400,51 @@
   border-top: 1px solid var(--border);
   font-size: 11px;
   cursor: pointer;
+}
+
+/* Account profile picker above the agent list. */
+.agents-new-menu-profiles {
+  margin-bottom: 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agents-new-menu-profiles .agents-new-menu-option {
+  margin-top: 0;
+  border-top: 0;
+}
+
+.agents-new-menu-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agents-new-menu-profile:hover {
+  background: var(--sidebar-hover);
+}
+
+.agents-new-menu-profile.is-selected {
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
+.agents-new-menu-profile-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
 }
 
 .agents-new-menu-option.is-disabled {

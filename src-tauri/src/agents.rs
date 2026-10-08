@@ -9,7 +9,6 @@ use tauri::State;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-use flowcode_shared::run_command_blocking;
 #[cfg(target_os = "windows")]
 use flowcode_shared::CREATE_NO_WINDOW;
 
@@ -81,6 +80,9 @@ pub struct AgentSession {
     session_id: Option<String>,
     session_name: Option<String>,
     status: Option<String>,
+    /// The account profile the tab runs under (`None`: the default one, and
+    /// always for agents inside WSL).
+    profile: Option<String>,
 }
 
 /// BFS over descendants of `root_pid` (a pty's own shell), returning the
@@ -140,6 +142,7 @@ fn find_agent(
 /// shows up as periodic stutter.
 #[tauri::command]
 pub async fn list_agent_sessions(
+    app: tauri::AppHandle,
     pty_state: State<'_, PtyState>,
     window_tabs: State<'_, WindowTabs>,
 ) -> Result<Vec<AgentSession>, String> {
@@ -148,7 +151,12 @@ pub async fn list_agent_sessions(
         return Ok(Vec::new());
     }
     let tabs = window_tabs.by_pty();
-    let mut sessions = crate::blocking(move || Ok(find_agent_sessions(shell_pids))).await?;
+    let profiles: HashMap<String, Option<String>> = shell_pids
+        .iter()
+        .map(|(pty_id, _)| (pty_id.clone(), crate::pty::profile_of(&pty_state, pty_id)))
+        .collect();
+    let homes = ProfileHomes::of(&app);
+    let mut sessions = crate::blocking(move || Ok(find_agent_sessions(shell_pids, &homes, &profiles))).await?;
     for session in &mut sessions {
         if let Some((window, tab)) = tabs.get(&session.pty_id) {
             session.window = Some(window.clone());
@@ -188,7 +196,36 @@ fn find_wsl_client(sys: &System, root_pid: Pid, children_of: &HashMap<Pid, Vec<P
     None
 }
 
-fn find_agent_sessions(shell_pids: Vec<(String, u32)>) -> Vec<AgentSession> {
+/// The three CLI folders of every account profile, default first - what the
+/// readers below look through so a session of any profile is found.
+struct ProfileHomes {
+    /// (profile, Claude config dir)
+    claude: Vec<(Option<String>, PathBuf)>,
+    codex: Vec<(Option<String>, PathBuf)>,
+    vibe: Vec<(Option<String>, PathBuf)>,
+}
+
+impl ProfileHomes {
+    fn of(app: &tauri::AppHandle) -> Self {
+        let mut homes = ProfileHomes { claude: Vec::new(), codex: Vec::new(), vibe: Vec::new() };
+        for (profile, dirs) in crate::profiles::all_dirs(app) {
+            homes.claude.push((profile.clone(), dirs.claude));
+            homes.codex.push((profile.clone(), dirs.codex));
+            homes.vibe.push((profile, dirs.vibe));
+        }
+        homes
+    }
+
+    fn vibe_of(&self, profile: &Option<String>) -> Option<&Path> {
+        self.vibe.iter().find(|(p, _)| p == profile).map(|(_, h)| h.as_path())
+    }
+}
+
+fn find_agent_sessions(
+    shell_pids: Vec<(String, u32)>,
+    homes: &ProfileHomes,
+    profiles: &HashMap<String, Option<String>>,
+) -> Vec<AgentSession> {
     // Distro -> the tabs whose agent (if any) can only be found inside it.
     let mut wsl_tabs: HashMap<Option<String>, HashSet<String>> = HashMap::new();
     let mut sessions = crate::system::with_processes(|sys| {
@@ -208,6 +245,7 @@ fn find_agent_sessions(shell_pids: Vec<(String, u32)>) -> Vec<AgentSession> {
                     .process(Pid::from_u32(pid))
                     .and_then(|p| p.cwd())
                     .map(|c| c.to_string_lossy().trim_end_matches(['\\', '/']).to_string());
+                let profile = profiles.get(&pty_id).cloned().flatten();
                 let mut session = AgentSession {
                     pty_id,
                     cli: cli.to_string(),
@@ -215,18 +253,28 @@ fn find_agent_sessions(shell_pids: Vec<(String, u32)>) -> Vec<AgentSession> {
                     pid,
                     started_at,
                     cwd: cwd.clone(),
+                    profile: profile.clone(),
                     ..AgentSession::default()
                 };
                 if cli == "codex" {
-                    let threads = host_threads.get_or_insert_with(host_live_threads);
-                    if let Some(thread) = cwd.as_deref().and_then(|c| thread_in(threads, c)) {
-                        session.apply_thread(thread);
+                    let threads = host_threads.get_or_insert_with(|| host_live_threads(&homes.codex));
+                    // The tab's own profile first: two profiles can have a
+                    // thread open in the same folder.
+                    let found = cwd.as_deref().and_then(|c| {
+                        let mine: Vec<LiveThread> = threads.iter().filter(|t| t.profile == profile).cloned().collect();
+                        thread_in(&mine, c).cloned().or_else(|| thread_in(threads, c).cloned())
+                    });
+                    if let Some(thread) = found {
+                        session.apply_thread(&thread);
                     }
                 } else if cli == "vibe" {
-                    if let Some(found) = cwd.as_deref().and_then(|c| crate::vibe::live_session_in(c, started_at)) {
+                    let found = homes.vibe_of(&profile).and_then(|home| {
+                        cwd.as_deref().and_then(|c| crate::vibe::live_session_in(home, c, started_at))
+                    });
+                    if let Some(found) = found {
                         session.apply_vibe_session(found);
                     }
-                } else if let Some(entry) = claude_registry_entry(pid) {
+                } else if let Some(entry) = claude_registry_entry(pid, &homes.claude) {
                     session.apply_claude_entry(&entry);
                 }
                 sessions.push(session);
@@ -281,6 +329,8 @@ struct LiveThread {
     wsl_distro: Option<String>,
     /// The Flowcode tab running it, when that tab says so (see `PTY_ID_ENV`).
     pty_id: Option<String>,
+    /// The account profile whose Codex home holds it (`None`: default / WSL).
+    profile: Option<String>,
 }
 
 /// How recently a thread must have written its rollout to count as working,
@@ -445,10 +495,13 @@ fn lock_is_held(lock: &Path) -> bool {
     }
 }
 
-/// Codex threads open right now on this machine itself (not in WSL): those
-/// whose writer lock is held.
-fn host_live_threads() -> Vec<LiveThread> {
-    let Some(home) = crate::fs::user_home().map(|h| h.join(".codex")) else { return Vec::new() };
+/// Codex threads open right now on this machine itself (not in WSL), in the
+/// Codex home of every profile: those whose writer lock is held.
+fn host_live_threads(homes: &[(Option<String>, PathBuf)]) -> Vec<LiveThread> {
+    homes.iter().flat_map(|(profile, home)| host_live_threads_in(home, profile)).collect()
+}
+
+fn host_live_threads_in(home: &Path, profile: &Option<String>) -> Vec<LiveThread> {
     let Ok(locks) = std::fs::read_dir(home.join("thread-writer-locks")) else { return Vec::new() };
     let held: Vec<String> = locks
         .filter_map(|e| e.ok())
@@ -465,8 +518,7 @@ fn host_live_threads() -> Vec<LiveThread> {
     }
     let mut files = Vec::new();
     find_rollout_files(&home.join("sessions"), 5, &mut files);
-    let names = thread_names_in(&home);
-    held.iter()
+    let names = thread_names_in(home);    held.iter()
         .filter_map(|id| {
             let path = files.iter().find(|f| f.to_string_lossy().contains(id.as_str()))?;
             let meta = rollout_meta(path)?;
@@ -481,6 +533,7 @@ fn host_live_threads() -> Vec<LiveThread> {
                 turn_open: rollout_turn_open(path),
                 wsl_distro: None,
                 pty_id: None,
+                profile: profile.clone(),
             })
         })
         .collect()
@@ -631,6 +684,7 @@ fn wsl_live_threads(distro: Option<&str>) -> Vec<LiveThread> {
                 turn_open: rollout_turn_open(&wsl_unc(&distro_name, path)),
                 wsl_distro: Some(distro_name.clone()),
                 pty_id: terminal.pty_id.clone(),
+                profile: None,
             })
         })
         .collect()
@@ -754,6 +808,10 @@ pub struct ClaudeAgentEntry {
     /// `host_app_of`) - not part of `claude agents`' own output.
     #[serde(rename = "hostApp", default)]
     host_app: Option<String>,
+    /// The account profile whose Claude folder lists it (`None`: the default
+    /// one) - not part of `claude agents`' own output either.
+    #[serde(default)]
+    profile: Option<String>,
 }
 
 /// Whether a `claude agents` entry is a one-shot `claude -p` run rather than
@@ -763,23 +821,33 @@ pub struct ClaudeAgentEntry {
 /// Code lists those too; its registry entry (`~/.claude/sessions/<pid>.json`)
 /// tells them apart by `entrypoint`: "cli" for an interactive or background
 /// session, "sdk-..." for `-p`/SDK runs.
-fn is_headless_claude_run(pid: u32) -> bool {
-    claude_registry_entry(pid)
+fn is_headless_claude_run(pid: u32, claude_dirs: &[(Option<String>, PathBuf)]) -> bool {
+    claude_registry_entry(pid, claude_dirs)
         .and_then(|v| v.get("entrypoint").and_then(|e| e.as_str()).map(|e| e.starts_with("sdk")))
         .unwrap_or(false)
 }
 
 /// Claude Code's registry entry for the session running as `pid`
-/// (`~/.claude/sessions/<pid>.json`, or under `CLAUDE_CONFIG_DIR`) - kept up
-/// to date by the CLI itself, `status` included: "busy" while it works,
-/// "waiting" while it waits on the user (a permission prompt, a question),
-/// "idle" once its turn is over.
-fn claude_registry_entry(pid: u32) -> Option<serde_json::Value> {
-    let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| crate::fs::user_home().map(|h| h.join(".claude")))?;
-    let text = std::fs::read_to_string(dir.join("sessions").join(format!("{pid}.json"))).ok()?;
-    serde_json::from_str(&text).ok()
+/// (`<claude dir>/sessions/<pid>.json`) - kept up to date by the CLI itself,
+/// `status` included: "busy" while it works, "waiting" while it waits on the
+/// user (a permission prompt, a question), "idle" once its turn is over. Looked
+/// up in every profile's Claude folder (the default one first): pids are
+/// unique, so the first hit is the one.
+fn claude_registry_entry(pid: u32, claude_dirs: &[(Option<String>, PathBuf)]) -> Option<serde_json::Value> {
+    claude_dirs.iter().find_map(|(_, dir)| {
+        let text = std::fs::read_to_string(dir.join("sessions").join(format!("{pid}.json"))).ok()?;
+        serde_json::from_str(&text).ok()
+    })
+}
+
+/// Whether a profile's Claude folder has at least one session registry file -
+/// `claude agents` is only worth running for it then.
+fn has_claude_sessions(claude_dir: &Path) -> bool {
+    std::fs::read_dir(claude_dir.join("sessions"))
+        .map(|entries| {
+            entries.filter_map(|e| e.ok()).any(|e| e.path().extension().is_some_and(|x| x == "json"))
+        })
+        .unwrap_or(false)
 }
 
 /// The terminal app a process runs under, by walking up its parents: this
@@ -812,19 +880,60 @@ fn host_app_of(sys: &System, pid: u32) -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn list_claude_agents(probe_pids: State<'_, ProbePids>) -> Result<Vec<ClaudeAgentEntry>, String> {
-    let output = crate::blocking(|| run_command_blocking("claude agents --json").map_err(|e| e.to_string())).await?;
+pub async fn list_claude_agents(
+    app: tauri::AppHandle,
+    probe_pids: State<'_, ProbePids>,
+) -> Result<Vec<ClaudeAgentEntry>, String> {
+    let homes = ProfileHomes::of(&app);
+    // `claude agents` once for the default profile, then once more for every
+    // other profile that has ever registered a session (an untouched profile
+    // isn't worth a process spawn per poll).
+    let claude_dirs = homes.claude.clone();
+    let runs = crate::blocking(move || {
+        let mut runs: Vec<(Option<String>, std::process::Output)> = Vec::new();
+        for (profile, dir) in &claude_dirs {
+            if profile.is_some() && !has_claude_sessions(dir) {
+                continue;
+            }
+            let envs = match profile {
+                Some(_) => vec![("CLAUDE_CONFIG_DIR".to_string(), dir.to_string_lossy().into_owned())],
+                None => Vec::new(),
+            };
+            match crate::plugins::run_command_with_env("claude agents --json", &envs) {
+                Ok(output) => runs.push((profile.clone(), output)),
+                // The default run failing to even start is an error as before.
+                Err(e) if profile.is_none() => return Err(e.to_string()),
+                Err(_) => {}
+            }
+        }
+        Ok(runs)
+    })
+    .await?;
 
-    if !output.status.success() {
+    let mut entries: Vec<ClaudeAgentEntry> = Vec::new();
+    let mut seen: HashSet<u32> = HashSet::new();
+    for (profile, output) in runs {
         // Not installed, not on PATH, or an old version without this
         // subcommand - all read the same to the frontend: no data, not an
         // error to surface (the usage popover already has its own separate
         // "not installed"/"not logged in" messaging for Claude).
-        return Ok(Vec::new());
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parsed: Vec<ClaudeAgentEntry> = match serde_json::from_str(&stdout) {
+            Ok(parsed) => parsed,
+            Err(e) if profile.is_none() => return Err(e.to_string()),
+            Err(_) => continue,
+        };
+        for mut entry in parsed {
+            // First wins: the default profile's run comes first.
+            if seen.insert(entry.pid) {
+                entry.profile = profile.clone();
+                entries.push(entry);
+            }
+        }
     }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let entries: Vec<ClaudeAgentEntry> = serde_json::from_str(&stdout).map_err(|e| e.to_string())?;
     let entries: Vec<ClaudeAgentEntry> = {
         let excluded = probe_pids.0.lock().unwrap();
         entries.into_iter().filter(|e| !excluded.contains(&e.pid)).collect()
@@ -833,7 +942,8 @@ pub async fn list_claude_agents(probe_pids: State<'_, ProbePids>) -> Result<Vec<
         return Ok(entries);
     }
     crate::blocking(move || {
-        let entries: Vec<ClaudeAgentEntry> = entries.into_iter().filter(|e| !is_headless_claude_run(e.pid)).collect();
+        let entries: Vec<ClaudeAgentEntry> =
+            entries.into_iter().filter(|e| !is_headless_claude_run(e.pid, &homes.claude)).collect();
         Ok(crate::system::with_processes(|sys| {
             entries
                 .into_iter()
@@ -855,9 +965,17 @@ pub async fn list_claude_agents(probe_pids: State<'_, ProbePids>) -> Result<Vec<
 /// --json` will report - so it can be tracked in `ProbePids` and filtered out
 /// of `list_claude_agents` for the short time it's alive.
 #[tauri::command]
-pub async fn run_claude_usage_probe(probe_pids: State<'_, ProbePids>) -> Result<String, String> {
+pub async fn run_claude_usage_probe(
+    app: tauri::AppHandle,
+    probe_pids: State<'_, ProbePids>,
+    profile: Option<String>,
+) -> Result<String, String> {
+    if profile.is_some() && crate::profiles::dirs(&app, profile.as_deref()).is_none() {
+        return Err("Unknown profile".to_string());
+    }
     let mut cmd = std::process::Command::new("claude");
-    cmd.arg("-p")
+    cmd.envs(crate::profiles::env_for(&app, profile.as_deref()))
+        .arg("-p")
         .arg("/usage")
         .stdin(std::process::Stdio::null())
         // This probe runs every few minutes in the background: it has no
@@ -933,6 +1051,9 @@ pub struct CodexSessionEntry {
     /// Running in a Flowcode tab (this app's or another instance's).
     #[serde(rename = "inFlowcode")]
     in_flowcode: bool,
+    /// The account profile whose Codex home holds it (`None`: the default
+    /// profile, and anything found in WSL).
+    profile: Option<String>,
 }
 
 /// Thread id -> its current name, from Codex's `session_index.jsonl` next to
@@ -954,10 +1075,6 @@ fn codex_thread_names(sessions_root: &Path) -> HashMap<String, String> {
         }
     }
     names
-}
-
-fn codex_sessions_root() -> Option<PathBuf> {
-    Some(crate::fs::user_home()?.join(".codex").join("sessions"))
 }
 
 /// `~/.codex/sessions` of the default WSL distro, through its
@@ -1042,7 +1159,12 @@ fn uuid_from_filename(path: &Path) -> Option<String> {
 /// Reads just enough of a rollout file (its first handful of lines) to
 /// recover the session's cwd and id - never the whole transcript, which can
 /// be an arbitrarily long conversation.
-fn read_codex_session(path: &Path, started_at: Option<u64>, wsl_distro: Option<&str>) -> Option<CodexSessionEntry> {
+fn read_codex_session(
+    path: &Path,
+    started_at: Option<u64>,
+    wsl_distro: Option<&str>,
+    profile: Option<&str>,
+) -> Option<CodexSessionEntry> {
     let file = std::fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
     let mut cwd: Option<String> = None;
@@ -1074,6 +1196,7 @@ fn read_codex_session(path: &Path, started_at: Option<u64>, wsl_distro: Option<&
                     live: false,
                     status: None,
                     in_flowcode: false,
+                    profile: profile.map(str::to_string),
                 });
             }
         }
@@ -1099,6 +1222,7 @@ fn read_codex_session(path: &Path, started_at: Option<u64>, wsl_distro: Option<&
         live: false,
         status: None,
         in_flowcode: false,
+        profile: profile.map(str::to_string),
     })
 }
 
@@ -1110,19 +1234,24 @@ const WSL_SCAN_TTL: std::time::Duration = std::time::Duration::from_secs(20);
 /// Async + blocking pool: walks and opens files under `~/.codex/sessions`
 /// (Windows' own, and the default WSL distro's) on every sidebar poll.
 #[tauri::command]
-pub async fn list_codex_sessions(fresh: Option<bool>) -> Result<Vec<CodexSessionEntry>, String> {
+pub async fn list_codex_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> Result<Vec<CodexSessionEntry>, String> {
+    let homes = ProfileHomes::of(&app);
     crate::blocking(move || {
         static WSL_CACHE: Mutex<Option<(std::time::Instant, Vec<CodexSessionEntry>)>> = Mutex::new(None);
-        let mut sessions = codex_sessions_root()
-            .map(|root| scan_codex_sessions(&root, None))
-            .unwrap_or_default();
+        // Every profile's Codex home, the default one first; each entry says
+        // which profile it came from.
+        let mut sessions: Vec<CodexSessionEntry> = homes
+            .codex
+            .iter()
+            .flat_map(|(profile, home)| scan_codex_sessions(&home.join("sessions"), None, profile.as_deref()))
+            .collect();
         let wsl = {
             let mut cache = WSL_CACHE.lock().unwrap();
             match cache.as_ref() {
                 Some((at, cached)) if at.elapsed() < WSL_SCAN_TTL && fresh != Some(true) => cached.clone(),
                 _ => {
                     let fresh = wsl_codex_sessions_root()
-                        .map(|(distro, root)| scan_codex_sessions(&root, Some(&distro)))
+                        .map(|(distro, root)| scan_codex_sessions(&root, Some(&distro), None))
                         .unwrap_or_default();
                     *cache = Some((std::time::Instant::now(), fresh.clone()));
                     fresh
@@ -1134,7 +1263,7 @@ pub async fn list_codex_sessions(fresh: Option<bool>) -> Result<Vec<CodexSession
 
         // Threads open right now go first, marked live - wherever they run -
         // and are left out of the saved ones.
-        let mut live: Vec<LiveThread> = host_live_threads();
+        let mut live: Vec<LiveThread> = host_live_threads(&homes.codex);
         if wsl_codex_sessions_root().is_some() {
             live.extend(wsl_live_threads(None));
         }
@@ -1151,6 +1280,7 @@ pub async fn list_codex_sessions(fresh: Option<bool>) -> Result<Vec<CodexSession
                 live: true,
                 status: Some(t.status().to_string()),
                 in_flowcode: t.pty_id.is_some(),
+                profile: t.profile.clone(),
             })
             .collect();
         all.extend(sessions);
@@ -1159,7 +1289,7 @@ pub async fn list_codex_sessions(fresh: Option<bool>) -> Result<Vec<CodexSession
     .await
 }
 
-fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>) -> Vec<CodexSessionEntry> {
+fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&str>) -> Vec<CodexSessionEntry> {
     let mut files = Vec::new();
     find_rollout_files(root, 5, &mut files);
 
@@ -1177,7 +1307,7 @@ fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>) -> Vec<CodexSessio
 
     let mut sessions: Vec<CodexSessionEntry> = files
         .iter()
-        .filter_map(|(path, mtime)| read_codex_session(path, *mtime, wsl_distro))
+        .filter_map(|(path, mtime)| read_codex_session(path, *mtime, wsl_distro, profile))
         .take(MAX_CODEX_SESSIONS)
         .collect();
     if !sessions.is_empty() {
@@ -1227,7 +1357,7 @@ mod tests {
         let path = rollout(
             r#"{"type":"session_meta","payload":{"session_id":"other","id":"thread-1","cwd":"/home/u/p","source":"cli"}}"#,
         );
-        let entry = read_codex_session(&path, Some(1), Some("Ubuntu")).unwrap();
+        let entry = read_codex_session(&path, Some(1), Some("Ubuntu"), None).unwrap();
         assert_eq!(entry.session_id, "thread-1");
         assert_eq!(entry.cwd, "/home/u/p");
         assert_eq!(entry.wsl_distro.as_deref(), Some("Ubuntu"));
@@ -1239,7 +1369,7 @@ mod tests {
         let path = rollout(
             r#"{"type":"session_meta","payload":{"id":"t","parent_thread_id":"p","cwd":"/x","source":{"subagent":{"other":"guardian"}}}}"#,
         );
-        assert!(read_codex_session(&path, None, None).is_none());
+        assert!(read_codex_session(&path, None, None, None).is_none());
         let _ = std::fs::remove_file(path);
     }
 

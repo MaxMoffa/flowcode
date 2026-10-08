@@ -26,6 +26,9 @@ export interface AgentSession {
   session_id: string | null;
   session_name: string | null;
   status: string | null;
+  /** The account profile its pty runs under (src/profiles) - `null` for the
+   * default one. */
+  profile: string | null;
 }
 
 /** Often enough for the tab strip's working/waiting indicator to feel live,

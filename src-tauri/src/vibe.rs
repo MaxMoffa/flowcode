@@ -158,10 +158,15 @@ fn same_dir(a: &str, b: &str) -> bool {
     norm(a) == norm(b)
 }
 
-/// The session a `vibe` running in `cwd` is working on: the most recently
-/// written top-level session in that folder. Id, title, "busy"/"idle".
-pub(crate) fn live_session_in(cwd: &str, started_at: Option<u64>) -> Option<(String, Option<String>, &'static str)> {
-    live_session_under(&sessions_root(&vibe_home()?), cwd, started_at)
+/// The session a `vibe` using Vibe home `home` and running in `cwd` is working
+/// on: the most recently written top-level session in that folder. Id, title,
+/// "busy"/"idle".
+pub(crate) fn live_session_in(
+    home: &Path,
+    cwd: &str,
+    started_at: Option<u64>,
+) -> Option<(String, Option<String>, &'static str)> {
+    live_session_under(&sessions_root(home), cwd, started_at)
 }
 
 pub(crate) fn live_session_under(
@@ -203,11 +208,14 @@ pub struct VibeSessionEntry {
     wsl_distro: Option<String>,
     /// The title Vibe generated for it (or the one the user gave it).
     name: Option<String>,
+    /// The account profile whose Vibe home holds it (`None`: the default
+    /// profile, and anything found in WSL).
+    profile: Option<String>,
 }
 
 const MAX_VIBE_SESSIONS: usize = 8;
 
-fn scan_saved_sessions(root: &Path, wsl_distro: Option<&str>) -> Vec<VibeSessionEntry> {
+fn scan_saved_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&str>) -> Vec<VibeSessionEntry> {
     session_dirs(root)
         .into_iter()
         .take(MAX_VIBE_SESSIONS * 4)
@@ -220,6 +228,7 @@ fn scan_saved_sessions(root: &Path, wsl_distro: Option<&str>) -> Vec<VibeSession
                 started_at: m.updated_at,
                 wsl_distro: wsl_distro.map(str::to_string),
                 name: m.title,
+                profile: profile.map(str::to_string),
             })
         })
         .take(MAX_VIBE_SESSIONS)
@@ -256,19 +265,22 @@ const WSL_SCAN_TTL: std::time::Duration = std::time::Duration::from_secs(20);
 /// Saved Vibe sessions (Windows' own and the default WSL distro's), newest
 /// first. Async + blocking pool: it opens files on every panel poll.
 #[tauri::command]
-pub async fn list_vibe_sessions(fresh: Option<bool>) -> Result<Vec<VibeSessionEntry>, String> {
+pub async fn list_vibe_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> Result<Vec<VibeSessionEntry>, String> {
     crate::blocking(move || {
         static WSL_CACHE: Mutex<Option<(std::time::Instant, Vec<VibeSessionEntry>)>> = Mutex::new(None);
-        let mut sessions = vibe_home()
-            .map(|home| scan_saved_sessions(&sessions_root(&home), None))
-            .unwrap_or_default();
+        // Every profile's Vibe home, the default one first; each entry says
+        // which profile it came from.
+        let mut sessions: Vec<VibeSessionEntry> = crate::profiles::all_dirs(&app)
+            .into_iter()
+            .flat_map(|(profile, dirs)| scan_saved_sessions(&sessions_root(&dirs.vibe), None, profile.as_deref()))
+            .collect();
         let wsl = {
             let mut cache = WSL_CACHE.lock().unwrap();
             match cache.as_ref() {
                 Some((at, cached)) if at.elapsed() < WSL_SCAN_TTL && fresh != Some(true) => cached.clone(),
                 _ => {
                     let scanned = wsl_sessions_root()
-                        .map(|(distro, root)| scan_saved_sessions(&root, Some(&distro)))
+                        .map(|(distro, root)| scan_saved_sessions(&root, Some(&distro), None))
                         .unwrap_or_default();
                     *cache = Some((std::time::Instant::now(), scanned.clone()));
                     scanned
@@ -301,12 +313,12 @@ pub struct VibeUsage {
     last_model: Option<String>,
 }
 
-/// Whether Vibe has a Mistral API key to work with.
-pub(crate) fn has_api_key() -> bool {
+/// Whether Vibe has a Mistral API key to work with, in the Vibe home `home`.
+pub(crate) fn has_api_key(home: Option<&Path>) -> bool {
     if std::env::var_os("MISTRAL_API_KEY").is_some_and(|v| !v.is_empty()) {
         return true;
     }
-    let Some(env) = vibe_home().and_then(|h| std::fs::read_to_string(h.join(".env")).ok()) else {
+    let Some(env) = home.and_then(|h| std::fs::read_to_string(h.join(".env")).ok()) else {
         return false;
     };
     env_file_has_key(&env, "MISTRAL_API_KEY")
@@ -334,20 +346,21 @@ fn utc_midnight(now: u64) -> u64 {
 /// `today_start` is the frontend's local midnight (ms) - the backend has no
 /// timezone data of its own.
 #[tauri::command]
-pub async fn vibe_usage_stats(today_start: Option<u64>) -> Result<VibeUsage, String> {
+pub async fn vibe_usage_stats(
+    app: tauri::AppHandle,
+    today_start: Option<u64>,
+    profile: Option<String>,
+) -> Result<VibeUsage, String> {
     crate::blocking(move || {
+        let home = crate::profiles::dirs(&app, profile.as_deref()).ok_or("Unknown profile")?.vibe;
         let now = now_ms();
         let today = today_start.filter(|t| *t <= now).unwrap_or_else(|| utc_midnight(now));
-        let metas: Vec<SessionMeta> = vibe_home()
-            .map(|home| {
-                session_dirs(&sessions_root(&home))
-                    .into_iter()
-                    .take_while(|(_, mtime)| mtime.is_none_or(|m| now.saturating_sub(m) < 31 * 86_400_000))
-                    .filter_map(|(dir, _)| read_meta(&dir))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(summarize(&metas, now, today, has_api_key()))
+        let metas: Vec<SessionMeta> = session_dirs(&sessions_root(&home))
+            .into_iter()
+            .take_while(|(_, mtime)| mtime.is_none_or(|m| now.saturating_sub(m) < 31 * 86_400_000))
+            .filter_map(|(dir, _)| read_meta(&dir))
+            .collect();
+        Ok(summarize(&metas, now, today, has_api_key(Some(&home))))
     })
     .await
 }
@@ -392,17 +405,17 @@ fn summarize(metas: &[SessionMeta], now: u64, today_start: u64, has_api_key: boo
     usage
 }
 
-/// Makes Mistral Large 4 available in Vibe: adds it to `~/.vibe/config.toml`
-/// (`[[models]]`, with its context window and prices) when it isn't there
+/// Makes Mistral Large 4 available in Vibe: adds it to the `config.toml` of
+/// the given profile's Vibe home (`~/.vibe` for the default one) (`[[models]]`, with its context window and prices) when it isn't there
 /// yet, and makes it the active model when the user hasn't pinned one of
 /// their own - a model they picked in Vibe (`/model`) is never overridden.
 /// Edited with `toml_edit`, so the rest of the file - comments, order,
 /// everything Vibe or the user wrote - stays exactly as it was. Returns
 /// whether the file changed.
 #[tauri::command]
-pub async fn vibe_ensure_model() -> Result<bool, String> {
-    crate::blocking(|| {
-        let home = vibe_home().ok_or("no home folder")?;
+pub async fn vibe_ensure_model(app: tauri::AppHandle, profile: Option<String>) -> Result<bool, String> {
+    crate::blocking(move || {
+        let home = crate::profiles::dirs(&app, profile.as_deref()).ok_or("Unknown profile")?.vibe;
         let path = home.join("config.toml");
         let current = match std::fs::read_to_string(&path) {
             Ok(text) => text,

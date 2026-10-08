@@ -38,6 +38,12 @@ const PATHS: Record<SettingsSection, ReactNode> = {
     </>
   ),
   funzionalita: <path d="M13 3 5 13.5h6L10 21l8-10.5h-6z" />,
+  profiles: (
+    <>
+      <circle cx="12" cy="8.5" r="3.5" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+    </>
+  ),
   info: (
     <>
       <circle cx="12" cy="12" r="8.5" />

@@ -15,6 +15,8 @@ export type SavedTab =
       /** `pty_spawn` shell id when the tab was opened with a specific one
        * (e.g. "wsl"), otherwise the configured default applies. */
       shell?: string;
+      /** Account profile id the tab's shell ran under (see src/profiles). */
+      profileId?: string;
       /** xterm serialize-addon output: text plus colors/styles, replayed
        * verbatim into the new terminal. */
       content?: string;

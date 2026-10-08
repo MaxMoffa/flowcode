@@ -39,6 +39,11 @@ export interface TermTab {
    * <name>` named, or the machine's default once resolved (see
    * `wslPath.ts`) for a bare `wsl`. */
   wslDistro?: string;
+  /** The account profile (see src/profiles) this tab's shell was started
+   * under - fixed at spawn, since the env vars it sets (CLAUDE_CONFIG_DIR,
+   * CODEX_HOME, VIBE_HOME) can't change on a running process. `undefined` =
+   * the default profile. */
+  profileId?: string;
 }
 
 export interface EditorTab {

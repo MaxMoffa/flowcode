@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { usageFetcherFor, type UsageInfo } from "./usage";
+import { profileById, useProfiles, useProfilesLoaded } from "../profiles/profiles";
+import { readString, writeString } from "../lib/storage";
 
 const STALE_MS = 30_000;
 /** Usage limits don't move minute to minute, and a Codex refresh in
@@ -22,28 +24,34 @@ interface Entry {
 
 const EMPTY: Snapshot = { usage: null, loading: false };
 
-/** One entry per plugin id, shared by every component showing that plugin's
- * usage (the pinned shortcut-bar button, the "tutti i plugin" menu row) - a
- * single cache, a single in-flight fetch and a single refresh timer, however
- * many of them are mounted. Previously each component kept its own copy, so
+/** One entry per (plugin id, account profile), shared by every component
+ * showing that usage (the pinned shortcut-bar button, the "tutti i plugin"
+ * menu row) - a single cache, a single in-flight fetch and a single refresh
+ * timer, however many of them are mounted. Previously each component kept its own copy, so
  * merely opening the plugin menu spawned a fresh Codex probe session. */
 const entries = new Map<string, Entry>();
 
-function entryFor(pluginId: string): Entry {
-  let entry = entries.get(pluginId);
+/** The default profile is the empty string. */
+function keyOf(pluginId: string, profile?: string): string {
+  return `${pluginId}\u0000${profile ?? ""}`;
+}
+
+function entryFor(key: string): Entry {
+  let entry = entries.get(key);
   if (!entry) {
     entry = { snapshot: EMPTY, lastFetch: 0, listeners: new Set() };
-    entries.set(pluginId, entry);
+    entries.set(key, entry);
   }
   return entry;
 }
 
-/** Told about every usage result fetched, whichever plugin and component
- * asked for it - lets the limit-reset notifications (see
+/** Told about every usage result fetched, whichever plugin, profile and
+ * component asked for it - lets the limit-reset notifications (see
  * limitResetWatcher.ts) follow along without fetching anything themselves. */
-const fetchedListeners = new Set<(pluginId: string, usage: UsageInfo) => void>();
+type FetchedListener = (pluginId: string, usage: UsageInfo, profile?: string) => void;
+const fetchedListeners = new Set<FetchedListener>();
 
-export function onUsageFetched(listener: (pluginId: string, usage: UsageInfo) => void): () => void {
+export function onUsageFetched(listener: FetchedListener): () => void {
   fetchedListeners.add(listener);
   return () => fetchedListeners.delete(listener);
 }
@@ -53,20 +61,20 @@ function update(entry: Entry, patch: Partial<Snapshot>) {
   entry.listeners.forEach((listener) => listener());
 }
 
-function loadUsage(pluginId: string, force = false) {
+function loadUsage(pluginId: string, profile?: string, force = false) {
   const fetcher = usageFetcherFor(pluginId);
   if (!fetcher) return;
-  const entry = entryFor(pluginId);
+  const entry = entryFor(keyOf(pluginId, profile));
   // Also de-dupes React StrictMode's dev-only double subscribe on mount -
   // for Codex, two concurrent probes means two real CLI sessions.
   if (entry.snapshot.loading) return;
   if (!force && entry.snapshot.usage && Date.now() - entry.lastFetch < STALE_MS) return;
   entry.lastFetch = Date.now();
   update(entry, { loading: true });
-  fetcher()
+  fetcher(profile)
     .then((usage) => {
       update(entry, { usage });
-      fetchedListeners.forEach((listener) => listener(pluginId, usage));
+      fetchedListeners.forEach((listener) => listener(pluginId, usage, profile));
     })
     // The fetchers already turn real failures into an `ok: false` result -
     // this only keeps an unexpected throw from wedging `loading` forever.
@@ -74,13 +82,13 @@ function loadUsage(pluginId: string, force = false) {
     .finally(() => update(entry, { loading: false }));
 }
 
-function subscribe(pluginId: string, listener: () => void): () => void {
-  const entry = entryFor(pluginId);
+function subscribe(pluginId: string, profile: string | undefined, listener: () => void): () => void {
+  const entry = entryFor(keyOf(pluginId, profile));
   entry.listeners.add(listener);
   if (entry.listeners.size === 1) {
-    loadUsage(pluginId);
+    loadUsage(pluginId, profile);
     entry.timer = setInterval(() => {
-      if (document.visibilityState === "visible") loadUsage(pluginId, true);
+      if (document.visibilityState === "visible") loadUsage(pluginId, profile, true);
     }, REFRESH_MS);
   }
   return () => {
@@ -94,19 +102,59 @@ function subscribe(pluginId: string, listener: () => void): () => void {
 
 const noopUnsubscribe = () => {};
 
-/** Fetch/cache/auto-refresh state for a plugin's usage info. `fetcher` is
- * `undefined` for a plugin with no known usage source (most of them) -
- * callers treat that as "render the plain icon/row, no popover". */
-export function useUsageState(pluginId: string) {
+/** Fetch/cache/auto-refresh state for a plugin's usage info under an account
+ * `profile` (the default account when omitted). `fetcher` is `undefined` for
+ * a plugin with no known usage source (most of them) - callers treat that as
+ * "render the plain icon/row, no popover". */
+export function useUsageState(pluginId: string, profile?: string, enabled = true) {
   const fetcher = usageFetcherFor(pluginId);
   const subscribeToEntry = useCallback(
-    (listener: () => void) => (fetcher ? subscribe(pluginId, listener) : noopUnsubscribe),
-    [pluginId, fetcher],
+    (listener: () => void) => (fetcher && enabled ? subscribe(pluginId, profile, listener) : noopUnsubscribe),
+    [pluginId, profile, fetcher, enabled],
   );
-  const getSnapshot = useCallback(() => entries.get(pluginId)?.snapshot ?? EMPTY, [pluginId]);
+  const getSnapshot = useCallback(() => entries.get(keyOf(pluginId, profile))?.snapshot ?? EMPTY, [pluginId, profile]);
   const { usage, loading } = useSyncExternalStore(subscribeToEntry, getSnapshot);
-  const load = useCallback(() => loadUsage(pluginId), [pluginId]);
+  const load = useCallback(() => {
+    if (enabled) loadUsage(pluginId, profile);
+  }, [pluginId, profile, enabled]);
   return { fetcher, usage, loading, load };
+}
+
+const USAGE_PROFILE_KEY = "flowcode.usageProfile.";
+const profileListeners = new Set<() => void>();
+
+function subscribeProfile(listener: () => void): () => void {
+  profileListeners.add(listener);
+  return () => profileListeners.delete(listener);
+}
+
+/** Whether this plugin's usage depends on the account (the three agent CLIs). */
+export function usageHasProfiles(pluginId: string): boolean {
+  return usageFetcherFor(pluginId) !== undefined;
+}
+
+/** Which account's usage a plugin shows: `undefined` is the default account.
+ * Remembered per plugin in localStorage (`readString`/`writeString`), and
+ * shared live between the shortcut-bar button and the plugin menu row of the
+ * same plugin - picking a profile in one popover moves the other too. An id
+ * whose profile was deleted since counts as the default one. */
+export function useUsageProfile(
+  pluginId: string,
+): [string | undefined, (next: string | undefined) => void, boolean] {
+  const profiles = useProfiles();
+  const profilesLoaded = useProfilesLoaded();
+  const stored = useSyncExternalStore(subscribeProfile, () => readString(USAGE_PROFILE_KEY + pluginId) || undefined);
+  const set = useCallback(
+    (next: string | undefined) => {
+      writeString(USAGE_PROFILE_KEY + pluginId, next ?? "");
+      profileListeners.forEach((listener) => listener());
+    },
+    [pluginId],
+  );
+  // A stored profile can only be resolved once the list is in; until then
+  // nothing is fetched rather than the default account's usage by mistake.
+  const ready = !stored || profilesLoaded;
+  return [profileById(profiles, stored) ? stored : undefined, set, ready];
 }
 
 /** Hover-driven popover anchoring shared by the shortcut-bar button and the
