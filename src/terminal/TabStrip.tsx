@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { createPortal } from "react-dom";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "./shellOptions";
@@ -7,6 +7,7 @@ import { FileTypeIcon } from "../sidebar/fileIcons";
 import { useOpenContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { t, translationsOf, useI18n } from "../i18n";
 import { agentCliIcon } from "../plugins/icons";
+import { wslDistroOfShell } from "./wslPath";
 import type { TabAgent } from "../agents/agentSessions";
 import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
 import "./tabstrip.css";
@@ -26,7 +27,9 @@ interface TabStripProps {
   /** Creates a new terminal tab - `shellId` (a `list_shell_options` id, from
    * the "+" button's own context menu) picks a specific shell instead of the
    * configured default. */
-  onNew: (shellId?: string) => void;
+  /** `profileId`: undefined = automatic, null = the default profile on
+   * purpose, a string = that profile on purpose. */
+  onNew: (shellId?: string, profileId?: string | null) => void;
   onRename: (id: string, label: string) => void;
   /** Opens a second, independent copy of a tab - same cwd for a terminal,
    * same file for an editor. Not offered for the (singleton) settings tab. */
@@ -627,17 +630,46 @@ export function TabStrip({
         title={t("tabs.new.title")}
         onClick={() => onNew()}
         onContextMenu={(e) => {
-          // Only worth a picker when there's an actual choice - one option
-          // (just "system") means this would open on a menu with nothing
-          // useful to pick, so it falls straight through to a plain new tab.
-          if (shellOptions.length <= 1) {
+          // Only worth a picker when there's an actual choice - one shell
+          // (just "system") and no profile means this would open on a menu
+          // with nothing useful to pick, so it falls straight through to a
+          // plain new tab.
+          if (shellOptions.length <= 1 && profiles.profiles.length === 0) {
             onNew();
             return;
           }
-          openMenu(
-            e,
-            shellOptions.map((opt) => ({ label: shellOptionLabel(opt), icon: shellOptionIcon(opt.id), onSelect: () => onNew(opt.id) })),
-          );
+          const items: ContextMenuItem[] = shellOptions.map((opt) => ({
+            label: shellOptionLabel(opt),
+            icon: shellOptionIcon(opt.id),
+            onSelect: () => onNew(opt.id),
+          }));
+          if (profiles.profiles.length > 0) {
+            // Env vars don't reach a WSL distro, so a profile only pairs
+            // with the other shells.
+            const hostShells = shellOptions.filter((opt) => wslDistroOfShell(opt.id) === undefined);
+            const profileRow = (label: string, profileId: string | null, dot: ReactNode): ContextMenuItem => {
+              const pick = (shellId?: string) => onNew(shellId, profileId);
+              return hostShells.length > 1
+                ? {
+                    label,
+                    icon: dot,
+                    submenu: hostShells.map((opt) => ({
+                      label: shellOptionLabel(opt),
+                      icon: shellOptionIcon(opt.id),
+                      onSelect: () => pick(opt.id),
+                    })),
+                  }
+                : { label, icon: dot, onSelect: () => pick(hostShells[0]?.id) };
+            };
+            items.push(
+              { label: "sep-profiles", separator: true },
+              profileRow(t("agents.profile.default"), null, <span className="context-menu-profile-dot is-default" />),
+              ...profiles.profiles.map((p) =>
+                profileRow(p.name, p.id, <span className="context-menu-profile-dot" style={{ background: p.color }} />),
+              ),
+            );
+          }
+          openMenu(e, items);
         }}
       >
         <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">

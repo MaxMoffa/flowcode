@@ -1,5 +1,6 @@
 {
   "newTab": "Ctrl+T",
+  "newTabWithProfile": "Ctrl+Shift+T",
   "closeTab": "Ctrl+W",
   "duplicateTab": "Ctrl+Shift+D",
   "nextTab": "Ctrl+Tab",

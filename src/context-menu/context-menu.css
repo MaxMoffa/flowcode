@@ -175,3 +175,14 @@
   opacity: 0.35;
   cursor: default;
 }
+
+.context-menu-profile-dot {
+  width: 8px;
+  height: 8px;
+  margin: 3px;
+  border-radius: 999px;
+}
+
+.context-menu-profile-dot.is-default {
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}

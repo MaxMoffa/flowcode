@@ -291,6 +291,25 @@
   font-size: 12px;
 }
 
+/* The shell chips and, under them, the profile chips. */
+.newtab-chip-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.newtab-profile-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  margin: 2.5px;
+  border-radius: 999px;
+}
+
+.newtab-profile-dot.is-default {
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
 .newtab-chips {
   display: flex;
   flex-wrap: wrap;

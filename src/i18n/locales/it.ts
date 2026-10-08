@@ -623,6 +623,8 @@ export const it = {
   "settings.section.shortcuts.desc": "Le scorciatoie da tastiera per tab, terminale e applicazione. Clicca una combinazione e premi i nuovi tasti per cambiarla.",
   "settings.section.shortcuts.short": "Tastiera e combinazioni",
   "shortcuts.action.newTab": "Nuova tab",
+  "shortcuts.action.newTabWithProfile": "Nuova tab con profilo…",
+  "profiles.picker.title": "Nuovo terminale con profilo",
   "shortcuts.action.closeTab": "Chiudi tab",
   "shortcuts.action.duplicateTab": "Duplica tab",
   "shortcuts.action.nextTab": "Tab successiva",

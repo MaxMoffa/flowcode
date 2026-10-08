@@ -9,6 +9,7 @@ export type ShortcutGroup = "tabs" | "terminal" | "app";
 export const SHORTCUT_GROUPS: Record<ShortcutGroup, readonly string[]> = {
   tabs: [
     "newTab",
+    "newTabWithProfile",
     "closeTab",
     "duplicateTab",
     "nextTab",
@@ -31,6 +32,7 @@ export const SHORTCUT_GROUPS: Record<ShortcutGroup, readonly string[]> = {
 
 export const SHORTCUT_ACTIONS = [
   "newTab",
+  "newTabWithProfile",
   "closeTab",
   "duplicateTab",
   "nextTab",
@@ -71,6 +73,7 @@ export function actionsOfGroup(group: ShortcutGroup): ShortcutAction[] {
  * and to fill in actions an older config doesn't know yet. */
 export const FALLBACK_DEFAULTS: Record<ShortcutAction, string> = {
   newTab: "Ctrl+T",
+  newTabWithProfile: "Ctrl+Shift+T",
   closeTab: "Ctrl+W",
   duplicateTab: "Ctrl+Shift+D",
   nextTab: "Ctrl+Tab",

@@ -68,7 +68,8 @@ import { useI18n } from "./i18n";
 import { NewTabPage, type NewTabLaunch } from "./newtab/NewTabPage";
 import { recordRecentTerminal } from "./newtab/recentTerminals";
 import { recordCommand } from "./newtab/commandHistory";
-import { profileForPath } from "./profiles/profiles";
+import { profileForPath, useProfiles } from "./profiles/profiles";
+import { ProfilePicker } from "./profiles/ProfilePicker";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -474,6 +475,16 @@ function Shell() {
   const startDirPendingRef = useRef(new Set<string>());
   // The shell last picked on each new tab page - see `previewNewTabShell`.
   const newTabShellRef = useRef(new Map<string, string>());
+  // Tabs whose profile was chosen on purpose (a menu row, the new tab page's
+  // chips, a duplicate, an agent launch...): the automatic pick - the folder's
+  // project default, else the profile of the tab that was active - never
+  // overwrites them. See `addTab` / `fillStartDir`.
+  const explicitProfileRef = useRef(new Set<string>());
+  // The profile of the tab that was active when a tab was created: what an
+  // automatic tab falls back to when its folder has no project default.
+  const inheritedProfileRef = useRef(new Map<string, string | undefined>());
+  const [profilePickerOpen, setProfilePickerOpen] = useState(false);
+  const { profiles } = useProfiles();
   const editorRefs = useRef(new Map<string, EditorHandle>());
   // A terminal session moved here from another window, keyed by its new tab
   // id - handed to that tab's TerminalView once, at mount (its `attach`).
@@ -834,7 +845,11 @@ function Shell() {
     // whose folder is gone) gets its shell's start folder - see
     // `fillStartDir`.
     for (const t of latestRef.current.tabs) {
-      if (t.kind === "terminal" && t.cwd === "") fillStartDir(t.id, pendingShellOverrideRef.current.get(t.id) ?? shellId);
+      if (t.kind !== "terminal" || t.cwd !== "") continue;
+      // A tab that didn't come from `addTab` (restored from the last session)
+      // keeps the profile it had, even the default one.
+      if (!inheritedProfileRef.current.has(t.id)) explicitProfileRef.current.add(t.id);
+      fillStartDir(t.id, pendingShellOverrideRef.current.get(t.id) ?? shellId);
     }
   }, [homeDir, resolvedStartPath, startPathChecked, sessionChecked]);
 
@@ -950,6 +965,8 @@ function Shell() {
     copy: () => activeTermHandle()?.copySelection(),
     paste: () => activeTermHandle()?.paste(),
     newTab: () => openNewTab(),
+    // Without any profile there is nothing to pick: same as a plain new tab.
+    newTabWithProfile: () => (profiles.length > 0 ? setProfilePickerOpen(true) : openNewTab()),
     closeTab: () => closeTab(activeTabId),
     toggleTheme: () => toggleTheme(),
     duplicateTab: () => duplicateTab(activeTabId),
@@ -1010,7 +1027,10 @@ function Shell() {
     return newTabPage ? addTab(undefined, undefined, true) : addTab();
   }
 
-  function addTab(cwdOverride?: string, shellOverride?: string, newTab = false, profileId?: string): string {
+  /** `profileId`: `undefined` = automatic (the folder's project default
+   * profile, else the active terminal's), `null` = the default profile on
+   * purpose, a string = that profile on purpose. */
+  function addTab(cwdOverride?: string, shellOverride?: string, newTab = false, profileId?: string | null): string {
     // No longer inherits the active tab's cwd - a fresh tab starts in its
     // shell's start folder (Impostazioni > Cartella di avvio, per shell or
     // the general one), looked up by `fillStartDir` below. `cwdOverride` is
@@ -1029,9 +1049,21 @@ function Shell() {
     // (nestedShell undefined) and the explorer just never follows it in.
     const wslDistro = wslDistroOfShell(shellOverride ?? shellId);
     const nestedShell = wslDistro !== undefined ? "wsl" : undefined;
+    // Env vars don't reach a WSL distro, so a profile means nothing there.
+    const canProfile = wslDistro === undefined && !pathDistro;
+    const explicit = profileId !== undefined;
+    if (explicit) explicitProfileRef.current.add(id);
+    const { tabs: openTabs, activeTerminalId: activeId } = latestRef.current;
+    inheritedProfileRef.current.set(
+      id,
+      openTabs.find((t): t is TermTab => t.id === activeId && t.kind === "terminal")?.profileId,
+    );
     // Without a folder to open in, left unmounted (empty cwd) until
-    // `fillStartDir` has resolved one.
-    const cwd = cwdOverride ?? "";
+    // `fillStartDir` has resolved one. An automatic profile needs the
+    // folder too (its project default) and a shell's env is fixed at spawn,
+    // so such a tab waits for it even when the caller already knows the folder.
+    const auto = !explicit && canProfile;
+    const cwd = auto || newTab ? "" : (cwdOverride ?? "");
     setTabs((prev) => [
       ...prev,
       {
@@ -1039,15 +1071,14 @@ function Shell() {
         id,
         cwd,
         explorerPath: cwd,
-        label: newTab ? t("newTab.title") : labelForCwd(cwd),
+        label: newTab ? t("newTab.title") : labelForCwd(cwdOverride ?? ""),
         nestedShell,
         wslDistro: pathDistro ?? wslDistro ?? undefined,
-        // Env vars don't reach a WSL distro, so a profile means nothing there.
-        ...(profileId && wslDistro === undefined && !pathDistro ? { profileId } : {}),
+        ...(typeof profileId === "string" && canProfile ? { profileId } : {}),
         ...(newTab ? { newTab } : {}),
       },
     ]);
-    if (!cwdOverride) fillStartDir(id, shellOverride ?? shellId);
+    if (!cwd) fillStartDir(id, shellOverride ?? shellId, cwdOverride);
     setActiveTabId(id);
     setActiveTerminalId(id);
     return id;
@@ -1077,17 +1108,30 @@ function Shell() {
     return fallback;
   }
 
+  /** The profile a not-yet-spawned tab should run under when nobody chose one
+   * for it: `cwd`'s project default, else the one inherited from the tab that
+   * was active at creation. `undefined` for a tab with an explicit profile
+   * (left alone) or a WSL one (env vars can't reach the distro). */
+  async function automaticProfile(tabId: string, cwd: string, wsl: boolean): Promise<string | undefined> {
+    if (wsl || explicitProfileRef.current.has(tabId)) return undefined;
+    return (await profileForPath(cwd)) ?? inheritedProfileRef.current.get(tabId);
+  }
+
   /** Gives a tab still without a folder its shell's start folder (see
-   * `resolveStartDir`). The tab isn't mounted until then, so its shell
+   * `resolveStartDir`) - or `knownCwd` when the caller already has one - and,
+   * unless its profile was chosen on purpose, its automatic profile (see
+   * `automaticProfile`). The tab isn't mounted until then, so its shell
    * can still be switched: a start folder inside a distro only a WSL shell
    * can open. */
-  function fillStartDir(tabId: string, shell: string) {
+  function fillStartDir(tabId: string, shell: string, knownCwd?: string) {
     if (startDirPendingRef.current.has(tabId)) return;
     startDirPendingRef.current.add(tabId);
-    void resolveStartDir(shell).then((cwd) => {
-      startDirPendingRef.current.delete(tabId);
+    void (async () => {
+      const cwd = knownCwd ?? (await resolveStartDir(shell));
       const pathDistro = wslDistroOfPath(cwd);
       const wslShell = wslDistroOfShell(shell) !== undefined;
+      const profile = await automaticProfile(tabId, cwd, !!pathDistro || wslShell);
+      startDirPendingRef.current.delete(tabId);
       if (pathDistro && !wslShell) pendingShellOverrideRef.current.set(tabId, wslShellId(pathDistro));
       setTabs((prev) =>
         prev.map((t) =>
@@ -1101,11 +1145,14 @@ function Shell() {
                 label: t.customLabel || t.newTab ? t.label : labelForCwd(cwd),
                 nestedShell: pathDistro || wslShell ? "wsl" : t.nestedShell,
                 wslDistro: pathDistro ?? t.wslDistro,
+                // A restored tab keeps the profile it had; a pick made while
+                // the folder was being looked up wins over the automatic one.
+                profileId: t.profileId ?? (explicitProfileRef.current.has(tabId) ? undefined : profile),
               }
             : t,
         ),
       );
-    });
+    })();
   }
 
   /** The new tab page's shell selection changed: point the tab's folder
@@ -1113,12 +1160,17 @@ function Shell() {
   function previewNewTabShell(tabId: string, shell: string | undefined) {
     const target = shell ?? shellId;
     newTabShellRef.current.set(tabId, target);
-    void resolveStartDir(target).then((cwd) => {
+    void resolveStartDir(target).then(async (cwd) => {
+      const wsl = wslDistroOfShell(target) !== undefined || !!wslDistroOfPath(cwd);
+      // The folder may carry a different project default profile.
+      const profile = await automaticProfile(tabId, cwd, wsl);
       if (newTabShellRef.current.get(tabId) !== target) return;
       setTabs((prev) =>
-        prev.map((t) =>
-          t.id === tabId && t.kind === "terminal" && t.newTab && t.cwd !== cwd ? { ...t, cwd, explorerPath: cwd } : t,
-        ),
+        prev.map((t) => {
+          if (t.id !== tabId || t.kind !== "terminal" || !t.newTab) return t;
+          const nextProfile = explicitProfileRef.current.has(tabId) ? t.profileId : profile;
+          return t.cwd === cwd && t.profileId === nextProfile ? t : { ...t, cwd, explorerPath: cwd, profileId: nextProfile };
+        }),
       );
     });
   }
@@ -1138,22 +1190,32 @@ function Shell() {
     if (shell) pendingShellOverrideRef.current.set(tabId, shell);
     if (command) (typeOnly ? pendingTypedCommandsRef : pendingCommandsRef).current.set(tabId, command);
     const wslDistro = wslDistroOfShell(shell ?? shellId);
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.id === tabId && t.kind === "terminal"
-          ? {
-              ...t,
-              newTab: undefined,
-              cwd: nextCwd,
-              explorerPath: nextCwd,
-              label: t.customLabel ? t.label : labelForCwd(nextCwd),
-              nestedShell: pathDistro || wslDistro !== undefined ? "wsl" : undefined,
-              wslDistro: pathDistro ?? wslDistro ?? undefined,
-            }
-          : t,
-      ),
-    );
-    if (!nextCwd) fillStartDir(tabId, shell ?? shellId);
+    const wsl = !!pathDistro || wslDistro !== undefined;
+    // A folder other than the one the page showed (a recent terminal, a
+    // favorite) may have its own project default profile, and the shell can't
+    // be spawned before that is known.
+    const lookup = !wsl && !!cwd && cwd !== tab.cwd && !explicitProfileRef.current.has(tabId);
+    void (async () => {
+      const profile = lookup ? await automaticProfile(tabId, nextCwd, false) : undefined;
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === tabId && t.kind === "terminal"
+            ? {
+                ...t,
+                newTab: undefined,
+                cwd: nextCwd,
+                explorerPath: nextCwd,
+                label: t.customLabel ? t.label : labelForCwd(nextCwd),
+                nestedShell: wsl ? "wsl" : undefined,
+                wslDistro: pathDistro ?? wslDistro ?? undefined,
+                // Env vars don't reach a WSL distro: its profile is dropped.
+                profileId: wsl ? undefined : lookup && !explicitProfileRef.current.has(tabId) ? profile : t.profileId,
+              }
+            : t,
+        ),
+      );
+      if (!nextCwd) fillStartDir(tabId, shell ?? shellId);
+    })();
   }
 
   /** What's at the front of a tab's terminal right now - see shellDialect.ts. */
@@ -1261,7 +1323,7 @@ function Shell() {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
     if (tab.kind === "terminal") {
-      addTab(tab.cwd, tabShell(tab), false, tab.profileId);
+      addTab(tab.cwd, tabShell(tab), false, tab.profileId ?? null);
       return;
     }
     if (tab.kind === "editor") {
@@ -1518,6 +1580,9 @@ function Shell() {
     editorRefs.current.delete(id);
     pendingCommandsRef.current.delete(id);
     pendingShellOverrideRef.current.delete(id);
+    explicitProfileRef.current.delete(id);
+    inheritedProfileRef.current.delete(id);
+    newTabShellRef.current.delete(id);
     pendingTypedCommandsRef.current.delete(id);
     pendingAttachRef.current.delete(id);
     pendingEditorContentRef.current.delete(id);
@@ -2024,7 +2089,7 @@ function Shell() {
     if (cli === "codex") command = await withCodexLaunchFlags(command);
     if (shell) {
       // addTab also activates the new tab.
-      const id = addTab(cwd, shell, false, profileId);
+      const id = addTab(cwd, shell, false, profileId ?? null);
       pendingCommandsRef.current.set(id, command);
       return;
     }
@@ -2303,7 +2368,13 @@ function Shell() {
           doneIds={doneTabIds}
           onSelect={selectTab}
           onClose={closeTab}
-          onNew={(shellId) => (shellId ? addTab(undefined, shellId) : openNewTab())}
+          onNew={(shellId, profileId) =>
+            profileId !== undefined
+              ? addTab(undefined, shellId, false, profileId)
+              : shellId
+                ? addTab(undefined, shellId)
+                : openNewTab()
+          }
           onRename={renameTab}
           onDuplicate={duplicateTab}
           onToggleNotifications={toggleTabNotifications}
@@ -2433,6 +2504,13 @@ function Shell() {
                           launchFromNewTab(tab.id, launch);
                         }}
                         onShellChange={(shell) => previewNewTabShell(tab.id, shell)}
+                        profileId={tab.profileId}
+                        onProfileChange={(id) => {
+                          explicitProfileRef.current.add(tab.id);
+                          setTabs((prev) =>
+                            prev.map((x) => (x.id === tab.id && x.kind === "terminal" ? { ...x, profileId: id ?? undefined } : x)),
+                          );
+                        }}
                         anchor={handoffs.get(tab.id)?.anchor}
                         promptShown={handoffs.get(tab.id)?.promptShown}
                         onDone={() =>
@@ -2530,6 +2608,15 @@ function Shell() {
             setShortcutsDialogOpen(false);
             setSettingsSection("shortcuts");
             openSettings();
+          }}
+        />
+      )}
+      {profilePickerOpen && (
+        <ProfilePicker
+          onClose={() => setProfilePickerOpen(false)}
+          onPick={(id) => {
+            setProfilePickerOpen(false);
+            addTab(undefined, undefined, false, id);
           }}
         />
       )}

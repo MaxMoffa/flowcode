@@ -7,6 +7,7 @@ import { listFavorites, subscribeFavorites, type FavoriteFolder } from "../favor
 import { listRecentTerminals, subscribeRecentTerminals, type RecentTerminal } from "./recentTerminals";
 import { isWindowsPlatform } from "../lib/path";
 import { flushSync } from "react-dom";
+import { useProfiles } from "../profiles/profiles";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -67,6 +68,11 @@ interface NewTabPageProps {
   /** The chosen shell changed (`undefined` = the configured default) - the
    * tab's folder follows to that shell's start folder. */
   onShellChange: (shell: string | undefined) => void;
+  /** The tab's current account profile - the automatic pick until the user
+   * chooses one (`undefined` = the default profile). */
+  profileId?: string;
+  /** A profile chip was picked (`null` = the default profile). */
+  onProfileChange: (profileId: string | null) => void;
   onDone: () => void;
 }
 
@@ -408,8 +414,9 @@ function useTermGrid(fontSize: number, width: number) {
   return { cols, cellWidth: cell.cellWidth, cellHeight: cell.cellHeight };
 }
 
-export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLaunch, anchor, promptShown, onShellChange, onDone }: NewTabPageProps) {
+export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLaunch, anchor, promptShown, onShellChange, profileId, onProfileChange, onDone }: NewTabPageProps) {
   const { t } = useI18n();
+  const { profiles } = useProfiles();
   const { bannerEnabled } = useTerminalSettings();
   const { theme, paletteId, terminalPaletteId, contrast } = useTheme();
   // The page is the terminal's first screen: in the terminal's own palette,
@@ -996,22 +1003,56 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
         </div>
 
         <div className="newtab-foot">
-          <div className="newtab-chips" role="group" aria-label={t("newTab.shellLabel")}>
-            {chips.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                className="newtab-chip"
-                aria-pressed={chipShell(opt) === shell}
-                onClick={() => {
-                  setShell(chipShell(opt));
-                  inputRef.current?.focus();
-                }}
-              >
-                <span className="newtab-shell-icon">{shellOptionIcon(opt.id)}</span>
-                {shellOptionLabel(opt)}
-              </button>
-            ))}
+          <div className="newtab-chip-groups">
+            <div className="newtab-chips" role="group" aria-label={t("newTab.shellLabel")}>
+              {chips.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className="newtab-chip"
+                  aria-pressed={chipShell(opt) === shell}
+                  onClick={() => {
+                    setShell(chipShell(opt));
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <span className="newtab-shell-icon">{shellOptionIcon(opt.id)}</span>
+                  {shellOptionLabel(opt)}
+                </button>
+              ))}
+            </div>
+            {/* Env vars don't reach a WSL distro: no profile there. */}
+            {profiles.length > 0 && wslDistroOfShell(shell) === undefined && (
+              <div className="newtab-chips" role="group" aria-label={t("agents.profile.label")}>
+                <button
+                  type="button"
+                  className="newtab-chip"
+                  aria-pressed={!profileId}
+                  onClick={() => {
+                    onProfileChange(null);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <span className="newtab-profile-dot is-default" />
+                  {t("agents.profile.default")}
+                </button>
+                {profiles.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="newtab-chip"
+                    aria-pressed={profileId === p.id}
+                    onClick={() => {
+                      onProfileChange(p.id);
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    <span className="newtab-profile-dot" style={{ background: p.color }} />
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <span className="newtab-keys">
             {selected >= 0 ? t("newTab.keysList") : t("newTab.keys", { count: Math.min(chips.length, 9) })}

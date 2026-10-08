@@ -615,6 +615,8 @@ export const en: Record<MessageKey, string> = {
   "settings.section.shortcuts.desc": "Keyboard shortcuts for tabs, terminal and the app. Click a combination and press the new keys to change it.",
   "settings.section.shortcuts.short": "Keyboard and combinations",
   "shortcuts.action.newTab": "New tab",
+  "shortcuts.action.newTabWithProfile": "New tab with profile…",
+  "profiles.picker.title": "New terminal with profile",
   "shortcuts.action.closeTab": "Close tab",
   "shortcuts.action.duplicateTab": "Duplicate tab",
   "shortcuts.action.nextTab": "Next tab",
