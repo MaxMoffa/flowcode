@@ -68,7 +68,7 @@ import { useI18n } from "./i18n";
 import { NewTabPage, type NewTabLaunch } from "./newtab/NewTabPage";
 import { recordRecentTerminal } from "./newtab/recentTerminals";
 import { recordCommand } from "./newtab/commandHistory";
-import { profileForPath } from "./profiles/profiles";
+import { profileForPath, useProfiles } from "./profiles/profiles";
 import "./App.css";
 
 const appWindow = getCurrentWindow();
@@ -176,6 +176,14 @@ const Icons = {
       <circle cx="12" cy="5.5" r="1.9" />
       <circle cx="12" cy="12" r="1.9" />
       <circle cx="12" cy="18.5" r="1.9" />
+    </svg>
+  ),
+  profiles: (
+    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+      <circle cx="9" cy="8.5" r="3" />
+      <path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
+      <circle cx="16.5" cy="9.5" r="2.5" />
+      <path d="M15.5 14.2c2.7-.3 5 1.5 5 4.3" />
     </svg>
   ),
   zoomReset: (
@@ -412,6 +420,7 @@ function Shell() {
   const [agentsSidebarOpen, setAgentsSidebarOpen] = usePersistentState(AGENTS_SIDEBAR_OPEN_KEY, readFalse, writeBool);
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const { setSection: setSettingsSection } = useSettingsSection();
+  const profiles = useProfiles();
   const [sidebarMode, setSidebarMode] = usePersistentState<SidebarMode>(SIDEBAR_MODE_KEY, readSidebarMode, writeString);
   const [explorerLinkMode, setExplorerLinkMode] = usePersistentState<ExplorerLinkMode>(
     EXPLORER_LINK_MODE_KEY,
@@ -2255,6 +2264,35 @@ function Shell() {
           checked: mode === m,
           onSelect: () => setMode(m),
         })),
+      },
+      {
+        label: t("menu.profiles"),
+        icon: Icons.profiles,
+        // Each row opens a new terminal in the active tab's folder under that
+        // account profile; the check marks the active tab's own profile.
+        submenu: [
+          {
+            label: t("agents.profile.default"),
+            icon: <span className="context-menu-profile-dot is-default" />,
+            checked: !!activeTerminal && !activeTerminal.profileId,
+            onSelect: () => addTab(activeTerminal?.cwd || undefined, activeTerminal ? tabShell(activeTerminal) : undefined),
+          },
+          ...profiles.profiles.map((p) => ({
+            label: p.name,
+            icon: <span className="context-menu-profile-dot" style={{ background: p.color }} />,
+            checked: activeTerminal?.profileId === p.id,
+            onSelect: () => addTab(activeTerminal?.cwd || undefined, activeTerminal ? tabShell(activeTerminal) : undefined, false, p.id),
+          })),
+          { separator: true, label: "sep-profiles" },
+          {
+            label: t("menu.manageProfiles"),
+            icon: Icons.settings,
+            onSelect: () => {
+              setSettingsSection("profiles");
+              openSettings();
+            },
+          },
+        ],
       },
       { separator: true, label: "sep-theme" },
       { label: t("changelog.title"), icon: Icons.changelog, onSelect: openChangelog },

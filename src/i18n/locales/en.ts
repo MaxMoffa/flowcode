@@ -34,6 +34,8 @@ export const en: Record<MessageKey, string> = {
   "menu.fullscreen": "Full screen",
   "menu.exitFullscreen": "Exit full screen",
   "menu.theme": "Theme",
+  "menu.profiles": "Profiles",
+  "menu.manageProfiles": "Manage profiles…",
   "app.toggleSidebar": "Show/hide side panel",
   "app.toggleSidebar.title": "Show/hide side panel (right-click for the mode)",
   "app.removeShortcut": "Remove from shortcuts",
