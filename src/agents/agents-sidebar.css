@@ -19,6 +19,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  position: relative;
   height: var(--panel-header-h);
   padding: 0 10px;
   box-sizing: border-box;
@@ -317,4 +318,114 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* "+" menu under the header: start an agent in the project, or in a new worktree. */
+.agents-new-menu {
+  position: absolute;
+  top: 100%;
+  right: 8px;
+  z-index: 20;
+  min-width: 200px;
+  padding: 5px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--menu-surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14);
+  backdrop-filter: var(--menu-backdrop);
+  -webkit-backdrop-filter: var(--menu-backdrop);
+  animation: context-menu-in 0.1s ease-out;
+  font-weight: 400;
+}
+
+.agents-new-menu-caption {
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.agents-new-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agents-new-menu-item:hover {
+  background: var(--sidebar-hover);
+}
+
+.agents-new-menu-item svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.agents-new-menu-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.agents-new-menu-option.is-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.agents-sidebar-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--border);
+  background: color-mix(in srgb, var(--ansi-bright-red) 12%, transparent);
+  color: var(--ansi-bright-red);
+  font-size: 11px;
+}
+
+.agents-sidebar-error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agents-sidebar-error-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.agents-sidebar-stop:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agents-sidebar-stop:disabled:hover {
+  background: transparent;
+  color: var(--fg-muted);
 }

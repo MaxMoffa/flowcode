@@ -1,5 +1,6 @@
 mod agents;
 mod fs;
+mod git;
 mod gpu;
 mod attention;
 mod notify;
@@ -136,6 +137,10 @@ pub fn run() {
             agents::list_claude_agents,
             agents::list_codex_sessions,
             agents::run_claude_usage_probe,
+            git::git_repo_root,
+            git::git_worktrees,
+            git::git_worktree_add,
+            git::git_worktree_remove,
             spend::cli_spend,
             plugins::cli_billing_mode,
             vibe::list_vibe_sessions,

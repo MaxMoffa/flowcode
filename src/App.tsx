@@ -1928,13 +1928,11 @@ function Shell() {
   /** Before launching Claude Code / Codex / Mistral Vibe, offers a one-click install (if
    * missing) or login (if installed but signed out) in a fresh terminal
    * instead of the shortcut just quietly doing nothing useful. `check_cli_status`
-   * (src-tauri/src/plugins.rs) does the actual detection. */
-  async function checkCliAndMaybeLaunch(
-    cliBin: AgentCli,
-    launchCommand: string,
-    term: TerminalHandle | undefined,
-    tabId: string,
-  ) {
+   * (src-tauri/src/plugins.rs) does the actual detection. Resolves to whether
+   * the CLI is ready to launch: true when it is installed and logged in, or
+   * when detection itself failed (don't block the launch over it); false after
+   * a dialog was shown. */
+  async function ensureCliReady(cliBin: AgentCli): Promise<boolean> {
     const label = AGENT_CLI_LABELS[cliBin];
     let status: { installed: boolean; logged_in: boolean };
     try {
@@ -1942,8 +1940,7 @@ function Shell() {
     } catch {
       // Detection itself failed - don't block the shortcut over it, just
       // fall back to the plain launch as before this check existed.
-      await launchInTab(cliBin, launchCommand, term, tabId);
-      return;
+      return true;
     }
 
     if (!status.installed) {
@@ -1955,7 +1952,7 @@ function Shell() {
         confirmLabel: t("app.cli.install"),
       });
       if (ok) openTerminalWithCommand(installCommand);
-      return;
+      return false;
     }
 
     if (!status.logged_in) {
@@ -1966,10 +1963,52 @@ function Shell() {
         confirmLabel: t("app.cli.login"),
       });
       if (ok) openTerminalWithCommand(AGENT_CLI_LOGIN[cliBin]);
-      return;
+      return false;
     }
 
-    await launchInTab(cliBin, launchCommand, term, tabId);
+    return true;
+  }
+
+  async function checkCliAndMaybeLaunch(
+    cliBin: AgentCli,
+    launchCommand: string,
+    term: TerminalHandle | undefined,
+    tabId: string,
+  ) {
+    if (await ensureCliReady(cliBin)) await launchInTab(cliBin, launchCommand, term, tabId);
+  }
+
+  /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the
+   * project folder, or a fresh git worktree of it). `shell` is the shell the
+   * project's own tab runs. Uses the CLI plugin's command, which may carry the
+   * user's flags. A WSL shell runs the distro's own CLI, so it skips the host
+   * install check and the host-only flags, like `openAgentSession`. */
+  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string) {
+    let command = allPlugins.find((p) => PLUGIN_AGENT_CLI[p.id] === cli)?.command ?? cli;
+    if (wslDistroOfShell(shell) !== undefined) {
+      const id = addTab(cwd, shell);
+      pendingCommandsRef.current.set(id, command);
+      return;
+    }
+    if (!(await ensureCliReady(cli))) return;
+    if (cli === "vibe") await invoke("vibe_ensure_model").catch(() => {});
+    if (cli === "codex") command = await withCodexLaunchFlags(command);
+    if (shell) {
+      // addTab also activates the new tab.
+      const id = addTab(cwd, shell);
+      pendingCommandsRef.current.set(id, command);
+      return;
+    }
+    const id = `tab-${nextTabId++}`;
+    pendingCommandsRef.current.set(id, command);
+    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd) }]);
+    setActiveTabId(id);
+    setActiveTerminalId(id);
+  }
+
+  /** Opens a plain terminal tab in `cwd` - a worktree from the Agents panel. */
+  function openFolderTab(cwd: string) {
+    addTab(cwd);
   }
 
   /** Types the CLI's launch command into `tabId` when a shell is at its
@@ -2444,6 +2483,9 @@ function Shell() {
               getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
               onOpenTab={selectTab}
               onOpenSession={openAgentSession}
+              projectShell={activeTerminal ? tabShell(activeTerminal) : undefined}
+              onLaunchAgent={(cli, cwd, shell) => void launchAgentInNewTab(cli, cwd, shell)}
+              onOpenFolder={openFolderTab}
               onClose={() => setAgentsSidebarOpen(false)}
             />
           </div>

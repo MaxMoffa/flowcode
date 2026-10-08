@@ -7,6 +7,9 @@ import { readEnum, usePersistentState, writeString } from "../lib/storage";
 import { toWslPath, wslDistroOfPath } from "../terminal/wslPath";
 import { t, useI18n } from "../i18n";
 import type { AgentSession } from "./agentSessions";
+import { gitRepoRoot, gitWorktreeAdd, gitWorktrees, isWorktreeCapable, type GitWorktree } from "./git";
+import { NewAgentMenu } from "./NewAgentMenu";
+import { WorktreesSection } from "./WorktreesSection";
 import "./agents-sidebar.css";
 
 const POLL_MS = 3000;
@@ -146,6 +149,15 @@ interface AgentsSidebarProps {
    * `vibe --resume <sessionId>`) - used for a background/saved session with
    * no local tab of its own to switch to. */
   onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex" | "vibe", wslDistro?: string) => void;
+  /** The shell id the active tab runs (see `tabShell` in App.tsx), so an
+   * agent started in the project folder lands in the same kind of terminal. */
+  projectShell?: string;
+  /** Starts an agent in a NEW tab opened in `cwd` (the "+" menu). `shell` is
+   * the shell to open it in - absent for a fresh worktree, which is on the
+   * host file system. */
+  onLaunchAgent: (cli: "claude" | "codex" | "vibe", cwd: string, shell?: string) => void;
+  /** Opens a plain terminal tab in a folder (a worktree). */
+  onOpenFolder: (cwd: string) => void;
   onClose: () => void;
 }
 
@@ -188,6 +200,9 @@ export function AgentsSidebar({
   getPtyId,
   onOpenTab,
   onOpenSession,
+  projectShell,
+  onLaunchAgent,
+  onOpenFolder,
   onClose,
 }: AgentsSidebarProps) {
   const { t } = useI18n();
@@ -199,6 +214,12 @@ export function AgentsSidebar({
   // session list itself still only refetches every POLL_MS.
   const [, setTick] = useState(0);
   const [showAllSaved, setShowAllSaved] = useState(false);
+  // The git repository the active tab's folder belongs to, and its worktrees.
+  const [repoRoot, setRepoRoot] = useState<string | null>(null);
+  const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
   // The current poll's loader, for the header's refresh button.
@@ -206,12 +227,63 @@ export function AgentsSidebar({
   const refreshSessionsRef = useRef(refreshSessions);
   refreshSessionsRef.current = refreshSessions;
 
+  // Bumped per repo lookup so a slow answer for a folder the tab has since
+  // left is dropped.
+  const repoRequestRef = useRef(0);
+  const worktreeCapable = isWorktreeCapable(projectCwd, projectWslDistro);
+  // The repo root only changes with the folder, so it is looked up once per
+  // folder (a non-repo too); only the worktree list is re-read on every poll.
+  const repoRootCacheRef = useRef<{ cwd: string; root: string | null } | null>(null);
+  /** Re-reads the repository and worktrees of the active tab's folder. Any
+   * failure (git missing, not a repo) just means "no repository". `fresh`
+   * also looks the repository root up again. */
+  async function loadRepo(fresh = false) {
+    const request = ++repoRequestRef.current;
+    let root: string | null = null;
+    let list: GitWorktree[] = [];
+    if (projectCwd && worktreeCapable) {
+      const cache = repoRootCacheRef.current;
+      if (cache?.cwd === projectCwd && !fresh) {
+        root = cache.root;
+      } else {
+        try {
+          root = await gitRepoRoot(projectCwd);
+        } catch {
+          root = null;
+        }
+        // Keyed by folder, so storing a late answer is still right - and a
+        // slow git never gets stuck re-asking on every poll.
+        repoRootCacheRef.current = { cwd: projectCwd, root };
+      }
+      if (root) {
+        try {
+          list = await gitWorktrees(root);
+        } catch {
+          root = null;
+          list = [];
+        }
+      }
+    } else {
+      repoRootCacheRef.current = null;
+    }
+    if (request !== repoRequestRef.current) return;
+    setRepoRoot(root);
+    setWorktrees((prev) => (JSON.stringify(prev) === JSON.stringify(list) ? prev : list));
+  }
+  const loadRepoRef = useRef(loadRepo);
+  loadRepoRef.current = loadRepo;
+
+  useEffect(() => {
+    void loadRepoRef.current();
+  }, [projectCwd, projectWslDistro]);
+
   useEffect(() => {
     let cancelled = false;
     // `fresh`: also re-read what's normally cached between polls (the WSL
     // saved-sessions folder) - asked for by the refresh button.
     function load(fresh = false) {
       return Promise.allSettled([
+        loadRepoRef.current(fresh),
         // Polled on its own by App.tsx - only asked again here when the
         // refresh button wants everything re-read now.
         ...(fresh ? [refreshSessionsRef.current()] : []),
@@ -306,8 +378,38 @@ export function AgentsSidebar({
   // unfiltered lists; only what's rendered is narrowed.
   const projectScope = scope === "project";
   const projectReady = projectScope && !!projectCwd;
+  // Every worktree of the repo counts as the project (the repo root too, even
+  // when the active tab sits in a subfolder of it).
+  const projectRoots = repoRoot
+    ? worktrees.length > 0
+      ? worktrees.map((w) => w.path)
+      : [repoRoot]
+    : projectCwd
+      ? [projectCwd]
+      : [];
   const inActiveProject = (cwd: string | null | undefined, wslDistro: string | null | undefined) =>
-    !!projectCwd && inProject(cwd, wslDistro, projectCwd, projectWslDistro);
+    projectRoots.some((root) => inProject(cwd, wslDistro, root, projectWslDistro));
+  /** The linked worktree a folder is in, if any. */
+  const worktreeOf = (cwd: string | null | undefined): GitWorktree | undefined =>
+    cwd ? worktrees.find((w) => !w.is_main && inProject(cwd, null, w.path, undefined)) : undefined;
+  /** `meta` plus the branch, for an agent working in a linked worktree. */
+  const withBranch = (meta: string, cwd: string | null | undefined) => {
+    const branch = worktreeOf(cwd)?.branch;
+    return branch ? `${meta} \u00b7 \u2387 ${branch}` : meta;
+  };
+  // Running agents per linked worktree, whichever window or terminal they run in.
+  const agentCounts = new Map<string, number>();
+  if (repoRoot) {
+    const countAgent = (cwd: string | null | undefined) => {
+      const wt = worktreeOf(cwd);
+      if (wt) agentCounts.set(wt.path, (agentCounts.get(wt.path) ?? 0) + 1);
+    };
+    localRows.forEach(({ session, tab }) => countAgent(session.cwd ?? session.tab_cwd ?? tab.cwd));
+    otherWindowRows.forEach((s) => countAgent(s.cwd ?? s.tab_cwd));
+    backgroundClaudeAgents.forEach((a) => countAgent(a.cwd));
+    liveCodexElsewhere.forEach((s) => countAgent(s.cwd));
+  }
+  const projectName = projectCwd ? basename(repoRoot ?? projectCwd) : "";
   const projectLocalRows = localRows.filter(
     ({ session, tab }) =>
       inActiveProject(session.cwd, session.wsl_distro) || inActiveProject(session.tab_cwd ?? tab.cwd, session.wsl_distro),
@@ -345,7 +447,7 @@ export function AgentsSidebar({
   const emptyMessage = !projectScope
     ? t("agents.empty")
     : projectCwd
-      ? t("agents.scope.emptyProject", { folder: basename(projectCwd) })
+      ? t("agents.scope.emptyProject", { folder: projectName })
       : t("agents.scope.noProject");
 
   /** Name, folder and chip of an agent running in a tab (this window's or
@@ -380,6 +482,25 @@ export function AgentsSidebar({
     </button>
   );
 
+  /** Starts `cli` in the project folder, or in a fresh worktree of its repo. */
+  async function launch(cli: "claude" | "codex" | "vibe", inWorktree: boolean) {
+    if (!projectCwd) return;
+    if (!inWorktree || !repoRoot) {
+      onLaunchAgent(cli, projectCwd, projectShell);
+      return;
+    }
+    setCreating(true);
+    try {
+      const wt = await gitWorktreeAdd(repoRoot, cli);
+      onLaunchAgent(cli, wt.path, undefined);
+      void loadRepo();
+    } catch (err) {
+      setError(t("agents.worktree.addFailed", { message: String(err) }));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div className="agents-sidebar">
       <div className="agents-sidebar-header">
@@ -387,6 +508,16 @@ export function AgentsSidebar({
           <CloseIcon />
         </button>
         <span className="agents-sidebar-title">{t("agents.title")}</span>
+        <button
+          type="button"
+          className="agents-sidebar-close agents-sidebar-add"
+          title={t("agents.new.title")}
+          aria-label={t("agents.new.title")}
+          disabled={!projectCwd || creating}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <PlusIcon />
+        </button>
         <button
           type="button"
           className={"agents-sidebar-close agents-sidebar-refresh" + (refreshing ? " is-refreshing" : "")}
@@ -400,6 +531,15 @@ export function AgentsSidebar({
         >
           <RefreshIcon />
         </button>
+        {menuOpen && projectCwd && (
+          <NewAgentMenu
+            projectCwd={projectCwd}
+            repoRoot={repoRoot}
+            worktreeCapable={worktreeCapable}
+            onLaunch={(cli, inWorktree) => void launch(cli, inWorktree)}
+            onClose={() => setMenuOpen(false)}
+          />
+        )}
       </div>
       <div className="agents-sidebar-scope" role="tablist" aria-label={t("agents.scope.label")}>
         <button
@@ -407,10 +547,10 @@ export function AgentsSidebar({
           role="tab"
           aria-selected={scope === "project"}
           className={"agents-sidebar-scope-option" + (scope === "project" ? " is-selected" : "")}
-          title={projectCwd ?? t("agents.scope.noProject")}
+          title={repoRoot ?? projectCwd ?? t("agents.scope.noProject")}
           onClick={() => setScope("project")}
         >
-          <span className="agents-sidebar-scope-text">{projectCwd ? basename(projectCwd) : t("agents.scope.project")}</span>
+          <span className="agents-sidebar-scope-text">{projectName || t("agents.scope.project")}</span>
           {projectCount > 0 && <span className="agents-sidebar-scope-count">{projectCount}</span>}
         </button>
         <button
@@ -425,6 +565,14 @@ export function AgentsSidebar({
         </button>
       </div>
       <div className="agents-sidebar-list">
+        {error && (
+          <div className="agents-sidebar-error" role="alert">
+            <span className="agents-sidebar-error-text">{error}</span>
+            <button type="button" className="agents-sidebar-error-close" aria-label={t("agents.closePanel")} onClick={() => setError(null)}>
+              <CloseIcon />
+            </button>
+          </div>
+        )}
         {loading && <div className="agents-sidebar-empty">{t("common.checking")}</div>}
         {isEmpty && <div className="agents-sidebar-empty">{emptyMessage}</div>}
         {shownLocalRows.map(({ session, tab }) => {
@@ -436,7 +584,7 @@ export function AgentsSidebar({
               name={name}
               cwd={cwd}
               terminal={tab.label}
-              meta={runningMeta(session)}
+              meta={withBranch(runningMeta(session), cwd)}
               chip={chip}
               active={tab.id === activeTabId}
               hint={t("agents.hint.openTab")}
@@ -456,7 +604,7 @@ export function AgentsSidebar({
               cwd={cwd}
               terminal={session.tab_label ?? ""}
               otherWindow
-              meta={runningMeta(session)}
+              meta={withBranch(runningMeta(session), cwd)}
               chip={chip}
               hint={t("agents.hint.otherWindow")}
               onOpen={() => focusOtherWindow(session)}
@@ -517,6 +665,16 @@ export function AgentsSidebar({
               ? t("agents.showLess")
               : t("agents.showMore", { count: listedSavedSessions.length - SAVED_SESSIONS_SHOWN })}
           </button>
+        )}
+        {projectScope && repoRoot && (
+          <WorktreesSection
+            repoRoot={repoRoot}
+            worktrees={worktrees}
+            agentCounts={agentCounts}
+            onOpenFolder={onOpenFolder}
+            onRemoved={() => void loadRepo()}
+            onError={setError}
+          />
         )}
       </div>
     </div>
@@ -631,6 +789,15 @@ function CloseIcon() {
     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <line x1="5" y1="5" x2="19" y2="19" />
       <line x1="19" y1="5" x2="5" y2="19" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   );
 }
