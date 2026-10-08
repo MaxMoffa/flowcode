@@ -32,8 +32,6 @@ export const it = {
   "menu.fullscreen": "Schermo intero",
   "menu.exitFullscreen": "Esci da schermo intero",
   "menu.theme": "Tema",
-  "menu.profiles": "Profili",
-  "menu.manageProfiles": "Gestisci profili…",
   "app.toggleSidebar": "Mostra/nascondi pannello laterale",
   "app.toggleSidebar.title": "Mostra/nascondi pannello laterale (click destro per la modalità)",
   "app.removeShortcut": "Rimuovi dagli shortcut",
