@@ -99,6 +99,11 @@ fn find_agent(
     let mut queue: VecDeque<Pid> = VecDeque::new();
     queue.push_back(root_pid);
     let mut visited: HashSet<Pid> = HashSet::new();
+    // Another Flowcode instance (say `tauri dev` of this very app) is its own
+    // world: the `claude` probes and sessions it spawns aren't this tab's agent.
+    let own_name = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()));
 
     while let Some(pid) = queue.pop_front() {
         if !visited.insert(pid) {
@@ -120,6 +125,9 @@ fn find_agent(
                 if let Some((bin, label)) = agent_binary(&name) {
                     let started_at = process.start_time().checked_mul(1000);
                     return Some((bin, label, pid.as_u32(), started_at));
+                }
+                if own_name.as_deref() == Some(name.as_str()) {
+                    continue;
                 }
             }
         }
