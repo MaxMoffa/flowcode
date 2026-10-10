@@ -34,6 +34,32 @@ pub struct WorktreeRemoval {
     pub branch_kept: Option<String>,
 }
 
+/// One changed file in `git status`.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct GitChange {
+    /// Repo-relative, forward slashes as git prints them.
+    pub path: String,
+    /// Where a rename/copy came from.
+    pub orig_path: Option<String>,
+    /// One of M A D R C T U ?
+    pub status: String,
+}
+
+#[derive(serde::Serialize, Default, Debug)]
+pub struct GitStatus {
+    /// `None` when the HEAD is detached.
+    pub branch: Option<String>,
+    /// Short oid of HEAD; `None` in a repository without commits.
+    pub head: Option<String>,
+    pub upstream: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub staged: Vec<GitChange>,
+    pub unstaged: Vec<GitChange>,
+    pub untracked: Vec<GitChange>,
+    pub conflicted: Vec<GitChange>,
+}
+
 /// Runs `git -C <dir> <args>` and returns its trimmed stdout. A failure carries
 /// git's own message (stderr, or stdout when stderr is empty) so the UI can show
 /// - or pattern-match - it. `GIT_TERMINAL_PROMPT=0` keeps git from blocking on
@@ -50,6 +76,54 @@ fn git(dir: &str, args: &[&str]) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let output = cmd.output().map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if output.status.success() {
+        return Ok(stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(if stderr.is_empty() { stdout } else { stderr })
+}
+
+/// `git` without trimming the output - file contents and `-z` records must
+/// come back byte for byte.
+fn git_raw(dir: &str, args: &[&str]) -> Result<String, String> {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+}
+
+/// Like `git`, but feeds `input` to git's stdin (commit messages go through
+/// `-F -` so they never hit argument quoting or length limits).
+fn git_with_input(dir: &str, args: &[&str], input: &str) -> Result<String, String> {
+    use std::io::Write;
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    if let Some(mut stdin) = child.stdin.take() {
+        // A write error just means git exited early; its status says why.
+        let _ = stdin.write_all(input.as_bytes());
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if output.status.success() {
         return Ok(stdout);
@@ -190,6 +264,218 @@ pub async fn git_repo_root(path: String) -> Result<Option<String>, String> {
     .await
 }
 
+/// Parses `git status --porcelain=v2 --branch -z`. Records are NUL-separated;
+/// a rename/copy (`2`) is followed by one extra field holding the original path.
+fn parse_status(out: &str) -> GitStatus {
+    let mut st = GitStatus::default();
+    let mut fields = out.split('\0');
+    while let Some(rec) = fields.next() {
+        if rec.is_empty() {
+            continue;
+        }
+        if let Some(h) = rec.strip_prefix("# ") {
+            if let Some(oid) = h.strip_prefix("branch.oid ") {
+                if oid != "(initial)" {
+                    st.head = Some(oid.chars().take(7).collect());
+                }
+            } else if let Some(b) = h.strip_prefix("branch.head ") {
+                if b != "(detached)" {
+                    st.branch = Some(b.to_string());
+                }
+            } else if let Some(u) = h.strip_prefix("branch.upstream ") {
+                st.upstream = Some(u.to_string());
+            } else if let Some(ab) = h.strip_prefix("branch.ab ") {
+                for part in ab.split(' ') {
+                    if let Some(n) = part.strip_prefix('+') {
+                        st.ahead = n.parse().unwrap_or(0);
+                    } else if let Some(n) = part.strip_prefix('-') {
+                        st.behind = n.parse().unwrap_or(0);
+                    }
+                }
+            }
+            continue;
+        }
+        let change = |path: &str, orig: Option<String>, status: char| GitChange {
+            path: path.to_string(),
+            orig_path: orig,
+            status: status.to_string(),
+        };
+        match rec.as_bytes()[0] {
+            b'?' => {
+                if let Some(p) = rec.strip_prefix("? ") {
+                    st.untracked.push(change(p, None, '?'));
+                }
+            }
+            b'1' | b'2' => {
+                // 1: 8 fields before the path; 2: 9 (the extra one is the rename score).
+                let n = if rec.starts_with('2') { 9 } else { 8 };
+                let parts: Vec<&str> = rec.splitn(n + 1, ' ').collect();
+                if parts.len() <= n {
+                    continue;
+                }
+                let orig = if rec.starts_with('2') { fields.next().map(str::to_string) } else { None };
+                let mut xy = parts[1].chars();
+                let (x, y) = (xy.next().unwrap_or('.'), xy.next().unwrap_or('.'));
+                if x != '.' {
+                    st.staged.push(change(parts[n], orig.clone(), x));
+                }
+                if y != '.' {
+                    st.unstaged.push(change(parts[n], orig, y));
+                }
+            }
+            b'u' => {
+                // u XY sub m1 m2 m3 mW h1 h2 h3 path
+                let parts: Vec<&str> = rec.splitn(11, ' ').collect();
+                if parts.len() == 11 {
+                    st.conflicted.push(change(parts[10], None, 'U'));
+                }
+            }
+            _ => {}
+        }
+    }
+    st
+}
+
+/// Rejects anything that isn't a plain repo-relative path: git pathspecs and
+/// `rev:path` lookups must not be steerable outside the repository.
+fn check_relative(path: &str) -> Result<(), String> {
+    let p = path.replace('\\', "/");
+    let bad = p.is_empty() || p.starts_with('/') || p.contains(':') || p.split('/').any(|seg| seg == "..");
+    if bad {
+        Err(format!("Invalid path: {path}"))
+    } else {
+        Ok(())
+    }
+}
+
+fn check_paths(paths: &[String]) -> Result<(), String> {
+    paths.iter().try_for_each(|p| check_relative(p))
+}
+
+/// Builds `<head...> -- <paths...>`.
+fn with_paths<'a>(head: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
+    let mut args: Vec<&str> = head.to_vec();
+    args.push("--");
+    args.extend(paths.iter().map(String::as_str));
+    args
+}
+
+/// The repository (main tree or linked worktree) `path` is in. Unlike
+/// `git_repo_root` this is where `git status` should run.
+#[tauri::command]
+pub async fn git_toplevel(path: String) -> Result<Option<String>, String> {
+    if unsupported(&path) {
+        return Ok(None);
+    }
+    crate::blocking(move || Ok(git(&path, &["rev-parse", "--show-toplevel"]).ok().map(|t| native_path(&t)))).await
+}
+
+#[tauri::command]
+pub async fn git_status(root: String) -> Result<GitStatus, String> {
+    if unsupported(&root) {
+        return Err("WSL folders aren't supported yet".to_string());
+    }
+    crate::blocking(move || {
+        // Untrimmed: `git()` would eat a trailing space of the last path.
+        let out = git_raw(&root, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
+        Ok(parse_status(&out))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_stage(root: String, paths: Vec<String>) -> Result<(), String> {
+    check_paths(&paths)?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    crate::blocking(move || git(&root, &with_paths(&["add", "-A"], &paths)).map(|_| ())).await
+}
+
+#[tauri::command]
+pub async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String> {
+    check_paths(&paths)?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    crate::blocking(move || {
+        // Before the first commit there is no HEAD to restore from.
+        if git(&root, &["rev-parse", "--verify", "-q", "HEAD"]).is_ok() {
+            git(&root, &with_paths(&["restore", "--staged"], &paths)).map(|_| ())
+        } else {
+            git(&root, &with_paths(&["rm", "--cached", "-r", "-q"], &paths)).map(|_| ())
+        }
+    })
+    .await
+}
+
+/// Commits what is staged; returns the new short hash. Failures (hooks,
+/// nothing staged, no identity) carry git's own text.
+#[tauri::command]
+pub async fn git_commit(root: String, message: String) -> Result<String, String> {
+    if message.trim().is_empty() {
+        return Err("Empty commit message".to_string());
+    }
+    crate::blocking(move || {
+        git_with_input(&root, &["commit", "-F", "-"], &message)?;
+        git(&root, &["rev-parse", "--short", "HEAD"])
+    })
+    .await
+}
+
+/// File content at `HEAD` or in the index (`rev` = "HEAD" | "INDEX"); empty
+/// when the path doesn't exist there (a new or deleted file).
+#[tauri::command]
+pub async fn git_show_file(root: String, path: String, rev: String) -> Result<String, String> {
+    check_relative(&path)?;
+    let spec = match rev.as_str() {
+        "HEAD" => format!("HEAD:{path}"),
+        "INDEX" => format!(":{path}"),
+        _ => return Err(format!("Unknown revision: {rev}")),
+    };
+    crate::blocking(move || {
+        // `cat-file -e` tells "absent" apart from a real failure.
+        if git(&root, &["cat-file", "-e", &spec]).is_err() {
+            return Ok(String::new());
+        }
+        git_raw(&root, &["show", &spec])
+    })
+    .await
+}
+
+/// Throws away working-tree changes. Tracked files are restored from the
+/// index; untracked ones are deleted (only if they resolve inside `root`).
+#[tauri::command]
+pub async fn git_discard(root: String, paths: Vec<String>, untracked: bool) -> Result<(), String> {
+    check_paths(&paths)?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    crate::blocking(move || {
+        if !untracked {
+            return git(&root, &with_paths(&["restore", "--worktree"], &paths)).map(|_| ());
+        }
+        let base = std::fs::canonicalize(&root).map_err(|e| e.to_string())?;
+        for p in &paths {
+            let target = base.join(p);
+            // Canonicalise the parent so a symlinked directory can't lead outside.
+            let parent = target.parent().ok_or_else(|| format!("Invalid path: {p}"))?;
+            let Ok(resolved) = std::fs::canonicalize(parent) else { continue };
+            if !resolved.starts_with(&base) {
+                return Err(format!("Path is outside the repository: {p}"));
+            }
+            let Ok(meta) = std::fs::symlink_metadata(&target) else { continue };
+            if meta.is_dir() {
+                std::fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
+            } else {
+                std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn git_worktrees(repo_root: String) -> Result<Vec<GitWorktree>, String> {
     if unsupported(&repo_root) {
@@ -305,5 +591,47 @@ mod tests {
         assert!(unsupported("\\\\wsl.localhost\\Ubuntu\\home"));
         assert!(unsupported("//WSL$/Ubuntu/home"));
         assert!(!unsupported("C:\\dev"));
+    }
+
+    #[test]
+    fn parses_status() {
+        let out = "# branch.oid 1234567890abcdef\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -1\0\
+1 MM N... 100644 100644 100644 aaa bbb src/a.rs\0\
+2 R. N... 100644 100644 100644 aaa bbb R100 new name.rs\0old.rs\0\
+u UU N... 100644 100644 100644 100644 a b c conflict.rs\0\
+? notes.txt\0";
+        let st = parse_status(out);
+        assert_eq!(st.branch.as_deref(), Some("main"));
+        assert_eq!(st.head.as_deref(), Some("1234567"));
+        assert_eq!(st.upstream.as_deref(), Some("origin/main"));
+        assert_eq!((st.ahead, st.behind), (2, 1));
+        assert_eq!(st.staged.len(), 2);
+        assert_eq!(st.staged[0].path, "src/a.rs");
+        assert_eq!(st.staged[0].status, "M");
+        assert_eq!(st.staged[1].status, "R");
+        assert_eq!(st.staged[1].path, "new name.rs");
+        assert_eq!(st.staged[1].orig_path.as_deref(), Some("old.rs"));
+        assert_eq!(st.unstaged.len(), 1);
+        assert_eq!(st.unstaged[0].status, "M");
+        assert_eq!(st.conflicted[0].path, "conflict.rs");
+        assert_eq!(st.untracked[0].path, "notes.txt");
+        assert_eq!(st.untracked[0].status, "?");
+    }
+
+    #[test]
+    fn parses_detached_head() {
+        let st = parse_status("# branch.oid abcdef1234\0# branch.head (detached)\0");
+        assert!(st.branch.is_none());
+        assert_eq!(st.head.as_deref(), Some("abcdef1"));
+        assert!(st.upstream.is_none());
+    }
+
+    #[test]
+    fn rejects_unsafe_paths() {
+        assert!(check_relative("src/a.rs").is_ok());
+        assert!(check_relative("../x").is_err());
+        assert!(check_relative("a/../x").is_err());
+        assert!(check_relative("/etc/passwd").is_err());
+        assert!(check_relative("C:\\x").is_err());
     }
 }

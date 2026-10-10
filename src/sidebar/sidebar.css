@@ -366,3 +366,66 @@
 .ft-generic {
   color: var(--fg-muted);
 }
+
+.sidebar-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px 0;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sidebar-tab:hover {
+  color: var(--fg);
+}
+
+.sidebar-tab.is-active {
+  color: var(--fg);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.sidebar-tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+.sidebar-tab-badge {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg-elevated);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* Fills what is left under the tab strip, so the panel inside scrolls on its
+ * own. `hidden` alone loses to this display rule. */
+.sidebar-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sidebar-panel[hidden] {
+  display: none;
+}

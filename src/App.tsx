@@ -17,6 +17,7 @@ import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, TermTab, EditorTab } from "./tabs/types";
+import type { GitChange } from "./git/gitStatus";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { shellStartKey, TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
 import { loadSession, saveWindowSession, type SavedTab, type SavedWindow } from "./session/session";
@@ -133,6 +134,7 @@ function tabStripDropIndex(drop: { x: number; y: number } | undefined): number |
 // Loaded on demand: CodeMirror (every language grammar) and the flowkit
 // onboarding flow are the bulk of the bundle, and plenty of sessions never
 // open a file - the welcome flow only ever shows on first launch.
+const DiffView = lazy(() => import("./git/DiffView").then((m) => ({ default: m.DiffView })));
 const EditorView = lazy(() => import("./editor/EditorView").then((m) => ({ default: m.EditorView })));
 const WelcomeFlow = lazy(() => import("./welcome/WelcomeFlow").then((m) => ({ default: m.WelcomeFlow })));
 
@@ -779,6 +781,8 @@ function Shell() {
       // content it was restored with, not a fresh serialize - otherwise
       // every restart would append the new shell's prompt below it again.
       const kept = tabs.filter((t) => {
+        // A diff is a view of the repository current state: nothing to restore.
+        if (t.kind === "diff") return false;
         if (t.kind !== "terminal") return true;
         return restoredTabIdsRef.current.has(t.id) || !!termRefs.current.get(t.id)?.wasUsed();
       });
@@ -1379,6 +1383,20 @@ function Shell() {
     setActiveTabId(id);
   }
 
+  /** Opens (or focuses) the diff of one file from the Git tab. */
+  function openDiff(root: string, change: GitChange, staged: boolean) {
+    const existing = tabs.find((t) => t.kind === "diff" && t.root === root && t.path === change.path && t.staged === staged);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const name = basename(change.path);
+    const id = `diff-${nextTabId++}`;
+    const label = t(staged ? "git.stagedLabel" : "git.diffLabel", { name });
+    setTabs((prev) => [...prev, { kind: "diff", id, root, path: change.path, staged, label }]);
+    setActiveTabId(id);
+  }
+
   function openSettings() {
     // Always shows the side nav, regardless of whether the panel was
     // collapsed - otherwise there's no hint that settings has more than
@@ -1457,6 +1475,8 @@ function Shell() {
       const id = `editor-${nextTabId++}`;
       if (transfer.editor?.dirty) pendingEditorContentRef.current.set(id, transfer.editor.content);
       adopted = { ...tab, id };
+    } else if (tab.kind === "diff") {
+      adopted = { ...tab, id: `diff-${nextTabId++}` };
     } else if (tab.kind === "changelog") {
       adopted = { kind: "changelog", id: "changelog", label: t("changelog.title") };
     } else if (tab.kind === "whatsNew") {
@@ -2294,6 +2314,7 @@ function Shell() {
           void resolveStartDir(activeTerminal ? (tabShell(activeTerminal) ?? shellId) : shellId).then(browseExplorer)
         }
         onOpenFile={openFile}
+        onOpenDiff={openDiff}
         onOpenTerminal={(path) => addTab(path, activeTerminal ? tabShell(activeTerminal) : undefined)}
         shell={activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined}
         linkMode={explorerLinkMode}
@@ -2597,6 +2618,13 @@ function Shell() {
                       onRenamed={(newPath) => handleEditorRenamed(tab.id, newPath)}
                       initialContent={pendingEditorContentRef.current.get(tab.id)}
                     />
+                  </Suspense>
+                );
+              }
+              if (tab.kind === "diff") {
+                return (
+                  <Suspense key={tab.id} fallback={null}>
+                    <DiffView root={tab.root} path={tab.path} staged={tab.staged} hidden={tab.id !== activeTabId} />
                   </Suspense>
                 );
               }

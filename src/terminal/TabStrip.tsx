@@ -265,7 +265,7 @@ export function tabDisplayLabel(tab: AppTab): string {
 
 function tabTitle(tab: AppTab, profile?: ProfileInfo): string {
   if (tab.kind === "terminal") return profile ? `${tab.cwd}\n${t("tabs.profile", { name: profile.name })}` : tab.cwd;
-  if (tab.kind === "editor") return tab.path;
+  if (tab.kind === "editor" || tab.kind === "diff") return tab.path;
   return tabDisplayLabel(tab);
 }
 

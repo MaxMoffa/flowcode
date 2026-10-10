@@ -1,0 +1,27 @@
+/* @codemirror/merge ships light-only colors; tint with the theme green/red so
+ * both light and dark stay readable. */
+.diff-view .cm-changedLine,
+.diff-view .cm-insertedLine {
+  background: color-mix(in srgb, var(--ansi-green) 14%, transparent);
+}
+
+.diff-view .cm-deletedChunk {
+  background: color-mix(in srgb, var(--ansi-red) 12%, transparent);
+}
+
+.diff-view .cm-deletedLine {
+  background: transparent;
+}
+
+.diff-view .cm-changedText,
+.diff-view ins.cm-insertedLine,
+.diff-view .cm-insertedLine ins {
+  background: color-mix(in srgb, var(--ansi-green) 32%, transparent);
+  text-decoration: none;
+}
+
+.diff-view .cm-deletedChunk del,
+.diff-view del.cm-deletedLine {
+  background: color-mix(in srgb, var(--ansi-red) 30%, transparent);
+  text-decoration: none;
+}

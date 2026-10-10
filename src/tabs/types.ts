@@ -53,6 +53,20 @@ export interface EditorTab {
   label: string;
 }
 
+/** A file's git diff, opened from the Git tab of the sidebar. Not saved in the
+ * session: it is a view of the repository's current state, nothing to restore. */
+export interface DiffTab {
+  kind: "diff";
+  id: string;
+  /** The repository working tree root. */
+  root: string;
+  /** Repo-relative, forward slashes. */
+  path: string;
+  /** Staged: HEAD vs. the index. Otherwise: the index vs. the file on disk. */
+  staged: boolean;
+  label: string;
+}
+
 export interface SettingsTab {
   kind: "settings";
   id: string;
@@ -74,4 +88,4 @@ export interface WhatsNewTab {
   version: string;
 }
 
-export type AppTab = TermTab | EditorTab | SettingsTab | ChangelogTab | WhatsNewTab;
+export type AppTab = TermTab | EditorTab | DiffTab | SettingsTab | ChangelogTab | WhatsNewTab;
