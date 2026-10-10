@@ -263,3 +263,48 @@
   font-family: inherit;
   font-weight: 600;
 }
+
+/* "Context" expander at the bottom of the CLI popovers. */
+.plugin-usage-context {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.plugin-usage-context-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.plugin-usage-context-toggle:hover {
+  color: var(--fg);
+}
+
+.plugin-usage-context-chevron {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.plugin-usage-context-toggle.is-open .plugin-usage-context-chevron {
+  transform: rotate(180deg);
+}
+
+.plugin-usage-context-note {
+  margin-top: 4px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.plugin-usage-context .plugin-usage-metric {
+  margin-top: 6px;
+}

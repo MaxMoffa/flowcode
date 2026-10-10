@@ -3,6 +3,7 @@ mod fs;
 mod git;
 mod gpu;
 mod attention;
+mod context;
 mod notify;
 mod plugins;
 mod profiles;
@@ -157,6 +158,7 @@ pub fn run() {
             profiles::profile_for_path,
             profiles::profile_login_state,
             spend::cli_spend,
+            context::agent_context,
             plugins::cli_billing_mode,
             vibe::list_vibe_sessions,
             vibe::vibe_usage_stats,

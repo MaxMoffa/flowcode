@@ -358,6 +358,45 @@ impl LiveThread {
     }
 }
 
+/// Walks a JSONL file's lines from the end, `visit` returning the first
+/// `Some` to stop. Reads `chunk` bytes at a time and gives up after
+/// `max_scan` bytes, since a transcript can be huge and what's wanted is
+/// almost always near the end.
+pub(crate) fn scan_lines_backwards<T>(
+    path: &Path,
+    chunk: u64,
+    max_scan: u64,
+    mut visit: impl FnMut(&[u8]) -> Option<T>,
+) -> Option<T> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut end = len;
+    // Bytes of the line cut off at the start of the previous chunk.
+    let mut carry: Vec<u8> = Vec::new();
+    while end > 0 && len - end < max_scan {
+        let start = end.saturating_sub(chunk);
+        let mut buf = vec![0u8; (end - start) as usize];
+        file.seek(SeekFrom::Start(start)).ok()?;
+        file.read_exact(&mut buf).ok()?;
+        buf.extend_from_slice(&carry);
+        // Unless this chunk starts the file, its first line may be partial.
+        let (head, lines) = match buf.iter().position(|&b| b == b'\n') {
+            _ if start == 0 => (Vec::new(), &buf[..]),
+            Some(i) => (buf[..i].to_vec(), &buf[i + 1..]),
+            None => (buf.clone(), &buf[..0]),
+        };
+        for line in lines.split(|&b| b == b'\n').rev() {
+            if let Some(found) = visit(line) {
+                return Some(found);
+            }
+        }
+        carry = head;
+        end = start;
+    }
+    None
+}
+
 /// Whether the rollout's last turn is still open: its latest `task_started`
 /// has no `task_complete` / `turn_aborted` after it. Codex writes nothing
 /// while a command runs or an approval waits on the user, so how recently
@@ -365,7 +404,6 @@ impl LiveThread {
 /// events can. Read backwards from the end, and only again once the file
 /// has grown.
 fn rollout_turn_open(path: &Path) -> Option<bool> {
-    use std::io::{Read, Seek, SeekFrom};
     const CHUNK: u64 = 64 * 1024;
     /// A turn's output can be long; past this, give up and let the caller
     /// fall back to the file's mtime.
@@ -380,39 +418,18 @@ fn rollout_turn_open(path: &Path) -> Option<bool> {
             return *open;
         }
     }
-    let open = (|| {
-        let mut file = std::fs::File::open(path).ok()?;
-        let mut end = len;
-        // Bytes of the line cut off at the start of the previous chunk.
-        let mut carry: Vec<u8> = Vec::new();
-        while end > 0 && len - end < MAX_SCAN {
-            let start = end.saturating_sub(CHUNK);
-            let mut buf = vec![0u8; (end - start) as usize];
-            file.seek(SeekFrom::Start(start)).ok()?;
-            file.read_exact(&mut buf).ok()?;
-            buf.extend_from_slice(&carry);
-            // Unless this chunk starts the file, its first line may be partial.
-            let (head, lines) = match buf.iter().position(|&b| b == b'\n') {
-                _ if start == 0 => (Vec::new(), &buf[..]),
-                Some(i) => (buf[..i].to_vec(), &buf[i + 1..]),
-                None => (buf.clone(), &buf[..0]),
-            };
-            for line in lines.split(|&b| b == b'\n').rev() {
-                // Escaped inside any message text, so only a real event's
-                // own payload matches.
-                let has = |needle: &[u8]| line.windows(needle.len()).any(|w| w == needle);
-                if has(br#"{"type":"task_started""#) {
-                    return Some(true);
-                }
-                if has(br#"{"type":"task_complete""#) || has(br#"{"type":"turn_aborted""#) {
-                    return Some(false);
-                }
-            }
-            carry = head;
-            end = start;
+    let open = scan_lines_backwards(path, CHUNK, MAX_SCAN, |line| {
+        // Escaped inside any message text, so only a real event's own
+        // payload matches.
+        let has = |needle: &[u8]| line.windows(needle.len()).any(|w| w == needle);
+        if has(br#"{"type":"task_started""#) {
+            return Some(true);
+        }
+        if has(br#"{"type":"task_complete""#) || has(br#"{"type":"turn_aborted""#) {
+            return Some(false);
         }
         None
-    })();
+    });
     CACHE.lock().unwrap().insert(path.to_path_buf(), (len, open));
     open
 }

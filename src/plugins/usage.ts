@@ -383,7 +383,7 @@ function spendMetrics(usage: { today: Spend; week: Spend; month: Spend }): Usage
 /** "claude-opus-4-6" / "claude-sonnet-4-5-20250929" -> "Claude Opus 4.6" /
  * "Claude Sonnet 4.5"; "gpt-5.1-codex-max" -> "GPT-5.1-Codex-Max". Anything
  * else is shown as the CLI named it. */
-function modelDisplayName(id: string): string {
+export function modelDisplayName(id: string): string {
   const claude = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/);
   if (claude) {
     const [, family, major, minor] = claude;

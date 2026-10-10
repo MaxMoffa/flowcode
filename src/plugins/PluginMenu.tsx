@@ -84,6 +84,7 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
             onMouseLeave={scheduleHide}
           >
             <UsagePopoverContent
+              pluginId={item.id}
               label={item.label}
               usage={usage}
               loading={loading}

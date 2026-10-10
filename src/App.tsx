@@ -38,6 +38,7 @@ import { useAutoResumeSettings } from "./agents/autoResumeSettings";
 import { useAgentNotifications } from "./notifications/useAgentNotifications";
 import { watchLimitResets } from "./notifications/limitResetWatcher";
 import { useNotificationSettings } from "./notifications/notificationSettings";
+import { setActiveAgent } from "./agents/activeAgent";
 import { tabAgentOf, useAgentSessions, type TabAgent } from "./agents/agentSessions";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
@@ -2013,6 +2014,20 @@ function Shell() {
     const tab = tabs.find((t) => t.kind === "terminal" && termRefs.current.get(t.id)?.getPtyId() === session.pty_id);
     if (tab) tabAgents.set(tab.id, tabAgentOf(session));
   }
+  // The active tab's agent, for the usage popovers' context section.
+  const activeAgentSession = activeTerminal
+    ? (agentSessions ?? []).find((s) => s.pty_id === termRefs.current.get(activeTerminal.id)?.getPtyId())
+    : undefined;
+  const [aaCli, aaId, aaProfile, aaWsl, aaLabel] = [
+    activeAgentSession?.cli,
+    activeAgentSession?.session_id ?? null,
+    activeAgentSession?.profile ?? null,
+    !!activeAgentSession?.wsl_distro,
+    activeTerminal?.label ?? "",
+  ];
+  useEffect(() => {
+    setActiveAgent(aaCli ? { cli: aaCli, sessionId: aaId, profile: aaProfile, wsl: aaWsl, tabLabel: aaLabel } : null);
+  }, [aaCli, aaId, aaProfile, aaWsl, aaLabel]);
   useEffect(watchLimitResets, []);
   const doneTabIds = useAgentNotifications(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),

@@ -84,6 +84,7 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
             onMouseLeave={scheduleHide}
           >
             <UsagePopoverContent
+              pluginId={plugin.id}
               label={plugin.label}
               usage={usage}
               loading={loading}
