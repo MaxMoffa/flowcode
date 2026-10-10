@@ -76,42 +76,43 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
     <div className="agents-new-menu" ref={ref} role="menu">
       <div className="agents-new-menu-caption">{basename(repoRoot ?? projectCwd)}</div>
       {profiles.length > 0 && (
-        <div className="agents-new-menu-profiles" role="radiogroup" aria-label={t("agents.profile.label")}>
+        <div className="agents-new-menu-profiles">
           <div className="agents-new-menu-caption">{t("agents.profile.label")}</div>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={selected === null}
-            className={"agents-new-menu-profile" + (selected === null ? " is-selected" : "")}
-            onClick={() => setSelected(null)}
-          >
-            <span>{t("agents.profile.default")}</span>
-          </button>
-          {profiles.map((p) => (
+          <div className="agents-new-menu-chips" role="group" aria-label={t("agents.profile.label")}>
+            {[{ id: null, name: t("agents.profile.default"), color: null }, ...profiles].map((p) => (
+              <button
+                key={p.id ?? "default"}
+                type="button"
+                aria-pressed={selected === p.id}
+                className="agents-new-menu-chip"
+                title={projectDefault === p.id ? `${p.name} · ${t("agents.profile.projectDefault")}` : p.name}
+                onClick={() => setSelected(p.id)}
+              >
+                <span
+                  className={"agents-new-menu-chip-dot" + (p.color ? "" : " is-default")}
+                  style={p.color ? { background: p.color } : undefined}
+                />
+                <span>{p.name}</span>
+                {projectDefault === p.id && (
+                  <span className="agents-new-menu-chip-star" title={t("agents.profile.projectDefault")} aria-hidden>
+                    ★
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {selected !== projectDefault && (
             <button
-              key={p.id}
               type="button"
-              role="radio"
-              aria-checked={selected === p.id}
-              className={"agents-new-menu-profile" + (selected === p.id ? " is-selected" : "")}
-              onClick={() => setSelected(p.id)}
-            >
-              <span className="agents-new-menu-profile-dot" style={{ background: p.color }} />
-              <span>{p.name}</span>
-            </button>
-          ))}
-          <label className="agents-new-menu-option">
-            <input
-              type="checkbox"
-              checked={selected === projectDefault}
-              onChange={(e) => {
-                const next = e.target.checked ? selected : null;
-                setProjectDefault(next);
-                void setProjectDefaultProfile(projectPath, next);
+              className="agents-new-menu-set-default"
+              onClick={() => {
+                setProjectDefault(selected);
+                void setProjectDefaultProfile(projectPath, selected);
               }}
-            />
-            <span>{t("agents.profile.rememberForProject")}</span>
-          </label>
+            >
+              ☆ {t("agents.profile.rememberForProject")}
+            </button>
+          )}
         </div>
       )}
       {AGENTS.map(({ cli, label }) => (

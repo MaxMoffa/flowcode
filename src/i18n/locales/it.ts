@@ -235,6 +235,7 @@ export const it = {
   // Profili account (vedi src/profiles): il selettore nel menu "+" del pannello Agenti e il badge sulla scheda.
   "agents.profile.default": "Predefinito",
   "agents.profile.label": "Profilo",
+  "agents.profile.projectDefault": "Profilo di questo progetto",
   "agents.profile.rememberForProject": "Usa sempre per questo progetto",
   "usage.profile.label": "Profilo",
   "tabs.profile": "Profilo: {name}",

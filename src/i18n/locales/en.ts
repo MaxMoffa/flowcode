@@ -235,6 +235,7 @@ export const en: Record<MessageKey, string> = {
   // Account profiles (see src/profiles): the picker in the Agents panel's "+" menu and the tab badge.
   "agents.profile.default": "Default",
   "agents.profile.label": "Profile",
+  "agents.profile.projectDefault": "This project's profile",
   "agents.profile.rememberForProject": "Always use for this project",
   "usage.profile.label": "Profile",
   "tabs.profile": "Profile: {name}",
