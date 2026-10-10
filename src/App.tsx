@@ -59,6 +59,7 @@ import { FavoritesButton, StarIcon, favoritesMenuItem } from "./favorites/Favori
 import type { FavoriteFolder } from "./favorites/favoritesStore";
 import { hasSeenWelcome } from "./welcome/welcomeSeen";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
+import { usePanelPresence } from "./hooks/usePanelPresence";
 import { SIDEBAR_MODES, EXPLORER_LINK_MODES, type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
 import { readBool, readEnum, readJson, readString, usePersistentState, writeBool, writeString } from "./lib/storage";
 import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
@@ -946,6 +947,10 @@ function Shell() {
 
   const effectiveSidebarMode: "docked" | "floating" =
     sidebarMode === "auto" ? (windowWidth < SIDEBAR_AUTO_BREAKPOINT ? "floating" : "docked") : sidebarMode;
+  // Kept mounted a beat after closing so the docked panels can animate out.
+  const sidebarDocked = effectiveSidebarMode === "docked" && !sidebarCollapsed;
+  const sidebarPresence = usePanelPresence(sidebarDocked);
+  const agentsPresence = usePanelPresence(agentsSidebarOpen);
 
   useEffect(() => {
     if (effectiveSidebarMode !== "floating" || sidebarCollapsed) return;
@@ -2332,7 +2337,8 @@ function Shell() {
     <div className={`app-shell${isMaximized ? " maximized" : ""}${isEdgeFlush ? " edge-flush" : ""}`}>
       <header className="app-headerbar" data-tauri-drag-region>
         <button
-          className="icon-button"
+          className={"icon-button" + (!sidebarCollapsed ? " is-active" : "")}
+          aria-pressed={!sidebarCollapsed}
           onClick={() => setSidebarCollapsed((c) => !c)}
           onContextMenu={(e) =>
             openMenu(
@@ -2430,6 +2436,19 @@ function Shell() {
           >
             {Icons.kebab}
           </button>
+          <button
+            type="button"
+            className={"icon-button" + (agentsSidebarOpen ? " is-active" : "")}
+            aria-pressed={agentsSidebarOpen}
+            aria-label={t("app.toggleAgents")}
+            title={t("app.toggleAgents")}
+            onClick={() => setAgentsSidebarOpen((o) => !o)}
+          >
+            <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+              <line x1="14.5" y1="4.5" x2="14.5" y2="19.5" />
+            </svg>
+          </button>
           <div className="window-controls">
             <button className="icon-button" aria-label={t("window.minimize")} onClick={() => appWindow.minimize()}>
               <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
@@ -2451,9 +2470,20 @@ function Shell() {
         </div>
       </header>
       <div className="app-body">
-        {effectiveSidebarMode === "docked" && !sidebarCollapsed && (
-          <div className="resizable-panel" style={{ width: sidebarResize.width }}>
-            {sidebarPanel}
+        {sidebarPresence.mounted && (
+          <div
+            className={
+              "resizable-panel resizable-panel-left" +
+              (sidebarPresence.shown ? "" : " is-hidden") +
+              (sidebarResize.dragging ? " is-dragging" : "")
+            }
+            style={{ width: sidebarPresence.shown ? sidebarResize.width : 0 }}
+          >
+            <div className="panel-card">
+              <div className="panel-card-content" style={{ width: sidebarResize.width - 2 }}>
+                {sidebarPanel}
+              </div>
+            </div>
             <div
               className={"resize-handle resize-handle-right" + (sidebarResize.dragging ? " is-dragging" : "")}
               onPointerDown={sidebarResize.onHandlePointerDown}
@@ -2576,28 +2606,39 @@ function Shell() {
             </div>
           </div>
         )}
-        {agentsSidebarOpen && (
-          <div className="resizable-panel" style={{ width: agentsResize.width }}>
+        {agentsPresence.mounted && (
+          <div
+            className={
+              "resizable-panel resizable-panel-right" +
+              (agentsPresence.shown ? "" : " is-hidden") +
+              (agentsResize.dragging ? " is-dragging" : "")
+            }
+            style={{ width: agentsPresence.shown ? agentsResize.width : 0 }}
+          >
             <div
               className={"resize-handle resize-handle-left" + (agentsResize.dragging ? " is-dragging" : "")}
               onPointerDown={agentsResize.onHandlePointerDown}
             />
-            <AgentsSidebar
-              windowLabel={appWindow.label}
-              tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
-              activeTabId={activeTabId}
-              projectCwd={activeTerminal ? activeTerminal.cwd || activeTerminal.explorerPath || undefined : undefined}
-              projectWslDistro={activeTerminal?.wslDistro ?? undefined}
-              sessions={agentSessions}
-              refreshSessions={refreshAgentSessions}
-              getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
-              onOpenTab={selectTab}
-              onOpenSession={openAgentSession}
-              projectShell={activeTerminal ? tabShell(activeTerminal) : undefined}
-              onLaunchAgent={(cli, cwd, shell, profileId) => void launchAgentInNewTab(cli, cwd, shell, profileId)}
-              onOpenFolder={openFolderTab}
-              onClose={() => setAgentsSidebarOpen(false)}
-            />
+            <div className="panel-card">
+              <div className="panel-card-content" style={{ width: agentsResize.width - 2 }}>
+                <AgentsSidebar
+                  windowLabel={appWindow.label}
+                  tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
+                  activeTabId={activeTabId}
+                  projectCwd={activeTerminal ? activeTerminal.cwd || activeTerminal.explorerPath || undefined : undefined}
+                  projectWslDistro={activeTerminal?.wslDistro ?? undefined}
+                  sessions={agentSessions}
+                  refreshSessions={refreshAgentSessions}
+                  getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
+                  onOpenTab={selectTab}
+                  onOpenSession={openAgentSession}
+                  projectShell={activeTerminal ? tabShell(activeTerminal) : undefined}
+                  onLaunchAgent={(cli, cwd, shell, profileId) => void launchAgentInNewTab(cli, cwd, shell, profileId)}
+                  onOpenFolder={openFolderTab}
+                  onClose={() => setAgentsSidebarOpen(false)}
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>

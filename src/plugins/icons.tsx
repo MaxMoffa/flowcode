@@ -33,15 +33,6 @@ const BUILTIN_ICONS: Record<string, ReactNode> = {
       <line x1="9.5" y1="4.5" x2="9.5" y2="19.5" />
     </svg>
   ),
-  toggleAgentsSidebar: (
-    <svg {...svgProps} strokeWidth={1.7}>
-      <rect x="4" y="6.5" width="16" height="12" rx="3" />
-      <circle cx="9.5" cy="12.5" r="1.4" fill="currentColor" stroke="none" />
-      <circle cx="14.5" cy="12.5" r="1.4" fill="currentColor" stroke="none" />
-      <line x1="12" y1="6.5" x2="12" y2="3.5" />
-      <circle cx="12" cy="2.7" r="0.9" fill="currentColor" stroke="none" />
-    </svg>
-  ),
 };
 
 const GENERIC_ICON = (

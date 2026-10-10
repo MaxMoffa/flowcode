@@ -2,6 +2,15 @@
   /* Shared height for the sidebar and editor toolbars, so their bottom
      edges line up when both panels sit side by side. */
   --panel-header-h: 38px;
+  /* Corner radius of the floating "island" cards (side panels and the
+     terminal area). */
+  --card-radius: 10px;
+  /* Cards sit on the same surface colour as the header bar, so the theme's
+     faint --border alone would lose their rounded outline: a stronger edge. */
+  --card-border: color-mix(in srgb, var(--fg) 16%, transparent);
+  /* A shade darker than the surface they sit on, so each card reads as its
+     own rounded shape. */
+  --card-bg: rgb(0 0 0 / 0.22);
 }
 
 .app-shell {
@@ -81,7 +90,6 @@
   height: 44px;
   padding: 0 8px;
   background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
   backdrop-filter: blur(var(--glass-blur)) saturate(130%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
 }
@@ -132,6 +140,12 @@
   background: var(--ctrl-hover-bg);
 }
 
+/* Header toggles for the side panels: lit while their panel is open. */
+.icon-button.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--fg);
+}
+
 .quick-actions {
   display: flex;
   align-items: center;
@@ -151,37 +165,97 @@
   flex: 1;
   display: flex;
   min-height: 0;
+  /* The side panels and the terminal area are separate cards floating on the
+     same surface as the header bar: one even 8px gutter around and between
+     them. */
+  padding: 8px;
+  background: var(--bg-elevated);
+  gap: 8px;
+  box-sizing: border-box;
 }
 
 /* Wraps whichever fixed-width panel (file explorer / settings nav / symbol
    outline on the left, agents list on the right) is currently docked, so
    its width is a plain inline style driven by useResizablePanelWidth
-   instead of a CSS constant - the panel itself now just fills this. */
+   instead of a CSS constant - the panel itself now just fills this.
+   Not itself clipped: the resize handle lives in the gap outside the card
+   (`.panel-card`), which does the clipping. */
 .resizable-panel {
   position: relative;
   display: flex;
   flex: 0 0 auto;
   min-width: 0;
+  transition:
+    width 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    margin 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity 0.18s ease;
+}
+
+/* A drag must follow the pointer 1:1, not chase it through the easing. */
+.resizable-panel.is-dragging {
+  transition: none;
+}
+
+/* While collapsed to zero width the panel is still mounted (it animates out
+   before unmounting), but `.app-body`'s gap would keep reserving 8px for it:
+   cancel it with a negative margin on the side facing the terminal card. */
+.resizable-panel.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.resizable-panel-left.is-hidden {
+  margin-right: -8px;
+}
+
+.resizable-panel-right.is-hidden {
+  margin-left: -8px;
+}
+
+.panel-card {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  box-sizing: border-box;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  overflow: hidden;
+}
+
+/* Keeps the panel at its real width while the wrapper animates, so its
+   contents are revealed by the card clipping instead of squashing. The
+   card's 1px borders are subtracted so the inner box fills it exactly. */
+.panel-card-content {
+  flex: none;
+  display: flex;
+  height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resizable-panel {
+    transition: none;
+  }
 }
 
 .resize-handle {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 5px;
+  /* Exactly the 8px gap between two cards - the place users aim at now that
+     the cards have no shared edge. */
+  width: 8px;
   cursor: col-resize;
   z-index: 5;
-  /* Wider than it looks: the visible seam is 1px (the panel's own border),
-     but a hit target that thin is nearly unusable with a mouse. */
   background: transparent;
 }
 
 .resize-handle-right {
-  right: -2px;
+  right: -8px;
 }
 
 .resize-handle-left {
-  left: -2px;
+  left: -8px;
 }
 
 .resize-handle:hover,
@@ -195,6 +269,29 @@
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  overflow: hidden;
+}
+
+/* The glass blur belongs on the cards themselves. Chromium (WebView2) doesn't
+   clip a descendant's backdrop-filter to an ancestor's rounded overflow, so
+   panels blurring on their own drew square corners over the rounded card -
+   blur once at the card, which clips to its own radius, and not inside it. */
+.panel-card,
+.terminal-stack,
+.sidebar-floating-panel {
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+}
+
+.panel-card-content > *,
+.sidebar-floating-panel > *,
+.terminal-stack .terminal-container,
+.terminal-stack .newtab {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .sidebar-floating-backdrop {
@@ -207,9 +304,13 @@
    the docked panel does. */
 .sidebar-floating-panel {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
+  top: 8px;
+  bottom: 8px;
+  left: 8px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  overflow: hidden;
   /* Flex like .resizable-panel: the panel inside stretches to this height
      and scrolls its own list, instead of growing with its content. */
   display: flex;

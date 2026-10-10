@@ -36,6 +36,7 @@ export const en: Record<MessageKey, string> = {
   "menu.theme": "Theme",
   "app.toggleSidebar": "Show/hide side panel",
   "app.toggleSidebar.title": "Show/hide side panel (right-click for the mode)",
+  "app.toggleAgents": "Show/hide agents panel",
   "app.removeShortcut": "Remove from shortcuts",
   "app.moreOptions": "More options",
   "app.openFailed": "Couldn't open {name}: {error}",
@@ -249,9 +250,6 @@ export const en: Record<MessageKey, string> = {
   "plugin.newTab": "New terminal",
   "plugin.clearTerminal": "Clear terminal",
   "plugin.toggleSidebar": "Show/hide side panel",
-  "plugin.toggleAgentsSidebar": "Active agents",
-  "plugin.toggleAgentsSidebar.description":
-    "Show/hide the panel with the agents (Claude Code, Codex CLI, ...) running in the open terminals.",
   "plugin.openInVsCode": "Open in VS Code",
   "plugin.openInVsCode.description": "Opens the active terminal's folder in Visual Studio Code.",
   "plugin.openInVsCode.notInstalled": "VS Code doesn't seem to be installed on this computer.",

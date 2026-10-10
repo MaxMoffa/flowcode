@@ -34,6 +34,7 @@ export const it = {
   "menu.theme": "Tema",
   "app.toggleSidebar": "Mostra/nascondi pannello laterale",
   "app.toggleSidebar.title": "Mostra/nascondi pannello laterale (click destro per la modalità)",
+  "app.toggleAgents": "Mostra/nascondi pannello agenti",
   "app.removeShortcut": "Rimuovi dagli shortcut",
   "app.moreOptions": "Altre opzioni",
   "app.openFailed": "Impossibile aprire {name}: {error}",
@@ -249,9 +250,6 @@ export const it = {
   "plugin.newTab": "Nuovo terminale",
   "plugin.clearTerminal": "Pulisci terminale",
   "plugin.toggleSidebar": "Mostra/nascondi pannello laterale",
-  "plugin.toggleAgentsSidebar": "Agenti attivi",
-  "plugin.toggleAgentsSidebar.description":
-    "Mostra/nascondi il pannello con gli agenti (Claude Code, Codex CLI, ...) in esecuzione nei terminali aperti.",
   "plugin.openInVsCode": "Apri in VS Code",
   "plugin.openInVsCode.description": "Apre la cartella del terminale attivo in Visual Studio Code.",
   "plugin.openInVsCode.notInstalled": "VS Code non risulta installato su questo computer.",
