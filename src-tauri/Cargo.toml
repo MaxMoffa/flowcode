@@ -45,6 +45,8 @@ flowcode-shared = { path = "shared" }
 # Self-update (updater.rs): GitHub's releases API and the installer download.
 ureq = "2"
 sha2 = "0.10"
+# Verifies the Ed25519 signature on a release's SHA256SUMS (updater.rs).
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # Live folder watching for the file explorer (watcher.rs). Renamed: `notify`
 # is already this crate's own desktop-notification module.
 fs-watch = { package = "notify", version = "8" }

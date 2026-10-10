@@ -245,4 +245,8 @@ jobs:
         run: cd dist-release && sha256sum -- * > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
+          # Draft on purpose: the updater reads /releases/latest, which never
+          # lists drafts. Sign and publish with
+          # `node scripts/sign-release.mjs <tag> --publish`.
+          draft: true
           files: dist-release/*

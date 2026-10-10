@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::ipc::Channel;
@@ -27,6 +28,22 @@ const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/MaxMoffa/flowcode
 const RELEASES_URL: &str = "https://api.github.com/repos/MaxMoffa/flowcode/releases?per_page=100";
 const USER_AGENT: &str = concat!("flowcode/", env!("CARGO_PKG_VERSION"));
 const CHECKSUMS_ASSET: &str = "SHA256SUMS";
+const SIGNATURE_ASSET: &str = "SHA256SUMS.sig";
+/// Every asset (installer, checksums, signature) must come from this
+/// repository's release downloads, so a tampered API answer can't point the
+/// updater at some other host.
+const ASSET_URL_PREFIX: &str = "https://github.com/MaxMoffa/flowcode/releases/download/";
+
+/// Public half of the release signing key; `SHA256SUMS.sig` must be a valid
+/// Ed25519 signature over `SHA256SUMS` made with the matching private key.
+/// The private key lives at `~/.flowcode-release/signing-key.pem` on the
+/// owner's machine (see scripts/release-keygen.mjs). If it is lost, builds
+/// with this key embedded can never again be updated to a newly signed
+/// release - back it up.
+const RELEASE_PUBLIC_KEY: [u8; 32] = [
+    0x32, 0xc7, 0xc0, 0xd9, 0x90, 0xc8, 0xa2, 0xc5, 0x8c, 0x08, 0xda, 0xef, 0xfc, 0xa7, 0x44, 0xae,
+    0x7e, 0x91, 0x79, 0x32, 0xc4, 0x4f, 0xbd, 0xd1, 0x76, 0x84, 0xe0, 0xee, 0x43, 0x1e, 0x5f, 0x28,
+];
 
 #[derive(Deserialize)]
 struct GhRelease {
@@ -72,6 +89,7 @@ struct PendingRelease {
     asset_name: String,
     asset_url: String,
     checksums_url: Option<String>,
+    signature_url: Option<String>,
 }
 
 #[derive(Default)]
@@ -205,18 +223,31 @@ pub async fn update_check(state: State<'_, UpdaterState>) -> Result<Option<Updat
         page_url: release.html_url.clone(),
         size: asset.size,
     };
-    let checksums_url = release
-        .assets
-        .iter()
-        .find(|a| a.name == CHECKSUMS_ASSET)
-        .map(|a| a.browser_download_url.clone());
+    if !is_trusted_url(&asset.browser_download_url) {
+        return Err(tr("L'installer non proviene dalle release ufficiali: aggiornamento annullato.", "The installer isn't from the official releases: update cancelled.").to_string());
+    }
+    let find_trusted = |name: &str| {
+        release
+            .assets
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.browser_download_url.clone())
+            .filter(|u| is_trusted_url(u))
+    };
+    let checksums_url = find_trusted(CHECKSUMS_ASSET);
+    let signature_url = find_trusted(SIGNATURE_ASSET);
     *state.0.lock().unwrap() = Some(PendingRelease {
         info: info.clone(),
         asset_name: asset.name.clone(),
         asset_url: asset.browser_download_url.clone(),
         checksums_url,
+        signature_url,
     });
     Ok(Some(info))
+}
+
+fn is_trusted_url(url: &str) -> bool {
+    url.starts_with(ASSET_URL_PREFIX)
 }
 
 /// The folder the running Flowcode was installed into - what the installer
@@ -328,15 +359,57 @@ fn download(
         .collect())
 }
 
-/// Checks `sha256` against the `<hex>  <file name>` line for `asset_name` in
-/// the release's SHA256SUMS.
-fn verify_checksum(checksums_url: &str, asset_name: &str, sha256: &str) -> Result<(), String> {
-    let sums = agent()
-        .get(checksums_url)
+fn decode_hex(s: &str) -> Option<Vec<u8>> {
+    let s = s.as_bytes();
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    s.chunks(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16)?;
+            let lo = (pair[1] as char).to_digit(16)?;
+            Some((hi * 16 + lo) as u8)
+        })
+        .collect()
+}
+
+fn bad_signature() -> String {
+    tr("La firma della release manca o non è valida: aggiornamento annullato.", "The release signature is missing or invalid: update cancelled.").to_string()
+}
+
+/// Checks `sums` (the raw SHA256SUMS bytes) against the hex Ed25519 signature
+/// `sig_text` with `key`.
+fn verify_signature(key: &[u8; 32], sums: &[u8], sig_text: &str) -> Result<(), String> {
+    let sig: [u8; 64] = decode_hex(sig_text.trim())
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(bad_signature)?;
+    let key = VerifyingKey::from_bytes(key).map_err(|_| bad_signature())?;
+    key.verify_strict(sums, &Signature::from_bytes(&sig)).map_err(|_| bad_signature())
+}
+
+fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    // A checksum list is a few hundred bytes; the cap only guards memory.
+    agent()
+        .get(url)
         .call()
-        .map_err(|e| if is_italian() { format!("Impossibile scaricare i checksum: {e}") } else { format!("Couldn't download the checksums: {e}") })?
-        .into_string()
+        .map_err(|e| e.to_string())?
+        .into_reader()
+        .take(1024 * 1024)
+        .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
+    Ok(bytes)
+}
+
+/// Verifies the release signature over SHA256SUMS, then checks `sha256`
+/// against the `<hex>  <file name>` line for `asset_name`. The signature
+/// comes first: until it holds, nothing in SHA256SUMS is trusted.
+fn verify_checksum(checksums_url: &str, signature_url: &str, asset_name: &str, sha256: &str) -> Result<(), String> {
+    let sums = fetch_bytes(checksums_url)
+        .map_err(|e| if is_italian() { format!("Impossibile scaricare i checksum: {e}") } else { format!("Couldn't download the checksums: {e}") })?;
+    let sig = fetch_bytes(signature_url).map_err(|_| bad_signature())?;
+    verify_signature(&RELEASE_PUBLIC_KEY, &sums, &String::from_utf8_lossy(&sig))?;
+    let sums = String::from_utf8_lossy(&sums);
     let expected = sums
         .lines()
         .filter_map(|line| {
@@ -443,16 +516,22 @@ pub async fn update_install(
     state: State<'_, UpdaterState>,
     on_progress: Channel<UpdateProgress>,
 ) -> Result<(), String> {
-    let (asset_name, asset_url, checksums_url, size) = {
+    let (asset_name, asset_url, checksums_url, signature_url, size) = {
         let pending = state.0.lock().unwrap();
         let pending = pending.as_ref().ok_or(tr("Nessun aggiornamento disponibile: controlla di nuovo.", "No update available: check again."))?;
         (
             pending.asset_name.clone(),
             pending.asset_url.clone(),
             pending.checksums_url.clone(),
+            pending.signature_url.clone(),
             pending.info.size,
         )
     };
+    // Re-checked here, not just in update_check: this is the last gate
+    // before anything is downloaded or run.
+    if ![Some(&asset_url), checksums_url.as_ref(), signature_url.as_ref()].into_iter().flatten().all(|u| is_trusted_url(u)) {
+        return Err(tr("Indirizzo di download non attendibile: aggiornamento annullato.", "Untrusted download address: update cancelled.").to_string());
+    }
     let install_dir = install_dir()?;
 
     let progress = on_progress.clone();
@@ -464,7 +543,8 @@ pub async fn update_install(
         // No checksums, no install: the installer is about to run with the
         // user's rights, so skipping the check isn't a safe fallback.
         let url = checksums_url.ok_or(tr("La release non contiene SHA256SUMS: aggiornamento annullato.", "The release has no SHA256SUMS: update cancelled."))?;
-        verify_checksum(&url, &asset_name, &sha256)?;
+        let sig_url = signature_url.ok_or_else(bad_signature)?;
+        verify_checksum(&url, &sig_url, &asset_name, &sha256)?;
         prepare_installer(&downloaded, &work_dir)
     })
     .await?;
@@ -481,7 +561,45 @@ pub async fn update_install(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_version;
+    use super::{decode_hex, is_trusted_url, parse_version, verify_signature};
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn sign(sums: &[u8]) -> ([u8; 32], String) {
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let sig: String = sk.sign(sums).to_bytes().iter().map(|b| format!("{b:02x}")).collect();
+        (sk.verifying_key().to_bytes(), sig)
+    }
+
+    #[test]
+    fn accepts_valid_signature() {
+        let sums = b"abc  Flowcode-Setup-1.0.0.exe\n";
+        let (key, sig) = sign(sums);
+        assert!(verify_signature(&key, sums, &format!("{sig}\n")).is_ok());
+    }
+
+    #[test]
+    fn rejects_tampered_sums() {
+        let (key, sig) = sign(b"abc  Flowcode-Setup-1.0.0.exe\n");
+        assert!(verify_signature(&key, b"abd  Flowcode-Setup-1.0.0.exe\n", &sig).is_err());
+    }
+
+    #[test]
+    fn rejects_bad_hex_and_length() {
+        let (key, sig) = sign(b"x");
+        assert!(verify_signature(&key, b"x", "zz").is_err());
+        assert!(verify_signature(&key, b"x", &sig[..126]).is_err());
+        assert!(verify_signature(&key, b"x", "").is_err());
+        assert_eq!(decode_hex("0aFf"), Some(vec![0x0a, 0xff]));
+        assert_eq!(decode_hex("abc"), None);
+    }
+
+    #[test]
+    fn only_trusts_release_download_urls() {
+        assert!(is_trusted_url("https://github.com/MaxMoffa/flowcode/releases/download/v1/SHA256SUMS"));
+        assert!(!is_trusted_url("https://github.com/Evil/flowcode/releases/download/v1/x"));
+        assert!(!is_trusted_url("http://github.com/MaxMoffa/flowcode/releases/download/v1/x"));
+        assert!(!is_trusted_url("https://github.com.evil.com/MaxMoffa/flowcode/releases/download/"));
+    }
 
     #[test]
     fn parses_versions() {

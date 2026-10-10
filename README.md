@@ -179,6 +179,21 @@ npm run tauri build
 The official installers for the three platforms are built by the GitHub Action
 `.github/workflows/release.yml` when a `vX.Y.Z` tag is pushed.
 
+### Releasing
+
+Release checksums (`SHA256SUMS`) are signed with an Ed25519 key; the app embeds the public half and
+refuses updates whose `SHA256SUMS.sig` is missing or invalid. Older installed versions ignore the extra
+asset, so their updates keep working.
+
+1. One time only: `node scripts/release-keygen.mjs`. The private key goes to
+   `~/.flowcode-release/signing-key.pem` (outside the repo). **Back this file up**: if it is lost, builds
+   that embed its public key can't be updated to newly signed releases. (`--print-public` shows the public
+   key again.)
+2. Push the `vX.Y.Z` tag. CI builds the installers and creates a **draft** release (invisible to the
+   updater, which reads `/releases/latest`).
+3. Sign and publish: `node scripts/sign-release.mjs vX.Y.Z --publish` (needs the `gh` CLI, logged in).
+   Without `--publish` it only uploads the signature and leaves the draft.
+
 ### Shortcut configuration
 
 The defaults live in `config/shortcuts.json` (bundled with the app). User customizations are saved in
