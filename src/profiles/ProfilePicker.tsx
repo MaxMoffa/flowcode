@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useProfiles } from "./profiles";
+import "../dialog/modal.css";
 import "./profile-picker.css";
 
 interface ProfilePickerProps {
@@ -49,7 +50,7 @@ export function ProfilePicker({ onPick, onClose }: ProfilePickerProps) {
 
   return createPortal(
     <div
-      className="profile-picker-backdrop"
+      className="modal-backdrop"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -57,7 +58,7 @@ export function ProfilePicker({ onPick, onClose }: ProfilePickerProps) {
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="profile-picker"
+        className="modal-panel profile-picker"
         role="dialog"
         aria-modal="true"
         aria-label={t("profiles.picker.title")}

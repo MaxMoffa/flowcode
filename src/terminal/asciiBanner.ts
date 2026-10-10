@@ -21,7 +21,7 @@ function ansiTrueColor(hex: string): string | null {
   return `\x1b[38;2;${parseInt(r, 16)};${parseInt(g, 16)};${parseInt(b, 16)}m`;
 }
 
-export function gib(bytes: number): string {
+function gib(bytes: number): string {
   return (bytes / 1024 ** 3).toFixed(1);
 }
 
@@ -154,7 +154,7 @@ export function frogPlacement(cols: number): { col: number; top: number } | null
 
 /** The frog's colors: its body, the dark of its pupils and `>_`, and the
  * white of its eyes. */
-export interface FrogPalette {
+interface FrogPalette {
   green: string;
   dark: string;
   white: string;
@@ -366,7 +366,7 @@ export function drawFrog(canvas: HTMLCanvasElement, pose: FrogPose, width: numbe
 /** The cell grid of the last terminal laid out, so the New Tab page can draw
  * the banner and the prompt row on the very cells the terminal replacing it
  * will - its own measurements, not an estimate from the font size. */
-export interface TermGrid {
+interface TermGrid {
   fontSize: number;
   /** The terminal container's width, padding included. */
   width: number;

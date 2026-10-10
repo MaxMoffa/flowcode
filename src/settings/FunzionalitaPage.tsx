@@ -3,6 +3,8 @@ import type { PluginDef, PluginManifest } from "../plugins/types";
 import { PLUGIN_ACTION_LABELS } from "../plugins/types";
 import { pluginIconNode } from "../plugins/icons";
 import { PluginCreateDialog } from "./PluginCreateDialog";
+import { Switch } from "./SettingsControls";
+import "./settings-page.css";
 import { useI18n } from "../i18n";
 import "./funzionalita-page.css";
 
@@ -82,14 +84,11 @@ export function FunzionalitaPage({ plugins, enabledIds, onToggleEnabled, onAdd, 
                 {plugin.description && <div className="funzionalita-desc">{plugin.description}</div>}
               </td>
               <td>
-                <label className="funzionalita-switch">
-                  <input
-                    type="checkbox"
-                    checked={enabledIds.includes(plugin.id)}
-                    onChange={() => onToggleEnabled(plugin.id)}
-                  />
-                  <span className="funzionalita-switch-track" />
-                </label>
+                <Switch
+                  checked={enabledIds.includes(plugin.id)}
+                  onChange={() => onToggleEnabled(plugin.id)}
+                  label={plugin.label}
+                />
               </td>
               <td className="funzionalita-actions-cell">
                 {!plugin.builtin && (

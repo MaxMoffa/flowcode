@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { createStore } from "../lib/externalStore";
 import { readBool, writeBool } from "../lib/storage";
 
 /** What an agent in a tab can notify about - plus `limitReset`, an account's
@@ -20,29 +20,15 @@ function read(): Enabled {
   };
 }
 
-// A tiny external store rather than a context: the Settings tab that flips a
-// switch and the App-level watcher that reads it live in the same window but
-// nowhere near each other in the tree.
-let current = read();
-const listeners = new Set<() => void>();
+// The Settings tab that flips a switch and the App-level watcher that reads
+// it live in the same window but nowhere near each other in the tree.
+const store = createStore<Enabled>(read());
 
-export function getNotificationSettings(): Enabled {
-  return current;
-}
+export const getNotificationSettings = store.get;
+export const useNotificationSettings = store.use;
 
 export function setNotificationEnabled(kind: NotificationKind, enabled: boolean) {
-  if (current[kind] === enabled) return;
+  if (store.get()[kind] === enabled) return;
   writeBool(key(kind), enabled);
-  current = { ...current, [kind]: enabled };
-  listeners.forEach((l) => l());
-}
-
-export function useNotificationSettings(): Enabled {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    getNotificationSettings,
-  );
+  store.update((s) => ({ ...s, [kind]: enabled }));
 }

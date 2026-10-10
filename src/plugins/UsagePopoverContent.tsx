@@ -4,6 +4,7 @@ import { formatTokens, metricText, modelDisplayName, type UsageInfo } from "./us
 import { useI18n } from "../i18n";
 import { useProfiles } from "../profiles/profiles";
 import { useActiveAgent } from "../agents/activeAgent";
+import { cliOfPlugin } from "../agents/cliInfo";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 
 /** Small "copy debug info" button under a failed probe's "Unavailable":
@@ -81,9 +82,6 @@ interface AgentContext {
   model: string | null;
 }
 
-/** The CLI whose sessions each usage plugin's account belongs to. */
-const PLUGIN_CLI: Record<string, string> = { "claude-code": "claude", "codex-cli": "codex" };
-
 const CONTEXT_POLL_MS = 5000;
 const CONTEXT_OPEN_KEY = "flowcode.usage.contextOpen";
 
@@ -94,7 +92,9 @@ function ContextSection({ pluginId, label }: { pluginId: string; label: string }
   const { t } = useI18n();
   const [open, setOpen] = usePersistentState(CONTEXT_OPEN_KEY, (k) => readBool(k, false), writeBool);
   const agent = useActiveAgent();
-  const cli = PLUGIN_CLI[pluginId];
+  // Context is only read for Claude Code and Codex sessions.
+  const pluginCli = cliOfPlugin(pluginId);
+  const cli = pluginCli === "vibe" ? undefined : pluginCli;
   const mine = !!agent && agent.cli === cli;
   const sessionId = mine ? agent.sessionId : null;
   const profile = mine ? agent.profile : null;

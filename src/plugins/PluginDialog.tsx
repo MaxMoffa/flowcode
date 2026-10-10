@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { PluginDef, PluginButtonDef } from "./types";
 import { useI18n } from "../i18n";
+import "../dialog/modal.css";
 import "./plugin-dialog.css";
 
 interface PluginDialogProps {
@@ -22,12 +23,12 @@ export function PluginDialog({ plugin, onRunButton, onClose }: PluginDialogProps
 
   return createPortal(
     <div
-      className="plugin-dialog-backdrop"
+      className="modal-backdrop"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="plugin-dialog-panel" role="dialog" aria-modal="true">
+      <div className="modal-panel plugin-dialog-panel" role="dialog" aria-modal="true">
         <div className="plugin-dialog-title">{plugin.title || plugin.label}</div>
         {plugin.message && (
           <p className={"plugin-dialog-message" + (plugin.id === "__result" ? " is-command-output" : "")}>{plugin.message}</p>

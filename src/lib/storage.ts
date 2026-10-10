@@ -19,6 +19,11 @@ export function writeString(key: string, value: string) {
   }
 }
 
+/** `value` as JSON, for the persistent-state hooks' `write` argument. */
+export function writeJson(key: string, value: unknown) {
+  writeString(key, JSON.stringify(value));
+}
+
 export function removeKey(key: string) {
   try {
     localStorage.removeItem(key);

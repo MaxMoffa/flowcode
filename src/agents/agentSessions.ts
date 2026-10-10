@@ -31,6 +31,23 @@ export interface AgentSession {
   profile: string | null;
 }
 
+const COMPARED_FIELDS: (keyof AgentSession)[] = [
+  "pty_id",
+  "session_id",
+  "status",
+  "cli",
+  "profile",
+  "wsl_distro",
+  "session_name",
+  "tab_id",
+  "window",
+  "cwd",
+];
+
+function sameSessions(a: AgentSession[], b: AgentSession[]): boolean {
+  return a.length === b.length && a.every((s, i) => COMPARED_FIELDS.every((k) => s[k] === b[i][k]));
+}
+
 /** Often enough for the tab strip's working/waiting indicator to feel live,
  * while a poll still refreshes the whole process table (and, for WSL tabs,
  * spawns `wsl.exe`). */
@@ -44,18 +61,23 @@ const POLL_MS = 2000;
 export function useAgentSessions(pollWhenHidden = false): { sessions: AgentSession[] | null; refresh: () => Promise<void> } {
   const [sessions, setSessions] = useState<AgentSession[] | null>(null);
   const mountedRef = useRef(true);
+  // A poll can outlive the next one (slow process table, wsl.exe); only the
+  // newest request may write, or an old answer would roll the list back.
+  const seqRef = useRef(0);
 
-  const refresh = useCallback(
-    () =>
-      invoke<AgentSession[]>("list_agent_sessions")
-        .then((result) => {
-          if (mountedRef.current) setSessions(result);
-        })
-        .catch(() => {
-          if (mountedRef.current) setSessions((prev) => prev ?? []);
-        }),
-    [],
-  );
+  const refresh = useCallback(() => {
+    const seq = ++seqRef.current;
+    return invoke<AgentSession[]>("list_agent_sessions")
+      .then((result) => {
+        if (!mountedRef.current || seq !== seqRef.current) return;
+        // Keep the previous array when nothing changed, so consumers don't
+        // re-render on every 2 s poll.
+        setSessions((prev) => (prev && sameSessions(prev, result) ? prev : result));
+      })
+      .catch(() => {
+        if (mountedRef.current && seq === seqRef.current) setSessions((prev) => prev ?? []);
+      });
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;

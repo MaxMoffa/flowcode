@@ -626,8 +626,8 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   }, [frogShown]);
   // The rare real frog is painted on a canvas under the pixel-art catch, which
   // fades out over it - except for the odd frame mid-glitch, which flickers
-  // back to the pixel frog.
-  const realFrame = !!catching?.real && catching.real.amount > 0 && !(catching.real.glitch > 0.6 && Math.random() < 0.3);
+  // back to the pixel frog (`flicker`, rolled in useFrogPose).
+  const realFrame = !!catching?.real && catching.real.amount > 0 && !catching.flicker;
   const realCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // The page's frog, drawn on its canvas - at rest on the hand-off, the very
@@ -641,14 +641,17 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   };
   const redrawFrogRef = useRef(redrawFrog);
   redrawFrogRef.current = redrawFrog;
-  useLayoutEffect(redrawFrog);
+  // Redraws when the pose or grid changes, or when the canvas (re)mounts
+  // (`frogAt`, `catching` decide whether it is rendered) - not every render.
+  useLayoutEffect(redrawFrog, [frogPose, grid, frogAt, catching === null]);
   // Its colors follow the theme's accent, which the theme sets in a layout
   // effect of its own - after this page's: redraw once it's in.
   useEffect(() => redrawFrogRef.current(), [theme, paletteId, terminalPaletteId, contrast]);
   useLayoutEffect(() => {
     const canvas = realCanvasRef.current;
     if (canvas && realFrame && catching && catchGridNow) drawRealCatch(canvas, catchGridNow, catching);
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catching, realFrame, grid, frogAt]);
 
   // "mosca" or "fly" left on the line: the frog catches it and eats it,
   // taking it off the line.

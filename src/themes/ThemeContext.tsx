@@ -6,7 +6,7 @@ export type Theme = "light" | "dark";
 export type ThemeMode = Theme | "auto";
 
 const STORAGE_KEY = "flowcode.theme";
-export const PALETTE_KEY = "flowcode.palette";
+const PALETTE_KEY = "flowcode.palette";
 const TERMINAL_PALETTE_KEY = "flowcode.terminalPalette";
 const CONTRAST_KEY = "flowcode.contrast";
 // Version suffix: while Windows had no working native backdrop, panels at a
@@ -55,6 +55,8 @@ interface ThemeContextValue {
    * settings slider - stored separately per theme from then on. */
   glassOpacity: number;
   setGlassOpacity: (value: number) => void;
+  /** Forgets the stored opacity of both themes, back to the default. */
+  resetGlassOpacity: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -68,7 +70,7 @@ function getInitialMode(): ThemeMode {
 }
 
 /** The stored palette id, or the default when unset or no longer a palette. */
-export function readPaletteId(): string {
+function readPaletteId(): string {
   const stored = readString(PALETTE_KEY);
   return findPalette(stored) ? stored! : DEFAULT_PALETTE_ID;
 }
@@ -83,6 +85,7 @@ function readTerminalPaletteId(): string | null {
  * getComputedStyle: this runs before the `data-theme` attribute that makes
  * the platform override rules match has been applied. */
 const DEFAULT_GLASS_ALPHA = 0.6;
+const GLASS_THEMES: Theme[] = ["light", "dark"];
 
 function getInitialGlassOpacity(theme: Theme): number {
   // readNumber treats a missing key as "use the default" - `Number(null)` is
@@ -135,6 +138,32 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
   }, [paletteId, theme, contrast]);
 
+  // Other windows share this storage: a change made in one window's settings
+  // reaches every other open window (same approach as i18n/index.tsx).
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      switch (e.key) {
+        case STORAGE_KEY:
+          setModeState(getInitialMode());
+          break;
+        case PALETTE_KEY:
+          setPaletteIdState(readPaletteId());
+          break;
+        case TERMINAL_PALETTE_KEY:
+          setTerminalPaletteIdState(readTerminalPaletteId());
+          break;
+        case CONTRAST_KEY:
+          setContrastState(readNumber(CONTRAST_KEY, DEFAULT_CONTRAST, 0, 1));
+          break;
+        case GLASS_OPACITY_KEY_PREFIX + theme:
+          setGlassOpacityState(getInitialGlassOpacity(theme));
+          break;
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [theme]);
+
   useEffect(() => {
     writeString(STORAGE_KEY, mode);
   }, [mode]);
@@ -165,8 +194,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Windows/Linux opaque-fallback override - one place to set, no need to
     // know which of those is currently in effect.
     document.documentElement.style.setProperty("--surface-alpha", String(glassOpacity));
-    writeString(GLASS_OPACITY_KEY_PREFIX + theme, String(glassOpacity));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glassOpacity]);
 
   const value = useMemo<ThemeContextValue>(
@@ -182,7 +209,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       terminalPaletteId,
       setTerminalPaletteId: (id) => setTerminalPaletteIdState(id !== null && findPalette(id) ? id : null),
       glassOpacity,
-      setGlassOpacity: (next) => setGlassOpacityState(Math.max(0, Math.min(1, next))),
+      // Persisted here, not in the effect above: that one also runs on a theme
+      // switch and would write the freshly loaded (maybe just default) value
+      // back as if the user had chosen it.
+      setGlassOpacity: (next) => {
+        const clamped = Math.max(0, Math.min(1, next));
+        setGlassOpacityState(clamped);
+        writeString(GLASS_OPACITY_KEY_PREFIX + theme, String(clamped));
+      },
+      resetGlassOpacity: () => {
+        for (const th of GLASS_THEMES) removeKey(GLASS_OPACITY_KEY_PREFIX + th);
+        setGlassOpacityState(DEFAULT_GLASS_ALPHA);
+      },
     }),
     [theme, mode, paletteId, terminalPaletteId, contrast, glassOpacity],
   );

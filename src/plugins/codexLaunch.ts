@@ -8,7 +8,7 @@ let needsNoDaemon: Promise<boolean> | null = null;
  * src-tauri/src/plugins.rs). Asked once per app run: the answer can't
  * change while the process lives. A failed check isn't cached, and counts as
  * "no" - the plain launch is what ran before this check existed. */
-export function codexNeedsNoDaemon(): Promise<boolean> {
+function codexNeedsNoDaemon(): Promise<boolean> {
   if (!needsNoDaemon) {
     needsNoDaemon = invoke<boolean>("codex_needs_no_daemon").catch(() => {
       needsNoDaemon = null;

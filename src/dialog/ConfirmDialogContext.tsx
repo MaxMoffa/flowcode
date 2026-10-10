@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useI18n } from "../i18n";
 import "./confirm-dialog.css";
 
-export interface ConfirmOptions {
+interface ConfirmOptions {
   title?: string;
   message: string;
   confirmLabel?: string;
@@ -74,12 +74,12 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
       {children}
       {pending && (
         <div
-          className="confirm-backdrop"
+          className="modal-backdrop confirm-backdrop"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) settle(false);
           }}
         >
-          <div className="confirm-dialog" role="alertdialog" aria-modal="true">
+          <div className="modal-panel confirm-dialog" role="alertdialog" aria-modal="true">
             {pending.title && <div className="confirm-title">{pending.title}</div>}
             <div className="confirm-message">{pending.message}</div>
             <div className="confirm-actions">

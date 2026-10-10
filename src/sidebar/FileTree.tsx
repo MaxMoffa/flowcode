@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -97,12 +97,12 @@ function EntryIcon({ entry }: { entry: FsEntry }) {
   return entry.is_dir ? <FolderGlyph /> : <FileTypeIcon name={entry.name} />;
 }
 
-/** Exported so Settings → Informazioni's "Ripristina terminale" can clear it
- * as part of a full reset, without duplicating the key string. */
 function sameEntries(a: FsEntry[], b: FsEntry[]): boolean {
   return a.length === b.length && a.every((e, i) => e.path === b[i].path && e.is_dir === b[i].is_dir);
 }
 
+/** Exported so Settings → Informazioni's "Ripristina terminale" can clear it
+ * as part of a full reset, without duplicating the key string. */
 export const SHOW_HIDDEN_KEY = "flowcode.showHiddenFiles";
 const readHiddenFlag = (key: string) => readBool(key, false);
 
@@ -163,6 +163,55 @@ function InlineEditRow({ icon, initialValue, allowUnchanged, onCommit, onCancel 
   );
 }
 
+interface FileRowProps {
+  entry: FsEntry;
+  active: boolean;
+  copied: boolean;
+  /** Folder shown under the name for a recursive-search hit; "" otherwise. */
+  dir: string;
+  onClick: (entry: FsEntry) => void;
+  onDoubleClick: (entry: FsEntry) => void;
+  onContextMenu: (e: React.MouseEvent, entry: FsEntry) => void;
+  onCopy: (path: string) => void;
+}
+
+// Memoized with primitive props and stable handlers so a poll tick, a copy
+// flash or a selection change re-renders only the rows that actually changed
+// instead of the whole listing.
+const FileRow = memo(function FileRow({ entry, active, copied, dir, onClick, onDoubleClick, onContextMenu, onCopy }: FileRowProps) {
+  const { t } = useI18n();
+  return (
+    <div
+      className={"file-tree-row" + (active ? " is-active" : "")}
+      onClick={() => onClick(entry)}
+      onDoubleClick={() => onDoubleClick(entry)}
+      onContextMenu={(e) => onContextMenu(e, entry)}
+    >
+      <EntryIcon entry={entry} />
+      <div className="file-tree-name-col">
+        <span className="file-tree-name">{entry.name}</span>
+        {dir && (
+          <span className="file-tree-result-path" title={dir}>
+            {dir}
+          </span>
+        )}
+      </div>
+      <button
+        type="button"
+        className={"file-tree-copy-btn" + (copied ? " is-copied" : "")}
+        aria-label={t("files.copyPathOf", { name: entry.name })}
+        title={t("files.copyPath")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCopy(entry.path);
+        }}
+      >
+        {copied ? Icons.smallCheck : Icons.smallCopy}
+      </button>
+    </div>
+  );
+});
+
 interface FileTreeProps {
   cwd: string;
   onNavigate: (path: string) => void;
@@ -175,6 +224,9 @@ interface FileTreeProps {
   linkMode: ExplorerLinkMode;
   onSetLinkMode: (mode: ExplorerLinkMode) => void;
   terminalBusy: boolean;
+  /** False while the explorer tab is hidden behind another sidebar tab: the
+   * fallback poll then pauses, and one reload runs when it comes back. */
+  visible?: boolean;
 }
 
 export function FileTree({
@@ -187,6 +239,7 @@ export function FileTree({
   linkMode,
   onSetLinkMode,
   terminalBusy,
+  visible = true,
 }: FileTreeProps) {
   const { t } = useI18n();
   const { explorerDoubleClick } = useTerminalSettings();
@@ -209,6 +262,14 @@ export function FileTree({
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerRenameInputRef = useRef<HTMLInputElement>(null);
+  const pathEditDoneRef = useRef(false);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+
+  useEffect(() => {
+    if (visible) reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -216,13 +277,12 @@ export function FileTree({
   }, [searchOpen]);
 
   function toggleSearch() {
-    setSearchOpen((open) => {
-      if (open) {
-        setSearchQuery("");
-        setSearchResults(null);
-      }
-      return !open;
-    });
+    // Side effects stay out of the state updater (StrictMode double-invokes it).
+    if (searchOpen) {
+      setSearchQuery("");
+      setSearchResults(null);
+    }
+    setSearchOpen(!searchOpen);
   }
 
   // Recursive (subfolders included) search, debounced so a fast typist
@@ -324,7 +384,7 @@ export function FileTree({
     invoke("watch_dir", { path: cwd }).catch(() => {
       if (disposed) return;
       poll = setInterval(() => {
-        if (document.visibilityState === "visible") reload();
+        if (document.visibilityState === "visible" && visibleRef.current) reload();
       }, 3000);
     });
     // Whatever changed while the window was hidden or asleep.
@@ -350,6 +410,7 @@ export function FileTree({
 
   function startEditPath() {
     if (!cwd) return;
+    pathEditDoneRef.current = false;
     setHeaderRenameDraft(cwd);
     setRenamingPath(cwd);
   }
@@ -362,6 +423,10 @@ export function FileTree({
   }, [renamingPath, cwd]);
 
   function commitPathEdit() {
+    // Enter commits and the blur from unmounting the input must not commit
+    // again; Escape sets the flag too so its blur doesn't navigate.
+    if (pathEditDoneRef.current) return;
+    pathEditDoneRef.current = true;
     const trimmed = trimTrailingSeparators(headerRenameDraft.trim()) || "/";
     setRenamingPath(null);
     if (trimmed === cwd) return;
@@ -530,6 +595,20 @@ export function FileTree({
   const isSearching = searchOpen && searchQuery.trim().length > 0;
   const visibleEntries = isSearching ? searchResults : entries;
 
+  // These close over a lot of per-render state, so the memoized rows get
+  // stable wrappers that always call the latest version.
+  const rowHandlersRef = useRef({ click: handleRowClick, dbl: handleRowDoubleClick, menu: entryMenuItems, copy: handleCopyPath });
+  rowHandlersRef.current = { click: handleRowClick, dbl: handleRowDoubleClick, menu: entryMenuItems, copy: handleCopyPath };
+  const onRowClick = useCallback((entry: FsEntry) => rowHandlersRef.current.click(entry), []);
+  const onRowDoubleClick = useCallback((entry: FsEntry) => rowHandlersRef.current.dbl(entry), []);
+  const onRowCopy = useCallback((path: string) => rowHandlersRef.current.copy(path), []);
+  const openMenuRef = useRef(openMenu);
+  openMenuRef.current = openMenu;
+  const onRowContextMenu = useCallback(
+    (e: React.MouseEvent, entry: FsEntry) => openMenuRef.current(e, rowHandlersRef.current.menu(entry)),
+    [],
+  );
+
   /** The folder a recursive-search match sits in, relative to `cwd` - shown
    * next to the name so results from different subfolders (possibly
    * sharing a filename) stay distinguishable. Empty for a direct child. */
@@ -581,7 +660,10 @@ export function FileTree({
             onBlur={commitPathEdit}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitPathEdit();
-              if (e.key === "Escape") setRenamingPath(null);
+              if (e.key === "Escape") {
+                pathEditDoneRef.current = true;
+                setRenamingPath(null);
+              }
             }}
           />
         ) : (
@@ -646,35 +728,17 @@ export function FileTree({
                 onCancel={() => setRenamingPath(null)}
               />
             ) : (
-              <div
+              <FileRow
                 key={entry.path}
-                className={"file-tree-row" + (selected === entry.path ? " is-active" : "")}
-                onClick={() => handleRowClick(entry)}
-                onDoubleClick={() => handleRowDoubleClick(entry)}
-                onContextMenu={(e) => openMenu(e, entryMenuItems(entry))}
-              >
-                <EntryIcon entry={entry} />
-                <div className="file-tree-name-col">
-                  <span className="file-tree-name">{entry.name}</span>
-                  {isSearching && resultDir(entry) && (
-                    <span className="file-tree-result-path" title={resultDir(entry)}>
-                      {resultDir(entry)}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className={"file-tree-copy-btn" + (copiedPath === entry.path ? " is-copied" : "")}
-                  aria-label={t("files.copyPathOf", { name: entry.name })}
-                  title={t("files.copyPath")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCopyPath(entry.path);
-                  }}
-                >
-                  {copiedPath === entry.path ? Icons.smallCheck : Icons.smallCopy}
-                </button>
-              </div>
+                entry={entry}
+                active={selected === entry.path}
+                copied={copiedPath === entry.path}
+                dir={isSearching ? resultDir(entry) : ""}
+                onClick={onRowClick}
+                onDoubleClick={onRowDoubleClick}
+                onContextMenu={onRowContextMenu}
+                onCopy={onRowCopy}
+              />
             ),
           )}
         {creating && (

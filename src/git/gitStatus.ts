@@ -37,3 +37,10 @@ export const gitShowFile = (root: string, path: string, rev: "HEAD" | "INDEX") =
   invoke<string>("git_show_file", { root, path, rev });
 export const gitDiscard = (root: string, paths: string[], untracked: boolean) =>
   invoke<void>("git_discard", { root, paths, untracked });
+
+/** Builds an absolute path from the repository root and git's forward-slashed
+ * relative one, using the separator the root itself uses. */
+export function joinRepoPath(root: string, rel: string): string {
+  const sep = root.includes("\\") ? "\\" : "/";
+  return root.replace(/[\\/]+$/, "") + sep + rel.split("/").join(sep);
+}

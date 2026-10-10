@@ -7,7 +7,17 @@ let cached: Promise<string | null> | null = null;
  * `handleCommandLine`), since that flag already gives the name directly.
  * Fetched once per app session and reused for every tab. */
 export function defaultWslDistro(): Promise<string | null> {
-  if (!cached) cached = invoke<string | null>("wsl_default_distro").catch(() => null);
+  if (!cached) {
+    // A failed or empty lookup isn't kept, so it's retried next time (WSL
+    // may simply not have been ready yet).
+    const pending: Promise<string | null> = invoke<string | null>("wsl_default_distro")
+      .catch(() => null)
+      .then((distro) => {
+        if (!distro && cached === pending) cached = null;
+        return distro;
+      });
+    cached = pending;
+  }
   return cached;
 }
 
@@ -24,7 +34,13 @@ export function wslHomeDir(distro: string, user?: string): Promise<string | null
   const key = `${distro}\u0000${user ?? ""}`;
   let pending = homeCache.get(key);
   if (!pending) {
-    pending = invoke<string | null>("wsl_home_dir", { distro, user: user ?? null }).catch(() => null);
+    const lookup: Promise<string | null> = invoke<string | null>("wsl_home_dir", { distro, user: user ?? null })
+      .catch(() => null)
+      .then((home) => {
+        if (!home && homeCache.get(key) === lookup) homeCache.delete(key);
+        return home;
+      });
+    pending = lookup;
     homeCache.set(key, pending);
   }
   return pending;

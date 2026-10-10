@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { readBool, readJson, readNumber, readString, usePersistentState, writeBool, writeString } from "../lib/storage";
+import { readBool, readJson, readNumber, readString, usePersistentState, writeBool, writeJson, writeString } from "../lib/storage";
 import { wslDistroOfShell } from "./wslPath";
 
 const STORAGE_KEY = "flowcode.terminalFontSize";
@@ -123,7 +123,6 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
   !Array.isArray(value) &&
   Object.values(value).every((v) => typeof v === "string");
 const readShellStartPaths = (key: string) => readJson(key, isStringRecord, {});
-const writeJson = (key: string, value: Record<string, string>) => writeString(key, JSON.stringify(value));
 const readRestoreSession = (key: string) => readBool(key, true);
 const readConfirmLinks = (key: string) => readBool(key, true);
 const readExplorerDoubleClick = (key: string) => readBool(key, true);

@@ -3,13 +3,13 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 /** Mirrors `PtyEvent` in src-tauri/src/pty.rs. */
 type PtyEvent = { event: "output"; data: string; seq: number } | { event: "exit" };
 
-export interface PtyHandlers {
+interface PtyHandlers {
   /** `seq` numbers each chunk in order - see `detachPty`. */
   onOutput: (data: string, seq: number) => void;
   onExit?: () => void;
 }
 
-export interface SpawnPtyOptions extends PtyHandlers {
+interface SpawnPtyOptions extends PtyHandlers {
   /** Empty/undefined means "no cwd" - the backend then inherits its own. */
   cwd?: string | null;
   cols: number;
@@ -69,6 +69,12 @@ export function writePty(id: string, data: string): Promise<void> {
 
 /** When the pty last got an Enter - a prompt sent to the agent running in
  * it, as far as the outside can tell. 0 if never. */
+/** Drops the bookkeeping for a pty that is gone, so the map doesn't grow
+ * with every session ever opened. */
+export function forgetPty(id: string): void {
+  submittedAt.delete(id);
+}
+
 export function lastSubmitAt(id: string | null | undefined): number {
   return (id && submittedAt.get(id)) || 0;
 }
@@ -78,6 +84,6 @@ export function resizePty(id: string, cols: number, rows: number): Promise<void>
 }
 
 export function killPty(id: string): Promise<void> {
-  submittedAt.delete(id);
+  forgetPty(id);
   return invoke<void>("pty_kill", { id }).catch(() => {});
 }

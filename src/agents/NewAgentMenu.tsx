@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AGENT_CLIS, CLI_INFO, type AgentCli } from "./cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
@@ -6,12 +7,6 @@ import { useI18n } from "../i18n";
 import { profileForPath, setProjectDefaultProfile, useProfiles } from "../profiles/profiles";
 
 const NEW_IN_WORKTREE_KEY = "flowcode.agentsNewInWorktree";
-
-const AGENTS = [
-  { cli: "claude", label: "Claude Code" },
-  { cli: "codex", label: "Codex CLI" },
-  { cli: "vibe", label: "Mistral Vibe" },
-] as const;
 
 interface NewAgentMenuProps {
   /** The active tab's folder. */
@@ -22,7 +17,7 @@ interface NewAgentMenuProps {
   worktreeCapable: boolean;
   /** `inWorktree`: start in a fresh worktree rather than the project folder.
    * `profileId`: the account profile picked (absent = the default one). */
-  onLaunch: (cli: "claude" | "codex" | "vibe", inWorktree: boolean, profileId?: string) => void;
+  onLaunch: (cli: AgentCli, inWorktree: boolean, profileId?: string) => void;
   onClose: () => void;
 }
 
@@ -115,7 +110,7 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
           )}
         </div>
       )}
-      {AGENTS.map(({ cli, label }) => (
+      {AGENT_CLIS.map((cli) => (
         <button
           key={cli}
           type="button"
@@ -127,7 +122,7 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
           }}
         >
           {agentCliIcon(cli)}
-          <span>{label}</span>
+          <span>{CLI_INFO[cli].label}</span>
         </button>
       ))}
       <label

@@ -168,8 +168,6 @@ export const en: Record<MessageKey, string> = {
   "newTab.recents": "Recent",
   "newTab.recentsEmpty": "Terminals you run commands in will show up here.",
   "newTab.favoritesEmpty": "Add a folder to your favorites with the ★ at the top to find it here.",
-  "newTab.resume": "Resume ↵",
-  "newTab.system": "This computer",
 
   // Editor
   "editor.error": "Error",
@@ -287,6 +285,10 @@ export const en: Record<MessageKey, string> = {
   "plugins.unpin": "Remove from the bar",
   "plugins.saveFailed": "Couldn't save the plugin: {error}",
   "plugins.deleteFailed": "Couldn't delete the plugin: {error}",
+  // Confirm before a plugin's command runs for the first time
+  "plugin.confirmRun.title": "Run this command?",
+  "plugin.confirmRun.message": "The plugin \"{name}\" will run:\n{command}",
+  "plugin.confirmRun.confirm": "Run",
   "plugin.newTab": "New terminal",
   "plugin.clearTerminal": "Clear terminal",
   "plugin.toggleSidebar": "Show/hide side panel",
@@ -647,7 +649,6 @@ export const en: Record<MessageKey, string> = {
   "shortcuts.fixed.newline": "New line in the prompt without sending",
   "shortcuts.unassigned": "None",
   "shortcuts.recording": "Press the combination…",
-  "shortcuts.recording.hint": "Esc to cancel",
   "shortcuts.clear": "Remove shortcut",
   "shortcuts.reset": "Restore default",
   "shortcuts.change": "Change shortcut for {name}",

@@ -2,11 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type ShortcutMap = Record<string, string>;
 
-export type ShortcutGroup = "tabs" | "terminal" | "app";
+type ShortcutGroup = "tabs" | "terminal" | "app";
 
 /** Every rebindable action, by the group it's listed under in Settings and
- * in the shortcuts guide. The order here is the display order. */
-export const SHORTCUT_GROUPS: Record<ShortcutGroup, readonly string[]> = {
+ * in the shortcuts guide. The order here is the display order. This is the
+ * one place actions are listed: `SHORTCUT_ACTIONS` and `ShortcutAction` are
+ * derived from it. */
+const SHORTCUT_GROUPS = {
   tabs: [
     "newTab",
     "newTabWithProfile",
@@ -28,45 +30,20 @@ export const SHORTCUT_GROUPS: Record<ShortcutGroup, readonly string[]> = {
   ],
   terminal: ["copy", "paste", "clearTerminal", "zoomIn", "zoomOut", "resetZoom"],
   app: ["toggleSidebar", "toggleAgents", "toggleTheme", "openSettings", "showShortcuts"],
-};
+} as const satisfies Record<ShortcutGroup, readonly string[]>;
 
-export const SHORTCUT_ACTIONS = [
-  "newTab",
-  "newTabWithProfile",
-  "closeTab",
-  "duplicateTab",
-  "nextTab",
-  "prevTab",
-  "moveTabLeft",
-  "moveTabRight",
-  "selectTab1",
-  "selectTab2",
-  "selectTab3",
-  "selectTab4",
-  "selectTab5",
-  "selectTab6",
-  "selectTab7",
-  "selectTab8",
-  "lastTab",
-  "copy",
-  "paste",
-  "clearTerminal",
-  "zoomIn",
-  "zoomOut",
-  "resetZoom",
-  "toggleSidebar",
-  "toggleAgents",
-  "toggleTheme",
-  "openSettings",
-  "showShortcuts",
-] as const;
+export type ShortcutAction = (typeof SHORTCUT_GROUPS)[ShortcutGroup][number];
 
-export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number];
+export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = [
+  ...SHORTCUT_GROUPS.tabs,
+  ...SHORTCUT_GROUPS.terminal,
+  ...SHORTCUT_GROUPS.app,
+];
 
 export const SHORTCUT_GROUP_ORDER: readonly ShortcutGroup[] = ["tabs", "terminal", "app"];
 
 export function actionsOfGroup(group: ShortcutGroup): ShortcutAction[] {
-  return SHORTCUT_GROUPS[group] as ShortcutAction[];
+  return [...SHORTCUT_GROUPS[group]];
 }
 
 /** Mirrors config/shortcuts.json - used when the bundled file can't be read,
@@ -123,11 +100,6 @@ export async function loadShortcutOverrides(): Promise<ShortcutMap> {
     // no user overrides saved yet
     return {};
   }
-}
-
-export async function loadShortcuts(): Promise<ShortcutMap> {
-  const [defaults, overrides] = await Promise.all([loadShortcutDefaults(), loadShortcutOverrides()]);
-  return { ...defaults, ...overrides };
 }
 
 export async function saveShortcutOverrides(overrides: ShortcutMap): Promise<void> {

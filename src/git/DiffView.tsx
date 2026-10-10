@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { syntaxHighlighting } from "@codemirror/language";
@@ -9,7 +10,7 @@ import { languageFor } from "../editor/language";
 import { cmChromeTheme, cmHighlightStyle } from "../editor/cmTheme";
 import { basename } from "../lib/path";
 import { useI18n } from "../i18n";
-import { gitShowFile } from "./gitStatus";
+import { gitShowFile, joinRepoPath } from "./gitStatus";
 import "../editor/editor.css";
 import "./diff-view.css";
 
@@ -26,10 +27,9 @@ interface Sides {
   modified: string;
 }
 
-function absolute(root: string, rel: string): string {
-  const sep = root.includes("\\") ? "\\" : "/";
-  return root.replace(/[\\/]+$/, "") + sep + rel.split("/").join(sep);
-}
+const POLL_MS = 4000;
+
+const normalizeDir = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
 
 /** Read-only unified diff of one file. Staged: HEAD against the index.
  * Unstaged: the index against the file on disk (a deleted file reads as
@@ -41,34 +41,60 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const name = basename(path);
 
-  // Loads on mount, whenever the tab is shown again and on window focus: the
-  // file keeps changing while the user works in the terminal.
+  // A different file/side starts from scratch: the old text must not show
+  // under the new name while it loads.
+  useEffect(() => {
+    setSides(null);
+    setError(null);
+  }, [root, path, staged]);
+
+  // Latest request wins: an older, slower read must not land last.
+  const requestRef = useRef(0);
+
+  // Loads on mount, whenever the tab is shown again, on window focus, when the
+  // file's folder changes and on a slow poll: the file keeps changing while
+  // the user works in the terminal.
   useEffect(() => {
     if (hidden) return;
     let cancelled = false;
     const load = () => {
+      const id = ++requestRef.current;
       const read = staged
         ? Promise.all([gitShowFile(root, path, "HEAD"), gitShowFile(root, path, "INDEX")])
         : Promise.all([
             gitShowFile(root, path, "INDEX"),
-            invoke<string>("read_text_file", { path: absolute(root, path) }).catch(() => ""),
+            invoke<string>("read_text_file", { path: joinRepoPath(root, path) }).catch(() => ""),
           ]);
       read
         .then(([original, modified]) => {
-          if (cancelled) return;
+          if (cancelled || id !== requestRef.current) return;
           setError(null);
           // Same text: keep the view (and its scroll position) untouched.
           setSides((prev) => (prev && prev.original === original && prev.modified === modified ? prev : { original, modified }));
         })
         .catch((e) => {
-          if (!cancelled) setError(String(e));
+          if (!cancelled && id === requestRef.current) setError(String(e));
         });
     };
     load();
     window.addEventListener("focus", load);
+    const poll = setInterval(() => {
+      if (document.visibilityState === "visible" && document.hasFocus()) load();
+    }, POLL_MS);
+    // The explorer's watcher reports the folder it is on (non-recursive).
+    const fileDir = normalizeDir(joinRepoPath(root, path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""));
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const unlisten = listen<string>("fs-changed", (event) => {
+      if (normalizeDir(event.payload) !== fileDir) return;
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(load, 300);
+    });
     return () => {
       cancelled = true;
+      if (debounce) clearTimeout(debounce);
+      clearInterval(poll);
       window.removeEventListener("focus", load);
+      unlisten.then((fn) => fn());
     };
   }, [root, path, staged, hidden]);
 
@@ -104,9 +130,10 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
         <div className="editor-error">{t("git.diffFailed", { error })}</div>
       ) : sides === null ? (
         <div className="editor-loading">{t("common.loading")}</div>
-      ) : (
-        <div className="editor-host" ref={hostRef} />
-      )}
+      ) : null}
+      {/* Always mounted: swapping it for the error div would orphan the
+          CodeMirror view and a later success would mount into an empty host. */}
+      <div className="editor-host" ref={hostRef} style={error || sides === null ? { display: "none" } : undefined} />
     </div>
   );
 }

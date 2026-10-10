@@ -10,6 +10,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { wslDistroOfShell } from "./wslPath";
 import type { TabAgent } from "../agents/agentSessions";
 import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
+import { ChangelogIcon, GearIcon } from "../app/icons";
 import "./tabstrip.css";
 
 interface TabStripProps {
@@ -87,15 +88,6 @@ function FolderIcon() {
   );
 }
 
-function GearIcon() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
 /** Shown on a terminal tab whose agent notifications are muted. */
 function MutedIcon() {
   return (
@@ -144,15 +136,6 @@ function ResumeBadge({ at, onCancel }: { at: number; onCancel: () => void }) {
   );
 }
 
-function ChangelogIcon() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
-      <path d="M12 3.5 14.2 8l4.8.6-3.5 3.3.9 4.8L12 14.4l-4.4 2.3.9-4.8L5 8.6 9.8 8z" />
-      <line x1="5" y1="20.5" x2="19" y2="20.5" />
-    </svg>
-  );
-}
-
 function PromptIcon() {
   return (
     <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13" stroke="currentColor" fill="none">
@@ -198,7 +181,7 @@ export function shellOptionIcon(id: string) {
   if (id === "wsl") return <PenguinIcon />;
   if (id === "cmd") return <PromptIcon />;
   if (id === "powershell" || id === "pwsh") return <ChevronBoxIcon />;
-  if (id === "system") return <GearIcon />;
+  if (id === "system") return <GearIcon size={13} strokeWidth={1.8} />;
   // zsh/bash/sh (macOS/Linux builds) - same neutral prompt icon as cmd,
   // nothing platform-specific to tell them apart with.
   return <PromptIcon />;
@@ -247,15 +230,15 @@ function tabIcon(tab: AppTab, agent?: TabAgent, done = false, profile?: ProfileI
       </span>
     );
   }
-  if (tab.kind === "settings") return <GearIcon />;
-  if (tab.kind === "changelog" || tab.kind === "whatsNew") return <ChangelogIcon />;
+  if (tab.kind === "settings") return <GearIcon size={13} strokeWidth={1.8} />;
+  if (tab.kind === "changelog" || tab.kind === "whatsNew") return <ChangelogIcon size={13} strokeWidth={1.8} />;
   return <FileTypeIcon name={tab.label} />;
 }
 
 /** The label shown for `tab`: a settings/changelog tab still carrying its
  * default name (in whichever language it was opened) is shown in the
  * current one. */
-export function tabDisplayLabel(tab: AppTab): string {
+function tabDisplayLabel(tab: AppTab): string {
   if (tab.kind === "terminal" && tab.newTab) return t("newTab.title");
   if (tab.kind === "settings" && translationsOf("settings.title").includes(tab.label)) return t("settings.title");
   if (tab.kind === "changelog" && translationsOf("changelog.title").includes(tab.label)) return t("changelog.title");

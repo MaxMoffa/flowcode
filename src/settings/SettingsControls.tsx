@@ -71,7 +71,8 @@ export function Segmented<T extends string>({
   );
 }
 
-/** On/off switch with its current state spelled out next to it. */
+/** On/off switch; with `stateLabels` its current state is spelled out next to
+ * it, without them it is the bare track (for dense lists). */
 export function Switch({
   checked,
   onChange,
@@ -81,11 +82,11 @@ export function Switch({
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
-  stateLabels: [on: string, off: string];
+  stateLabels?: [on: string, off: string];
 }) {
   return (
     <label className="settings-switch">
-      <span className="settings-switch-state">{checked ? stateLabels[0] : stateLabels[1]}</span>
+      {stateLabels && <span className="settings-switch-state">{checked ? stateLabels[0] : stateLabels[1]}</span>}
       <input type="checkbox" role="switch" checked={checked} aria-label={label} onChange={(e) => onChange(e.target.checked)} />
       <span className="settings-switch-track" />
     </label>

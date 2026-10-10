@@ -11,7 +11,7 @@ export const CODEX_COLS = 120;
 export const CODEX_ROWS = 45;
 
 /** A live terminal session: keystrokes in, rendered screen out. */
-export interface CodexPty {
+interface CodexPty {
   write(data: string): Promise<void>;
   /** The screen as text, one line per row (blank rows as empty strings). */
   screen(): string;
@@ -19,7 +19,7 @@ export interface CodexPty {
 
 /** Minimal structural view of an @xterm/headless Terminal - typed structurally
  * rather than imported so this module stays dependency-free. */
-export interface ScreenSource {
+interface ScreenSource {
   buffer: { active: { length: number; getLine(y: number): { translateToString(trim: boolean): string } | undefined } };
 }
 
@@ -59,7 +59,7 @@ async function waitUntil(predicate: () => boolean, timeoutMs: number, stepMs = 1
   return predicate();
 }
 
-export function screenTail(screen: string, lines = 4): string {
+function screenTail(screen: string, lines = 4): string {
   return screen.trim().split("\n").filter(Boolean).slice(-lines).join(" · ");
 }
 
@@ -182,9 +182,9 @@ export async function driveCodexStatus(pty: CodexPty, launch = "codex"): Promise
  * begins and ends with box-drawing characters and padding. The label is left
  * open (rather than hardcoded to "5h limit"/"Weekly limit") - the bar and the
  * "% left (resets ...)" shape around it are the distinctive signal. */
-export const CODEX_LIMIT_RE = /([0-9A-Za-z][A-Za-z0-9 ()./-]*?):\s*\[[^\]\n]*\]\s*(\d{1,3})%\s*left\s*\(resets\s+([^)]+)\)/i;
+const CODEX_LIMIT_RE = /([0-9A-Za-z][A-Za-z0-9 ()./-]*?):\s*\[[^\]\n]*\]\s*(\d{1,3})%\s*left\s*\(resets\s+([^)]+)\)/i;
 
-export interface CodexLimit {
+interface CodexLimit {
   /** "session" (the rolling 5-hour window), "week", or "other" - then
    * `label` is the row's own wording. */
   kind: "session" | "week" | "other";
@@ -214,5 +214,5 @@ export function parseCodexLimits(screen: string): CodexLimit[] {
     // "5h limit" (the rolling session window) first: it's the one that moves
     // while you work, so it leads the popover's list. (The shortcut-bar mini
     // bar picks by pressure, not by order - see PluginUsageButton.)
-    .sort((a, b) => (a.kind === "session" ? -1 : b.kind === "session" ? 1 : 0));
+    .sort((a, b) => Number(b.kind === "session") - Number(a.kind === "session"));
 }

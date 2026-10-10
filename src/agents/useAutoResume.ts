@@ -5,7 +5,8 @@ import type { TabAgent } from "./agentSessions";
 import type { TermTab } from "../tabs/types";
 import type { TerminalHandle } from "../terminal/Terminal";
 import { t } from "../i18n";
-import { accountBlockedUntil, parseResetTime } from "../notifications/limitResetWatcher";
+import { accountBlockedUntil, parseResetTimeGuarded } from "../notifications/limitResetWatcher";
+import { CLI_INFO, cliName } from "./cliInfo";
 import { autoResumeMessage, getAutoResumeSettings } from "./autoResumeSettings";
 
 const CHECK_MS = 30_000;
@@ -16,33 +17,21 @@ const GRACE_MS = 60_000;
 const LATE_MS = 15 * 60_000;
 const SCREEN_LINES = 20;
 
-const PLUGIN_IDS: Record<string, string> = { claude: "claude-code", codex: "codex-cli" };
-const CLI_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex" };
-
 const LIMIT_RE = /hit your (?:session |weekly |usage )?limit/gi;
 const RESETS_RE = /resets\s+(.+?)(?:\n|$)/i;
 const TRY_AGAIN_RE = /try again at\s+(.+?)[.\n]?(?:\n|$)/i;
 
-/** A dateless reset ("resets 7:20pm") is read as that time's next occurrence,
- * so an old notice still on screen after its reset would point at tomorrow.
- * The 5-hour window can't reset further away than this: past it, the notice
- * is stale. */
-const MAX_DATELESS_MS = 5 * 3_600_000 + 10 * 60_000;
-const MONTH_RE = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
-
 /** Reads a usage-limit notice off the screen text (its last occurrence - older
  * ones may still be scrolled in). `at` is the reset time, null when the notice
  * doesn't say, says it in a way parseResetTime can't read, or is a stale
- * dateless one (see MAX_DATELESS_MS). */
+ * dateless one (see parseResetTimeGuarded). */
 export function detectLimit(text: string, now = new Date()): { at: number | null } | null {
   let last = -1;
   for (const m of text.matchAll(LIMIT_RE)) last = m.index ?? last;
   if (last < 0) return null;
   const rest = text.slice(last);
   const when = rest.match(RESETS_RE)?.[1] ?? rest.match(TRY_AGAIN_RE)?.[1];
-  const at = when ? parseResetTime(when, now) : null;
-  if (at !== null && !MONTH_RE.test(when!) && at - now.getTime() > MAX_DATELESS_MS) return { at: null };
-  return { at };
+  return { at: when ? parseResetTimeGuarded(when, now) : null };
 }
 
 interface Deps {
@@ -103,12 +92,17 @@ export function useAutoResume(
         !deps.getTab(id) ||
         !agent ||
         agent.cli !== a.cli ||
-        deps.getTerm(id)?.getPtyId() !== a.ptyId ||
+        (deps.getTerm(id)?.getPtyId() ?? null) !== (a.ptyId ?? null) ||
         deps.lastSubmitAt(id) > a.armedAt;
       if (stale) {
         armedRef.current.delete(id);
         changed = true;
       }
+    }
+
+    // Tabs that are gone: their last wake must not outlive them.
+    for (const id of [...lastWokenFor.current.keys()]) {
+      if (!agents.has(id)) lastWokenFor.current.delete(id);
     }
 
     if (enabled) {
@@ -120,7 +114,7 @@ export function useAutoResume(
         if (!tab || !term) continue;
         const found = detectLimit(term.screenTail(SCREEN_LINES), new Date(now));
         if (!found) continue;
-        const at = found.at ?? accountBlockedUntil(PLUGIN_IDS[agent.cli], tab.profileId) ?? null;
+        const at = found.at ?? accountBlockedUntil(CLI_INFO[agent.cli].pluginId, tab.profileId) ?? null;
         if (at === null || at < now - LATE_MS) continue;
         const woken = lastWokenFor.current.get(id);
         if (woken !== undefined && at <= woken) continue;
@@ -132,16 +126,19 @@ export function useAutoResume(
 
     for (const [id, a] of [...armedRef.current]) {
       if (now < a.at + GRACE_MS) continue;
-      const blocked = accountBlockedUntil(PLUGIN_IDS[a.cli], deps.getTab(id)?.profileId);
+      const blocked = accountBlockedUntil(CLI_INFO[a.cli as "claude" | "codex"].pluginId, deps.getTab(id)?.profileId);
       if (blocked !== undefined && blocked > now) continue;
       const agent = agents.get(id);
       const tab = deps.getTab(id);
       const term = deps.getTerm(id);
+      // Busy right now: typing would interleave with its output. Stay armed so
+      // the next tick retries (the stale sweep drops it if the user takes over).
+      if (agent?.state === "busy" && agent.cli === a.cli) continue;
       armedRef.current.delete(id);
       publish();
       // Re-checked at the last moment: the stale sweep above ran a tick ago.
-      if (!tab || !term || !agent || agent.cli !== a.cli || agent.state === "busy") continue;
-      if (term.getPtyId() !== a.ptyId || deps.lastSubmitAt(id) > a.armedAt) continue;
+      if (!tab || !term || !agent || agent.cli !== a.cli) continue;
+      if ((term.getPtyId() ?? null) !== (a.ptyId ?? null) || deps.lastSubmitAt(id) > a.armedAt) continue;
       lastWokenFor.current.set(id, a.at);
       void (async () => {
         // Esc closes the limit options menu Claude Code may be showing.
@@ -158,15 +155,20 @@ export function useAutoResume(
           label: getCurrentWindow().label,
           tabId: id,
           title: tab.label,
-          body: t("autoResume.notification", { agent: CLI_NAMES[a.cli] ?? a.cli }),
+          body: t("autoResume.notification", { agent: cliName(a.cli) }),
         }).catch(() => {});
       }
     }
   }, [publish]);
 
+  // The agents map is rebuilt on every tab change; only a cli/state change
+  // can alter what check() decides.
+  let agentsKey = "";
+  for (const [id, a] of agents) agentsKey += `${id}:${a.cli}:${a.state}|`;
   useEffect(() => {
+    if (!getAutoResumeSettings().enabled && armedRef.current.size === 0) return;
     check();
-  }, [agents, check]);
+  }, [agentsKey, check]);
 
   useEffect(() => {
     const timer = setInterval(check, CHECK_MS);

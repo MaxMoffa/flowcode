@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
+import { AGENT_CLIS, CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import {
   createProfile,
@@ -8,19 +9,12 @@ import {
   refreshProfiles,
   updateProfile,
   useProfiles,
-  type ProfileCli,
   type ProfileInfo,
 } from "../profiles/profiles";
 import { settingDomId } from "./SettingsControls";
 
 /** Preset colours offered for a profile's badge; the first is the default. */
 const PROFILE_COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6", "#ec4899", "#64748b"];
-
-const CLIS: { cli: ProfileCli; name: string }[] = [
-  { cli: "claude", name: "Claude Code" },
-  { cli: "codex", name: "Codex CLI" },
-  { cli: "vibe", name: "Mistral Vibe" },
-];
 
 function ColorPicker({ value, onChange, label }: { value: string; onChange: (color: string) => void; label: string }) {
   return (
@@ -45,7 +39,7 @@ function ColorPicker({ value, onChange, label }: { value: string; onChange: (col
  * extra profile (login state per CLI, rename/recolour, delete) and a form to
  * create more. `onLogin` opens the CLI's login in a terminal tab under that
  * profile; without it the sign-in buttons are hidden. */
-export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cli: ProfileCli) => void }) {
+export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cli: AgentCli) => void }) {
   const { t } = useI18n();
   const confirm = useConfirmDialog();
   const { profiles } = useProfiles();
@@ -120,7 +114,7 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cl
 
   /** Hands the login to the terminal, then re-reads the login state once the
    * user comes back to this window. */
-  function handleLogin(profile: ProfileInfo, cli: ProfileCli) {
+  function handleLogin(profile: ProfileInfo, cli: AgentCli) {
     onLogin?.(profile.id, cli);
     window.addEventListener("focus", () => void refreshProfiles(), { once: true });
   }
@@ -199,7 +193,8 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cl
               </div>
 
               <div className="profiles-clis">
-                {CLIS.map(({ cli, name }) => {
+                {AGENT_CLIS.map((cli) => {
+                  const name = CLI_INFO[cli].label;
                   const loggedIn = profile.logged_in[cli];
                   return (
                     <div key={cli} className="profiles-cli">

@@ -35,6 +35,9 @@ export interface CatchFrame {
   real: { amount: number; glitch: number } | null;
   /** How awake the frog is (0-1), for its colors - see FrogPose. */
   vivid?: number;
+  /** Skip drawing the real frog this frame - the odd mid-glitch flicker,
+   * rolled by the pose hook so a re-render can't change it. */
+  flicker?: boolean;
 }
 
 export type Reaction = "puff" | "hop" | "blink" | "none";

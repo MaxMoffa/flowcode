@@ -16,6 +16,8 @@ interface Snapshot {
 }
 
 interface Entry {
+  pluginId: string;
+  profile?: string;
   snapshot: Snapshot;
   lastFetch: number;
   listeners: Set<() => void>;
@@ -36,10 +38,10 @@ function keyOf(pluginId: string, profile?: string): string {
   return `${pluginId}\u0000${profile ?? ""}`;
 }
 
-function entryFor(key: string): Entry {
+function entryFor(key: string, pluginId: string, profile?: string): Entry {
   let entry = entries.get(key);
   if (!entry) {
-    entry = { snapshot: EMPTY, lastFetch: 0, listeners: new Set() };
+    entry = { pluginId, profile, snapshot: EMPTY, lastFetch: 0, listeners: new Set() };
     entries.set(key, entry);
   }
   return entry;
@@ -64,7 +66,7 @@ function update(entry: Entry, patch: Partial<Snapshot>) {
 function loadUsage(pluginId: string, profile?: string, force = false) {
   const fetcher = usageFetcherFor(pluginId);
   if (!fetcher) return;
-  const entry = entryFor(keyOf(pluginId, profile));
+  const entry = entryFor(keyOf(pluginId, profile), pluginId, profile);
   // Also de-dupes React StrictMode's dev-only double subscribe on mount -
   // for Codex, two concurrent probes means two real CLI sessions.
   if (entry.snapshot.loading) return;
@@ -82,8 +84,20 @@ function loadUsage(pluginId: string, profile?: string, force = false) {
     .finally(() => update(entry, { loading: false }));
 }
 
+// The 5-minute timer is skipped while the window is hidden, so coming back
+// would show stale numbers until the next tick: refresh what is on screen
+// (respecting STALE_MS, so a quick tab flip costs nothing).
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    for (const entry of entries.values()) {
+      if (entry.listeners.size > 0) loadUsage(entry.pluginId, entry.profile);
+    }
+  });
+}
+
 function subscribe(pluginId: string, profile: string | undefined, listener: () => void): () => void {
-  const entry = entryFor(keyOf(pluginId, profile));
+  const entry = entryFor(keyOf(pluginId, profile), pluginId, profile);
   entry.listeners.add(listener);
   if (entry.listeners.size === 1) {
     loadUsage(pluginId, profile);
@@ -126,11 +140,6 @@ const profileListeners = new Set<() => void>();
 function subscribeProfile(listener: () => void): () => void {
   profileListeners.add(listener);
   return () => profileListeners.delete(listener);
-}
-
-/** Whether this plugin's usage depends on the account (the three agent CLIs). */
-export function usageHasProfiles(pluginId: string): boolean {
-  return usageFetcherFor(pluginId) !== undefined;
 }
 
 /** Which account's usage a plugin shows: `undefined` is the default account.

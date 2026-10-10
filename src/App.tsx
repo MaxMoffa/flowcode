@@ -1,9 +1,5 @@
-import { Fragment, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-// `currentMonitor` is a module-level export, NOT a `Window` method - there is
-// no `appWindow.currentMonitor()` in @tauri-apps/api v2 (only `primaryMonitor`,
-// `availableMonitors` and friends are module-level too). Calling it off the
-// window object throws a TypeError.
-import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
@@ -39,7 +35,7 @@ import { useAgentNotifications } from "./notifications/useAgentNotifications";
 import { watchLimitResets } from "./notifications/limitResetWatcher";
 import { useNotificationSettings } from "./notifications/notificationSettings";
 import { setActiveAgent } from "./agents/activeAgent";
-import { tabAgentOf, useAgentSessions, type TabAgent } from "./agents/agentSessions";
+import { tabAgentOf, useAgentSessions, type AgentSession, type TabAgent } from "./agents/agentSessions";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
 import { ContextMenuProvider, useOpenContextMenu, useContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
@@ -65,7 +61,7 @@ import { hasSeenWelcome } from "./welcome/welcomeSeen";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
 import { usePanelPresence } from "./hooks/usePanelPresence";
 import { SIDEBAR_MODES, EXPLORER_LINK_MODES, type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
-import { readBool, readEnum, readJson, readString, usePersistentState, writeBool, writeString } from "./lib/storage";
+import { readBool, readEnum, readJson, readString, usePersistentState, writeBool, writeJson, writeString } from "./lib/storage";
 import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
 import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
@@ -75,7 +71,22 @@ import { recordRecentTerminal } from "./newtab/recentTerminals";
 import { recordCommand } from "./newtab/commandHistory";
 import { profileForPath, useProfiles } from "./profiles/profiles";
 import { ProfilePicker } from "./profiles/ProfilePicker";
+import { Icons } from "./app/icons";
+import { useWindowChrome } from "./window/useWindowChrome";
+import { ZoomRow } from "./terminal/ZoomRow";
+import {
+  TITLE_HOST_PREFIX,
+  cleanTitle,
+  cmdTitlePathCandidates,
+  firstExistingDir,
+  labelForCwd,
+  looksLikeExecutablePath,
+} from "./terminal/tabTitle";
+import { takeWindowInit, tabStripDropIndex, type CursorTarget, type TabTransfer } from "./tabs/transfer";
+import { newTabId } from "./tabs/tabId";
+import { makeTermTab, patchTermTab } from "./tabs/tabState";
 import "./App.css";
+import { CLI_INFO, cliOfPlugin, type AgentCli } from "./agents/cliInfo";
 
 const appWindow = getCurrentWindow();
 /** The window Flowcode starts with - the one that restores the saved session
@@ -83,53 +94,11 @@ const appWindow = getCurrentWindow();
  * dragged out, or a restored extra window). */
 const isMainWindow = appWindow.label === "main";
 
-/** A tab on its way to another window: what the receiving window needs to
- * rebuild it - for a terminal its still-running session (see
- * `TerminalHandle.release`), for an editor any unsaved text. */
 /** What a terminal reports to the New Tab page turning into it: where its
  * prompt will land, and (`null`: never) where it did. */
 interface Handoff {
   anchor?: PromptAnchor;
   promptShown?: PromptAnchor | null;
-}
-
-interface TabTransfer {
-  tab: AppTab;
-  terminal?: TerminalTransfer & { shell?: string; fontSize?: number };
-  editor?: { content: string; dirty: boolean };
-  /** Where it was dropped in the receiving window (CSS px), when it was
-   * dropped onto one - picks its slot in that window's tab strip. */
-  drop?: { x: number; y: number };
-}
-
-/** What a window opened by `window_open` (src-tauri/src/windows.rs) starts
- * with. */
-type WindowInit = { kind: "adopt"; transfer: TabTransfer } | { kind: "restore"; window: SavedWindow };
-
-/** Mirrors `CursorTarget` in src-tauri/src/windows.rs. */
-interface CursorTarget {
-  label: string | null;
-  x: number;
-  y: number;
-}
-
-// Taken once per page load, not per effect run: the backend hands it out
-// only once, and a remounted effect (StrictMode in dev) must see it too.
-let windowInitPromise: Promise<WindowInit | null> | null = null;
-function takeWindowInit(): Promise<WindowInit | null> {
-  windowInitPromise ??= invoke<WindowInit | null>("window_take_init").catch(() => null);
-  return windowInitPromise;
-}
-
-/** Where in this window's tab strip a tab dropped at (x, y) goes - `undefined`
- * (the end) when it wasn't dropped over the strip. */
-function tabStripDropIndex(drop: { x: number; y: number } | undefined): number | undefined {
-  const strip = document.querySelector(".tab-strip")?.getBoundingClientRect();
-  if (!drop || !strip || drop.y < strip.top - 30 || drop.y > strip.bottom + 30) return undefined;
-  return Array.from(document.querySelectorAll(".tab-strip > .term-tab:not(.term-tab-folder)")).filter((el) => {
-    const r = el.getBoundingClientRect();
-    return r.left + r.width / 2 < drop.x;
-  }).length;
 }
 
 // Loaded on demand: CodeMirror (every language grammar) and the flowkit
@@ -151,265 +120,27 @@ const PLUGINS_MIGRATED_KEY = "flowcode.pluginsActionMigrated";
 /** Set once the Mistral Vibe plugin, shipped after the others, has been
  * offered to an install that had already seeded them. */
 const VIBE_PLUGIN_SEEDED_KEY = "flowcode.vibePluginSeeded";
-const VIBE_PLUGIN_ID = "mistral-vibe";
 
-/** The agent CLIs a shortcut can launch with an install/login check first,
- * by the id of the example plugin that launches each one. */
-type AgentCli = "claude" | "codex" | "vibe";
-const PLUGIN_AGENT_CLI: Record<string, AgentCli | undefined> = {
-  "claude-code": "claude",
-  "codex-cli": "codex",
-  [VIBE_PLUGIN_ID]: "vibe",
-};
-const AGENT_CLI_LABELS: Record<AgentCli, string> = { claude: "Claude Code", codex: "Codex CLI", vibe: "Mistral Vibe" };
-/** What signs each CLI in - for Vibe, its setup asking for the API key. */
-const AGENT_CLI_LOGIN: Record<AgentCli, string> = { claude: "claude auth login", codex: "codex login", vibe: "vibe --setup" };
+/** Plugin commands the user has OK'd: `<plugin id>:<hash of the command>`
+ * entries, so editing a plugin's command asks again. */
+const PLUGIN_APPROVALS_KEY = "flowcode.pluginApprovals";
 const FAVORITES_BUTTON_VISIBLE_KEY = "flowcode.favoritesButtonVisible";
 const SIDEBAR_COLLAPSED_KEY = "flowcode.sidebarCollapsed";
 const AGENTS_SIDEBAR_OPEN_KEY = "flowcode.agentsSidebarOpen";
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((id) => typeof id === "string");
+/** Not a security boundary, just a compact stable stamp of a command's text. */
+function hashText(text: string): string {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
+  return (hash >>> 0).toString(16);
+}
 const readQuickActions = (key: string) => readJson(key, isStringArray, DEFAULT_QUICK_ACTIONS);
-const writeJson = (key: string, value: unknown) => writeString(key, JSON.stringify(value));
 const readTrue = (key: string) => readBool(key, true);
 const readFalse = (key: string) => readBool(key, false);
 const readSidebarMode = (key: string) => readEnum(key, SIDEBAR_MODES, "auto");
 const readLinkMode = (key: string) => readEnum(key, EXPLORER_LINK_MODES, "auto");
-
-const Icons = {
-  kebab: (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none">
-      <circle cx="12" cy="5.5" r="1.9" />
-      <circle cx="12" cy="12" r="1.9" />
-      <circle cx="12" cy="18.5" r="1.9" />
-    </svg>
-  ),
-  zoomReset: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <path d="M4 12a8 8 0 0 1 13.66-5.66L20 8.5" />
-      <path d="M20 4v4.5h-4.5" />
-      <path d="M20 12a8 8 0 0 1-13.66 5.66L4 15.5" />
-      <path d="M4 20v-4.5h4.5" />
-    </svg>
-  ),
-  sun: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <circle cx="12" cy="12" r="4.2" />
-      <line x1="12" y1="2.5" x2="12" y2="5" />
-      <line x1="12" y1="19" x2="12" y2="21.5" />
-      <line x1="2.5" y1="12" x2="5" y2="12" />
-      <line x1="19" y1="12" x2="21.5" y2="12" />
-    </svg>
-  ),
-  moon: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <path d="M21 12.6A9 9 0 1 1 11.4 3a7 7 0 0 0 9.6 9.6z" />
-    </svg>
-  ),
-  settings: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  ),
-  keyboard: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <rect x="3" y="6" width="18" height="12" rx="2" />
-      <path d="M7 10h.01M10.5 10h.01M14 10h.01M17 10h.01" />
-      <path d="M8 14h8" />
-    </svg>
-  ),
-  changelog: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <path d="M12 3.5 14.2 8l4.8.6-3.5 3.3.9 4.8L12 14.4l-4.4 2.3.9-4.8L5 8.6 9.8 8z" />
-      <line x1="5" y1="20.5" x2="19" y2="20.5" />
-    </svg>
-  ),
-  themeAuto: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" />
-    </svg>
-  ),
-  fullscreen: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <path d="M9 4.5H5.5a1 1 0 0 0-1 1V9M15 4.5h3.5a1 1 0 0 1 1 1V9M20 15v3.5a1 1 0 0 1-1 1H15M4.5 15v3.5a1 1 0 0 0 1 1H9" />
-    </svg>
-  ),
-  fullscreenExit: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <path d="M9 9H5.5M9 9V5.5M9 9 4.5 4.5M15 9h3.5M15 9V5.5M15 9l4.5-4.5M15 15h3.5M15 15v3.5M15 15l4.5 4.5M9 15H5.5M9 15v3.5M9 15 4.5 19.5" />
-    </svg>
-  ),
-  newTerminal: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
-      <polyline points="7 9.5 10.5 12.5 7 15.5" />
-      <line x1="12.5" y1="15.5" x2="16.5" y2="15.5" />
-    </svg>
-  ),
-  features: (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
-      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
-      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
-      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
-      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
-    </svg>
-  ),
-};
-
-/** The context menu's zoom row, as its own component rather than inline JSX
- * built from App's own state - the menu's items are a snapshot captured
- * once when it opens (see ContextMenuProvider), so a plain `{size}px` baked
- * into that snapshot would never update after +/- clicks while the menu
- * stays open. Subscribing to `useTerminalSettings()` here instead means this
- * component re-renders off the context itself, independent of when its
- * enclosing JSX was created.
- *
- * +/- here zoom only `tabId` (the last-active terminal), like a browser's
- * per-tab zoom - the app-wide default (Settings > terminale) is untouched.
- * When this tab's size has drifted from that default, the value switches to
- * the accent color and a reset button appears next to it. The px box itself
- * is a real input - typing a value and committing it (Enter/blur) goes
- * through the same `setTabFontSize` the +/- buttons use. */
-function ZoomRow({ tabId }: { tabId: string }) {
-  const {
-    fontSize: defaultSize,
-    tabFontSizeOverrides,
-    getTabFontSize,
-    zoomTabIn,
-    zoomTabOut,
-    setTabFontSize,
-    resetTabZoom,
-  } = useTerminalSettings();
-  const { t } = useI18n();
-  const size = getTabFontSize(tabId);
-  const isCustom = tabId in tabFontSizeOverrides;
-  // A locally-staged copy of the digits being typed - committing on every
-  // keystroke would run each partial value through `setTabFontSize`'s
-  // clamp (e.g. "1" while typing "12" would clamp up to MIN_SIZE and never
-  // let the second digit land). Only applied on blur/Enter; reverts to the
-  // real size on Escape or on unparsable input.
-  const [draft, setDraft] = useState(String(size));
-  useEffect(() => setDraft(String(size)), [size]);
-
-  function commit() {
-    const parsed = parseInt(draft, 10);
-    if (Number.isFinite(parsed)) setTabFontSize(tabId, parsed);
-    else setDraft(String(size));
-  }
-
-  return (
-    <div className="context-menu-zoom-row">
-      <button type="button" className="context-menu-zoom-btn" aria-label={t("zoom.out")} onClick={() => zoomTabOut(tabId)}>
-        −
-      </button>
-      <button type="button" className="context-menu-zoom-btn" aria-label={t("zoom.in")} onClick={() => zoomTabIn(tabId)}>
-        +
-      </button>
-      <span
-        className={"context-menu-zoom-value" + (isCustom ? " is-custom" : "")}
-        title={isCustom ? t("zoom.custom", { size: defaultSize }) : t("zoom.thisTerminal")}
-      >
-        <input
-          type="text"
-          inputMode="numeric"
-          className="context-menu-zoom-input"
-          value={draft}
-          aria-label={t("zoom.fontSize")}
-          onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              commit();
-              e.currentTarget.blur();
-            } else if (e.key === "Escape") {
-              e.stopPropagation();
-              setDraft(String(size));
-              e.currentTarget.blur();
-            }
-          }}
-        />
-        <span className="context-menu-zoom-unit">px</span>
-      </span>
-      <button
-        type="button"
-        className="context-menu-zoom-btn context-menu-zoom-reset"
-        aria-label={t("zoom.reset")}
-        title={t("zoom.reset")}
-        disabled={!isCustom}
-        onClick={() => resetTabZoom(tabId)}
-      >
-        {Icons.zoomReset}
-      </button>
-    </div>
-  );
-}
-
-/** A fresh tab's label before its shell reports a title of its own - the
- * full path, same as what the shell's own title will show (tabs never
- * collapse the home dir to `~`). */
-function labelForCwd(cwd: string): string {
-  return cwd || "shell";
-}
-
-/** Matches the "user@host: /some/path" shape most shells use for their OSC
- * title, capturing the user and the path. */
-const TITLE_HOST_PREFIX = /^([^\s@]+)@[^\s:]+:\s*(.+)$/;
-
-/** Keeps just the useful part of a shell title - shown as the shell reports
- * it, full path included. */
-function cleanTitle(raw: string): string {
-  const title = raw.trim();
-  return title.match(TITLE_HOST_PREFIX)?.[2] ?? (title || "shell");
-}
-
-/** A cwd is never a file - but a brand new cmd.exe console on Windows starts
- * out titled with the full path to its OWN executable (e.g.
- * `C:\Windows\System32\cmd.exe`), before anything has set a real title. The
- * same thing happens launching Claude Code/Codex on Windows: if the shell
- * (or Windows console default-title fallback) reports the CLI's own script
- * path instead of a real title - an npm shim (`.cmd`/`.ps1`) or the Node
- * entry point itself (`.js`/`.mjs`/`.cjs`) - that also happens to pass
- * `isAbsolutePath`. Without this check a title update like that would stomp
- * `explorerPath` with the CLI's own script location instead of the actual
- * working directory, which then can't be `read_dir`'d (it's a file, not a
- * folder) and leaves the explorer pointed somewhere that looks "connected"
- * but shows nothing - and navigating up from there re-injects a `cd` into
- * whatever real session is still running in that shell. */
-function looksLikeExecutablePath(path: string): boolean {
-  return /\.(exe|com|bat|cmd|ps1|js|mjs|cjs)$/i.test(path);
-}
-
-/** cmd.exe retitles to "<cwd> - <command>" for as long as a command runs, so
- * a title-derived Windows path may carry that suffix - and a folder name can
- * legitimately contain " - " too ("Foo - Copia"). Longest first: the path as
- * reported, then each shorter prefix cut at a " - ". */
-function cmdTitlePathCandidates(path: string): string[] {
-  const candidates = [path];
-  for (let i = path.lastIndexOf(" - "); i > 0; i = path.lastIndexOf(" - ", i - 1)) {
-    candidates.push(path.slice(0, i));
-  }
-  return candidates;
-}
-
-/** The first of `candidates` that is an existing directory, if any. */
-async function firstExistingDir(candidates: string[]): Promise<string | undefined> {
-  for (const candidate of candidates) {
-    if (await invoke<boolean>("is_directory", { path: candidate }).catch(() => false)) return candidate;
-  }
-  return undefined;
-}
-
-// Carried across hot reloads in dev: Fast Refresh re-runs this module but
-// keeps the tabs in state, so a counter back at 1 would hand the next tab an
-// id one of them already has - and two tabs with the same id both count as
-// active, rendering side by side.
-let nextTabId: number = import.meta.hot?.data.nextTabId ?? 1;
-import.meta.hot?.dispose((data) => {
-  data.nextTabId = nextTabId;
-});
 
 function Shell() {
   // All persisted across restarts - every toggle path (header button,
@@ -447,16 +178,12 @@ function Shell() {
     handleSide: "left",
   });
   const [homeDir, setHomeDir] = useState<string>("");
-  const [tabs, setTabs] = useState<AppTab[]>([
-    { kind: "terminal", id: "tab-0", cwd: "", explorerPath: "", label: "shell" },
-  ]);
+  const [tabs, setTabs] = useState<AppTab[]>([makeTermTab("tab-0", "")]);
   const [activeTabId, setActiveTabId] = useState("tab-0");
   const [activeTerminalId, setActiveTerminalId] = useState("tab-0");
   const latestRef = useRef({ tabs, activeTabId, activeTerminalId });
   latestRef.current = { tabs, activeTabId, activeTerminalId };
-  const [isMaximized, setIsMaximized] = useState(false);
-  const [isEdgeFlush, setIsEdgeFlush] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const { isMaximized, isEdgeFlush, isFullscreen, toggleFullscreen } = useWindowChrome();
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [pluginMenuAnchor, setPluginMenuAnchor] = useState<DOMRect | null>(null);
   const [customPlugins, setCustomPlugins] = useState<PluginDef[]>([]);
@@ -499,7 +226,7 @@ function Shell() {
   const pendingEditorContentRef = useRef(new Map<string, string>());
   const pluginBtnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirmDialog();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const openMenu = useOpenContextMenu();
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
@@ -603,8 +330,8 @@ function Shell() {
           }
         }
         pinToQuickActions(newIds);
-      } else if (seededBefore && !chosen && !readString(VIBE_PLUGIN_SEEDED_KEY) && !byId.has(VIBE_PLUGIN_ID)) {
-        const vibe = examplePlugins().find((p) => p.id === VIBE_PLUGIN_ID);
+      } else if (seededBefore && !chosen && !readString(VIBE_PLUGIN_SEEDED_KEY) && !byId.has(CLI_INFO.vibe.pluginId)) {
+        const vibe = examplePlugins().find((p) => p.id === CLI_INFO.vibe.pluginId);
         if (vibe) await invoke("save_plugin", { plugin: vibe });
       }
     } catch {
@@ -707,7 +434,7 @@ function Shell() {
             !!t.cwd && (wslDistro !== undefined || !t.cwd.startsWith("\\\\"))
               ? ((await firstExistingDir(wslDistro !== undefined ? [t.cwd] : cmdTitlePathCandidates(t.cwd))) ?? "")
               : "";
-          const id = `tab-${nextTabId++}`;
+          const id = newTabId("tab");
           restoredTabIdsRef.current.add(id);
           if (t.content) restoredContentRef.current.set(id, t.content);
           if (t.shell) pendingShellOverrideRef.current.set(id, t.shell);
@@ -724,7 +451,7 @@ function Shell() {
             profileId: t.profileId,
           });
         } else if (t.kind === "editor") {
-          restored.push({ kind: "editor", id: `editor-${nextTabId++}`, path: t.path, label: t.label });
+          restored.push({ kind: "editor", id: newTabId("editor"), path: t.path, label: t.label });
         } else if (t.kind === "whatsNew") {
           if (!restored.some((r) => r.kind === "whatsNew")) {
             restored.push({ kind: "whatsNew", id: "whatsnew", label: whatsNewLabel, version: t.version });
@@ -739,7 +466,7 @@ function Shell() {
       }
       if (cancelled) return;
       if (!restored.some((r) => r.kind === "terminal")) {
-        restored.unshift({ kind: "terminal", id: "tab-0", cwd: "", explorerPath: "", label: "shell" });
+        restored.unshift(makeTermTab("tab-0", ""));
       }
       const active = restored[Math.min(Math.max(saved.activeIndex, 0), restored.length - 1)];
       setTabs(restored);
@@ -825,16 +552,25 @@ function Shell() {
     // Setting off: overwrite with an empty session rather than leave a stale
     // one around for whenever it's switched back on. Each window reports
     // only its own part; the backend writes the file (see session.rs).
-    const persist = async (flushGen?: number) => {
+    // The periodic save is skipped while nothing changed since the last one
+    // that went through; a close or a flush request always writes.
+    let lastSaved: string | null = null;
+    const persist = async (flushGen?: number, periodic = false) => {
       const snap = restoreSessionRef.current ? await snapshot() : null;
-      await saveWindowSession(snap, flushGen).catch(() => {});
+      const json = JSON.stringify(snap);
+      if (periodic && json === lastSaved) return;
+      const saved = await saveWindowSession(snap, flushGen).then(
+        () => true,
+        () => false,
+      );
+      if (saved) lastSaved = json;
     };
     // Right away too, so a freshly opened window is part of the session
     // from the start.
     void persist();
     // Periodic too, not just on close - a crash or a killed process never
     // gets a close event.
-    const timer = setInterval(() => void persist(), 15000);
+    const timer = setInterval(() => void persist(undefined, true), 15000);
     const unlisten = appWindow.onCloseRequested(async () => {
       await persist();
     });
@@ -861,79 +597,6 @@ function Shell() {
       fillStartDir(t.id, pendingShellOverrideRef.current.get(t.id) ?? shellId);
     }
   }, [homeDir, resolvedStartPath, startPathChecked, sessionChecked]);
-
-  useEffect(() => {
-    // Windows Snap (tiling two windows side by side) is not "maximized" as
-    // far as `isMaximized()` (win32 `IsZoomed`) is concerned - the window is
-    // just resized to half the work area. But a snapped window always spans
-    // the full work-area height, so it's flush against the top and bottom
-    // screen edges the same way a real maximized window is; without this,
-    // the floating window's 1px border (and DWM's own rounded corners, see
-    // the effect below) stay on and read as a stray outline/notch against
-    // the screen edge and the neighboring window.
-    const updateMaximizedState = async () => {
-      const maximized = await appWindow.isMaximized();
-      setIsMaximized(maximized);
-      appWindow.isFullscreen().then(setIsFullscreen).catch(() => {});
-      if (maximized) {
-        setIsEdgeFlush(false);
-        return;
-      }
-      try {
-        const monitor = await currentMonitor();
-        if (!monitor) {
-          setIsEdgeFlush(false);
-          return;
-        }
-        const [pos, size] = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]);
-        // All four values are physical pixels: `outerPosition`/`outerSize` come
-        // from win32 `GetWindowRect` and `workArea` from `GetMonitorInfoW`'s
-        // `rcWork`, both unscaled. Don't mix in `scaleFactor` here.
-        const { position: workPos, size: workSize } = monitor.workArea;
-        // Generous tolerance: Windows 11's "show a small gap between snapped
-        // windows" setting insets a snapped window a few px from the work
-        // area on top of normal DPI-scaling rounding, so an exact (or
-        // near-exact) match is too strict to ever fire. (Measured on a real
-        // Snap here the match is in fact exact, but leave room for the gap
-        // setting and for other DPI configurations.)
-        const EDGE_TOLERANCE = 24;
-        const flushTop = Math.abs(pos.y - workPos.y) <= EDGE_TOLERANCE;
-        const flushBottom = Math.abs(pos.y + size.height - (workPos.y + workSize.height)) <= EDGE_TOLERANCE;
-        setIsEdgeFlush(flushTop && flushBottom);
-      } catch (err) {
-        // Don't swallow silently: a bad API call here looks exactly like "the
-        // window simply isn't snapped", which hid an `appWindow.currentMonitor`
-        // TypeError for a long time.
-        console.error("[snap-detect] failed to read window/monitor geometry", err);
-        setIsEdgeFlush(false);
-      }
-    };
-    updateMaximizedState();
-    const recheck = () => {
-      updateMaximizedState();
-      // Windows Snap animates the window into place - re-check once the
-      // animation has almost certainly settled, in case the event fired
-      // mid-animation and read a not-yet-final position.
-      setTimeout(updateMaximizedState, 250);
-    };
-    // `onMoved` as well as `onResized`: snapping from one half to the other
-    // (or dragging a full-height window onto another monitor) changes the
-    // position without changing the size, so WM_SIZE - and therefore
-    // `onResized` - never fires.
-    const unlisten = Promise.all([appWindow.onResized(recheck), appWindow.onMoved(recheck)]);
-    return () => {
-      unlisten.then((fns) => fns.forEach((fn) => fn()));
-    };
-  }, []);
-
-  useEffect(() => {
-    // DWM rounds this window's corners unconditionally (see
-    // apply_window_chrome/set_window_corner_rounding in shared/src/lib.rs);
-    // that only goes unnoticed on a floating window. Flush against the
-    // screen edge or a neighboring Snapped window, the rounded clip nicks a
-    // visible notch out of the corner, so square it off there instead.
-    invoke("set_window_square_corners", { square: isMaximized || isEdgeFlush || isFullscreen }).catch(() => {});
-  }, [isMaximized, isEdgeFlush, isFullscreen]);
 
   useEffect(() => {
     const onResize = () => setWindowWidth(window.innerWidth);
@@ -967,7 +630,7 @@ function Shell() {
   useEffect(() => {
     const onCliLogin = (e: Event) => {
       const { command, profile } = (e as CustomEvent<{ command?: string; profile?: string }>).detail ?? {};
-      if (!command || !Object.values(AGENT_CLI_LOGIN).includes(command)) return;
+      if (!command || !Object.values(CLI_INFO).some((c) => c.loginCommand === command)) return;
       openLoginRef.current(command, profile);
     };
     window.addEventListener("flowcode:cli-login", onCliLogin);
@@ -988,7 +651,7 @@ function Shell() {
   const activeTermHandle = () => (activeTabId === activeTerminalId ? termRefs.current.get(activeTerminalId) : undefined);
   useShortcuts({
     toggleSidebar: () => setSidebarCollapsed((c) => !c),
-    clearTerminal: () => termRefs.current.get(activeTerminalId)?.clear(),
+    clearTerminal: () => activeTermHandle()?.clear(),
     copy: () => activeTermHandle()?.copySelection(),
     paste: () => activeTermHandle()?.paste(),
     newTab: () => openNewTab(),
@@ -1063,7 +726,7 @@ function Shell() {
     // the general one), looked up by `fillStartDir` below. `cwdOverride` is
     // still how a caller that *does* want a specific folder (duplicateTab,
     // opening a favorite, resuming an agent session) gets one.
-    const id = `tab-${nextTabId++}`;
+    const id = newTabId("tab");
     // A `\\wsl.localhost\<distro>\...` folder only a WSL shell can start in,
     // whatever the caller (or the configured default) would have picked.
     const pathDistro = cwdOverride ? wslDistroOfPath(cwdOverride) : null;
@@ -1161,10 +824,10 @@ function Shell() {
       startDirPendingRef.current.delete(tabId);
       if (pathDistro && !wslShell) pendingShellOverrideRef.current.set(tabId, wslShellId(pathDistro));
       setTabs((prev) =>
-        prev.map((t) =>
-          t.id === tabId && t.kind === "terminal" && !t.cwd
-            ? {
-                ...t,
+        patchTermTab(prev, tabId, (t) =>
+          t.cwd
+            ? null
+            : {
                 cwd,
                 explorerPath: cwd,
                 // A restored tab whose folder is gone still keeps the name
@@ -1175,8 +838,7 @@ function Shell() {
                 // A restored tab keeps the profile it had; a pick made while
                 // the folder was being looked up wins over the automatic one.
                 profileId: t.profileId ?? (explicitProfileRef.current.has(tabId) ? undefined : profile),
-              }
-            : t,
+              },
         ),
       );
     })();
@@ -1193,10 +855,10 @@ function Shell() {
       const profile = await automaticProfile(tabId, cwd, wsl);
       if (newTabShellRef.current.get(tabId) !== target) return;
       setTabs((prev) =>
-        prev.map((t) => {
-          if (t.id !== tabId || t.kind !== "terminal" || !t.newTab) return t;
+        patchTermTab(prev, tabId, (t) => {
+          if (!t.newTab) return null;
           const nextProfile = explicitProfileRef.current.has(tabId) ? t.profileId : profile;
-          return t.cwd === cwd && t.profileId === nextProfile ? t : { ...t, cwd, explorerPath: cwd, profileId: nextProfile };
+          return { cwd, explorerPath: cwd, profileId: nextProfile };
         }),
       );
     });
@@ -1225,21 +887,16 @@ function Shell() {
     void (async () => {
       const profile = lookup ? await automaticProfile(tabId, nextCwd, false) : undefined;
       setTabs((prev) =>
-        prev.map((t) =>
-          t.id === tabId && t.kind === "terminal"
-            ? {
-                ...t,
-                newTab: undefined,
-                cwd: nextCwd,
-                explorerPath: nextCwd,
-                label: t.customLabel ? t.label : labelForCwd(nextCwd),
-                nestedShell: wsl ? "wsl" : undefined,
-                wslDistro: pathDistro ?? wslDistro ?? undefined,
-                // Env vars don't reach a WSL distro: its profile is dropped.
-                profileId: wsl ? undefined : lookup && !explicitProfileRef.current.has(tabId) ? profile : t.profileId,
-              }
-            : t,
-        ),
+        patchTermTab(prev, tabId, (t) => ({
+          newTab: undefined,
+          cwd: nextCwd,
+          explorerPath: nextCwd,
+          label: t.customLabel ? t.label : labelForCwd(nextCwd),
+          nestedShell: wsl ? "wsl" : undefined,
+          wslDistro: pathDistro ?? wslDistro ?? undefined,
+          // Env vars don't reach a WSL distro: its profile is dropped.
+          profileId: wsl ? undefined : lookup && !explicitProfileRef.current.has(tabId) ? profile : t.profileId,
+        })),
       );
       if (!nextCwd) fillStartDir(tabId, shell ?? shellId);
     })();
@@ -1265,9 +922,9 @@ function Shell() {
    * CLI's install/login step offered from the setup-check dialog, so the
    * user's actual working terminal is never hijacked for it. */
   function openTerminalWithCommand(command: string, profileId?: string) {
-    const id = `tab-${nextTabId++}`;
+    const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, { kind: "terminal", id, cwd: homeDir, explorerPath: homeDir, label: "setup", profileId }]);
+    setTabs((prev) => [...prev, makeTermTab(id, homeDir, { label: "setup", profileId })]);
     setActiveTabId(id);
     setActiveTerminalId(id);
   }
@@ -1298,9 +955,9 @@ function Shell() {
         : cli === "vibe"
           ? `vibe --resume ${sessionId}`
           : await withCodexLaunchFlags(`codex resume ${sessionId}`);
-    const id = `tab-${nextTabId++}`;
+    const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd), profileId }]);
+    setTabs((prev) => [...prev, makeTermTab(id, cwd, { profileId })]);
     setActiveTabId(id);
     setActiveTerminalId(id);
   }
@@ -1354,7 +1011,7 @@ function Shell() {
       return;
     }
     if (tab.kind === "editor") {
-      const newId = `editor-${nextTabId++}`;
+      const newId = newTabId("editor");
       setTabs((prev) => [...prev, { kind: "editor", id: newId, path: tab.path, label: tab.label }]);
       setActiveTabId(newId);
     }
@@ -1374,66 +1031,77 @@ function Shell() {
       );
       return;
     }
-    const existing = tabs.find((t) => t.kind === "editor" && t.path === path);
+    const existing = latestRef.current.tabs.find((t) => t.kind === "editor" && t.path === path);
     if (existing) {
       setActiveTabId(existing.id);
       return;
     }
-    const id = `editor-${nextTabId++}`;
-    setTabs((prev) => [...prev, { kind: "editor", id, path, label: name }]);
+    // Two opens before the next render both miss `existing`: they share one
+    // id, and the updater drops the second add.
+    const id = reservedTabId(`editor:${path}`, "editor");
+    setTabs((prev) => (prev.some((t) => t.id === id) ? prev : [...prev, { kind: "editor", id, path, label: name }]));
     setActiveTabId(id);
   }
 
   /** Opens (or focuses) the diff of one file from the Git tab. */
   function openDiff(root: string, change: GitChange, staged: boolean) {
-    const existing = tabs.find((t) => t.kind === "diff" && t.root === root && t.path === change.path && t.staged === staged);
+    const existing = latestRef.current.tabs.find(
+      (t) => t.kind === "diff" && t.root === root && t.path === change.path && t.staged === staged,
+    );
     if (existing) {
       setActiveTabId(existing.id);
       return;
     }
     const name = basename(change.path);
-    const id = `diff-${nextTabId++}`;
+    const id = reservedTabId(`diff:${root}\u0000${change.path}\u0000${staged}`, "diff");
     const label = t(staged ? "git.stagedLabel" : "git.diffLabel", { name });
-    setTabs((prev) => [...prev, { kind: "diff", id, root, path: change.path, staged, label }]);
+    setTabs((prev) =>
+      prev.some((t) => t.id === id) ? prev : [...prev, { kind: "diff", id, root, path: change.path, staged, label }],
+    );
     setActiveTabId(id);
   }
 
-  function openSettings() {
-    // Always shows the side nav, regardless of whether the panel was
-    // collapsed - otherwise there's no hint that settings has more than
-    // one page.
-    setSidebarCollapsed(false);
-    const existing = tabs.find((t) => t.kind === "settings");
-    if (existing) {
-      setActiveTabId(existing.id);
-      return;
+  /** The id a "open or focus" action uses for the tab it is about to add.
+   * Two calls before the next render can't see each other's tab yet; handing
+   * both the same id lets the `setTabs` updater tell the second is a repeat. */
+  const reservedIdsRef = useRef(new Map<string, string>());
+  function reservedTabId(key: string, kind: "editor" | "diff"): string {
+    let id = reservedIdsRef.current.get(key);
+    if (!id) {
+      id = newTabId(kind);
+      reservedIdsRef.current.set(key, id);
     }
-    setTabs((prev) => [...prev, { kind: "settings", id: "settings", label: t("settings.title") }]);
-    setActiveTabId("settings");
+    return id;
+  }
+
+  /** Opens `tab`, or focuses the one of its kind already open (`replace`:
+   * swaps that one for `tab` instead). The check is inside the updater so
+   * two quick calls can't add it twice. Also shows the side panel even if it
+   * was collapsed: each of these pages keeps its navigation there. */
+  function openSingleton(tab: Extract<AppTab, { kind: "settings" | "changelog" | "whatsNew" }>, replace = false) {
+    setSidebarCollapsed(false);
+    setTabs((prev) =>
+      prev.some((p) => p.kind === tab.kind)
+        ? replace
+          ? prev.map((p) => (p.kind === tab.kind ? tab : p))
+          : prev
+        : [...prev, tab],
+    );
+    setActiveTabId(tab.id);
+  }
+
+  function openSettings() {
+    openSingleton({ kind: "settings", id: "settings", label: t("settings.title") });
   }
 
   function openChangelog() {
-    // The version list lives in the side panel - shown even if it was
-    // collapsed, like openSettings does for the settings nav.
-    setSidebarCollapsed(false);
-    const existing = tabs.find((t) => t.kind === "changelog");
-    if (existing) {
-      setActiveTabId(existing.id);
-      return;
-    }
-    setTabs((prev) => [...prev, { kind: "changelog", id: "changelog", label: t("changelog.title") }]);
-    setActiveTabId("changelog");
+    openSingleton({ kind: "changelog", id: "changelog", label: t("changelog.title") });
   }
 
   /** The "What's new" tab for `version` - replacing one already open (a
    * restored session can bring back the previous update's). */
   function openWhatsNew(version: string) {
-    setSidebarCollapsed(false);
-    const tab: AppTab = { kind: "whatsNew", id: "whatsnew", label: t("whatsNew.title"), version };
-    setTabs((prev) =>
-      prev.some((p) => p.kind === "whatsNew") ? prev.map((p) => (p.kind === "whatsNew" ? tab : p)) : [...prev, tab],
-    );
-    setActiveTabId(tab.id);
+    openSingleton({ kind: "whatsNew", id: "whatsnew", label: t("whatsNew.title"), version }, true);
   }
 
   // First launch after an update: show what it brought. Main window only,
@@ -1465,7 +1133,7 @@ function Shell() {
     const { tab } = transfer;
     let adopted: AppTab;
     if (tab.kind === "terminal") {
-      const id = `tab-${nextTabId++}`;
+      const id = newTabId("tab");
       if (transfer.terminal) {
         pendingAttachRef.current.set(id, { ptyId: transfer.terminal.ptyId, snapshot: transfer.terminal.snapshot });
         if (transfer.terminal.shell) pendingShellOverrideRef.current.set(id, transfer.terminal.shell);
@@ -1473,11 +1141,11 @@ function Shell() {
       }
       adopted = { ...tab, id };
     } else if (tab.kind === "editor") {
-      const id = `editor-${nextTabId++}`;
+      const id = newTabId("editor");
       if (transfer.editor?.dirty) pendingEditorContentRef.current.set(id, transfer.editor.content);
       adopted = { ...tab, id };
     } else if (tab.kind === "diff") {
-      adopted = { ...tab, id: `diff-${nextTabId++}` };
+      adopted = { ...tab, id: newTabId("diff") };
     } else if (tab.kind === "changelog") {
       adopted = { kind: "changelog", id: "changelog", label: t("changelog.title") };
     } else if (tab.kind === "whatsNew") {
@@ -1510,6 +1178,12 @@ function Shell() {
   // each one runs - so the Agents panel of every window can list (and jump
   // to) agents running here. Re-sent periodically: a new tab's pty id only
   // exists once its shell has spawned.
+  // Keyed on what is reported, not on `tabs`: a title event that changes
+  // nothing the backend shows shouldn't cost an IPC call.
+  const reportedTabsKey = tabs
+    .filter((t): t is TermTab => t.kind === "terminal")
+    .map((t) => `${t.id}\u0000${t.label}\u0000${t.cwd}`)
+    .join("\u0001");
   useEffect(() => {
     const report = () =>
       invoke("window_report_tabs", {
@@ -1520,10 +1194,57 @@ function Shell() {
     report();
     const timer = setInterval(report, 3000);
     return () => clearInterval(timer);
-  }, [tabs]);
+  }, [reportedTabsKey]);
 
   const adoptTabRef = useRef(adoptTab);
   adoptTabRef.current = adoptTab;
+
+  // TerminalView is memoized, so what it gets must keep its identity from one
+  // render to the next: the handlers sit behind a ref (always the latest
+  // closures), and each tab gets one set of callbacks that call through it.
+  const handlersRef = useRef({
+    title: handleTitleChange,
+    busy: handleBusyChange,
+    commandLine: handleCommandLine,
+    patchHandoff,
+  });
+  handlersRef.current = {
+    title: handleTitleChange,
+    busy: handleBusyChange,
+    commandLine: handleCommandLine,
+    patchHandoff,
+  };
+  const termCallbacksRef = useRef(
+    new Map<
+      string,
+      {
+        ref: (handle: TerminalHandle | null) => void;
+        onTitleChange: (title: string) => void;
+        onBusyChange: (busy: boolean) => void;
+        onCommandLine: (line: string) => void;
+        onAnchor: (anchor: PromptAnchor) => void;
+        onPromptShown: (anchor: PromptAnchor | null) => void;
+      }
+    >(),
+  );
+  function termCallbacks(tabId: string) {
+    let callbacks = termCallbacksRef.current.get(tabId);
+    if (!callbacks) {
+      callbacks = {
+        ref: (handle) => {
+          if (handle) termRefs.current.set(tabId, handle);
+          else termRefs.current.delete(tabId);
+        },
+        onTitleChange: (title) => handlersRef.current.title(tabId, title),
+        onBusyChange: (busy) => handlersRef.current.busy(tabId, busy),
+        onCommandLine: (line) => handlersRef.current.commandLine(tabId, line),
+        onAnchor: (anchor) => handlersRef.current.patchHandoff(tabId, { anchor }),
+        onPromptShown: (promptShown) => handlersRef.current.patchHandoff(tabId, { promptShown }),
+      };
+      termCallbacksRef.current.set(tabId, callbacks);
+    }
+    return callbacks;
+  }
 
   useEffect(() => {
     const webview = getCurrentWebviewWindow();
@@ -1569,7 +1290,7 @@ function Shell() {
     let next = current.tabs.filter((t) => t.id !== id);
     if (next.length > 0 && !next.some((t) => t.kind === "terminal")) {
       const cwd = resolvedStartPath || homeDir;
-      next = [...next, { kind: "terminal", id: `tab-${nextTabId++}`, cwd, explorerPath: cwd, label: labelForCwd(cwd) }];
+      next = [...next, makeTermTab(newTabId("tab"), cwd)];
     }
     if (id === current.activeTabId) {
       const fallback = next[Math.max(0, idx - 1)] ?? next[0];
@@ -1620,6 +1341,7 @@ function Shell() {
   /** Drops the per-tab bookkeeping kept outside `tabs` itself. */
   function forgetTab(id: string) {
     termRefs.current.delete(id);
+    termCallbacksRef.current.delete(id);
     editorRefs.current.delete(id);
     pendingCommandsRef.current.delete(id);
     pendingShellOverrideRef.current.delete(id);
@@ -1629,6 +1351,16 @@ function Shell() {
     pendingTypedCommandsRef.current.delete(id);
     pendingAttachRef.current.delete(id);
     pendingEditorContentRef.current.delete(id);
+    restoredContentRef.current.delete(id);
+    restoredTabIdsRef.current.delete(id);
+    startDirPendingRef.current.delete(id);
+    for (const [key, reserved] of reservedIdsRef.current) if (reserved === id) reservedIdsRef.current.delete(key);
+    setHandoffs((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
     resetTabZoom(id);
     setDirtyIds((prev) => {
       if (!prev.has(id)) return prev;
@@ -1660,18 +1392,11 @@ function Shell() {
       // same slot), minus the dead end.
       if (tabs.filter((t) => t.kind === "terminal").length <= 1) {
         const cwd = tab.cwd || homeDir;
-        const newId = `tab-${nextTabId++}`;
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.id === id ? { kind: "terminal", id: newId, cwd, explorerPath: cwd, label: labelForCwd(cwd) } : t,
-          ),
-        );
+        const newId = newTabId("tab");
+        setTabs((prev) => prev.map((t) => (t.id === id ? makeTermTab(newId, cwd) : t)));
         setActiveTabId(newId);
         setActiveTerminalId(newId);
-        termRefs.current.delete(id);
-        pendingCommandsRef.current.delete(id);
-        pendingShellOverrideRef.current.delete(id);
-        resetTabZoom(id);
+        forgetTab(id);
         return;
       }
     } else {
@@ -1725,22 +1450,14 @@ function Shell() {
     if (wslMatch) {
       const rest = wslMatch[1] ?? "";
       const distroMatch = rest.match(/(?:^|\s)(?:-d|--distribution)\s+(\S+)/i);
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "wsl", wslDistro: distroMatch?.[1] } : t,
-        ),
-      );
+      setTabs((prev) => patchTermTab(prev, tabId, { nestedShell: "wsl", wslDistro: distroMatch?.[1] }));
       return;
     }
 
     const isInteractiveDocker =
       /^docker\s+(exec|run)\b/i.test(trimmed) && /(^|\s)(-it|-ti)(\s|$)|--interactive\b/i.test(trimmed);
     if (/^ssh\s+\S/i.test(trimmed) || isInteractiveDocker) {
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "remote", wslDistro: undefined } : t,
-        ),
-      );
+      setTabs((prev) => patchTermTab(prev, tabId, { nestedShell: "remote", wslDistro: undefined }));
       return;
     }
 
@@ -1748,9 +1465,7 @@ function Shell() {
     // the CLI typed straight into the prompt rather than launched through a
     // shortcut - `checkCliAndMaybeLaunch` only ever sees the shortcut path.
     if (/^(claude|codex|vibe)(\.exe)?(?:\s|$)/i.test(trimmed)) {
-      setTabs((prev) =>
-        prev.map((t) => (t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "agent", wslDistro: undefined } : t)),
-      );
+      setTabs((prev) => patchTermTab(prev, tabId, { nestedShell: "agent", wslDistro: undefined }));
     }
   }
 
@@ -1781,126 +1496,140 @@ function Shell() {
     if (!posixPath.startsWith("/")) return;
     const winPath = toWindowsPath(resolvedDistro, posixPath);
     setTabs((prev) =>
-      prev.map((t) =>
+      patchTermTab(prev, tabId, (t) =>
         // Still the same WSL session? The user may have exited back to the
         // host shell (which clears `nestedShell`) while a lookup ran.
-        t.id === tabId && t.kind === "terminal" && t.nestedShell === "wsl"
-          ? { ...t, cwd: winPath, explorerPath: winPath, wslDistro: resolvedDistro }
-          : t,
+        t.nestedShell === "wsl" ? { cwd: winPath, explorerPath: winPath, wslDistro: resolvedDistro } : null,
       ),
     );
   }
 
-  function handleTitleChange(tabId: string, rawTitle: string) {
+  /** What a shell's reported title does to its tab: the patch to apply, and
+   * any lookup that has to hit the filesystem first (applied when it
+   * resolves). Pure - it only reads `t` - so the caller applies it with a
+   * plain `setTabs`, and a title that changes nothing costs no render. */
+  function resolveTitle(t: TermTab, rawTitle: string): { patch: Partial<TermTab>; after?: () => void } {
+    const tabId = t.id;
     const trimmed = rawTitle.trim();
     const hostPrefix = trimmed.match(TITLE_HOST_PREFIX);
     const reportedUser = hostPrefix?.[1];
     const reportedPath = hostPrefix ? hostPrefix[2] : trimmed;
     const isWindows = isWindowsPlatform();
+    const label = t.customLabel ? t.label : cleanTitle(trimmed);
 
-    setTabs((prev) =>
-      prev.map((t) => {
-        if (t.id !== tabId || t.kind !== "terminal") return t;
-        const label = t.customLabel ? t.label : cleanTitle(trimmed);
+    // `~` only expands against *this app's own host* home dir - correct
+    // for a plain local shell, but meaningless for a nested WSL/remote
+    // session's own (different, unknown to this app) home. Left
+    // un-expanded there rather than turned into a bogus host path that
+    // would wrongly look like "back on the host shell" and drop the
+    // nested-shell tracking; a WSL tab's `~` is expanded further down
+    // against the distro's own home instead, a remote's is dropped.
+    const rawPath = t.nestedShell ? reportedPath : expandHome(reportedPath, homeDir);
 
-        // `~` only expands against *this app's own host* home dir - correct
-        // for a plain local shell, but meaningless for a nested WSL/remote
-        // session's own (different, unknown to this app) home. Left
-        // un-expanded there rather than turned into a bogus host path that
-        // would wrongly look like "back on the host shell" and drop the
-        // nested-shell tracking; a WSL tab's `~` is expanded further down
-        // against the distro's own home instead, a remote's is dropped.
-        const rawPath = t.nestedShell ? reportedPath : expandHome(reportedPath, homeDir);
+    // A WSL shell collapses its home tree to `~` in the title it reports
+    // (bash's `\w`), and `wsl` starts you right there - so unlike a host
+    // shell's, a WSL tab's `~` can't be written off as "not a real cwd".
+    // It's kept and expanded against the *distro's* home in
+    // `applyWslTitle` below, where the lookup belongs.
+    const isWslHomePath = t.nestedShell === "wsl" && (rawPath === "~" || rawPath.startsWith("~/"));
+    if ((!isAbsolutePath(rawPath) && !isWslHomePath) || looksLikeExecutablePath(rawPath)) return { patch: { label } };
 
-        // A WSL shell collapses its home tree to `~` in the title it reports
-        // (bash's `\w`), and `wsl` starts you right there - so unlike a host
-        // shell's, a WSL tab's `~` can't be written off as "not a real cwd".
-        // It's kept and expanded against the *distro's* home in
-        // `applyWslTitle` below, where the lookup belongs.
-        const isWslHomePath = t.nestedShell === "wsl" && (rawPath === "~" || rawPath.startsWith("~/"));
-        if ((!isAbsolutePath(rawPath) && !isWslHomePath) || looksLikeExecutablePath(rawPath)) return { ...t, label };
-
-        // A genuine Windows path means we're back on a real host shell,
-        // whatever nested session we might have been tracking before - but
-        // only a title that names a directory that actually exists counts as
-        // one, whenever there's a nested session to drop. Windows-shaped
-        // console noise is emitted *during* a nested session too, and it
-        // isn't distinguishable from a real post-exit prompt by shape alone
-        // the way wsl/remote's POSIX titles are:
-        //   - `"agent"` (Claude Code/Codex) reports a resolved script or
-        //     shim path, or an OS default-title fallback, while it owns the
-        //     screen;
-        //   - cmd.exe retitles to "<cwd> - <command>" for the whole time a
-        //     command runs, so typing `wsl` produces a title like
-        //     `C:\...\flowcode - wsl` *before* the distro's own first title
-        //     lands - taking that at face value dropped the WSL tracking
-        //     that had just been set up, one keystroke into the session.
-        // So the candidate is verified against the filesystem first, the
-        // same deferred-update pattern as the wsl path translation below
-        // (this title update itself is left alone; a confirmed candidate is
-        // applied once the check resolves).
-        if (isWindowsHostPath(rawPath)) {
-          const nested = t.nestedShell;
-          if (nested) {
-            invoke<boolean>("is_directory", { path: rawPath }).then((isDir) => {
-              if (!isDir) return;
-              setTabs((prev2) =>
-                prev2.map((t2) =>
-                  // Still the same nested session? Anything that moved on
-                  // since (exited, launched an agent) owns the tab now.
-                  t2.id === tabId && t2.kind === "terminal" && t2.nestedShell === nested
-                    ? { ...t2, cwd: rawPath, explorerPath: rawPath, nestedShell: undefined, wslDistro: undefined }
-                    : t2,
-                ),
-              );
-            });
-            return { ...t, label };
-          }
-          // "<cwd> - <command>" while a command runs in cmd.exe: taken at
-          // face value it's a folder that doesn't exist - and whatever is
-          // the cwd when the app closes is what session restore reopens.
-          // Resolved against the filesystem instead (deferred, like above).
-          if (rawPath.includes(" - ")) {
-            const cwdBefore = t.cwd;
+    // A genuine Windows path means we're back on a real host shell,
+    // whatever nested session we might have been tracking before - but
+    // only a title that names a directory that actually exists counts as
+    // one, whenever there's a nested session to drop. Windows-shaped
+    // console noise is emitted *during* a nested session too, and it
+    // isn't distinguishable from a real post-exit prompt by shape alone
+    // the way wsl/remote's POSIX titles are:
+    //   - `"agent"` (Claude Code/Codex) reports a resolved script or
+    //     shim path, or an OS default-title fallback, while it owns the
+    //     screen;
+    //   - cmd.exe retitles to "<cwd> - <command>" for the whole time a
+    //     command runs, so typing `wsl` produces a title like
+    //     `C:\...\flowcode - wsl` *before* the distro's own first title
+    //     lands - taking that at face value dropped the WSL tracking
+    //     that had just been set up, one keystroke into the session.
+    // So the candidate is verified against the filesystem first, the
+    // same deferred-update pattern as the wsl path translation below
+    // (this title update itself is left alone; a confirmed candidate is
+    // applied once the check resolves).
+    if (isWindowsHostPath(rawPath)) {
+      const nested = t.nestedShell;
+      if (nested) {
+        return {
+          patch: { label },
+          after: () => {
+            void invoke<boolean>("is_directory", { path: rawPath })
+              .catch(() => false)
+              .then((isDir) => {
+                if (!isDir) return;
+                setTabs((prev) =>
+                  patchTermTab(prev, tabId, (t2) =>
+                    // Still the same nested session? Anything that moved on
+                    // since (exited, launched an agent) owns the tab now.
+                    t2.nestedShell === nested
+                      ? { cwd: rawPath, explorerPath: rawPath, nestedShell: undefined, wslDistro: undefined }
+                      : null,
+                  ),
+                );
+              });
+          },
+        };
+      }
+      // "<cwd> - <command>" while a command runs in cmd.exe: taken at
+      // face value it's a folder that doesn't exist - and whatever is
+      // the cwd when the app closes is what session restore reopens.
+      // Resolved against the filesystem instead (deferred, like above).
+      if (rawPath.includes(" - ")) {
+        const cwdBefore = t.cwd;
+        return {
+          patch: { label, nestedShell: undefined, wslDistro: undefined },
+          after: () => {
             void firstExistingDir(cmdTitlePathCandidates(rawPath)).then((dir) => {
               if (!dir) return;
-              setTabs((prev2) =>
-                prev2.map((t2) =>
+              setTabs((prev) =>
+                patchTermTab(prev, tabId, (t2) =>
                   // Unless a newer title already moved the tab on.
-                  t2.id === tabId && t2.kind === "terminal" && !t2.nestedShell && t2.cwd === cwdBefore
-                    ? { ...t2, cwd: dir, explorerPath: dir }
-                    : t2,
+                  !t2.nestedShell && t2.cwd === cwdBefore ? { cwd: dir, explorerPath: dir } : null,
                 ),
               );
             });
-            return { ...t, label, nestedShell: undefined, wslDistro: undefined };
-          }
-          return { ...t, cwd: rawPath, explorerPath: rawPath, label, nestedShell: undefined, wslDistro: undefined };
-        }
+          },
+        };
+      }
+      return { patch: { cwd: rawPath, explorerPath: rawPath, label, nestedShell: undefined, wslDistro: undefined } };
+    }
 
-        // From here `rawPath` is POSIX-shaped.
-        if (t.nestedShell === "remote" || t.nestedShell === "agent") {
-          // ssh / docker exec (this app has no way to read that filesystem)
-          // or Claude Code/Codex (a real filesystem, but not what a POSIX-
-          // shaped title fragment while its own TUI owns the screen would
-          // mean here) - cwd/explorerPath are left exactly where they were
-          // rather than pointed at a local path that means nothing.
-          return { ...t, label };
-        }
-        if (t.nestedShell === "wsl" && isWindows) {
-          // Deferred (see `applyWslTitle`) even when the distro is already
-          // known, so every WSL title takes the same one path through the
-          // `~`-expansion; the lookups behind it are memoized and the update
-          // it applies is idempotent for a given title.
-          void applyWslTitle(tabId, t.wslDistro, reportedUser, rawPath);
-          return { ...t, label };
-        }
+    // From here `rawPath` is POSIX-shaped.
+    if (t.nestedShell === "remote" || t.nestedShell === "agent") {
+      // ssh / docker exec (this app has no way to read that filesystem)
+      // or Claude Code/Codex (a real filesystem, but not what a POSIX-
+      // shaped title fragment while its own TUI owns the screen would
+      // mean here) - cwd/explorerPath are left exactly where they were
+      // rather than pointed at a local path that means nothing.
+      return { patch: { label } };
+    }
+    if (t.nestedShell === "wsl" && isWindows) {
+      // Deferred (see `applyWslTitle`) even when the distro is already
+      // known, so every WSL title takes the same one path through the
+      // `~`-expansion; the lookups behind it are memoized and the update
+      // it applies is idempotent for a given title.
+      return { patch: { label }, after: () => void applyWslTitle(tabId, t.wslDistro, reportedUser, rawPath) };
+    }
 
-        // A plain POSIX path with no nested-shell context recognized - the
-        // real local cwd (this app running on macOS/Linux, most commonly).
-        return { ...t, cwd: rawPath, explorerPath: rawPath, label };
-      }),
-    );
+    // A plain POSIX path with no nested-shell context recognized - the
+    // real local cwd (this app running on macOS/Linux, most commonly).
+    return { patch: { cwd: rawPath, explorerPath: rawPath, label } };
+  }
+
+  function handleTitleChange(tabId: string, rawTitle: string) {
+    // Decided from the committed tabs, outside the updater: an updater must
+    // stay pure (StrictMode runs it twice), and this one starts lookups.
+    const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    if (!tab) return;
+    const { patch, after } = resolveTitle(tab, rawTitle);
+    setTabs((prev) => patchTermTab(prev, tabId, patch));
+    after?.();
   }
 
   function renameTab(id: string, label: string) {
@@ -1916,7 +1645,7 @@ function Shell() {
   }
 
   function toggleTabNotifications(id: string) {
-    setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "terminal" ? { ...t, notifyMuted: !t.notifyMuted } : t)));
+    setTabs((prev) => patchTermTab(prev, id, (t) => ({ notifyMuted: !t.notifyMuted })));
   }
 
   function handleEditorRenamed(id: string, newPath: string) {
@@ -1925,7 +1654,13 @@ function Shell() {
   }
 
   function handleBusyChange(tabId: string, busy: boolean) {
-    setTabs((prev) => prev.map((t) => (t.id === tabId && t.kind === "terminal" ? { ...t, busy } : t)));
+    setTabs((prev) =>
+      patchTermTab(prev, tabId, (t) =>
+        // The agent's full-screen UI closing is the one signal that it is gone
+        // on a POSIX host, where no Windows-shaped title ever clears it.
+        !busy && t.nestedShell === "agent" ? { busy, nestedShell: undefined } : { busy },
+      ),
+    );
   }
 
   function handleDirtyChange(id: string, dirty: boolean) {
@@ -1963,12 +1698,10 @@ function Shell() {
     const browsePath =
       posixPath && active?.wslDistro ? toWindowsPath(active.wslDistro, posixPath) : path;
     setTabs((prev) =>
-      prev.map((t) =>
-        t.id === activeTerminalId && t.kind === "terminal"
-          ? // On the new tab page the browsed folder is also where the
-            // terminal will start.
-            { ...t, explorerPath: browsePath, ...(t.newTab ? { cwd: browsePath } : {}) }
-          : t,
+      patchTermTab(prev, activeTerminalId, (t) =>
+        // On the new tab page the browsed folder is also where the
+        // terminal will start.
+        ({ explorerPath: browsePath, ...(t.newTab ? { cwd: browsePath } : {}) }),
       ),
     );
   }
@@ -1993,11 +1726,7 @@ function Shell() {
     const posixPath = distro ? toWslPath(distro, path) : null;
     if (!distro || !posixPath) return;
     setTabs((prev) =>
-      prev.map((t) =>
-        t.id === tabId && t.kind === "terminal" && (t.nestedShell !== "wsl" || !t.wslDistro)
-          ? { ...t, nestedShell: "wsl", wslDistro: distro }
-          : t,
-      ),
+      patchTermTab(prev, tabId, (t) => (t.nestedShell !== "wsl" || !t.wslDistro ? { nestedShell: "wsl", wslDistro: distro } : null)),
     );
     term.navigateSilently((rows) => cdCommand(posixPath, "posix", rows), true);
   }
@@ -2010,15 +1739,26 @@ function Shell() {
   const frontTerminal = activeTerminal?.id === activeTabId && !activeTerminal.newTab ? activeTerminal : undefined;
   // The agent CLI running in each terminal tab, for its logo and status in
   // the tab strip - matched by pty id, same as the Agents panel does.
-  const tabAgents = new Map<string, TabAgent>();
-  for (const session of agentSessions ?? []) {
-    const tab = tabs.find((t) => t.kind === "terminal" && termRefs.current.get(t.id)?.getPtyId() === session.pty_id);
-    if (tab) tabAgents.set(tab.id, tabAgentOf(session));
-  }
+  const tabAgentsRef = useRef(new Map<string, TabAgent>());
+  const { tabAgents, sessionByTab } = useMemo(() => {
+    const byTab = new Map<string, AgentSession>();
+    for (const session of agentSessions ?? []) {
+      const tab = tabs.find((t) => t.kind === "terminal" && termRefs.current.get(t.id)?.getPtyId() === session.pty_id);
+      if (tab) byTab.set(tab.id, session);
+    }
+    const next = new Map<string, TabAgent>();
+    for (const [id, session] of byTab) next.set(id, tabAgentOf(session));
+    // Same agents as before (a title change re-runs this): keep the old Map,
+    // so the notification and auto-resume hooks see no change.
+    const prev = tabAgentsRef.current;
+    const same =
+      prev.size === next.size && [...next].every(([id, a]) => prev.get(id)?.cli === a.cli && prev.get(id)?.state === a.state);
+    if (same) return { tabAgents: prev, sessionByTab: byTab };
+    tabAgentsRef.current = next;
+    return { tabAgents: next, sessionByTab: byTab };
+  }, [agentSessions, tabs]);
   // The active tab's agent, for the usage popovers' context section.
-  const activeAgentSession = activeTerminal
-    ? (agentSessions ?? []).find((s) => s.pty_id === termRefs.current.get(activeTerminal.id)?.getPtyId())
-    : undefined;
+  const activeAgentSession = activeTerminal ? sessionByTab.get(activeTerminal.id) : undefined;
   const [aaCli, aaId, aaProfile, aaWsl, aaLabel] = [
     activeAgentSession?.cli,
     activeAgentSession?.session_id ?? null,
@@ -2042,7 +1782,13 @@ function Shell() {
   });
   const sidebarCwd = activeTerminal?.explorerPath || homeDir;
 
-  const allPlugins: PluginDef[] = [...builtinPlugins(), ...customPlugins];
+  // Built-in labels come from t(), so a language change rebuilds them.
+  const allPlugins = useMemo<PluginDef[]>(
+    () => [...builtinPlugins(), ...customPlugins],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [customPlugins, language],
+  );
+  const terminalTabs = useMemo(() => tabs.filter((t): t is TermTab => t.kind === "terminal"), [tabs]);
 
   function showPluginToast(message: string) {
     setPluginToast(message);
@@ -2057,9 +1803,7 @@ function Shell() {
    * landing and the tracking kicking in for a title update racing it to
    * claim a bogus cwd. */
   function markAgentLaunching(tabId: string) {
-    setTabs((prev) =>
-      prev.map((t) => (t.id === tabId && t.kind === "terminal" ? { ...t, nestedShell: "agent", wslDistro: undefined } : t)),
-    );
+    setTabs((prev) => patchTermTab(prev, tabId, { nestedShell: "agent", wslDistro: undefined }));
   }
 
   /** Before launching Claude Code / Codex / Mistral Vibe, offers a one-click install (if
@@ -2072,7 +1816,7 @@ function Shell() {
    * under: its login state is the one checked, and the login offer opens a
    * terminal under it. */
   async function ensureCliReady(cliBin: AgentCli, profileId?: string): Promise<boolean> {
-    const label = AGENT_CLI_LABELS[cliBin];
+    const label = CLI_INFO[cliBin].label;
     let status: { installed: boolean; logged_in: boolean };
     try {
       status = await invoke("check_cli_status", { cli: cliBin, profile: profileId ?? null });
@@ -2101,7 +1845,7 @@ function Shell() {
         message: t(cliBin === "vibe" ? "app.cli.login.vibeMessage" : "app.cli.login.message", { name: label }),
         confirmLabel: t("app.cli.login"),
       });
-      if (ok) openTerminalWithCommand(AGENT_CLI_LOGIN[cliBin], profileId);
+      if (ok) openTerminalWithCommand(CLI_INFO[cliBin].loginCommand, profileId);
       return false;
     }
 
@@ -2134,7 +1878,7 @@ function Shell() {
   /** Signs `cli` in under `profileId`: its login command in a fresh terminal
    * started under that profile (Settings > Profiles). */
   function loginProfile(profileId: string, cli: AgentCli) {
-    openTerminalWithCommand(AGENT_CLI_LOGIN[cli], profileId);
+    openTerminalWithCommand(CLI_INFO[cli].loginCommand, profileId);
   }
 
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the
@@ -2145,7 +1889,7 @@ function Shell() {
    * tab runs under account profile `profileId` (default profile when
    * omitted) - ignored for WSL, where the env vars don't reach. */
   async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string, profileId?: string) {
-    let command = allPlugins.find((p) => PLUGIN_AGENT_CLI[p.id] === cli)?.command ?? cli;
+    let command = allPlugins.find((p) => cliOfPlugin(p.id) === cli)?.command ?? cli;
     if (wslDistroOfShell(shell) !== undefined) {
       const id = addTab(cwd, shell);
       pendingCommandsRef.current.set(id, command);
@@ -2160,9 +1904,9 @@ function Shell() {
       pendingCommandsRef.current.set(id, command);
       return;
     }
-    const id = `tab-${nextTabId++}`;
+    const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd), profileId }]);
+    setTabs((prev) => [...prev, makeTermTab(id, cwd, { profileId })]);
     setActiveTabId(id);
     setActiveTerminalId(id);
   }
@@ -2202,12 +1946,46 @@ function Shell() {
    * do - see PLUGINS.md at the repo root for why this stays a fixed, safe
    * vocabulary instead of arbitrary code. */
   function runPlugin(plugin: PluginDef | PluginButtonDef) {
+    const command = plugin.action === "runCommand" || plugin.action === "commandOutput" ? plugin.command : undefined;
+    // A plugin is a file anyone can drop in the plugins folder (or send): its
+    // command is shown and confirmed before the first run, not just typed.
+    // The app's own plugins - built in, or an unedited shipped example - are
+    // trusted.
+    const shipped = "id" in plugin ? examplePlugins().find((p) => p.id === plugin.id) : undefined;
+    const trusted =
+      !command ||
+      ("builtin" in plugin && !!plugin.builtin) ||
+      (!!shipped && shipped.action === plugin.action && shipped.command === command);
+    if (trusted) {
+      runPluginAction(plugin);
+      return;
+    }
+    // A dialog's button belongs to the dialog plugin that is open.
+    const owner = "id" in plugin ? plugin.id : (pluginDialog?.id ?? "");
+    const approvalKey = `${owner}:${hashText(command)}`;
+    const approved = readJson(PLUGIN_APPROVALS_KEY, isStringArray, []);
+    if (approved.includes(approvalKey)) {
+      runPluginAction(plugin);
+      return;
+    }
+    void confirm({
+      title: t("plugin.confirmRun.title"),
+      message: t("plugin.confirmRun.message", { name: "id" in plugin ? plugin.label : (pluginDialog?.label ?? plugin.label), command }),
+      confirmLabel: t("plugin.confirmRun.confirm"),
+    }).then((ok) => {
+      if (!ok) return;
+      writeJson(PLUGIN_APPROVALS_KEY, [...readJson(PLUGIN_APPROVALS_KEY, isStringArray, []), approvalKey]);
+      runPluginAction(plugin);
+    });
+  }
+
+  function runPluginAction(plugin: PluginDef | PluginButtonDef) {
     switch (plugin.action) {
       case "newTerminal":
         openNewTab();
         break;
       case "clearTerminal":
-        termRefs.current.get(activeTerminalId)?.clear();
+        activeTermHandle()?.clear();
         break;
       case "toggleSidebar":
         setSidebarCollapsed((c) => !c);
@@ -2225,7 +2003,7 @@ function Shell() {
         // a known CLI binary behind them, which is what makes the
         // install/login pre-check possible - a plain runCommand plugin has
         // no such notion and always just runs.
-        const cliBin = "id" in plugin ? PLUGIN_AGENT_CLI[plugin.id] : undefined;
+        const cliBin = "id" in plugin ? cliOfPlugin(plugin.id) : undefined;
         if (cliBin) {
           checkCliAndMaybeLaunch(cliBin, plugin.command, term, activeTerminalId);
         } else {
@@ -2338,13 +2116,6 @@ function Shell() {
         terminalBusy={activeTerminal?.busy ?? false}
       />
     );
-  }
-
-  function toggleFullscreen() {
-    appWindow
-      .setFullscreen(!isFullscreen)
-      .then(() => setIsFullscreen((f) => !f))
-      .catch(() => {});
   }
 
   const themeModeLabels: Record<ThemeMode, string> = {
@@ -2564,28 +2335,26 @@ function Shell() {
                 // resolved (see above) - mounting it earlier would spawn its
                 // shell in whatever directory the app itself started in.
                 const showTerminal = !tab.newTab && !!tab.cwd;
+                const callbacks = termCallbacks(tab.id);
                 return (
                   <Fragment key={tab.id}>
                     {showTerminal && (
                       <TerminalView
                         tabId={tab.id}
-                        ref={(handle) => {
-                          if (handle) termRefs.current.set(tab.id, handle);
-                          else termRefs.current.delete(tab.id);
-                        }}
+                        ref={callbacks.ref}
                         cwd={tab.cwd || undefined}
                         hidden={tab.id !== activeTabId}
-                        onTitleChange={(title) => handleTitleChange(tab.id, title)}
-                        onBusyChange={(busy) => handleBusyChange(tab.id, busy)}
-                        onCommandLine={(line) => handleCommandLine(tab.id, line)}
+                        onTitleChange={callbacks.onTitleChange}
+                        onBusyChange={callbacks.onBusyChange}
+                        onCommandLine={callbacks.onCommandLine}
                         runOnStart={pendingCommandsRef.current.get(tab.id)}
                         typeOnStart={pendingTypedCommandsRef.current.get(tab.id)}
                         shellOverride={pendingShellOverrideRef.current.get(tab.id)}
                         profileId={tab.profileId}
                         restoredContent={restoredContentRef.current.get(tab.id)}
                         attach={pendingAttachRef.current.get(tab.id)}
-                        onAnchor={(anchor) => patchHandoff(tab.id, { anchor })}
-                        onPromptShown={(promptShown) => patchHandoff(tab.id, { promptShown })}
+                        onAnchor={callbacks.onAnchor}
+                        onPromptShown={callbacks.onPromptShown}
                       />
                     )}
                     {showPage && (
@@ -2602,9 +2371,7 @@ function Shell() {
                         profileId={tab.profileId}
                         onProfileChange={(id) => {
                           explicitProfileRef.current.add(tab.id);
-                          setTabs((prev) =>
-                            prev.map((x) => (x.id === tab.id && x.kind === "terminal" ? { ...x, profileId: id ?? undefined } : x)),
-                          );
+                          setTabs((prev) => patchTermTab(prev, tab.id, { profileId: id ?? undefined }));
                         }}
                         anchor={handoffs.get(tab.id)?.anchor}
                         promptShown={handoffs.get(tab.id)?.promptShown}
@@ -2695,7 +2462,7 @@ function Shell() {
               <div className="panel-card-content" style={{ width: agentsResize.width - 2 }}>
                 <AgentsSidebar
                   windowLabel={appWindow.label}
-                  tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
+                  tabs={terminalTabs}
                   activeTabId={activeTabId}
                   projectCwd={frontTerminal ? frontTerminal.cwd || frontTerminal.explorerPath || undefined : undefined}
                   projectWslDistro={frontTerminal?.wslDistro ?? undefined}

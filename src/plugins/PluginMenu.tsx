@@ -7,7 +7,7 @@ import { useI18n } from "../i18n";
 import "./plugin-menu.css";
 import "./plugin-usage.css";
 
-export interface PluginMenuEntry {
+interface PluginMenuEntry {
   id: string;
   label: string;
   icon: ReactNode;

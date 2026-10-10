@@ -94,6 +94,7 @@ export function Sidebar({
           linkMode={linkMode}
           onSetLinkMode={onSetLinkMode}
           terminalBusy={terminalBusy}
+          visible={tab === "explorer"}
         />
       </div>
       <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-git" aria-labelledby="sidebar-tab-git" hidden={tab !== "git"}>

@@ -90,51 +90,13 @@
 }
 
 /* Guide dialog */
-.shortcuts-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.38);
-  animation: shortcuts-backdrop-in 0.1s ease-out;
-}
-
-@keyframes shortcuts-backdrop-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 .shortcuts-panel {
-  width: min(560px, calc(100vw - 32px));
+  --modal-w: 560px;
+  --modal-pad: 16px 18px;
   max-height: min(640px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
-  padding: 16px 18px;
-  border-radius: 12px;
-  background: var(--menu-surface);
-  border: 1px solid var(--border);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
   color: var(--fg);
-  animation: shortcuts-panel-in 0.14s ease-out;
-}
-
-@keyframes shortcuts-panel-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 .shortcuts-header {

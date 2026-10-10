@@ -32,7 +32,7 @@ function isLanguage(code: string): code is Language {
 
 /** The first of the OS's preferred languages the UI ships in, matched on the
  * base tag ("it-IT" -> "it"). */
-export function systemLanguage(): Language {
+function systemLanguage(): Language {
   const tags = navigator.languages?.length ? navigator.languages : [navigator.language];
   for (const tag of tags) {
     const base = tag?.toLowerCase().split("-")[0];

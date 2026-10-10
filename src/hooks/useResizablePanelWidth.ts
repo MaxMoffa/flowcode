@@ -36,9 +36,15 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    // A cancelled pointer or a lost window focus never sends pointerup,
+    // which would leave the drag stuck on.
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("blur", onUp);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", onUp);
     };
   }, [dragging, handleSide, min, max]);
 

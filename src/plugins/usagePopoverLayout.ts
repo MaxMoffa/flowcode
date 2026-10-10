@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-export const USAGE_POPOVER_WIDTH = 260;
+const USAGE_POPOVER_WIDTH = 260;
 const VIEWPORT_MARGIN = 8;
 /** Below this much vertical room, flipping the popover above the trigger
  * (anchored by `bottom`, so it grows upward without needing to know its

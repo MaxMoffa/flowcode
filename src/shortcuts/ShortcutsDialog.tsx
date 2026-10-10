@@ -4,6 +4,7 @@ import { useI18n } from "../i18n";
 import { useShortcutsConfig } from "./ShortcutsContext";
 import { ShortcutKeys } from "./ShortcutKeys";
 import { SHORTCUT_GROUP_ORDER, actionsOfGroup } from "./shortcuts";
+import "../dialog/modal.css";
 import "./shortcuts.css";
 
 /** Terminal keys that are built in and can't be rebound. */
@@ -54,12 +55,12 @@ export function ShortcutsDialog({ onClose, onCustomize }: ShortcutsDialogProps) 
 
   return createPortal(
     <div
-      className="shortcuts-backdrop"
+      className="modal-backdrop"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="shortcuts-panel" role="dialog" aria-modal="true" aria-label={t("shortcuts.title")}>
+      <div className="modal-panel shortcuts-panel" role="dialog" aria-modal="true" aria-label={t("shortcuts.title")}>
         <div className="shortcuts-header">
           <div>
             <div className="shortcuts-title">{t("shortcuts.title")}</div>

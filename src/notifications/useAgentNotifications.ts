@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { TabAgent } from "../agents/agentSessions";
 import type { TermTab } from "../tabs/types";
+import { cliName } from "../agents/cliInfo";
 import { t } from "../i18n";
 import { getNotificationSettings, type NotificationKind } from "./notificationSettings";
 
@@ -10,8 +11,6 @@ import { getNotificationSettings, type NotificationKind } from "./notificationSe
  * would otherwise read as "finished" - the turn only counts as over once it
  * has stayed idle this long. */
 const DONE_SETTLE_MS = 3000;
-
-const CLI_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", vibe: "Mistral Vibe" };
 
 interface Watcher {
   /** The terminal tab, or undefined once it's gone. */
@@ -90,7 +89,7 @@ export function useAgentNotifications(
         label: getCurrentWindow().label,
         tabId,
         title: tab.label,
-        body: t(`notifications.body.${kind}`, { agent: CLI_NAMES[agent.cli] ?? agent.cli }),
+        body: t(`notifications.body.${kind}`, { agent: cliName(agent.cli) }),
       }).catch(() => {});
     }
 

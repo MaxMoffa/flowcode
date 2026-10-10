@@ -46,7 +46,7 @@ function useReleases() {
 }
 
 /** Which tab a nav/page pair belongs to - each keeps its own pick. */
-export type ChangelogView = "changelog" | "whatsNew";
+type ChangelogView = "changelog" | "whatsNew";
 
 interface ChangelogValue {
   load: Load;

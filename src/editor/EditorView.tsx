@@ -37,7 +37,10 @@ interface EditorViewProps {
 export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hidden, onDirtyChange, onRenamed, initialContent }, ref) => {
   const { t } = useI18n();
   const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Split so a failed save never unmounts the editor (the unsaved text would
+  // become unreachable); only a failed load replaces it.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -65,7 +68,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
         originalRef.current = text;
         setContent(initialContentRef.current ?? text);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setLoadError(String(e)));
   }, []);
 
   const performSave = useCallback(async () => {
@@ -77,11 +80,17 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     try {
       await invoke("write_text_file", { path: pathRef.current, contents: text });
       originalRef.current = text;
-      setDirty(false);
-      dirtyRef.current = false;
-      onDirtyChangeRef.current?.(false);
+      setSaveError(null);
+      // The user may have typed while the write was in flight: only mark clean
+      // if the buffer still matches what was written.
+      const stillDirty = (cmViewRef.current?.state.doc.toString() ?? text) !== text;
+      if (stillDirty !== dirtyRef.current) {
+        dirtyRef.current = stillDirty;
+        setDirty(stillDirty);
+        onDirtyChangeRef.current?.(stillDirty);
+      }
     } catch (e) {
-      setError(String(e));
+      setSaveError(String(e));
     } finally {
       setSaving(false);
     }
@@ -245,13 +254,13 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
             {basename(path)}
           </span>
         )}
-        <span className="editor-status">{error ? t("editor.error") : saving ? t("editor.saving") : dirty ? t("editor.modified") : t("editor.saved")}</span>
+        <span className="editor-status" title={saveError ?? undefined}>{saveError ? t("editor.error") : saving ? t("editor.saving") : dirty ? t("editor.modified") : t("editor.saved")}</span>
         <button type="button" className="editor-save-btn" disabled={!dirty || saving} onClick={performSave}>
           {t("editor.save")}
         </button>
       </div>
-      {error ? (
-        <div className="editor-error">{t("editor.openFailed", { error })}</div>
+      {loadError ? (
+        <div className="editor-error">{t("editor.openFailed", { error: loadError })}</div>
       ) : content === null ? (
         <div className="editor-loading">{t("common.loading")}</div>
       ) : (

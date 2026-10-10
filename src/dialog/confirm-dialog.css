@@ -1,44 +1,7 @@
-.confirm-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.38);
-  animation: confirm-backdrop-in 0.1s ease-out;
-}
-
-@keyframes confirm-backdrop-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
+@import "./modal.css";
 
 .confirm-dialog {
-  width: min(340px, calc(100vw - 32px));
-  padding: 16px;
-  border-radius: 12px;
-  background: var(--menu-surface);
-  border: 1px solid var(--border);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
-  animation: confirm-dialog-in 0.14s ease-out;
-}
-
-@keyframes confirm-dialog-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+  --modal-w: 340px;
 }
 
 .confirm-title {
@@ -52,6 +15,9 @@
   color: var(--fg-muted);
   font-size: 12.5px;
   line-height: 1.5;
+  /* A message can carry a multi-line command (plugin confirmation). */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .confirm-actions {

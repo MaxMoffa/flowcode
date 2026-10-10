@@ -11,6 +11,7 @@ import {
   gitStatus,
   gitToplevel,
   gitUnstage,
+  joinRepoPath,
   type GitChange,
   type GitStatus,
 } from "./gitStatus";
@@ -37,6 +38,10 @@ interface Row {
 }
 
 const POLL_MS = 4000;
+// Hidden tab: only the badge needs to stay roughly right.
+const HIDDEN_POLL_MS = 15000;
+// Failed polls in a row before the panel stops saying "Loading".
+const FAIL_LIMIT = 2;
 
 const icons = {
   branch: (
@@ -89,13 +94,6 @@ function dirOf(path: string): string {
   return i === -1 ? "" : path.slice(0, i);
 }
 
-/** Builds an absolute path from the repository root and git's forward-slashed
- * relative one, using the separator the root itself uses. */
-function joinRoot(root: string, rel: string): string {
-  const sep = root.includes("\\") ? "\\" : "/";
-  return root.replace(/[\\/]+$/, "") + sep + rel.split("/").join(sep);
-}
-
 export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }: GitPanelProps) {
   const { t } = useI18n();
   const confirm = useConfirmDialog();
@@ -105,48 +103,75 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
   const [message, setMessage] = useState("");
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set after repeated status failures, so a broken repo isn't "Loading" forever.
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<Section, boolean>>({ conflicts: false, staged: false, changes: false });
 
-  // Drops an answer that a newer request has overtaken.
+  // Drops an answer that a newer request (e.g. the one after an action) has
+  // overtaken.
   const requestRef = useRef(0);
   const lastJson = useRef("");
+  // `git_toplevel` + `git_status` are two process spawns per poll: resolve the
+  // repository once per folder and only redo it on a manual refresh or after
+  // a failure.
+  const topRef = useRef<{ cwd: string; top: string } | null>(null);
+  const failRef = useRef(0);
 
-  const refresh = useCallback(async () => {
-    const id = ++requestRef.current;
-    const top = await gitToplevel(cwd).catch(() => null);
-    if (id !== requestRef.current) return;
-    setRoot(top);
-    if (!top) {
-      lastJson.current = "";
-      setStatus(null);
-      return;
-    }
-    try {
-      const next = await gitStatus(top);
-      if (id !== requestRef.current) return;
-      // A poll that found nothing new must not re-render the whole list.
-      const json = JSON.stringify(next);
-      if (json !== lastJson.current) {
-        lastJson.current = json;
-        setStatus(next);
+  const refresh = useCallback(
+    async (force = false) => {
+      const id = ++requestRef.current;
+      let top: string | null = !force && topRef.current?.cwd === cwd ? topRef.current.top : null;
+      if (!top) {
+        top = await gitToplevel(cwd).catch(() => null);
+        if (id !== requestRef.current) return;
+        topRef.current = top ? { cwd, top } : null;
       }
-    } catch {
-      /* transient (index.lock held by another git): the next refresh retries */
-    }
-  }, [cwd]);
+      setRoot(top);
+      if (!top) {
+        lastJson.current = "";
+        setStatus(null);
+        return;
+      }
+      try {
+        const next = await gitStatus(top);
+        if (id !== requestRef.current) return;
+        failRef.current = 0;
+        setStatusError(null);
+        // A poll that found nothing new must not re-render the whole list.
+        const json = JSON.stringify(next);
+        if (json !== lastJson.current) {
+          lastJson.current = json;
+          setStatus(next);
+        }
+      } catch (e) {
+        if (id !== requestRef.current) return;
+        // The cached root may be stale (folder moved/removed): re-resolve next time.
+        topRef.current = null;
+        // Transient (index.lock held by another git) failures retry silently.
+        if (++failRef.current >= FAIL_LIMIT) setStatusError(String(e));
+      }
+    },
+    [cwd],
+  );
 
-  // A different folder: forget the previous repository's state right away.
+  // A different folder: forget the previous repository's state right away. The
+  // commit message belongs to the repository it was typed for.
   useEffect(() => {
     setRoot(undefined);
     setStatus(null);
     setError(null);
+    setStatusError(null);
+    setMessage("");
     lastJson.current = "";
+    topRef.current = null;
+    failRef.current = 0;
   }, [cwd]);
 
-  // Refresh when the tab is shown, the folder changes, and on window focus.
+  // Refresh on mount, when the folder changes, when the tab is shown, and on
+  // window focus while it is.
   useEffect(() => {
-    if (!visible) return;
     void refresh();
+    if (!visible) return;
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -156,21 +181,26 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
   // FileTree keeps running for this cwd even while hidden) covers top-level
   // edits. It is non-recursive and blind to `.git/index` though, so a slow
   // poll catches changes in subfolders and staging done from a terminal.
+  // While hidden a slower poll keeps the tab's badge from going stale.
   useEffect(() => {
-    if (!visible) return;
     let debounce: ReturnType<typeof setTimeout> | null = null;
-    const unlisten = listen<string>("fs-changed", (event) => {
-      if (event.payload !== cwd) return;
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => void refresh(), 300);
-    });
-    const poll = setInterval(() => {
-      if (document.visibilityState === "visible" && document.hasFocus()) void refresh();
-    }, POLL_MS);
+    const unlisten = visible
+      ? listen<string>("fs-changed", (event) => {
+          if (event.payload !== cwd) return;
+          if (debounce) clearTimeout(debounce);
+          debounce = setTimeout(() => void refresh(), 300);
+        })
+      : null;
+    const poll = setInterval(
+      () => {
+        if (document.visibilityState === "visible" && document.hasFocus()) void refresh();
+      },
+      visible ? POLL_MS : HIDDEN_POLL_MS,
+    );
     return () => {
       if (debounce) clearTimeout(debounce);
       clearInterval(poll);
-      unlisten.then((fn) => fn());
+      unlisten?.then((fn) => fn());
     };
   }, [visible, cwd, refresh]);
 
@@ -184,7 +214,9 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
     [status],
   );
   const total = staged.length + conflicts.length + changes.length;
-  useEffect(() => onCountChange(total), [total, onCountChange]);
+  // No status (loading, not a repository, failing) reports 0, which hides the badge.
+  const reported = status ? total : 0;
+  useEffect(() => onCountChange(reported), [reported, onCountChange]);
 
   async function run(action: () => Promise<unknown>) {
     setError(null);
@@ -272,6 +304,7 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
     return <div className="git-panel git-empty">{t("git.notRepo")}</div>;
   }
   if (root === undefined || !status) {
+    if (statusError) return <div className="git-panel git-empty">{t("git.error", { error: statusError })}</div>;
     return <div className="git-panel git-empty">{t("common.loading")}</div>;
   }
   const repoRoot = root;
@@ -286,7 +319,7 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
     const name = basename(change.path);
     const dir = dirOf(change.path);
     const open = () => {
-      if (section === "conflicts") onOpenFile(joinRoot(repoRoot, change.path));
+      if (section === "conflicts") onOpenFile(joinRepoPath(repoRoot, change.path));
       else onOpenDiff(repoRoot, change, isStaged);
     };
     return (
@@ -310,7 +343,7 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
         <span className="git-row-name">{name}</span>
         {dir && <span className="git-row-dir">{dir}</span>}
         <span className="git-row-actions">
-          <ActionButton label={t("git.openFile")} onClick={() => onOpenFile(joinRoot(repoRoot, change.path))}>
+          <ActionButton label={t("git.openFile")} onClick={() => onOpenFile(joinRepoPath(repoRoot, change.path))}>
             {icons.open}
           </ActionButton>
           {section === "changes" && (
@@ -385,7 +418,7 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
           </span>
         )}
         <span className="git-header-spacer" />
-        <button type="button" className="git-icon-btn" title={t("git.refresh")} aria-label={t("git.refresh")} onClick={() => void refresh()}>
+        <button type="button" className="git-icon-btn" title={t("git.refresh")} aria-label={t("git.refresh")} onClick={() => void refresh(true)}>
           {icons.refresh}
         </button>
       </div>

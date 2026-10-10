@@ -11,7 +11,7 @@
  * The default palette applies nothing - themes.css already holds its
  * hand-tuned values - so its variants below are only used for the preview. */
 
-export type ThemeKind = "light" | "dark";
+type ThemeKind = "light" | "dark";
 
 export interface PaletteVariant {
   /** Panel/glass surface colour (its alpha comes from the opacity setting). */
@@ -28,7 +28,7 @@ export interface PaletteVariant {
   cyan: string;
 }
 
-export interface Palette {
+interface Palette {
   id: string;
   name: string;
   light: PaletteVariant;

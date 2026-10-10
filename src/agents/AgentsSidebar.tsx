@@ -11,6 +11,7 @@ import type { AgentSession } from "./agentSessions";
 import { gitRepoRoot, gitWorktreeAdd, gitWorktrees, isWorktreeCapable, type GitWorktree } from "./git";
 import { NewAgentMenu } from "./NewAgentMenu";
 import { WorktreesSection } from "./WorktreesSection";
+import { CLI_INFO } from "./cliInfo";
 import "./agents-sidebar.css";
 
 const POLL_MS = 3000;
@@ -56,6 +57,20 @@ function inProject(
   const b = normalize(project);
   if (isRootPath(b)) return false;
   return a === b || a.startsWith(b + separatorOf(b));
+}
+
+/** A live duration label: ticks on its own, so the rest of the sidebar isn't
+ * re-rendered every second for it. */
+function Elapsed({ since, ago }: { since: number; ago?: boolean }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") setTick((n) => n + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+  const duration = formatDuration(since);
+  return <>{ago ? t("agents.ago", { duration }) : duration}</>;
 }
 
 function formatDuration(startedAt: number | null): string {
@@ -222,9 +237,6 @@ export function AgentsSidebar({
   const [claudeAgents, setClaudeAgents] = useState<ClaudeAgentEntry[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSessionEntry[]>([]);
   const [vibeSessions, setVibeSessions] = useState<VibeSessionEntry[]>([]);
-  // Bumped every second only to re-render the running-duration text - the
-  // session list itself still only refetches every POLL_MS.
-  const [, setTick] = useState(0);
   const [showAllSaved, setShowAllSaved] = useState(false);
   // The git repository the active tab's folder belongs to, and its worktrees.
   const [repoRoot, setRepoRoot] = useState<string | null>(null);
@@ -289,11 +301,16 @@ export function AgentsSidebar({
     void loadRepoRef.current();
   }, [projectCwd, projectWslDistro]);
 
+  const loadSeqRef = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
     // `fresh`: also re-read what's normally cached between polls (the WSL
     // saved-sessions folder) - asked for by the refresh button.
     function load(fresh = false) {
+      // A slower, older load must not overwrite what a newer one stored.
+      const seq = ++loadSeqRef.current;
+      const current = () => !cancelled && seq === loadSeqRef.current;
       return Promise.allSettled([
         loadRepoRef.current(fresh),
         // Polled on its own by App.tsx - only asked again here when the
@@ -305,17 +322,17 @@ export function AgentsSidebar({
         // whatever was last known instead of flashing the list empty.
         invoke<ClaudeAgentEntry[]>("list_claude_agents")
           .then((result) => {
-            if (!cancelled) setClaudeAgents(result);
+            if (current()) setClaudeAgents(result);
           })
           .catch(() => {}),
         invoke<CodexSessionEntry[]>("list_codex_sessions", { fresh })
           .then((result) => {
-            if (!cancelled) setCodexSessions(result);
+            if (current()) setCodexSessions(result);
           })
           .catch(() => {}),
         invoke<VibeSessionEntry[]>("list_vibe_sessions", { fresh })
           .then((result) => {
-            if (!cancelled) setVibeSessions(result);
+            if (current()) setVibeSessions(result);
           })
           .catch(() => {}),
       ]);
@@ -336,13 +353,6 @@ export function AgentsSidebar({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") setTick((t) => t + 1);
-    }, 1000);
-    return () => clearInterval(interval);
   }, []);
 
   const localRows = (sessions ?? [])
@@ -407,9 +417,16 @@ export function AgentsSidebar({
   const worktreeOf = (cwd: string | null | undefined): GitWorktree | undefined =>
     cwd ? worktrees.find((w) => !w.is_main && inProject(cwd, null, w.path, undefined)) : undefined;
   /** `meta` plus the branch, for an agent working in a linked worktree. */
-  const withBranch = (meta: string, cwd: string | null | undefined) => {
+  const withBranch = (meta: ReactNode, cwd: string | null | undefined): ReactNode => {
     const branch = worktreeOf(cwd)?.branch;
-    return branch ? `${meta} \u00b7 \u2387 ${branch}` : meta;
+    return branch ? (
+      <>
+        {meta}
+        {` \u00b7 \u2387 ${branch}`}
+      </>
+    ) : (
+      meta
+    );
   };
   // Running agents per linked worktree, whichever window or terminal they run in.
   const agentCounts = new Map<string, number>();
@@ -658,7 +675,17 @@ export function AgentsSidebar({
             name={agent.name || basename(agent.cwd)}
             cwd={agent.cwd}
             terminal={agent.hostApp ?? t("agents.otherTerminal")}
-            meta={`Claude Code${agent.startedAt !== null ? ` · ${formatDuration(agent.startedAt)}` : ""}`}
+            meta={
+              <>
+                {CLI_INFO.claude.label}
+                {agent.startedAt !== null && (
+                  <>
+                    {" · "}
+                    <Elapsed since={agent.startedAt} />
+                  </>
+                )}
+              </>
+            }
             profile={profileOf(agent.profile)}
             chip={{ kind: agent.status === "busy" ? "busy" : "idle", label: statusLabel(agent.status) }}
             hint={t("agents.hint.outsideFlowcode")}
@@ -673,7 +700,18 @@ export function AgentsSidebar({
             cli={s.cli}
             name={s.name || basename(s.cwd)}
             cwd={s.cwd}
-            meta={`${s.cli === "vibe" ? "Mistral Vibe" : "Codex CLI"}${s.wslDistro ? ` · WSL` : ""}${s.startedAt !== null ? ` · ${t("agents.ago", { duration: formatDuration(s.startedAt) })}` : ""}`}
+            meta={
+              <>
+                {s.cli === "vibe" ? "Mistral Vibe" : "Codex CLI"}
+                {s.wslDistro ? " · WSL" : ""}
+                {s.startedAt !== null && (
+                  <>
+                    {" · "}
+                    <Elapsed since={s.startedAt} ago />
+                  </>
+                )}
+              </>
+            }
             profile={profileOf(s.profile)}
             chip={{ kind: "saved", label: t("agents.status.saved") }}
             hint={t("agents.hint.resume")}
@@ -713,7 +751,7 @@ interface AgentRowProps {
   /** That tab is in another Flowcode window. */
   otherWindow?: boolean;
   /** CLI, WSL, how long - the small print after the terminal. */
-  meta: string;
+  meta: ReactNode;
   /** The account profile it runs under - absent for the default one. */
   profile?: ProfileInfo;
   chip: { kind: string; label: string };
@@ -761,7 +799,7 @@ function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, profile, chip, 
               <span className="agents-sidebar-terminal-label">{terminal}</span>
             </span>
           )}
-          <span className="agents-sidebar-meta-text">{profile ? `${meta} · ${profile.name}` : meta}</span>
+          <span className="agents-sidebar-meta-text">{profile ? <>{meta} · {profile.name}</> : meta}</span>
         </span>
       </div>
       <StatusChip kind={chip.kind} label={chip.label} />
@@ -771,11 +809,18 @@ function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, profile, chip, 
 }
 
 /** "Codex CLI · WSL · 5 min" - the CLI, where it runs, and for how long. */
-function runningMeta(session: AgentSession): string {
+function runningMeta(session: AgentSession): ReactNode {
   return (
-    session.cli_label +
-    (session.wsl_distro ? " · WSL" : "") +
-    (session.started_at !== null ? ` · ${formatDuration(session.started_at)}` : "")
+    <>
+      {session.cli_label}
+      {session.wsl_distro ? " · WSL" : ""}
+      {session.started_at !== null && (
+        <>
+          {" · "}
+          <Elapsed since={session.started_at} />
+        </>
+      )}
+    </>
   );
 }
 

@@ -177,6 +177,10 @@
   cursor: pointer;
   white-space: nowrap;
   color: var(--fg);
+  /* Skips layout/paint of off-screen rows in big folders; 28px is the row's
+   * min-height (search hits with a path line are taller - "auto" remembers). */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 28px;
 }
 
 .file-tree-row:hover {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
+import "../dialog/modal.css";
 import "./file-info-dialog.css";
 
 interface FileInfo {
@@ -76,12 +77,12 @@ export function FileInfoDialog({ path, name, isDir, onClose }: FileInfoDialogPro
   // sidebar's own box instead of covering the whole window.
   return createPortal(
     <div
-      className="file-info-backdrop"
+      className="modal-backdrop"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="file-info-panel" role="dialog" aria-modal="true">
+      <div className="modal-panel file-info-panel" role="dialog" aria-modal="true">
         <div className="file-info-header">
           <span>{t("files.info")}</span>
           <button type="button" className="file-info-close" aria-label={t("common.close")} onClick={onClose}>

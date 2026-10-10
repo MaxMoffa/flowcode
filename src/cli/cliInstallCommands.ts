@@ -1,4 +1,4 @@
-export type InstallableCli = "claude" | "codex" | "vibe";
+import type { AgentCli } from "../agents/cliInfo";
 
 /** The actual command line that installs a given CLI - shared by the in-app
  * "this CLI isn't installed yet" prompt (App.tsx's `checkCliAndMaybeLaunch`)
@@ -21,7 +21,7 @@ export type InstallableCli = "claude" | "codex" | "vibe";
  * that one call goes through the full path. Written without a single `$`:
  * typed into a PowerShell tab, the outer shell would expand any variable
  * inside the double quotes before the inner `powershell` ever saw it. */
-export function cliInstallCommand(cli: InstallableCli, isWindows: boolean): string {
+export function cliInstallCommand(cli: AgentCli, isWindows: boolean): string {
   if (cli === "codex") return "npm install -g @openai/codex";
   if (cli === "vibe") {
     return isWindows

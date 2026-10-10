@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { t } from "../i18n";
-import { readString, writeString } from "../lib/storage";
+import { CLI_INFO, cliOfPlugin } from "../agents/cliInfo";
+import { readJson, writeJson } from "../lib/storage";
 import type { UsageInfo } from "../plugins/usage";
 import { onUsageFetched } from "../plugins/useUsageState";
 import { getNotificationSettings } from "./notificationSettings";
@@ -39,7 +40,11 @@ async function profileName(profile: string): Promise<string> {
   }
 }
 
-const NAMES: Record<string, string> = { "claude-code": "Claude Code", "codex-cli": "Codex" };
+/** The CLIs whose usage limit is watched (Vibe is pay-per-use: no limit). */
+function watchedName(pluginId: string): string | undefined {
+  const cli = cliOfPlugin(pluginId);
+  return cli === "claude" || cli === "codex" ? CLI_INFO[cli].name : undefined;
+}
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const MONTH = `(${MONTHS.join("|")})[a-z]*\\.?`;
@@ -77,17 +82,27 @@ export function parseResetTime(text: string, now = new Date()): number | null {
   return at.getTime();
 }
 
+/** A dateless reset ("resets 7:20pm") is read as that time's next occurrence,
+ * so an old notice still on screen after its reset would point at tomorrow.
+ * The 5-hour window can't reset further away than this: past it, the notice
+ * is stale. */
+const MAX_DATELESS_MS = 5 * 3_600_000 + 10 * 60_000;
+const MONTH_RE = new RegExp(`\\b(?:${MONTHS.join("|")})[a-z]*\\b`, "i");
+
+/** `parseResetTime`, but `null` for a dateless reset further away than the
+ * 5-hour window allows (a stale notice, see MAX_DATELESS_MS). */
+export function parseResetTimeGuarded(text: string, now = new Date()): number | null {
+  const at = parseResetTime(text, now);
+  if (at !== null && !MONTH_RE.test(text) && at - now.getTime() > MAX_DATELESS_MS) return null;
+  return at;
+}
+
 function readPending(): Pending {
-  try {
-    const parsed: unknown = JSON.parse(readString(KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? (parsed as Pending) : {};
-  } catch {
-    return {};
-  }
+  return readJson(KEY, (v): v is Pending => !!v && typeof v === "object", {});
 }
 
 function writePending(pending: Pending) {
-  writeString(KEY, JSON.stringify(pending));
+  writeJson(KEY, pending);
 }
 
 /** When this account's blocking limit lifts (ms), if it is blocked. */
@@ -99,7 +114,7 @@ export function accountBlockedUntil(pluginId: string, profile?: string): number 
 async function notifyReset(key: string, at: number) {
   if (!getNotificationSettings().limitReset) return;
   const [pluginId, profile] = splitKey(key);
-  const name = NAMES[pluginId] ?? pluginId;
+  const name = watchedName(pluginId) ?? pluginId;
   const agent = profile ? `${name} (${await profileName(profile)})` : name;
   void invoke("notify_once", {
     key: `${key}:${at}`,
@@ -114,13 +129,13 @@ async function notifyReset(key: string, at: number) {
 function blockedUntil(usage: UsageInfo): number | null {
   const resets = usage.metrics
     .filter((m) => (m.kind === "session" || m.kind === "week") && (m.percent ?? 0) >= 1 && m.resets)
-    .map((m) => parseResetTime(m.resets!))
+    .map((m) => parseResetTimeGuarded(m.resets!))
     .filter((at): at is number => at !== null);
   return resets.length ? Math.max(...resets) : null;
 }
 
 function onUsage(pluginId: string, usage: UsageInfo, profile?: string) {
-  if (!usage.ok || !NAMES[pluginId]) return;
+  if (!usage.ok || !watchedName(pluginId)) return;
   const key = pendingKey(pluginId, profile);
   const pending = readPending();
   const until = blockedUntil(usage);

@@ -18,6 +18,12 @@ const isArray = (value: unknown): value is unknown[] => Array.isArray(value);
 
 let cache: HistoryEntry[] | null = null;
 
+// Another window may record commands too: drop the cache so the next read
+// sees them (and our next write doesn't clobber them with a stale list).
+window.addEventListener("storage", (e) => {
+  if (e.key === STORAGE_KEY || e.key === null) cache = null;
+});
+
 function entries(): HistoryEntry[] {
   cache ??= readJson(STORAGE_KEY, isArray, []).filter(
     (e): e is HistoryEntry =>

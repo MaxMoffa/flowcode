@@ -55,7 +55,7 @@ export interface EditorTab {
 
 /** A file's git diff, opened from the Git tab of the sidebar. Not saved in the
  * session: it is a view of the repository's current state, nothing to restore. */
-export interface DiffTab {
+interface DiffTab {
   kind: "diff";
   id: string;
   /** The repository working tree root. */
@@ -67,13 +67,13 @@ export interface DiffTab {
   label: string;
 }
 
-export interface SettingsTab {
+interface SettingsTab {
   kind: "settings";
   id: string;
   label: string;
 }
 
-export interface ChangelogTab {
+interface ChangelogTab {
   kind: "changelog";
   id: string;
   label: string;
@@ -81,7 +81,7 @@ export interface ChangelogTab {
 
 /** Opened by itself on the first launch after an update: what changed in
  * `version`, the one just installed. */
-export interface WhatsNewTab {
+interface WhatsNewTab {
   kind: "whatsNew";
   id: string;
   label: string;

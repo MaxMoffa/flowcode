@@ -1,0 +1,47 @@
+/* Shared shell of every centered modal dialog (confirm, plugin, profile
+ * picker, file info, ...): dimmed backdrop + glass panel. A dialog adds its
+ * own class for what differs - width via --modal-w, padding via --modal-pad,
+ * max-height/overflow. Wrapped in :where() so the shell has zero specificity
+ * and a dialog's own rules win whatever the stylesheet load order is. */
+:where(.modal-backdrop) {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.38);
+  animation: modal-backdrop-in 0.1s ease-out;
+}
+
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+:where(.modal-panel) {
+  width: min(var(--modal-w, 360px), calc(100vw - 32px));
+  padding: var(--modal-pad, 16px);
+  border-radius: 12px;
+  background: var(--menu-surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  animation: modal-panel-in 0.14s ease-out;
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -9,7 +9,7 @@ export interface Foreground {
 }
 
 /** Shells whose syntax this app can write a command in. */
-export type ShellKind = Extract<Foreground["kind"], "cmd" | "powershell" | "posix" | "fish" | "nu">;
+type ShellKind = Extract<Foreground["kind"], "cmd" | "powershell" | "posix" | "fish" | "nu">;
 
 /** `null` when the pty is gone or the lookup failed - callers must then not
  * type anything, rather than guess. */
@@ -74,6 +74,10 @@ export function cdCommand(path: string, kind: ShellKind, eraseRows?: number): st
   const rows = eraseRows && eraseRows > 0 ? Math.floor(eraseRows) : 0;
   switch (kind) {
     case "cmd":
+      // WSL UNC paths can hold these, and inside cmd's quotes `"` ends the
+      // string (`cd /d "x" & calc & ""`), `%`/`!` still expand and `^` is
+      // an escape - there's no safe quoting, so refuse.
+      if (/["%^!]/.test(path)) return null;
       return `cd /d "${path}" && ${CMD_TITLE_PROMPT}`;
     case "powershell":
       return (

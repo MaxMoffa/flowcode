@@ -114,8 +114,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     <UpdateCtx.Provider value={value}>
       {children}
       {dialogOpen && dialogInfo && (
-        <div className="confirm-backdrop">
-          <div className="confirm-dialog update-dialog" role="alertdialog" aria-modal="true">
+        <div className="modal-backdrop confirm-backdrop">
+          <div className="modal-panel confirm-dialog update-dialog" role="alertdialog" aria-modal="true">
             <div className="confirm-title">{t("update.title")}</div>
             <div className="confirm-message">
               {t("update.message", { version: dialogInfo.version, current: dialogInfo.current_version })}

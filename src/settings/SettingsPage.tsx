@@ -86,7 +86,7 @@ export function SettingsPage({
   onProfileLogin,
 }: SettingsPageProps) {
   const { t, preference: languagePreference, setPreference: setLanguagePreference } = useI18n();
-  const { mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity } =
+  const { mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity, resetGlassOpacity } =
     useTheme();
   const {
     fontSize,
@@ -171,12 +171,19 @@ export function SettingsPage({
     setStartPathValid(null);
     if (!startPathDraft) return;
     if (startPathCheckTimer.current) clearTimeout(startPathCheckTimer.current);
+    // A slow result for an older draft must not validate a newer one.
+    let cancelled = false;
     startPathCheckTimer.current = setTimeout(() => {
       invoke<boolean>("is_directory", { path: startPathDraft })
-        .then((ok) => setStartPathValid(ok))
-        .catch(() => setStartPathValid(false));
+        .then((ok) => {
+          if (!cancelled) setStartPathValid(ok);
+        })
+        .catch(() => {
+          if (!cancelled) setStartPathValid(false);
+        });
     }, 300);
     return () => {
+      cancelled = true;
       if (startPathCheckTimer.current) clearTimeout(startPathCheckTimer.current);
     };
   }, [startPathDraft]);
@@ -227,12 +234,12 @@ export function SettingsPage({
 
   /** Resets everything that makes up "how the terminal looks and behaves
    * today" back to what a fresh install would have: theme, text zoom,
-   * sidebar mode, quick-action pins and the hidden-files toggle. Deliberately
-   * leaves custom plugins, the plugins directory and keyboard-shortcut
-   * overrides untouched - deleting a plugin the user wrote is real, silent
-   * data loss, and there's no UI yet to customize shortcuts in the first
-   * place, so "resetting" them would silently change a file with no visible
-   * effect until the app restarts. */
+   * sidebar mode, quick-action pins, glass opacity and the hidden-files
+   * toggle. Deliberately leaves custom plugins, the plugins directory,
+   * language, notifications/agents settings and keyboard-shortcut overrides
+   * untouched: deleting a plugin the user wrote is real, silent data loss,
+   * and language, notifications and shortcuts are personal preferences with
+   * their own reset controls, not part of how the terminal "looks today". */
   async function handleResetTerminal() {
     const ok = await confirm({
       title: t("settings.reset.button"),
@@ -246,6 +253,7 @@ export function SettingsPage({
     setPaletteId(DEFAULT_PALETTE_ID);
     setTerminalPaletteId(null);
     setContrast(DEFAULT_CONTRAST);
+    resetGlassOpacity();
     resetZoom();
     setBannerEnabled(true);
     onSetFavoritesButtonVisible(true);

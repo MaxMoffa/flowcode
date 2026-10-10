@@ -118,7 +118,9 @@ function renderList(items: ListItem[], from: number, to: number, key: number): R
   return items[from].ordered ? <ol key={key}>{children}</ol> : <ul key={key}>{children}</ul>;
 }
 
-const INLINE = /(`+)(.+?)\1|\*\*(.+?)\*\*|__(.+?)__|\*(?!\s)(.+?)\*|(?<![\w])_(?!\s)(.+?)_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>)]+)/g;
+// The bare-URL branch must end on a non-punctuation char, so the "." of "see
+// https://x.dev." stays out of the link.
+const INLINE = /(`+)(.+?)\1|\*\*(.+?)\*\*|__(.+?)__|\*(?!\s)(.+?)\*|(?<![\w])_(?!\s)(.+?)_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>)]*[^\s<>).,;:!?])/g;
 
 function renderInline(text: string): ReactNode[] {
   const out: ReactNode[] = [];

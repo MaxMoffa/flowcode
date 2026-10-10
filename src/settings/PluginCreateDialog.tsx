@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { PluginAction, PluginManifest } from "../plugins/types";
 import { PLUGIN_ACTION_LABELS } from "../plugins/types";
 import { useI18n } from "../i18n";
+import "../dialog/modal.css";
 import "./plugin-create-dialog.css";
 
 /** The quick, in-app path for the common cases (run a command, show a
@@ -65,12 +66,12 @@ export function PluginCreateDialog({ existingIds, onCreate, onClose }: PluginCre
 
   return createPortal(
     <div
-      className="plugin-create-backdrop"
+      className="modal-backdrop"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="plugin-create-panel" role="dialog" aria-modal="true">
+      <div className="modal-panel plugin-create-panel" role="dialog" aria-modal="true">
         <div className="plugin-create-title">{t("features.new")}</div>
 
         <label className="funzionalita-field">

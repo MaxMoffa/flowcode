@@ -58,7 +58,7 @@ export interface UsageInfo {
 
 /** "$0.42" - cents for anything under $100, "<$0.01" for a spend too small
  * to show as cents but not nothing. */
-export function formatCost(usd: number): string {
+function formatCost(usd: number): string {
   if (usd > 0 && usd < 0.005) return "<$0.01";
   return `$${usd.toFixed(usd >= 100 ? 0 : 2)}`;
 }
@@ -112,7 +112,12 @@ function debugText(cli: string, sections: Record<string, string | undefined>): s
       .filter(([, text]) => text?.trim())
       .map(([title, text]) => `\n--- ${title} ---\n${text!.replace(/\s+$/, "")}`),
   ];
-  return lines.join("\n");
+  // The report gets pasted into issues: strip the account's email and any
+  // API key the CLI printed.
+  return lines
+    .join("\n")
+    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "<email>")
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "sk-<redacted>");
 }
 
 /** A failed probe: a plain "Unavailable" in the popover, with every
@@ -305,7 +310,7 @@ async function fetchClaudeUsage(profile?: string): Promise<UsageInfo> {
       percent: Number(pct) / 100,
       resets: resets?.trim(),
     }))
-    .sort((a, b) => (a.kind === "session" ? -1 : b.kind === "session" ? 1 : 0));
+    .sort((a, b) => Number(b.kind === "session") - Number(a.kind === "session"));
 
   if (metrics.length === 0) {
     const sections = {

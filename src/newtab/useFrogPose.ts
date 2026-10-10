@@ -92,15 +92,15 @@ interface FrogPoseOptions {
   flyArea: () => FlyArea | null;
 }
 
+/** Sends the frog after a word on the prompt; `onCatch` runs the moment the
+ * tongue has it. False when it can't go now (busy with a catch, or still). */
+type HuntWord = (word: string, spot: Point, onCatch: () => void) => boolean;
+
 /** The page frog's pose over time. Awake, the pupils follow the pointer (or
  * the caret while typing), it breathes, blinks, and now and then hops,
  * tilts its head, puffs up or looks around; asleep, it eases back into the
  * pose the terminal prints - colors and all - and holds still. A new pose
  * is only handed out when it changes the drawing. */
-/** Sends the frog after a word on the prompt; `onCatch` runs the moment the
- * tongue has it. False when it can't go now (busy with a catch, or still). */
-export type HuntWord = (word: string, spot: Point, onCatch: () => void) => boolean;
-
 export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPoseOptions): {
   pose: FrogPose;
   catching: CatchFrame | null;
@@ -109,6 +109,8 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
   const [pose, setPose] = useState<FrogPose>(REST_POSE);
   const [catching, setCatching] = useState<CatchFrame | null>(null);
   const huntWordRef = useRef<HuntWord>(() => false);
+  // Restarts the frame loop after it went idle (see `wake` in the effect).
+  const wakeRef = useRef<() => void>(() => {});
   const optionsRef = useRef({ awake, frogRect, caret, flyArea });
   optionsRef.current = { awake, frogRect, caret, flyArea };
 
@@ -130,6 +132,16 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
     let life = 0;
     let lastTick = start;
     let frame = 0;
+    // The loop parks itself once the frog is asleep and settled; anything that
+    // could change the picture calls `wake` to start it again.
+    let running = true;
+    const wake = () => {
+      if (running) return;
+      running = true;
+      lastTick = performance.now();
+      frame = requestAnimationFrame(tick);
+    };
+    wakeRef.current = wake;
     const timers = new Set<number>();
     const later = (fn: () => void, ms: number) => {
       const id = window.setTimeout(() => {
@@ -145,10 +157,12 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
         glance = { x: MAX_LOOK * side, y: -4, until: performance.now() + 700 };
         later(() => {
           glance = { x: -MAX_LOOK * side, y: -4, until: performance.now() + 700 };
+          wake();
         }, 700);
       } else if (!move) {
         move = { ...moveKeys(kind), at: performance.now() };
       }
+      wake();
     };
 
     /** The catch at `now`, or null once it's over - when the frog gets its
@@ -176,6 +190,7 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
       hunt = { at: performance.now(), plan };
       move = null;
       blink = null;
+      wake();
     };
     huntWordRef.current = (word, spot, onCatch) => {
       if (hunt) return false;
@@ -185,6 +200,7 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
       hunt = { at: performance.now(), plan, onCatch };
       move = null;
       blink = null;
+      wake();
       return true;
     };
 
@@ -195,7 +211,16 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
       if (Math.abs(goal - life) < 0.01) life = goal;
       lastTick = now;
       const frameOfCatch = catchFrame(now);
-      if (frameOfCatch || hunt === null) setCatching(frameOfCatch && { ...frameOfCatch, vivid: life });
+      // `flicker` is rolled here, once per frame, rather than in the page's
+      // render where any unrelated re-render would reroll it.
+      if (frameOfCatch || hunt === null)
+        setCatching(
+          frameOfCatch && {
+            ...frameOfCatch,
+            vivid: life,
+            flicker: !!frameOfCatch.real && frameOfCatch.real.glitch > 0.6 && Math.random() < 0.3,
+          },
+        );
       // Asleep and settled: nothing to draw until something wakes it.
       const settled =
         !awakeNow && life === 0 && !move && !blink && Math.abs(look.x - REST_POSE.lookX) < 0.5 && Math.abs(look.y - REST_POSE.lookY) < 0.5;
@@ -204,7 +229,8 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
           drawn = restDrawing;
           setPose(REST_POSE);
         }
-        frame = requestAnimationFrame(tick);
+        if (frameOfCatch) frame = requestAnimationFrame(tick);
+        else running = false;
         return;
       }
       const rect = optionsRef.current.frogRect();
@@ -276,6 +302,7 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
       pointer.x = e.clientX;
       pointer.y = e.clientY;
       pointer.last = performance.now();
+      wake();
     };
     window.addEventListener("pointermove", onPointerMove, { passive: true });
     const onPointerDown = (e: PointerEvent) => {
@@ -283,6 +310,7 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
       if (rect && e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
         startHunt();
       }
+      wake();
     };
     window.addEventListener("pointerdown", onPointerDown);
 
@@ -295,6 +323,7 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
         if (Math.random() < 0.55) {
           later(() => {
             blink = { at: performance.now(), times: Math.random() < 0.25 ? 2 : 1 };
+            wake();
           }, Math.random() * 400);
         }
         if (Math.random() < 0.3) {
@@ -312,10 +341,17 @@ export function useFrogPose({ active, awake, frogRect, caret, flyArea }: FrogPos
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerdown", onPointerDown);
       huntWordRef.current = () => false;
+      wakeRef.current = () => {};
       setPose(REST_POSE);
       setCatching(null);
     };
   }, [active]);
+
+  // `awake` and the option callbacks are read through a ref, so a change in
+  // them needs a nudge to restart a parked loop.
+  useEffect(() => {
+    wakeRef.current();
+  }, [active, awake]);
 
   return { pose, catching, huntWord: (word, spot, onCatch) => huntWordRef.current(word, spot, onCatch) };
 }

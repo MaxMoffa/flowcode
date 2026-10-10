@@ -168,8 +168,6 @@ export const it = {
   "newTab.recents": "Recenti",
   "newTab.recentsEmpty": "I terminali in cui esegui dei comandi compariranno qui.",
   "newTab.favoritesEmpty": "Aggiungi una cartella ai preferiti con la ★ in alto per ritrovarla qui.",
-  "newTab.resume": "Riprendi ↵",
-  "newTab.system": "Questo computer",
 
   // Editor
   "editor.error": "Errore",
@@ -287,6 +285,10 @@ export const it = {
   "plugins.unpin": "Rimuovi dalla barra",
   "plugins.saveFailed": "Impossibile salvare il plugin: {error}",
   "plugins.deleteFailed": "Impossibile eliminare il plugin: {error}",
+  // Confirm before a plugin's command runs for the first time
+  "plugin.confirmRun.title": "Eseguire questo comando?",
+  "plugin.confirmRun.message": "Il plugin \"{name}\" eseguirà:\n{command}",
+  "plugin.confirmRun.confirm": "Esegui",
   "plugin.newTab": "Nuovo terminale",
   "plugin.clearTerminal": "Pulisci terminale",
   "plugin.toggleSidebar": "Mostra/nascondi pannello laterale",
@@ -655,7 +657,6 @@ export const it = {
   "shortcuts.fixed.newline": "Vai a capo nel prompt senza inviare",
   "shortcuts.unassigned": "Nessuna",
   "shortcuts.recording": "Premi la combinazione…",
-  "shortcuts.recording.hint": "Esc per annullare",
   "shortcuts.clear": "Rimuovi scorciatoia",
   "shortcuts.reset": "Ripristina predefinita",
   "shortcuts.change": "Cambia scorciatoia per {name}",

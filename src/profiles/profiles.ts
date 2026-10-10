@@ -1,9 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-/** Which agent CLI a profile entry is about. */
-export type ProfileCli = "claude" | "codex" | "vibe";
-
 /** Whether each CLI is signed in under a profile - read off its files, see
  * `login_state` in src-tauri/src/profiles.rs. */
 export interface LoginState {
@@ -23,7 +20,7 @@ export interface ProfileInfo {
   logged_in: LoginState;
 }
 
-export interface ProfilesState {
+interface ProfilesState {
   profiles: ProfileInfo[];
   /** Normalized project folder -> profile id. */
   project_defaults: Record<string, string>;
@@ -34,26 +31,40 @@ const EMPTY: ProfilesState = { profiles: [], project_defaults: {} };
 let state: ProfilesState = EMPTY;
 let loaded = false;
 let inFlight: Promise<void> | null = null;
+/** A refresh was asked for while one was running: that one may predate the
+ * change that prompted this call, so one more read follows it. */
+let queued = false;
 const listeners = new Set<() => void>();
 
-/** Re-reads the profiles from the backend and tells every subscriber. */
+/** Re-reads the profiles from the backend and tells every subscriber. The
+ * returned promise settles after a read that started no earlier than this
+ * call, so a caller that just changed something sees it. */
 export function refreshProfiles(): Promise<void> {
-  if (inFlight) return inFlight;
-  inFlight = invoke<ProfilesState>("profiles_list")
-    .then((next) => {
-      state = next;
-      loaded = true;
-      listeners.forEach((listener) => listener());
-    })
-    // A failed read still counts as loaded (with what was known), or a
-    // stored profile choice would hold its usage back forever.
-    .catch(() => {
-      loaded = true;
-      listeners.forEach((listener) => listener());
-    })
-    .finally(() => {
-      inFlight = null;
-    });
+  if (inFlight) {
+    queued = true;
+    return inFlight;
+  }
+  const run = (): Promise<void> =>
+    invoke<ProfilesState>("profiles_list")
+      .then((next) => {
+        state = next;
+        loaded = true;
+        listeners.forEach((listener) => listener());
+      })
+      // A failed read still counts as loaded (with what was known), or a
+      // stored profile choice would hold its usage back forever.
+      .catch(() => {
+        loaded = true;
+        listeners.forEach((listener) => listener());
+      })
+      .then(() => {
+        if (!queued) return;
+        queued = false;
+        return run();
+      });
+  inFlight = run().finally(() => {
+    inFlight = null;
+  });
   return inFlight;
 }
 

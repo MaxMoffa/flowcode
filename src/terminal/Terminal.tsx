@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, forwardRef, type CSSProperties } from "react";
+import { memo, useEffect, useImperativeHandle, useRef, forwardRef, type CSSProperties } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -8,7 +8,7 @@ import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
-import { attachPty, detachPty, killPty, resizePty, spawnPty, writePty } from "./ptyClient";
+import { attachPty, detachPty, forgetPty, killPty, resizePty, spawnPty, writePty } from "./ptyClient";
 import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
@@ -218,7 +218,9 @@ export interface PromptAnchor {
   cellHeight: number;
 }
 
-export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
+// memo: the parent re-renders on every title/agent-poll change, and a
+// terminal has nothing to redraw unless one of its own props moved.
+export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // xterm mounts into this padding-free inner box, not the padded container:
@@ -229,6 +231,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  // Serializing walks the whole scrollback; the periodic session save asks
+  // for every tab, so an unchanged one answers from this cache.
+  const serializeCacheRef = useRef({ text: "", dirty: true });
   const restoredContentRef = useRef(restoredContent);
   const ptyIdRef = useRef<string | null>(null);
   const attachRef = useRef(attach);
@@ -568,18 +573,28 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       writePty(id, data);
     },
     wasUsed: () => usedRef.current,
-    serialize: () =>
-      serializeAddonRef.current?.serialize({
-        scrollback: SESSION_SCROLLBACK_LINES,
-        excludeAltBuffer: true,
-        excludeModes: true,
-      }) ?? "",
+    serialize: () => {
+      const cache = serializeCacheRef.current;
+      const addon = serializeAddonRef.current;
+      if (!addon) return cache.text;
+      if (cache.dirty) {
+        cache.text = addon.serialize({
+          scrollback: SESSION_SCROLLBACK_LINES,
+          excludeAltBuffer: true,
+          excludeModes: true,
+        });
+        cache.dirty = false;
+      }
+      return cache.text;
+    },
     release: async () => {
       const id = ptyIdRef.current;
       const term = xtermRef.current;
       if (!id || !term || releasedRef.current) return null;
       const sentSeq = await detachPty(id);
       releasedRef.current = true;
+      // The session lives on in another window; this one no longer tracks it.
+      forgetPty(id);
       // Output sent before the detach may still be in flight on the channel
       // - wait (briefly) until the last of it has landed here.
       const deadline = Date.now() + 500;
@@ -592,7 +607,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         serializeAddonRef.current?.serialize({ scrollback: SESSION_SCROLLBACK_LINES }) ?? "";
       return { ptyId: id, snapshot };
     },
-  }));
+    // Every closure above only reads refs, so the handle never goes stale -
+    // re-creating it each render just churned the parent's ref callbacks.
+  }), []);
 
   /** The banner's frog canvas, redrawn here when the theme changes its
    * colors (they follow the accent). */
@@ -701,6 +718,18 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       return false;
     });
 
+    let disposed = false;
+
+    // Any parsed output or reflow makes the cached session snapshot stale.
+    const cache = serializeCacheRef.current;
+    cache.dirty = true;
+    const writeDisposable = term.onWriteParsed(() => {
+      cache.dirty = true;
+    });
+    const resizeDisposable = term.onResize(() => {
+      cache.dirty = true;
+    });
+
     // Most shells emit an OSC title escape (e.g. bash's PROMPT_COMMAND) with
     // "user@host: cwd", and some update it further while a command runs -
     // that's the actual live "what's happening in this terminal" signal, and
@@ -718,6 +747,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
         // the same chunk - reading the cursor synchronously would catch it
         // mid-line. Deferring a tick lets xterm finish the chunk first.
         setTimeout(() => {
+          if (disposed) return;
           const buf = term.buffer.active;
           // A launched full-screen program can switch to the alternate screen
           // before its first title update; startRow belongs to the primary
@@ -733,7 +763,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       // Shells that title their prompt (see pty.rs) send this just before
       // it: the first one means the prompt is being drawn. Deferred for the
       // same reason as above.
-      if (!promptShownRef.current) setTimeout(reportPromptShown, 0);
+      if (!promptShownRef.current) setTimeout(() => !disposed && reportPromptShown(), 0);
       if (title) onTitleChangeRef.current?.(title);
     });
 
@@ -776,8 +806,6 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       }
     });
 
-    let disposed = false;
-
     const attached = attachRef.current;
     if (attached) {
       // Moved here from another window: redraw what it was showing, then
@@ -792,6 +820,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
           if (!disposed) receive(data);
         },
         onExit: () => {
+          forgetPty(attached.ptyId);
           if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
         },
       })
@@ -907,6 +936,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
             if (!disposed) receive(data);
           },
           onExit: () => {
+            if (ptyIdRef.current) forgetPty(ptyIdRef.current);
             if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
           },
         });
@@ -984,9 +1014,23 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       titleDisposable.dispose();
       bufferDisposable.dispose();
       dataDisposable.dispose();
+      writeDisposable.dispose();
+      resizeDisposable.dispose();
       if (collapseSafetyRef.current) clearTimeout(collapseSafetyRef.current);
+      collapseSafetyRef.current = null;
+      // A silent navigation still in flight would fire finishNav (and its
+      // settle poll) against the disposed terminal.
+      const nav = navRef.current;
+      if (nav) {
+        clearTimeout(nav.safety);
+        if (nav.timer) clearTimeout(nav.timer);
+        navRef.current = null;
+      }
       if (ptyIdRef.current && !releasedRef.current) killPty(ptyIdRef.current);
       term.dispose();
+      xtermRef.current = null;
+      fitAddonRef.current = null;
+      serializeAddonRef.current = null;
     };
   }, []);
 
@@ -1034,6 +1078,6 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       <div ref={hostRef} className="terminal-host" />
     </div>
   );
-});
+}));
 
 TerminalView.displayName = "TerminalView";
