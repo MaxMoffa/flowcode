@@ -657,6 +657,7 @@ export const en: Record<MessageKey, string> = {
   "shortcuts.resetAll.button": "Restore",
   "shortcuts.guide.label": "Shortcuts guide",
   "shortcuts.guide.settingsDesc": "A list of every shortcut, always at hand.",
+  "shortcuts.terminalPassthrough": "In a terminal, Ctrl+letter combinations without Shift (like Ctrl+W, Ctrl+K, Ctrl+T) go to the running program, not to Flowcode.",
   "shortcuts.guide.button": "Open guide",
   "shortcuts.error.needsModifier": "Use at least Ctrl, Alt or Cmd together with a key (or a function key).",
   "shortcuts.error.reserved": "{combo} is reserved for the terminal and can't be assigned.",

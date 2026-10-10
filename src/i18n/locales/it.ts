@@ -665,6 +665,7 @@ export const it = {
   "shortcuts.resetAll.button": "Ripristina",
   "shortcuts.guide.label": "Guida alle scorciatoie",
   "shortcuts.guide.settingsDesc": "Elenco di tutte le scorciatoie, sempre a portata di mano.",
+  "shortcuts.terminalPassthrough": "Nel terminale, le combinazioni Ctrl+lettera senza Maiusc (come Ctrl+W, Ctrl+K, Ctrl+T) vanno al programma in esecuzione, non a Flowcode.",
   "shortcuts.guide.button": "Apri guida",
   "shortcuts.error.needsModifier": "Usa almeno Ctrl, Alt o Cmd insieme a un tasto (oppure un tasto funzione).",
   "shortcuts.error.reserved": "{combo} è riservata al terminale e non può essere assegnata.",

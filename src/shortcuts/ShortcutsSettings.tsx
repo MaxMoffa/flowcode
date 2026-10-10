@@ -75,6 +75,7 @@ export function ShortcutsSettings({ onOpenGuide }: { onOpenGuide: () => void }) 
 
   return (
     <>
+      <p className="settings-page-desc">{t("shortcuts.terminalPassthrough")}</p>
       <SettingsGroup title={t("shortcuts.guide.label")}>
         <SettingRow id="shortcutsGuide" label={t("shortcuts.guide.label")} desc={t("shortcuts.guide.settingsDesc")}>
           <button type="button" className="settings-choice" onClick={onOpenGuide}>

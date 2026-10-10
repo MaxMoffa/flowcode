@@ -4,6 +4,16 @@ import { useShortcutsConfig } from "./ShortcutsContext";
 
 type Handlers = Partial<Record<ShortcutAction, () => void>>;
 
+/** Whether the key event comes from inside an xterm.js terminal. */
+function inTerminal(e: KeyboardEvent): boolean {
+  return e.target instanceof Element && e.target.closest(".xterm") !== null;
+}
+
+/** Ctrl+<letter> or Ctrl+Alt+<letter>, no Shift/Meta. */
+function isTerminalControlKey(e: KeyboardEvent): boolean {
+  return e.ctrlKey && !e.shiftKey && !e.metaKey && /^Key[A-Z]$/.test(e.code);
+}
+
 export function useShortcuts(handlers: Handlers) {
   const { shortcuts, suspended } = useShortcutsConfig();
   const handlersRef = useRef(handlers);
@@ -19,6 +29,12 @@ export function useShortcuts(handlers: Handlers) {
     function onKeyDown(e: KeyboardEvent) {
       const action = byKey.get(canonicalCombo(eventToShortcutString(e)));
       const handler = action && handlersRef.current[action];
+      // In a terminal, Ctrl+letter (and Ctrl+Alt+letter) without Shift is a
+      // control character the running program reads - ^W deletes a word, ^K
+      // kills the line, ^T/^B are Claude Code / tmux keys - so those go to the
+      // terminal instead of the app. Everything else (Ctrl+Tab, Ctrl+digit,
+      // Shift combos, F-keys) stays an app shortcut there too.
+      if (handler && inTerminal(e) && isTerminalControlKey(e)) return;
       if (handler) {
         e.preventDefault();
         e.stopPropagation();
