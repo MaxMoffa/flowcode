@@ -90,6 +90,11 @@ function writePending(pending: Pending) {
   writeString(KEY, JSON.stringify(pending));
 }
 
+/** When this account's blocking limit lifts (ms), if it is blocked. */
+export function accountBlockedUntil(pluginId: string, profile?: string): number | undefined {
+  return readPending()[pendingKey(pluginId, profile)];
+}
+
 /** A non-default account is named after the agent: "Claude Code (Work)". */
 async function notifyReset(key: string, at: number) {
   if (!getNotificationSettings().limitReset) return;

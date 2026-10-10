@@ -5,7 +5,7 @@ export type SettingsSection =
   | "terminal"
   | "startup"
   | "explorer"
-  | "notifications"
+  | "agents"
   | "shortcuts"
   | "funzionalita"
   | "profiles"

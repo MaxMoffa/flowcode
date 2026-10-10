@@ -22,6 +22,9 @@ interface TabStripProps {
   /** Terminal tabs whose agent finished while nobody was looking - their
    * logo (or dot) turns green until the tab is seen. */
   doneIds?: ReadonlySet<string>;
+  /** Terminal tab -> when its agent will be resumed (auto-resume). */
+  resumeAt?: ReadonlyMap<string, number>;
+  onCancelResume?: (tabId: string) => void;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   /** Creates a new terminal tab - `shellId` (a `list_shell_options` id, from
@@ -111,6 +114,33 @@ function MutedIcon() {
       <title>{t("tabs.notificationsMuted")}</title>
       <path d="M8.7 3A6 6 0 0 1 18 8c0 2.9.6 4.9 1.3 6.1M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14M10.3 21a1.9 1.9 0 0 0 3.4 0M2 2l20 20" />
     </svg>
+  );
+}
+
+/** Shown on a terminal tab whose agent hit its usage limit and will be
+ * resumed when it resets; a click gives that up. */
+function ResumeBadge({ at, onCancel }: { at: number; onCancel: () => void }) {
+  const time = new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <button
+      type="button"
+      className="term-tab-resume"
+      title={t("autoResume.badge.title", { time })}
+      aria-label={t("autoResume.badge.title", { time })}
+      // The tab starts a drag on pointer down and selects on click.
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onCancel();
+      }}
+    >
+      <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="11" height="11" stroke="currentColor" fill="none" aria-hidden="true">
+        <circle cx="12" cy="13" r="7" />
+        <path d="M12 9.5V13l2.2 1.5M5 4 2.5 6.5M19 4l2.5 2.5" />
+      </svg>
+      {time}
+    </button>
   );
 }
 
@@ -345,6 +375,8 @@ export function TabStrip({
   dirtyIds,
   agents,
   doneIds,
+  resumeAt,
+  onCancelResume,
   onSelect,
   onClose,
   onNew,
@@ -589,6 +621,9 @@ export function TabStrip({
               <span className="term-tab-label">{tabDisplayLabel(tab)}</span>
             )}
             {tab.kind === "terminal" && tab.notifyMuted && <MutedIcon />}
+            {tab.kind === "terminal" && resumeAt?.has(tab.id) && onCancelResume && (
+              <ResumeBadge at={resumeAt.get(tab.id)!} onCancel={() => onCancelResume(tab.id)} />
+            )}
             {tab.kind === "editor" && dirtyIds?.has(tab.id) && (
               <span className="term-tab-dirty-dot" title={t("app.unsaved.title")} />
             )}

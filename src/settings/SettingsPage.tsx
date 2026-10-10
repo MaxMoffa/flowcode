@@ -13,6 +13,7 @@ import type { SidebarMode } from "./modes";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { writeBool } from "../lib/storage";
 import { NOTIFICATION_KINDS, setNotificationEnabled, useNotificationSettings } from "../notifications/notificationSettings";
+import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
 import { ShellStartDirs } from "./ShellStartDirs";
 import { PalettePicker } from "./PalettePicker";
 import { DEFAULT_CONTRAST, DEFAULT_PALETTE_ID } from "../themes/palettes";
@@ -110,6 +111,7 @@ export function SettingsPage({
   } = useTerminalSettings();
   const { section, focusId, clearFocus } = useSettingsSection();
   const notificationSettings = useNotificationSettings();
+  const autoResume = useAutoResumeSettings();
   // One scroll container serves every section, so without this a section
   // opens at whatever depth the previous one was scrolled to - except when
   // arriving from a search result, which scrolls to its own row instead.
@@ -508,24 +510,48 @@ export function SettingsPage({
           </SettingsGroup>
         )}
 
-        {section === "notifications" && (
-          <SettingsGroup title={t("settings.group.alerts")}>
-            {NOTIFICATION_KINDS.map((kind) => (
-              <SettingRow
-                key={kind}
-                id={`notify-${kind}`}
-                label={t(`settings.notifications.${kind}.label`)}
-                desc={t(`settings.notifications.${kind}.desc`)}
-              >
-                <Switch
-                  checked={notificationSettings[kind]}
-                  onChange={(on) => setNotificationEnabled(kind, on)}
+        {section === "agents" && (
+          <>
+            <SettingsGroup title={t("settings.group.notifications")}>
+              {NOTIFICATION_KINDS.map((kind) => (
+                <SettingRow
+                  key={kind}
+                  id={`notify-${kind}`}
                   label={t(`settings.notifications.${kind}.label`)}
+                  desc={t(`settings.notifications.${kind}.desc`)}
+                >
+                  <Switch
+                    checked={notificationSettings[kind]}
+                    onChange={(on) => setNotificationEnabled(kind, on)}
+                    label={t(`settings.notifications.${kind}.label`)}
+                    stateLabels={onOff}
+                  />
+                </SettingRow>
+              ))}
+            </SettingsGroup>
+
+            <SettingsGroup title={t("settings.group.autoResume")}>
+              <SettingRow id="autoResume" label={t("settings.autoResume.label")} desc={t("settings.autoResume.description")}>
+                <Switch
+                  checked={autoResume.enabled}
+                  onChange={setAutoResumeEnabled}
+                  label={t("settings.autoResume.label")}
                   stateLabels={onOff}
                 />
               </SettingRow>
-            ))}
-          </SettingsGroup>
+              {autoResume.enabled && (
+                <SettingRow id="autoResumeMessage" label={t("settings.autoResume.message")}>
+                  <input
+                    type="text"
+                    className="settings-text-input"
+                    value={autoResume.message}
+                    placeholder={t("autoResume.defaultMessage")}
+                    onChange={(e) => setAutoResumeMessage(e.target.value)}
+                  />
+                </SettingRow>
+              )}
+            </SettingsGroup>
+          </>
         )}
 
         {section === "shortcuts" && <ShortcutsSettings onOpenGuide={onOpenShortcutsGuide} />}

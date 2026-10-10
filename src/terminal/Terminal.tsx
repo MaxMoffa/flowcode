@@ -112,6 +112,13 @@ export interface TerminalHandle {
    * the Agents sidebar match a `list_agent_sessions` result back to the tab
    * that owns it. `null` before the pty has finished spawning. */
   getPtyId: () => string | null;
+  /** Plain text of the last `lines` non-empty rows on screen (the bottom of
+   * the active buffer's viewport upwards) - what a full-screen CLI is
+   * showing right now, e.g. its "usage limit reached" notice. */
+  screenTail: (lines: number) => string;
+  /** Types `data` into this tab's pty exactly like a keystroke would, so an
+   * Enter in it counts as a submit (see ptyClient's `lastSubmitAt`). */
+  sendInput: (data: string) => void;
   /** This tab's normal-screen text (with colors) for session restore - the
    * last `SESSION_SCROLLBACK_LINES` lines, never a full-screen program's
    * alternate screen (that frame means nothing once the program is gone). */
@@ -543,6 +550,23 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       if (command) writeNavigation(`${command}\r`, erases);
     },
     getPtyId: () => ptyIdRef.current,
+    screenTail: (lines: number) => {
+      const term = xtermRef.current;
+      if (!term) return "";
+      const buf = term.buffer.active;
+      const rows: string[] = [];
+      for (let i = buf.baseY + term.rows - 1; i >= 0 && rows.length < lines; i--) {
+        const text = buf.getLine(i)?.translateToString(true) ?? "";
+        if (text.trim()) rows.push(text);
+      }
+      return rows.reverse().join("\n");
+    },
+    sendInput: (data: string) => {
+      const id = ptyIdRef.current;
+      if (!id) return;
+      usedRef.current = true;
+      writePty(id, data);
+    },
     wasUsed: () => usedRef.current,
     serialize: () =>
       serializeAddonRef.current?.serialize({

@@ -192,6 +192,29 @@
   opacity: 0.55;
 }
 
+.term-tab-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted, var(--fg));
+  opacity: 0.8;
+  font: inherit;
+  font-size: 10px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.term-tab-resume:hover {
+  color: var(--accent);
+  opacity: 1;
+}
+
 .term-tab-dirty-dot {
   width: 6px;
   height: 6px;

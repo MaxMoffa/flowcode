@@ -24,10 +24,11 @@ const PATHS: Record<SettingsSection, ReactNode> = {
     </>
   ),
   explorer: <path d="M3.5 7.5a1.5 1.5 0 0 1 1.5-1.5h4l2 2.2h8a1.5 1.5 0 0 1 1.5 1.5v7.8a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5z" />,
-  notifications: (
+  // The same side-panel glyph as the Agents toggle in the title bar.
+  agents: (
     <>
-      <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z" />
-      <path d="M10 20.5a2 2 0 0 0 4 0" />
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <path d="M14.5 4.5v15" />
     </>
   ),
   shortcuts: (

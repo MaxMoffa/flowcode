@@ -32,6 +32,8 @@ import {
   wslHomeDir,
   wslShellId,
 } from "./terminal/wslPath";
+import { useAutoResume } from "./agents/useAutoResume";
+import { useAutoResumeSettings } from "./agents/autoResumeSettings";
 import { useAgentNotifications } from "./notifications/useAgentNotifications";
 import { watchLimitResets } from "./notifications/limitResetWatcher";
 import { useNotificationSettings } from "./notifications/notificationSettings";
@@ -499,8 +501,9 @@ function Shell() {
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
   const notificationSettings = useNotificationSettings();
+  const autoResumeEnabled = useAutoResumeSettings().enabled;
   const { sessions: agentSessions, refresh: refreshAgentSessions } = useAgentSessions(
-    Object.values(notificationSettings).some(Boolean),
+    Object.values(notificationSettings).some(Boolean) || autoResumeEnabled,
   );
   const {
     startPath,
@@ -1996,6 +1999,11 @@ function Shell() {
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
     lastSubmitAt: (id) => lastSubmitAt(termRefs.current.get(id)?.getPtyId()),
   });
+  const { armed: resumeArmed, cancel: cancelResume } = useAutoResume(tabAgents, {
+    getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
+    getTerm: (id) => termRefs.current.get(id),
+    lastSubmitAt: (id) => lastSubmitAt(termRefs.current.get(id)?.getPtyId()),
+  });
   const sidebarCwd = activeTerminal?.explorerPath || homeDir;
 
   const allPlugins: PluginDef[] = [...builtinPlugins(), ...customPlugins];
@@ -2390,6 +2398,8 @@ function Shell() {
           dirtyIds={dirtyIds}
           agents={tabAgents}
           doneIds={doneTabIds}
+          resumeAt={resumeArmed}
+          onCancelResume={cancelResume}
           onSelect={selectTab}
           onClose={closeTab}
           onNew={(shellId, profileId) =>
