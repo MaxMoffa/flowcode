@@ -2005,8 +2005,9 @@ function Shell() {
   const activeTerminal = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
   // The Agents panel's "This project" scope only makes sense while a terminal
   // is in front: with Settings or the changelog showing, the last terminal's
-  // folder may not even be a project open in this window.
-  const frontTerminal = activeTerminal?.id === activeTabId ? activeTerminal : undefined;
+  // folder may not even be a project open in this window - and the new tab
+  // page (a terminal tab with no shell yet) isn't one either.
+  const frontTerminal = activeTerminal?.id === activeTabId && !activeTerminal.newTab ? activeTerminal : undefined;
   // The agent CLI running in each terminal tab, for its logo and status in
   // the tab strip - matched by pty id, same as the Agents panel does.
   const tabAgents = new Map<string, TabAgent>();
