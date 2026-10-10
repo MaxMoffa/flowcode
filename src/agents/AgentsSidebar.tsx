@@ -388,7 +388,9 @@ export function AgentsSidebar({
   // The "This project" scope: only what's running in the active tab's folder
   // (or below it) - saved sessions are left out. Folding above stays on the
   // unfiltered lists; only what's rendered is narrowed.
-  const projectScope = scope === "project";
+  // Without a project in front there's nothing to narrow to: show everything,
+  // but keep the saved choice for when a terminal is back in front.
+  const projectScope = scope === "project" && !!projectCwd;
   const projectReady = projectScope && !!projectCwd;
   // Every worktree of the repo counts as the project (the repo root too, even
   // when the active tab sits in a subfolder of it).
@@ -553,6 +555,7 @@ export function AgentsSidebar({
           />
         )}
       </div>
+      {projectCwd && (
       <div className="agents-sidebar-scope" role="tablist" aria-label={t("agents.scope.label")}>
         <button
           type="button"
@@ -576,6 +579,7 @@ export function AgentsSidebar({
           {allCount > 0 && <span className="agents-sidebar-scope-count">{allCount}</span>}
         </button>
       </div>
+      )}
       <div className="agents-sidebar-list">
         {error && (
           <div className="agents-sidebar-error" role="alert">

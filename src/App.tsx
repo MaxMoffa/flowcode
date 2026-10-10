@@ -1979,6 +1979,10 @@ function Shell() {
   }
 
   const activeTerminal = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
+  // The Agents panel's "This project" scope only makes sense while a terminal
+  // is in front: with Settings or the changelog showing, the last terminal's
+  // folder may not even be a project open in this window.
+  const frontTerminal = activeTerminal?.id === activeTabId ? activeTerminal : undefined;
   // The agent CLI running in each terminal tab, for its logo and status in
   // the tab strip - matched by pty id, same as the Agents panel does.
   const tabAgents = new Map<string, TabAgent>();
@@ -2639,14 +2643,14 @@ function Shell() {
                   windowLabel={appWindow.label}
                   tabs={tabs.filter((t): t is TermTab => t.kind === "terminal")}
                   activeTabId={activeTabId}
-                  projectCwd={activeTerminal ? activeTerminal.cwd || activeTerminal.explorerPath || undefined : undefined}
-                  projectWslDistro={activeTerminal?.wslDistro ?? undefined}
+                  projectCwd={frontTerminal ? frontTerminal.cwd || frontTerminal.explorerPath || undefined : undefined}
+                  projectWslDistro={frontTerminal?.wslDistro ?? undefined}
                   sessions={agentSessions}
                   refreshSessions={refreshAgentSessions}
                   getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
                   onOpenTab={selectTab}
                   onOpenSession={openAgentSession}
-                  projectShell={activeTerminal ? tabShell(activeTerminal) : undefined}
+                  projectShell={frontTerminal ? tabShell(frontTerminal) : undefined}
                   onLaunchAgent={(cli, cwd, shell, profileId) => void launchAgentInNewTab(cli, cwd, shell, profileId)}
                   onOpenFolder={openFolderTab}
                   onClose={() => setAgentsSidebarOpen(false)}
