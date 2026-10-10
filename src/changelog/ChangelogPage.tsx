@@ -127,7 +127,10 @@ export function ChangelogNav({ view, defaultVersion }: { view: ChangelogView; de
               {i === 0 && <span className="changelog-badge">{t("changelog.latestShort")}</span>}
               {installed === r.version && i !== 0 && <span className="changelog-badge is-muted">{t("changelog.installed")}</span>}
             </span>
-            <span className="changelog-nav-sub">{formatDate(r.published_at, language) ?? r.title}</span>
+            {r.title && <span className="changelog-nav-title">{r.title}</span>}
+            {formatDate(r.published_at, language) && (
+              <span className="changelog-nav-sub">{formatDate(r.published_at, language)}</span>
+            )}
           </button>
         ))}
       </div>

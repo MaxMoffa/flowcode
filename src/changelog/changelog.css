@@ -112,13 +112,29 @@
   color: var(--fg-muted);
 }
 
+/* A column, so `stretch` (not the nav item's `center`, which would centre
+   each line horizontally): the lines start at the left edge, and the title
+   and date can ellipsize at the item's width. */
 .settings-nav-item.changelog-nav-item {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   justify-content: center;
   gap: 2px;
   height: auto;
   padding: 6px 8px;
+}
+
+.changelog-nav-title {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.settings-nav-item.is-active .changelog-nav-title {
+  font-weight: 600;
 }
 
 .changelog-nav-top {
