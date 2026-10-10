@@ -35,9 +35,12 @@
 }
 
 /* Texture over the whole window: two very soft glows of the accents in
-   opposite corners and a barely-there film grain. An overlay rather than a
-   background, so it shows on Windows/Linux too, where the panels are opaque.
-   It ignores the pointer and stays under floating menus and dialogs. */
+   opposite corners and a barely-there film grain. One full-window layer so
+   the glows run continuously across the header bar and the body. It sits
+   above the background (header bar, gutters) but UNDER the cards (side
+   panels, terminal area - lifted with z-index 2), so terminal text is never
+   dusted with grain. It ignores the pointer and stays under floating menus
+   and dialogs. */
 .app-shell::after {
   content: "";
   position: absolute;
@@ -90,8 +93,6 @@
   height: 44px;
   padding: 0 8px;
   background: var(--bg-elevated);
-  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
 }
 
 .header-right {
@@ -167,8 +168,9 @@
   min-height: 0;
   /* The side panels and the terminal area are separate cards floating on the
      same surface as the header bar: one even 8px gutter around and between
-     them. */
-  padding: 8px;
+     them. No top padding: the 44px header bar already leaves 8px under its
+     28px tabs, so another 8px here made the top gap double the sides'. */
+  padding: 0 8px 8px;
   background: var(--bg-elevated);
   gap: 8px;
   box-sizing: border-box;
@@ -182,6 +184,10 @@
    (`.panel-card`), which does the clipping. */
 .resizable-panel {
   position: relative;
+  /* Above the window texture (.app-shell::after, z-index 1) so it only paints
+     on the background. Set here rather than on .panel-card: this is already
+     positioned, so no containing block changes for the panel's absolutes. */
+  z-index: 2;
   display: flex;
   flex: 0 0 auto;
   min-width: 0;
@@ -266,6 +272,8 @@
 
 .terminal-stack {
   position: relative;
+  /* Above the window texture (.app-shell::after), see .resizable-panel. */
+  z-index: 2;
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -275,17 +283,11 @@
   overflow: hidden;
 }
 
-/* The glass blur belongs on the cards themselves. Chromium (WebView2) doesn't
-   clip a descendant's backdrop-filter to an ancestor's rounded overflow, so
-   panels blurring on their own drew square corners over the rounded card -
-   blur once at the card, which clips to its own radius, and not inside it. */
-.panel-card,
-.terminal-stack,
-.sidebar-floating-panel {
-  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
-}
-
+/* No CSS blur on the cards or anything inside them: the window's own DWM
+   acrylic (apply_window_chrome in shared/src/lib.rs) already blurs what's
+   behind it, and a backdrop-filter on top only blurred that blur again -
+   extra GPU work, and WebView2 doesn't clip it to a card's rounded corners
+   (square corners showed over the cards). */
 .panel-card-content > *,
 .sidebar-floating-panel > *,
 .terminal-stack .terminal-container,
