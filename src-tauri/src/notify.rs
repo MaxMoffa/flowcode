@@ -6,7 +6,9 @@ use tauri::AppHandle;
 /// Shows a notification; clicking it focuses `tab_id` in window `label`.
 /// Fire-and-forget: a notification that can't be shown is never an error
 /// worth surfacing to the user.
-#[tauri::command]
+// `(async)`: the first call registers the toast source (three `reg add`
+// spawns), which must not run on the UI thread.
+#[tauri::command(async)]
 pub fn notify_show(app: AppHandle, label: String, tab_id: String, title: String, body: String) {
     show(app, label, tab_id, title, body);
 }
@@ -14,7 +16,7 @@ pub fn notify_show(app: AppHandle, label: String, tab_id: String, title: String,
 /// Like `notify_show`, not tied to a tab, and shown once per `key` however
 /// many windows ask - each window watches the same usage limits (see
 /// src/notifications/limitResetWatcher.ts).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn notify_once(app: AppHandle, key: String, label: String, title: String, body: String) {
     use std::collections::HashSet;
     use std::sync::{LazyLock, Mutex};
@@ -47,12 +49,12 @@ fn show(app: AppHandle, label: String, tab_id: String, title: String, body: Stri
 /// written out to the app's local data folder first.
 #[cfg(target_os = "windows")]
 fn register_toast_source(app: &AppHandle) {
+    use flowcode_shared::CREATE_NO_WINDOW;
     use std::os::windows::process::CommandExt;
     use std::sync::Once;
     use tauri::Manager;
     static REGISTERED: Once = Once::new();
     REGISTERED.call_once(|| {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let key = format!(r"HKCU\Software\Classes\AppUserModelId\{}", app.config().identifier);
         let reg = |name: &str, value: &str| {
             let _ = std::process::Command::new("reg")

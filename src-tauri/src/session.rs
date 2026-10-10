@@ -44,7 +44,7 @@ impl SessionStore {
         if self.quitting.load(Ordering::SeqCst) || !others_open {
             return;
         }
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.acks.remove(label);
         let before = inner.windows.len();
         inner.windows.retain(|(l, _)| l != label);
@@ -65,7 +65,31 @@ fn write(app: &AppHandle, windows: Option<&[(String, Value)]>) -> Result<(), Str
         }
         _ => "{}".to_string(),
     };
-    std::fs::write(dir.join("session.json"), contents).map_err(|e| e.to_string())
+    write_private(&dir.join("session.json"), contents.as_bytes()).map_err(|e| e.to_string())
+}
+
+/// Atomic like `fs::write_atomic`, but the file is created owner-only on Unix:
+/// it holds terminal scrollback, which can contain anything the user typed or
+/// printed.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let tmp = path.with_file_name(format!("{name}.tmp-{}", std::process::id()));
+        let result = (|| {
+            let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
+            file.write_all(bytes)?;
+            std::fs::rename(&tmp, path)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        result
+    }
+    #[cfg(not(unix))]
+    crate::fs::write_atomic(path, bytes)
 }
 
 /// Stores the calling window's part of the session and rewrites the file.
@@ -80,7 +104,7 @@ pub fn session_put(
     flush_gen: Option<u64>,
 ) -> Result<(), String> {
     let label = window.label().to_string();
-    let mut inner = store.inner.lock().unwrap();
+    let mut inner = store.inner.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(generation) = flush_gen {
         inner.acks.insert(label.clone(), generation);
     }
@@ -114,7 +138,7 @@ pub async fn flush_all(app: &AppHandle) {
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline {
             let done = {
-                let inner = store.inner.lock().unwrap();
+                let inner = store.inner.lock().unwrap_or_else(|e| e.into_inner());
                 labels.iter().all(|l| inner.acks.get(l).is_some_and(|g| *g >= generation))
             };
             if done {

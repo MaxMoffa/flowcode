@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
+use crate::util::{has_bytes as has, json_u64 as num, lock};
+
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct AgentContext {
     /// Tokens the last model call had in its context (plus what it wrote).
@@ -29,10 +31,6 @@ const MAX_SCAN: u64 = 16 * 1024 * 1024;
 
 const CLAUDE_DEFAULT_WINDOW: u64 = 200_000;
 const CLAUDE_LONG_WINDOW: u64 = 1_000_000;
-
-fn num(value: Option<&serde_json::Value>) -> u64 {
-    value.and_then(|v| v.as_u64()).unwrap_or(0)
-}
 
 /// The context a Claude Code transcript line reports: a main-thread
 /// assistant message's input, cached and output tokens, and its model.
@@ -96,10 +94,6 @@ fn parse_codex_model(line: &serde_json::Value) -> Option<String> {
     line.get("payload")?.get("model")?.as_str().map(str::to_string)
 }
 
-fn has(line: &[u8], needle: &[u8]) -> bool {
-    line.windows(needle.len()).any(|w| w == needle)
-}
-
 fn claude_context(path: &Path, configured_model: Option<&str>) -> Option<AgentContext> {
     let (used, model) = crate::agents::scan_lines_backwards(path, CHUNK, MAX_SCAN, |line| {
         // Cheap pre-check so the (often huge) tool-result lines aren't parsed.
@@ -148,32 +142,6 @@ fn find_claude_transcript(claude_dir: &Path, id: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// `<codex home>/sessions/YYYY/MM/DD/rollout-<timestamp>-<id>.jsonl`.
-fn find_codex_rollout(dir: &Path, id: &str, depth: u8) -> Option<PathBuf> {
-    if depth == 0 {
-        return None;
-    }
-    let suffix = format!("-{id}.jsonl");
-    let mut entries: Vec<_> = std::fs::read_dir(dir).ok()?.filter_map(|e| e.ok()).collect();
-    // Newest day first: the session being asked about is almost always recent.
-    entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
-    for entry in entries {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_codex_rollout(&path, id, depth - 1) {
-                return Some(found);
-            }
-        } else if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(&suffix))
-        {
-            return Some(path);
-        }
-    }
-    None
-}
-
 /// The user's configured Claude model (`settings.json` `model`), where a
 /// `[1m]` suffix marks the 1M window.
 fn claude_configured_model(claude_dir: &Path) -> Option<String> {
@@ -211,22 +179,22 @@ pub async fn agent_context(
         }
         let Some(dirs) = crate::profiles::dirs(&app, profile.as_deref()) else { return Ok(None) };
         let key = (cli.clone(), profile, session_id.clone());
-        let cached = PATHS.lock().unwrap().get(&key).cloned().filter(|p| p.is_file());
+        let cached = lock(&PATHS).get(&key).cloned().filter(|p| p.is_file());
         let path = match cached {
             Some(p) => p,
             None => {
                 let found = match cli.as_str() {
                     "claude" => find_claude_transcript(&dirs.claude, &session_id),
-                    "codex" => find_codex_rollout(&dirs.codex.join("sessions"), &session_id, 4),
+                    "codex" => crate::agents::find_codex_rollout(&dirs.codex.join("sessions"), &session_id),
                     _ => None,
                 };
                 let Some(found) = found else { return Ok(None) };
-                PATHS.lock().unwrap().insert(key, found.clone());
+                lock(&PATHS).insert(key, found.clone());
                 found
             }
         };
         let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        if let Some((at, ctx)) = RESULTS.lock().unwrap().get(&path) {
+        if let Some((at, ctx)) = lock(&RESULTS).get(&path) {
             if *at == len {
                 return Ok(ctx.clone());
             }
@@ -235,7 +203,7 @@ pub async fn agent_context(
             "claude" => claude_context(&path, claude_configured_model(&dirs.claude).as_deref()),
             _ => codex_context(&path),
         };
-        RESULTS.lock().unwrap().insert(path, (len, ctx.clone()));
+        lock(&RESULTS).insert(path, (len, ctx.clone()));
         Ok(ctx)
     })
     .await

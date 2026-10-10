@@ -16,37 +16,120 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// The shell invocation shared by every headless command: `cmd /C` (command
+/// text passed verbatim) on Windows, `$SHELL -lc` elsewhere, no stdin, no
+/// console window.
+fn shell_command(command: &str, envs: &[(String, String)]) -> std::process::Command {
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        // Not `.args(["/C", command])`: Rust escapes each element of `args` as
+        // its own argv entry (doubling/backslash-escaping any quotes `command`
+        // already contains), then cmd.exe's own /C unquoting re-parses that
+        // already-mangled text - two incompatible escaping conventions stacked
+        // on each other. That corrupted e.g. `claude -p "/usage"` just enough
+        // that claude stopped recognizing `/usage` as a slash command.
+        // `raw_arg` hands cmd.exe the command text byte-for-byte, exactly like
+        // a real `cmd /C ...` invocation.
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.arg("/C").raw_arg(command);
+        // A GUI app has no console for cmd.exe to inherit - without this a
+        // console window flashes open and closed for every command run,
+        // background polls included.
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let mut cmd = std::process::Command::new(shell);
+        cmd.args(["-lc", command]);
+        cmd
+    };
+    cmd.envs(envs.iter().map(|(k, v)| (k, v))).stdin(std::process::Stdio::null());
+    cmd
+}
+
 /// The actual blocking spawn-and-wait, shared by every command that needs to
 /// run a shell command headlessly. Always call through `spawn_blocking`
 /// (never directly from an async command body) - `Command::output()` blocks
 /// its calling thread until the child exits.
-#[cfg(target_os = "windows")]
 pub fn run_command_blocking(command: &str) -> std::io::Result<std::process::Output> {
-    // Not `.args(["/C", command])`: Rust escapes each element of `args` as its
-    // own argv entry (doubling/backslash-escaping any quotes `command` already
-    // contains), then cmd.exe's own /C unquoting re-parses that already-mangled
-    // text - two incompatible escaping conventions stacked on each other. That
-    // corrupted e.g. `claude -p "/usage"` just enough that claude stopped
-    // recognizing `/usage` as a slash command. `raw_arg` hands cmd.exe the
-    // command text byte-for-byte, exactly like a real `cmd /C ...` invocation.
-    std::process::Command::new("cmd")
-        .arg("/C")
-        .raw_arg(command)
-        .stdin(std::process::Stdio::null())
-        // A GUI app has no console for cmd.exe to inherit - without this a
-        // console window flashes open and closed for every command run,
-        // background polls included.
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
+    run_command_blocking_env(command, &[])
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn run_command_blocking(command: &str) -> std::io::Result<std::process::Output> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    std::process::Command::new(shell)
-        .args(["-lc", command])
-        .stdin(std::process::Stdio::null())
-        .output()
+/// `run_command_blocking` with extra environment variables on the child - how
+/// a status command is pointed at an account profile's own folders.
+pub fn run_command_blocking_env(command: &str, envs: &[(String, String)]) -> std::io::Result<std::process::Output> {
+    shell_command(command, envs).output()
+}
+
+/// Like `run_command_blocking_env`, but gives up after `timeout` (see
+/// `wait_with_timeout`). For CLIs that can hang on a login or network prompt.
+pub fn run_command_blocking_timeout(
+    command: &str,
+    envs: &[(String, String)],
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::process::Stdio;
+    let child = shell_command(command, envs).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    wait_with_timeout(child, timeout)
+}
+
+/// `Child::wait_with_output` that gives up after `timeout`: the child is
+/// killed (on Windows the whole tree - `cmd /C` leaves the real program as a
+/// grandchild that killing `cmd` alone would orphan) and the result is an
+/// `ErrorKind::TimedOut` error "timed out". The child's stdout / stderr must be
+/// piped for any output to come back. Split from the spawn so a caller can
+/// read the child's pid first.
+pub fn wait_with_timeout(
+    mut child: std::process::Child,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::time::Instant;
+
+    // Drained on their own threads so a chatty child can't fill a pipe and
+    // block forever while we poll for its exit.
+    fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut buf);
+            }
+            buf
+        })
+    }
+    let out = drain(child.stdout.take());
+    let err = drain(child.stderr.take());
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            kill_tree(&mut child);
+            let _ = child.wait();
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out"));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: out.join().unwrap_or_default(),
+        stderr: err.join().unwrap_or_default(),
+    })
+}
+
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+    let _ = child.kill();
 }
 
 /// Trimmed stdout followed by trimmed stderr (newline-separated when both are
@@ -337,5 +420,20 @@ fn set_window_icon_from_exe(hwnd: *mut core::ffi::c_void) {
                 SendMessageW(hwnd, WM_SETICON, kind as usize, icon as isize);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hung_child_is_killed() {
+        #[cfg(target_os = "windows")]
+        let command = "ping -n 20 127.0.0.1";
+        #[cfg(not(target_os = "windows"))]
+        let command = "sleep 20";
+        let err = run_command_blocking_timeout(command, &[], std::time::Duration::from_millis(200)).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
     }
 }

@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-/// The plugin "standard": a small declarative JSON file, not arbitrary code.
-/// A plugin can only ever do one of a fixed, safe set of things (`action`) -
-/// there is no way for a plugin file to run code the app doesn't already
-/// know how to run, which is what keeps "anyone can drop a file in the
-/// plugins folder" from being a code-execution risk. Full schema and
-/// examples: PLUGINS.md at the repo root.
+/// The plugin "standard": a small declarative JSON file. `action` picks from a
+/// fixed vocabulary, but several of those actions take a `command`, which is a
+/// shell line the app runs when the shortcut is clicked - so a plugin file is
+/// as trusted as a script, and dropping an unknown one in the plugins folder
+/// is a code-execution risk. Full schema and examples: PLUGINS.md at the repo
+/// root.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PluginButtonManifest {
     pub label: String,
@@ -94,7 +94,7 @@ pub fn save_plugin(app: AppHandle, plugin: PluginManifest) -> Result<(), String>
     plugin.id = id.clone();
     let path = dir.join(format!("{id}.json"));
     let contents = serde_json::to_string_pretty(&plugin).map_err(|e| e.to_string())?;
-    std::fs::write(path, contents).map_err(|e| e.to_string())
+    crate::fs::write_atomic(&path, contents.as_bytes()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -134,13 +134,13 @@ fn cli_is_installed(cli: &str) -> bool {
 fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
     let envs = crate::profiles::env_for(app, profile);
     match cli {
-        "claude" => run_command_with_env("claude auth status", &envs)
+        "claude" => run_status_command("claude auth status", &envs)
             .ok()
             .filter(|o| o.status.success())
             .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
             .and_then(|v| v.get("loggedIn").and_then(|b| b.as_bool()))
             .unwrap_or(false),
-        "codex" => run_command_with_env("codex login status", &envs)
+        "codex" => run_status_command("codex login status", &envs)
             .ok()
             .is_some_and(|o| o.status.success() && !combined_output(&o).to_lowercase().contains("not logged in")),
         // Vibe has no status command: it's "signed in" once a Mistral API key
@@ -153,29 +153,15 @@ fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
     }
 }
 
-/// `run_command_blocking` with extra environment variables on the child - how
-/// a status command is pointed at an account profile's own folders.
-pub(crate) fn run_command_with_env(command: &str, envs: &[(String, String)]) -> std::io::Result<std::process::Output> {
-    if envs.is_empty() {
-        return run_command_blocking(command);
-    }
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        use std::os::windows::process::CommandExt;
-        let mut cmd = std::process::Command::new("cmd");
-        // Same as `run_command_blocking`: the text goes to cmd.exe verbatim
-        // and no console window flashes open.
-        cmd.arg("/C").raw_arg(command).creation_flags(flowcode_shared::CREATE_NO_WINDOW);
-        cmd
-    };
-    #[cfg(not(target_os = "windows"))]
-    let mut cmd = {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        let mut cmd = std::process::Command::new(shell);
-        cmd.args(["-lc", command]);
-        cmd
-    };
-    cmd.envs(envs.iter().map(|(k, v)| (k, v))).stdin(std::process::Stdio::null()).output()
+/// How long a CLI's status command may run: `claude auth status` and
+/// `codex login status` can hang on the network, and this runs on a poll.
+const STATUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// A status command run with extra environment variables on the child - how
+/// it is pointed at an account profile's own folders - killed after
+/// `STATUS_TIMEOUT`.
+fn run_status_command(command: &str, envs: &[(String, String)]) -> std::io::Result<std::process::Output> {
+    flowcode_shared::run_command_blocking_timeout(command, envs, STATUS_TIMEOUT)
 }
 
 /// Checked before a "runCommand" shortcut for a known CLI (Claude Code,
@@ -212,11 +198,11 @@ pub async fn cli_billing_mode(
     crate::blocking(move || {
         let envs = crate::profiles::env_for(&app, profile.as_deref());
         Ok(match cli.as_str() {
-            "claude" => run_command_with_env("claude auth status", &envs)
+            "claude" => run_status_command("claude auth status", &envs)
                 .ok()
                 .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
                 .map_or("unknown", |status| claude_billing_mode(&status)),
-            "codex" => run_command_with_env("codex login status", &envs)
+            "codex" => run_status_command("codex login status", &envs)
                 .ok()
                 .map_or("unknown", |o| codex_billing_mode(&combined_output(&o))),
             "vibe" => "api",

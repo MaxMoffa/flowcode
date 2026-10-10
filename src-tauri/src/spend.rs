@@ -21,6 +21,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
+use crate::util::{json_u64 as num, lock, now_ms};
+
 const DAY_MS: u64 = 86_400_000;
 
 #[derive(Serialize, Default, Clone, Copy)]
@@ -54,6 +56,20 @@ struct Call {
     tokens: u64,
     model: String,
     session: String,
+    /// Claude Code: a hash of the message's `id:requestId`, 0 when it has no
+    /// id. A resumed session can copy earlier messages into its new
+    /// transcript, so the same call may be logged in several files - this is
+    /// what counts it once across all of them.
+    key: u64,
+}
+
+/// A hash of a message's `id:requestId`, never 0 (see `Call::key`).
+fn call_key(id: &str, request: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut hasher);
+    request.hash(&mut hasher);
+    hasher.finish().max(1)
 }
 
 /// List prices, USD per million tokens. `cache_write` is the 5-minute
@@ -194,9 +210,9 @@ struct FileScan {
     /// Bytes parsed - always just after a complete line.
     offset: u64,
     calls: Vec<Call>,
-    /// Claude Code: message ids already counted (a message's usage can be
-    /// logged on several lines, one per content block).
-    seen: HashSet<String>,
+    /// Claude Code: messages already counted (see `call_key`) - a message's
+    /// usage can be logged on several lines, one per content block.
+    seen: HashSet<u64>,
     /// Codex: the session's running totals at the last `token_count`
     /// (input, cached input, output), its model and id.
     totals: [u64; 3],
@@ -220,39 +236,77 @@ fn codex_filter(line: &str) -> bool {
 
 static CACHE: LazyLock<Mutex<HashMap<PathBuf, FileScan>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// The calls logged in `path`, reading only what was appended since the
-/// last time. A file that shrank (rewritten) is read again from the start.
-fn calls_in(path: &Path, wanted: LineFilter, parse: ParseLine) -> Vec<Call> {
-    let mut cache = CACHE.lock().unwrap();
-    let scan = cache.entry(path.to_path_buf()).or_default();
-    let Ok(mut file) = std::fs::File::open(path) else { return scan.calls.clone() };
+/// New bytes are read this many at a time - a transcript can add hundreds of
+/// megabytes between two polls (a first read), which must not sit in memory
+/// whole.
+const READ_CHUNK: u64 = 4 * 1024 * 1024;
+
+/// Brings `scan` up to date with `path`, reading only what was appended since
+/// the last time. A file that shrank (rewritten) is read again from the start.
+fn refresh(scan: &mut FileScan, path: &Path, wanted: LineFilter, parse: ParseLine) {
+    let Ok(mut file) = std::fs::File::open(path) else { return };
     let len = file.metadata().map(|m| m.len()).unwrap_or(0);
     if len < scan.offset {
         *scan = FileScan::default();
     }
-    if len > scan.offset && file.seek(SeekFrom::Start(scan.offset)).is_ok() {
-        let mut buf = Vec::with_capacity((len - scan.offset) as usize);
-        if file.take(len - scan.offset).read_to_end(&mut buf).is_ok() {
-            // Up to the last complete line - a line still being written is
-            // read next time, whole.
-            let complete = buf.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
-            for line in buf[..complete].split(|&b| b == b'\n') {
-                let Ok(text) = std::str::from_utf8(line) else { continue };
-                if !wanted(text) {
-                    continue;
-                }
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
-                    parse(scan, &value);
-                }
+    let before = scan.calls.len();
+    let mut buf = Vec::new();
+    let mut want = READ_CHUNK;
+    while len > scan.offset {
+        if file.seek(SeekFrom::Start(scan.offset)).is_err() {
+            break;
+        }
+        buf.clear();
+        if (&mut file).take(want).read_to_end(&mut buf).is_err() {
+            break;
+        }
+        // Up to the last complete line - a line still being written is read
+        // next time, whole.
+        let Some(complete) = buf.iter().rposition(|&b| b == b'\n').map(|i| i + 1) else {
+            if buf.len() as u64 >= want {
+                // One line longer than the chunk: read more of it.
+                want *= 2;
+                continue;
             }
-            scan.offset += complete as u64;
+            break;
+        };
+        for line in buf[..complete].split(|&b| b == b'\n') {
+            let Ok(text) = std::str::from_utf8(line) else { continue };
+            if !wanted(text) {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+                parse(scan, &value);
+            }
+        }
+        scan.offset += complete as u64;
+        if (buf.len() as u64) < want {
+            break;
         }
     }
-    scan.calls.clone()
+    if scan.calls.len() > before {
+        // Older than the longest period can't add to any: not kept.
+        let now = now_ms();
+        scan.calls.retain(|c| now.saturating_sub(c.at) < 31 * DAY_MS);
+    }
 }
 
-fn num(value: Option<&serde_json::Value>) -> u64 {
-    value.and_then(|v| v.as_u64()).unwrap_or(0)
+/// Runs `f` over the calls logged in `path`, once it is up to date. The file's
+/// entry is taken out of the cache while it is read, so the global lock is
+/// never held across file IO (and the calls aren't cloned for the caller).
+fn with_calls<R>(path: &Path, wanted: LineFilter, parse: ParseLine, f: impl FnOnce(&[Call]) -> R) -> R {
+    let mut scan = lock(&CACHE).remove(path).unwrap_or_default();
+    refresh(&mut scan, path, wanted, parse);
+    let out = f(&scan.calls);
+    lock(&CACHE).insert(path.to_path_buf(), scan);
+    out
+}
+
+/// Drops the cached transcripts under `root` that weren't in the latest scan
+/// of it (deleted, or no longer recent) - the cache would otherwise only grow.
+fn forget_unseen(root: &Path, scanned: &[PathBuf]) {
+    let scanned: HashSet<&PathBuf> = scanned.iter().collect();
+    lock(&CACHE).retain(|path, _| !path.starts_with(root) || scanned.contains(path));
 }
 
 /// One Claude Code transcript line: an assistant message's `usage`.
@@ -269,7 +323,8 @@ fn parse_claude_line(scan: &mut FileScan, line: &serde_json::Value) {
     }
     let id = message.get("id").and_then(|v| v.as_str()).unwrap_or_default();
     let request = line.get("requestId").and_then(|v| v.as_str()).unwrap_or_default();
-    if !id.is_empty() && !scan.seen.insert(format!("{id}:{request}")) {
+    let key = if id.is_empty() { 0 } else { call_key(id, request) };
+    if key != 0 && !scan.seen.insert(key) {
         return;
     }
     let Some(at) = line.get("timestamp").and_then(|t| t.as_str()).and_then(parse_timestamp) else { return };
@@ -295,6 +350,7 @@ fn parse_claude_line(scan: &mut FileScan, line: &serde_json::Value) {
         tokens: input + output + cache_read + cache_write,
         model: model.to_string(),
         session: line.get("sessionId").and_then(|s| s.as_str()).unwrap_or_default().to_string(),
+        key,
     });
 }
 
@@ -340,6 +396,7 @@ fn parse_codex_line(scan: &mut FileScan, line: &serde_json::Value) {
                 tokens: input + output,
                 model,
                 session: scan.session.clone().unwrap_or_default(),
+                key: 0,
             });
         }
         _ => {}
@@ -366,45 +423,71 @@ fn recent_files(dir: &Path, depth: u8, wanted: fn(&str) -> bool, since: u64, out
     }
 }
 
-fn summarize(calls: &[Call], now: u64, today_start: u64) -> CliSpend {
-    let mut periods = [SpendPeriod::default(); 3];
-    let mut sessions: [HashSet<&str>; 3] = Default::default();
-    let mut unpriced: Vec<String> = Vec::new();
-    let mut last: Option<&Call> = None;
-    for call in calls {
-        let age = now.saturating_sub(call.at);
+/// The running sums over calls, fed one at a time so no list of every call
+/// is built.
+struct Totals {
+    now: u64,
+    today_start: u64,
+    periods: [SpendPeriod; 3],
+    sessions: [HashSet<String>; 3],
+    unpriced: Vec<String>,
+    /// When and with which model the latest call was made.
+    last: Option<(u64, String)>,
+    /// Calls already counted, by `Call::key`.
+    seen: HashSet<u64>,
+}
+
+impl Totals {
+    fn new(now: u64, today_start: u64) -> Self {
+        Totals {
+            now,
+            today_start,
+            periods: [SpendPeriod::default(); 3],
+            sessions: Default::default(),
+            unpriced: Vec::new(),
+            last: None,
+            seen: HashSet::new(),
+        }
+    }
+
+    fn add(&mut self, call: &Call) {
+        if call.key != 0 && !self.seen.insert(call.key) {
+            return;
+        }
+        let age = self.now.saturating_sub(call.at);
         if age >= 30 * DAY_MS {
-            continue;
+            return;
         }
-        if last.is_none_or(|l| call.at > l.at) {
-            last = Some(call);
+        if self.last.as_ref().is_none_or(|(at, _)| call.at > *at) {
+            self.last = Some((call.at, call.model.clone()));
         }
-        if call.cost.is_none() && !unpriced.contains(&call.model) {
-            unpriced.push(call.model.clone());
+        if call.cost.is_none() && !self.unpriced.contains(&call.model) {
+            self.unpriced.push(call.model.clone());
         }
-        let within = [call.at >= today_start, age < 7 * DAY_MS, true];
+        let within = [call.at >= self.today_start, age < 7 * DAY_MS, true];
         for (i, inside) in within.into_iter().enumerate() {
             if inside {
-                periods[i].cost += call.cost.unwrap_or(0.0);
-                periods[i].tokens += call.tokens;
-                sessions[i].insert(call.session.as_str());
+                self.periods[i].cost += call.cost.unwrap_or(0.0);
+                self.periods[i].tokens += call.tokens;
+                if !self.sessions[i].contains(call.session.as_str()) {
+                    self.sessions[i].insert(call.session.clone());
+                }
             }
         }
     }
-    for (period, ids) in periods.iter_mut().zip(&sessions) {
-        period.sessions = ids.len() as u32;
-    }
-    CliSpend {
-        today: periods[0],
-        week: periods[1],
-        month: periods[2],
-        last_model: last.map(|c| c.model.clone()),
-        unpriced_models: unpriced,
-    }
-}
 
-fn now_ms() -> u64 {
-    crate::fs::system_time_to_millis(Ok(std::time::SystemTime::now())).unwrap_or(0)
+    fn finish(mut self) -> CliSpend {
+        for (period, ids) in self.periods.iter_mut().zip(&self.sessions) {
+            period.sessions = ids.len() as u32;
+        }
+        CliSpend {
+            today: self.periods[0],
+            week: self.periods[1],
+            month: self.periods[2],
+            last_model: self.last.map(|(_, model)| model),
+            unpriced_models: self.unpriced,
+        }
+    }
 }
 
 /// Spend of an agent CLI on this machine - `cli` is `"claude"` or
@@ -426,19 +509,25 @@ pub async fn cli_spend(
         let today = today_start.filter(|t| *t <= now).unwrap_or(now - now % DAY_MS);
         let since = now.saturating_sub(31 * DAY_MS);
         let mut files = Vec::new();
-        let (filter, parse): (LineFilter, ParseLine) = match cli.as_str() {
+        let (root, filter, parse): (PathBuf, LineFilter, ParseLine) = match cli.as_str() {
             "claude" => {
-                recent_files(&dirs.claude.join("projects"), 5, |n| n.ends_with(".jsonl"), since, &mut files);
-                (claude_filter, parse_claude_line)
+                let root = dirs.claude.join("projects");
+                recent_files(&root, 5, |n| n.ends_with(".jsonl"), since, &mut files);
+                (root, claude_filter, parse_claude_line)
             }
             "codex" => {
-                recent_files(&dirs.codex.join("sessions"), 5, |n| n.starts_with("rollout-") && n.ends_with(".jsonl"), since, &mut files);
-                (codex_filter, parse_codex_line)
+                let root = dirs.codex.join("sessions");
+                recent_files(&root, 5, |n| n.starts_with("rollout-") && n.ends_with(".jsonl"), since, &mut files);
+                (root, codex_filter, parse_codex_line)
             }
             _ => return Err(format!("unknown CLI: {cli}")),
         };
-        let calls: Vec<Call> = files.iter().flat_map(|f| calls_in(f, filter, parse)).collect();
-        Ok(summarize(&calls, now, today))
+        let mut totals = Totals::new(now, today);
+        for file in &files {
+            with_calls(file, filter, parse, |calls| calls.iter().for_each(|c| totals.add(c)));
+        }
+        forget_unseen(&root, &files);
+        Ok(totals.finish())
     })
     .await
 }
@@ -468,6 +557,16 @@ mod tests {
         assert_eq!(codex_price("gpt-5.2-codex").map(|p| p.input), Some(1.75));
         assert_eq!(codex_price("gpt-5.5").map(|p| p.input), Some(5.0));
         assert!(codex_price("some-other-model").is_none());
+    }
+
+    fn calls_in(path: &Path, wanted: LineFilter, parse: ParseLine) -> Vec<Call> {
+        with_calls(path, wanted, parse, |calls| calls.to_vec())
+    }
+
+    fn summarize(calls: &[Call], now: u64, today_start: u64) -> CliSpend {
+        let mut totals = Totals::new(now, today_start);
+        calls.iter().for_each(|c| totals.add(c));
+        totals.finish()
     }
 
     fn write(lines: &[&str]) -> PathBuf {
@@ -533,6 +632,7 @@ mod tests {
             tokens: 10,
             model: if cost.is_some() { "m".into() } else { "unknown".into() },
             session: session.into(),
+            key: 0,
         };
         let calls = vec![
             call(now - 1000, Some(1.0), "a"),

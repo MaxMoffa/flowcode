@@ -1,4 +1,6 @@
 use serde::Serialize;
+use crate::util::lock;
+use std::sync::Mutex;
 use sysinfo::{Disks, System};
 
 #[cfg(target_os = "windows")]
@@ -14,17 +16,25 @@ use flowcode_shared::CREATE_NO_WINDOW;
 /// exited processes dropped.
 pub fn with_processes<T>(f: impl FnOnce(&System) -> T) -> T {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
-    static SYS: std::sync::LazyLock<std::sync::Mutex<System>> = std::sync::LazyLock::new(Default::default);
-    let mut sys = SYS.lock().unwrap_or_else(|e| e.into_inner());
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::All,
-        true,
-        ProcessRefreshKind::new()
-            .with_cmd(UpdateKind::OnlyIfNotSet)
-            .with_exe(UpdateKind::OnlyIfNotSet)
-            .with_cwd(UpdateKind::OnlyIfNotSet),
-    );
-    f(&sys)
+    /// Several pollers (agents, foreground checks) land within milliseconds of
+    /// each other; a refresh that fresh would just repeat the same scan.
+    const MIN_REFRESH_GAP: std::time::Duration = std::time::Duration::from_millis(500);
+    static SYS: std::sync::LazyLock<Mutex<(System, Option<std::time::Instant>)>> =
+        std::sync::LazyLock::new(Default::default);
+    let mut guard = lock(&SYS);
+    let (sys, last_refresh) = &mut *guard;
+    if last_refresh.is_none_or(|t| t.elapsed() >= MIN_REFRESH_GAP) {
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::new()
+                .with_cmd(UpdateKind::OnlyIfNotSet)
+                .with_exe(UpdateKind::OnlyIfNotSet)
+                .with_cwd(UpdateKind::OnlyIfNotSet),
+        );
+        *last_refresh = Some(std::time::Instant::now());
+    }
+    f(sys)
 }
 
 #[derive(Serialize)]
@@ -118,7 +128,36 @@ pub fn set_window_square_corners(window: tauri::WebviewWindow, square: bool) {
 /// included, which ShellExecute opens like any other UNC path.
 #[tauri::command(async)]
 pub fn open_with_default_app(path: String) -> Result<(), String> {
+    if is_executable_file(&path) {
+        return Err(flowcode_shared::i18n::tr(
+            "Per sicurezza Flowcode non apre file eseguibili: aprilo dal terminale se ti fidi.",
+            "For safety Flowcode doesn't open executable files: run it from the terminal if you trust it.",
+        )
+        .to_string());
+    }
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Whether opening `path` with the OS default handler would run code: a click
+/// in the explorer on `x.bat` from a cloned repo must not launch it. Judged by
+/// extension (case-insensitive) everywhere, plus the exec bit on Unix.
+fn is_executable_file(path: &str) -> bool {
+    const DENIED: &[&str] = &[
+        "exe", "com", "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "msi", "msp", "scr",
+        "lnk", "url", "cpl", "reg", "jar", "appref-ms", "app", "command", "sh", "pif", "inf",
+    ];
+    let p = std::path::Path::new(path);
+    if p.extension().is_some_and(|e| DENIED.iter().any(|d| e.eq_ignore_ascii_case(d))) {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0) {
+            return true;
+        }
+    }
+    false
 }
 
 /// The machine's default WSL distro name (e.g. "Ubuntu"), for translating a

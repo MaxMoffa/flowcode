@@ -7,6 +7,8 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
+use crate::util::lock;
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
@@ -81,7 +83,7 @@ pub struct PtyState(Mutex<HashMap<String, PtySession>>);
 /// Account profile the pty session `pty_id` was launched under. Sessions are
 /// dropped from the map when they end, so this needs no separate cleanup.
 pub fn profile_of(state: &PtyState, pty_id: &str) -> Option<String> {
-    state.0.lock().unwrap().get(pty_id)?.profile.clone()
+    lock(&state.0).get(pty_id)?.profile.clone()
 }
 
 impl PtyState {
@@ -89,9 +91,7 @@ impl PtyState {
     /// external process-tree inspection (see agents.rs) without exposing the
     /// rest of PtySession's internals.
     pub fn shell_pids(&self) -> Vec<(String, u32)> {
-        self.0
-            .lock()
-            .unwrap()
+        lock(&self.0)
             .iter()
             .filter_map(|(id, session)| session.pid.map(|pid| (id.clone(), pid)))
             .collect()
@@ -356,6 +356,9 @@ fn split_wsl_unc(path: &str) -> Option<(String, String)> {
 // `(async)` - i.e. "run this off the main thread". A plain `#[tauri::command]`
 // on a non-async fn runs on the event-loop thread, where the warmup wait below
 // (and openpty/spawn_command's own blocking syscalls) would stall the window.
+// Tauri hands every argument to a command separately, so there is no struct to
+// group these into without changing the frontend call.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
@@ -492,8 +495,22 @@ pub fn pty_spawn(
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
 
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    // The shell is already running: a failure past this point must not leave
+    // it orphaned with nothing holding its handle.
+    let mut reader = match pair.master.try_clone_reader() {
+        Ok(reader) => reader,
+        Err(e) => {
+            let _ = child.kill();
+            return Err(e.to_string());
+        }
+    };
+    let writer = match pair.master.take_writer() {
+        Ok(writer) => writer,
+        Err(e) => {
+            let _ = child.kill();
+            return Err(e.to_string());
+        }
+    };
 
     let sink = Arc::new(Mutex::new(Sink {
         channel: Some(on_event),
@@ -501,7 +518,7 @@ pub fn pty_spawn(
         buffered_bytes: 0,
         seq: 0,
     }));
-    state.0.lock().unwrap().insert(
+    lock(&state.0).insert(
         id.clone(),
         PtySession {
             master: pair.master,
@@ -519,7 +536,7 @@ pub fn pty_spawn(
         let mut buf = [0u8; 8192];
         let mut pending: Vec<u8> = Vec::new();
         let emit = |data: String| {
-            let mut sink = sink.lock().unwrap();
+            let mut sink = lock(&sink);
             sink.seq += 1;
             let seq = sink.seq;
             sink.push(PtyEvent::Output { data, seq });
@@ -541,32 +558,32 @@ pub fn pty_spawn(
         if !pending.is_empty() {
             emit(String::from_utf8_lossy(&pending).into_owned());
         }
-        sink.lock().unwrap().push(PtyEvent::Exit);
+        lock(&sink).push(PtyEvent::Exit);
         // The session is over either way (shell exited, or the tab killed it):
         // drop it from the map so its handles are released now rather than
         // whenever the tab happens to close, and reap the child so it doesn't
         // linger as a zombie on Unix.
-        app.state::<PtyState>().0.lock().unwrap().remove(&session_id);
+        lock(&app.state::<PtyState>().0).remove(&session_id);
         let _ = child.wait();
     });
 
     Ok(id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
     let writer = {
-        let sessions = state.0.lock().unwrap();
+        let sessions = lock(&state.0);
         Arc::clone(&sessions.get(&id).ok_or("unknown pty session")?.writer)
     };
-    let mut writer = writer.lock().unwrap();
+    let mut writer = lock(&writer);
     writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
     writer.flush().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let sessions = state.0.lock().unwrap();
+    let sessions = lock(&state.0);
     let session = sessions.get(&id).ok_or("unknown pty session")?;
     session
         .master
@@ -579,11 +596,11 @@ pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) 
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     // Removed from the map right away; the reader thread notices EOF once the
     // process is gone and does the rest of the cleanup (see pty_spawn).
-    let session = state.0.lock().unwrap().remove(&id);
+    let session = lock(&state.0).remove(&id);
     if let Some(mut session) = session {
         session.killer.kill().map_err(|e| e.to_string())?;
     }
@@ -595,29 +612,29 @@ pub fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
 /// program itself never notices. Returns the `seq` of the last output already
 /// sent - the old terminal waits until it has processed that one before
 /// snapshotting its screen, so nothing sent before the detach is lost.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_detach(state: State<'_, PtyState>, id: String) -> Result<u64, String> {
-    let mut sessions = state.0.lock().unwrap();
+    let mut sessions = lock(&state.0);
     let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
     session.owner = None;
-    let mut sink = session.sink.lock().unwrap();
+    let mut sink = lock(&session.sink);
     sink.channel = None;
     Ok(sink.seq)
 }
 
 /// Second half of the move: the session's new terminal (in `window`) takes
 /// over its output, starting with whatever was held since `pty_detach`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_attach(
     window: tauri::WebviewWindow,
     state: State<'_, PtyState>,
     id: String,
     on_event: Channel<PtyEvent>,
 ) -> Result<(), String> {
-    let mut sessions = state.0.lock().unwrap();
+    let mut sessions = lock(&state.0);
     let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
     session.owner = Some(window.label().to_string());
-    let mut sink = session.sink.lock().unwrap();
+    let mut sink = lock(&session.sink);
     for event in sink.buffered.drain(..) {
         let _ = on_event.send(event);
     }
@@ -632,7 +649,7 @@ impl PtyState {
     /// are gone with it. Sessions in transit belong to no window and are left
     /// alone.
     pub fn kill_owned_by(&self, label: &str) {
-        let mut sessions = self.0.lock().unwrap();
+        let mut sessions = lock(&self.0);
         let ids: Vec<String> = sessions
             .iter()
             .filter(|(_, s)| s.owner.as_deref() == Some(label))
@@ -753,7 +770,7 @@ fn foreground(leader: Option<u32>, root: u32) -> Option<Foreground> {
 #[tauri::command]
 pub async fn pty_foreground(state: State<'_, PtyState>, id: String) -> Result<Foreground, String> {
     let (root, leader) = {
-        let sessions = state.0.lock().unwrap();
+        let sessions = lock(&state.0);
         let session = sessions.get(&id).ok_or("unknown pty session")?;
         // Unix: the terminal's foreground process group - the kernel's own
         // answer to "who gets what's typed", exact by definition.

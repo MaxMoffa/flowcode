@@ -434,8 +434,8 @@ fn launch_installer(installer: &Path, install_dir: &Path) -> Result<(), String> 
     cmd.spawn().map(|_| ()).map_err(|e| if is_italian() { format!("Impossibile avviare l'installer: {e}") } else { format!("Couldn't start the installer: {e}") })
 }
 
-/// Downloads, verifies and starts the update `update_check` found, then quits
-/// - the installer takes it from there and relaunches the new version. Only
+/// Downloads, verifies and starts the update `update_check` found, then quits;
+/// the installer takes it from there and relaunches the new version. Only
 /// returns (with an error) when something failed before the hand-off.
 #[tauri::command]
 pub async fn update_install(

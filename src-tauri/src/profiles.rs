@@ -447,15 +447,6 @@ pub async fn profile_for_path(app: AppHandle, path: String) -> Result<Option<Str
     .await
 }
 
-#[tauri::command]
-pub async fn profile_login_state(app: AppHandle, id: Option<String>) -> Result<LoginState, String> {
-    crate::blocking(move || {
-        let d = dirs(&app, id.as_deref()).ok_or("Unknown profile")?;
-        Ok(login_state(&d))
-    })
-    .await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

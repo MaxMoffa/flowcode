@@ -14,9 +14,12 @@
 //! surfaced as an error.
 
 use serde::Serialize;
-use std::io::{Read, Seek, SeekFrom};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
+
+use crate::util::{lock, now_ms, same_dir};
 
 /// The model Flowcode registers in Vibe's config (see `vibe_ensure_model`):
 /// Mistral Large 4, which Vibe doesn't list on its own yet. Prices are
@@ -59,12 +62,32 @@ struct SessionMeta {
     dir: PathBuf,
 }
 
+/// A session's `meta.json`, parsed again only when its mtime changes: the
+/// agents poll asks for the same few sessions every couple of seconds.
 fn read_meta(dir: &Path) -> Option<SessionMeta> {
+    type MetaCache = HashMap<PathBuf, (Option<u64>, Option<SessionMeta>)>;
+    static CACHE: LazyLock<Mutex<MetaCache>> = LazyLock::new(Default::default);
+    /// Past this many remembered sessions the cache is dropped and refilled -
+    /// a bound, not a policy: only the newest few are ever asked for.
+    const MAX_CACHED: usize = 512;
+
     let path = dir.join("meta.json");
     let updated_at = crate::fs::system_time_to_millis(std::fs::metadata(&path).and_then(|m| m.modified()));
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    parse_meta(&value, dir.to_path_buf(), updated_at)
+    if let Some((at, meta)) = lock(&CACHE).get(dir) {
+        if *at == updated_at && updated_at.is_some() {
+            return meta.clone();
+        }
+    }
+    let meta = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|value| parse_meta(&value, dir.to_path_buf(), updated_at));
+    let mut cache = lock(&CACHE);
+    if cache.len() >= MAX_CACHED {
+        cache.clear();
+    }
+    cache.insert(dir.to_path_buf(), (updated_at, meta.clone()));
+    meta
 }
 
 fn parse_meta(value: &serde_json::Value, dir: PathBuf, updated_at: Option<u64>) -> Option<SessionMeta> {
@@ -105,28 +128,71 @@ fn parse_meta(value: &serde_json::Value, dir: PathBuf, updated_at: Option<u64>) 
     })
 }
 
-/// Every session folder under `root` with its `meta.json` mtime, newest
-/// first - one cheap stat each, so callers only open what they keep.
-fn session_dirs(root: &Path) -> Vec<(PathBuf, Option<u64>)> {
-    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
-    let mut dirs: Vec<(PathBuf, Option<u64>)> = entries
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .filter_map(|p| {
-            let mtime = std::fs::metadata(p.join("meta.json")).and_then(|m| m.modified());
-            if mtime.is_err() {
-                return None;
-            }
-            Some((p, crate::fs::system_time_to_millis(mtime)))
-        })
-        .collect();
-    dirs.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
-    dirs
-}
+type Dirs = Arc<Vec<(PathBuf, Option<u64>)>>;
 
-fn now_ms() -> u64 {
-    crate::fs::system_time_to_millis(Ok(std::time::SystemTime::now())).unwrap_or(0)
+/// Every session folder under `root` with its `meta.json` mtime, newest
+/// first - so callers only open what they keep.
+///
+/// The listing is shared: every Vibe tab asks on each poll, and a folder with
+/// months of sessions is a lot to list and stat that many times. It is reused
+/// for `REUSE`; after that, if the root itself is unchanged (no session
+/// added or removed) only the newest `RESTAT` folders' mtimes are read again
+/// (an older session being written to is the rare case), and everything is
+/// listed afresh when the root changed or `FULL_EVERY` has passed.
+fn session_dirs(root: &Path) -> Dirs {
+    const REUSE: Duration = Duration::from_secs(2);
+    const RESTAT: usize = 64;
+    const FULL_EVERY: Duration = Duration::from_secs(60);
+    struct Listing {
+        root_mtime: Option<std::time::SystemTime>,
+        built: Instant,
+        checked: Instant,
+        dirs: Dirs,
+    }
+    static CACHE: LazyLock<Mutex<HashMap<PathBuf, Listing>>> = LazyLock::new(Default::default);
+    let meta_mtime = |dir: &Path| std::fs::metadata(dir.join("meta.json")).and_then(|m| m.modified());
+
+    let root_mtime = std::fs::metadata(root).and_then(|m| m.modified()).ok();
+    let known = lock(&CACHE).get(root).map(|l| (l.root_mtime, l.built, l.checked, l.dirs.clone()));
+    if let Some((cached_mtime, built, checked, dirs)) = known {
+        if checked.elapsed() < REUSE {
+            return dirs;
+        }
+        if root_mtime.is_some() && cached_mtime == root_mtime && built.elapsed() < FULL_EVERY {
+            let mut fresh = (*dirs).clone();
+            for (dir, mtime) in fresh.iter_mut().take(RESTAT) {
+                *mtime = crate::fs::system_time_to_millis(meta_mtime(dir));
+            }
+            fresh.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
+            let fresh = Arc::new(fresh);
+            if let Some(l) = lock(&CACHE).get_mut(root) {
+                l.checked = Instant::now();
+                l.dirs = fresh.clone();
+            }
+            return fresh;
+        }
+    }
+
+    let mut dirs: Vec<(PathBuf, Option<u64>)> = match std::fs::read_dir(root) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .filter_map(|p| {
+                let mtime = meta_mtime(&p);
+                if mtime.is_err() {
+                    return None;
+                }
+                Some((p, crate::fs::system_time_to_millis(mtime)))
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    dirs.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
+    let dirs = Arc::new(dirs);
+    let now = Instant::now();
+    lock(&CACHE).insert(root.to_path_buf(), Listing { root_mtime, built: now, checked: now, dirs: dirs.clone() });
+    dirs
 }
 
 /// What a session's transcript says about its current turn: `Some(true)`
@@ -136,26 +202,39 @@ fn now_ms() -> u64 {
 /// step by step; only the wait for the very first answer of a turn isn't
 /// visible. Reads the file's tail only - never a whole transcript.
 fn turn_open(dir: &Path) -> Option<bool> {
-    const TAIL: u64 = 256 * 1024;
-    let mut file = std::fs::File::open(dir.join("messages.jsonl")).ok()?;
-    let len = file.metadata().ok()?.len();
-    file.seek(SeekFrom::Start(len.saturating_sub(TAIL))).ok()?;
-    let mut buf = Vec::new();
-    file.take(TAIL).read_to_end(&mut buf).ok()?;
-    let text = String::from_utf8_lossy(&buf);
-    let last = text.lines().rev().find(|l| !l.trim().is_empty())?;
-    let message: serde_json::Value = serde_json::from_str(last).ok()?;
-    let role = message.get("role")?.as_str()?;
-    let pending_tools = message
-        .get("tool_calls")
-        .and_then(|c| c.as_array())
-        .is_some_and(|c| !c.is_empty());
-    Some(role == "tool" || role == "user" || (role == "assistant" && pending_tools))
-}
+    const CHUNK: u64 = 16 * 1024;
+    /// The last message is normally small; a huge one is given up on.
+    const MAX_SCAN: u64 = 256 * 1024;
+    /// Path -> (file length when read, answer): an idle session is asked
+    /// about on every poll and its transcript hasn't changed.
+    type TurnCache = HashMap<PathBuf, (u64, Option<bool>)>;
+    static CACHE: LazyLock<Mutex<TurnCache>> = LazyLock::new(Default::default);
 
-fn same_dir(a: &str, b: &str) -> bool {
-    let norm = |s: &str| s.trim_end_matches(['\\', '/']).replace('\\', "/").to_lowercase();
-    norm(a) == norm(b)
+    let path = dir.join("messages.jsonl");
+    let len = std::fs::metadata(&path).ok()?.len();
+    if let Some((at, open)) = lock(&CACHE).get(&path) {
+        if *at == len {
+            return *open;
+        }
+    }
+    // The last non-blank line decides, found from the end.
+    let open = crate::agents::scan_lines_backwards(&path, CHUNK, MAX_SCAN, |line| {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            return None;
+        }
+        Some((|| {
+            let message: serde_json::Value = serde_json::from_slice(line).ok()?;
+            let role = message.get("role")?.as_str()?;
+            let pending_tools = message
+                .get("tool_calls")
+                .and_then(|c| c.as_array())
+                .is_some_and(|c| !c.is_empty());
+            Some(role == "tool" || role == "user" || (role == "assistant" && pending_tools))
+        })())
+    })
+    .flatten();
+    lock(&CACHE).insert(path, (len, open));
+    open
 }
 
 /// The session a `vibe` using Vibe home `home` and running in `cwd` is working
@@ -175,7 +254,7 @@ pub(crate) fn live_session_under(
     started_at: Option<u64>,
 ) -> Option<(String, Option<String>, &'static str)> {
     let meta = session_dirs(root)
-        .into_iter()
+        .iter()
         // A session last written before this process started belongs to an
         // earlier run, not this one (a fresh `vibe` writes nothing until its
         // first answer). A minute of slack covers clock rounding.
@@ -184,7 +263,7 @@ pub(crate) fn live_session_under(
             _ => true,
         })
         .take(40)
-        .filter_map(|(dir, _)| read_meta(&dir))
+        .filter_map(|(dir, _)| read_meta(dir))
         .find(|m| !m.child && m.cwd.as_deref().is_some_and(|c| same_dir(c, cwd)))?;
     let status = match turn_open(&meta.dir) {
         Some(true) => "busy",
@@ -217,9 +296,9 @@ const MAX_VIBE_SESSIONS: usize = 8;
 
 fn scan_saved_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&str>) -> Vec<VibeSessionEntry> {
     session_dirs(root)
-        .into_iter()
+        .iter()
         .take(MAX_VIBE_SESSIONS * 4)
-        .filter_map(|(dir, _)| read_meta(&dir))
+        .filter_map(|(dir, _)| read_meta(dir))
         .filter(|m| !m.child)
         .filter_map(|m| {
             Some(VibeSessionEntry {
@@ -237,24 +316,10 @@ fn scan_saved_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&s
 
 /// `~/.vibe/logs/session` of the default WSL distro, through its
 /// `\\wsl.localhost` share - where Vibe keeps its sessions when it's used
-/// from WSL. The distro's home is asked once per run.
-#[cfg(target_os = "windows")]
+/// from WSL.
 fn wsl_sessions_root() -> Option<(String, PathBuf)> {
-    static HOME: std::sync::OnceLock<Option<(String, String)>> = std::sync::OnceLock::new();
-    let (distro, home) = HOME
-        .get_or_init(|| {
-            let distro = crate::system::wsl_default_distro()?;
-            let home = crate::system::wsl_home_dir(distro.clone(), None)?;
-            Some((distro, home))
-        })
-        .clone()?;
-    let unc = format!(r"\\wsl.localhost\{distro}{}", home.replace('/', r"\"));
-    Some((distro, sessions_root(&PathBuf::from(unc).join(".vibe"))))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn wsl_sessions_root() -> Option<(String, PathBuf)> {
-    None
+    let (distro, home) = crate::util::wsl_default_home()?;
+    Some((distro.clone(), sessions_root(&crate::util::wsl_unc(&distro, &home).join(".vibe"))))
 }
 
 /// How long a scan of the WSL sessions folder is reused - every file access
@@ -275,7 +340,7 @@ pub async fn list_vibe_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> R
             .flat_map(|(profile, dirs)| scan_saved_sessions(&sessions_root(&dirs.vibe), None, profile.as_deref()))
             .collect();
         let wsl = {
-            let mut cache = WSL_CACHE.lock().unwrap();
+            let mut cache = lock(&WSL_CACHE);
             match cache.as_ref() {
                 Some((at, cached)) if at.elapsed() < WSL_SCAN_TTL && fresh != Some(true) => cached.clone(),
                 _ => {
@@ -356,9 +421,9 @@ pub async fn vibe_usage_stats(
         let now = now_ms();
         let today = today_start.filter(|t| *t <= now).unwrap_or_else(|| utc_midnight(now));
         let metas: Vec<SessionMeta> = session_dirs(&sessions_root(&home))
-            .into_iter()
+            .iter()
             .take_while(|(_, mtime)| mtime.is_none_or(|m| now.saturating_sub(m) < 31 * 86_400_000))
-            .filter_map(|(dir, _)| read_meta(&dir))
+            .filter_map(|(dir, _)| read_meta(dir))
             .collect();
         Ok(summarize(&metas, now, today, has_api_key(Some(&home))))
     })

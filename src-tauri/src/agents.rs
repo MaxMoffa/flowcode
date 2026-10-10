@@ -12,7 +12,10 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use flowcode_shared::CREATE_NO_WINDOW;
 
+use flowcode_shared::i18n::tr;
+
 use crate::pty::PtyState;
+use crate::util::{has_bytes, lock, now_ms, same_dir, wsl_unc};
 use crate::windows::WindowTabs;
 
 /// Pids of this app's own throwaway `claude -p "/usage"` probes (see
@@ -350,7 +353,7 @@ impl LiveThread {
         if let Some(open) = self.turn_open {
             return if open { "busy" } else { "idle" };
         }
-        let now = crate::fs::system_time_to_millis(Ok(std::time::SystemTime::now())).unwrap_or(0);
+        let now = now_ms();
         match self.updated_at {
             Some(at) if now.saturating_sub(at) < BUSY_WINDOW_MS => "busy",
             _ => "idle",
@@ -413,7 +416,7 @@ fn rollout_turn_open(path: &Path) -> Option<bool> {
     static CACHE: LazyLock<Mutex<TurnCache>> = LazyLock::new(Default::default);
 
     let len = std::fs::metadata(path).ok()?.len();
-    if let Some((at, open)) = CACHE.lock().unwrap().get(path) {
+    if let Some((at, open)) = lock(&CACHE).get(path) {
         if *at == len {
             return *open;
         }
@@ -421,7 +424,7 @@ fn rollout_turn_open(path: &Path) -> Option<bool> {
     let open = scan_lines_backwards(path, CHUNK, MAX_SCAN, |line| {
         // Escaped inside any message text, so only a real event's own
         // payload matches.
-        let has = |needle: &[u8]| line.windows(needle.len()).any(|w| w == needle);
+        let has = |needle: &[u8]| has_bytes(line, needle);
         if has(br#"{"type":"task_started""#) {
             return Some(true);
         }
@@ -430,17 +433,8 @@ fn rollout_turn_open(path: &Path) -> Option<bool> {
         }
         None
     });
-    CACHE.lock().unwrap().insert(path.to_path_buf(), (len, open));
+    lock(&CACHE).insert(path.to_path_buf(), (len, open));
     open
-}
-
-/// Paths compared the way the OS would: separators and case (Windows) aside.
-fn same_dir(a: &str, b: &str) -> bool {
-    let norm = |p: &str| {
-        let p = p.trim_end_matches(['\\', '/']).replace('\\', "/");
-        if cfg!(windows) && !p.starts_with('/') { p.to_lowercase() } else { p }
-    };
-    norm(a) == norm(b)
 }
 
 /// The live thread working in `cwd` - the most recently active one, if a
@@ -460,26 +454,32 @@ struct RolloutMeta {
 
 fn rollout_meta(path: &Path) -> Option<RolloutMeta> {
     static CACHE: LazyLock<Mutex<HashMap<PathBuf, Option<RolloutMeta>>>> = LazyLock::new(Default::default);
-    if let Some(hit) = CACHE.lock().unwrap().get(path) {
+    if let Some(hit) = lock(&CACHE).get(path) {
         return hit.clone();
     }
-    let meta = (|| {
+    // The outer `None`: the first line couldn't be read (a rollout Codex has
+    // only just created) - not cached, so it is looked at again. The inner
+    // one: read, but not a `session_meta` shape - final.
+    let meta: Option<Option<RolloutMeta>> = (|| {
         let file = std::fs::File::open(path).ok()?;
         let line = BufReader::new(file).lines().next()?.ok()?;
         let value: serde_json::Value = serde_json::from_str(&line).ok()?;
-        let payload = value.get("payload")?;
-        Some(RolloutMeta {
-            id: payload
-                .get("id")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .or_else(|| uuid_from_filename(path))?,
-            cwd: payload.get("cwd")?.as_str()?.to_string(),
-            subagent: payload.get("parent_thread_id").is_some_and(|p| !p.is_null())
-                || payload.get("source").and_then(|s| s.get("subagent")).is_some(),
-        })
+        Some((|| {
+            let payload = value.get("payload")?;
+            Some(RolloutMeta {
+                id: payload
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .or_else(|| uuid_from_filename(path))?,
+                cwd: payload.get("cwd")?.as_str()?.to_string(),
+                subagent: payload.get("parent_thread_id").is_some_and(|p| !p.is_null())
+                    || payload.get("source").and_then(|s| s.get("subagent")).is_some(),
+            })
+        })())
     })();
-    CACHE.lock().unwrap().insert(path.to_path_buf(), meta.clone());
+    let meta = meta?;
+    lock(&CACHE).insert(path.to_path_buf(), meta.clone());
     meta
 }
 
@@ -490,7 +490,7 @@ fn thread_names_in(codex_home: &Path) -> HashMap<String, String> {
     static CACHE: LazyLock<Mutex<NameCache>> = LazyLock::new(Default::default);
     let index = codex_home.join("session_index.jsonl");
     let mtime = crate::fs::system_time_to_millis(std::fs::metadata(&index).and_then(|m| m.modified()));
-    let mut cache = CACHE.lock().unwrap();
+    let mut cache = lock(&CACHE);
     if let Some((at, names)) = cache.get(&index) {
         if *at == mtime {
             return names.clone();
@@ -541,11 +541,11 @@ fn host_live_threads_in(home: &Path, profile: &Option<String>) -> Vec<LiveThread
     if held.is_empty() {
         return Vec::new();
     }
-    let mut files = Vec::new();
-    find_rollout_files(&home.join("sessions"), 5, &mut files);
-    let names = thread_names_in(home);    held.iter()
+    let sessions = home.join("sessions");
+    let names = thread_names_in(home);
+    held.iter()
         .filter_map(|id| {
-            let path = files.iter().find(|f| f.to_string_lossy().contains(id.as_str()))?;
+            let path = &find_codex_rollout(&sessions, id)?;
             let meta = rollout_meta(path)?;
             if meta.subagent {
                 return None;
@@ -617,7 +617,7 @@ fn wsl_scan(distro: Option<&str>) -> std::sync::Arc<WslScan> {
     static CACHE: Mutex<Cache> = Mutex::new(Vec::new());
     // Held for the whole scan: a second caller waits for this one's result
     // instead of starting another wsl.exe.
-    let mut cache = CACHE.lock().unwrap();
+    let mut cache = lock(&CACHE);
     let key = distro.map(str::to_string);
     if let Some((_, at, scan)) = cache.iter().find(|(d, _, _)| *d == key) {
         if at.elapsed() < WSL_SCAN_REUSE {
@@ -673,16 +673,11 @@ fn wsl_agent_of(proc_: &WslProc) -> Option<(&'static str, &'static str)> {
     agent_of(&proc_.comm, &proc_.argv)
 }
 
-/// `\\wsl.localhost\<distro>\...` for a Linux path.
-fn wsl_unc(distro: &str, path: &str) -> PathBuf {
-    PathBuf::from(format!(r"\\wsl.localhost\{distro}{}", path.replace('/', r"\")))
-}
-
 /// Codex threads open right now inside the distro: a rollout some Codex
 /// process holds, worked on by a `codex` session running in that same folder
 /// (the daemon can keep a thread loaded after its terminal is gone).
 fn wsl_live_threads(distro: Option<&str>) -> Vec<LiveThread> {
-    let Some(distro_name) = distro.map(str::to_string).or_else(default_wsl_distro) else { return Vec::new() };
+    let Some(distro_name) = distro.map(str::to_string).or_else(crate::util::wsl_default_distro) else { return Vec::new() };
     let scan = wsl_scan(distro);
     let terminals: Vec<&WslProc> = scan
         .procs
@@ -718,7 +713,7 @@ fn wsl_live_threads(distro: Option<&str>) -> Vec<LiveThread> {
 /// The agents running inside a WSL distro in this app's tabs (`pty_ids`).
 fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec<AgentSession> {
     let scan = wsl_scan(distro);
-    let distro_name = distro.map(str::to_string).or_else(default_wsl_distro);
+    let distro_name = distro.map(str::to_string).or_else(crate::util::wsl_default_distro);
     let mut threads: Option<Vec<LiveThread>> = None;
 
     // The oldest matching process per tab - a CLI's own launcher (a node
@@ -776,21 +771,10 @@ fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec<AgentSessi
 }
 
 /// The Vibe session a `vibe` inside WSL works on - read from `~/.vibe` of
-/// the distro's default user (its home asked once per run), through the
+/// the distro's default user (its home asked once, retried if it failed), through the
 /// distro's file share.
 fn wsl_vibe_session(distro: &str, proc_: &WslProc) -> Option<(String, Option<String>, &'static str)> {
-    static HOMES: Mutex<Vec<(String, Option<String>)>> = Mutex::new(Vec::new());
-    let home = {
-        let mut homes = HOMES.lock().unwrap();
-        match homes.iter().find(|(d, _)| d == distro) {
-            Some((_, home)) => home.clone(),
-            None => {
-                let home = crate::system::wsl_home_dir(distro.to_string(), None);
-                homes.push((distro.to_string(), home.clone()));
-                home
-            }
-        }
-    }?;
+    let home = crate::util::wsl_home(distro)?;
     let root = wsl_unc(distro, &format!("{}/.vibe/logs/session", home.trim_end_matches('/')));
     crate::vibe::live_session_under(&root, &proc_.cwd, proc_.started_at)
 }
@@ -804,12 +788,6 @@ fn agent_of(comm: &str, argv: &str) -> Option<(&'static str, &'static str)> {
     }
     let script = argv.split_whitespace().nth(1)?.to_lowercase();
     script.split('/').find_map(|part| agent_binary(part.trim_end_matches(".js").trim_end_matches(".py")))
-}
-
-/// The default WSL distro's name, asked once per app run (a `wsl.exe` call).
-fn default_wsl_distro() -> Option<String> {
-    static DISTRO: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    DISTRO.get_or_init(crate::system::wsl_default_distro).clone()
 }
 
 /// One entry from `claude agents --json` - Claude Code's own registry of
@@ -887,13 +865,13 @@ fn host_app_of(sys: &System, pid: u32) -> Option<String> {
         let stem = raw.strip_suffix(".exe").unwrap_or(&raw);
         let app = match stem {
             "flowcode" if process.pid().as_u32() == own => "Flowcode",
-            "flowcode" => "altra istanza di Flowcode",
+            "flowcode" => tr("altra istanza di Flowcode", "another Flowcode instance"),
             "windowsterminal" => "Windows Terminal",
             "code" => "VS Code",
             "cursor" => "Cursor",
             "idea64" | "idea" => "IntelliJ IDEA",
             "iterm2" => "iTerm2",
-            "terminal" => "Terminale",
+            "terminal" => tr("Terminale", "Terminal"),
             _ => {
                 current = process.parent();
                 continue;
@@ -902,6 +880,69 @@ fn host_app_of(sys: &System, pid: u32) -> Option<String> {
         return Some(app.to_string());
     }
     None
+}
+
+/// How long one `claude agents --json` answer is reused: the frontend polls
+/// every few seconds, and each run is a `cmd` + Node start-up.
+const CLAUDE_AGENTS_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+const CLAUDE_AGENTS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// The usage probe is a real `claude -p` start-up, and can be slow.
+const CLAUDE_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+#[derive(Default)]
+struct AgentsRun {
+    running: bool,
+    /// The last answer, and when it came.
+    last: Option<(std::time::Instant, Vec<ClaudeAgentEntry>)>,
+}
+
+/// What `claude agents --json` lists for one profile (`dir`: its Claude
+/// folder), without a process spawn per call: an answer under
+/// `CLAUDE_AGENTS_TTL` old is reused, and while a run is in flight (a slow
+/// one, overlapping polls) callers get the last answer instead of starting
+/// another. The command is killed after `CLAUDE_AGENTS_TIMEOUT`.
+fn claude_agents_for(profile: &Option<String>, dir: &Path) -> Result<Vec<ClaudeAgentEntry>, String> {
+    static RUNS: LazyLock<Mutex<HashMap<Option<String>, AgentsRun>>> = LazyLock::new(Default::default);
+    {
+        let mut runs = lock(&RUNS);
+        let run = runs.entry(profile.clone()).or_default();
+        if let Some((at, entries)) = &run.last {
+            if at.elapsed() < CLAUDE_AGENTS_TTL {
+                return Ok(entries.clone());
+            }
+        }
+        if run.running {
+            return Ok(run.last.as_ref().map(|(_, e)| e.clone()).unwrap_or_default());
+        }
+        run.running = true;
+    }
+    let envs = match profile {
+        Some(_) => vec![("CLAUDE_CONFIG_DIR".to_string(), dir.to_string_lossy().into_owned())],
+        None => Vec::new(),
+    };
+    // `Ok(None)`: no fresh answer (timed out) - nothing to cache.
+    let result: Result<Option<Vec<ClaudeAgentEntry>>, String> =
+        match flowcode_shared::run_command_blocking_timeout("claude agents --json", &envs, CLAUDE_AGENTS_TIMEOUT) {
+            // Not installed, not on PATH, or an old version without this
+            // subcommand - all read the same to the frontend: no data, not an
+            // error to surface (the usage popover already has its own separate
+            // "not installed"/"not logged in" messaging for Claude).
+            Ok(output) if !output.status.success() => Ok(Some(Vec::new())),
+            Ok(output) => serde_json::from_slice(&output.stdout).map(Some).map_err(|e| e.to_string()),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(None),
+            Err(e) => Err(e.to_string()),
+        };
+    let mut runs = lock(&RUNS);
+    let run = runs.entry(profile.clone()).or_default();
+    run.running = false;
+    match result {
+        Ok(Some(entries)) => {
+            run.last = Some((std::time::Instant::now(), entries.clone()));
+            Ok(entries)
+        }
+        Ok(None) => Ok(run.last.as_ref().map(|(_, e)| e.clone()).unwrap_or_default()),
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -915,19 +956,15 @@ pub async fn list_claude_agents(
     // isn't worth a process spawn per poll).
     let claude_dirs = homes.claude.clone();
     let runs = crate::blocking(move || {
-        let mut runs: Vec<(Option<String>, std::process::Output)> = Vec::new();
+        let mut runs: Vec<(Option<String>, Vec<ClaudeAgentEntry>)> = Vec::new();
         for (profile, dir) in &claude_dirs {
             if profile.is_some() && !has_claude_sessions(dir) {
                 continue;
             }
-            let envs = match profile {
-                Some(_) => vec![("CLAUDE_CONFIG_DIR".to_string(), dir.to_string_lossy().into_owned())],
-                None => Vec::new(),
-            };
-            match crate::plugins::run_command_with_env("claude agents --json", &envs) {
-                Ok(output) => runs.push((profile.clone(), output)),
-                // The default run failing to even start is an error as before.
-                Err(e) if profile.is_none() => return Err(e.to_string()),
+            match claude_agents_for(profile, dir) {
+                Ok(entries) => runs.push((profile.clone(), entries)),
+                // The default run failing to start or to parse is an error.
+                Err(e) if profile.is_none() => return Err(e),
                 Err(_) => {}
             }
         }
@@ -937,20 +974,7 @@ pub async fn list_claude_agents(
 
     let mut entries: Vec<ClaudeAgentEntry> = Vec::new();
     let mut seen: HashSet<u32> = HashSet::new();
-    for (profile, output) in runs {
-        // Not installed, not on PATH, or an old version without this
-        // subcommand - all read the same to the frontend: no data, not an
-        // error to surface (the usage popover already has its own separate
-        // "not installed"/"not logged in" messaging for Claude).
-        if !output.status.success() {
-            continue;
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let parsed: Vec<ClaudeAgentEntry> = match serde_json::from_str(&stdout) {
-            Ok(parsed) => parsed,
-            Err(e) if profile.is_none() => return Err(e.to_string()),
-            Err(_) => continue,
-        };
+    for (profile, parsed) in runs {
         for mut entry in parsed {
             // First wins: the default profile's run comes first.
             if seen.insert(entry.pid) {
@@ -960,7 +984,7 @@ pub async fn list_claude_agents(
         }
     }
     let entries: Vec<ClaudeAgentEntry> = {
-        let excluded = probe_pids.0.lock().unwrap();
+        let excluded = lock(&probe_pids.0);
         entries.into_iter().filter(|e| !excluded.contains(&e.pid)).collect()
     };
     if entries.is_empty() {
@@ -986,9 +1010,9 @@ pub async fn list_claude_agents(
 /// - a plain-text, client-side-only query, no model call. Spawned directly
 /// (no shell) rather than through `run_command_blocking`: that both sidesteps
 /// the cmd.exe re-quoting hazard documented on `cli_is_logged_in` and, more
-/// importantly, hands back the *actual* `claude` pid - the one `claude agents
-/// --json` will report - so it can be tracked in `ProbePids` and filtered out
-/// of `list_claude_agents` for the short time it's alive.
+/// importantly, hands back the *actual* `claude` pid - the one the registry
+/// behind `list_claude_agents` will report - so it can be tracked in
+/// `ProbePids` and filtered out of it for the short time it's alive.
 #[tauri::command]
 pub async fn run_claude_usage_probe(
     app: tauri::AppHandle,
@@ -1021,11 +1045,11 @@ pub async fn run_claude_usage_probe(
     cmd.creation_flags(CREATE_NO_WINDOW);
     let child = cmd.spawn().map_err(|e| e.to_string())?;
     let pid = child.id();
-    probe_pids.0.lock().unwrap().insert(pid);
+    lock(&probe_pids.0).insert(pid);
 
-    let result = tauri::async_runtime::spawn_blocking(move || child.wait_with_output()).await;
+    let result = tauri::async_runtime::spawn_blocking(move || flowcode_shared::wait_with_timeout(child, CLAUDE_PROBE_TIMEOUT)).await;
 
-    probe_pids.0.lock().unwrap().remove(&pid);
+    lock(&probe_pids.0).remove(&pid);
 
     let output = result.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -1104,24 +1128,11 @@ fn codex_thread_names(sessions_root: &Path) -> HashMap<String, String> {
 
 /// `~/.codex/sessions` of the default WSL distro, through its
 /// `\\wsl.localhost` share - where Codex keeps its sessions when it's used
-/// from WSL rather than Windows. The distro's home is asked once per run.
-#[cfg(target_os = "windows")]
+/// from WSL rather than Windows.
 fn wsl_codex_sessions_root() -> Option<(String, PathBuf)> {
-    static HOME: std::sync::OnceLock<Option<(String, String)>> = std::sync::OnceLock::new();
-    let (distro, home) = HOME
-        .get_or_init(|| {
-            let distro = default_wsl_distro()?;
-            let home = crate::system::wsl_home_dir(distro.clone(), None)?;
-            Some((distro, home))
-        })
-        .clone()?;
-    let unc = format!(r"\\wsl.localhost\{distro}{}", home.replace('/', r"\"));
-    Some((distro, PathBuf::from(unc).join(".codex").join("sessions")))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn wsl_codex_sessions_root() -> Option<(String, PathBuf)> {
-    None
+    let (distro, home) = crate::util::wsl_default_home()?;
+    let root = wsl_unc(&distro, &home).join(".codex").join("sessions");
+    Some((distro, root))
 }
 
 /// Max sessions listed in the sidebar - a project with years of history
@@ -1129,26 +1140,86 @@ fn wsl_codex_sessions_root() -> Option<(String, PathBuf)> {
 /// resuming.
 const MAX_CODEX_SESSIONS: usize = 8;
 
-/// Recursively collects `rollout-*.jsonl` files under `dir` - bounded depth
-/// rather than a hardcoded year/month/day nesting, so it survives either
-/// layout. Archived sessions (`.jsonl.zst`, zstd-compressed) are skipped:
-/// there's no decompression dependency here, and archived history isn't
-/// worth pulling into a live sidebar anyway.
-fn find_rollout_files(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
+fn is_rollout_name(name: &str) -> bool {
+    name.starts_with("rollout-") && name.ends_with(".jsonl")
+}
+
+/// The entries of `dir` by name, descending: Codex lays sessions out as
+/// `YYYY/MM/DD/rollout-<timestamp>-<id>.jsonl`, so that is newest first.
+fn entries_newest_first(dir: &Path) -> Vec<std::fs::DirEntry> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+    entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+    entries
+}
+
+/// Collects `rollout-*.jsonl` files under `dir`, newest first (see
+/// `entries_newest_first`), and stops once `limit` are found - a history of
+/// years is never walked past what's wanted. Bounded depth rather than a
+/// hardcoded year/month/day nesting, so it survives either layout. Archived
+/// sessions (`.jsonl.zst`, zstd-compressed) are skipped: there's no
+/// decompression dependency here, and archived history isn't worth pulling
+/// into a live sidebar anyway.
+fn find_recent_rollouts(dir: &Path, depth: u8, limit: usize, out: &mut Vec<PathBuf>) {
     if depth == 0 {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.is_dir() {
-            find_rollout_files(&path, depth - 1, out);
-        } else if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
-        {
-            out.push(path);
+    for entry in entries_newest_first(dir) {
+        if out.len() >= limit {
+            return;
+        }
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
+            find_recent_rollouts(&entry.path(), depth - 1, limit, out);
+        } else if entry.file_name().to_str().is_some_and(is_rollout_name) {
+            out.push(entry.path());
+        }
+    }
+}
+
+/// The rollout of thread `id` under a Codex `sessions` folder
+/// (`rollout-<timestamp>-<id>.jsonl`), found newest day first - a thread being
+/// asked about is almost always recent. A found path is remembered (a
+/// rollout doesn't move), and a miss for a few seconds, since the agents poll
+/// asks again every couple of seconds.
+pub(crate) fn find_codex_rollout(sessions: &Path, id: &str) -> Option<PathBuf> {
+    const MISS_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+    type Key = (PathBuf, String);
+    static FOUND: LazyLock<Mutex<HashMap<Key, PathBuf>>> = LazyLock::new(Default::default);
+    static MISSED: LazyLock<Mutex<HashMap<Key, std::time::Instant>>> = LazyLock::new(Default::default);
+
+    fn walk(dir: &Path, suffix: &str, depth: u8) -> Option<PathBuf> {
+        if depth == 0 {
+            return None;
+        }
+        for entry in entries_newest_first(dir) {
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() {
+                if let Some(found) = walk(&entry.path(), suffix, depth - 1) {
+                    return Some(found);
+                }
+            } else if entry.file_name().to_str().is_some_and(|n| is_rollout_name(n) && n.ends_with(suffix)) {
+                return Some(entry.path());
+            }
+        }
+        None
+    }
+
+    let key = (sessions.to_path_buf(), id.to_string());
+    if let Some(path) = lock(&FOUND).get(&key).filter(|p| p.is_file()) {
+        return Some(path.clone());
+    }
+    if lock(&MISSED).get(&key).is_some_and(|at| at.elapsed() < MISS_TTL) {
+        return None;
+    }
+    match walk(sessions, &format!("-{id}.jsonl"), 4) {
+        Some(path) => {
+            lock(&FOUND).insert(key, path.clone());
+            Some(path)
+        }
+        None => {
+            lock(&MISSED).insert(key, std::time::Instant::now());
+            None
         }
     }
 }
@@ -1190,42 +1261,32 @@ fn read_codex_session(
     wsl_distro: Option<&str>,
     profile: Option<&str>,
 ) -> Option<CodexSessionEntry> {
-    let file = std::fs::File::open(path).ok()?;
-    let reader = BufReader::new(file);
+    let entry = |cwd: String, session_id: String| CodexSessionEntry {
+        cwd,
+        session_id,
+        started_at,
+        wsl_distro: wsl_distro.map(str::to_string),
+        name: None,
+        live: false,
+        status: None,
+        in_flowcode: false,
+        profile: profile.map(str::to_string),
+    };
+    // Current Codex: the first record is `session_meta`, whose `id` is the
+    // thread `codex resume` takes (its `session_id` can name another thread).
+    // Sub-agent threads (a reviewer, a spawned helper) have one too, with a
+    // parent - not something to resume on its own.
+    if let Some(meta) = rollout_meta(path) {
+        return if meta.subagent { None } else { Some(entry(meta.cwd, meta.id)) };
+    }
+    // Older layouts: no `session_meta` envelope - best-effort search.
+    let reader = BufReader::new(std::fs::File::open(path).ok()?);
     let mut cwd: Option<String> = None;
     let mut session_id: Option<String> = None;
     for line in reader.lines().take(20).filter_map(|l| l.ok()) {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
-        // Current Codex: the first record is `session_meta`, whose `id` is
-        // the thread `codex resume` takes (its `session_id` can name another
-        // thread). Sub-agent threads (a reviewer, a spawned helper) have one
-        // too, with a parent - not something to resume on its own.
-        if value.get("type").and_then(|t| t.as_str()) == Some("session_meta") {
-            let payload = value.get("payload")?;
-            let is_subagent = payload.get("parent_thread_id").is_some_and(|p| !p.is_null())
-                || payload.get("source").and_then(|s| s.get("subagent")).is_some();
-            if is_subagent {
-                return None;
-            }
-            let id = payload.get("id").and_then(|v| v.as_str()).map(str::to_string);
-            let meta_cwd = payload.get("cwd").and_then(|v| v.as_str()).map(str::to_string);
-            if let (Some(id), Some(cwd)) = (id.or_else(|| uuid_from_filename(path)), meta_cwd) {
-                return Some(CodexSessionEntry {
-                    cwd,
-                    session_id: id,
-                    started_at,
-                    wsl_distro: wsl_distro.map(str::to_string),
-                    name: None,
-                    live: false,
-                    status: None,
-                    in_flowcode: false,
-                    profile: profile.map(str::to_string),
-                });
-            }
-        }
-        // Older layouts: no `session_meta` envelope - best-effort search.
         if cwd.is_none() {
             cwd = find_string_field(&value, "cwd");
         }
@@ -1236,19 +1297,8 @@ fn read_codex_session(
             break;
         }
     }
-    let cwd = cwd?;
     let session_id = session_id.or_else(|| uuid_from_filename(path))?;
-    Some(CodexSessionEntry {
-        cwd,
-        session_id,
-        started_at,
-        wsl_distro: wsl_distro.map(str::to_string),
-        name: None,
-        live: false,
-        status: None,
-        in_flowcode: false,
-        profile: profile.map(str::to_string),
-    })
+    Some(entry(cwd?, session_id))
 }
 
 /// How long a scan of the WSL sessions folder is reused: every file access
@@ -1271,7 +1321,7 @@ pub async fn list_codex_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> 
             .flat_map(|(profile, home)| scan_codex_sessions(&home.join("sessions"), None, profile.as_deref()))
             .collect();
         let wsl = {
-            let mut cache = WSL_CACHE.lock().unwrap();
+            let mut cache = lock(&WSL_CACHE);
             match cache.as_ref() {
                 Some((at, cached)) if at.elapsed() < WSL_SCAN_TTL && fresh != Some(true) => cached.clone(),
                 _ => {
@@ -1314,13 +1364,27 @@ pub async fn list_codex_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> 
     .await
 }
 
-fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&str>) -> Vec<CodexSessionEntry> {
-    let mut files = Vec::new();
-    find_rollout_files(root, 5, &mut files);
+/// How long one scan of a sessions folder serves: the sidebar and the agents
+/// list poll every few seconds, once per profile.
+const CODEX_SCAN_REUSE: std::time::Duration = std::time::Duration::from_secs(4);
 
-    // Sorted by mtime (one cheap stat each) *before* opening anything, so
-    // only the newest few files are actually read and parsed - not the whole
-    // history just to throw all but a handful away.
+fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&str>) -> Vec<CodexSessionEntry> {
+    type Cache = HashMap<PathBuf, (std::time::Instant, Vec<CodexSessionEntry>)>;
+    static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Default::default);
+    if let Some((at, sessions)) = lock(&CACHE).get(root) {
+        if at.elapsed() < CODEX_SCAN_REUSE {
+            return sessions.clone();
+        }
+    }
+
+    // Only the newest day folders are walked, and a few more files than shown
+    // (some are sub-agent threads or unreadable) - not the whole history just
+    // to throw all but a handful away.
+    let mut files = Vec::new();
+    find_recent_rollouts(root, 5, MAX_CODEX_SESSIONS * 4, &mut files);
+
+    // By mtime (one cheap stat each) before opening anything: a thread written
+    // to recently outranks one merely started later.
     let mut files: Vec<(PathBuf, Option<u64>)> = files
         .into_iter()
         .map(|p| {
@@ -1341,6 +1405,7 @@ fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile: Option<&s
             session.name = names.get(&session.session_id).cloned();
         }
     }
+    lock(&CACHE).insert(root.to_path_buf(), (std::time::Instant::now(), sessions.clone()));
     sessions
 }
 

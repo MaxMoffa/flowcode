@@ -12,6 +12,7 @@ mod session;
 mod spend;
 mod system;
 mod updater;
+mod util;
 mod vibe;
 mod watcher;
 mod windows;
@@ -156,7 +157,6 @@ pub fn run() {
             profiles::profile_delete,
             profiles::profile_set_project_default,
             profiles::profile_for_path,
-            profiles::profile_login_state,
             spend::cli_spend,
             context::agent_context,
             plugins::cli_billing_mode,

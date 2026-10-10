@@ -147,11 +147,6 @@ pub fn home_dir() -> Result<String, String> {
         .ok_or_else(|| "could not resolve home directory".to_string())
 }
 
-/// Per-OS app config directory (same root `overrides_path` and `plugins_dir`
-/// write into) - exposed so Settings → Informazioni can open it directly in
-/// the OS file manager. Created on demand: on a brand-new install nothing
-/// may have written here yet, and opening a path that doesn't exist would
-/// just fail silently.
 /// The installer's "Integrazioni" picks (plugin ids), if it left any - read
 /// once and deleted, so a later launch never re-applies them over whatever
 /// the user has changed since. `None` when there's no file: a Flowcode that
@@ -171,6 +166,11 @@ pub fn take_installer_features(app: AppHandle) -> Option<Vec<String>> {
     )
 }
 
+/// Per-OS app config directory (same root `overrides_path` and `plugins_dir`
+/// write into) - exposed so Settings → Informazioni can open it directly in
+/// the OS file manager. Created on demand: on a brand-new install nothing
+/// may have written here yet, and opening a path that doesn't exist would
+/// just fail silently.
 #[tauri::command]
 pub fn config_dir(app: AppHandle) -> Result<String, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
@@ -219,7 +219,29 @@ pub fn write_shortcuts_overrides(app: AppHandle, contents: String) -> Result<(),
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(path, contents).map_err(|e| e.to_string())
+    write_atomic(&path, contents.as_bytes()).map_err(|e| e.to_string())
+}
+
+/// Writes `bytes` to a sibling temp file and renames it over `path`, so a
+/// crash or a full disk mid-write leaves the old contents instead of a
+/// truncated file. `rename` replaces an existing file on Windows too. The
+/// original's permissions are kept on Unix (the temp file would otherwise come
+/// out with the default mode).
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = path.with_file_name(format!("{name}.tmp-{}", std::process::id()));
+    let result = (|| {
+        std::fs::write(&tmp, bytes)?;
+        #[cfg(unix)]
+        if let Ok(meta) = std::fs::metadata(path) {
+            let _ = std::fs::set_permissions(&tmp, meta.permissions());
+        }
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 #[tauri::command(async)]
@@ -310,18 +332,45 @@ pub async fn duplicate_entry(path: String) -> Result<FsEntry, String> {
 
 #[tauri::command(async)]
 pub fn read_text_file(path: String) -> Result<String, String> {
+    // The editor holds the whole text in memory (and ships it over IPC), so a
+    // multi-hundred-MB log would freeze it.
+    const MAX_BYTES: u64 = 20 * 1024 * 1024;
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_BYTES) {
+        return Err(tr(
+            "File troppo grande da aprire nell'editor (oltre 20 MB).",
+            "File too large to open in the editor (over 20 MB).",
+        )
+        .to_string());
+    }
     std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
 pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
-    std::fs::write(path, contents).map_err(|e| e.to_string())
+    write_atomic(Path::new(&path), contents.as_bytes()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn delete_entry(path: String, is_dir: bool) -> Result<(), String> {
+pub async fn delete_entry(app: AppHandle, path: String, is_dir: bool) -> Result<(), String> {
+    let config = app.path().app_config_dir().ok();
     blocking(move || {
         let target = Path::new(&path);
+        // A recursive delete one mis-click away from wiping a drive, the home
+        // folder or the app's own settings is never what the user meant.
+        let same = |other: &Path| match (std::fs::canonicalize(target), std::fs::canonicalize(other)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => target == other,
+        };
+        let protected = target.parent().is_none()
+            || user_home().is_some_and(|h| same(&h))
+            || config.as_deref().is_some_and(same);
+        if protected {
+            return Err(tr(
+                "Per sicurezza Flowcode non elimina questa cartella.",
+                "For safety Flowcode won't delete this folder.",
+            )
+            .to_string());
+        }
         let result = if is_dir { std::fs::remove_dir_all(target) } else { std::fs::remove_file(target) };
         result.map_err(|e| e.to_string())
     })

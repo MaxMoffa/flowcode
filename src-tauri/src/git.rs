@@ -60,76 +60,64 @@ pub struct GitStatus {
     pub conflicted: Vec<GitChange>,
 }
 
-/// Runs `git -C <dir> <args>` and returns its trimmed stdout. A failure carries
-/// git's own message (stderr, or stdout when stderr is empty) so the UI can show
-/// - or pattern-match - it. `GIT_TERMINAL_PROMPT=0` keeps git from blocking on
-/// a credential prompt nobody can answer, and `LC_ALL=C` keeps the messages in
-/// English so callers can recognise them.
-fn git(dir: &str, args: &[&str]) -> Result<String, String> {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd.output().map_err(|e| e.to_string())?;
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if output.status.success() {
-        return Ok(stdout);
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(if stderr.is_empty() { stdout } else { stderr })
-}
-
-/// `git` without trimming the output - file contents and `-z` records must
-/// come back byte for byte.
-fn git_raw(dir: &str, args: &[&str]) -> Result<String, String> {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd.output().map_err(|e| e.to_string())?;
-    if output.status.success() {
-        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-    }
-    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
-}
-
-/// Like `git`, but feeds `input` to git's stdin (commit messages go through
-/// `-F -` so they never hit argument quoting or length limits).
-fn git_with_input(dir: &str, args: &[&str], input: &str) -> Result<String, String> {
+/// The one place git is spawned. Returns stdout (trimmed when `trim`) on
+/// success; a failure carries git's own message (stderr, or stdout when stderr
+/// is empty) so the UI can show - or pattern-match - it. Environment:
+/// - `GIT_TERMINAL_PROMPT=0` keeps git from blocking on a credential prompt
+///   nobody can answer, and `LC_ALL=C` keeps the messages in English so
+///   callers can recognise them.
+/// - `GIT_LITERAL_PATHSPECS=1` so a UI path like `a[1].txt` is a file name, not
+///   a glob.
+/// - `GIT_OPTIONAL_LOCKS=0` so status polling never takes `index.lock` and
+///   breaks a commit an agent is running at the same moment.
+///
+/// `core.fsmonitor=false` is forced because a hostile `.git/config` could set
+/// it to a command, which git would then run on every status poll.
+fn run(dir: &str, args: &[&str], input: Option<&str>, trim: bool) -> Result<String, String> {
     use std::io::Write;
     let mut cmd = Command::new("git");
-    cmd.arg("-C")
+    cmd.args(["-c", "core.fsmonitor=false", "-C"])
         .arg(dir)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("LC_ALL", "C")
-        .stdin(Stdio::piped())
+        .env("GIT_LITERAL_PATHSPECS", "1")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    if let Some(mut stdin) = child.stdin.take() {
+    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
         // A write error just means git exited early; its status says why.
         let _ = stdin.write_all(input.as_bytes());
     }
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = if trim { stdout.trim().to_string() } else { stdout.to_string() };
     if output.status.success() {
         return Ok(stdout);
     }
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     Err(if stderr.is_empty() { stdout } else { stderr })
+}
+
+/// `git -C <dir> <args>`, trimmed stdout.
+fn git(dir: &str, args: &[&str]) -> Result<String, String> {
+    run(dir, args, None, true)
+}
+
+/// `git` without trimming the output - file contents and `-z` records must
+/// come back byte for byte.
+fn git_raw(dir: &str, args: &[&str]) -> Result<String, String> {
+    run(dir, args, None, false)
+}
+
+/// Like `git`, but feeds `input` to git's stdin (commit messages go through
+/// `-F -` so they never hit argument quoting or length limits).
+fn git_with_input(dir: &str, args: &[&str], input: &str) -> Result<String, String> {
+    run(dir, args, Some(input), true)
 }
 
 /// git prints forward slashes even on Windows; the frontend compares paths
@@ -438,7 +426,8 @@ pub async fn git_show_file(root: String, path: String, rev: String) -> Result<St
         if git(&root, &["cat-file", "-e", &spec]).is_err() {
             return Ok(String::new());
         }
-        git_raw(&root, &["show", &spec])
+        // No textconv: a repo-configured converter is a command we'd be running.
+        git_raw(&root, &["show", "--no-textconv", &spec])
     })
     .await
 }
@@ -538,18 +527,22 @@ pub async fn git_worktree_remove(
         let target = list_worktrees(&repo_root)?
             .into_iter()
             .find(|w| comparable(&w.path) == wanted);
-        if target.as_ref().is_some_and(|w| w.is_main) {
+        let Some(target) = target else {
+            return Err("That path isn't a worktree of this repository".to_string());
+        };
+        if target.is_main {
             return Err("That's the main working tree".to_string());
         }
         let mut args = vec!["worktree", "remove"];
         if force {
             args.push("--force");
         }
+        args.push("--");
         args.push(&path);
         git(&repo_root, &args)?;
 
         let mut branch_kept = None;
-        if let Some(branch) = target.and_then(|w| w.branch).filter(|b| b.starts_with(BRANCH_PREFIX)) {
+        if let Some(branch) = target.branch.filter(|b| b.starts_with(BRANCH_PREFIX)) {
             if git(&repo_root, &["branch", "-d", &branch]).is_err() {
                 branch_kept = Some(branch);
             }
