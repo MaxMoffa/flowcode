@@ -952,6 +952,20 @@ function Shell() {
   const sidebarPresence = usePanelPresence(sidebarDocked);
   const agentsPresence = usePanelPresence(agentsSidebarOpen);
 
+  // The usage popover's "Sign in" button: a window event, since the popover
+  // is portaled far from App. Only the known login commands are honoured.
+  const openLoginRef = useRef(openTerminalWithCommand);
+  openLoginRef.current = openTerminalWithCommand;
+  useEffect(() => {
+    const onCliLogin = (e: Event) => {
+      const { command, profile } = (e as CustomEvent<{ command?: string; profile?: string }>).detail ?? {};
+      if (!command || !Object.values(AGENT_CLI_LOGIN).includes(command)) return;
+      openLoginRef.current(command, profile);
+    };
+    window.addEventListener("flowcode:cli-login", onCliLogin);
+    return () => window.removeEventListener("flowcode:cli-login", onCliLogin);
+  }, []);
+
   useEffect(() => {
     if (effectiveSidebarMode !== "floating" || sidebarCollapsed) return;
     const onKeyDown = (e: KeyboardEvent) => {

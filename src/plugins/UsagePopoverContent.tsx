@@ -117,6 +117,17 @@ export function UsagePopoverContent({
               </div>
             )}
             {detail && <div className="plugin-usage-metric-detail">{detail}</div>}
+            {m.command && (m.kind === "loggedOut" || m.kind === "reauth" || m.kind === "noApiKey") && (
+              <button
+                type="button"
+                className="plugin-usage-login-btn"
+                onClick={() =>
+                  window.dispatchEvent(new CustomEvent("flowcode:cli-login", { detail: { command: m.command, profile } }))
+                }
+              >
+                {m.kind === "noApiKey" ? t("usage.setup") : t("usage.login")}
+              </button>
+            )}
           </div>
         );
       })}

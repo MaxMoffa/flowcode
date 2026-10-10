@@ -26,6 +26,7 @@ export interface UsageMetric {
     | "other"
     | "unavailable"
     | "loggedOut"
+    | "reauth"
     | "spend"
     | "model"
     | "noApiKey"
@@ -34,7 +35,7 @@ export interface UsageMetric {
   label?: string;
   /** When the window resets, as the CLI worded it. */
   resets?: string;
-  /** loggedOut / noApiKey: the command that signs in. */
+  /** loggedOut / reauth / noApiKey: the command that signs in. */
   command?: string;
   /** spend: the period summed up, and what was spent in it - cost in USD. */
   period?: "today" | "week" | "month";
@@ -78,6 +79,8 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
       return { label: t("usage.unavailable") };
     case "loggedOut":
       return { label: t("usage.notLinked"), detail: t("usage.loginHint", { command: m.command ?? "" }) };
+    case "reauth":
+      return { label: t("usage.reauth"), detail: t("usage.reauthHint") };
     case "noApiKey":
       return { label: t("usage.noApiKey"), detail: t("usage.apiKeyHint", { command: m.command ?? "" }) };
     case "spend":
@@ -100,9 +103,8 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
   }
 }
 
-/** A failed probe: a plain "Unavailable" in the popover, with every
- * detail (error, raw CLI output) moved into `debug`. */
-function unavailable(cli: string, sections: Record<string, string | undefined>): UsageInfo {
+/** The plain-text report behind the popover's "copy debug info" button. */
+function debugText(cli: string, sections: Record<string, string | undefined>): string {
   const lines = [
     `Flowcode v${pkg.version} · ${navigator.userAgent}`,
     `${cli} · ${new Date().toISOString()}`,
@@ -110,12 +112,24 @@ function unavailable(cli: string, sections: Record<string, string | undefined>):
       .filter(([, text]) => text?.trim())
       .map(([title, text]) => `\n--- ${title} ---\n${text!.replace(/\s+$/, "")}`),
   ];
+  return lines.join("\n");
+}
+
+/** A failed probe: a plain "Unavailable" in the popover, with every
+ * detail (error, raw CLI output) moved into `debug`. */
+function unavailable(cli: string, sections: Record<string, string | undefined>): UsageInfo {
   return {
     fetchedAt: Date.now(),
     ok: false,
     metrics: [{ kind: "unavailable" }],
-    debug: lines.join("\n"),
+    debug: debugText(cli, sections),
   };
+}
+
+/** The CLI is installed but its login has expired: the popover offers to
+ * run `command` to sign in again. */
+function reauthInfo(command: string, debug: string): UsageInfo {
+  return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "reauth", command }], debug };
 }
 
 /** `profile`: an account profile id (src/profiles), the default account when
@@ -230,11 +244,17 @@ async function fetchCodexUsage(profile?: string): Promise<UsageInfo> {
     // The whole screen goes into the debug info, so a format change in a
     // future Codex version (a relabeled row, different wording around the
     // percentage) is diagnosable instead of an opaque "no data".
-    return unavailable("Codex CLI", {
+    const sections = {
       Error: "No usage row recognized in /status.",
       Diagnostics: codexDiagnostic(screen),
       Screen: screen.trim(),
-    });
+    };
+    // An expired token leaves a /status screen asking to sign in again
+    // instead of the limit rows.
+    if (/sign.?in|log.?in|re-?auth|expired|unauthori[sz]ed/i.test(screen)) {
+      return reauthInfo("codex login", debugText("Codex CLI", sections));
+    }
+    return unavailable("Codex CLI", sections);
   }
   return { fetchedAt: Date.now(), ok: true, metrics };
 }
@@ -288,10 +308,17 @@ async function fetchClaudeUsage(profile?: string): Promise<UsageInfo> {
     .sort((a, b) => (a.kind === "session" ? -1 : b.kind === "session" ? 1 : 0));
 
   if (metrics.length === 0) {
-    return unavailable("Claude Code", {
+    const sections = {
       Error: "No usage row recognized in the output of claude -p /usage.",
       Output: out,
-    });
+    };
+    // With an expired login `/usage` still succeeds but only prints the
+    // local-sessions breakdown, no limit rows - that's an account problem,
+    // not a format change worth reporting.
+    if (/subscription|contributing to your limits/i.test(out)) {
+      return reauthInfo("claude auth login", debugText("Claude Code", sections));
+    }
+    return unavailable("Claude Code", sections);
   }
   return { fetchedAt: Date.now(), ok: true, metrics };
 }
