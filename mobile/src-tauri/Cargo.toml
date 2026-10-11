@@ -38,3 +38,11 @@ tokio = { version = "1", features = ["net", "sync", "time", "macros", "io-util",
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2"
 tauri-plugin-deep-link = "2"
+
+# Phones download this: optimize for size and drop symbols (an unstripped
+# debug-info .so made the APK ~30 MB instead of ~20).
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
