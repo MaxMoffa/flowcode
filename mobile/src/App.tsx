@@ -5,6 +5,7 @@ import { setLanguage, t } from "./i18n";
 import { LockScreen } from "./Lock";
 import { useLock } from "./applock";
 import { PairingScreen } from "./Pairing";
+import { Reconnect } from "./Reconnect";
 import { setLastOpened, start, useRemote } from "./remote";
 import { SettingsScreen } from "./Settings";
 import { TerminalScreen } from "./TerminalScreen";
@@ -62,7 +63,7 @@ export function App() {
   if (tab) {
     return (
       <>
-        <Banner />
+        <Reconnect />
         <TerminalScreen key={tab.ptyId} tab={tab} status={remote.status} onBack={() => setOpenPty(null)} />
         <Toast />
       </>
@@ -71,7 +72,7 @@ export function App() {
 
   return (
     <div className="screen">
-      <Banner />
+      <Reconnect />
       <main className="page">
         {page === "agents" && <AgentsScreen hostName={remote.hostName} tabs={remote.tabs} usage={remote.usage} onOpen={open} />}
         {page === "terminals" && <TerminalsScreen tabs={remote.tabs} onOpen={open} />}
@@ -79,18 +80,6 @@ export function App() {
       </main>
       <BottomNav page={page} onChange={setPage} />
       <Toast />
-    </div>
-  );
-}
-
-function Banner() {
-  const { status, error } = useRemote();
-  if (status === "online") return null;
-  return (
-    <div className="banner" role="status">
-      <i />
-      <span>{status === "connecting" ? t("connecting") : t("offline")}</span>
-      {error && status === "offline" && <small>{error}</small>}
     </div>
   );
 }

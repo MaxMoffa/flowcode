@@ -107,6 +107,14 @@ export interface Snapshot {
   hostName?: string;
   /** Last connection error, shown while offline or after a forced unpair. */
   error?: string;
+  /** Reconnect progress, only while not online. */
+  phase?: "waiting" | "dialing" | "handshake";
+  /** Consecutive failures since the link was last online. */
+  attempt?: number;
+  /** Unix ms of the next attempt, only while waiting. */
+  retryAt?: number;
+  /** Has been online at least once in this run. */
+  wasOnline: boolean;
   /** True while the pairing screen is mid-`pair`, so it stays on screen. */
   pairing: boolean;
   tabs: Tab[] | null;
@@ -140,7 +148,7 @@ function saveSettings(s: MirroredSettings | null) {
   }
 }
 
-let snap: Snapshot = { status: "loading", pairing: false, tabs: null, usage: [], actions: [], settings: loadSettings(), lastOpened: null, toast: null };
+let snap: Snapshot = { status: "loading", wasOnline: false, pairing: false, tabs: null, usage: [], actions: [], settings: loadSettings(), lastOpened: null, toast: null };
 const storeListeners = new Set<() => void>();
 const msgListeners = new Set<(m: ServerMsg) => void>();
 
@@ -210,6 +218,9 @@ interface StateEvent {
   status: Exclude<ConnStatus, "loading">;
   hostName?: string;
   error?: string;
+  phase?: "waiting" | "dialing" | "handshake";
+  attempt?: number;
+  retryAt?: number;
 }
 
 let started = false;
@@ -219,10 +230,10 @@ export async function start(): Promise<void> {
   started = true;
   await listen<ServerMsg>("remote://msg", (e) => handleMsg(e.payload));
   await listen<StateEvent>("remote://state", (e) => {
-    const { status, hostName, error } = e.payload;
+    const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
-    set({ status, hostName, error, ...(status === "unpaired" ? { tabs: null, usage: [], actions: [], settings: null, lastOpened: null } : {}) });
+    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true } : {}), ...(status === "unpaired" ? { tabs: null, usage: [], actions: [], settings: null, lastOpened: null } : {}) });
   });
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {
@@ -236,10 +247,11 @@ export async function start(): Promise<void> {
 export const platform = (): Promise<"mobile" | "desktop"> => invoke("platform");
 export const takePendingLink = (): Promise<string | null> => invoke("take_pending_link");
 export const pair = (ticket: string, deviceName: string): Promise<void> => invoke("pair", { ticket, deviceName });
+export const retryNow = (): Promise<void> => invoke("retry_now");
 export const unpair = (): Promise<void> => invoke("unpair");
 
 export function send(msg: ClientMsg) {
-  // "not connected" is routine while reconnecting; the UI already shows the banner.
+  // "not connected" is routine while reconnecting; the UI already shows the reconnect sheet.
   invoke("send", { msg }).catch(() => {});
 }
 

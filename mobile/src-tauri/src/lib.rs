@@ -12,10 +12,10 @@ use link::{LinkError, Session};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::Pairing;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::{mpsc, OnceCell};
+use tokio::sync::{mpsc, Notify, OnceCell};
 
 const PING_EVERY: Duration = Duration::from_secs(20);
 /// Pongs answer our pings, so 60 s of total silence means the link is dead
@@ -33,6 +33,15 @@ struct StateEvent {
     host_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// Where a reconnect attempt is: "waiting" (backoff) | "dialing" | "handshake".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    phase: Option<&'static str>,
+    /// Consecutive failures since the link was last online.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attempt: Option<u32>,
+    /// Unix ms when the next attempt starts; only while "waiting".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_at: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -57,6 +66,8 @@ struct Remote {
     dir: PathBuf,
     endpoint: OnceCell<Endpoint>,
     inner: Mutex<Inner>,
+    /// Cuts the backoff sleep short (`retry_now`).
+    retry: Notify,
 }
 
 impl Remote {
@@ -83,9 +94,27 @@ impl Remote {
     }
 
     fn set_state(&self, app: &AppHandle, status: &'static str, host_name: Option<String>, error: Option<String>) {
-        let event = StateEvent { status, host_name, error };
+        self.emit(app, StateEvent { status, host_name, error, ..Default::default() });
+    }
+
+    fn emit(&self, app: &AppHandle, event: StateEvent) {
         self.lock().state = event.clone();
         let _ = app.emit("remote://state", event);
+    }
+
+    /// Reports a reconnect phase for the phone's "connection lost" sheet.
+    fn set_phase(&self, app: &AppHandle, status: &'static str, host: Option<String>, error: Option<String>, phase: &'static str, attempt: u32, retry_at: Option<u64>) {
+        self.emit(app, StateEvent { status, host_name: host, error, phase: Some(phase), attempt: Some(attempt), retry_at });
+    }
+
+    /// Backoff sleep that `retry_now` can end early.
+    async fn wait(&self, app: &AppHandle, host: Option<String>, error: String, attempt: u32, delay: Duration) {
+        let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64) + delay.as_millis() as u64;
+        self.set_phase(app, "offline", host, Some(error), "waiting", attempt, Some(at));
+        tokio::select! {
+            _ = tokio::time::sleep(delay) => {}
+            _ = self.retry.notified() => {}
+        }
     }
 
     /// Stops the reconnect loop (if any) and drops its outbound queue.
@@ -127,6 +156,7 @@ enum Exit {
 /// aborted. `initial` is a session `pair` already established.
 async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Option<Session>) {
     let mut backoff = BACKOFF_MIN;
+    let mut failures: u32 = 0;
     loop {
         let Some(pairing) = store::load_pairing(&remote.pairing_path()) else {
             remote.set_state(app, "unpaired", None, None);
@@ -136,10 +166,13 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
         let session = match initial.take() {
             Some(s) => s,
             None => {
-                remote.set_state(app, "connecting", host.clone(), None);
+                remote.set_phase(app, "connecting", host.clone(), None, "dialing", failures, None);
                 let result = async {
                     let endpoint = remote.endpoint().await.map_err(LinkError::Transient)?;
-                    link::handshake(&endpoint, &pairing.node, ClientMsg::Auth { token: pairing.token.clone() }).await
+                    link::handshake_with(&endpoint, &pairing.node, ClientMsg::Auth { token: pairing.token.clone() }, || {
+                        remote.set_phase(app, "connecting", host.clone(), None, "handshake", failures, None)
+                    })
+                    .await
                 }
                 .await;
                 match result {
@@ -149,8 +182,8 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
                         return;
                     }
                     Err(LinkError::Transient(message)) => {
-                        remote.set_state(app, "offline", host, Some(message));
-                        tokio::time::sleep(backoff).await;
+                        failures += 1;
+                        remote.wait(app, host, message, failures, backoff).await;
                         backoff = (backoff * 2).min(BACKOFF_MAX);
                         continue;
                     }
@@ -170,8 +203,8 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
                 return;
             }
             Exit::Lost(message) => {
-                remote.set_state(app, "offline", Some(host_name), Some(message));
-                tokio::time::sleep(BACKOFF_MIN).await;
+                failures = 1;
+                remote.wait(app, Some(host_name), message, failures, BACKOFF_MIN).await;
             }
         }
     }
@@ -339,6 +372,15 @@ fn send(remote: State<'_, Arc<Remote>>, msg: serde_json::Value) -> Result<(), St
     out.ok_or_else(|| "not connected".to_string())?.send(msg).map_err(|_| "not connected".to_string())
 }
 
+/// "Retry now": ends the backoff sleep. Ignored unless the loop is waiting, so
+/// a stray permit cannot skip a later backoff.
+#[tauri::command]
+fn retry_now(remote: State<'_, Arc<Remote>>) {
+    if remote.lock().state.phase == Some("waiting") {
+        remote.retry.notify_one();
+    }
+}
+
 #[tauri::command]
 fn unpair(app: AppHandle, remote: State<'_, Arc<Remote>>) {
     remote.stop_task();
@@ -362,6 +404,7 @@ pub fn run() {
                 dir,
                 endpoint: OnceCell::new(),
                 inner: Mutex::new(Inner { state: StateEvent { status: "connecting", ..Default::default() }, ..Default::default() }),
+                retry: Notify::new(),
             });
             app.manage(Arc::clone(&remote));
             #[cfg(mobile)]
@@ -385,7 +428,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform, pairing_state, take_pending_link, pair, connect, send, unpair])
+        .invoke_handler(tauri::generate_handler![platform, pairing_state, take_pending_link, pair, connect, send, retry_now, unpair])
         .run(tauri::generate_context!())
         .expect("error while running Flowcode Mobile");
 }

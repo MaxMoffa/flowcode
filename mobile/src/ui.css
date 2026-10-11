@@ -282,7 +282,7 @@ button.card:active {
   color: var(--accent);
 }
 
-/* ---- status pills, banner, toast ---------------------------------------- */
+/* ---- status pills, toast ---------------------------------------- */
 
 .pill {
   display: inline-flex;
@@ -322,35 +322,6 @@ button.card:active {
   50% {
     opacity: 0.3;
   }
-}
-
-.banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 8px 16px 0;
-  padding: 8px 14px;
-  border-radius: 14px;
-  background: var(--wait-bg);
-  border: 1px solid var(--wait-border);
-  color: var(--wait);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.banner i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.banner small {
-  flex-basis: 100%;
-  font-weight: 400;
-  opacity: 0.85;
 }
 
 .toast {

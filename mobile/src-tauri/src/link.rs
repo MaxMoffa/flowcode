@@ -56,11 +56,18 @@ pub async fn bind(key: SecretKey) -> Result<Endpoint, String> {
 /// Opens the stream and runs the handshake with `first` (a `pair` or `auth`
 /// message), returning once the desktop says `ready`.
 pub async fn handshake(endpoint: &Endpoint, node: &str, first: ClientMsg) -> Result<Session, LinkError> {
+    handshake_with(endpoint, node, first, || {}).await
+}
+
+/// Like [`handshake`], calling `on_connected` once the dial succeeded and the
+/// auth exchange begins (lets the UI tell "searching" from "authenticating").
+pub async fn handshake_with(endpoint: &Endpoint, node: &str, first: ClientMsg, on_connected: impl FnOnce()) -> Result<Session, LinkError> {
     let ticket = EndpointTicket::from_str(node).map_err(|e| LinkError::Fatal(format!("bad desktop address: {e}")))?;
     let conn = tokio::time::timeout(DIAL_TIMEOUT, endpoint.connect(ticket.endpoint_addr().clone(), ALPN))
         .await
         .map_err(|_| LinkError::Transient("the desktop did not answer".into()))?
         .map_err(|e| LinkError::Transient(format!("cannot reach the desktop: {e}")))?;
+    on_connected();
     let (mut send, mut recv) = conn.open_bi().await.map_err(|e| LinkError::Transient(format!("cannot open the stream: {e}")))?;
     let timeout = if matches!(first, ClientMsg::Pair { .. }) { PAIR_HANDSHAKE_TIMEOUT } else { HANDSHAKE_TIMEOUT };
     // The server only learns about the stream when the first bytes arrive.
