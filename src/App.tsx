@@ -47,6 +47,7 @@ import { ChangelogNav, ChangelogPage, ChangelogProvider, WhatsNewPage } from "./
 import { consumeUpdatedVersion } from "./changelog/lastRunVersion";
 import { SettingsNav } from "./settings/SettingsNav";
 import { SettingsSectionProvider, useSettingsSection } from "./settings/SettingsSectionContext";
+import { RemoteSettingsBridge } from "./remote/RemoteSettingsBridge";
 import { ShortcutsProvider } from "./shortcuts/ShortcutsContext";
 import { MenuIcons } from "./context-menu/menuIcons";
 import { ShortcutsDialog } from "./shortcuts/ShortcutsDialog";
@@ -1843,7 +1844,14 @@ function Shell() {
     setActiveAgent(aaCli ? { cli: aaCli, sessionId: aaId, profile: aaProfile, wsl: aaWsl, tabLabel: aaLabel } : null);
   }, [aaCli, aaId, aaProfile, aaWsl, aaLabel]);
   useEffect(watchLimitResets, []);
-  useEffect(() => watchUsageForRemote((id) => allPluginsRef.current.find((p) => p.id === id)?.label ?? id), []);
+  useEffect(
+    () =>
+      watchUsageForRemote(
+        (id) => allPluginsRef.current.find((p) => p.id === id)?.label ?? id,
+        () => allPluginsRef.current.map((p) => p.id),
+      ),
+    [],
+  );
   const doneTabIds = useAgentNotifications(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
@@ -2681,6 +2689,7 @@ export default function App() {
                 <ContextMenuProvider>
                   <ShortcutsProvider>
                     <Shell />
+                    <RemoteSettingsBridge />
                   </ShortcutsProvider>
                 </ContextMenuProvider>
               </UpdateProvider>

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { onUsageFetched } from "./useUsageState";
-import { metricText, type UsageInfo } from "./usage";
+import { listen } from "@tauri-apps/api/event";
+import { onUsageFetched, retainUsage } from "./useUsageState";
+import { metricText, usageFetcherFor, type UsageInfo } from "./usage";
 
 /** What the phone app is shown (see docs/remote-protocol.md): the backend
  * keeps the latest of each and pushes it to connected phones, so publishing
@@ -28,10 +29,11 @@ interface RemoteUsageItem {
  * profiles within moments of each other. */
 const PUBLISH_DELAY_MS = 2000;
 
-/** Mirrors every usage result the app fetches (see useUsageState.ts - nothing
- * is fetched just for this) to the remote-access backend. `labelOf` names a
- * plugin id in the current language. */
-export function watchUsageForRemote(labelOf: (pluginId: string) => string): () => void {
+/** Mirrors every usage result the app fetches (see useUsageState.ts) to the
+ * remote-access backend. While a phone is connected, usage is also kept
+ * fetched for every plugin in `pluginIds`, since the desktop UI only fetches
+ * what it shows. `labelOf` names a plugin id in the current language. */
+export function watchUsageForRemote(labelOf: (pluginId: string) => string, pluginIds: () => string[]): () => void {
   const latest = new Map<string, RemoteUsageItem>();
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -66,9 +68,32 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): () =
     if (!timer) timer = setTimeout(flush, PUBLISH_DELAY_MS);
   });
 
+  let held: (() => void)[] = [];
+  let disposed = false;
+  const release = () => {
+    for (const r of held) r();
+    held = [];
+  };
+  const sync = async () => {
+    const status = await invoke<{ devices: { connected: boolean }[] }>("remote_status").catch(() => null);
+    if (disposed) return;
+    if (status?.devices.some((d) => d.connected)) {
+      if (held.length === 0) {
+        held = pluginIds().filter((id) => usageFetcherFor(id)).map((id) => retainUsage(id));
+      }
+    } else {
+      release();
+    }
+  };
+  void sync();
+  const unlisten = listen("remote://devices-changed", () => void sync());
+
   return () => {
+    disposed = true;
     stop();
     if (timer) clearTimeout(timer);
+    unlisten.then((fn) => fn()).catch(() => {});
+    release();
   };
 }
 

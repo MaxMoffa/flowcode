@@ -38,6 +38,9 @@ pub enum ClientMsg {
     },
     /// Read a text file under the tab's working directory.
     Read { pty_id: String, path: String },
+    /// Change one desktop setting the phone mirrors (see `ServerMsg::Settings`).
+    /// The desktop validates `key` and the value's type and ignores anything else.
+    Set { key: String, value: serde_json::Value },
     Ping,
 }
 
@@ -64,6 +67,9 @@ pub enum ServerMsg {
     Actions { actions: Vec<Action> },
     Ls { pty_id: String, path: String, entries: Vec<LsEntry> },
     File { pty_id: String, path: String, text: String, truncated: bool },
+    /// The desktop settings the phone mirrors, as one JSON object. Sent after
+    /// `ready` once the desktop has published them, and again on every change.
+    Settings { settings: serde_json::Value },
     Pong,
 }
 
@@ -165,6 +171,14 @@ mod tests {
         let json = serde_json::to_value(ServerMsg::Error { message: "no".into(), pty_id: None, fatal: true }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "error", "message": "no", "fatal": true }));
         assert_eq!(serde_json::to_string(&ServerMsg::Pong).unwrap(), r#"{"t":"pong"}"#);
+    }
+
+    #[test]
+    fn settings_messages_carry_free_form_json() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"set","key":"palette","value":"ocean"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::Set { key: "palette".into(), value: serde_json::json!("ocean") });
+        let json = serde_json::to_value(ServerMsg::Settings { settings: serde_json::json!({ "a": 1 }) }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "settings", "settings": { "a": 1 } }));
     }
 
     #[test]

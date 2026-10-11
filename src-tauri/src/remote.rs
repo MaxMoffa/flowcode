@@ -63,6 +63,7 @@ const EVT_DEVICES_CHANGED: &str = "remote://devices-changed";
 const EVT_SNAPSHOT_REQUEST: &str = "remote://snapshot-request";
 const EVT_SIZE_OVERRIDE: &str = "remote://size-override";
 const EVT_RUN_ACTION: &str = "remote://run-action";
+const EVT_SET_SETTING: &str = "remote://set-setting";
 
 // ---- persistence ---------------------------------------------------------
 
@@ -390,6 +391,9 @@ struct Shared {
     /// watch these and push changes.
     usage: watch::Sender<Vec<UsageItem>>,
     actions: watch::Sender<Vec<Action>>,
+    /// Latest desktop settings the frontend published for the phone to mirror
+    /// (`Null` until the first publish).
+    settings: watch::Sender<serde_json::Value>,
     /// pty id -> phones sizing it, oldest first (the last one wins).
     sizing: Mutex<HashMap<String, Vec<SizeClaim>>>,
 }
@@ -456,6 +460,7 @@ impl RemoteState {
             last_persisted_seen: Mutex::new(0),
             usage: watch::channel(Vec::new()).0,
             actions: watch::channel(Vec::new()).0,
+            settings: watch::channel(serde_json::Value::Null).0,
             sizing: Mutex::new(HashMap::new()),
         }))
     }
@@ -816,6 +821,18 @@ pub fn remote_publish_usage(state: tauri::State<'_, RemoteState>, items: Vec<Usa
     });
 }
 
+/// The desktop settings the phone mirrors (built by the frontend's RemoteSettingsBridge).
+#[tauri::command]
+pub fn remote_publish_settings(state: tauri::State<'_, RemoteState>, settings: serde_json::Value) {
+    state.0.settings.send_if_modified(|current| {
+        let changed = *current != settings;
+        if changed {
+            *current = settings;
+        }
+        changed
+    });
+}
+
 /// The quick actions the phone may trigger.
 #[tauri::command]
 pub fn remote_publish_actions(state: tauri::State<'_, RemoteState>, actions: Vec<Action>) {
@@ -999,6 +1016,7 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
 
     let mut usage_rx = shared.usage.subscribe();
     let mut actions_rx = shared.actions.subscribe();
+    let mut settings_rx = shared.settings.subscribe();
     let mut conn = Conn {
         shared: Arc::clone(&shared),
         id: conn_id,
@@ -1013,6 +1031,10 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
     conn.send(ServerMsg::Ready { device_name: device.name.clone(), host_name: shared.host_name.clone() });
     conn.send(ServerMsg::Usage { items: usage_rx.borrow_and_update().clone() });
     conn.send(ServerMsg::Actions { actions: actions_rx.borrow_and_update().clone() });
+    let settings = settings_rx.borrow_and_update().clone();
+    if !settings.is_null() {
+        conn.send(ServerMsg::Settings { settings });
+    }
 
     let mut tick = tokio::time::interval(TABS_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -1030,6 +1052,12 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
             Ok(()) = actions_rx.changed() => {
                 let actions = actions_rx.borrow_and_update().clone();
                 conn.send(ServerMsg::Actions { actions });
+            }
+            Ok(()) = settings_rx.changed() => {
+                let settings = settings_rx.borrow_and_update().clone();
+                if !settings.is_null() {
+                    conn.send(ServerMsg::Settings { settings });
+                }
             }
             _ = kick_rx.changed() => break,
             _ = shutdown.changed() => break,
@@ -1129,6 +1157,15 @@ impl Conn {
                 };
                 let payload = serde_json::json!({ "id": id, "ptyId": pty_id });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_RUN_ACTION, payload);
+            }
+            ClientMsg::Set { key, value } => {
+                if key.is_empty() || key.len() > 64 {
+                    self.error(tr("Impostazione non valida", "Invalid setting"), None);
+                    return;
+                }
+                // Global emit: every window's bridge applies it; the setters are
+                // idempotent and the windows share localStorage.
+                let _ = self.shared.app.emit(EVT_SET_SETTING, serde_json::json!({ "key": key, "value": value }));
             }
             ClientMsg::Ls { pty_id, path } => self.spawn_fs(pty_id, move |root, pty_id| {
                 list_dir(root, path.as_deref().unwrap_or("")).map(|(path, entries)| ServerMsg::Ls { pty_id, path, entries })

@@ -25,6 +25,9 @@ interface TerminalSettingsValue {
    * at, and what a tab's own zoom (below) is compared against/reset to.
    * Mirrors a browser's "default zoom level" setting. */
   fontSize: number;
+  /** Sets the default font size directly (the phone mirror), clamped like
+   * the zoom steps. */
+  setFontSize: (size: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
   resetZoom: () => void;
@@ -184,6 +187,7 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
   const value = useMemo<TerminalSettingsValue>(
     () => ({
       fontSize,
+      setFontSize: (size) => setFontSize(clamp(Math.round(size))),
       zoomIn: () => setFontSize((s) => clamp(s + 1)),
       zoomOut: () => setFontSize((s) => clamp(s - 1)),
       resetZoom: () => setFontSize(DEFAULT_SIZE),

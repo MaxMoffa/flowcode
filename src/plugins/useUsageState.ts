@@ -116,6 +116,14 @@ function subscribe(pluginId: string, profile: string | undefined, listener: () =
 
 const noopUnsubscribe = () => {};
 
+/** Keeps a plugin's usage fetched and refreshed (as if a component showed it)
+ * until the returned function is called - for the phone mirror, which has no
+ * component of its own on the desktop. */
+export function retainUsage(pluginId: string, profile?: string): () => void {
+  if (!usageFetcherFor(pluginId)) return noopUnsubscribe;
+  return subscribe(pluginId, profile, () => {});
+}
+
 /** Fetch/cache/auto-refresh state for a plugin's usage info under an account
  * `profile` (the default account when omitted). `fetcher` is `undefined` for
  * a plugin with no known usage source (most of them) - callers treat that as

@@ -48,7 +48,7 @@ connection is dropped.
 | C to S | `pair {code, deviceName}` | New device: redeems the one-time code from the QR. |
 | C to S | `auth {token}` | Known device. The token must match **and** the connection's node id must be the one that paired. |
 | S to C | `paired {token, deviceName}` | Reply to `pair`. Store the token; it is never shown again. Followed by `ready`. |
-| S to C | `ready {deviceName, hostName}` | Handshake done. Followed by `usage` and `actions` with the current values. |
+| S to C | `ready {deviceName, hostName}` | Handshake done. Followed by `usage` and `actions` with the current values, and by `settings` once the desktop has published them. |
 | S to C | `error {message, ptyId?, fatal}` | `fatal: true` means the server is closing the connection (bad code, bad token, too many attempts, device revoked). `message` is localized text for the user. |
 
 Pairing codes are one-time, valid 5 minutes, one active at a time; 5 wrong
@@ -70,6 +70,7 @@ Client messages:
 | `action {id, ptyId?}` | Run a published action (see `actions`) in the tab owning `ptyId`, or in the main window. Unknown ids get an `error`. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
+| `set {key, value}` | Change one mirrored desktop setting (see `settings`). `key` must be non-empty and at most 64 bytes, else `error`; an unknown key or a value of the wrong type is silently ignored. |
 | `ping` | Answered with `pong`. Send one now and then to detect a dead link. |
 
 Server messages:
@@ -82,10 +83,35 @@ Server messages:
 | `exit {ptyId}` | The program in that pty ended (or the pty vanished). The stream is over. |
 | `usage {items}` | Usage readings the desktop shows (Claude Code / Codex limits...). Pushed on `ready` and on change. |
 | `actions {actions}` | Quick actions the phone may run. Pushed on `ready` and on change. |
+| `settings {settings}` | The desktop settings the phone mirrors, as one JSON object (keys below). Pushed after `ready` once published, and on every change, including ones made on the desktop. |
 | `ls {ptyId, path, entries}` | Reply to `ls`. |
 | `file {ptyId, path, text, truncated}` | Reply to `read`. |
 | `pong` | Reply to `ping`. |
 | `error {message, ptyId?, fatal}` | A failed request (non-fatal) or the end of the connection (fatal). |
+
+### Settings
+
+`settings` is one flat-ish object; `set` changes one entry, addressed by the
+same key (nested ones with a dot, e.g. `notify.done`). Values are validated by
+the desktop and then applied as if changed in its own settings.
+
+| Key | Type | Notes |
+|---|---|---|
+| `theme` | `"auto"` \| `"light"` \| `"dark"` | Settable. |
+| `resolvedTheme` | `"light"` \| `"dark"` | Read-only: what `theme` resolves to. |
+| `palette` | string | Palette id, one of `palettes[].id`. Settable. |
+| `terminalPalette` | string \| null | Terminal-only palette; `null` follows `palette`. Settable. |
+| `contrast`, `glassOpacity` | number, 0-1 | Settable. |
+| `language` | `"system"` \| a `languages[].id` | Stored preference. Settable. |
+| `resolvedLanguage` | string | Read-only: the language in use. |
+| `languages` | `[{id, name}]` | Read-only; `"system"` is implicit. |
+| `colors`, `terminalColors` | `{bg, ...}` | Read-only: the resolved app / terminal palette as CSS-variable values. |
+| `palettes` | `[{id, name, bg, accent, accent2}]` | Read-only, in the current theme. |
+| `terminalFontSize` | number | Settable; clamped by the desktop. |
+| `bannerEnabled`, `confirmLinkOpen`, `restoreSession`, `newTabPage` | boolean | Settable. |
+| `notify.done`, `notify.input`, `notify.exited`, `notify.limitReset` | boolean | Settable; `notify` is published as an object of the four. |
+| `autoResume.enabled` | boolean | Settable; published as `autoResume {enabled, message}`. |
+| `autoResume.message` | string, at most 500 chars | Settable. |
 
 ### Types
 
