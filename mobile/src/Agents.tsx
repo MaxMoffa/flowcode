@@ -2,7 +2,7 @@ import { StatusPill, contextPercent } from "./common";
 import { t } from "./i18n";
 import { send, type Tab, type UsageItem, type UsageMetric } from "./remote";
 
-/** Kinds whose `percent` is a limit gauge; the biggest one headlines the card. */
+/** Every limit gauge (5-hour session, weekly...) gets its own row. */
 function gaugeMetrics(item: UsageItem): UsageMetric[] {
   return item.metrics.filter((m) => typeof m.percent === "number");
 }
@@ -13,27 +13,31 @@ function money(v: number): string {
 
 function UsageCard({ item }: { item: UsageItem }) {
   const gauges = gaugeMetrics(item);
-  const top = gauges.reduce<UsageMetric | null>((a, m) => (!a || (m.percent ?? 0) > (a.percent ?? 0) ? m : a), null);
   const spend = item.metrics.filter((m) => m.kind === "spend" && typeof m.cost === "number");
   const title = item.profile ? `${item.label} · ${item.profile}` : item.label;
-  const pct = top ? Math.round((top.percent ?? 0) * 100) : null;
   // Anything without a number (logged out, unavailable...) shows its own wording.
-  const note = !top && spend.length === 0 ? item.metrics.find((m) => m.label)?.label : undefined;
+  const note = gauges.length === 0 && spend.length === 0 ? item.metrics.find((m) => m.label)?.label : undefined;
   return (
     <div className="card usage">
       <div className="usage-title">{title}</div>
-      {pct !== null && (
-        <>
-          <div className="usage-pct">
-            {pct}
-            <small>%</small>
+      {gauges.map((m, i) => {
+        const pct = Math.round((m.percent ?? 0) * 100);
+        return (
+          <div className="usage-gauge" key={i}>
+            <div className="usage-head">
+              <span className="usage-label">{m.label}</span>
+              <span className="usage-pct">
+                {pct}
+                <small>%</small>
+              </span>
+            </div>
+            <div className={"bar" + (pct >= 90 ? " hot" : pct >= 70 ? " warm" : "")}>
+              <i style={{ width: `${Math.min(100, pct)}%` }} />
+            </div>
+            {m.resets && <div className="usage-sub">{t("resets", { when: m.resets })}</div>}
           </div>
-          <div className={"bar" + (pct >= 90 ? " hot" : pct >= 70 ? " warm" : "")}>
-            <i style={{ width: `${Math.min(100, pct)}%` }} />
-          </div>
-          <div className="usage-sub">{top?.label ?? (top?.resets ? t("resets", { when: top.resets }) : "")}</div>
-        </>
-      )}
+        );
+      })}
       {spend.map((m, i) => (
         <div className="usage-spend" key={i}>
           <b>{money(m.cost ?? 0)}</b>
@@ -89,7 +93,7 @@ export function AgentsScreen({ hostName, tabs, usage, onOpen }: { hostName?: str
         <h1>{t("agents")}</h1>
       </header>
       {usage.length > 0 && (
-        <div className="usage-grid">
+        <div className="stack">
           {usage.map((u) => (
             <UsageCard key={u.pluginId + (u.profile ?? "")} item={u} />
           ))}

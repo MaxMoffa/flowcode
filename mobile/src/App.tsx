@@ -1,16 +1,15 @@
-import { useEffect, useState, type ReactElement } from "react";
-import { ActionsScreen } from "./Actions";
+import { useEffect, useLayoutEffect, useState, type ReactElement } from "react";
 import { AgentsScreen } from "./Agents";
-import { FilesScreen } from "./Files";
-import { AgentsIcon, BoltIcon, FolderIcon, TerminalIcon } from "./icons";
-import { t } from "./i18n";
+import { AgentsIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { setLanguage, t } from "./i18n";
 import { PairingScreen } from "./Pairing";
-import { setLastOpened, start, unpair, useRemote } from "./remote";
+import { setLastOpened, start, useRemote } from "./remote";
+import { SettingsScreen } from "./Settings";
 import { TerminalScreen } from "./TerminalScreen";
 import { TerminalsScreen } from "./Terminals";
+import { applyTheme } from "./theme";
 
-
-type Page = "agents" | "terminals" | "files" | "actions";
+type Page = "agents" | "terminals" | "settings";
 
 /** Keeps --app-h at the visible height so the key bar rides above the on-screen keyboard. */
 function useViewportHeight() {
@@ -32,6 +31,11 @@ export function App() {
   const [page, setPage] = useState<Page>("agents");
   const [openPty, setOpenPty] = useState<string | null>(null);
   useViewportHeight();
+
+  // The phone wears the desktop's colors and language; before the first
+  // settings message the cached ones (or the defaults) apply.
+  setLanguage(remote.settings?.resolvedLanguage);
+  useLayoutEffect(() => applyTheme(remote.settings), [remote.settings]);
 
   useEffect(() => {
     void start();
@@ -62,17 +66,8 @@ export function App() {
       <Banner />
       <main className="page">
         {page === "agents" && <AgentsScreen hostName={remote.hostName} tabs={remote.tabs} usage={remote.usage} onOpen={open} />}
-        {page === "terminals" && (
-          <TerminalsScreen
-            tabs={remote.tabs}
-            onOpen={open}
-            onUnpair={() => {
-              if (window.confirm(t("unpairConfirm"))) void unpair();
-            }}
-          />
-        )}
-        {page === "files" && <FilesScreen tabs={remote.tabs} lastOpened={remote.lastOpened} />}
-        {page === "actions" && <ActionsScreen tabs={remote.tabs} actions={remote.actions} lastOpened={remote.lastOpened} />}
+        {page === "terminals" && <TerminalsScreen tabs={remote.tabs} onOpen={open} />}
+        {page === "settings" && <SettingsScreen hostName={remote.hostName} settings={remote.settings} />}
       </main>
       <BottomNav page={page} onChange={setPage} />
       <Toast />
@@ -107,8 +102,7 @@ function BottomNav({ page, onChange }: { page: Page; onChange: (p: Page) => void
   const items: { id: Page; label: string; icon: ReactElement }[] = [
     { id: "agents", label: t("navAgents"), icon: <AgentsIcon /> },
     { id: "terminals", label: t("navTerminals"), icon: <TerminalIcon /> },
-    { id: "files", label: t("navFiles"), icon: <FolderIcon /> },
-    { id: "actions", label: t("navActions"), icon: <BoltIcon /> },
+    { id: "settings", label: t("navSettings"), icon: <SlidersIcon /> },
   ];
   return (
     <nav className="nav" aria-label="main">

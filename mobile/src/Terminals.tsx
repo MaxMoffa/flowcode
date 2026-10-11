@@ -3,7 +3,7 @@ import { t } from "./i18n";
 import { ChevronIcon } from "./icons";
 import type { Tab } from "./remote";
 
-export function TerminalsScreen({ tabs, onOpen, onUnpair }: { tabs: Tab[] | null; onOpen: (ptyId: string) => void; onUnpair: () => void }) {
+export function TerminalsScreen({ tabs, onOpen }: { tabs: Tab[] | null; onOpen: (ptyId: string) => void }) {
   const windows = [...new Set((tabs ?? []).map((x) => x.window))];
   return (
     <>
@@ -30,9 +30,6 @@ export function TerminalsScreen({ tabs, onOpen, onUnpair }: { tabs: Tab[] | null
           </div>
         </section>
       ))}
-      <button type="button" className="btn ghost unpair" onClick={onUnpair}>
-        {t("unpair")}
-      </button>
     </>
   );
 }

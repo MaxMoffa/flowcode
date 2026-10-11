@@ -71,3 +71,11 @@ export const SendIcon = () => (
     <path d="m13 6 6 6-6 6" />
   </Svg>
 );
+
+export const SlidersIcon = () => (
+  <Svg>
+    <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+    <circle cx="15" cy="7" r="2" />
+    <circle cx="9" cy="17" r="2" />
+  </Svg>
+);

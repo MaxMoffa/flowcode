@@ -52,6 +52,28 @@ export interface LsEntry {
   size?: number;
 }
 
+export interface MirroredSettings {
+  theme: "auto" | "light" | "dark";
+  resolvedTheme: "light" | "dark";
+  palette: string;
+  terminalPalette: string | null;
+  contrast: number;
+  glassOpacity: number;
+  language: string;
+  resolvedLanguage: string;
+  languages: { id: string; name: string }[];
+  colors: Record<string, string>;
+  terminalColors: Record<string, string>;
+  palettes: { id: string; name: string; bg: string; accent: string; accent2: string }[];
+  terminalFontSize: number;
+  bannerEnabled: boolean;
+  confirmLinkOpen: boolean;
+  restoreSession: boolean;
+  newTabPage: boolean;
+  notify: { done: boolean; input: boolean; exited: boolean; limitReset: boolean };
+  autoResume: { enabled: boolean; message: string };
+}
+
 export type ServerMsg =
   | { t: "ready"; deviceName: string; hostName: string }
   | { t: "error"; message: string; ptyId?: string; fatal: boolean }
@@ -63,6 +85,7 @@ export type ServerMsg =
   | { t: "actions"; actions: Action[] }
   | { t: "ls"; ptyId: string; path: string; entries: LsEntry[] }
   | { t: "file"; ptyId: string; path: string; text: string; truncated: boolean }
+  | { t: "settings"; settings: MirroredSettings }
   | { t: "pong" };
 
 export type ClientMsg =
@@ -74,6 +97,7 @@ export type ClientMsg =
   | { t: "action"; id: string; ptyId?: string }
   | { t: "ls"; ptyId: string; path?: string }
   | { t: "read"; ptyId: string; path: string }
+  | { t: "set"; key: string; value: unknown }
   | { t: "ping" };
 
 export type ConnStatus = "loading" | "unpaired" | "connecting" | "online" | "offline";
@@ -88,12 +112,35 @@ export interface Snapshot {
   tabs: Tab[] | null;
   usage: UsageItem[];
   actions: Action[];
+  /** The desktop's settings, mirrored; null until it sends them (older desktops never do). */
+  settings: MirroredSettings | null;
   /** Last terminal the user opened: the Files screen starts there. */
   lastOpened: string | null;
   toast: { id: number; text: string } | null;
 }
 
-let snap: Snapshot = { status: "loading", pairing: false, tabs: null, usage: [], actions: [], lastOpened: null, toast: null };
+const SETTINGS_KEY = "flowcode.settings";
+
+// Cached so the desktop's colors are on screen from the first frame.
+function loadSettings(): MirroredSettings | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? (JSON.parse(raw) as MirroredSettings) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSettings(s: MirroredSettings | null) {
+  try {
+    if (s) localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    else localStorage.removeItem(SETTINGS_KEY);
+  } catch {
+    // Storage can be unavailable; the cache is only an optimization.
+  }
+}
+
+let snap: Snapshot = { status: "loading", pairing: false, tabs: null, usage: [], actions: [], settings: loadSettings(), lastOpened: null, toast: null };
 const storeListeners = new Set<() => void>();
 const msgListeners = new Set<(m: ServerMsg) => void>();
 
@@ -146,6 +193,10 @@ function handleMsg(m: ServerMsg) {
     case "actions":
       set({ actions: m.actions });
       break;
+    case "settings":
+      saveSettings(m.settings);
+      set({ settings: m.settings });
+      break;
     case "error":
       // Fatal ones also arrive as a state change; only requests that failed
       // deserve a toast.
@@ -170,7 +221,8 @@ export async function start(): Promise<void> {
   await listen<StateEvent>("remote://state", (e) => {
     const { status, hostName, error } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
-    set({ status, hostName, error, ...(status === "unpaired" ? { tabs: null, usage: [], actions: [], lastOpened: null } : {}) });
+    if (status === "unpaired") saveSettings(null);
+    set({ status, hostName, error, ...(status === "unpaired" ? { tabs: null, usage: [], actions: [], settings: null, lastOpened: null } : {}) });
   });
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {
@@ -189,6 +241,20 @@ export const unpair = (): Promise<void> => invoke("unpair");
 export function send(msg: ClientMsg) {
   // "not connected" is routine while reconnecting; the UI already shows the banner.
   invoke("send", { msg }).catch(() => {});
+}
+
+/** Sends a setting to the desktop and patches the local copy so the UI answers at once. */
+export function setSetting(key: string, value: unknown) {
+  send({ t: "set", key, value });
+  const cur = snap.settings;
+  if (!cur) return;
+  const next: Record<string, unknown> = { ...cur };
+  const [head, tail] = key.split(".");
+  if (tail) next[head] = { ...(cur as unknown as Record<string, Record<string, unknown>>)[head], [tail]: value };
+  else next[head] = value;
+  const settings = next as unknown as MirroredSettings;
+  saveSettings(settings);
+  set({ settings });
 }
 
 export function onDeepLink(l: (url: string) => void): Promise<() => void> {
