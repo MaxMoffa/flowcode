@@ -13,6 +13,8 @@ const DIAL_TIMEOUT: Duration = Duration::from_secs(20);
 /// The server drops a connection whose first frame takes longer than 10 s;
 /// waiting a bit longer for its answer covers a slow relay path.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+/// A `pair` also waits for the user to confirm on the desktop (up to 60 s).
+const PAIR_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(75);
 
 /// An open, handshaken connection. `conn` is kept so dropping the struct
 /// closes the QUIC connection (and the desktop notices at once).
@@ -60,12 +62,13 @@ pub async fn handshake(endpoint: &Endpoint, node: &str, first: ClientMsg) -> Res
         .map_err(|_| LinkError::Transient("the desktop did not answer".into()))?
         .map_err(|e| LinkError::Transient(format!("cannot reach the desktop: {e}")))?;
     let (mut send, mut recv) = conn.open_bi().await.map_err(|e| LinkError::Transient(format!("cannot open the stream: {e}")))?;
+    let timeout = if matches!(first, ClientMsg::Pair { .. }) { PAIR_HANDSHAKE_TIMEOUT } else { HANDSHAKE_TIMEOUT };
     // The server only learns about the stream when the first bytes arrive.
     write_frame(&mut send, &first).await.map_err(frame_err)?;
 
     let mut token = None;
     let mut device_name = String::new();
-    let host_name = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+    let host_name = tokio::time::timeout(timeout, async {
         loop {
             match read_frame::<_, ServerMsg>(&mut recv).await.map_err(frame_err)? {
                 ServerMsg::Paired { token: t, device_name: d } => {

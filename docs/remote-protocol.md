@@ -51,6 +51,12 @@ connection is dropped.
 | S to C | `ready {deviceName, hostName}` | Handshake done. Followed by `usage` and `actions` with the current values, and by `settings` once the desktop has published them. |
 | S to C | `error {message, ptyId?, fatal}` | `fatal: true` means the server is closing the connection (bad code, bad token, too many attempts, device revoked). `message` is localized text for the user. |
 
+After a valid `pair` the desktop asks its user to confirm the new phone and
+only then creates the device and sends `paired` (up to 60 s; the phone should
+wait up to 75 s for `pair`, 15 s for `auth`). Two more fatal errors can come
+back: "Pairing declined on the computer" and "Not confirmed on the computer:
+try again". The code is spent either way, so the phone must scan a new one.
+
 Pairing codes are one-time, valid 5 minutes, one active at a time; 5 wrong
 codes in a minute block all pairing for a minute. Only a SHA-256 hash of the
 token is stored on the desktop. Re-pairing from the same node id replaces the

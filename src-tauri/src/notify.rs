@@ -27,7 +27,7 @@ pub fn notify_once(app: AppHandle, key: String, label: String, title: String, bo
 }
 
 #[cfg(target_os = "windows")]
-fn show(app: AppHandle, label: String, tab_id: String, title: String, body: String) {
+pub(crate) fn show(app: AppHandle, label: String, tab_id: String, title: String, body: String) {
     use tauri_winrt_notification::Toast;
     let app_id = app.config().identifier.clone();
     register_toast_source(&app);
@@ -76,7 +76,7 @@ fn register_toast_source(app: &AppHandle) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn show(app: AppHandle, label: String, tab_id: String, title: String, body: String) {
+pub(crate) fn show(app: AppHandle, label: String, tab_id: String, title: String, body: String) {
     // `show()` can block (D-Bus round trip) and, on Linux, the click has to
     // be waited for - so all of it happens off the caller's thread.
     std::thread::spawn(move || {

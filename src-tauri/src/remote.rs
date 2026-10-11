@@ -64,6 +64,13 @@ const EVT_SNAPSHOT_REQUEST: &str = "remote://snapshot-request";
 const EVT_SIZE_OVERRIDE: &str = "remote://size-override";
 const EVT_RUN_ACTION: &str = "remote://run-action";
 const EVT_SET_SETTING: &str = "remote://set-setting";
+const EVT_PAIR_REQUEST: &str = "remote://pair-request";
+/// How long the user has to confirm a new phone on the desktop. The phone
+/// waits longer for its reply (see mobile/src-tauri/src/link.rs).
+const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
+/// A known phone connecting again within this long of its last connection
+/// doesn't raise another notification.
+const CONNECT_NOTIFY_QUIET: Duration = Duration::from_secs(10 * 60);
 
 // ---- persistence ---------------------------------------------------------
 
@@ -383,6 +390,10 @@ struct Shared {
     next_conn: AtomicU64,
     handshaking: AtomicUsize,
     waiters: Mutex<HashMap<String, oneshot::Sender<SnapshotReply>>>,
+    /// Pairing requests awaiting the user's answer on the desktop.
+    pair_waiters: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    /// device id -> when it last disconnected, to notify only on a "fresh" connect.
+    last_active: Mutex<HashMap<String, Instant>>,
     tabs_cache: tokio::sync::Mutex<Option<(Instant, Vec<Tab>)>>,
     /// pty id -> (when read, the figure) for the tab's agent.
     context_cache: Mutex<HashMap<String, (Instant, Option<TabContext>)>>,
@@ -455,6 +466,8 @@ impl RemoteState {
             next_conn: AtomicU64::new(1),
             handshaking: AtomicUsize::new(0),
             waiters: Mutex::new(HashMap::new()),
+            pair_waiters: Mutex::new(HashMap::new()),
+            last_active: Mutex::new(HashMap::new()),
             tabs_cache: tokio::sync::Mutex::new(None),
             context_cache: Mutex::new(HashMap::new()),
             last_persisted_seen: Mutex::new(0),
@@ -603,8 +616,35 @@ impl Shared {
     }
 
     fn unregister_conn(&self, id: u64) {
-        lock(&self.conns).remove(&id);
+        if let Some(entry) = lock(&self.conns).remove(&id) {
+            lock(&self.last_active).insert(entry.device_id, Instant::now());
+        }
         self.devices_changed();
+    }
+
+    /// Whether a connection from `device_id` is worth a notification: not if
+    /// it is already connected or was within `CONNECT_NOTIFY_QUIET`.
+    fn is_fresh_connect(&self, device_id: &str) -> bool {
+        if lock(&self.conns).values().any(|c| c.device_id == device_id) {
+            return false;
+        }
+        lock(&self.last_active).get(device_id).is_none_or(|t| t.elapsed() >= CONNECT_NOTIFY_QUIET)
+    }
+
+    /// Native notification, off the caller's thread (the first one registers
+    /// the toast source).
+    fn notify(&self, title: String, body: String) {
+        let app = self.app.clone();
+        let label = self.default_window().unwrap_or_default();
+        tauri::async_runtime::spawn_blocking(move || crate::notify::show(app, label, String::new(), title, body));
+    }
+
+    fn focus_window(&self, label: &str) {
+        if let Some(window) = self.app.get_webview_window(label) {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
     }
 
     fn revoke(&self, device_id: &str) {
@@ -845,6 +885,14 @@ pub fn remote_publish_actions(state: tauri::State<'_, RemoteState>, actions: Vec
     });
 }
 
+/// The user's answer to a pairing request shown on the desktop.
+#[tauri::command]
+pub fn remote_pair_decide(state: tauri::State<'_, RemoteState>, req_id: String, accept: bool) {
+    if let Some(waiter) = lock(&state.0.pair_waiters).remove(&req_id) {
+        let _ = waiter.send(accept);
+    }
+}
+
 // ---- connections -----------------------------------------------------------
 
 async fn accept_loop(shared: Arc<Shared>, endpoint: Endpoint, mut shutdown: watch::Receiver<bool>) {
@@ -899,8 +947,9 @@ impl Drop for HandshakeGuard<'_> {
 enum Admission {
     /// A known device came back.
     Known(Device),
-    /// A new device paired; carries the token to hand over.
-    Paired(Device, String),
+    /// A valid pairing code was presented; the user still has to confirm on
+    /// the desktop before the device is created.
+    PairRequest { device_name: String },
 }
 
 fn admit(shared: &Shared, first: ClientMsg, node_id: &str) -> Result<Admission, String> {
@@ -916,16 +965,63 @@ fn admit(shared: &Shared, first: ClientMsg, node_id: &str) -> Result<Admission, 
                     Err(tr("Troppi tentativi: riprova tra un minuto", "Too many attempts: try again in a minute").to_string())
                 }
                 Err(PairError::Invalid) => Err(tr("Codice non valido o scaduto", "Invalid or expired code").to_string()),
-                Ok(()) => {
-                    let (device, token) = lock(&shared.config).add_device(&device_name, node_id, now_ms())?;
-                    shared.save();
-                    shared.devices_changed();
-                    Ok(Admission::Paired(device, token))
-                }
+                Ok(()) => Ok(Admission::PairRequest { device_name }),
             }
         }
         _ => Err(tr("Autenticazione non riuscita", "Authentication failed").to_string()),
     }
+}
+
+/// Drops a pending pairing request however `confirm_pairing` is left.
+struct PairWaiterGuard<'a>(&'a Shared, String);
+
+impl Drop for PairWaiterGuard<'_> {
+    fn drop(&mut self) {
+        lock(&self.0.pair_waiters).remove(&self.1);
+    }
+}
+
+/// Asks the user, on the desktop, whether to let this phone in; only a yes
+/// creates the device. Waiting counts as handshaking, which keeps strangers
+/// with a stolen code from piling up pending requests.
+async fn confirm_pairing(
+    shared: &Shared,
+    node_id: &str,
+    device_name: &str,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<(Device, String), String> {
+    let declined = || tr("Collegamento rifiutato sul computer", "Pairing declined on the computer").to_string();
+    let Some(window) = shared.default_window() else { return Err(declined()) };
+    let req_id = random_hex(8)?;
+    let (tx, answer) = oneshot::channel();
+    lock(&shared.pair_waiters).insert(req_id.clone(), tx);
+    let _guard = PairWaiterGuard(shared, req_id.clone());
+    let name = device_name.trim().to_string();
+    let payload = serde_json::json!({ "reqId": req_id, "deviceName": name });
+    if shared.app.emit_to(window.as_str(), EVT_PAIR_REQUEST, payload).is_err() {
+        return Err(declined());
+    }
+    shared.focus_window(&window);
+    shared.notify(tr("Richiesta di collegamento", "Pairing request").to_string(), name.clone());
+
+    let accepted = tokio::select! {
+        answer = tokio::time::timeout(PAIR_CONFIRM_TIMEOUT, answer) => match answer {
+            Ok(Ok(accepted)) => accepted,
+            Ok(Err(_)) => false,
+            Err(_) => {
+                return Err(tr("Nessuna conferma sul computer: riprova", "Not confirmed on the computer: try again").to_string())
+            }
+        },
+        _ = shutdown.changed() => false,
+    };
+    if !accepted {
+        return Err(declined());
+    }
+    let (device, token) = lock(&shared.config).add_device(device_name, node_id, now_ms())?;
+    shared.save();
+    shared.devices_changed();
+    shared.notify(tr("Nuovo telefono collegato", "New phone paired").to_string(), device.name.clone());
+    Ok((device, token))
 }
 
 async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch::Receiver<bool>) {
@@ -941,9 +1037,15 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
         Ok(Ok(msg)) => admit(&shared, msg, &node_id),
         _ => Err(tr("Autenticazione non riuscita", "Authentication failed").to_string()),
     };
-    let (device, token) = match admission {
-        Ok(Admission::Known(device)) => (device, None),
-        Ok(Admission::Paired(device, token)) => (device, Some(token)),
+    let admitted = match admission {
+        Ok(Admission::Known(device)) => Ok((device, None)),
+        Ok(Admission::PairRequest { device_name }) => confirm_pairing(&shared, &node_id, &device_name, &mut shutdown)
+            .await
+            .map(|(device, token)| (device, Some(token))),
+        Err(message) => Err(message),
+    };
+    let (device, token) = match admitted {
+        Ok(admitted) => admitted,
         Err(message) => {
             let _ = write_frame(&mut send, &ServerMsg::Error { message, pty_id: None, fatal: true }).await;
             let _ = send.finish();
@@ -961,6 +1063,11 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
         return;
     }
     shared.touch_device(&device.id);
+    // A new pairing was announced when confirmed.
+    if token.is_none() && shared.is_fresh_connect(&device.id) {
+        let body = format!("{} {}", device.name, tr("ha aperto l'accesso remoto", "opened remote access"));
+        shared.notify(tr("Telefono connesso", "Phone connected").to_string(), body);
+    }
 
     let (kick_tx, mut kick_rx) = watch::channel(false);
     let conn_id = shared.register_conn(&device.id, kick_tx);
