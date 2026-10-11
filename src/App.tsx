@@ -1289,9 +1289,23 @@ function Shell() {
       // Empty for a notification about no tab in particular (notify_once).
       if (latestRef.current.tabs.some((t) => t.id === e.payload)) selectTabRef.current(e.payload);
     });
+    // The remote-access server asking for the screen of one of our ptys (a
+    // phone just opened it). Always answer, even empty, so it never waits.
+    const unlistenSnap = webview.listen<{ reqId: string; ptyId: string }>("remote://snapshot-request", (e) => {
+      const { reqId, ptyId } = e.payload;
+      let snap: { data: string; seq: number } | null = null;
+      for (const h of termRefs.current.values()) {
+        if (h.getPtyId() === ptyId) {
+          snap = h.snapshotForRemote();
+          break;
+        }
+      }
+      invoke("remote_snapshot_reply", { reqId, data: snap?.data ?? "", seq: snap?.seq ?? 0 }).catch(() => {});
+    });
     return () => {
       unlisten.then((off) => off());
       unlistenFocus.then((off) => off());
+      unlistenSnap.then((off) => off());
     };
   }, []);
 

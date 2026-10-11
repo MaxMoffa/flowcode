@@ -54,6 +54,13 @@ fs-watch = { package = "notify", version = "8" }
 # disturbing the rest of the user's file.
 toml_edit = "0.25"
 
+# Remote access (remote.rs): a small HTTP/WebSocket server bound to the
+# Tailscale address only. tokio matches the major version Tauri runs on.
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }
+tokio = { version = "1", features = ["net", "sync", "time", "macros"] }
+getrandom = "0.3"
+if-addrs = "0.13"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-winrt-notification = "0.8.1"
 # The WebView2 controller behind `with_webview` (windows.rs) - same version

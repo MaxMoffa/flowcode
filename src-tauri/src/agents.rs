@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use sysinfo::{Pid, System};
-use tauri::State;
+use tauri::{Manager, State};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -56,9 +56,9 @@ fn agent_binary(name: &str) -> Option<(&'static str, &'static str)> {
 pub struct AgentSession {
     /// The app's own pty session id - lets the frontend match this back to
     /// whichever terminal tab owns that pty.
-    pty_id: String,
+    pub(crate) pty_id: String,
     /// Short id of the matched binary (`"claude"` / `"codex"` / `"vibe"`), for icon/theming.
-    cli: String,
+    pub(crate) cli: String,
     cli_label: String,
     pid: u32,
     /// Unix milliseconds, when the OS exposes a start time - the frontend
@@ -82,7 +82,7 @@ pub struct AgentSession {
     /// to) and "busy"/"idle" - plus "waiting" (on the user) for Claude Code.
     session_id: Option<String>,
     session_name: Option<String>,
-    status: Option<String>,
+    pub(crate) status: Option<String>,
     /// The account profile the tab runs under (`None`: the default one, and
     /// always for agents inside WSL).
     profile: Option<String>,
@@ -152,11 +152,15 @@ fn find_agent(
 /// Windows) and this is polled every few seconds - on the UI thread that
 /// shows up as periodic stutter.
 #[tauri::command]
-pub async fn list_agent_sessions(
-    app: tauri::AppHandle,
-    pty_state: State<'_, PtyState>,
-    window_tabs: State<'_, WindowTabs>,
-) -> Result<Vec<AgentSession>, String> {
+pub async fn list_agent_sessions(app: tauri::AppHandle) -> Result<Vec<AgentSession>, String> {
+    collect_agent_sessions(&app).await
+}
+
+/// The body of `list_agent_sessions`, also used by the remote-access server
+/// (remote.rs) to tell a phone which tab runs which agent.
+pub(crate) async fn collect_agent_sessions(app: &tauri::AppHandle) -> Result<Vec<AgentSession>, String> {
+    let pty_state = app.state::<PtyState>();
+    let window_tabs = app.state::<WindowTabs>();
     let shell_pids = pty_state.shell_pids();
     if shell_pids.is_empty() {
         return Ok(Vec::new());
@@ -166,7 +170,7 @@ pub async fn list_agent_sessions(
         .iter()
         .map(|(pty_id, _)| (pty_id.clone(), crate::pty::profile_of(&pty_state, pty_id)))
         .collect();
-    let homes = ProfileHomes::of(&app);
+    let homes = ProfileHomes::of(app);
     let mut sessions = crate::blocking(move || Ok(find_agent_sessions(shell_pids, &homes, &profiles))).await?;
     for session in &mut sessions {
         if let Some((window, tab)) = tabs.get(&session.pty_id) {

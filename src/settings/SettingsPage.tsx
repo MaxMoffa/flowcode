@@ -14,6 +14,7 @@ import { listShellOptions, shellOptionLabel, type ShellOption } from "../termina
 import { writeBool } from "../lib/storage";
 import { NOTIFICATION_KINDS, setNotificationEnabled, useNotificationSettings } from "../notifications/notificationSettings";
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
+import { RemoteAccessSettings } from "./RemoteAccessSettings";
 import { ShellStartDirs } from "./ShellStartDirs";
 import { PalettePicker } from "./PalettePicker";
 import { DEFAULT_CONTRAST, DEFAULT_PALETTE_ID } from "../themes/palettes";
@@ -559,6 +560,8 @@ export function SettingsPage({
                 </SettingRow>
               )}
             </SettingsGroup>
+
+            <RemoteAccessSettings />
           </>
         )}
 

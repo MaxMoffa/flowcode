@@ -8,6 +8,7 @@ mod notify;
 mod plugins;
 mod profiles;
 mod pty;
+mod remote;
 mod session;
 mod spend;
 mod system;
@@ -44,7 +45,7 @@ pub fn run() {
     gpu::apply_at_startup();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(target_os = "windows")]
             {
                 // On its own thread: `setup()` runs on the main/event-loop
@@ -57,10 +58,13 @@ pub fn run() {
                 // spawn is safe. See warmup_conpty's own doc comment for
                 // why it exists at all.
                 std::thread::spawn(pty::warmup_conpty);
-                if let Some(window) = _app.get_webview_window("main") {
+                if let Some(window) = app.get_webview_window("main") {
                     flowcode_shared::apply_window_chrome(&window);
                 }
             }
+            let remote = remote::RemoteState::load(app.handle());
+            remote.autostart();
+            app.manage(remote);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -171,6 +175,11 @@ pub fn run() {
             system::set_window_square_corners,
             watcher::watch_dir,
             watcher::unwatch_dir,
+            remote::remote_status,
+            remote::remote_set_enabled,
+            remote::remote_pair_start,
+            remote::remote_revoke,
+            remote::remote_snapshot_reply,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -6,6 +6,7 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
+use tokio::sync::mpsc;
 
 use crate::util::lock;
 
@@ -33,6 +34,10 @@ struct PtySession {
     /// Account profile this tab was launched under (`None` = the default
     /// one) - lets other modules tell which account an agent in it uses.
     profile: Option<String>,
+    /// Current size, for remote clients: they draw at the desktop's size and
+    /// must never resize the pty themselves (see remote.rs).
+    cols: u16,
+    rows: u16,
 }
 
 /// Environment variable carrying a tab's pty session id into everything it
@@ -53,10 +58,30 @@ struct Sink {
     buffered_bytes: usize,
     /// Sequence number of the last `Output` event produced.
     seq: u64,
+    /// Remote-access clients watching this session (see remote.rs). Fed
+    /// before the local channel in `push`, and independent of it: they see
+    /// the same stream whether the tab is attached or in transit.
+    remote: Vec<mpsc::UnboundedSender<RemoteOut>>,
+}
+
+/// What a remote subscriber receives - the `PtyEvent`s, minus the serde tag.
+pub enum RemoteOut {
+    Output { data: String, seq: u64 },
+    Exit,
 }
 
 impl Sink {
     fn push(&mut self, event: PtyEvent) {
+        if !self.remote.is_empty() {
+            // Closed receivers (a phone that went away) are dropped here.
+            self.remote.retain(|tx| {
+                tx.send(match &event {
+                    PtyEvent::Output { data, seq } => RemoteOut::Output { data: data.clone(), seq: *seq },
+                    PtyEvent::Exit => RemoteOut::Exit,
+                })
+                .is_ok()
+            });
+        }
         if let Some(channel) = &self.channel {
             if channel.send(event.clone()).is_ok() {
                 return;
@@ -87,6 +112,35 @@ pub fn profile_of(state: &PtyState, pty_id: &str) -> Option<String> {
 }
 
 impl PtyState {
+    /// Writes to a session's pty - what `pty_write` and remote clients' input
+    /// both go through. Blocks while the program isn't reading its input, so
+    /// never call it from an async task directly.
+    pub fn write(&self, id: &str, data: &str) -> Result<(), String> {
+        let writer = {
+            let sessions = lock(&self.0);
+            Arc::clone(&sessions.get(id).ok_or("unknown pty session")?.writer)
+        };
+        let mut writer = lock(&writer);
+        writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+        writer.flush().map_err(|e| e.to_string())
+    }
+
+    /// Current (cols, rows) of every live session.
+    pub fn sizes(&self) -> HashMap<String, (u16, u16)> {
+        lock(&self.0).iter().map(|(id, s)| (id.clone(), (s.cols, s.rows))).collect()
+    }
+
+    /// Subscribes to a session's output for a remote client. Returns the
+    /// receiver, the session's size and the window showing it (`None` while
+    /// in transit). `None` overall if the session doesn't exist (any more).
+    pub fn remote_subscribe(&self, id: &str) -> Option<(mpsc::UnboundedReceiver<RemoteOut>, u16, u16, Option<String>)> {
+        let sessions = lock(&self.0);
+        let session = sessions.get(id)?;
+        let (tx, rx) = mpsc::unbounded_channel();
+        lock(&session.sink).remote.push(tx);
+        Some((rx, session.cols, session.rows, session.owner.clone()))
+    }
+
     /// (pty session id, shell PID) for every live session - just enough for
     /// external process-tree inspection (see agents.rs) without exposing the
     /// rest of PtySession's internals.
@@ -517,6 +571,7 @@ pub fn pty_spawn(
         buffered: Vec::new(),
         buffered_bytes: 0,
         seq: 0,
+        remote: Vec::new(),
     }));
     lock(&state.0).insert(
         id.clone(),
@@ -528,6 +583,8 @@ pub fn pty_spawn(
             sink: Arc::clone(&sink),
             owner: Some(window.label().to_string()),
             profile: profile.clone(),
+            cols,
+            rows,
         },
     );
 
@@ -572,19 +629,13 @@ pub fn pty_spawn(
 
 #[tauri::command(async)]
 pub fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
-    let writer = {
-        let sessions = lock(&state.0);
-        Arc::clone(&sessions.get(&id).ok_or("unknown pty session")?.writer)
-    };
-    let mut writer = lock(&writer);
-    writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
-    writer.flush().map_err(|e| e.to_string())
+    state.write(&id, &data)
 }
 
 #[tauri::command(async)]
 pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let sessions = lock(&state.0);
-    let session = sessions.get(&id).ok_or("unknown pty session")?;
+    let mut sessions = lock(&state.0);
+    let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
     session
         .master
         .resize(PtySize {
@@ -593,7 +644,10 @@ pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) 
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    session.cols = cols;
+    session.rows = rows;
+    Ok(())
 }
 
 #[tauri::command(async)]

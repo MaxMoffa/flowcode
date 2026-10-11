@@ -204,6 +204,19 @@ impl WindowTabs {
         self.0.lock().unwrap().remove(label);
     }
 
+    /// Every reported tab as (window label, tab), windows in label order and
+    /// tabs in the order their window reported them - a stable listing for
+    /// the remote client (see remote.rs).
+    pub fn list(&self) -> Vec<(String, TabInfo)> {
+        let windows = self.0.lock().unwrap();
+        let mut labels: Vec<&String> = windows.keys().collect();
+        labels.sort();
+        labels
+            .into_iter()
+            .flat_map(|label| windows[label].iter().map(move |t| (label.clone(), t.clone())))
+            .collect()
+    }
+
     /// Pty session id -> (window label, tab).
     pub fn by_pty(&self) -> HashMap<String, (String, TabInfo)> {
         let windows = self.0.lock().unwrap();

@@ -76,6 +76,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "notify-exited", section: "agents", label: "settings.notifications.exited.label", desc: "settings.notifications.exited.desc", keywords: "notifiche notifications agente agent claude codex vibe mistral avvisi chiuso closed" },
   { id: "autoResume", section: "agents", label: "settings.autoResume.label", desc: "settings.autoResume.description", keywords: "ripresa automatica auto resume riprendi continua limite limit reset sessione session claude codex" },
   { id: "autoResumeMessage", section: "agents", label: "settings.autoResume.message", keywords: "ripresa automatica auto resume messaggio message testo text continua continue" },
+  { id: "remoteAccess", section: "agents", label: "settings.remote.label", desc: "settings.remote.desc", keywords: "accesso remoto remote access telefono phone mobile cellulare tailscale vpn qr collega pair dispositivi devices revoca revoke" },
+  { id: "remoteDevices", section: "agents", label: "settings.remote.devices", keywords: "accesso remoto remote access telefono phone dispositivi devices collega pair qr revoca revoke tailscale" },
   { id: "features", section: "funzionalita", label: "settings.section.features", desc: "settings.section.features.desc", keywords: "plugin funzionalità features barra rapida quick bar shortcuts scorciatoie importa crea" },
   { id: "profiles", section: "profiles", label: "settings.section.profiles", desc: "settings.section.profiles.desc", keywords: "profili profiles account login accedi accesso multi utente claude codex vibe mistral cartella config" },
   { id: "version", section: "info", label: "settings.group.version", desc: "settings.version.copyDesc", keywords: "versione version copia copy" },

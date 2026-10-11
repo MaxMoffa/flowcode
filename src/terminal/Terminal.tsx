@@ -135,6 +135,10 @@ export interface TerminalHandle {
    * unmounting this view no longer kills the session. `null` when there's no
    * session yet to move. */
   release: () => Promise<TerminalTransfer | null>;
+  /** The screen exactly as shown (scrollback, alternate screen, modes) for a
+   * remote client, without detaching anything, plus the `seq` of the last
+   * output written here so the client can skip what the snapshot covers. */
+  snapshotForRemote: () => { data: string; seq: number } | null;
 }
 
 /** A running terminal session on its way to another window - see
@@ -606,6 +610,14 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       const snapshot =
         serializeAddonRef.current?.serialize({ scrollback: SESSION_SCROLLBACK_LINES }) ?? "";
       return { ptyId: id, snapshot };
+    },
+    snapshotForRemote: () => {
+      const addon = serializeAddonRef.current;
+      if (!addon || releasedRef.current) return null;
+      // Serialized synchronously, so output xterm has queued but not yet
+      // parsed is not in it - an acceptable gap for a phone view, and the
+      // live output that follows keeps the screen converging.
+      return { data: addon.serialize({ scrollback: SESSION_SCROLLBACK_LINES }), seq: lastSeqRef.current };
     },
     // Every closure above only reads refs, so the handle never goes stale -
     // re-creating it each render just churned the parent's ref callbacks.
