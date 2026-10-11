@@ -191,7 +191,7 @@ export function shellOptionIcon(id: string) {
  * pulses while the agent works. On a renamed tab (`renamed`) it's followed
  * by a "?" while it waits on the user: the CLIs show that state in the
  * title, which a custom name replaces. */
-function agentAttention(agent: TabAgent | undefined, done: boolean): "waiting" | "busy" | "done" | "idle" {
+export function agentAttention(agent: TabAgent | undefined, done: boolean): "waiting" | "busy" | "done" | "idle" {
   if (agent?.state === "waiting") return "waiting";
   if (agent?.state === "busy") return "busy";
   return done ? "done" : "idle";
@@ -238,7 +238,7 @@ function tabIcon(tab: AppTab, agent?: TabAgent, done = false, profile?: ProfileI
 /** The label shown for `tab`: a settings/changelog tab still carrying its
  * default name (in whichever language it was opened) is shown in the
  * current one. */
-function tabDisplayLabel(tab: AppTab): string {
+export function tabDisplayLabel(tab: AppTab): string {
   if (tab.kind === "terminal" && tab.newTab) return t("newTab.title");
   if (tab.kind === "settings" && translationsOf("settings.title").includes(tab.label)) return t("settings.title");
   if (tab.kind === "changelog" && translationsOf("changelog.title").includes(tab.label)) return t("changelog.title");

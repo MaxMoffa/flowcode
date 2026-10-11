@@ -126,8 +126,10 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
   const filtered = items.filter((i) => i.label.toLowerCase().includes(query.trim().toLowerCase()));
 
   const menuWidth = 250;
+  // Opened from the narrow layout's bottom bar, the list has to grow upward.
+  const above = anchorRect.top > window.innerHeight / 2;
   const style = {
-    top: anchorRect.bottom + 4,
+    ...(above ? { bottom: window.innerHeight - anchorRect.top + 4 } : { top: anchorRect.bottom + 4 }),
     left: Math.max(8, Math.min(anchorRect.left, window.innerWidth - menuWidth - 8)),
   };
 

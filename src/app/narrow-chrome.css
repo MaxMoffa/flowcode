@@ -1,0 +1,251 @@
+/* Narrow (phone-like) window chrome - see NarrowChrome.tsx and App.tsx's
+   NARROW_BREAKPOINT. Only rendered when narrow, so no media queries here. */
+
+.narrow-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: var(--accent-2);
+}
+
+/* Same colours the tab strip gives the agent logo. */
+.narrow-dot.is-busy {
+  background: var(--ansi-bright-blue);
+}
+
+.narrow-dot.is-waiting {
+  background: var(--ansi-bright-yellow);
+}
+
+.narrow-dot.is-done {
+  background: var(--ansi-bright-green);
+}
+
+.narrow-switcher {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  -webkit-app-region: no-drag;
+}
+
+.narrow-switch-btn {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.narrow-switch-btn:hover,
+.narrow-switch-btn[aria-expanded="true"] {
+  background: var(--ctrl-hover-bg);
+}
+
+.narrow-switch-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.narrow-switch-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--ctrl-fg);
+  opacity: 0.8;
+}
+
+.narrow-switch-chevron {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  stroke: currentColor;
+  fill: none;
+  color: var(--ctrl-fg);
+}
+
+.narrow-switch-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: min(60vh, 360px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.narrow-switch-row {
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+}
+
+.narrow-switch-row.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.narrow-switch-row:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.narrow-switch-item {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.narrow-switch-item:focus-visible,
+.narrow-switch-close:focus-visible,
+.narrow-chip:focus-visible,
+.narrow-nav-item:focus-visible,
+.narrow-switch-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.narrow-switch-close {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--ctrl-fg);
+  cursor: pointer;
+  padding: 0;
+}
+
+.narrow-switch-close svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.narrow-switch-close:hover {
+  background: var(--danger);
+  color: var(--on-danger);
+}
+
+/* Below the terminal card, on the same surface as the header bar. */
+.narrow-bottom {
+  position: relative;
+  /* Above the window texture, like the cards. */
+  z-index: 2;
+  flex: 0 0 auto;
+  background: var(--bg-elevated);
+  padding: 0 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.narrow-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.narrow-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.narrow-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.narrow-chip:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.narrow-chip svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.narrow-nav {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.narrow-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 46px;
+  background: var(--card-bg);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--ctrl-fg);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.narrow-nav-item svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.narrow-nav-item:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.narrow-nav-item.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}

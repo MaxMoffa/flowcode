@@ -9,6 +9,7 @@ import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
+import { NarrowBottom, TabSwitcher } from "./app/NarrowChrome";
 import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
@@ -231,7 +232,7 @@ function Shell() {
   const confirm = useConfirmDialog();
   const { t, language } = useI18n();
   const openMenu = useOpenContextMenu();
-  const { hide: hideMenu } = useContextMenu();
+  const { show: showMenu, hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
   const notificationSettings = useNotificationSettings();
   const autoResumeEnabled = useAutoResumeSettings().enabled;
@@ -2213,127 +2214,160 @@ function Shell() {
     ];
   }
 
+  // Narrow layout: the shortcuts as chips, and the "More" button's menu -
+  // the wide header's Features button has no room, so it joins that menu.
+  const narrowQuickActions = quickActionIds.flatMap((id) => {
+    const plugin = allPlugins.find((p) => p.id === id);
+    return plugin ? [{ id, label: plugin.label, icon: pluginIconNode(plugin), onRun: () => runPlugin(plugin) }] : [];
+  });
+
+  function openNarrowMore(rect: DOMRect) {
+    const items: ContextMenuItem[] = [
+      { label: t("settings.section.features"), icon: Icons.features, onSelect: () => setPluginMenuAnchor(rect) },
+      { separator: true, label: "sep-features" },
+      ...moreMenuItems(),
+    ];
+    // The menu clamps its top to fit the window, so asking for a spot as
+    // high as it is tall puts its bottom edge just above the button.
+    showMenu(rect.left, rect.top - items.length * 30 - 12, items);
+  }
+
   return (
     <div className={`app-shell${isNarrow ? " is-narrow" : ""}${isMaximized ? " maximized" : ""}${isEdgeFlush ? " edge-flush" : ""}`}>
       <header className="app-headerbar" data-tauri-drag-region>
-        <button
-          className={"icon-button" + (!sidebarCollapsed ? " is-active" : "")}
-          aria-pressed={!sidebarCollapsed}
-          onClick={() => setSidebarCollapsed((c) => !c)}
-          onContextMenu={(e) =>
-            openMenu(
-              e,
-              (
-                [
-                  ["auto", t("sidebarMode.auto")],
-                  ["docked", t("sidebarMode.docked")],
-                  ["floating", t("sidebarMode.floating")],
-                ] as [SidebarMode, string][]
-              ).map(([m, label]) => ({
-                label,
-                icon: m === "auto" ? MenuIcons.sidebarAuto : m === "docked" ? MenuIcons.sidebarDocked : MenuIcons.sidebarFloating,
-                checked: sidebarMode === m,
-                onSelect: () => setSidebarMode(m),
-              })),
-            )
-          }
-          aria-label={t("app.toggleSidebar")}
-          title={t("app.toggleSidebar.title")}
-        >
-          <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-            <line x1="9.5" y1="4.5" x2="9.5" y2="19.5" />
-          </svg>
-        </button>
-
-        <TabStrip
-          tabs={tabs}
-          activeId={activeTabId}
-          dirtyIds={dirtyIds}
-          agents={tabAgents}
-          doneIds={doneTabIds}
-          resumeAt={resumeArmed}
-          onCancelResume={cancelResume}
-          onSelect={selectTab}
-          onClose={closeTab}
-          onNew={(shellId, profileId) =>
-            profileId !== undefined
-              ? addTab(undefined, shellId, false, profileId)
-              : shellId
-                ? addTab(undefined, shellId)
-                : openNewTab()
-          }
-          onRename={renameTab}
-          onDuplicate={duplicateTab}
-          onToggleNotifications={toggleTabNotifications}
-          onReorder={reorderTab}
-          onDragOut={(id) => void handleTabDragOut(id)}
-        />
-
-        <div className="header-right">
-          {/* Its own box so the narrow layout can move it to a second row. */}
-          <div className="header-tools">
-          {quickActionIds.length > 0 && (
-            <div className="quick-actions">
-              {quickActionIds.map((id) => {
-                const plugin = allPlugins.find((p) => p.id === id);
-                if (!plugin) return null;
-                return (
-                  <div
-                    key={id}
-                    onContextMenu={(e) =>
-                      openMenu(e, [{ label: t("app.removeShortcut"), icon: MenuIcons.trash, danger: true, onSelect: () => toggleQuickAction(id) }])
-                    }
-                  >
-                    <PluginUsageButton plugin={plugin} icon={pluginIconNode(plugin)} onRun={() => runPlugin(plugin)} />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {favoritesButtonVisible && (
-            <FavoritesButton
-              activeCwd={activeTerminal && !activeTerminal.busy ? activeTerminal.cwd || undefined : undefined}
-              activeShell={activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined}
-              onOpenFolder={openFavorite}
-            />
-          )}
+        {!isNarrow && (
           <button
-            ref={pluginBtnRef}
-            type="button"
-            className="icon-button"
-            onClick={() => setPluginMenuAnchor((r) => (r ? null : pluginBtnRef.current?.getBoundingClientRect() ?? null))}
-            aria-label={t("settings.section.features")}
-            title={t("settings.section.features")}
-          >
-            {Icons.features}
-          </button>
-          {pluginMenuAnchor && (
-            <PluginMenu items={pluginMenuEntries()} anchorRect={pluginMenuAnchor} onClose={() => setPluginMenuAnchor(null)} />
-          )}
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={t("app.moreOptions")}
-            title={t("app.moreOptions")}
-            onClick={(e) => openMenu(e, moreMenuItems())}
-          >
-            {Icons.kebab}
-          </button>
-          <button
-            type="button"
-            className={"icon-button" + (agentsSidebarOpen ? " is-active" : "")}
-            aria-pressed={agentsSidebarOpen}
-            aria-label={t("app.toggleAgents")}
-            title={t("app.toggleAgents")}
-            onClick={() => setAgentsSidebarOpen((o) => !o)}
+            className={"icon-button" + (!sidebarCollapsed ? " is-active" : "")}
+            aria-pressed={!sidebarCollapsed}
+            onClick={() => setSidebarCollapsed((c) => !c)}
+            onContextMenu={(e) =>
+              openMenu(
+                e,
+                (
+                  [
+                    ["auto", t("sidebarMode.auto")],
+                    ["docked", t("sidebarMode.docked")],
+                    ["floating", t("sidebarMode.floating")],
+                  ] as [SidebarMode, string][]
+                ).map(([m, label]) => ({
+                  label,
+                  icon: m === "auto" ? MenuIcons.sidebarAuto : m === "docked" ? MenuIcons.sidebarDocked : MenuIcons.sidebarFloating,
+                  checked: sidebarMode === m,
+                  onSelect: () => setSidebarMode(m),
+                })),
+              )
+            }
+            aria-label={t("app.toggleSidebar")}
+            title={t("app.toggleSidebar.title")}
           >
             <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-              <line x1="14.5" y1="4.5" x2="14.5" y2="19.5" />
+              <line x1="9.5" y1="4.5" x2="9.5" y2="19.5" />
             </svg>
           </button>
-          </div>
+        )}
+
+        {isNarrow ? (
+          <TabSwitcher
+            tabs={tabs}
+            activeId={activeTabId}
+            agents={tabAgents}
+            doneIds={doneTabIds}
+            onSelect={selectTab}
+            onClose={closeTab}
+            onNew={() => openNewTab()}
+          />
+        ) : (
+          <TabStrip
+            tabs={tabs}
+            activeId={activeTabId}
+            dirtyIds={dirtyIds}
+            agents={tabAgents}
+            doneIds={doneTabIds}
+            resumeAt={resumeArmed}
+            onCancelResume={cancelResume}
+            onSelect={selectTab}
+            onClose={closeTab}
+            onNew={(shellId, profileId) =>
+              profileId !== undefined
+                ? addTab(undefined, shellId, false, profileId)
+                : shellId
+                  ? addTab(undefined, shellId)
+                  : openNewTab()
+            }
+            onRename={renameTab}
+            onDuplicate={duplicateTab}
+            onToggleNotifications={toggleTabNotifications}
+            onReorder={reorderTab}
+            onDragOut={(id) => void handleTabDragOut(id)}
+          />
+        )}
+
+        <div className="header-right">
+          {!isNarrow && (
+            <>
+            {quickActionIds.length > 0 && (
+              <div className="quick-actions">
+                {quickActionIds.map((id) => {
+                  const plugin = allPlugins.find((p) => p.id === id);
+                  if (!plugin) return null;
+                  return (
+                    <div
+                      key={id}
+                      onContextMenu={(e) =>
+                        openMenu(e, [{ label: t("app.removeShortcut"), icon: MenuIcons.trash, danger: true, onSelect: () => toggleQuickAction(id) }])
+                      }
+                    >
+                      <PluginUsageButton plugin={plugin} icon={pluginIconNode(plugin)} onRun={() => runPlugin(plugin)} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {favoritesButtonVisible && (
+              <FavoritesButton
+                activeCwd={activeTerminal && !activeTerminal.busy ? activeTerminal.cwd || undefined : undefined}
+                activeShell={activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined}
+                onOpenFolder={openFavorite}
+              />
+            )}
+            <button
+              ref={pluginBtnRef}
+              type="button"
+              className="icon-button"
+              onClick={() => setPluginMenuAnchor((r) => (r ? null : pluginBtnRef.current?.getBoundingClientRect() ?? null))}
+              aria-label={t("settings.section.features")}
+              title={t("settings.section.features")}
+            >
+              {Icons.features}
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t("app.moreOptions")}
+              title={t("app.moreOptions")}
+              onClick={(e) => openMenu(e, moreMenuItems())}
+            >
+              {Icons.kebab}
+            </button>
+            <button
+              type="button"
+              className={"icon-button" + (agentsSidebarOpen ? " is-active" : "")}
+              aria-pressed={agentsSidebarOpen}
+              aria-label={t("app.toggleAgents")}
+              title={t("app.toggleAgents")}
+              onClick={() => setAgentsSidebarOpen((o) => !o)}
+            >
+              <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+                <line x1="14.5" y1="4.5" x2="14.5" y2="19.5" />
+              </svg>
+            </button>
+            </>
+          )}
+          {pluginMenuAnchor && (
+            <PluginMenu items={pluginMenuEntries()} anchorRect={pluginMenuAnchor} onClose={() => setPluginMenuAnchor(null)} />
+          )}
           <div className="window-controls">
             <button className="icon-button" aria-label={t("window.minimize")} onClick={() => appWindow.minimize()}>
               <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
@@ -2533,6 +2567,20 @@ function Shell() {
           </div>
         )}
       </div>
+      {isNarrow && (
+        <NarrowBottom
+          quickActions={narrowQuickActions}
+          filesOpen={!sidebarCollapsed}
+          agentsOpen={agentsSidebarOpen}
+          onTerminal={() => {
+            setSidebarCollapsed(true);
+            setAgentsSidebarOpen(false);
+          }}
+          onToggleFiles={() => setSidebarCollapsed((c) => !c)}
+          onToggleAgents={() => setAgentsSidebarOpen((o) => !o)}
+          onMore={openNarrowMore}
+        />
+      )}
       {shortcutsDialogOpen && (
         <ShortcutsDialog
           onClose={() => setShortcutsDialogOpen(false)}
