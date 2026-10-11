@@ -34,6 +34,7 @@ import { useAutoResume } from "./agents/useAutoResume";
 import { useAutoResumeSettings } from "./agents/autoResumeSettings";
 import { useAgentNotifications } from "./notifications/useAgentNotifications";
 import { watchLimitResets } from "./notifications/limitResetWatcher";
+import { isPhoneAction, publishRemoteActions, watchUsageForRemote } from "./plugins/remotePublish";
 import { useNotificationSettings } from "./notifications/notificationSettings";
 import { setActiveAgent } from "./agents/activeAgent";
 import { tabAgentOf, useAgentSessions, type AgentSession, type TabAgent } from "./agents/agentSessions";
@@ -741,6 +742,11 @@ function Shell() {
   }
   const selectTabRef = useRef(selectTab);
   selectTabRef.current = selectTab;
+  // The phone-triggered action runner and what it needs, kept current each
+  // render for the long-lived "remote://run-action" listener.
+  const remoteActionRef = useRef<(id: string, ptyId: string | null) => void>(() => {});
+  const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
+  const allPluginsRef = useRef<PluginDef[]>([]);
 
   /** A new tab showing the new tab page (see src/newtab) instead of
    * starting the default shell straight away - what "+", Ctrl+T and "Nuovo
@@ -1303,10 +1309,30 @@ function Shell() {
       }
       invoke("remote_snapshot_reply", { reqId, data: snap?.data ?? "", seq: snap?.seq ?? 0 }).catch(() => {});
     });
+    // A phone sizing one of our ptys (or letting go of it): pin that
+    // terminal's grid to the phone's, or let it refit.
+    const unlistenSize = webview.listen<{ ptyId: string; cols: number | null; rows: number | null }>(
+      "remote://size-override",
+      (e) => {
+        const { ptyId, cols, rows } = e.payload;
+        for (const h of termRefs.current.values()) {
+          if (h.getPtyId() === ptyId) {
+            h.setSizeOverride(cols && rows ? { cols, rows } : null);
+            break;
+          }
+        }
+      },
+    );
+    // A phone tapping one of the published quick actions.
+    const unlistenAction = webview.listen<{ id: string; ptyId: string | null }>("remote://run-action", (e) => {
+      remoteActionRef.current(e.payload.id, e.payload.ptyId);
+    });
     return () => {
       unlisten.then((off) => off());
       unlistenFocus.then((off) => off());
       unlistenSnap.then((off) => off());
+      unlistenSize.then((off) => off());
+      unlistenAction.then((off) => off());
     };
   }, []);
 
@@ -1817,6 +1843,7 @@ function Shell() {
     setActiveAgent(aaCli ? { cli: aaCli, sessionId: aaId, profile: aaProfile, wsl: aaWsl, tabLabel: aaLabel } : null);
   }, [aaCli, aaId, aaProfile, aaWsl, aaLabel]);
   useEffect(watchLimitResets, []);
+  useEffect(() => watchUsageForRemote((id) => allPluginsRef.current.find((p) => p.id === id)?.label ?? id), []);
   const doneTabIds = useAgentNotifications(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
@@ -1836,6 +1863,15 @@ function Shell() {
     [customPlugins, language],
   );
   const terminalTabs = useMemo(() => tabs.filter((t): t is TermTab => t.kind === "terminal"), [tabs]);
+
+  // The quick actions a paired phone may trigger.
+  const remoteActionsKey = JSON.stringify(
+    quickActionIds.flatMap((id) => {
+      const plugin = allPlugins.find((p) => p.id === id);
+      return plugin && isPhoneAction(plugin.action) ? [{ id, label: plugin.label }] : [];
+    }),
+  );
+  useEffect(() => publishRemoteActions(JSON.parse(remoteActionsKey)), [remoteActionsKey]);
 
   function showPluginToast(message: string) {
     setPluginToast(message);
@@ -2213,6 +2249,27 @@ function Shell() {
       { label: t("settings.title"), icon: Icons.settings, onSelect: openSettings },
     ];
   }
+
+  allPluginsRef.current = allPlugins;
+  runPluginRef.current = runPlugin;
+  remoteActionRef.current = (id, ptyId) => {
+    const plugin = quickActionIds.includes(id) ? allPlugins.find((p) => p.id === id) : undefined;
+    if (!plugin || !isPhoneAction(plugin.action)) return;
+    // Plugins act on the active tab: bring the phone's tab forward first and
+    // run once the re-render has made it the active one.
+    let tabId: string | undefined;
+    if (ptyId) {
+      for (const [id, h] of termRefs.current) {
+        if (h.getPtyId() === ptyId) tabId = id;
+      }
+    }
+    if (tabId && tabId !== latestRef.current.activeTabId) {
+      selectTabRef.current(tabId);
+      setTimeout(() => runPluginRef.current(plugin), 80);
+    } else {
+      runPlugin(plugin);
+    }
+  };
 
   // Narrow layout: the shortcuts as chips, and the "More" button's menu -
   // the wide header's Features button has no room, so it joins that menu.

@@ -34,8 +34,7 @@ struct PtySession {
     /// Account profile this tab was launched under (`None` = the default
     /// one) - lets other modules tell which account an agent in it uses.
     profile: Option<String>,
-    /// Current size, for remote clients: they draw at the desktop's size and
-    /// must never resize the pty themselves (see remote.rs).
+    /// Current size, for remote clients (see remote.rs).
     cols: u16,
     rows: u16,
 }
@@ -123,6 +122,30 @@ impl PtyState {
         let mut writer = lock(&writer);
         writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())
+    }
+
+    /// Resizes a session's pty - the desktop terminal's fit and a phone
+    /// sizing a tab for its screen (remote.rs) both end up here.
+    pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
+        let mut sessions = lock(&self.0);
+        let session = sessions.get_mut(id).ok_or("unknown pty session")?;
+        session
+            .master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| e.to_string())?;
+        session.cols = cols;
+        session.rows = rows;
+        Ok(())
+    }
+
+    /// Label of the window showing a session (`None`: unknown, or in transit).
+    pub fn owner_of(&self, id: &str) -> Option<String> {
+        lock(&self.0).get(id)?.owner.clone()
     }
 
     /// Current (cols, rows) of every live session.
@@ -634,20 +657,7 @@ pub fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result
 
 #[tauri::command(async)]
 pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let mut sessions = lock(&state.0);
-    let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
-    session
-        .master
-        .resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| e.to_string())?;
-    session.cols = cols;
-    session.rows = rows;
-    Ok(())
+    state.resize(&id, cols, rows)
 }
 
 #[tauri::command(async)]

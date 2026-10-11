@@ -180,6 +180,8 @@ pub fn run() {
             remote::remote_pair_start,
             remote::remote_revoke,
             remote::remote_snapshot_reply,
+            remote::remote_publish_usage,
+            remote::remote_publish_actions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

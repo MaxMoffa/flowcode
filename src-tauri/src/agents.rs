@@ -80,12 +80,12 @@ pub struct AgentSession {
     /// session last written in its folder - see `vibe::live_session_in`): its id,
     /// its name (the title the CLI gave it, or the one the user renamed it
     /// to) and "busy"/"idle" - plus "waiting" (on the user) for Claude Code.
-    session_id: Option<String>,
+    pub(crate) session_id: Option<String>,
     session_name: Option<String>,
     pub(crate) status: Option<String>,
     /// The account profile the tab runs under (`None`: the default one, and
     /// always for agents inside WSL).
-    profile: Option<String>,
+    pub(crate) profile: Option<String>,
 }
 
 /// BFS over descendants of `root_pid` (a pty's own shell), returning the

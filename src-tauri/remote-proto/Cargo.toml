@@ -1,0 +1,18 @@
+[package]
+name = "flowcode-remote-proto"
+version = "0.8.0"
+license = "Apache-2.0"
+edition = "2021"
+description = "Wire protocol between Flowcode desktop and its phone app"
+
+[lib]
+name = "flowcode_remote_proto"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+data-encoding = "2"
+tokio = { version = "1", features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "rt", "macros"] }

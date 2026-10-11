@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import QRCode from "qrcode";
 import { t, useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { SettingRow, SettingsGroup, Switch } from "./SettingsControls";
+import "../dialog/modal.css";
 import "./remote-access.css";
 
 interface RemoteDevice {
@@ -18,14 +20,14 @@ interface RemoteDevice {
 interface RemoteStatus {
   enabled: boolean;
   running: boolean;
-  address: string | null;
-  url: string | null;
+  nodeId: string | null;
   error: string | null;
   devices: RemoteDevice[];
 }
 
 interface PairInfo {
-  url: string;
+  /** The flowcode://pair link the QR code encodes. */
+  ticket: string;
   code: string;
   expiresAt: number;
 }
@@ -43,15 +45,114 @@ function formatDuration(ms: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+interface PairDialogProps {
+  onClose: () => void;
+}
+
+/** Shows a pairing QR code. The parent closes it once a new device shows up. */
+function PairDialog({ onClose }: PairDialogProps) {
+  const [pair, setPair] = useState<PairInfo | null>(null);
+  const [qr, setQr] = useState("");
+  const [error, setError] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  const generate = useCallback(() => {
+    setError(false);
+    invoke<PairInfo>("remote_pair_start")
+      .then(setPair)
+      .catch(() => {
+        setPair(null);
+        setError(true);
+      });
+  }, []);
+
+  useEffect(generate, [generate]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!pair) {
+      setQr("");
+      return;
+    }
+    let stale = false;
+    QRCode.toString(pair.ticket, { type: "svg", margin: 1, errorCorrectionLevel: "L" })
+      .then((svg) => !stale && setQr(svg))
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [pair]);
+
+  const remaining = pair ? toMs(pair.expiresAt) - now : 0;
+  const expired = pair !== null && remaining <= 0;
+
+  // Portaled to <body> so no ancestor's backdrop-filter traps the fixed overlay.
+  return createPortal(
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="modal-panel remote-pair-panel" role="dialog" aria-modal="true" aria-label={t("settings.remote.pairTitle")}>
+        <div className="remote-pair-title">{t("settings.remote.pairTitle")}</div>
+        <ol className="remote-pair-steps">
+          <li>{t("settings.remote.pairStep1")}</li>
+          <li>{t("settings.remote.pairStep2")}</li>
+        </ol>
+        <div
+          className={"remote-access-qr remote-pair-qr" + (expired ? " is-expired" : "")}
+          // Generated locally by the qrcode package from the pairing link.
+          dangerouslySetInnerHTML={{ __html: qr }}
+        />
+        {error ? (
+          <span className="settings-field-hint is-error">{t("settings.remote.pairError")}</span>
+        ) : (
+          pair && (
+            <span className={"settings-field-hint" + (expired ? " is-error" : "")}>
+              {expired
+                ? t("settings.remote.pairExpired")
+                : t("settings.remote.pairExpires", { time: formatDuration(remaining) })}
+            </span>
+          )
+        )}
+        <div className="remote-pair-actions">
+          <button type="button" className="settings-choice" onClick={generate}>
+            {t("settings.remote.pairRegenerate")}
+          </button>
+          <button type="button" className="settings-choice" onClick={onClose}>
+            {t("common.close")}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function RemoteAccessSettings() {
   useI18n();
   const confirm = useConfirmDialog();
   const [status, setStatus] = useState<RemoteStatus | null>(null);
-  const [pair, setPair] = useState<PairInfo | null>(null);
-  const [qr, setQr] = useState("");
-  const [pairError, setPairError] = useState(false);
+  const [pairing, setPairing] = useState(false);
+  const [justPaired, setJustPaired] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const mounted = useRef(true);
+  // Devices that existed when the dialog opened: one that isn't among them
+  // is the phone that just scanned the code.
+  const knownIds = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(() => {
     invoke<RemoteStatus>("remote_status")
@@ -78,26 +179,22 @@ export function RemoteAccessSettings() {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!pair) {
-      setQr("");
-      return;
-    }
-    let stale = false;
-    QRCode.toString(pair.url, { type: "svg", margin: 1, errorCorrectionLevel: "M" })
-      .then((svg) => !stale && setQr(svg))
-      .catch(() => {});
-    return () => {
-      stale = true;
-    };
-  }, [pair]);
-
   const enabled = status?.enabled ?? false;
 
   // Turning it off invalidates any code on screen.
   useEffect(() => {
-    if (!enabled) setPair(null);
+    if (!enabled) setPairing(false);
   }, [enabled]);
+
+  // A device that wasn't there when the dialog opened has paired: done.
+  useEffect(() => {
+    if (!pairing || !status) return;
+    const added = status.devices.find((d) => !knownIds.current.has(d.id));
+    if (added) {
+      setPairing(false);
+      setJustPaired(added.name);
+    }
+  }, [pairing, status]);
 
   async function setEnabled(on: boolean) {
     try {
@@ -107,14 +204,10 @@ export function RemoteAccessSettings() {
     }
   }
 
-  async function startPairing() {
-    setPairError(false);
-    try {
-      setPair(await invoke<PairInfo>("remote_pair_start"));
-    } catch {
-      setPair(null);
-      setPairError(true);
-    }
+  function startPairing() {
+    knownIds.current = new Set(status?.devices.map((d) => d.id));
+    setJustPaired(null);
+    setPairing(true);
   }
 
   async function revoke(d: RemoteDevice) {
@@ -133,11 +226,10 @@ export function RemoteAccessSettings() {
   }
 
   const onOff: [string, string] = [t("settings.on"), t("settings.off")];
-  const remaining = pair ? toMs(pair.expiresAt) - now : 0;
   let statusLine: string | null = null;
   if (enabled) {
     if (status?.error) statusLine = status.error;
-    else if (status?.running && status.address) statusLine = t("settings.remote.address", { address: status.address });
+    else if (status?.running) statusLine = t("settings.remote.ready");
     else statusLine = t("settings.remote.starting");
   }
 
@@ -151,28 +243,10 @@ export function RemoteAccessSettings() {
           <div className="remote-access">
             <div>
               <button type="button" className="settings-choice" disabled={!status?.running} onClick={startPairing}>
-                {pair ? t("settings.remote.pairRegenerate") : t("settings.remote.pair")}
+                {t("settings.remote.pair")}
               </button>
             </div>
-            {pairError && <span className="settings-field-hint is-error">{t("settings.remote.pairError")}</span>}
-            {pair && (
-              <div className="remote-access-pair">
-                <div
-                  className={"remote-access-qr" + (remaining <= 0 ? " is-expired" : "")}
-                  // Generated locally by the qrcode package from the URL.
-                  dangerouslySetInnerHTML={{ __html: qr }}
-                />
-                <div className="remote-access-pair-text">
-                  <span className="settings-field-hint">{t("settings.remote.pairHint")}</span>
-                  <code className="remote-access-url">{pair.url}</code>
-                  <span className={"settings-field-hint" + (remaining <= 0 ? " is-error" : "")}>
-                    {remaining > 0
-                      ? t("settings.remote.pairExpires", { time: formatDuration(remaining) })
-                      : t("settings.remote.pairExpired")}
-                  </span>
-                </div>
-              </div>
-            )}
+            {justPaired && <span className="settings-field-hint">{t("settings.remote.paired", { name: justPaired })}</span>}
             {status && status.devices.length === 0 && (
               <span className="settings-field-hint">{t("settings.remote.noDevices")}</span>
             )}
@@ -196,6 +270,7 @@ export function RemoteAccessSettings() {
           </div>
         </SettingRow>
       )}
+      {pairing && <PairDialog onClose={() => setPairing(false)} />}
     </SettingsGroup>
   );
 }

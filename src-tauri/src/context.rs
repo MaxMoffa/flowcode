@@ -177,49 +177,58 @@ pub async fn agent_context(
     session_id: String,
     profile: Option<String>,
 ) -> Result<Option<AgentContext>, String> {
-    crate::blocking(move || {
-        // The id ends up in a path.
-        if !plain_id(&session_id) {
-            return Err("invalid session id".into());
+    crate::blocking(move || read_context(&app, &cli, &session_id, profile)).await
+}
+
+/// The body of `agent_context`, synchronous so the remote-access server
+/// (remote.rs) can show the same figure per tab; it does file I/O, so call
+/// it from a blocking task.
+pub(crate) fn read_context(
+    app: &tauri::AppHandle,
+    cli: &str,
+    session_id: &str,
+    profile: Option<String>,
+) -> Result<Option<AgentContext>, String> {
+    // The id ends up in a path.
+    if !plain_id(session_id) {
+        return Err("invalid session id".into());
+    }
+    let Some(dirs) = crate::profiles::dirs(app, profile.as_deref()) else {
+        return Err(format!("unknown profile {profile:?}"));
+    };
+    let key = (cli.to_string(), profile, session_id.to_string());
+    let cached = lock(&PATHS).get(&key).cloned().filter(|p| p.is_file());
+    let path = match cached {
+        Some(p) => p,
+        None => {
+            let found = match cli {
+                "claude" => find_claude_transcript(&dirs.claude, session_id),
+                "codex" => crate::agents::find_codex_rollout(&dirs.codex.join("sessions"), session_id),
+                _ => return Err(format!("unsupported cli {cli}")),
+            };
+            let Some(found) = found else {
+                let searched = if cli == "claude" { dirs.claude.clone() } else { dirs.codex.join("sessions") };
+                return Err(format!(
+                    "no transcript for {cli} session {session_id} under {}",
+                    searched.display()
+                ));
+            };
+            lock(&PATHS).insert(key, found.clone());
+            found
         }
-        let Some(dirs) = crate::profiles::dirs(&app, profile.as_deref()) else {
-            return Err(format!("unknown profile {profile:?}"));
-        };
-        let key = (cli.clone(), profile, session_id.clone());
-        let cached = lock(&PATHS).get(&key).cloned().filter(|p| p.is_file());
-        let path = match cached {
-            Some(p) => p,
-            None => {
-                let found = match cli.as_str() {
-                    "claude" => find_claude_transcript(&dirs.claude, &session_id),
-                    "codex" => crate::agents::find_codex_rollout(&dirs.codex.join("sessions"), &session_id),
-                    _ => return Err(format!("unsupported cli {cli}")),
-                };
-                let Some(found) = found else {
-                    let searched = if cli == "claude" { dirs.claude.clone() } else { dirs.codex.join("sessions") };
-                    return Err(format!(
-                        "no transcript for {cli} session {session_id} under {}",
-                        searched.display()
-                    ));
-                };
-                lock(&PATHS).insert(key, found.clone());
-                found
-            }
-        };
-        let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        if let Some((at, ctx)) = lock(&RESULTS).get(&path) {
-            if *at == len {
-                return ctx.clone().map(Some).ok_or_else(|| no_usage_error(&path));
-            }
+    };
+    let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if let Some((at, ctx)) = lock(&RESULTS).get(&path) {
+        if *at == len {
+            return ctx.clone().map(Some).ok_or_else(|| no_usage_error(&path));
         }
-        let ctx = match cli.as_str() {
-            "claude" => claude_context(&path, claude_configured_model(&dirs.claude).as_deref()),
-            _ => codex_context(&path),
-        };
-        lock(&RESULTS).insert(path.clone(), (len, ctx.clone()));
-        ctx.map(Some).ok_or_else(|| no_usage_error(&path))
-    })
-    .await
+    }
+    let ctx = match cli {
+        "claude" => claude_context(&path, claude_configured_model(&dirs.claude).as_deref()),
+        _ => codex_context(&path),
+    };
+    lock(&RESULTS).insert(path.clone(), (len, ctx.clone()));
+    ctx.map(Some).ok_or_else(|| no_usage_error(&path))
 }
 
 #[cfg(test)]

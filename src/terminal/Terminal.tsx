@@ -1,4 +1,4 @@
-import { memo, useEffect, useImperativeHandle, useRef, forwardRef, type CSSProperties } from "react";
+import { memo, useEffect, useImperativeHandle, useRef, useState, forwardRef, type CSSProperties } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -139,6 +139,12 @@ export interface TerminalHandle {
    * remote client, without detaching anything, plus the `seq` of the last
    * output written here so the client can skip what the snapshot covers. */
   snapshotForRemote: () => { data: string; seq: number } | null;
+  /** A phone is showing this terminal and has sized the pty for its screen
+   * (see remote.rs): the grid is pinned to `size` and the usual fit is
+   * skipped. `null` hands control back - the terminal refits and resizes the
+   * pty to its own size again. Synchronous, so the snapshot request that
+   * follows is taken at the pinned size. */
+  setSizeOverride: (size: { cols: number; rows: number } | null) => void;
 }
 
 /** A running terminal session on its way to another window - see
@@ -337,6 +343,9 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // tweak (sidebar drag, window resize frames), and most of those don't
   // change the cell grid at all, so there's nothing worth an IPC call.
   const ptySizeRef = useRef({ cols: 0, rows: 0 });
+  // Grid pinned by a phone viewing this terminal (see `setSizeOverride`).
+  const sizeOverrideRef = useRef<{ cols: number; rows: number } | null>(null);
+  const [phoneSized, setPhoneSized] = useState(false);
 
   /** Where the cursor row sits on screen, measured off xterm's own cell
    * grid rather than estimated from the font size. */
@@ -381,6 +390,13 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     const container = containerRef.current;
     if (!term || !fitAddon || !container) return;
     if (container.clientWidth === 0 || container.clientHeight === 0) return;
+    // A phone owns the size: the pty was already resized to it by the
+    // backend, and fitting here would undo that on every layout tweak.
+    const pinned = sizeOverrideRef.current;
+    if (pinned) {
+      if (term.cols !== pinned.cols || term.rows !== pinned.rows) term.resize(pinned.cols, pinned.rows);
+      return;
+    }
     fitAddon.fit();
     // The renderer's own cell size: `.xterm-screen` is stretched to the full
     // width (see terminal.css), so dividing its box would overstate it. Same
@@ -618,6 +634,20 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       // parsed is not in it - an acceptable gap for a phone view, and the
       // live output that follows keeps the screen converging.
       return { data: addon.serialize({ scrollback: SESSION_SCROLLBACK_LINES }), seq: lastSeqRef.current };
+    },
+    setSizeOverride: (size) => {
+      sizeOverrideRef.current = size;
+      setPhoneSized(size !== null);
+      const term = xtermRef.current;
+      if (!term) return;
+      if (size) {
+        if (term.cols !== size.cols || term.rows !== size.rows) term.resize(size.cols, size.rows);
+      } else {
+        // Forget the size last pushed so the refit resizes the pty back even
+        // when the desktop's own grid never changed.
+        ptySizeRef.current = { cols: 0, rows: 0 };
+        refit();
+      }
     },
     // Every closure above only reads refs, so the handle never goes stale -
     // re-creating it each render just churned the parent's ref callbacks.
@@ -1087,6 +1117,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         ...(terminalPalette ? (resolveTerminalPalette(terminalPalette, theme, contrast) as CSSProperties) : null),
       }}
     >
+      {phoneSized && <div className="terminal-phone-banner">{t("terminal.phoneSized")}</div>}
       <div ref={hostRef} className="terminal-host" />
     </div>
   );

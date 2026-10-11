@@ -22,17 +22,6 @@ export default defineConfig(() => ({
     ],
   },
 
-  // Two pages: the desktop app and the phone client the remote-access
-  // server hands out (remote.html, no Tauri APIs).
-  build: {
-    rollupOptions: {
-      input: {
-        main: fileURLToPath(new URL("./index.html", import.meta.url)),
-        remote: fileURLToPath(new URL("./remote.html", import.meta.url)),
-      },
-    },
-  },
-
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
