@@ -1,8 +1,10 @@
 {
   "name": "flowcode-mobile",
   "private": true,
-  "description": "Runs the Tauri CLI from this folder: the Android/iOS build calls `npm run tauri` from here, and without this file npm would run it from the repo root against the desktop app's config.",
+  "description": "Runs the Tauri CLI from this folder: the Android/iOS build calls `npm run tauri` from here, and without this file npm would run it from the repo root against the desktop app's config. The vite scripts forward to the root, which owns the dependencies.",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "mobile:vite": "cd .. && npm run mobile:vite",
+    "mobile:vite:build": "cd .. && npm run mobile:vite:build"
   }
 }
