@@ -4,6 +4,7 @@
 //! and sends client messages through `send`.
 
 pub mod link;
+mod secure;
 pub mod store;
 
 use flowcode_remote_proto::{ClientMsg, PairingTicket, ServerMsg};
@@ -13,6 +14,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use secure::SecureStore;
 use store::Pairing;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, Notify, OnceCell};
@@ -64,6 +66,9 @@ struct Inner {
 
 struct Remote {
     dir: PathBuf,
+    /// Seals the key and pairing files (Android Keystore; pass-through elsewhere).
+    /// Its calls block briefly, which is fine on the async runtime workers.
+    codec: SecureStore,
     endpoint: OnceCell<Endpoint>,
     inner: Mutex<Inner>,
     /// Cuts the backoff sleep short (`retry_now`).
@@ -86,7 +91,7 @@ impl Remote {
     async fn endpoint(&self) -> Result<Endpoint, String> {
         self.endpoint
             .get_or_try_init(|| async {
-                let key = store::load_or_create_key(&self.key_path())?;
+                let key = store::load_or_create_key(&self.key_path(), &self.codec)?;
                 link::bind(key).await
             })
             .await
@@ -158,7 +163,7 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
     let mut backoff = BACKOFF_MIN;
     let mut failures: u32 = 0;
     loop {
-        let Some(pairing) = store::load_pairing(&remote.pairing_path()) else {
+        let Some(pairing) = store::load_pairing(&remote.pairing_path(), &remote.codec) else {
             remote.set_state(app, "unpaired", None, None);
             return;
         };
@@ -289,9 +294,10 @@ fn platform() -> &'static str {
     }
 }
 
-#[tauri::command]
+// `(async)`: off the main thread, which the Android Keystore call needs free.
+#[tauri::command(async)]
 fn pairing_state(remote: State<'_, Arc<Remote>>) -> PairingState {
-    let pairing = store::load_pairing(&remote.pairing_path());
+    let pairing = store::load_pairing(&remote.pairing_path(), &remote.codec);
     PairingState { paired: pairing.is_some(), host_name: pairing.map(|p| p.host_name) }
 }
 
@@ -333,7 +339,7 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
         host_name: session.host_name.clone(),
         device_name: session.device_name.clone(),
     };
-    if let Err(e) = store::save_pairing(&remote.pairing_path(), &pairing) {
+    if let Err(e) = store::save_pairing(&remote.pairing_path(), &pairing, &remote.codec) {
         remote.set_state(&app, "unpaired", None, None);
         return Err(e);
     }
@@ -343,10 +349,11 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
 
 /// Starts the reconnect loop for a stored pairing; harmless when it is
 /// already running (it just republishes the state, e.g. after a reload).
-#[tauri::command]
+// `(async)`: off the main thread, which the Android Keystore call needs free.
+#[tauri::command(async)]
 fn connect(app: AppHandle, remote: State<'_, Arc<Remote>>) {
     let remote = Arc::clone(&remote);
-    if store::load_pairing(&remote.pairing_path()).is_none() {
+    if store::load_pairing(&remote.pairing_path(), &remote.codec).is_none() {
         remote.set_state(&app, "unpaired", None, None);
         return;
     }
@@ -391,7 +398,7 @@ fn unpair(app: AppHandle, remote: State<'_, Arc<Remote>>) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().plugin(secure::init());
     #[cfg(mobile)]
     {
         builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init()).plugin(tauri_plugin_deep_link::init());
@@ -402,6 +409,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let remote = Arc::new(Remote {
                 dir,
+                codec: app.state::<SecureStore>().inner().clone(),
                 endpoint: OnceCell::new(),
                 inner: Mutex::new(Inner { state: StateEvent { status: "connecting", ..Default::default() }, ..Default::default() }),
                 retry: Notify::new(),

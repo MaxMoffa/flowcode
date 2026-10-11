@@ -1205,6 +1205,7 @@ dependencies = [
 name = "flowcode-mobile"
 version = "0.8.0"
 dependencies = [
+ "base64 0.22.1",
  "flowcode-remote-proto",
  "iroh",
  "iroh-tickets",
