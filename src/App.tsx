@@ -113,6 +113,9 @@ const EXPLORER_LINK_MODE_KEY = "flowcode.explorerLinkMode";
 // Below this window width, "auto" mode floats the explorer instead of
 // docking it, so a narrow window keeps its terminal usable.
 const SIDEBAR_AUTO_BREAKPOINT = 880;
+// Below this the layout switches to its phone-like form (two-row header,
+// side panels as overlays). Mirrored by the `.is-narrow` rules in App.css.
+const NARROW_BREAKPOINT = 640;
 
 const QUICK_ACTIONS_KEY = "flowcode.quickActions";
 const PLUGINS_SEEDED_KEY = "flowcode.pluginsSeeded";
@@ -616,8 +619,16 @@ function Shell() {
     [],
   );
 
-  const effectiveSidebarMode: "docked" | "floating" =
-    sidebarMode === "auto" ? (windowWidth < SIDEBAR_AUTO_BREAKPOINT ? "floating" : "docked") : sidebarMode;
+  const isNarrow = windowWidth < NARROW_BREAKPOINT;
+  // Narrow windows have no room to dock a panel next to the terminal, so the
+  // sidebar floats whatever its configured mode.
+  const effectiveSidebarMode: "docked" | "floating" = isNarrow
+    ? "floating"
+    : sidebarMode === "auto"
+      ? windowWidth < SIDEBAR_AUTO_BREAKPOINT
+        ? "floating"
+        : "docked"
+      : sidebarMode;
   // Kept mounted a beat after closing so the docked panels can animate out.
   const sidebarDocked = effectiveSidebarMode === "docked" && !sidebarCollapsed;
   const sidebarPresence = usePanelPresence(sidebarDocked);
@@ -636,6 +647,27 @@ function Shell() {
     window.addEventListener("flowcode:cli-login", onCliLogin);
     return () => window.removeEventListener("flowcode:cli-login", onCliLogin);
   }, []);
+
+  // Both panels are overlays when narrow, so only one may be open: whichever
+  // was opened last wins (on entering narrow with both open, the sidebar wins).
+  const prevPanelsRef = useRef({ sidebarOpen: !sidebarCollapsed, agentsOpen: agentsSidebarOpen });
+  useEffect(() => {
+    const prev = prevPanelsRef.current;
+    const sidebarOpen = !sidebarCollapsed;
+    prevPanelsRef.current = { sidebarOpen, agentsOpen: agentsSidebarOpen };
+    if (!isNarrow || !sidebarOpen || !agentsSidebarOpen) return;
+    if (!prev.agentsOpen) setSidebarCollapsed(true);
+    else setAgentsSidebarOpen(false);
+  }, [isNarrow, sidebarCollapsed, agentsSidebarOpen, setSidebarCollapsed, setAgentsSidebarOpen]);
+
+  useEffect(() => {
+    if (!isNarrow || !agentsSidebarOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAgentsSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isNarrow, agentsSidebarOpen, setAgentsSidebarOpen]);
 
   useEffect(() => {
     if (effectiveSidebarMode !== "floating" || sidebarCollapsed) return;
@@ -2168,7 +2200,7 @@ function Shell() {
   }
 
   return (
-    <div className={`app-shell${isMaximized ? " maximized" : ""}${isEdgeFlush ? " edge-flush" : ""}`}>
+    <div className={`app-shell${isNarrow ? " is-narrow" : ""}${isMaximized ? " maximized" : ""}${isEdgeFlush ? " edge-flush" : ""}`}>
       <header className="app-headerbar" data-tauri-drag-region>
         <button
           className={"icon-button" + (!sidebarCollapsed ? " is-active" : "")}
@@ -2225,6 +2257,8 @@ function Shell() {
         />
 
         <div className="header-right">
+          {/* Its own box so the narrow layout can move it to a second row. */}
+          <div className="header-tools">
           {quickActionIds.length > 0 && (
             <div className="quick-actions">
               {quickActionIds.map((id) => {
@@ -2285,6 +2319,7 @@ function Shell() {
               <line x1="14.5" y1="4.5" x2="14.5" y2="19.5" />
             </svg>
           </button>
+          </div>
           <div className="window-controls">
             <button className="icon-button" aria-label={t("window.minimize")} onClick={() => appWindow.minimize()}>
               <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round">
@@ -2444,6 +2479,9 @@ function Shell() {
               {sidebarPanel}
             </div>
           </div>
+        )}
+        {isNarrow && agentsSidebarOpen && (
+          <div className="sidebar-floating-backdrop" onClick={() => setAgentsSidebarOpen(false)} />
         )}
         {agentsPresence.mounted && (
           <div

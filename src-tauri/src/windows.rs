@@ -64,6 +64,8 @@ pub async fn window_open(
     let new = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
         .title("Flowcode")
         .inner_size(1100.0, 700.0)
+        // Same floor as tauri.conf.json: the narrow layout is designed for it.
+        .min_inner_size(380.0, 480.0)
         .transparent(true)
         .decorations(false)
         .shadow(false)

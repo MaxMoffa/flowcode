@@ -330,3 +330,92 @@
     transform: none;
   }
 }
+
+/* Groups the shortcuts / menus / agents toggle so the narrow layout can lift
+   them onto their own row; identical to the old flat layout when wide. */
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Phone-like layout (App.tsx NARROW_BREAKPOINT): row 1 = sidebar toggle,
+   tabs, window controls; row 2 = the shortcuts and menus. Side panels become
+   overlays (App.tsx floats the sidebar and backs both with a backdrop). */
+.app-shell.is-narrow .app-headerbar {
+  flex-wrap: wrap;
+  height: auto;
+  gap: 0 4px;
+  /* Row 1 keeps the wide bar's 7px above its 30px tabs. */
+  padding: 7px 6px 0;
+}
+
+/* Dissolve the wrapper so its children join the bar's flex rows. */
+.app-shell.is-narrow .header-right {
+  display: contents;
+}
+
+.app-shell.is-narrow .window-controls {
+  order: 2;
+  margin-left: 2px;
+  padding-left: 4px;
+}
+
+.app-shell.is-narrow .header-tools {
+  order: 3;
+  flex: 0 0 100%;
+  height: 40px;
+  padding: 6px 0;
+  box-sizing: border-box;
+  -webkit-app-region: no-drag;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.app-shell.is-narrow .header-tools::-webkit-scrollbar {
+  display: none;
+}
+
+.app-shell.is-narrow .header-tools > * {
+  flex: 0 0 auto;
+}
+
+/* Nothing to the left of the first shortcut to separate it from. */
+.app-shell.is-narrow .quick-actions {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+  padding-right: 6px;
+}
+
+.app-shell.is-narrow .app-body {
+  padding: 0 6px 6px;
+  gap: 6px;
+}
+
+.app-shell.is-narrow .sidebar-floating-panel {
+  top: 0;
+  bottom: 6px;
+  left: 6px;
+  max-width: calc(100% - 12px);
+}
+
+/* The agents list as an overlay from the right, mirroring the floating
+   sidebar. Out of flow, so the terminal keeps the full width. */
+.app-shell.is-narrow .resizable-panel-right {
+  position: absolute;
+  top: 0;
+  bottom: 6px;
+  right: 6px;
+  z-index: 51;
+  max-width: calc(100% - 12px);
+  margin: 0;
+  box-shadow: -10px 0 28px rgba(0, 0, 0, 0.28);
+  border-radius: var(--card-radius);
+}
+
+/* An overlay is not resized by dragging its edge. */
+.app-shell.is-narrow .resizable-panel-right .resize-handle {
+  display: none;
+}
