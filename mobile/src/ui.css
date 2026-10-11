@@ -928,3 +928,43 @@ button.set-row.danger {
 .set-input:focus {
   border-color: var(--accent-border);
 }
+
+/* ---- app lock ----------------------------------------------------------- */
+
+/* Above toasts and sheets; opaque ground so nothing shows through. */
+.lock {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 32px;
+  background: var(--grain), var(--bg);
+  background-size: 200px 200px, auto;
+}
+
+.lock h1 {
+  margin: 0;
+  text-align: center;
+}
+
+.lock .btn {
+  width: 100%;
+  max-width: 320px;
+}
+
+.lock-error {
+  min-height: 1.4em;
+  margin: 0;
+  font-size: 13px;
+}
+
+.set-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}

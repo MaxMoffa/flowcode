@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useState, type ReactElement } from "react";
 import { AgentsScreen } from "./Agents";
 import { AgentsIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { setLanguage, t } from "./i18n";
+import { LockScreen } from "./Lock";
+import { useLock } from "./applock";
 import { PairingScreen } from "./Pairing";
 import { setLastOpened, start, useRemote } from "./remote";
 import { SettingsScreen } from "./Settings";
@@ -30,6 +32,7 @@ export function App() {
   const remote = useRemote();
   const [page, setPage] = useState<Page>("agents");
   const [openPty, setOpenPty] = useState<string | null>(null);
+  const lock = useLock();
   useViewportHeight();
 
   // The phone wears the desktop's colors and language; before the first
@@ -45,6 +48,11 @@ export function App() {
     setLastOpened(ptyId);
     setOpenPty(ptyId);
   }
+
+  // Locked: render nothing else, so no content ends up in the task switcher thumbnail.
+  // Unpaired phones have nothing to protect. `checked` avoids a flash of content before the first probe.
+  if (!lock.checked) return <div className="screen" />;
+  if (lock.locked && remote.status !== "unpaired" && remote.status !== "loading") return <LockScreen />;
 
   // Unpaired (or mid-pairing, so a failure keeps its message on screen).
   if (remote.status === "unpaired" || remote.pairing) return <PairingScreen initialError={remote.error} />;

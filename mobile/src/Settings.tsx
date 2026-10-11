@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { t } from "./i18n";
+import { setLockEnabled, useLock, verify } from "./applock";
 import { setSetting, unpair, type MirroredSettings } from "./remote";
 
 type Palette = MirroredSettings["palettes"][number];
@@ -13,10 +14,13 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Toggle({ label, on, onChange }: { label: string; on: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, hint, on, onChange }: { label: string; hint?: string; on: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className="set-row">
-      <span className="set-label">{label}</span>
+      <span className="set-label">
+        {label}
+        {hint && <small className="set-hint">{hint}</small>}
+      </span>
       <button type="button" role="switch" aria-checked={on} aria-label={label} className={"switch" + (on ? " on" : "")} onClick={() => onChange(!on)}>
         <i />
       </button>
@@ -140,6 +144,7 @@ function MessageField({ value, onCommit }: { value: string; onCommit: (v: string
 }
 
 export function SettingsScreen({ hostName, settings: s }: { hostName?: string; settings: MirroredSettings | null }) {
+  const lock = useLock();
   return (
     <>
       <header className="top">
@@ -201,6 +206,15 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
       )}
 
       <Group title={t("thisPhone")}>
+        {lock.available && (
+          <Toggle
+            label={t("lockSetting")}
+            hint={t("lockHint")}
+            on={lock.enabled}
+            // Turning it off needs a successful unlock, so a borrowed unlocked phone can't drop the lock.
+            onChange={(v) => void (v ? Promise.resolve(true) : verify()).then((ok) => ok && setLockEnabled(v))}
+          />
+        )}
         <button
           type="button"
           className="set-row danger"

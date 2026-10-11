@@ -132,7 +132,7 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
   );
 }
 
-function TerminalMark() {
+export function TerminalMark() {
   return (
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m6 8 4 4-4 4" />

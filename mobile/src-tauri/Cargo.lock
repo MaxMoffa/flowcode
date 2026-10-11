@@ -1213,6 +1213,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-barcode-scanner",
+ "tauri-plugin-biometric",
  "tauri-plugin-deep-link",
  "tokio",
 ]
@@ -4999,6 +5000,21 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "tauri-plugin-biometric"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3c916cf23f6fa96eff013b2ecda7d232bac2c87a87cb59f107c2c1b0aded495"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "serde_repr",
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.20",
