@@ -9,7 +9,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "mobile:vite": "vite --config mobile/vite.config.ts",
+    "mobile:vite:build": "vite build --config mobile/vite.config.ts",
+    "mobile:dev": "cd mobile && tauri dev",
+    "mobile:android:init": "cd mobile && tauri android init",
+    "mobile:android:dev": "cd mobile && tauri android dev",
+    "mobile:build": "cd mobile && tauri build"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -33,6 +39,7 @@
     "@flowkit-io/themes": "^1.1.1",
     "@lezer/highlight": "^1.2.3",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-barcode-scanner": "^2.5.2",
     "@tauri-apps/plugin-opener": "^2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "^0.14.0",

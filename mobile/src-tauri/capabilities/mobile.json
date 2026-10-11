@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "QR scanner and pairing links, phones only",
+  "windows": ["main"],
+  "platforms": ["android", "iOS"],
+  "permissions": ["barcode-scanner:default", "deep-link:default"]
+}

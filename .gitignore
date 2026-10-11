@@ -19,3 +19,7 @@ src-tauri/target/
 # stray local tooling artifacts
 .playwright-mcp/
 .claude/scheduled_tasks.lock
+
+# mobile app
+mobile/src-tauri/target/
+mobile/src-tauri/gen/schemas/
