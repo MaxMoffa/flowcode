@@ -305,6 +305,13 @@
   line-height: 1.4;
 }
 
+.plugin-usage-context-reason {
+  font-size: 10.5px;
+  opacity: 0.75;
+  word-break: break-all;
+  user-select: text;
+}
+
 .plugin-usage-context .plugin-usage-metric {
   margin-top: 6px;
 }

@@ -161,10 +161,15 @@ static PATHS: LazyLock<Mutex<PathCache>> = LazyLock::new(Default::default);
 type ResultCache = HashMap<PathBuf, (u64, Option<AgentContext>)>;
 static RESULTS: LazyLock<Mutex<ResultCache>> = LazyLock::new(Default::default);
 
+/// The message for a transcript that exists but has no usable model call yet.
+fn no_usage_error(path: &Path) -> String {
+    format!("no model call with usage found in {}", path.display())
+}
+
 /// How full the context window of a `cli` (`"claude"` or `"codex"`) session
-/// is, read from its transcript. `None` when the CLI is unknown, the id
-/// isn't a plain one, the transcript can't be found or has no model call yet.
-/// `profile` picks the account profile whose folders are read.
+/// is, read from its transcript. `Err` says why it can't be read: the CLI is
+/// unknown, the id isn't a plain one, the transcript can't be found or has no
+/// model call yet. `profile` picks the account profile whose folders are read.
 #[tauri::command]
 pub async fn agent_context(
     app: tauri::AppHandle,
@@ -175,9 +180,11 @@ pub async fn agent_context(
     crate::blocking(move || {
         // The id ends up in a path.
         if !plain_id(&session_id) {
-            return Ok(None);
+            return Err("invalid session id".into());
         }
-        let Some(dirs) = crate::profiles::dirs(&app, profile.as_deref()) else { return Ok(None) };
+        let Some(dirs) = crate::profiles::dirs(&app, profile.as_deref()) else {
+            return Err(format!("unknown profile {profile:?}"));
+        };
         let key = (cli.clone(), profile, session_id.clone());
         let cached = lock(&PATHS).get(&key).cloned().filter(|p| p.is_file());
         let path = match cached {
@@ -186,9 +193,15 @@ pub async fn agent_context(
                 let found = match cli.as_str() {
                     "claude" => find_claude_transcript(&dirs.claude, &session_id),
                     "codex" => crate::agents::find_codex_rollout(&dirs.codex.join("sessions"), &session_id),
-                    _ => None,
+                    _ => return Err(format!("unsupported cli {cli}")),
                 };
-                let Some(found) = found else { return Ok(None) };
+                let Some(found) = found else {
+                    let searched = if cli == "claude" { dirs.claude.clone() } else { dirs.codex.join("sessions") };
+                    return Err(format!(
+                        "no transcript for {cli} session {session_id} under {}",
+                        searched.display()
+                    ));
+                };
                 lock(&PATHS).insert(key, found.clone());
                 found
             }
@@ -196,15 +209,15 @@ pub async fn agent_context(
         let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         if let Some((at, ctx)) = lock(&RESULTS).get(&path) {
             if *at == len {
-                return Ok(ctx.clone());
+                return ctx.clone().map(Some).ok_or_else(|| no_usage_error(&path));
             }
         }
         let ctx = match cli.as_str() {
             "claude" => claude_context(&path, claude_configured_model(&dirs.claude).as_deref()),
             _ => codex_context(&path),
         };
-        lock(&RESULTS).insert(path, (len, ctx.clone()));
-        Ok(ctx)
+        lock(&RESULTS).insert(path.clone(), (len, ctx.clone()));
+        ctx.map(Some).ok_or_else(|| no_usage_error(&path))
     })
     .await
 }

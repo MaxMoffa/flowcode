@@ -101,15 +101,26 @@ function ContextSection({ pluginId, label }: { pluginId: string; label: string }
   const readable = mine && !agent.wsl && !!sessionId;
   // `undefined`: not read yet, `null`: couldn't be.
   const [context, setContext] = useState<AgentContext | null | undefined>(undefined);
+  // Why the last read failed, shown under "unavailable" to help diagnose it.
+  const [reason, setReason] = useState<string | null>(null);
 
   useEffect(() => {
     setContext(undefined);
+    setReason(null);
     if (!open || !readable) return;
     let alive = true;
     const load = () =>
       invoke<AgentContext | null>("agent_context", { cli, sessionId, profile })
-        .then((c) => alive && setContext(c))
-        .catch(() => alive && setContext(null));
+        .then((c) => {
+          if (!alive) return;
+          setReason(null);
+          setContext(c);
+        })
+        .catch((e) => {
+          if (!alive) return;
+          setContext(null);
+          setReason(String(e));
+        });
     void load();
     const interval = setInterval(load, CONTEXT_POLL_MS);
     return () => {
@@ -149,7 +160,19 @@ function ContextSection({ pluginId, label }: { pluginId: string; label: string }
         (!mine ? (
           <div className="plugin-usage-context-note">{t("usage.context.noSession", { agent: label })}</div>
         ) : !readable || context === null ? (
-          <div className="plugin-usage-context-note">{t("usage.context.unavailable")}</div>
+          <>
+            <div className="plugin-usage-context-note">{t("usage.context.unavailable")}</div>
+            {(() => {
+              const text = !readable
+                ? agent?.wsl
+                  ? "WSL"
+                  : !agent?.sessionId
+                    ? "no session id"
+                    : reason
+                : reason;
+              return text ? <div className="plugin-usage-context-note plugin-usage-context-reason">{text}</div> : null;
+            })()}
+          </>
         ) : context ? (
           <div className={`plugin-usage-metric${warn ? " plugin-usage-metric--warn" : ""}`}>
             <div className="plugin-usage-metric-top">
