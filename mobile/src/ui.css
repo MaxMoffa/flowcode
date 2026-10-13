@@ -322,13 +322,17 @@ button.card:active {
 /* ---- agents ------------------------------------------------------------- */
 
 .usage {
-  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
   min-width: 0;
+  border-radius: 18px;
 }
 
 .usage-title {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--fg);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -336,7 +340,9 @@ button.card:active {
 }
 
 .usage-gauge {
-  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .usage-head {
@@ -344,33 +350,26 @@ button.card:active {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .usage-label {
   min-width: 0;
-  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .usage-pct {
-  font-size: 22px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
-
-.usage-pct small {
-  font-size: 13px;
-  color: var(--muted);
-  margin-left: 1px;
+  font-weight: 700;
+  color: var(--fg);
 }
 
 .bar {
-  height: 6px;
+  height: 5px;
   border-radius: 999px;
-  background: var(--surface-3);
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -390,8 +389,7 @@ button.card:active {
 }
 
 .usage-sub {
-  margin-top: 6px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -403,7 +401,6 @@ button.card:active {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 8px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -570,6 +567,7 @@ button.card:active {
 .usage-section {
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
 .usage-group {
@@ -580,8 +578,163 @@ button.card:active {
 
 .usage-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  align-items: start;
+}
+
+/* Section label shared by the Agents and Terminals pages. */
+.gh {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hero-btn {
+  min-height: 50px;
+  border-radius: 16px;
+}
+
+/* ---- terminals list ---------------------------------------------------- */
+
+.th {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 2px 0;
+  line-height: 1.2;
+}
+
+.th h1 {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.th-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tsection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tcard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 20px;
+  color: inherit;
+}
+
+.tcard.is-waiting {
+  border-color: var(--wait-border);
+}
+
+.tcard-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tcard-title {
+  font-size: 16px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tcard .row-sub,
+.trow .row-sub {
+  font-size: 11px;
+}
+
+.tcard .pill {
+  gap: 5px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.tcard .pill i {
+  width: 6px;
+  height: 6px;
+}
+
+.tbadge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--muted);
+}
+
+.tbadge.claude {
+  background: rgba(217, 119, 87, 0.16);
+  color: #e59a7c;
+}
+
+.tbadge.codex {
+  background: var(--busy-bg);
+  color: var(--busy);
+}
+
+.tbadge.plain svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tlist {
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.trow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 0 14px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  color: inherit;
+}
+
+.trow:first-child {
+  border-top: 0;
+}
+
+.trow:active {
+  background: var(--surface-2);
+}
+
+.trow-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trow > svg {
+  color: var(--muted);
+  flex: none;
 }
 
 /* ---- bottom nav --------------------------------------------------------- */

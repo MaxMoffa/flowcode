@@ -126,7 +126,7 @@ function AppContent() {
       <div className="screen">
         <main className="page">
           {page === "agents" && <AgentsScreen hostName={remote.hostName} tabs={remote.tabs} usage={remote.usage} onOpen={open} />}
-          {page === "terminals" && <TerminalsScreen tabs={remote.tabs} onOpen={open} />}
+          {page === "terminals" && <TerminalsScreen hostName={remote.hostName} tabs={remote.tabs} onOpen={open} />}
           {page === "settings" && (
             <Suspense fallback={null}>
               <SettingsScreen hostName={remote.hostName} settings={remote.settings} />

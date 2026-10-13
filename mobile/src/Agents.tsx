@@ -28,10 +28,7 @@ function UsageCard({ item }: { item: UsageItem }) {
           <div className="usage-gauge" key={i}>
             <div className="usage-head">
               <span className="usage-label">{m.label}</span>
-              <span className="usage-pct">
-                {pct}
-                <small>%</small>
-              </span>
+              <b className="usage-pct">{pct}%</b>
             </div>
             <div className={"bar" + (pct >= 90 ? " hot" : pct >= 70 ? " warm" : "")}>
               <i style={{ width: `${Math.min(100, pct)}%` }} />
@@ -104,7 +101,7 @@ function Hero({ tab, count, onOpen }: { tab: Tab; count: number; onOpen: (ptyId:
       <div className="hero-actions">
         <button
           type="button"
-          className="btn big accent"
+          className="btn big accent hero-btn"
           onClick={() => {
             tapFeedback();
             send({ t: "input", ptyId: tab.ptyId, data: "1" });
@@ -114,7 +111,7 @@ function Hero({ tab, count, onOpen }: { tab: Tab; count: number; onOpen: (ptyId:
         </button>
         <button
           type="button"
-          className="btn big"
+          className="btn big hero-btn"
           onClick={() => {
             tapFeedback();
             send({ t: "input", ptyId: tab.ptyId, data: "\x1b" });
@@ -175,7 +172,7 @@ export function AgentsScreen({ hostName, tabs, usage, onOpen }: { hostName?: str
       {groups.map((g) => (
         <section className="usage-section" key={g.key}>
           {showTitles && (
-            <div className="group usage-group">
+            <div className="gh usage-group">
               {g.color && <i className="dot" style={{ background: g.color }} />}
               {g.title}
             </div>
