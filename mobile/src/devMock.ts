@@ -2,6 +2,7 @@
 // main.tsx behind `import.meta.env.DEV`, so it never reaches a production build.
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { termMock } from "./devMockTerm";
 
 const tabs = [
   { ptyId: "p1", tabId: "t1", window: "w1", label: "flowcode", cwd: "C:/Users/massi/Progetti/flowcode", cols: 80, rows: 24, cli: "claude", status: "waiting", context: { used: 16000, window: 200000 } },
@@ -51,11 +52,35 @@ const mockSettings = {
   autoResume: { enabled: true, message: "continua" },
 };
 
+// ?mock=pairing starts unpaired (pairing never answers); ?mock=pairing-ok answers after 3 s.
+const unpaired = location.search.includes("mock=pairing");
+const answers = location.search.includes("pairing-ok");
+
 mockIPC(
-  (cmd) => {
+  (cmd, args) => {
     switch (cmd) {
       case "pairing_state":
-        return { paired: true, hostName: "Il mio PC" };
+        return unpaired ? { paired: false } : { paired: true, hostName: "Il mio PC" };
+      case "inspect_ticket":
+        return { hostName: "Il mio PC", fingerprint: "K3M9QD" };
+      case "my_fingerprint":
+        return "A7K9QX";
+      case "pair":
+        return new Promise((resolve) => {
+          if (!answers) return;
+          setTimeout(() => {
+            resolve(null);
+            void emit("remote://state", { status: "online", hostName: "Il mio PC" });
+            void emit("remote://msg", { t: "tabs", tabs });
+            void emit("remote://msg", { t: "usage", items: usage });
+            void emit("remote://msg", { t: "settings", settings: mockSettings });
+          }, 3000);
+        });
+      case "plugin:barcode-scanner|check_permissions":
+      case "plugin:barcode-scanner|request_permissions":
+        return { camera: "granted" };
+      case "plugin:barcode-scanner|scan":
+        return new Promise(() => {});
       case "connect":
         setTimeout(async () => {
           await emit("remote://state", { status: "online", hostName: "Il mio PC" });
@@ -67,7 +92,7 @@ mockIPC(
       case "platform":
         return "mobile";
       default:
-        return null;
+        return termMock(cmd, args);
     }
   },
   { shouldMockEvents: true },

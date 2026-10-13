@@ -1,0 +1,322 @@
+/* Scanner overlay and pairing waiting page. */
+
+/* While the camera runs, every layer between the webview and the preview is clear. */
+html.scanning,
+html.scanning body,
+html.scanning #root {
+  background: transparent !important;
+}
+
+html.scanning body::before {
+  display: none;
+}
+
+.scan {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 16px) 20px calc(env(safe-area-inset-bottom) + 24px);
+  color: #fff;
+  /* The dim comes from the frame's shadow, so the viewfinder stays clear. */
+  background: transparent;
+}
+
+.scan.is-denied {
+  background: var(--bg);
+  color: var(--fg);
+  justify-content: center;
+}
+
+.scan-close {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 12px);
+  left: 12px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+
+.is-denied .scan-close {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.scan-head {
+  position: relative;
+  z-index: 1;
+  margin-top: 56px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+}
+
+.scan-head h1 {
+  font-size: 24px;
+}
+
+.scan-head p {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.scan-frame {
+  --size: min(70vw, 300px);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--size);
+  height: var(--size);
+  margin: calc(var(--size) / -2) 0 0 calc(var(--size) / -2);
+  border-radius: 28px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.62);
+  overflow: hidden;
+}
+
+.scan-frame i {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  border: 0 solid var(--accent);
+}
+
+.scan-frame .tl {
+  top: 0;
+  left: 0;
+  border-width: 4px 0 0 4px;
+  border-top-left-radius: 28px;
+}
+
+.scan-frame .tr {
+  top: 0;
+  right: 0;
+  border-width: 4px 4px 0 0;
+  border-top-right-radius: 28px;
+}
+
+.scan-frame .bl {
+  bottom: 0;
+  left: 0;
+  border-width: 0 0 4px 4px;
+  border-bottom-left-radius: 28px;
+}
+
+.scan-frame .br {
+  bottom: 0;
+  right: 0;
+  border-width: 0 4px 4px 0;
+  border-bottom-right-radius: 28px;
+}
+
+.scan-line {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 14px 2px color-mix(in srgb, var(--accent) 70%, transparent);
+  animation: scan-sweep 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes scan-sweep {
+  from {
+    transform: translateY(14px);
+  }
+  to {
+    transform: translateY(calc(var(--size) - 16px));
+  }
+}
+
+.scan-foot {
+  position: relative;
+  z-index: 1;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.scan-status {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.scan-paste {
+  min-height: 46px;
+  padding: 0 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-weight: 600;
+}
+
+.scan-denied {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: center;
+}
+
+.scan-denied p {
+  margin: 0;
+}
+
+/* ---- waiting for the desktop ------------------------------------------- */
+
+.pw {
+  gap: 14px;
+}
+
+.pw-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+}
+
+.pw h1 {
+  font-size: 26px;
+}
+
+.pw-host {
+  margin: 0;
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.pw-body {
+  margin: 0;
+  max-width: 320px;
+  color: var(--muted);
+}
+
+.pw-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 16px 24px;
+  border-radius: 18px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.pw-code small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pw-code b {
+  font: 700 38px/1.1 var(--mono);
+  letter-spacing: 0.3em;
+  margin-right: -0.3em;
+  color: var(--accent);
+}
+
+.pw-dots {
+  display: flex;
+  gap: 8px;
+}
+
+.pw-dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pw-pulse 1.2s ease-in-out infinite;
+}
+
+.pw-dots i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.pw-dots i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pw-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.pw-bar {
+  width: 100%;
+  max-width: 260px;
+  height: 4px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--border-strong);
+}
+
+.pw-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 1s linear;
+}
+
+.pw-expires {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pw-check {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  animation: pw-pop 0.35s ease-out;
+}
+
+.pw-check.is-fail {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+@keyframes pw-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan-line,
+  .pw-dots i,
+  .pw-check {
+    animation: none;
+  }
+}

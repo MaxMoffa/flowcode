@@ -93,6 +93,14 @@ function AppContent() {
     if (remote.status === "unpaired" && lock.locked) unlock();
   }, [remote.status, lock.locked]);
 
+  // A fresh pairing starts on the agents list, not wherever the last one ended.
+  useEffect(() => {
+    if (remote.status === "unpaired") {
+      setPage("agents");
+      setOpenPty(null);
+    }
+  }, [remote.status]);
+
   const tab = openPty ? remote.tabs?.find((x) => x.ptyId === openPty) : undefined;
   // Back from a terminal returns to the list; on the root it is left alone (the app exits).
   useBackHandler(!!tab, () => setOpenPty(null));
@@ -143,7 +151,7 @@ function AppContent() {
   return (
     <>
       {content}
-      {paired && <Reconnect />}
+      {paired && !remote.pairing && !remote.firstConnect && <Reconnect />}
       <Toast />
       {lock.hidden && <div className="privacy" aria-hidden="true" />}
     </>

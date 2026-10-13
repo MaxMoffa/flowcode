@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "./i18n";
 import { QrIcon } from "./icons";
-import { inspectTicket, myFingerprint, onDeepLink, pair, platform, setPairingBusy, takePendingLink } from "./remote";
+import logo from "./assets/flowcode-icon.svg";
+import { Scanner } from "./Scanner";
+import { cancelPair, inspectTicket, markFirstConnect, myFingerprint, onDeepLink, pair, platform, setPairingBusy, takePendingLink } from "./remote";
+import "./pairing.css";
+
+/** The desktop gives up on an unanswered request after about this long. */
+const EXPIRES_S = 60;
+const SUCCESS_MS = 1600;
 
 function defaultDeviceName(): string {
   const ua = navigator.userAgent;
@@ -25,7 +32,11 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
   const [mobile, setMobile] = useState(false);
   const [code, setCode] = useState("");
   const [name, setName] = useState(defaultDeviceName);
-  const [busy, setBusy] = useState(false);
+  // The dedicated page for the wait on the desktop, its outcome included.
+  const [wait, setWait] = useState<{ stage: "waiting" | "done" | "failed"; message?: string; detail?: string } | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const pasteRef = useRef<HTMLTextAreaElement>(null);
+  const endRef = useRef<"cancel" | "timeout" | null>(null);
   const [error, setError] = useState<string | undefined>(initialError);
   // Nothing pairs without the user confirming who they are connecting to.
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -53,20 +64,46 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
   async function confirm() {
     if (busyRef.current || !proposal) return;
     busyRef.current = true;
-    setBusy(true);
+    endRef.current = null;
+    setWait({ stage: "waiting" });
     setError(undefined);
     setPairingBusy(true);
+    markFirstConnect(true);
     try {
       await pair(proposal.ticket, nameRef.current.trim() || defaultDeviceName());
+      setWait({ stage: "done" });
+      await new Promise((r) => setTimeout(r, SUCCESS_MS));
       setProposal(null);
+      setWait(null);
     } catch (e) {
-      setError(typeof e === "string" ? e : t("pairFailed"));
-      setProposal(null);
+      markFirstConnect(false);
+      const why = endRef.current;
+      if (why === "cancel") {
+        setProposal(null);
+        setWait(null);
+      } else {
+        setWait({
+          stage: "failed",
+          message: why === "timeout" ? t("pairTimedOut") : t("pairRefused"),
+          detail: why === null && typeof e === "string" ? e : undefined,
+        });
+      }
     } finally {
       busyRef.current = false;
-      setBusy(false);
       setPairingBusy(false);
     }
+  }
+
+  function endWait(why: "cancel" | "timeout") {
+    endRef.current = why;
+    void cancelPair();
+  }
+
+  function retry() {
+    setWait(null);
+    setProposal(null);
+    setError(undefined);
+    if (mobile) setScanning(true);
   }
 
   useEffect(() => {
@@ -81,35 +118,29 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
     return () => void off.then((f) => f());
   }, []);
 
-  async function scan() {
-    setError(undefined);
-    try {
-      const { scan: doScan, Format, checkPermissions, requestPermissions } = await import("@tauri-apps/plugin-barcode-scanner");
-      let perm = await checkPermissions();
-      if (perm !== "granted") perm = await requestPermissions();
-      if (perm !== "granted") {
-        setError(t("cameraDenied"));
-        return;
-      }
-      const result = await doScan({ windowed: false, formats: [Format.QRCode] });
-      setCode(result.content);
-      await propose(result.content);
-    } catch (e) {
-      // Cancelling the camera also lands here; only say so for real errors.
-      const text = typeof e === "string" ? e : e instanceof Error ? e.message : "";
-      if (text && !/cancel/i.test(text)) setError(`${t("scanFailed")}: ${text}`);
-    }
+  if (scanning) {
+    return (
+      <Scanner
+        onResult={(content) => {
+          setScanning(false);
+          setCode(content);
+          void propose(content);
+        }}
+        onClose={() => setScanning(false)}
+        onPaste={() => {
+          setScanning(false);
+          setTimeout(() => pasteRef.current?.focus(), 50);
+        }}
+        onError={(message) => {
+          setScanning(false);
+          setError(message);
+        }}
+      />
+    );
   }
 
-  if (busy) {
-    return (
-      <div className="screen pair pair-wait" role="status">
-        <span className="spinner" aria-hidden="true" />
-        <h1>{t("pairWaiting")}</h1>
-        <p className="muted">{t("pairWaitingHint")}</p>
-        {proposal?.mine && <p className="fingerprint">{proposal.mine}</p>}
-      </div>
-    );
+  if (wait) {
+    return <PairWait host={proposal?.hostName ?? t("reconHostFallback")} mine={proposal?.mine} wait={wait} onCancel={() => endWait("cancel")} onExpire={() => endWait("timeout")} onRetry={retry} />;
   }
 
   if (proposal) {
@@ -151,7 +182,7 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
 
       {mobile && (
         <>
-          <button type="button" className="btn primary big" onClick={() => void scan()}>
+          <button type="button" className="btn primary big" onClick={() => setScanning(true)}>
             <QrIcon /> {t("scanQr")}
           </button>
           <div className="or">{t("orPaste")}</div>
@@ -168,6 +199,7 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
         <label className="field">
           <span>{t("pasteLabel")}</span>
           <textarea
+            ref={pasteRef}
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder={t("pastePlaceholder")}
@@ -190,6 +222,96 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
           {t("pair")}
         </button>
       </form>
+    </div>
+  );
+}
+
+interface WaitProps {
+  host: string;
+  mine?: string;
+  wait: { stage: "waiting" | "done" | "failed"; message?: string; detail?: string };
+  onCancel: () => void;
+  onExpire: () => void;
+  onRetry: () => void;
+}
+
+/** The page shown from "Collega" until the desktop answers: its code, a countdown, the outcome. */
+function PairWait({ host, mine, wait, onCancel, onExpire, onRetry }: WaitProps) {
+  const [left, setLeft] = useState(EXPIRES_S);
+  const expire = useRef(onExpire);
+  expire.current = onExpire;
+  const waiting = wait.stage === "waiting";
+
+  useEffect(() => {
+    if (!waiting) return;
+    setLeft(EXPIRES_S);
+    const end = Date.now() + EXPIRES_S * 1000;
+    const id = setInterval(() => {
+      const s = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      setLeft(s);
+      if (s === 0) {
+        clearInterval(id);
+        expire.current();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [waiting]);
+
+  if (wait.stage === "done") {
+    return (
+      <div className="screen pair pair-wait pw" role="status">
+        <div className="pw-check" aria-hidden="true">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m5 12.500 4.500 4.500L19 7.500" />
+          </svg>
+        </div>
+        <h1>{t("pairDone", { host })}</h1>
+      </div>
+    );
+  }
+
+  if (wait.stage === "failed") {
+    return (
+      <div className="screen pair pair-wait pw" role="alert">
+        <div className="pw-check is-fail" aria-hidden="true">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
+        </div>
+        <h1>{t("pairFailedTitle")}</h1>
+        <p className="pw-body">{wait.message}</p>
+        {wait.detail && <p className="pw-expires">{wait.detail}</p>}
+        <button type="button" className="btn primary big" onClick={onRetry}>
+          {t("pairRetry")}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="screen pair pair-wait pw" role="status">
+      <img className="pw-logo" src={logo} alt="" />
+      <h1>{t("pairWaitTitle")}</h1>
+      <p className="pw-host">{host}</p>
+      {mine && (
+        <div className="pw-code">
+          <small>{t("pairWaitCode")}</small>
+          <b aria-label={mine.split("").join(" ")}>{mine}</b>
+        </div>
+      )}
+      <p className="pw-body">{t("pairWaitBody", { host })}</p>
+      <div className="pw-dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </div>
+      <div className="pw-bar" aria-hidden="true">
+        <i style={{ width: `${(left / EXPIRES_S) * 100}%` }} />
+      </div>
+      <p className="pw-expires">{t("pairExpires", { s: left })}</p>
+      <button type="button" className="btn big" onClick={onCancel}>
+        {t("pairCancel")}
+      </button>
     </div>
   );
 }

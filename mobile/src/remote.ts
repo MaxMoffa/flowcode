@@ -120,6 +120,8 @@ export interface Snapshot {
   wasOnline: boolean;
   /** True while the pairing screen is mid-`pair`, so it stays on screen. */
   pairing: boolean;
+  /** A pairing was just made and the link hasn't come online yet: no "connection lost" sheet for that. */
+  firstConnect: boolean;
   tabs: Tab[] | null;
   usage: UsageItem[];
   actions: Action[];
@@ -228,7 +230,7 @@ export function resetSettingsCache() {
   store.set({ settings: null });
 }
 
-const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, tabs: null, usage: [], actions: [], settings: loadSettings(), lastOpened: null, toast: null });
+const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, usage: [], actions: [], settings: loadSettings(), lastOpened: null, toast: null });
 const msgListeners = new Set<(m: ServerMsg) => void>();
 const set = store.set;
 
@@ -261,6 +263,11 @@ export function setLastOpened(ptyId: string) {
 
 export function setPairingBusy(pairing: boolean) {
   set({ pairing });
+}
+
+/** A pairing was just created: hold back the reconnect sheet until the link is online once. */
+export function markFirstConnect(on: boolean) {
+  set({ firstConnect: on });
 }
 
 function handleMsg(m: ServerMsg) {
@@ -310,7 +317,7 @@ export async function start(): Promise<void> {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
-    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true } : {}), ...(status === "unpaired" ? { tabs: null, usage: [], actions: [], settings: null, lastOpened: null } : {}) });
+    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, lastOpened: null } : {}) });
   });
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {
@@ -332,6 +339,8 @@ export const myFingerprint = (): Promise<string | null> => invoke<string>("my_fi
 /** Tells the core the app is back in the foreground, so it can redial without waiting for a backoff. */
 export const appResumed = (): Promise<void> => invoke<void>("app_resumed").catch(() => {});
 export const retryNow = (): Promise<void> => invoke("retry_now");
+/** Stops a pairing that is waiting for the desktop's confirmation. */
+export const cancelPair = (): Promise<void> => invoke<void>("cancel_pair").catch(() => {});
 export const unpair = (): Promise<void> => invoke("unpair");
 /** The core's last connection events (dial, handshake, backoff, close reasons), oldest first. */
 export const connectionLog = (): Promise<{ at: number; text: string }[]> => invoke<{ at: number; text: string }[]>("connection_log").catch(() => []);

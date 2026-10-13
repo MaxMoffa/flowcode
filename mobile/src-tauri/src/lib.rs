@@ -163,6 +163,8 @@ struct Remote {
     resume: Notify,
     /// A `pair` is running; a second one is refused.
     pairing: AtomicBool,
+    /// Wakes a running `pair` to abandon the wait for the desktop's confirmation.
+    pair_cancel: Notify,
     /// The last events of the connection, for Settings > diagnostics.
     log: ConnLog,
 }
@@ -541,12 +543,14 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
     if !running {
         remote.set_state(&app, Status::Connecting, Some(parsed.host.clone()), None);
     }
-    let result = async {
-        let endpoint = remote.endpoint().await.map_err(LinkError::Transient)?;
-        remote.log.push("pairing started");
-        link::handshake_with(&endpoint, &parsed.node, ClientMsg::Pair { code: parsed.code.clone(), device_name }, || {}, |line| remote.log.push(line)).await
-    }
-    .await;
+    let result = tokio::select! {
+        r = async {
+            let endpoint = remote.endpoint().await.map_err(LinkError::Transient)?;
+            remote.log.push("pairing started");
+            link::handshake_with(&endpoint, &parsed.node, ClientMsg::Pair { code: parsed.code.clone(), device_name }, || {}, |line| remote.log.push(line)).await
+        } => Some(r),
+        _ = remote.pair_cancel.notified() => None,
+    };
     let failed = |message: String| {
         // Without a running loop the state still says "connecting": go back
         // to the stored pairing's reconnect loop, or to unpaired if none.
@@ -560,8 +564,12 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
         Err(message)
     };
     let session = match result {
-        Ok(s) => s,
-        Err(e) => return failed(e.message().to_string()),
+        Some(Ok(s)) => s,
+        Some(Err(e)) => return failed(e.message().to_string()),
+        None => {
+            remote.log.push("pairing cancelled by the user");
+            return failed("cancelled".into());
+        }
     };
     let Some(token) = session.token.clone() else {
         return failed("the desktop did not issue a token".into());
@@ -577,6 +585,12 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
     }
     remote.start_task(&app, Some(session));
     Ok(())
+}
+
+/// "Annulla" on the waiting page: stops a `pair` that waits for the desktop.
+#[tauri::command]
+fn cancel_pair(remote: State<'_, Arc<Remote>>) {
+    remote.pair_cancel.notify_waiters();
 }
 
 /// Starts the reconnect loop for a stored pairing; harmless when it is
@@ -678,6 +692,7 @@ pub fn run() {
                 retry: Notify::new(),
                 resume: Notify::new(),
                 pairing: AtomicBool::new(false),
+                pair_cancel: Notify::new(),
                 log: ConnLog::default(),
             });
             app.manage(Arc::clone(&remote));
@@ -717,6 +732,7 @@ pub fn run() {
             inspect_ticket,
             my_fingerprint,
             pair,
+            cancel_pair,
             connect,
             send,
             retry_now,
