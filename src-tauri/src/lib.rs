@@ -185,6 +185,7 @@ pub fn run() {
             remote::remote_size_claim,
             remote::remote_publish_usage,
             remote::remote_publish_settings,
+            remote::remote_publish_profiles,
             remote::remote_publish_actions,
         ])
         .run(tauri::generate_context!())

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useTheme } from "../themes/ThemeContext";
 import { PALETTES, findPalette, resolvePalette } from "../themes/palettes";
 import { LANGUAGES, useI18n } from "../i18n";
@@ -9,6 +10,8 @@ import { setNotificationEnabled, useNotificationSettings, type NotificationKind 
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
 import { isRemoteLeader, useRemoteLeader } from "./leader";
 import { isValidSetting, type SettingContext } from "./settingDefs";
+import { parseProfileOp } from "./profileOps";
+import { createProfile, deleteProfile, refreshProfiles, updateProfile, useProfiles } from "../profiles/profiles";
 
 /** Settings changes are coalesced: dragging a slider on the phone or the
  * desktop fires many in a row. */
@@ -29,6 +32,7 @@ export function RemoteSettingsBridge() {
   const notify = useNotificationSettings();
   const autoResume = useAutoResumeSettings();
   const leader = useRemoteLeader();
+  const { profiles } = useProfiles();
 
   // Palettes only depend on the theme, not on what a tab's zoom does.
   const palettes = useMemo(() => {
@@ -82,6 +86,25 @@ export function RemoteSettingsBridge() {
     }, PUBLISH_DELAY_MS);
     return () => clearTimeout(timer);
   }, [settings, leader]);
+
+  // The profile list for the phone's Profili page. Login state is read off the
+  // CLIs' files, so it is re-read when the window regains focus (the usual way
+  // back from signing in) and for a while after the phone asked for a login.
+  const profileList = useMemo(
+    () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe } })),
+    [profiles],
+  );
+  useEffect(() => {
+    if (!leader) return;
+    if (isRemoteLeader()) invoke("remote_publish_profiles", { profiles: profileList }).catch(() => {});
+  }, [profileList, leader]);
+
+  useEffect(() => {
+    if (!leader) return;
+    const onFocus = () => void refreshProfiles();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [leader]);
 
   // The listener is registered once; it always calls the latest setters.
   const apply = useRef<(key: string, value: unknown) => void>(() => {});
@@ -138,6 +161,29 @@ export function RemoteSettingsBridge() {
   useEffect(() => {
     const unlisten = listen<{ key: string; value: unknown }>("remote://set-setting", (e) => {
       apply.current(e.payload.key, e.payload.value);
+    });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
+  // Profile changes from the phone. The backend sends them to the leader window only; the check
+  // here covers a role change in flight. Sign-in (`remote://profile-login`) is handled by App.
+  useEffect(() => {
+    const unlisten = getCurrentWebviewWindow().listen<unknown>("remote://profile", (e) => {
+      if (!isRemoteLeader()) return;
+      const op = parseProfileOp(e.payload);
+      if (!op) return;
+      const done =
+        op.op === "create"
+          ? createProfile(op.name, op.color, op.copySettings)
+          : op.op === "update"
+            ? updateProfile(op.id, op.name, op.color)
+            : op.op === "delete"
+              ? deleteProfile(op.id, op.deleteFiles)
+              : Promise.resolve();
+      // A rejected name / color (duplicate, empty) leaves the list as it was.
+      void done.catch(() => refreshProfiles());
     });
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});

@@ -4,7 +4,8 @@ import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { setLockEnabled, useLock, verify } from "./applock";
 import { effectivePhone, phoneTheme, setPhoneTheme } from "./theme";
-import { connectionLog, setSetting, unpair, type MirroredSettings } from "./remote";
+import { connectionLog, setSetting, unpair, type MirroredSettings, type ProfileInfo } from "./remote";
+import { ProfilesPage } from "./ProfilesSettings";
 
 type Palette = MirroredSettings["palettes"][number];
 
@@ -204,7 +205,7 @@ function MessageField({ value, onCommit }: { value: string; onCommit: (v: string
   );
 }
 
-type SectionId = "appearance" | "terminal" | "agents" | "resume" | "language" | "security" | "phone";
+type SectionId = "appearance" | "terminal" | "agents" | "resume" | "profiles" | "language" | "security" | "phone";
 
 const svg = (children: ReactNode) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -237,6 +238,15 @@ const ICONS: Record<SectionId, { tone: string; icon: ReactNode }> = {
       <>
         <path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z" />
         <path d="M10 21h4" />
+      </>,
+    ),
+  },
+  profiles: {
+    tone: "blue",
+    icon: svg(
+      <>
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.3c2 .8 3.5 2.6 3.5 5.7" />
       </>,
     ),
   },
@@ -288,7 +298,7 @@ function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: stri
 
 const onOff = (v: boolean) => (v ? t("stateOn") : t("stateOff"));
 
-function summaries(s: MirroredSettings | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, hostName?: string): Record<SectionId, string> {
+function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, hostName?: string): Record<SectionId, string> {
   const eff = s ? effectivePhone(s, local) : null;
   const paletteName = s && eff ? (s.palettes.find((p) => p.id === eff.palette)?.name ?? eff.palette) : "";
   const themeName = eff ? { auto: t("themeAuto"), light: t("themeLight"), dark: t("themeDark") }[eff.theme] : "";
@@ -298,6 +308,7 @@ function summaries(s: MirroredSettings | null, lock: ReturnType<typeof useLock>,
     appearance: s ? (eff?.local ? t("sumPhoneOnly", { name: paletteName }) : `${paletteName} · ${themeName}`) : "",
     terminal: s ? t("sumTerminal", { size: s.terminalFontSize, banner: onOff(s.bannerEnabled) }) : "",
     agents: s ? (notifyCount ? t("sumAgents", { n: notifyCount }) : t("sumAgentsNone")) : "",
+    profiles: profiles === null ? "" : profiles.length ? t("sumProfiles", { n: profiles.length }) : t("sumProfilesNone"),
     resume: s ? (s.autoResume.enabled ? t("sumResumeOn", { msg: s.autoResume.message || t("autoResumePlaceholder") }) : t("sumResumeOff")) : "",
     language: langName,
     security: lock.enabled ? t("sumLockOn") : t("sumLockOff"),
@@ -305,20 +316,21 @@ function summaries(s: MirroredSettings | null, lock: ReturnType<typeof useLock>,
   };
 }
 
-export function SettingsScreen({ hostName, settings: s }: { hostName?: string; settings: MirroredSettings | null }) {
+export function SettingsScreen({ hostName, settings: s, profiles }: { hostName?: string; settings: MirroredSettings | null; profiles: ProfileInfo[] | null }) {
   const lock = useLock();
   const [section, setSection] = useState<SectionId | null>(null);
   useBackHandler(section !== null, () => setSection(null));
 
   const local = phoneTheme.use();
-  const sum = summaries(s, lock, local, hostName);
-  const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", "language"] : [];
+  const sum = summaries(s, profiles, lock, local, hostName);
+  const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", "profiles", "language"] : [];
   const phoneOnly: SectionId[] = lock.available ? ["security", "phone"] : ["phone"];
   const titles: Record<SectionId, string> = {
     appearance: t("appearance"),
     terminal: t("terminalGroup"),
     agents: t("secAgents"),
     resume: t("autoResume"),
+    profiles: t("secProfiles"),
     language: t("language"),
     security: t("secSecurity"),
     phone: t("thisPhone"),
@@ -360,6 +372,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
     terminal: t("introShared"),
     agents: t("introAgents"),
     resume: t("introResume"),
+    profiles: t("introProfiles"),
     language: t("introShared"),
     security: t("introSecurity"),
     phone: t("introPhone"),
@@ -459,6 +472,8 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
           <MessageField value={s.autoResume.message} onCommit={(v) => setSetting("autoResume.message", v)} />
         </Group>
       )}
+
+      {section === "profiles" && <ProfilesPage profiles={profiles} />}
 
       {section === "security" && (
         <Group title={t("secSecurity")}>

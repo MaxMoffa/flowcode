@@ -41,6 +41,25 @@ pub enum ClientMsg {
     /// Change one desktop setting the phone mirrors (see `ServerMsg::Settings`).
     /// The desktop validates `key` and the value's type and ignores anything else.
     Set { key: String, value: serde_json::Value },
+    /// Manage the account profiles (see `ServerMsg::Profiles`). `op` is
+    /// `create` (`name`, `color`, optional `copySettings`), `update` (`id`,
+    /// `name`, `color`), `delete` (`id`, optional `deleteFiles`) or `login`
+    /// (`id`, `cli`: opens that CLI's sign-in in a new desktop terminal tab).
+    Profile {
+        op: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        copy_settings: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delete_files: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cli: Option<String>,
+    },
     Ping,
 }
 
@@ -70,6 +89,10 @@ pub enum ServerMsg {
     /// The desktop settings the phone mirrors, as one JSON object. Sent after
     /// `ready` once the desktop has published them, and again on every change.
     Settings { settings: serde_json::Value },
+    /// The account profiles, as a JSON array of
+    /// `{id, name, color, loggedIn: {claude, codex, vibe}}`. Sent after `ready`
+    /// once the desktop has published them, and again on every change.
+    Profiles { profiles: serde_json::Value },
     Pong,
 }
 
@@ -179,6 +202,25 @@ mod tests {
         assert_eq!(msg, ClientMsg::Set { key: "palette".into(), value: serde_json::json!("ocean") });
         let json = serde_json::to_value(ServerMsg::Settings { settings: serde_json::json!({ "a": 1 }) }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "settings", "settings": { "a": 1 } }));
+    }
+
+    #[test]
+    fn profile_messages_round_trip() {
+        let msg: ClientMsg = serde_json::from_str(r##"{"t":"profile","op":"create","name":"Work","color":"#112233","copySettings":true}"##).unwrap();
+        assert_eq!(
+            msg,
+            ClientMsg::Profile {
+                op: "create".into(),
+                id: None,
+                name: Some("Work".into()),
+                color: Some("#112233".into()),
+                copy_settings: Some(true),
+                delete_files: None,
+                cli: None
+            }
+        );
+        let json = serde_json::to_value(ServerMsg::Profiles { profiles: serde_json::json!([]) }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "profiles", "profiles": [] }));
     }
 
     #[test]

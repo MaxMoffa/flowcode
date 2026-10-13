@@ -24,6 +24,11 @@ const usage = [
   { pluginId: "codex-cli", label: "Codex", ...L, metrics: gauges(0.22, 0.95) },
 ];
 
+const mockProfiles = [
+  { id: "lavoro-1fa968", name: "Lavoro", color: "#6f9bcf", loggedIn: { claude: true, codex: true, vibe: false } },
+  { id: "personale-22b1c0", name: "Personale", color: "#22c55e", loggedIn: { claude: true, codex: false, vibe: false } },
+];
+
 const mockSettings = {
   theme: "dark",
   resolvedTheme: "dark",
@@ -74,6 +79,7 @@ mockIPC(
             void emit("remote://msg", { t: "tabs", tabs });
             void emit("remote://msg", { t: "usage", items: usage });
             void emit("remote://msg", { t: "settings", settings: mockSettings });
+            void emit("remote://msg", { t: "profiles", profiles: mockProfiles });
           }, 3000);
         });
       case "plugin:barcode-scanner|check_permissions":
@@ -87,6 +93,7 @@ mockIPC(
           await emit("remote://msg", { t: "tabs", tabs });
           await emit("remote://msg", { t: "usage", items: usage });
           await emit("remote://msg", { t: "settings", settings: mockSettings });
+          await emit("remote://msg", { t: "profiles", profiles: mockProfiles });
         }, 50);
         return null;
       case "platform":

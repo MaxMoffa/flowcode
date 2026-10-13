@@ -74,7 +74,7 @@ import { useI18n } from "./i18n";
 import { NewTabPage, type NewTabLaunch } from "./newtab/NewTabPage";
 import { recordRecentTerminal } from "./newtab/recentTerminals";
 import { recordCommand } from "./newtab/commandHistory";
-import { profileForPath, useProfiles } from "./profiles/profiles";
+import { profileForPath, refreshProfiles, useProfiles } from "./profiles/profiles";
 import { ProfilePicker } from "./profiles/ProfilePicker";
 import { Icons } from "./app/icons";
 import { useWindowChrome } from "./window/useWindowChrome";
@@ -91,7 +91,7 @@ import { takeWindowInit, tabStripDropIndex, type CursorTarget, type TabTransfer 
 import { newTabId } from "./tabs/tabId";
 import { makeTermTab, patchTermTab } from "./tabs/tabState";
 import "./App.css";
-import { CLI_INFO, cliOfPlugin, type AgentCli } from "./agents/cliInfo";
+import { AGENT_CLIS, CLI_INFO, cliOfPlugin, type AgentCli } from "./agents/cliInfo";
 
 const appWindow = getCurrentWindow();
 /** The window Flowcode starts with - the one that restores the saved session
@@ -748,6 +748,8 @@ function Shell() {
   // The phone-triggered action runner and what it needs, kept current each
   // render for the long-lived "remote://run-action" listener.
   const remoteActionRef = useRef<(id: string, ptyId: string | null) => void>(() => {});
+  /** The phone asked to sign a CLI in under a profile (see loginProfile). */
+  const remoteProfileLoginRef = useRef<(profileId: string, cli: string) => void>(() => {});
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
   const allPluginsRef = useRef<PluginDef[]>([]);
 
@@ -1330,12 +1332,16 @@ function Shell() {
     const unlistenAction = webview.listen<{ id: string; ptyId: string | null }>("remote://run-action", (e) => {
       remoteActionRef.current(e.payload.id, e.payload.ptyId);
     });
+    const unlistenLogin = webview.listen<{ id?: string; cli?: string }>("remote://profile-login", (e) => {
+      if (e.payload.id && e.payload.cli) remoteProfileLoginRef.current(e.payload.id, e.payload.cli);
+    });
     return () => {
       unlisten.then((off) => off());
       unlistenFocus.then((off) => off());
       unlistenSnap.then((off) => off());
       unlistenSize.then((off) => off());
       unlistenAction.then((off) => off());
+      unlistenLogin.then((off) => off());
     };
   }, []);
 
@@ -2007,6 +2013,18 @@ function Shell() {
     }
     openTerminalWithCommand(CLI_INFO[cli].loginCommand, profileId);
   }
+
+  remoteProfileLoginRef.current = (profileId, cli) => {
+    if (!(AGENT_CLIS as readonly string[]).includes(cli)) return;
+    void loginProfile(profileId, cli as AgentCli);
+    // Signing in happens in the terminal, away from this window: keep re-reading
+    // the login state for a while so the phone's list catches up.
+    let left = 60;
+    const timer = window.setInterval(() => {
+      void refreshProfiles();
+      if (--left <= 0) window.clearInterval(timer);
+    }, 5000);
+  };
 
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the
    * project folder, or a fresh git worktree of it). `shell` is the shell the

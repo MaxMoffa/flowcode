@@ -55,6 +55,22 @@ export interface LsEntry {
   size?: number;
 }
 
+export type ProfileCli = "claude" | "codex" | "vibe";
+
+/** An account profile on the desktop (the default one is not listed). */
+export interface ProfileInfo {
+  id: string;
+  name: string;
+  color: string;
+  loggedIn: Record<ProfileCli, boolean>;
+}
+
+export type ProfileAction =
+  | { op: "create"; name: string; color: string; copySettings: boolean }
+  | { op: "update"; id: string; name: string; color: string }
+  | { op: "delete"; id: string; deleteFiles: boolean }
+  | { op: "login"; id: string; cli: ProfileCli };
+
 export interface MirroredSettings {
   theme: "auto" | "light" | "dark";
   resolvedTheme: "light" | "dark";
@@ -89,6 +105,7 @@ export type ServerMsg =
   | { t: "ls"; ptyId: string; path: string; entries: LsEntry[] }
   | { t: "file"; ptyId: string; path: string; text: string; truncated: boolean }
   | { t: "settings"; settings: MirroredSettings }
+  | { t: "profiles"; profiles: ProfileInfo[] }
   | { t: "pong" };
 
 export type ClientMsg =
@@ -101,6 +118,7 @@ export type ClientMsg =
   | { t: "ls"; ptyId: string; path?: string }
   | { t: "read"; ptyId: string; path: string }
   | { t: "set"; key: string; value: unknown }
+  | ({ t: "profile" } & ProfileAction)
   | { t: "ping" };
 
 export type ConnStatus = "loading" | "unpaired" | "connecting" | "online" | "offline";
@@ -127,6 +145,8 @@ export interface Snapshot {
   actions: Action[];
   /** The desktop's settings, mirrored; null until it sends them (older desktops never do). */
   settings: MirroredSettings | null;
+  /** The desktop's account profiles besides the default; null until it sends them (older desktops never do). */
+  profiles: ProfileInfo[] | null;
   /** Last terminal the user opened: the Files screen starts there. */
   lastOpened: string | null;
   toast: { id: number; text: string } | null;
@@ -207,6 +227,17 @@ export function normalizeSettings(raw: unknown): MirroredSettings | null {
   };
 }
 
+/** The profile list as sent, dropping anything of the wrong shape. */
+export function normalizeProfiles(raw: unknown): ProfileInfo[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((x) => {
+    if (!isObj(x) || typeof x.id !== "string") return [];
+    const l = isObj(x.loggedIn) ? x.loggedIn : {};
+    const color = typeof x.color === "string" && /^#[0-9a-fA-F]{6}$/.test(x.color) ? x.color : "#64748b";
+    return [{ id: x.id, name: str(x.name, x.id), color, loggedIn: { claude: bool(l.claude, false), codex: bool(l.codex, false), vibe: bool(l.vibe, false) } }];
+  });
+}
+
 // Cached so the desktop's colors are on screen from the first frame.
 function loadSettings(): MirroredSettings | null {
   const raw = safeStorage.get(SETTINGS_KEY);
@@ -230,7 +261,7 @@ export function resetSettingsCache() {
   store.set({ settings: null });
 }
 
-const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, usage: [], actions: [], settings: loadSettings(), lastOpened: null, toast: null });
+const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, usage: [], actions: [], settings: loadSettings(), profiles: null, lastOpened: null, toast: null });
 const msgListeners = new Set<(m: ServerMsg) => void>();
 const set = store.set;
 
@@ -289,6 +320,9 @@ function handleMsg(m: ServerMsg) {
       set({ settings });
       break;
     }
+    case "profiles":
+      set({ profiles: normalizeProfiles(m.profiles) });
+      break;
     case "error":
       // Fatal ones also arrive as a state change; only requests that failed
       // deserve a toast.
@@ -317,7 +351,7 @@ export async function start(): Promise<void> {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
-    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, lastOpened: null } : {}) });
+    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null } : {}) });
   });
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {
@@ -388,6 +422,11 @@ export function setSetting(key: string, value: unknown) {
   const settings = withPath(cur, key, value);
   saveSettings(settings);
   set({ settings });
+}
+
+/** Asks the desktop to create / change / delete a profile, or to open a CLI's sign-in in a new terminal tab. The reply is the next `profiles` message. */
+export function profileAction(action: ProfileAction) {
+  send({ t: "profile", ...action });
 }
 
 export function onDeepLink(l: (url: string) => void): Promise<() => void> {

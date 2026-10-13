@@ -110,6 +110,10 @@ const EVT_SNAPSHOT_REQUEST: &str = "remote://snapshot-request";
 const EVT_SIZE_OVERRIDE: &str = "remote://size-override";
 const EVT_RUN_ACTION: &str = "remote://run-action";
 const EVT_SET_SETTING: &str = "remote://set-setting";
+/// `{op, id?, name?, color?, copySettings?, deleteFiles?}`: a profile change, to the leader window only.
+const EVT_PROFILE: &str = "remote://profile";
+/// `{id, cli}`: sign a CLI in under a profile (needs the window's terminal tabs), to the leader window only.
+const EVT_PROFILE_LOGIN: &str = "remote://profile-login";
 const EVT_PAIR_REQUEST: &str = "remote://pair-request";
 /// `{reqId}`: the request went away unanswered (timeout, phone left).
 const EVT_PAIR_CANCEL: &str = "remote://pair-cancel";
@@ -686,6 +690,8 @@ struct Shared {
     /// Latest desktop settings the frontend published for the phone to mirror
     /// (`Null` until the first publish).
     settings: watch::Sender<serde_json::Value>,
+    /// Latest account profiles the frontend published (`Null` until then).
+    profiles: watch::Sender<serde_json::Value>,
     /// pty id -> phones sizing it, oldest first (the last one wins).
     sizing: Mutex<HashMap<String, Vec<SizeClaim>>>,
     /// pty id -> window that showed it when last looked at, for the ptys a
@@ -769,6 +775,7 @@ impl RemoteState {
             usage: watch::channel(Vec::new()).0,
             actions: watch::channel(Vec::new()).0,
             settings: watch::channel(serde_json::Value::Null).0,
+            profiles: watch::channel(serde_json::Value::Null).0,
             sizing: Mutex::new(HashMap::new()),
             size_owners: Mutex::new(HashMap::new()),
         }))
@@ -1238,6 +1245,12 @@ pub fn remote_publish_settings(state: tauri::State<'_, RemoteState>, settings: s
     publish(&state.0.settings, settings);
 }
 
+/// The account profiles the phone lists (built by the frontend's RemoteSettingsBridge).
+#[tauri::command]
+pub fn remote_publish_profiles(state: tauri::State<'_, RemoteState>, profiles: serde_json::Value) {
+    publish(&state.0.profiles, profiles);
+}
+
 /// The quick actions the phone may trigger.
 #[tauri::command]
 pub fn remote_publish_actions(state: tauri::State<'_, RemoteState>, actions: Vec<Action>) {
@@ -1681,6 +1694,7 @@ async fn run_connection(
     let mut usage_rx = shared.usage.subscribe();
     let mut actions_rx = shared.actions.subscribe();
     let mut settings_rx = shared.settings.subscribe();
+    let mut profiles_rx = shared.profiles.subscribe();
     let mut conn = Conn {
         shared: Arc::clone(&shared),
         id: conn_id,
@@ -1699,6 +1713,10 @@ async fn run_connection(
     let settings = settings_rx.borrow_and_update().clone();
     if !settings.is_null() {
         conn.send(ServerMsg::Settings { settings });
+    }
+    let profiles = profiles_rx.borrow_and_update().clone();
+    if !profiles.is_null() {
+        conn.send(ServerMsg::Profiles { profiles });
     }
 
     let mut tick = tokio::time::interval(TABS_INTERVAL);
@@ -1729,6 +1747,12 @@ async fn run_connection(
                 let settings = settings_rx.borrow_and_update().clone();
                 if !settings.is_null() {
                     conn.send(ServerMsg::Settings { settings });
+                }
+            }
+            Ok(()) = profiles_rx.changed() => {
+                let profiles = profiles_rx.borrow_and_update().clone();
+                if !profiles.is_null() {
+                    conn.send(ServerMsg::Profiles { profiles });
                 }
             }
             // The device was revoked.
@@ -1939,6 +1963,32 @@ impl Conn {
                 // Global emit: every window's bridge applies it; the setters are
                 // idempotent and the windows share localStorage.
                 let _ = self.shared.app.emit(EVT_SET_SETTING, serde_json::json!({ "key": key, "value": value }));
+            }
+            ClientMsg::Profile { op, id, name, color, copy_settings, delete_files, cli } => {
+                let short = |v: &Option<String>, max: usize| v.as_ref().map_or(true, |s| s.len() <= max);
+                let ok = short(&id, 64) && short(&name, 64) && short(&color, 16) && short(&cli, 16);
+                let needs_id = matches!(op.as_str(), "update" | "delete" | "login");
+                let needs_look = matches!(op.as_str(), "create" | "update");
+                let valid = ok
+                    && matches!(op.as_str(), "create" | "update" | "delete" | "login")
+                    && (!needs_id || id.as_deref().is_some_and(|s| !s.is_empty()))
+                    && (!needs_look || (name.as_deref().is_some_and(|s| !s.trim().is_empty()) && color.is_some()))
+                    && (op != "login" || matches!(cli.as_deref(), Some("claude" | "codex" | "vibe")));
+                if !valid {
+                    self.error(tr("Richiesta profilo non valida", "Invalid profile request"), None);
+                    return;
+                }
+                // Only the leader window (the one that publishes the profiles) acts on it.
+                let Some(window) = self.shared.default_window() else {
+                    self.error(tr("Nessuna finestra aperta", "No window is open"), None);
+                    return;
+                };
+                let payload = serde_json::json!({
+                    "op": op, "id": id, "name": name, "color": color, "cli": cli,
+                    "copySettings": copy_settings, "deleteFiles": delete_files,
+                });
+                let event = if op == "login" { EVT_PROFILE_LOGIN } else { EVT_PROFILE };
+                let _ = self.shared.app.emit_to(window.as_str(), event, payload);
             }
             ClientMsg::Ls { pty_id, path } => self.spawn_fs(pty_id, move |root, pty_id| {
                 list_dir(root, path.as_deref().unwrap_or("")).map(|(path, entries)| ServerMsg::Ls { pty_id, path, entries })

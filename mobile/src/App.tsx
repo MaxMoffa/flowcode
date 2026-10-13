@@ -138,7 +138,7 @@ function AppContent() {
           {page === "terminals" && <TerminalsScreen hostName={remote.hostName} tabs={remote.tabs} onOpen={open} />}
           {page === "settings" && (
             <Suspense fallback={null}>
-              <SettingsScreen hostName={remote.hostName} settings={remote.settings} />
+              <SettingsScreen hostName={remote.hostName} settings={remote.settings} profiles={remote.profiles} />
             </Suspense>
           )}
         </main>

@@ -101,6 +101,7 @@ Client messages:
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
 | `set {key, value}` | Change one mirrored desktop setting (see `settings`). `key` must be non-empty and at most 64 bytes and `value` at most 4 KiB as JSON, else `error`; an unknown key or a value of the wrong type is ignored by the desktop (it is not applied; an unknown palette id falls back to the default palette). |
+| `profile {op, ...}` | Manage the account profiles (see `profiles`). `op` is `create` (`name`, `color` as `#rrggbb`, optional `copySettings`, default true), `update` (`id`, `name`, `color`), `delete` (`id`, optional `deleteFiles`, default false) or `login` (`id`, `cli`: `claude`, `codex` or `vibe`). Strings are at most 64 bytes (`color`/`cli` 16); a malformed request gets an `error`. Only the desktop's remote leader window acts on it (the same window as `action`); `create`/`update`/`delete` apply the desktop's own rules (non-empty unique name, valid color) and a rejected one is simply not applied, the next `profiles` shows the truth. `login` opens the CLI's sign-in in a **new terminal tab on the desktop** (after checking the CLI is installed; otherwise the desktop offers to install it): the phone can then open that tab from its `tabs` list. There is no reply; watch `profiles`. |
 | `ping` | Answered with `pong`. Send one now and then to detect a dead link. |
 
 Server messages:
@@ -114,6 +115,7 @@ Server messages:
 | `usage {items}` | Usage readings the desktop shows (Claude Code / Codex limits...). Pushed on `ready` and on change. |
 | `actions {actions}` | Quick actions the phone may run. Pushed on `ready` and on change. |
 | `settings {settings}` | The desktop settings the phone mirrors, as one JSON object (keys below). Pushed after `ready` once published, and on every change, including ones made on the desktop. |
+| `profiles {profiles}` | The account profiles besides the default one, as an array of `{id, name, color, loggedIn: {claude, codex, vibe}}` (booleans, read off the CLIs' files). Pushed after `ready` once published, and on every change, including ones made on the desktop and sign-ins finishing. |
 | `ls {ptyId, path, entries}` | Reply to `ls`. |
 | `file {ptyId, path, text, truncated}` | Reply to `read`. |
 | `pong` | Reply to `ping`. |
