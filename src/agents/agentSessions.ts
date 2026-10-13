@@ -61,28 +61,45 @@ const POLL_MS = 2000;
 export function useAgentSessions(pollWhenHidden = false): { sessions: AgentSession[] | null; refresh: () => Promise<void> } {
   const [sessions, setSessions] = useState<AgentSession[] | null>(null);
   const mountedRef = useRef(true);
-  // A poll can outlive the next one (slow process table, wsl.exe); only the
-  // newest request may write, or an old answer would roll the list back.
-  const seqRef = useRef(0);
+  // A slow poll must not be overtaken (its answer would be discarded): at
+  // most one call runs, and an explicit refresh meanwhile queues one re-run.
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const againRef = useRef(false);
+  const refreshRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
-  const refresh = useCallback(() => {
-    const seq = ++seqRef.current;
-    return invoke<AgentSession[]>("list_agent_sessions")
+  const refresh = useCallback((): Promise<void> => {
+    if (inFlightRef.current) {
+      againRef.current = true;
+      return inFlightRef.current;
+    }
+    const request = invoke<AgentSession[]>("list_agent_sessions")
       .then((result) => {
-        if (!mountedRef.current || seq !== seqRef.current) return;
+        if (!mountedRef.current) return;
         // Keep the previous array when nothing changed, so consumers don't
         // re-render on every 2 s poll.
         setSessions((prev) => (prev && sameSessions(prev, result) ? prev : result));
       })
       .catch(() => {
-        if (mountedRef.current && seq === seqRef.current) setSessions((prev) => prev ?? []);
+        if (mountedRef.current) setSessions((prev) => prev ?? []);
+      })
+      .finally(() => {
+        inFlightRef.current = null;
+        if (againRef.current && mountedRef.current) {
+          againRef.current = false;
+          void refreshRef.current();
+        }
       });
+    inFlightRef.current = request;
+    return request;
   }, []);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     mountedRef.current = true;
     void refresh();
     const interval = setInterval(() => {
+      // A tick while a slow call runs is skipped, not queued.
+      if (inFlightRef.current) return;
       if (pollWhenHidden || document.visibilityState === "visible") void refresh();
     }, POLL_MS);
     const onVisibilityChange = () => {
