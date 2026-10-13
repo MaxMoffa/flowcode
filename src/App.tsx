@@ -1812,7 +1812,9 @@ function Shell() {
   // is in front: with Settings or the changelog showing, the last terminal's
   // folder may not even be a project open in this window - and the new tab
   // page (a terminal tab with no shell yet) isn't one either.
-  const frontTerminal = activeTerminal?.id === activeTabId && !activeTerminal.newTab ? activeTerminal : undefined;
+  // The new tab page still gets the panel's "+" (it launches an agent in the
+  // folder picked there), just not the project scope.
+  const agentsTerminal = activeTerminal?.id === activeTabId ? activeTerminal : undefined;
   // The agent CLI running in each terminal tab, for its logo and status in
   // the tab strip - matched by pty id, same as the Agents panel does.
   const tabAgentsRef = useRef(new Map<string, TabAgent>());
@@ -2653,14 +2655,19 @@ function Shell() {
                   windowLabel={appWindow.label}
                   tabs={terminalTabs}
                   activeTabId={activeTabId}
-                  projectCwd={frontTerminal ? frontTerminal.cwd || frontTerminal.explorerPath || undefined : undefined}
-                  projectWslDistro={frontTerminal?.wslDistro ?? undefined}
+                  projectCwd={
+                    agentsTerminal
+                      ? agentsTerminal.cwd || agentsTerminal.explorerPath || (agentsTerminal.newTab ? homeDir || undefined : undefined)
+                      : undefined
+                  }
+                  newTabPage={!!agentsTerminal?.newTab}
+                  projectWslDistro={agentsTerminal?.wslDistro ?? undefined}
                   sessions={agentSessions}
                   refreshSessions={refreshAgentSessions}
                   getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
                   onOpenTab={selectTab}
                   onOpenSession={openAgentSession}
-                  projectShell={frontTerminal ? tabShell(frontTerminal) : undefined}
+                  projectShell={agentsTerminal ? tabShell(agentsTerminal) : undefined}
                   onLaunchAgent={(cli, cwd, shell, profileId) => void launchAgentInNewTab(cli, cwd, shell, profileId)}
                   onOpenFolder={openFolderTab}
                   onClose={() => setAgentsSidebarOpen(false)}

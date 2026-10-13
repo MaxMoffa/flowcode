@@ -155,6 +155,9 @@ interface AgentsSidebarProps {
   /** The active terminal tab's folder - the "This project" scope lists the
    * agents working in it or below it. */
   projectCwd?: string;
+  /** The new tab page is in front: `projectCwd` is the folder picked there, so
+   * the "+" works, but it isn't a project to scope the list to. */
+  newTabPage?: boolean;
   /** That tab's WSL distro, when it runs inside WSL. */
   projectWslDistro?: string;
   /** The agents running in Flowcode tabs - see `useAgentSessions`, polled
@@ -218,6 +221,7 @@ export function AgentsSidebar({
   tabs,
   activeTabId,
   projectCwd,
+  newTabPage,
   projectWslDistro,
   sessions,
   refreshSessions,
@@ -400,7 +404,7 @@ export function AgentsSidebar({
   // unfiltered lists; only what's rendered is narrowed.
   // Without a project in front there's nothing to narrow to: show everything,
   // but keep the saved choice for when a terminal is back in front.
-  const projectScope = scope === "project" && !!projectCwd;
+  const projectScope = scope === "project" && !!projectCwd && !newTabPage;
   const projectReady = projectScope && !!projectCwd;
   // Every worktree of the repo counts as the project (the repo root too, even
   // when the active tab sits in a subfolder of it).
@@ -539,16 +543,18 @@ export function AgentsSidebar({
           <CloseIcon />
         </button>
         <span className="agents-sidebar-title">{t("agents.title")}</span>
-        <button
-          type="button"
-          className="agents-sidebar-close agents-sidebar-add"
-          title={t("agents.new.title")}
-          aria-label={t("agents.new.title")}
-          disabled={!projectCwd || creating}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          <PlusIcon />
-        </button>
+        {projectCwd && (
+          <button
+            type="button"
+            className="agents-sidebar-close agents-sidebar-add"
+            title={t("agents.new.title")}
+            aria-label={t("agents.new.title")}
+            disabled={creating}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <PlusIcon />
+          </button>
+        )}
         <button
           type="button"
           className={"agents-sidebar-close agents-sidebar-refresh" + (refreshing ? " is-refreshing" : "")}
@@ -572,7 +578,7 @@ export function AgentsSidebar({
           />
         )}
       </div>
-      {projectCwd && (
+      {projectCwd && !newTabPage && (
       <div className="agents-sidebar-scope" role="tablist" aria-label={t("agents.scope.label")}>
         <button
           type="button"
