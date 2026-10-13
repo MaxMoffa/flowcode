@@ -2,9 +2,10 @@
 // screens read. Rust emits every server message and every connection state;
 // this module folds the ones several screens share into one snapshot and
 // lets individual screens subscribe to the raw stream for the rest.
-import { useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { setLanguage } from "./i18n";
+import { createStore, safeStorage } from "./store";
 
 export type AgentStatus = "busy" | "idle" | "waiting";
 
@@ -129,43 +130,113 @@ export interface Snapshot {
 
 const SETTINGS_KEY = "flowcode.settings";
 
+/** Used for any field a cached or incoming settings object lacks or gets wrong. */
+export const DEFAULT_SETTINGS: MirroredSettings = {
+  theme: "auto",
+  resolvedTheme: "dark",
+  palette: "",
+  terminalPalette: null,
+  contrast: 0.5,
+  glassOpacity: 0.5,
+  language: "system",
+  resolvedLanguage: "en",
+  languages: [],
+  colors: {},
+  terminalColors: {},
+  palettes: [],
+  terminalFontSize: 14,
+  bannerEnabled: true,
+  confirmLinkOpen: true,
+  restoreSession: true,
+  newTabPage: false,
+  notify: { done: true, input: true, exited: false, limitReset: true },
+  autoResume: { enabled: false, message: "" },
+};
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const str = (v: unknown, d: string) => (typeof v === "string" ? v : d);
+const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
+const num = (v: unknown, d: number, min = -Infinity, max = Infinity) => (typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : d);
+const oneOf = <T extends string>(v: unknown, all: readonly T[], d: T): T => (all.includes(v as T) ? (v as T) : d);
+
+function strMap(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (isObj(v)) for (const k in v) if (typeof v[k] === "string") out[k] = v[k] as string;
+  return out;
+}
+
+/** Merges a cached or incoming settings object over the defaults, dropping anything of the wrong shape. Null when it isn't an object at all. */
+export function normalizeSettings(raw: unknown): MirroredSettings | null {
+  if (!isObj(raw)) return null;
+  const d = DEFAULT_SETTINGS;
+  const notify = isObj(raw.notify) ? raw.notify : {};
+  const resume = isObj(raw.autoResume) ? raw.autoResume : {};
+  const list = <T,>(v: unknown, ok: (x: Record<string, unknown>) => T | null): T[] =>
+    Array.isArray(v) ? v.flatMap((x) => (isObj(x) ? (ok(x) ?? []) : [])) : [];
+  return {
+    theme: oneOf(raw.theme, ["auto", "light", "dark"], d.theme),
+    resolvedTheme: oneOf(raw.resolvedTheme, ["light", "dark"], d.resolvedTheme),
+    palette: str(raw.palette, d.palette),
+    terminalPalette: typeof raw.terminalPalette === "string" ? raw.terminalPalette : null,
+    contrast: num(raw.contrast, d.contrast, 0, 1),
+    glassOpacity: num(raw.glassOpacity, d.glassOpacity, 0, 1),
+    language: str(raw.language, d.language),
+    resolvedLanguage: str(raw.resolvedLanguage, d.resolvedLanguage),
+    languages: list(raw.languages, (x) => (typeof x.id === "string" ? { id: x.id, name: str(x.name, x.id) } : null)),
+    colors: strMap(raw.colors),
+    terminalColors: strMap(raw.terminalColors),
+    palettes: list(raw.palettes, (x) =>
+      typeof x.id === "string" ? { id: x.id, name: str(x.name, x.id), bg: str(x.bg, "#000000"), accent: str(x.accent, "#888888"), accent2: str(x.accent2, "#888888") } : null,
+    ),
+    terminalFontSize: num(raw.terminalFontSize, d.terminalFontSize, 9, 28),
+    bannerEnabled: bool(raw.bannerEnabled, d.bannerEnabled),
+    confirmLinkOpen: bool(raw.confirmLinkOpen, d.confirmLinkOpen),
+    restoreSession: bool(raw.restoreSession, d.restoreSession),
+    newTabPage: bool(raw.newTabPage, d.newTabPage),
+    notify: {
+      done: bool(notify.done, d.notify.done),
+      input: bool(notify.input, d.notify.input),
+      exited: bool(notify.exited, d.notify.exited),
+      limitReset: bool(notify.limitReset, d.notify.limitReset),
+    },
+    autoResume: { enabled: bool(resume.enabled, d.autoResume.enabled), message: str(resume.message, d.autoResume.message) },
+  };
+}
+
 // Cached so the desktop's colors are on screen from the first frame.
 function loadSettings(): MirroredSettings | null {
+  const raw = safeStorage.get(SETTINGS_KEY);
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? (JSON.parse(raw) as MirroredSettings) : null;
+    return normalizeSettings(JSON.parse(raw));
   } catch {
     return null;
   }
 }
 
 function saveSettings(s: MirroredSettings | null) {
-  try {
-    if (s) localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
-    else localStorage.removeItem(SETTINGS_KEY);
-  } catch {
-    // Storage can be unavailable; the cache is only an optimization.
-  }
+  if (s) safeStorage.set(SETTINGS_KEY, JSON.stringify(s));
+  else safeStorage.remove(SETTINGS_KEY);
 }
 
-let snap: Snapshot = { status: "loading", wasOnline: false, pairing: false, tabs: null, usage: [], actions: [], settings: loadSettings(), lastOpened: null, toast: null };
-const storeListeners = new Set<() => void>();
+/** Forgets the cached settings (the error boundary's "Reimposta"). */
+export function resetSettingsCache() {
+  saveSettings(null);
+  pending.clear();
+  store.set({ settings: null });
+}
+
+const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, tabs: null, usage: [], actions: [], settings: loadSettings(), lastOpened: null, toast: null });
 const msgListeners = new Set<(m: ServerMsg) => void>();
+const set = store.set;
 
-function set(patch: Partial<Snapshot>) {
-  snap = { ...snap, ...patch };
-  storeListeners.forEach((l) => l());
-}
+// The phone follows the desktop's language. Registered before any component
+// subscribes, so the catalog is switched before the re-render that reads it.
+const followLanguage = () => setLanguage(store.get().settings?.resolvedLanguage);
+followLanguage();
+store.subscribe(followLanguage);
 
-export function useRemote(): Snapshot {
-  return useSyncExternalStore(
-    (l) => {
-      storeListeners.add(l);
-      return () => void storeListeners.delete(l);
-    },
-    () => snap,
-  );
-}
+export const useRemote = store.use;
 
 /** Raw server messages, for screens that care about replies (ls, file, output...). */
 export function onMessage(l: (m: ServerMsg) => void): () => void {
@@ -178,7 +249,7 @@ export function showToast(text: string) {
   const id = ++toastId;
   set({ toast: { id, text } });
   setTimeout(() => {
-    if (snap.toast?.id === id) set({ toast: null });
+    if (store.get().toast?.id === id) set({ toast: null });
   }, 2400);
 }
 
@@ -201,10 +272,14 @@ function handleMsg(m: ServerMsg) {
     case "actions":
       set({ actions: m.actions });
       break;
-    case "settings":
-      saveSettings(m.settings);
-      set({ settings: m.settings });
+    case "settings": {
+      const incoming = normalizeSettings(m.settings);
+      if (!incoming) break;
+      const settings = applyPending(incoming);
+      saveSettings(settings);
+      set({ settings });
       break;
+    }
     case "error":
       // Fatal ones also arrive as a state change; only requests that failed
       // deserve a toast.
@@ -247,6 +322,13 @@ export async function start(): Promise<void> {
 export const platform = (): Promise<"mobile" | "desktop"> => invoke("platform");
 export const takePendingLink = (): Promise<string | null> => invoke("take_pending_link");
 export const pair = (ticket: string, deviceName: string): Promise<void> => invoke("pair", { ticket, deviceName });
+/** Who a pairing ticket points at; null when the core can't tell (older build). */
+export const inspectTicket = (ticket: string): Promise<{ hostName: string; fingerprint: string } | null> =>
+  invoke<{ hostName: string; fingerprint: string }>("inspect_ticket", { ticket }).catch(() => null);
+/** This phone's short key fingerprint, shown on both screens when pairing. */
+export const myFingerprint = (): Promise<string | null> => invoke<string>("my_fingerprint").catch(() => null);
+/** Tells the core the app is back in the foreground, so it can redial without waiting for a backoff. */
+export const appResumed = (): Promise<void> => invoke<void>("app_resumed").catch(() => {});
 export const retryNow = (): Promise<void> => invoke("retry_now");
 export const unpair = (): Promise<void> => invoke("unpair");
 
@@ -255,16 +337,42 @@ export function send(msg: ClientMsg) {
   invoke("send", { msg }).catch(() => {});
 }
 
+/** Local changes the desktop hasn't echoed back yet, by setting key. */
+const pending = new Map<string, { value: unknown; at: number }>();
+const PENDING_MS = 2000;
+
+function withPath(settings: MirroredSettings, key: string, value: unknown): MirroredSettings {
+  const next: Record<string, unknown> = { ...settings };
+  const [head, tail] = key.split(".");
+  if (tail) next[head] = { ...(settings as unknown as Record<string, Record<string, unknown>>)[head], [tail]: value };
+  else next[head] = value;
+  return next as unknown as MirroredSettings;
+}
+
+function valueAt(settings: MirroredSettings, key: string): unknown {
+  const [head, tail] = key.split(".");
+  const v = (settings as unknown as Record<string, unknown>)[head];
+  return tail ? (v as Record<string, unknown> | undefined)?.[tail] : v;
+}
+
+/** Echoes of an older value must not undo a tap the desktop hasn't caught up with. */
+function applyPending(incoming: MirroredSettings): MirroredSettings {
+  let out = incoming;
+  const now = Date.now();
+  for (const [key, p] of pending) {
+    if (now - p.at > PENDING_MS || valueAt(incoming, key) === p.value) pending.delete(key);
+    else out = withPath(out, key, p.value);
+  }
+  return out;
+}
+
 /** Sends a setting to the desktop and patches the local copy so the UI answers at once. */
 export function setSetting(key: string, value: unknown) {
   send({ t: "set", key, value });
-  const cur = snap.settings;
+  const cur = store.get().settings;
   if (!cur) return;
-  const next: Record<string, unknown> = { ...cur };
-  const [head, tail] = key.split(".");
-  if (tail) next[head] = { ...(cur as unknown as Record<string, Record<string, unknown>>)[head], [tail]: value };
-  else next[head] = value;
-  const settings = next as unknown as MirroredSettings;
+  pending.set(key, { value, at: Date.now() });
+  const settings = withPath(cur, key, value);
   saveSettings(settings);
   set({ settings });
 }

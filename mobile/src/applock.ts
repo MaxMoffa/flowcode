@@ -1,40 +1,40 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
 import { authenticate, checkStatus } from "@tauri-apps/plugin-biometric";
 import { t } from "./i18n";
+import { appResumed } from "./remote";
+import { createStore, safeStorage } from "./store";
 
 const KEY = "flowcode.lock";
 /** Time in the background after which the app asks again. */
 const GRACE_MS = 60_000;
 
-type State = { checked: boolean; available: boolean; enabled: boolean; locked: boolean };
+type State = {
+  checked: boolean;
+  available: boolean;
+  enabled: boolean;
+  locked: boolean;
+  /** The document is hidden (task switcher, background): render a blank screen. */
+  hidden: boolean;
+};
 
-let state: State = { checked: false, available: false, enabled: readEnabled(), locked: false };
-const listeners = new Set<() => void>();
+const store = createStore<State>({ checked: false, available: false, enabled: safeStorage.get(KEY) !== "off", locked: false, hidden: typeof document !== "undefined" && document.hidden });
 let hiddenAt: number | null = null;
 let probed: Promise<void> | null = null;
 
-function readEnabled(): boolean {
-  try {
-    return localStorage.getItem(KEY) !== "off";
-  } catch {
-    return true;
-  }
-}
-
-function set(next: Partial<State>) {
-  state = { ...state, ...next };
-  listeners.forEach((l) => l());
-}
-
-/** On desktop the plugin isn't registered: any failure means "unavailable", never locked. */
+/**
+ * On desktop the plugin isn't registered: any failure means "unavailable", never locked.
+ * `isAvailable` means enrolled biometrics only. The plugin cannot say whether a
+ * device PIN/pattern exists, so phones with only a PIN are not locked: assuming
+ * one would lock out a phone that has no screen lock at all.
+ */
 function probe(): Promise<void> {
   probed ??= (async () => {
     try {
       const { isAvailable } = await checkStatus();
       // Locked from the very first render of the session, before app content shows.
-      set({ checked: true, available: isAvailable, locked: isAvailable && state.enabled });
+      store.set({ checked: true, available: isAvailable, locked: isAvailable && store.get().enabled });
     } catch {
-      set({ checked: true, available: false, locked: false });
+      store.set({ checked: true, available: false, locked: false });
     }
   })();
   return probed;
@@ -51,37 +51,36 @@ export async function verify(): Promise<boolean> {
 }
 
 export function unlock() {
-  set({ locked: false });
+  store.set({ locked: false });
 }
 
 export function setLockEnabled(enabled: boolean) {
-  try {
-    localStorage.setItem(KEY, enabled ? "on" : "off");
-  } catch {
-    // Not persisted: only this session follows the choice.
-  }
-  set({ enabled });
+  safeStorage.set(KEY, enabled ? "on" : "off");
+  store.set({ enabled });
 }
 
 function onVisibility() {
   if (document.hidden) {
     hiddenAt = Date.now();
-  } else if (hiddenAt !== null) {
+    store.set({ hidden: true });
+    return;
+  }
+  store.set({ hidden: false });
+  void appResumed();
+  if (hiddenAt !== null) {
     const away = Date.now() - hiddenAt;
     hiddenAt = null;
-    if (away > GRACE_MS && state.available && state.enabled) set({ locked: true });
+    const s = store.get();
+    if (away > GRACE_MS && s.available && s.enabled) store.set({ locked: true });
   }
 }
 
+// Registered once for the whole session and never removed: screens come and go.
+if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+
 export function useLock(): State {
-  const s = useSyncExternalStore(
-    (l) => (listeners.add(l), () => listeners.delete(l)),
-    () => state,
-  );
   useEffect(() => {
     void probe();
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
-  return s;
+  return store.use();
 }

@@ -46,6 +46,8 @@ body,
   color: var(--fg);
   font: 15px/1.4 var(--font);
   overscroll-behavior: none;
+  /* Pinch zoom stays on; this only drops the double-tap zoom delay. */
+  touch-action: manipulation;
 }
 
 body {
@@ -139,9 +141,6 @@ h1 {
   gap: 12px;
 }
 
-.stack.tight {
-  gap: 8px;
-}
 
 .group {
   margin: 8px 4px 8px;
@@ -188,16 +187,6 @@ button.card:active {
   padding: 10px 14px;
 }
 
-.row-icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: var(--surface-3);
-  color: var(--accent);
-  flex: none;
-}
 
 .row-body {
   flex: 1;
@@ -271,16 +260,6 @@ button.card:active {
   color: var(--muted);
 }
 
-.icon-btn {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 14px;
-  background: transparent;
-  color: var(--accent);
-}
 
 /* ---- status pills, toast ---------------------------------------- */
 
@@ -327,7 +306,7 @@ button.card:active {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(110px + env(safe-area-inset-bottom));
+  bottom: calc(max(110px, var(--keybar-h, 0px) + 16px) + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   padding: 10px 18px;
   border-radius: 999px;
@@ -336,7 +315,8 @@ button.card:active {
   font-weight: 600;
   box-shadow: var(--shadow);
   max-width: calc(100vw - 32px);
-  z-index: 20;
+  /* Above the reconnect sheet (31). */
+  z-index: 40;
 }
 
 /* ---- agents ------------------------------------------------------------- */
@@ -938,4 +918,64 @@ button.set-row.danger {
   margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* ---- pairing confirmation, privacy screen, error boundary ------------- */
+
+.pair-wait {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.pair-wait .btn,
+.pair-wait .field {
+  width: 100%;
+  max-width: 320px;
+}
+
+.fingerprint {
+  font: 600 20px/1.3 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+/* Blank while the app is in the background, so the task switcher shows nothing. */
+.privacy {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--bg);
+}
+
+.app-error {
+  height: var(--app-h, 100dvh);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 32px;
+  text-align: center;
 }

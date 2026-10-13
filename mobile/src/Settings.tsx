@@ -91,7 +91,8 @@ function Slider({ label, value, onCommit }: { label: string; value: number; onCo
         onPointerDown={() => (dragging.current = true)}
         onChange={(e) => setV(Number(e.target.value))}
         onPointerUp={(e) => commit(e.currentTarget)}
-        onTouchEnd={(e) => commit(e.currentTarget)}
+        onPointerCancel={(e) => commit(e.currentTarget)}
+        onBlur={(e) => dragging.current && commit(e.currentTarget)}
         onKeyUp={(e) => commit(e.currentTarget)}
       />
     </div>

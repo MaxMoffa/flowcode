@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { StatusPill, contextPercent } from "./common";
 import { t } from "./i18n";
 import { send, type Tab, type UsageItem, type UsageMetric } from "./remote";
@@ -82,10 +83,11 @@ function AgentCard({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void 
 }
 
 export function AgentsScreen({ hostName, tabs, usage, onOpen }: { hostName?: string; tabs: Tab[] | null; usage: UsageItem[]; onOpen: (ptyId: string) => void }) {
-  const agents = (tabs ?? []).filter((x) => x.cli);
-  // Waiting agents first: they are why the phone is out of the pocket.
-  const rank = (x: Tab) => (x.status === "waiting" ? 0 : x.status === "busy" ? 1 : 2);
-  agents.sort((a, b) => rank(a) - rank(b));
+  const agents = useMemo(() => {
+    // Waiting agents first: they are why the phone is out of the pocket.
+    const rank = (x: Tab) => (x.status === "waiting" ? 0 : x.status === "busy" ? 1 : 2);
+    return (tabs ?? []).filter((x) => x.cli).sort((a, b) => rank(a) - rank(b));
+  }, [tabs]);
   return (
     <>
       <header className="top">

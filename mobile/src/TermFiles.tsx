@@ -1,15 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { BackIcon, ChevronIcon, FileIcon, FolderIcon } from "./icons";
-import { onMessage, send, type LsEntry, type Tab } from "./remote";
+import { onMessage, send, showToast, type LsEntry, type Tab } from "./remote";
+import { cdCommand, dialectFor, shellQuote } from "./termShell";
 import { CloseIcon } from "./termIcons";
 
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
-
-/** Quoted only when the shell would split or expand it. */
-export function shellQuote(p: string): string {
-  return /^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`;
-}
 
 function formatSize(n?: number): string {
   if (n === undefined) return "";
@@ -19,11 +16,15 @@ function formatSize(n?: number): string {
 }
 
 /** The file explorer drawer of one terminal; paths are relative to the tab's cwd. */
-export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: boolean; onClose: () => void; onType: (text: string, run?: boolean) => void }) {
+export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: boolean; onClose: () => void; onType: (text: string) => void }) {
   const { ptyId, cwd } = tab;
   const [path, setPath] = useState("");
   const [entries, setEntries] = useState<LsEntry[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const dialect = useMemo(() => dialectFor(cwd), [cwd]);
+  // The latest listing asked for, and whether its reply is still awaited: a
+  // symlinked folder answers with another path than the one requested.
+  const pending = useRef(false);
   const [file, setFile] = useState<{ path: string; text: string; truncated: boolean } | null>(null);
 
   // A `cd` (or any cwd change) moves the root under us.
@@ -36,19 +37,33 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
     if (!open) return;
     setEntries(null);
     setSelected(null);
+    pending.current = true;
     send({ t: "ls", ptyId, path });
   }, [open, ptyId, path, cwd]);
 
   useEffect(
     () =>
       onMessage((m) => {
-        if (m.t === "ls" && m.ptyId === ptyId && m.path === path) setEntries([...m.entries].sort((a, b) => Number(b.dir) - Number(a.dir)));
+        if (m.t === "ls" && m.ptyId === ptyId && pending.current) {
+          pending.current = false;
+          setEntries([...m.entries].sort((a, b) => Number(b.dir) - Number(a.dir)));
+        }
         else if (m.t === "file" && m.ptyId === ptyId) setFile({ path: m.path, text: m.text, truncated: m.truncated });
         // A refused folder (outside the sandbox, gone...) would otherwise spin forever.
-        else if (m.t === "error" && m.ptyId === ptyId) setEntries((e) => e ?? []);
+        else if (m.t === "error" && m.ptyId === ptyId) {
+          pending.current = false;
+          setEntries((e) => e ?? []);
+        }
       }),
-    [ptyId, path],
+    [ptyId],
   );
+
+  // Android Back closes the preview first, then the drawer.
+  useBackHandler(open, onClose);
+  useBackHandler(file !== null, () => setFile(null));
+
+  /** Types the quoted path (never Enter: the user confirms). */
+  const type = (text: string | null) => (text === null ? showToast(t("unsafeName")) : onType(text));
 
   useEffect(() => {
     if (!open) return;
@@ -102,7 +117,7 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
                   </button>
                   {on && !e.dir && (
                     <div className="tm-entry-actions">
-                      <button type="button" className="tm-pill accent" onClick={() => onType(shellQuote(full) + " ")}>
+                      <button type="button" className="tm-pill accent" onClick={() => { const q = shellQuote(full, dialect); type(q === null ? null : q + " "); }}>
                         {t("pastePath")}
                       </button>
                       <button type="button" className="tm-pill" onClick={() => send({ t: "read", ptyId, path: full })}>
@@ -116,11 +131,11 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
           </div>
           <footer className="tm-foot">
             {path && (
-              <button type="button" className="tm-pill accent" onClick={() => onType(`cd '${path.replace(/'/g, `'\\''`)}'`, true)}>
+              <button type="button" className="tm-pill accent" onClick={() => type(cdCommand(path, dialect))}>
                 {t("cdHere")}
               </button>
             )}
-            <button type="button" className="tm-pill" onClick={() => onType((path ? shellQuote(path) : ".") + " ")}>
+            <button type="button" className="tm-pill" onClick={() => { const q = path ? shellQuote(path, dialect) : "."; type(q === null ? null : q + " "); }}>
               {t("pasteFolder")}
             </button>
           </footer>

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { BoltIcon } from "./icons";
 import { send, showToast, type Action, type Tab } from "./remote";
@@ -12,6 +13,8 @@ export function TermActions({ tab, actions, open, onClose }: { tab: Tab; actions
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  useBackHandler(open, onClose);
 
   function run(a: Action) {
     send({ t: "action", id: a.id, ptyId: tab.ptyId });

@@ -1,16 +1,19 @@
-import { useEffect, useLayoutEffect, useState, type ReactElement } from "react";
+import { Component, Suspense, lazy, useEffect, useLayoutEffect, useState, type ErrorInfo, type ReactElement, type ReactNode } from "react";
 import { AgentsScreen } from "./Agents";
 import { AgentsIcon, SlidersIcon, TerminalIcon } from "./icons";
-import { setLanguage, t } from "./i18n";
+import { t } from "./i18n";
 import { LockScreen } from "./Lock";
-import { useLock } from "./applock";
+import { unlock, useLock } from "./applock";
+import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { Reconnect } from "./Reconnect";
-import { setLastOpened, start, useRemote } from "./remote";
-import { SettingsScreen } from "./Settings";
-import { TerminalScreen } from "./TerminalScreen";
+import { resetSettingsCache, setLastOpened, start, useRemote } from "./remote";
 import { TerminalsScreen } from "./Terminals";
 import { applyTheme } from "./theme";
+
+// xterm makes the terminal the bulk of the bundle; it loads when first opened.
+const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
+const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
 
 type Page = "agents" | "terminals" | "settings";
 
@@ -29,58 +32,120 @@ function useViewportHeight() {
   }, []);
 }
 
+/** Bad cached or incoming data must not brick the app: offer to drop the cached settings. */
+class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="app-error" role="alert">
+        <h1>{t("errorTitle")}</h1>
+        <button
+          type="button"
+          className="btn primary big"
+          onClick={() => {
+            resetSettingsCache();
+            this.setState({ failed: false });
+          }}
+        >
+          {t("errorReset")}
+        </button>
+      </div>
+    );
+  }
+}
+
 export function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
   const remote = useRemote();
   const [page, setPage] = useState<Page>("agents");
   const [openPty, setOpenPty] = useState<string | null>(null);
   const lock = useLock();
   useViewportHeight();
 
-  // The phone wears the desktop's colors and language; before the first
-  // settings message the cached ones (or the defaults) apply.
-  setLanguage(remote.settings?.resolvedLanguage);
+  // The phone wears the desktop's colors and language (see remote.ts); before
+  // the first settings message the cached ones (or the defaults) apply.
   useLayoutEffect(() => applyTheme(remote.settings), [remote.settings]);
 
   useEffect(() => {
     void start();
   }, []);
 
+  // A phone that wasn't paired at launch has nothing to lock yet: the lock must not appear right after the first pairing.
+  useEffect(() => {
+    if (remote.status === "unpaired" && lock.locked) unlock();
+  }, [remote.status, lock.locked]);
+
+  const tab = openPty ? remote.tabs?.find((x) => x.ptyId === openPty) : undefined;
+  // Back from a terminal returns to the list; on the root it is left alone (the app exits).
+  useBackHandler(!!tab, () => setOpenPty(null));
+
   function open(ptyId: string) {
     setLastOpened(ptyId);
     setOpenPty(ptyId);
   }
 
-  // Locked: render nothing else, so no content ends up in the task switcher thumbnail.
-  // Unpaired phones have nothing to protect. `checked` avoids a flash of content before the first probe.
-  if (!lock.checked) return <div className="screen" />;
-  if (lock.locked && remote.status !== "unpaired" && remote.status !== "loading") return <LockScreen />;
-
-  // Unpaired (or mid-pairing, so a failure keeps its message on screen).
-  if (remote.status === "unpaired" || remote.pairing) return <PairingScreen initialError={remote.error} />;
-  if (remote.status === "loading") return <div className="screen" />;
-
-  const tab = openPty ? remote.tabs?.find((x) => x.ptyId === openPty) : undefined;
-  if (tab) {
-    return (
-      <>
-        <Reconnect />
+  const paired = remote.status !== "unpaired" && remote.status !== "loading";
+  let content: ReactNode;
+  if (!lock.checked) {
+    // Avoids a flash of content before the first lock probe.
+    content = <div className="screen" />;
+  } else if (lock.locked && paired) {
+    // Locked: nothing else renders, so no content ends up in the task switcher thumbnail.
+    content = <LockScreen />;
+  } else if (remote.status === "unpaired" || remote.pairing) {
+    // Unpaired (or mid-pairing, so a failure keeps its message on screen).
+    content = <PairingScreen initialError={remote.error} />;
+  } else if (remote.status === "loading") {
+    content = <div className="screen" />;
+  } else if (tab) {
+    content = (
+      <Suspense fallback={<div className="screen" />}>
         <TerminalScreen key={tab.ptyId} tab={tab} status={remote.status} onBack={() => setOpenPty(null)} />
-        <Toast />
-      </>
+      </Suspense>
+    );
+  } else {
+    content = (
+      <div className="screen">
+        <main className="page">
+          {page === "agents" && <AgentsScreen hostName={remote.hostName} tabs={remote.tabs} usage={remote.usage} onOpen={open} />}
+          {page === "terminals" && <TerminalsScreen tabs={remote.tabs} onOpen={open} />}
+          {page === "settings" && (
+            <Suspense fallback={null}>
+              <SettingsScreen hostName={remote.hostName} settings={remote.settings} />
+            </Suspense>
+          )}
+        </main>
+        <BottomNav page={page} onChange={setPage} />
+      </div>
     );
   }
 
+  // Reconnect and Toast sit at fixed positions beside the screen, so switching
+  // between the list and a terminal never remounts them.
   return (
-    <div className="screen">
-      <Reconnect />
-      <main className="page">
-        {page === "agents" && <AgentsScreen hostName={remote.hostName} tabs={remote.tabs} usage={remote.usage} onOpen={open} />}
-        {page === "terminals" && <TerminalsScreen tabs={remote.tabs} onOpen={open} />}
-        {page === "settings" && <SettingsScreen hostName={remote.hostName} settings={remote.settings} />}
-      </main>
-      <BottomNav page={page} onChange={setPage} />
+    <>
+      {content}
+      {paired && <Reconnect />}
       <Toast />
-    </div>
+      {lock.hidden && <div className="privacy" aria-hidden="true" />}
+    </>
   );
 }
 
@@ -94,7 +159,6 @@ function Toast() {
   );
 }
 
-
 function BottomNav({ page, onChange }: { page: Page; onChange: (p: Page) => void }) {
   const items: { id: Page; label: string; icon: ReactElement }[] = [
     { id: "agents", label: t("navAgents"), icon: <AgentsIcon /> },
@@ -102,7 +166,7 @@ function BottomNav({ page, onChange }: { page: Page; onChange: (p: Page) => void
     { id: "settings", label: t("navSettings"), icon: <SlidersIcon /> },
   ];
   return (
-    <nav className="nav" aria-label="main">
+    <nav className="nav" aria-label={t("navMain")}>
       {items.map((it) => (
         <button key={it.id} type="button" className={page === it.id ? "on" : ""} aria-current={page === it.id ? "page" : undefined} onClick={() => onChange(it.id)}>
           {it.icon}

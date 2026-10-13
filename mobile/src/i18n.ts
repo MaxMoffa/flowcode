@@ -1,10 +1,8 @@
 // Tiny catalog: Italian when the system language is Italian, English otherwise.
 const it = {
-  appName: "Flowcode",
   welcomeTitle: "Collega il tuo computer",
   welcomeBody: "Apri Flowcode sul computer, vai in Impostazioni > Agenti > Accesso remoto e mostra il codice QR.",
   scanQr: "Scansiona il QR",
-  scanning: "Scansione...",
   orPaste: "oppure incolla il codice",
   pasteLabel: "Codice di collegamento",
   pastePlaceholder: "flowcode://pair?t=...",
@@ -34,24 +32,20 @@ const it = {
   back: "Indietro",
   ended: "Sessione terminata",
   send: "Invia",
-  typeHere: "Scrivi un comando",
   files: "File",
   noEntries: "Cartella vuota",
   loading: "Caricamento...",
   truncated: "troncato",
-  tab: "Terminale",
   root: "radice",
   actions: "Azioni",
   noActions: "Il computer non ha pubblicato azioni rapide.",
-  target: "Terminale di destinazione",
-  run: "Esegui",
   done: "Eseguito",
-  noTarget: "Nessun terminale disponibile",
   unpair: "Scollega",
   unpairConfirm: "Scollegare questo dispositivo?",
   resets: "si azzera {when}",
-  perPeriod: "{period}",
   closeViewer: "Chiudi",
+  jumpToEnd: "↓ fine",
+  unsafeName: "Nome con caratteri di controllo: non lo scrivo nel terminale",
   openFiles: "Apri i file",
   openFeatures: "Apri le funzionalità",
   features: "Funzionalità",
@@ -69,6 +63,14 @@ const it = {
   keyLeft: "Sinistra",
   keyRight: "Destra",
   needTerminal: "Apri prima un terminale sul computer.",
+  pairConfirmTitle: "Collegare a «{host}»?",
+  pairConfirmCode: "Sul computer verifica il codice: {code}",
+  pairCancel: "Annulla",
+  pairWaiting: "Conferma sul computer…",
+  pairWaitingHint: "Accetta la richiesta nella finestra di Flowcode sul computer. Può richiedere fino a un minuto.",
+  navMain: "Navigazione principale",
+  errorTitle: "Qualcosa è andato storto",
+  errorReset: "Reimposta",
   navSettings: "Impostazioni",
   settings: "Impostazioni",
   mirrorOf: "Mirror di {host}",
@@ -128,12 +130,10 @@ const it = {
   reconPillRetry: "Riprova",
   reconHostFallback: "il PC",
 };
-const en: typeof it = {
-  appName: "Flowcode",
+const en: Record<keyof typeof it, string> = {
   welcomeTitle: "Connect your computer",
   welcomeBody: "Open Flowcode on your computer, go to Settings > Agents > Remote access and show the QR code.",
   scanQr: "Scan the QR",
-  scanning: "Scanning...",
   orPaste: "or paste the code",
   pasteLabel: "Pairing code",
   pastePlaceholder: "flowcode://pair?t=...",
@@ -163,24 +163,20 @@ const en: typeof it = {
   back: "Back",
   ended: "Session ended",
   send: "Send",
-  typeHere: "Type a command",
   files: "Files",
   noEntries: "Empty folder",
   loading: "Loading...",
   truncated: "truncated",
-  tab: "Terminal",
   root: "root",
   actions: "Actions",
   noActions: "The computer has not published any quick actions.",
-  target: "Target terminal",
-  run: "Run",
   done: "Done",
-  noTarget: "No terminal available",
   unpair: "Unpair",
   unpairConfirm: "Unpair this device?",
   resets: "resets {when}",
-  perPeriod: "{period}",
   closeViewer: "Close",
+  jumpToEnd: "↓ end",
+  unsafeName: "Name has control characters: not typing it into the terminal",
   openFiles: "Open files",
   openFeatures: "Open features",
   features: "Features",
@@ -198,6 +194,14 @@ const en: typeof it = {
   keyLeft: "Left",
   keyRight: "Right",
   needTerminal: "Open a terminal on the computer first.",
+  pairConfirmTitle: "Connect to “{host}”?",
+  pairConfirmCode: "Check this code on the computer: {code}",
+  pairCancel: "Cancel",
+  pairWaiting: "Confirm on the computer…",
+  pairWaitingHint: "Accept the request in the Flowcode window on your computer. It can take up to a minute.",
+  navMain: "Main navigation",
+  errorTitle: "Something went wrong",
+  errorReset: "Reset",
   navSettings: "Settings",
   settings: "Settings",
   mirrorOf: "Mirror of {host}",
@@ -262,8 +266,11 @@ const systemLang = typeof navigator !== "undefined" && navigator.language.toLowe
 let lang: "it" | "en" = systemLang;
 
 /** Follows the desktop's language; anything but it/en falls back to the system's. */
-export function setLanguage(l: string | undefined) {
-  lang = l === "it" || l === "en" ? l : systemLang;
+export function setLanguage(l: string | undefined): boolean {
+  const next = l === "it" || l === "en" ? l : systemLang;
+  const changed = next !== lang;
+  lang = next;
+  return changed;
 }
 
 export type Key = keyof typeof it;

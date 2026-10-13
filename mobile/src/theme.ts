@@ -37,10 +37,17 @@ export function alpha(c: string, a: number): string {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
-const GRAIN_DARK =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.95 0 0 0 0 0.88 0 0 0 0 0.78 0.1 0 0 0 -0.04'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E\")";
-const GRAIN_LIGHT =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.15 0 0 0 0 0.1 0 0 0 0 0.05 0.1 0 0 0 -0.04'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E\")";
+/** Film-grain overlay tinted with the given 0..1 rgb. */
+function grain([r, g, b]: [number, number, number]): string {
+  const svg =
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E" +
+    "%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E" +
+    `%3CfeColorMatrix values='0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0.1 0 0 0 -0.04'/%3E%3C/filter%3E` +
+    "%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E";
+  return `url("data:image/svg+xml,${svg}")`;
+}
+const GRAIN_DARK = grain([0.95, 0.88, 0.78]);
+const GRAIN_LIGHT = grain([0.15, 0.1, 0.05]);
 
 // Flowcode palette, used until the desktop sends its own.
 const DEFAULTS = {

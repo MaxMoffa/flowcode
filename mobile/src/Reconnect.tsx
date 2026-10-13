@@ -2,13 +2,19 @@
 // screen while the link to the desktop is down for longer than a blip.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "./i18n";
-import { retryNow, useRemote } from "./remote";
+import { appResumed, retryNow, useRemote } from "./remote";
 import "./reconnect.css";
 
 /** Shorter outages (a relay hiccup, a quick redial) are not worth a sheet. */
 const SHOW_AFTER = 1500;
 const FADE = 180;
 const DETAILS_KEY = "flowcode.reconnectDetails";
+
+/** Redial now, skipping the backoff, and tell the core the app is in the foreground. */
+function retry() {
+  void retryNow().catch(() => {});
+  void appResumed();
+}
 
 function loadDetails(): boolean {
   try {
@@ -151,7 +157,7 @@ export function Reconnect() {
           <i aria-hidden="true" />
           <span>{t("reconPill", { host })}</span>
         </button>
-        <button type="button" className="rc-pill-retry" onClick={() => void retryNow()}>
+        <button type="button" className="rc-pill-retry" onClick={retry}>
           {t("reconPillRetry")}
         </button>
       </div>
@@ -197,7 +203,7 @@ export function Reconnect() {
           </div>
         )}
 
-        <button ref={primary} type="button" className="btn big primary rc-primary" disabled={dialing} onClick={() => void retryNow()}>
+        <button ref={primary} type="button" className="btn big primary rc-primary" disabled={dialing} onClick={retry}>
           {dialing ? t("reconRetrying") : t("reconRetry")}
         </button>
         <div className="rc-row">
