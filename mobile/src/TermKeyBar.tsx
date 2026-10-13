@@ -1,3 +1,4 @@
+import { lockFeedback } from "./haptics";
 import { useRef, type ReactNode, type RefObject } from "react";
 import { t } from "./i18n";
 import type { ModKey, Mods, NamedKey } from "./termModifiers";
@@ -55,7 +56,7 @@ function ModButton({ label, state, onTap, onLock }: { label: string; state: Mods
         cancel();
         timer.current = window.setTimeout(() => {
           fired.current = true;
-          navigator.vibrate?.(12);
+          lockFeedback();
           onLock();
         }, LONG_PRESS_MS);
       }}

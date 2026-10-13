@@ -1,5 +1,7 @@
 import { useMemo } from "react";
-import { StatusPill, contextPercent } from "./common";
+import logo from "./assets/flowcode-icon.svg";
+import { contextPercent } from "./common";
+import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
 import { send, type Tab, type UsageItem, type UsageMetric } from "./remote";
 
@@ -15,12 +17,11 @@ function money(v: number): string {
 function UsageCard({ item }: { item: UsageItem }) {
   const gauges = gaugeMetrics(item);
   const spend = item.metrics.filter((m) => m.kind === "spend" && typeof m.cost === "number");
-  const title = item.profile ? `${item.label} · ${item.profile}` : item.label;
   // Anything without a number (logged out, unavailable...) shows its own wording.
   const note = gauges.length === 0 && spend.length === 0 ? item.metrics.find((m) => m.label)?.label : undefined;
   return (
     <div className="card usage">
-      <div className="usage-title">{title}</div>
+      <div className="usage-title">{item.label}</div>
       {gauges.map((m, i) => {
         const pct = Math.round((m.percent ?? 0) * 100);
         return (
@@ -50,63 +51,150 @@ function UsageCard({ item }: { item: UsageItem }) {
   );
 }
 
-function AgentCard({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void }) {
+interface ProfileGroup {
+  key: string;
+  title: string;
+  color?: string;
+  items: UsageItem[];
+}
+
+function groupByProfile(usage: UsageItem[]): ProfileGroup[] {
+  const groups = new Map<string, ProfileGroup>();
+  for (const u of usage) {
+    const key = u.profile ?? "";
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, title: key ? (u.profileName ?? key) : t("defaultProfile"), color: u.profileColor, items: [] };
+      groups.set(key, g);
+    }
+    g.color ??= u.profileColor;
+    g.items.push(u);
+  }
+  return [...groups.values()];
+}
+
+function Meta({ tab }: { tab: Tab }) {
   const ctx = contextPercent(tab);
-  const waiting = tab.status === "waiting";
   return (
-    <div className={"card agent" + (waiting ? " is-waiting" : "")}>
-      <button type="button" className="agent-main" onClick={() => onOpen(tab.ptyId)}>
-        <div className="agent-top">
-          <span className="agent-label">{tab.label}</span>
-          <StatusPill status={tab.status} />
-        </div>
-        <div className="agent-meta">
-          <span className="mono">{tab.cli}</span>
-          {ctx !== null && <span>{t("context", { pct: ctx })}</span>}
-        </div>
+    <span className="mono agent-meta">
+      {tab.cli}
+      {ctx !== null ? ` · ctx ${ctx}%` : ""}
+    </span>
+  );
+}
+
+function WaitingRow({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void }) {
+  return (
+    <button type="button" className="card tile is-waiting" onClick={() => onOpen(tab.ptyId)}>
+      <span className="tile-head">
+        <i className="dot wait" />
+        <b>{tab.label}</b>
+      </span>
+      <Meta tab={tab} />
+    </button>
+  );
+}
+
+function Hero({ tab, count, onOpen }: { tab: Tab; count: number; onOpen: (ptyId: string) => void }) {
+  return (
+    <section className="card hero">
+      <span className="hero-eyebrow">{count === 1 ? t("waitingOne") : t("waitingMany", { n: count })}</span>
+      <div className="hero-title">{tab.label}</div>
+      <Meta tab={tab} />
+      <div className="hero-actions">
+        <button
+          type="button"
+          className="btn big accent"
+          onClick={() => {
+            tapFeedback();
+            send({ t: "input", ptyId: tab.ptyId, data: "1" });
+          }}
+        >
+          {t("yes")}
+        </button>
+        <button
+          type="button"
+          className="btn big"
+          onClick={() => {
+            tapFeedback();
+            send({ t: "input", ptyId: tab.ptyId, data: "\x1b" });
+          }}
+        >
+          {t("no")}
+        </button>
+      </div>
+      <button type="button" className="hero-link" onClick={() => onOpen(tab.ptyId)}>
+        {t("openTerminal")}
       </button>
-      {waiting && (
-        <div className="quick">
-          <button type="button" className="btn accent" onClick={() => send({ t: "input", ptyId: tab.ptyId, data: "1" })}>
-            {t("yes")}
-          </button>
-          <button type="button" className="btn" onClick={() => send({ t: "input", ptyId: tab.ptyId, data: "\x1b" })}>
-            {t("no")}
-          </button>
-          <button type="button" className="btn ghost" onClick={() => onOpen(tab.ptyId)}>
-            {t("open")}
-          </button>
-        </div>
-      )}
-    </div>
+    </section>
+  );
+}
+
+function AgentTile({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void }) {
+  const st = tab.status ?? "idle";
+  const text = st === "busy" ? t("statusBusy") : t("statusIdle");
+  return (
+    <button type="button" className="card tile" onClick={() => onOpen(tab.ptyId)}>
+      <span className="tile-head">
+        <i className={"dot " + st} />
+        <b>{tab.label}</b>
+      </span>
+      <span className={"tile-status " + st}>{text}</span>
+      <Meta tab={tab} />
+    </button>
   );
 }
 
 export function AgentsScreen({ hostName, tabs, usage, onOpen }: { hostName?: string; tabs: Tab[] | null; usage: UsageItem[]; onOpen: (ptyId: string) => void }) {
-  const agents = useMemo(() => {
-    // Waiting agents first: they are why the phone is out of the pocket.
-    const rank = (x: Tab) => (x.status === "waiting" ? 0 : x.status === "busy" ? 1 : 2);
-    return (tabs ?? []).filter((x) => x.cli).sort((a, b) => rank(a) - rank(b));
+  const { waiting, others } = useMemo(() => {
+    const agents = (tabs ?? []).filter((x) => x.cli);
+    return { waiting: agents.filter((x) => x.status === "waiting"), others: agents.filter((x) => x.status !== "waiting") };
   }, [tabs]);
+  const groups = useMemo(() => groupByProfile(usage), [usage]);
+  const showTitles = groups.length > 1 || (groups.length === 1 && groups[0].key !== "");
   return (
     <>
-      <header className="top">
-        <div className="eyebrow">{t("connectedTo", { host: hostName ?? "..." })}</div>
-        <h1>{t("agents")}</h1>
+      <header className="agents-head">
+        <img src={logo} alt="" />
+        <span className="agents-host">
+          Flowcode <span>· {hostName ?? "..."}</span>
+        </span>
+        <span className="agents-online">
+          <i className="dot idle on" />
+          {t("onlineShort")}
+        </span>
       </header>
-      {usage.length > 0 && (
+      {waiting.length > 0 && (
         <div className="stack">
-          {usage.map((u) => (
-            <UsageCard key={u.pluginId + (u.profile ?? "")} item={u} />
+          <Hero tab={waiting[0]} count={waiting.length} onOpen={onOpen} />
+          {waiting.slice(1).map((x) => (
+            <WaitingRow key={x.ptyId} tab={x} onOpen={onOpen} />
           ))}
         </div>
       )}
-      <div className="stack">
-        {agents.map((x) => (
-          <AgentCard key={x.ptyId} tab={x} onOpen={onOpen} />
-        ))}
-        {tabs !== null && agents.length === 0 && <div className="empty">{t("noAgents")}</div>}
-      </div>
+      {groups.map((g) => (
+        <section className="usage-section" key={g.key}>
+          {showTitles && (
+            <div className="group usage-group">
+              {g.color && <i className="dot" style={{ background: g.color }} />}
+              {g.title}
+            </div>
+          )}
+          <div className="usage-grid">
+            {g.items.map((u) => (
+              <UsageCard key={u.pluginId + (u.profile ?? "")} item={u} />
+            ))}
+          </div>
+        </section>
+      ))}
+      {others.length > 0 && (
+        <div className="tile-grid">
+          {others.map((x) => (
+            <AgentTile key={x.ptyId} tab={x} onOpen={onOpen} />
+          ))}
+        </div>
+      )}
+      {tabs !== null && waiting.length + others.length === 0 && <div className="empty">{t("noAgents")}</div>}
     </>
   );
 }

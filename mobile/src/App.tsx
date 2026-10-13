@@ -1,5 +1,6 @@
 import { Component, Suspense, lazy, useEffect, useLayoutEffect, useState, type ErrorInfo, type ReactElement, type ReactNode } from "react";
 import { AgentsScreen } from "./Agents";
+import { tapFeedback } from "./haptics";
 import { AgentsIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { t } from "./i18n";
 import { LockScreen } from "./Lock";
@@ -168,7 +169,10 @@ function BottomNav({ page, onChange }: { page: Page; onChange: (p: Page) => void
   return (
     <nav className="nav" aria-label={t("navMain")}>
       {items.map((it) => (
-        <button key={it.id} type="button" className={page === it.id ? "on" : ""} aria-current={page === it.id ? "page" : undefined} onClick={() => onChange(it.id)}>
+        <button key={it.id} type="button" className={page === it.id ? "on" : ""} aria-current={page === it.id ? "page" : undefined} onClick={() => {
+            tapFeedback();
+            onChange(it.id);
+          }}>
           {it.icon}
           <span>{it.label}</span>
         </button>

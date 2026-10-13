@@ -38,6 +38,8 @@ export interface UsageItem {
   pluginId: string;
   label: string;
   profile?: string;
+  profileName?: string;
+  profileColor?: string;
   metrics: UsageMetric[];
 }
 

@@ -4,5 +4,5 @@
   "description": "QR scanner, biometric lock and pairing links, phones only",
   "windows": ["main"],
   "platforms": ["android", "iOS"],
-  "permissions": ["barcode-scanner:default", "biometric:default", "deep-link:default"]
+  "permissions": ["barcode-scanner:default", "biometric:default", "deep-link:default", "haptics:default"]
 }
