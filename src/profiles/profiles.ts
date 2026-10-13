@@ -73,6 +73,20 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Non-hook access for code outside React (the remote publisher). */
+export function getProfilesState(): ProfilesState {
+  return state;
+}
+
+export function onProfilesChanged(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
+/** Loads the profiles once if nobody has yet. */
+export function ensureProfilesLoaded(): void {
+  if (!loaded) void refreshProfiles();
+}
+
 /** The profiles, shared by every component that shows them (settings page,
  * "+" menu, tab badges, usage popover): one cache, loaded on first use and
  * re-read after every change made through the helpers below. */

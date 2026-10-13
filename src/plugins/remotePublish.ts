@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { ensureProfilesLoaded, getProfilesState, onProfilesChanged, profileById } from "../profiles/profiles";
 import { onUsageFetched, retainUsage } from "./useUsageState";
 import { isRemoteLeader, watchRemoteLeader } from "../remote/leader";
 import { metricText, usageFetcherFor, type UsageInfo } from "./usage";
@@ -23,8 +24,20 @@ interface RemoteUsageItem {
   pluginId: string;
   label: string;
   profile?: string;
+  /** Of `profile`, for grouping on the phone; absent for the default profile. */
+  profileName?: string;
+  profileColor?: string;
   metrics: RemoteMetric[];
 }
+
+const usageKey = (pluginId: string, profile?: string) => `${pluginId}\u0000${profile ?? ""}`;
+
+/** Which CLI's login (profiles.ts `logged_in`) a usage plugin reads. */
+const PROFILE_CLI: Record<string, "claude" | "codex" | "vibe"> = {
+  "claude-code": "claude",
+  "codex-cli": "codex",
+  "mistral-vibe": "vibe",
+};
 
 /** Usage changes are coalesced: a refresh round fetches several plugins and
  * profiles within moments of each other. */
@@ -49,11 +62,17 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string, plugi
   const flush = () => {
     timer = null;
     if (!isRemoteLeader()) return;
-    invoke("remote_publish_usage", { items: [...latest.values()] }).catch(() => {});
+    // Name and colour are resolved now, so a rename reaches the phone too.
+    const { profiles } = getProfilesState();
+    const items = [...latest.values()].map((item) => {
+      const p = profileById({ profiles, project_defaults: {} }, item.profile);
+      return p ? { ...item, profileName: p.name, profileColor: p.color } : item;
+    });
+    invoke("remote_publish_usage", { items }).catch(() => {});
   };
 
   const stop = onUsageFetched((pluginId: string, usage: UsageInfo, profile?: string) => {
-    const key = `${pluginId}\u0000${profile ?? ""}`;
+    const key = usageKey(pluginId, profile);
     // A failed probe keeps the last good value: one hiccup must not make the
     // item vanish from the phone.
     if (usage.ok) {
@@ -85,20 +104,36 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string, plugi
     for (const r of held.values()) r();
     held.clear();
   };
-  /** Retains exactly the wanted plugins while a phone is connected and this
-   * window leads; nothing otherwise. */
+  /** Retains exactly the wanted (plugin, profile) pairs while a phone is
+   * connected and this window leads; nothing otherwise. Every profile signed
+   * in to the plugin's CLI counts, besides the default one. */
   const reconcile = () => {
-    const wanted = new Set(phoneConnected && isRemoteLeader() ? pluginIds().filter((id) => usageFetcherFor(id)) : []);
-    for (const [id, r] of held) {
-      if (!wanted.has(id)) {
-        r();
-        held.delete(id);
+    ensureProfilesLoaded();
+    const { profiles } = getProfilesState();
+    const wanted = new Map<string, { id: string; profile?: string }>();
+    for (const id of pluginIds()) {
+      if (!usageFetcherFor(id)) continue;
+      wanted.set(usageKey(id), { id });
+      const cli = PROFILE_CLI[id];
+      for (const p of profiles) {
+        if (cli && p.logged_in[cli]) wanted.set(usageKey(id, p.id), { id, profile: p.id });
       }
     }
-    for (const id of wanted) {
-      if (!held.has(id)) held.set(id, retainUsage(id));
+    // A deleted profile or unpinned plugin must leave the phone too.
+    for (const key of latest.keys()) if (!wanted.has(key)) latest.delete(key);
+    const active = phoneConnected && isRemoteLeader();
+    for (const [key, r] of held) {
+      if (!active || !wanted.has(key)) {
+        r();
+        held.delete(key);
+      }
+    }
+    if (!active) return;
+    for (const [key, w] of wanted) {
+      if (!held.has(key)) held.set(key, retainUsage(w.id, w.profile));
     }
   };
+  const unwatchProfiles = onProfilesChanged(reconcile);
   const sync = async () => {
     const status = await invoke<{ devices: { connected: boolean }[] }>("remote_status").catch(() => null);
     if (disposed) return;
@@ -120,6 +155,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string, plugi
       if (timer) clearTimeout(timer);
       unlisten.then((fn) => fn()).catch(() => {});
       unwatchLeader();
+      unwatchProfiles();
       release();
     },
     refresh: reconcile,

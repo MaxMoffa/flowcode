@@ -148,7 +148,7 @@ the desktop and then applied as if changed in its own settings.
 Tab        {ptyId, tabId, window, label, cwd, cols, rows,
             cli?: "claude"|"codex"|"vibe", status?: "busy"|"idle"|"waiting",
             context?: {used, window, model?}}
-UsageItem  {pluginId, label, profile?, metrics: [UsageMetric]}
+UsageItem  {pluginId, label, profile?, profileName?, profileColor?, metrics: [UsageMetric]}
 UsageMetric{kind, label?, percent?, resets?, command?, period?, cost?, tokens?, sessions?}
 Action     {id, label, icon?}
 LsEntry    {name, dir, size?}
@@ -157,6 +157,9 @@ LsEntry    {name, dir, size?}
 - `context` is how full the agent's context window is, in tokens (`used` of
   `window`); only for claude/codex tabs whose transcript can be read, and
   refreshed by the desktop at most every 10 s.
+- `UsageItem` is one per (plugin, account profile). `profile` is the profile id
+  and is absent for the default profile; `profileName` / `profileColor` (a CSS
+  colour) name it for grouping and are likewise absent for the default profile.
 - `UsageMetric.kind` is one of `session`, `week`, `other`, `unavailable`,
   `loggedOut`, `reauth`, `spend`, `model`, `noApiKey`, `billing`, `unpriced`;
   ignore kinds you do not know. `percent` is 0-1, `resets` is the CLI's own
