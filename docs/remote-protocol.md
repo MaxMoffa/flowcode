@@ -47,9 +47,10 @@ must be ignored by both sides; optional fields (`?`) may be absent.
 
 ### Handshake
 
-The first client frame must be `pair` or `auth` within 5 s of the stream
-opening (and the QUIC handshake itself must finish in 5 s), otherwise the
-connection is dropped. At most 4 connections from nodes that are not paired
+The first client frame must be `pair` or `auth` within 10 s of the stream
+opening (and the QUIC handshake itself must finish in 10 s), otherwise the
+connection is dropped silently (no fatal `error`, so the phone just retries
+and keeps its pairing). At most 4 connections from nodes that are not paired
 devices may be in their handshake at once (this includes a new phone waiting
 for the desktop user's confirmation); further ones are closed. Paired devices
 are not limited by that.

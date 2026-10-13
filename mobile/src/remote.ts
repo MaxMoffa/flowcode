@@ -333,6 +333,8 @@ export const myFingerprint = (): Promise<string | null> => invoke<string>("my_fi
 export const appResumed = (): Promise<void> => invoke<void>("app_resumed").catch(() => {});
 export const retryNow = (): Promise<void> => invoke("retry_now");
 export const unpair = (): Promise<void> => invoke("unpair");
+/** The core's last connection events (dial, handshake, backoff, close reasons), oldest first. */
+export const connectionLog = (): Promise<{ at: number; text: string }[]> => invoke<{ at: number; text: string }[]>("connection_log").catch(() => []);
 
 export function send(msg: ClientMsg) {
   // "not connected" is routine while reconnecting; the UI already shows the reconnect sheet.

@@ -108,6 +108,11 @@ const it = {
   autoResumeMessage: "Messaggio di ripresa",
   autoResumePlaceholder: "continua",
   thisPhone: "Questo telefono",
+  connDiag: "Diagnostica connessione",
+  connDiagCopy: "Copia",
+  connDiagCopied: "Copiato",
+  connDiagRefresh: "Aggiorna",
+  connDiagEmpty: "Nessun evento ancora",
   unpairFromComputer: "Scollega dal computer",
   lockSetting: "Blocco biometrico",
   lockHint: "Impronta o volto all'apertura e dopo 1 minuto in background",
@@ -134,6 +139,10 @@ const it = {
   reconPill: "Riconnessione a {host}",
   reconPillRetry: "Riprova",
   reconHostFallback: "il PC",
+  withAgent: "Con un agente",
+  shellsGroup: "Shell",
+  openCount: "{n} aperti",
+  openCountOne: "1 aperto",
 };
 const en: Record<keyof typeof it, string> = {
   welcomeTitle: "Connect your computer",
@@ -244,6 +253,11 @@ const en: Record<keyof typeof it, string> = {
   autoResumeMessage: "Resume message",
   autoResumePlaceholder: "continue",
   thisPhone: "This phone",
+  connDiag: "Connection diagnostics",
+  connDiagCopy: "Copy",
+  connDiagCopied: "Copied",
+  connDiagRefresh: "Refresh",
+  connDiagEmpty: "No events yet",
   unpairFromComputer: "Unpair from computer",
   lockSetting: "Biometric lock",
   lockHint: "Fingerprint or face on open and after 1 minute in the background",
@@ -270,6 +284,10 @@ const en: Record<keyof typeof it, string> = {
   reconPill: "Reconnecting to {host}",
   reconPillRetry: "Retry",
   reconHostFallback: "the PC",
+  withAgent: "With an agent",
+  shellsGroup: "Shell",
+  openCount: "{n} open",
+  openCountOne: "1 open",
 };
 
 const systemLang = typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("it") ? "it" : "en";

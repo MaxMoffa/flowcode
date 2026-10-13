@@ -40,10 +40,14 @@ const MAX_PAIR_FAILURES: usize = 5;
 const FAIL_WINDOW_MS: u64 = 60_000;
 const BLOCK_MS: u64 = 60_000;
 /// Before authenticating, a peer gets this long for each step (QUIC
-/// handshake, opening the stream, its first frame). A real phone needs well
-/// under a second; the short fuse keeps strangers from holding slots.
-const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+/// handshake, opening the stream, its first frame). A phone on a good path
+/// needs well under a second, but one on mobile data behind a relay (lost
+/// first packets, 1 s retransmits) can need several: 5 s turned those into
+/// failed first attempts. Strangers are still bounded by the slot caps.
+const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// `remote.log` is rotated (to `remote.log.old`) once it grows past this.
+const LOG_CAP_BYTES: u64 = 256 * 1024;
 /// Connections not yet authenticated, however far along; more than this are
 /// refused so a flood can't pile up tasks. The node id isn't known until
 /// the QUIC handshake is done, so this is the only cap that early.
@@ -319,6 +323,65 @@ impl AuthLimiter {
     fn succeeded(&mut self, node: &str) {
         self.nodes.remove(node);
     }
+}
+
+// ---- connection log -------------------------------------------------------
+
+/// `YYYY-MM-DD HH:MM:SS.mmm` (UTC) for a Unix time in milliseconds.
+fn format_utc(ms: u64) -> String {
+    let (secs, millis) = (ms / 1000, ms % 1000);
+    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}.{millis:03}", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
+/// Appends `line` to `path`; a file already past `cap` bytes first becomes
+/// `<path>.old` (replacing the previous one), so the log never exceeds ~2x cap.
+fn append_capped(path: &Path, line: &str, cap: u64) {
+    use std::io::Write;
+    if std::fs::metadata(path).is_ok_and(|m| m.len() >= cap) {
+        let mut old = path.as_os_str().to_owned();
+        old.push(".old");
+        let _ = std::fs::rename(path, old);
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+/// One line per connection event, to stderr (the `tauri dev` console) and a
+/// small rotating file. Best effort: logging never fails a connection.
+struct ConnLog {
+    path: PathBuf,
+    /// Keeps lines from two threads from interleaving or racing a rotation.
+    write: Mutex<()>,
+}
+
+impl ConnLog {
+    fn new(path: PathBuf) -> Self {
+        ConnLog { path, write: Mutex::new(()) }
+    }
+
+    fn line(&self, text: &str) {
+        let line = format!("{} {text}", format_utc(now_ms()));
+        eprintln!("remote: {line}");
+        let _held = lock(&self.write);
+        append_capped(&self.path, &line, LOG_CAP_BYTES);
+    }
+}
+
+/// The first characters of a node id: enough to tell phones apart in a log.
+fn short_id(node_id: &str) -> &str {
+    node_id.get(..10).unwrap_or(node_id)
 }
 
 // ---- node key --------------------------------------------------------------
@@ -605,6 +668,8 @@ struct Shared {
     /// Of `handshaking`, those from nodes that aren't paired devices.
     handshaking_unknown: AtomicUsize,
     auth_limiter: Mutex<AuthLimiter>,
+    /// Connection diagnostics: stderr plus `remote.log` next to the node key.
+    log: ConnLog,
     waiters: Mutex<HashMap<String, oneshot::Sender<SnapshotReply>>>,
     /// Pairing requests awaiting the user's answer on the desktop.
     pair_waiters: Mutex<HashMap<String, oneshot::Sender<bool>>>,
@@ -694,6 +759,7 @@ impl RemoteState {
             handshaking: AtomicUsize::new(0),
             handshaking_unknown: AtomicUsize::new(0),
             auth_limiter: Mutex::new(AuthLimiter::default()),
+            log: ConnLog::new(dir.join("remote.log")),
             waiters: Mutex::new(HashMap::new()),
             pair_waiters: Mutex::new(HashMap::new()),
             last_active: Mutex::new(HashMap::new()),
@@ -793,7 +859,10 @@ impl Shared {
                 runtime.error = None;
                 runtime.running = Some(running);
             }
-            Err(message) => lock(&self.runtime).error = Some(message),
+            Err(message) => {
+                self.log.line(&format!("endpoint failed to start: {message}"));
+                lock(&self.runtime).error = Some(message);
+            }
         }
     }
 
@@ -824,6 +893,19 @@ impl Shared {
                 }
             })?;
         let node_id = endpoint.id().to_string();
+        self.log.line(&format!("endpoint started, node {}", short_id(&node_id)));
+        // Phones that dial before the relay is reachable can only use direct
+        // addresses; the log says when that window ended.
+        {
+            let (shared, endpoint) = (Arc::clone(self), endpoint.clone());
+            tauri::async_runtime::spawn(async move {
+                let started = Instant::now();
+                match tokio::time::timeout(Duration::from_secs(120), endpoint.online()).await {
+                    Ok(()) => shared.log.line(&format!("endpoint online (relay reachable) after {} ms", started.elapsed().as_millis())),
+                    Err(_) => shared.log.line("endpoint still not online (no relay) after 120 s"),
+                }
+            });
+        }
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         tauri::async_runtime::spawn(accept_loop(Arc::clone(self), endpoint.clone(), shutdown_rx));
         Ok(Running { endpoint, node_id, shutdown: shutdown_tx, _instance_lock: instance_lock })
@@ -1206,18 +1288,40 @@ async fn accept_loop(shared: Arc<Shared>, endpoint: Endpoint, mut shutdown: watc
                 // past the cap while its tasks are still starting.
                 if shared.handshaking.fetch_add(1, Ordering::AcqRel) >= MAX_HANDSHAKING {
                     shared.handshaking.fetch_sub(1, Ordering::AcqRel);
+                    shared.log.line(&format!("refused {:?}: {MAX_HANDSHAKING} handshakes already in progress", incoming.remote_addr()));
                     incoming.refuse();
                     continue;
                 }
                 let guard = HandshakeGuard { shared: Arc::clone(&shared), counted: true, unknown: false };
                 let shutdown = shutdown.clone();
                 tauri::async_runtime::spawn(async move {
+                    let shared = Arc::clone(&guard.shared);
+                    let from = format!("{:?}", incoming.remote_addr());
+                    let started = Instant::now();
                     let connection = match incoming.accept() {
-                        Ok(accepting) => tokio::time::timeout(HANDSHAKE_TIMEOUT, accepting).await.ok().and_then(|c| c.ok()),
-                        Err(_) => None,
+                        Ok(accepting) => match tokio::time::timeout(HANDSHAKE_TIMEOUT, accepting).await {
+                            Ok(Ok(connection)) => Some(connection),
+                            Ok(Err(e)) => {
+                                shared.log.line(&format!("incoming {from}: QUIC handshake failed after {} ms: {e}", started.elapsed().as_millis()));
+                                None
+                            }
+                            Err(_) => {
+                                shared.log.line(&format!("incoming {from}: QUIC handshake timed out after {} s", HANDSHAKE_TIMEOUT.as_secs()));
+                                None
+                            }
+                        },
+                        Err(e) => {
+                            shared.log.line(&format!("incoming {from}: not accepted: {e}"));
+                            None
+                        }
                     };
                     // Without a connection the guard just drops.
                     if let Some(connection) = connection {
+                        shared.log.line(&format!(
+                            "peer {}: QUIC connected from {from} in {} ms",
+                            short_id(&connection.remote_id().to_string()),
+                            started.elapsed().as_millis()
+                        ));
                         serve(guard, connection, shutdown).await;
                     }
                 });
@@ -1281,18 +1385,21 @@ fn admit(shared: &Shared, first: ClientMsg, node_id: &str) -> Result<Admission, 
     match first {
         ClientMsg::Auth { token } => {
             let now = now_ms();
-            if !lock(&shared.auth_limiter).allowed(node_id, now) {
-                return Err(tr("Troppi tentativi: riprova tra un minuto", "Too many attempts: try again in a minute").to_string());
-            }
             let device = lock(&shared.config).authenticate(&token, node_id);
             match device {
+                // A right token is never held back by the limiter: it only
+                // exists to slow guessing, and a phone whose earlier attempts
+                // failed must not be locked out of (and told to forget) a
+                // pairing that is perfectly good.
                 Some(device) => {
                     lock(&shared.auth_limiter).succeeded(node_id);
                     Ok(Admission::Known(device))
                 }
+                None if !lock(&shared.auth_limiter).allowed(node_id, now) => {
+                    Err(tr("Troppi tentativi: riprova tra un minuto", "Too many attempts: try again in a minute").to_string())
+                }
                 None => {
                     lock(&shared.auth_limiter).failed(node_id, now);
-                    eprintln!("remote: failed auth from node {node_id}");
                     Err(tr("Autenticazione non riuscita", "Authentication failed").to_string())
                 }
             }
@@ -1398,21 +1505,56 @@ async fn handshake(
 ) -> Option<Admitted> {
     // Verified by iroh during the TLS handshake: this really is that key.
     let node_id = connection.remote_id().to_string();
+    let peer = short_id(&node_id);
     // Strangers get only a few handshake slots, so they can't crowd out the
     // phones that are actually paired.
-    if !shared.is_known_node(&node_id) && !guard.claim_unknown() {
+    let known = shared.is_known_node(&node_id);
+    if !known && !guard.claim_unknown() {
+        shared.log.line(&format!("peer {peer}: rejected, unknown node and all {MAX_UNKNOWN_HANDSHAKING} stranger slots busy"));
         connection.close(4u32.into(), b"busy");
         return None;
     }
-    let Ok(Ok((mut send, mut recv))) = tokio::time::timeout(AUTH_TIMEOUT, connection.accept_bi()).await else {
-        connection.close(1u32.into(), b"no stream");
-        return None;
+    let started = Instant::now();
+    let stream = tokio::time::timeout(AUTH_TIMEOUT, connection.accept_bi()).await;
+    let (mut send, mut recv) = match stream {
+        Ok(Ok(pair)) => pair,
+        Ok(Err(e)) => {
+            shared.log.line(&format!("peer {peer}: no stream opened ({e})"));
+            connection.close(1u32.into(), b"no stream");
+            return None;
+        }
+        Err(_) => {
+            shared.log.line(&format!("peer {peer}: timeout, no stream opened within {} s", AUTH_TIMEOUT.as_secs()));
+            connection.close(1u32.into(), b"no stream");
+            return None;
+        }
     };
     let first = tokio::time::timeout(AUTH_TIMEOUT, read_frame::<_, ClientMsg>(&mut recv)).await;
-    let admission = match first {
-        Ok(Ok(msg)) => admit(shared, msg, &node_id),
-        _ => Err(tr("Autenticazione non riuscita", "Authentication failed").to_string()),
+    let msg = match first {
+        Ok(Ok(msg)) => msg,
+        // Not a verdict on the phone: say nothing fatal (a fatal error makes
+        // the phone forget its pairing), just hang up and let it retry.
+        other => {
+            let why = match other {
+                Ok(Err(e)) => format!("first frame unreadable: {e}"),
+                _ => format!("timeout, no first frame within {} s", AUTH_TIMEOUT.as_secs()),
+            };
+            shared.log.line(&format!("peer {peer}: {why}"));
+            connection.close(1u32.into(), b"no auth");
+            return None;
+        }
     };
+    let kind = match &msg {
+        ClientMsg::Auth { .. } => "auth",
+        ClientMsg::Pair { .. } => "pair",
+        _ => "other",
+    };
+    shared.log.line(&format!(
+        "peer {peer}: first frame `{kind}` after {} ms ({})",
+        started.elapsed().as_millis(),
+        if known { "paired node" } else { "unknown node" }
+    ));
+    let admission = admit(shared, msg, &node_id);
     let admitted = match admission {
         Ok(Admission::Known(device)) => Ok((device, None)),
         Ok(Admission::PairRequest { device_name }) => confirm_pairing(shared, &node_id, &device_name, shutdown)
@@ -1421,8 +1563,12 @@ async fn handshake(
         Err(message) => Err(message),
     };
     match admitted {
-        Ok((device, token)) => Some(Admitted { device, token, send, recv }),
+        Ok((device, token)) => {
+            shared.log.line(&format!("peer {peer}: {} for device \"{}\"", if token.is_some() { "paired" } else { "auth ok" }, device.name));
+            Some(Admitted { device, token, send, recv })
+        }
         Err(message) => {
+            shared.log.line(&format!("peer {peer}: rejected: {message}"));
             reject(connection, &mut send, message, 2, b"auth").await;
             None
         }
@@ -1437,10 +1583,17 @@ async fn serve(mut guard: HandshakeGuard, connection: Connection, mut shutdown: 
     // handshake ran.
     if *shutdown.borrow() || !lock(&shared.config).devices.iter().any(|d| d.id == admitted.device.id) {
         let message = tr("Dispositivo revocato", "Device revoked").to_string();
+        shared.log.line(&format!("peer {}: rejected: revoked or shutting down during the handshake", short_id(&connection.remote_id().to_string())));
         reject(&connection, &mut admitted.send, message, 3, b"gone").await;
         return;
     }
-    run_connection(shared, &connection, shutdown, admitted).await;
+    let (peer, device_name) = (short_id(&connection.remote_id().to_string()).to_string(), admitted.device.name.clone());
+    let started = Instant::now();
+    let why = run_connection(Arc::clone(&shared), &connection, shutdown, admitted).await;
+    shared.log.line(&format!(
+        "peer {peer}: closed \"{device_name}\" after {} s: {why}",
+        started.elapsed().as_secs()
+    ));
 }
 
 /// The single writer: it owns the send half, every producer queues into the
@@ -1508,7 +1661,7 @@ async fn run_connection(
     connection: &Connection,
     mut shutdown: watch::Receiver<bool>,
     admitted: Admitted,
-) {
+) -> String {
     let Admitted { device, token, send, recv } = admitted;
     shared.touch_device(&device.id);
     // A new pairing was announced when confirmed.
@@ -1553,6 +1706,7 @@ async fn run_connection(
     // A finished `JoinHandle` must not be polled again (it panics), and the
     // `select!` below may be the one that saw it finish.
     let mut writer_done = false;
+    let mut why = "phone closed the stream or the link broke";
     loop {
         tokio::select! {
             msg = in_rx.recv() => match msg {
@@ -1581,17 +1735,22 @@ async fn run_connection(
             _ = kick_rx.changed() => {
                 let message = tr("Dispositivo revocato", "Device revoked").to_string();
                 conn.send(ServerMsg::Error { message, pty_id: None, fatal: true });
+                why = "device revoked";
                 break;
             }
-            _ = shutdown.changed() => break,
+            _ = shutdown.changed() => {
+                why = "remote access stopped";
+                break;
+            }
             _ = &mut writer, if !writer_done => {
                 writer_done = true;
+                why = "write to the phone failed";
                 break;
             }
         }
         // The phone stopped reading, or floods input: not worth keeping.
         if conn.overflow.load(Ordering::Relaxed) {
-            eprintln!("remote: dropping a connection whose queue overflowed");
+            why = "queue overflowed (phone not reading or flooding)";
             break;
         }
     }
@@ -1605,7 +1764,11 @@ async fn run_connection(
     if !writer_done {
         let _ = tokio::time::timeout(Duration::from_secs(3), &mut writer).await;
     }
+    // Read before closing ourselves: this is why QUIC itself saw it end (idle
+    // timeout, the phone's close code, a reset) when it wasn't us.
+    let quic = connection.close_reason().map_or_else(|| "still open".to_string(), |e| e.to_string());
     connection.close(0u32.into(), b"bye");
+    format!("{why}; QUIC: {quic}")
 }
 
 /// Keystrokes for one pty: a queue and a worker so they reach it in order.
@@ -2007,6 +2170,35 @@ mod tests {
         p.start("bbbb".into(), 20_001);
         assert_eq!(p.redeem("aaaa", 20_002), Err(PairError::Invalid));
         assert_eq!(p.redeem("bbbb", 20_003), Ok(()));
+    }
+
+    #[test]
+    fn utc_timestamps_are_formatted() {
+        assert_eq!(format_utc(0), "1970-01-01 00:00:00.000");
+        assert_eq!(format_utc(1_709_210_096_789), "2024-02-29 12:34:56.789");
+    }
+
+    #[test]
+    fn log_file_rotates_past_its_cap() {
+        let dir = std::env::temp_dir().join(format!("flowcode-log-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("remote.log");
+        let _ = std::fs::remove_file(&path);
+        for i in 0..20 {
+            append_capped(&path, &format!("line {i:02} xxxxxxxxxx"), 100);
+        }
+        let current = std::fs::read_to_string(&path).unwrap();
+        let old = std::fs::read_to_string(dir.join("remote.log.old")).unwrap();
+        assert!(current.len() < 200 && old.len() < 200);
+        assert!(current.contains("line 19"));
+        assert!(!old.contains("line 19"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn short_id_never_panics() {
+        assert_eq!(short_id("abc"), "abc");
+        assert_eq!(short_id("0123456789abcdef"), "0123456789");
     }
 
     #[test]

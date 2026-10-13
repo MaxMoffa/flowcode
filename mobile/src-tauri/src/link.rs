@@ -7,7 +7,7 @@ use iroh::endpoint::{presets, Connection, QuicTransportConfig, RecvStream, SendS
 use iroh::{Endpoint, SecretKey};
 use iroh_tickets::endpoint::EndpointTicket;
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// A phone user is watching the spinner: 12 s is enough for a relay round trip
 /// plus hole punching, and failing sooner lets the (short) backoff retry.
@@ -17,8 +17,9 @@ const DIAL_TIMEOUT: Duration = Duration::from_secs(12);
 /// silence timer (`DEAD_AFTER`), otherwise QUIC would drop a link the app
 /// still considers healthy (iroh's default is 30 s).
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
-/// The server drops a connection whose first frame takes longer than 10 s;
-/// waiting a bit longer for its answer covers a slow relay path.
+/// The server gives each pre-auth step (QUIC handshake, stream, first frame)
+/// 10 s (`AUTH_TIMEOUT` in the desktop's remote.rs); waiting a bit longer for
+/// its answer covers a slow relay path.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 /// A `pair` also waits for the user to confirm on the desktop (up to 60 s).
 const PAIR_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(75);
@@ -69,22 +70,55 @@ pub async fn bind(key: SecretKey) -> Result<Endpoint, String> {
 /// Opens the stream and runs the handshake with `first` (a `pair` or `auth`
 /// message), returning once the desktop says `ready`.
 pub async fn handshake(endpoint: &Endpoint, node: &str, first: ClientMsg) -> Result<Session, LinkError> {
-    handshake_with(endpoint, node, first, || {}).await
+    handshake_with(endpoint, node, first, || {}, |_| {}).await
 }
 
 /// Like [`handshake`], calling `on_connected` once the dial succeeded and the
 /// auth exchange begins (lets the UI tell "searching" from "authenticating").
-pub async fn handshake_with(endpoint: &Endpoint, node: &str, first: ClientMsg, on_connected: impl FnOnce()) -> Result<Session, LinkError> {
+/// `log` receives one short line per step, for the diagnostics list.
+pub async fn handshake_with(
+    endpoint: &Endpoint,
+    node: &str,
+    first: ClientMsg,
+    on_connected: impl FnOnce(),
+    log: impl Fn(String),
+) -> Result<Session, LinkError> {
     let ticket = EndpointTicket::from_str(node).map_err(|e| LinkError::Fatal(format!("bad desktop address: {e}")))?;
-    let conn = tokio::time::timeout(DIAL_TIMEOUT, endpoint.connect(ticket.endpoint_addr().clone(), ALPN))
-        .await
-        .map_err(|_| LinkError::Transient("the desktop did not answer".into()))?
-        .map_err(|e| LinkError::Transient(format!("cannot reach the desktop: {e}")))?;
+    let addr = ticket.endpoint_addr();
+    // The ticket's addresses are only hints: iroh looks the node id up as well
+    // (address lookup runs alongside whatever the address already carries), so
+    // a relay or IP that has gone stale doesn't strand the dial.
+    log(format!(
+        "dial {} ({} direct, {} relay in the stored address)",
+        addr.id.fmt_short(),
+        addr.ip_addrs().count(),
+        addr.relay_urls().count()
+    ));
+    let started = Instant::now();
+    let conn = match tokio::time::timeout(DIAL_TIMEOUT, endpoint.connect(addr.clone(), ALPN)).await {
+        Err(_) => {
+            log(format!("dial timed out after {} s", DIAL_TIMEOUT.as_secs()));
+            return Err(LinkError::Transient("the desktop did not answer".into()));
+        }
+        Ok(Err(e)) => {
+            log(format!("dial failed after {} ms: {e}", started.elapsed().as_millis()));
+            return Err(LinkError::Transient(format!("cannot reach the desktop: {e}")));
+        }
+        Ok(Ok(conn)) => conn,
+    };
+    log(format!("dial ok in {} ms", started.elapsed().as_millis()));
     on_connected();
-    let (mut send, mut recv) = conn.open_bi().await.map_err(|e| LinkError::Transient(format!("cannot open the stream: {e}")))?;
+    let (mut send, mut recv) = conn.open_bi().await.map_err(|e| {
+        log(format!("open stream failed: {e}"));
+        LinkError::Transient(format!("cannot open the stream: {e}"))
+    })?;
     let timeout = if matches!(first, ClientMsg::Pair { .. }) { PAIR_HANDSHAKE_TIMEOUT } else { HANDSHAKE_TIMEOUT };
     // The server only learns about the stream when the first bytes arrive.
-    write_frame(&mut send, &first).await.map_err(frame_err)?;
+    let handshake_started = Instant::now();
+    write_frame(&mut send, &first).await.map_err(|e| {
+        log(format!("sending the first frame failed: {e}"));
+        frame_err(e)
+    })?;
 
     let mut token = None;
     let mut device_name = String::new();
@@ -108,8 +142,19 @@ pub async fn handshake_with(endpoint: &Endpoint, node: &str, first: ClientMsg, o
             }
         }
     })
-    .await
-    .map_err(|_| LinkError::Transient("the desktop did not finish the handshake".into()))??;
+    .await;
+    let host_name = match host_name {
+        Err(_) => {
+            log(format!("handshake timed out after {} s", timeout.as_secs()));
+            return Err(LinkError::Transient("the desktop did not finish the handshake".into()));
+        }
+        Ok(Err(e)) => {
+            log(format!("handshake failed after {} ms: {}", handshake_started.elapsed().as_millis(), e.message()));
+            return Err(e);
+        }
+        Ok(Ok(host)) => host,
+    };
+    log(format!("handshake ok in {} ms", handshake_started.elapsed().as_millis()));
     Ok(Session { conn, send, recv, host_name, device_name, token })
 }
 
