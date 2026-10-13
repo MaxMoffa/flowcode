@@ -68,7 +68,7 @@ tauri-winrt-notification = "0.8.1"
 # The WebView2 controller behind `with_webview` (windows.rs) - same version
 # as Tauri's own, so the types match.
 webview2-com = "0.38"
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 notify-rust = "4.18.1"

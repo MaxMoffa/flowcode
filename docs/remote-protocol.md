@@ -16,11 +16,18 @@ the code or this file, not just one.
   new ALPN, so an old phone fails the handshake instead of misreading frames.
 - The desktop's identity is a persisted secret key (`remote-node.key` in the
   app config dir), so its **node id** (the public key) is stable across
-  restarts. The phone also has a persistent iroh secret key; its node id is
+  restarts (on Windows the file is sealed with DPAPI, tied to the user's
+  login). Only one Flowcode instance may run the endpoint for a config dir
+  (a lock file next to the key); a second one reports an error in its remote
+  status instead of fighting over the node id. The phone also has a persistent iroh secret key; its node id is
   what the desktop binds a paired device to. **Keep the phone's key stable**:
   a new key is a new device and must pair again.
 - One connection = one **bidirectional QUIC stream**, opened by the phone
   (`open_bi`) right after connecting. The desktop never opens streams.
+- Liveness: iroh sends QUIC keep-alives every 5 s, and the desktop's idle
+  timeout is 90 s (the effective one is the smaller of the two peers'). The
+  phone should still `ping` every ~20 s and treat 60 s of silence as a dead
+  link.
 
 ## Framing
 
@@ -40,8 +47,12 @@ must be ignored by both sides; optional fields (`?`) may be absent.
 
 ### Handshake
 
-The first client frame must be `pair` or `auth` within 10 s, otherwise the
-connection is dropped.
+The first client frame must be `pair` or `auth` within 5 s of the stream
+opening (and the QUIC handshake itself must finish in 5 s), otherwise the
+connection is dropped. At most 4 connections from nodes that are not paired
+devices may be in their handshake at once (this includes a new phone waiting
+for the desktop user's confirmation); further ones are closed. Paired devices
+are not limited by that.
 
 | Direction | Message | Meaning |
 |---|---|---|
@@ -55,10 +66,22 @@ After a valid `pair` the desktop asks its user to confirm the new phone and
 only then creates the device and sends `paired` (up to 60 s; the phone should
 wait up to 75 s for `pair`, 15 s for `auth`). Two more fatal errors can come
 back: "Pairing declined on the computer" and "Not confirmed on the computer:
-try again". The code is spent either way, so the phone must scan a new one.
+try again". The code is spent either way, so the phone must scan a new one;
+presenting a spent code again is refused as invalid but does not count
+towards the rate limit below.
 
-Pairing codes are one-time, valid 5 minutes, one active at a time; 5 wrong
-codes in a minute block all pairing for a minute. Only a SHA-256 hash of the
+The desktop shows the request with the device name (control characters
+removed, at most 64 characters) and a **fingerprint**: 6 characters derived
+from the phone's node id by `proto::node_fingerprint` (first 6 base32
+characters of the SHA-256 of the node id). The phone shows the same
+fingerprint while it waits, so the user can tell which request is theirs.
+If the request is not answered (timeout, phone gone) the desktop withdraws it.
+
+Pairing codes are one-time, valid 5 minutes, one active at a time (closing
+the QR dialog on the desktop cancels it); 5 wrong codes in a minute block
+all pairing for a minute. Likewise, 5 failed `auth`s from one node id in a
+minute make the desktop refuse that node's `auth` for a minute ("too many
+attempts", fatal). Only a SHA-256 hash of the
 token is stored on the desktop. Re-pairing from the same node id replaces the
 earlier device entry.
 
@@ -76,7 +99,7 @@ Client messages:
 | `action {id, ptyId?}` | Run a published action (see `actions`) in the tab owning `ptyId`, or in the main window. Unknown ids get an `error`. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
-| `set {key, value}` | Change one mirrored desktop setting (see `settings`). `key` must be non-empty and at most 64 bytes, else `error`; an unknown key or a value of the wrong type is silently ignored. |
+| `set {key, value}` | Change one mirrored desktop setting (see `settings`). `key` must be non-empty and at most 64 bytes and `value` at most 4 KiB as JSON, else `error`; an unknown key or a value of the wrong type is ignored by the desktop (it is not applied; an unknown palette id falls back to the default palette). |
 | `ping` | Answered with `pong`. Send one now and then to detect a dead link. |
 
 Server messages:
@@ -84,7 +107,7 @@ Server messages:
 | Message | Meaning |
 |---|---|
 | `tabs {tabs}` | The desktop's terminal tabs. Sent on `list` and pushed (at most every 2 s) whenever they change. |
-| `snapshot {ptyId, data, cols, rows}` | The desktop terminal's current screen as escape sequences (scrollback, alternate screen, modes), at the given grid. Write it into a terminal of that size. |
+| `snapshot {ptyId, data, cols, rows}` | The desktop terminal's current screen as escape sequences (scrollback, alternate screen, modes), at the given grid. Write it into a terminal of that size. Its JSON-encoded size is kept under 512 KiB by dropping the oldest lines (a non-fatal `error` says so). A snapshot can also arrive **later in a stream**: if the phone fell behind and output was dropped, the desktop sends a fresh `snapshot` instead of the lost bytes; clear the terminal and write it as for the first one. |
 | `output {ptyId, data}` | Live output after the snapshot, as UTF-8 text. |
 | `exit {ptyId}` | The program in that pty ended (or the pty vanished). The stream is over. |
 | `usage {items}` | Usage readings the desktop shows (Claude Code / Codex limits...). Pushed on `ready` and on change. |
@@ -93,7 +116,7 @@ Server messages:
 | `ls {ptyId, path, entries}` | Reply to `ls`. |
 | `file {ptyId, path, text, truncated}` | Reply to `read`. |
 | `pong` | Reply to `ping`. |
-| `error {message, ptyId?, fatal}` | A failed request (non-fatal) or the end of the connection (fatal). |
+| `error {message, ptyId?, fatal}` | A failed request (non-fatal) or the end of the connection (fatal). A message the desktop could not send because it exceeds one frame is dropped and reported with a non-fatal `error` (with its `ptyId` when it had one). |
 
 ### Settings
 
@@ -207,5 +230,12 @@ up), but keeping the ticket's `node` string is more robust offline.
 - A stolen token is useless without the phone's node secret key, and a
   connection from another node id presenting a valid token is refused with the
   same message as a wrong token.
-- Revoking a device on the desktop drops its connections at once.
-- Known limit: output queued for a slow phone is not bounded.
+- Revoking a device on the desktop drops its connections at once, after a
+  fatal `error` ("Device revoked"); a revoked device that connects gets the
+  same fatal `error`.
+- Queues are bounded. Terminal output for a phone that is not keeping up is
+  dropped and replaced by a fresh `snapshot` once it catches up; a phone that
+  stops reading altogether, or floods the desktop with frames or input faster
+  than they can be handled, is disconnected. Per connection: 64 open terminals,
+  1024 queued outgoing frames, 256 queued incoming frames, 64 queued `input`
+  messages per terminal.

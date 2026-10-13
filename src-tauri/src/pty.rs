@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -60,7 +61,54 @@ struct Sink {
     /// Remote-access clients watching this session (see remote.rs). Fed
     /// before the local channel in `push`, and independent of it: they see
     /// the same stream whether the tab is attached or in transit.
-    remote: Vec<mpsc::UnboundedSender<RemoteOut>>,
+    remote: Vec<RemoteSub>,
+}
+
+/// Events a remote subscriber may have queued before output starts being
+/// dropped (events are pty reads, at most 8 KiB each: ~4 MiB per phone).
+const REMOTE_QUEUE: usize = 512;
+
+/// One remote client's feed. The queue is bounded so a phone that stopped
+/// reading can't grow the PC's memory; when it is full the output is dropped
+/// and the consumer is told (`RemoteFeed::is_lagged`) to resync from a snapshot.
+struct RemoteSub {
+    tx: mpsc::Sender<RemoteOut>,
+    lag: Arc<RemoteLag>,
+}
+
+/// Shared between a `RemoteSub` and the `RemoteFeed` reading it.
+#[derive(Default)]
+struct RemoteLag {
+    /// Output was dropped since the consumer last resynced.
+    lagged: AtomicBool,
+    /// Highest `seq` that was dropped: a resync snapshot must cover it.
+    dropped_seq: AtomicU64,
+}
+
+/// Receiving end of a remote subscription (see `PtyState::remote_subscribe`).
+pub struct RemoteFeed {
+    pub rx: mpsc::Receiver<RemoteOut>,
+    lag: Arc<RemoteLag>,
+}
+
+impl RemoteFeed {
+    /// Whether output was dropped because the queue was full. The consumer
+    /// should discard what is queued and send a fresh snapshot instead.
+    pub fn is_lagged(&self) -> bool {
+        self.lag.lagged.load(Ordering::Acquire)
+    }
+
+    /// Highest output `seq` dropped so far; a snapshot at or past it has
+    /// lost nothing.
+    pub fn dropped_seq(&self) -> u64 {
+        self.lag.dropped_seq.load(Ordering::Acquire)
+    }
+
+    /// Clears the lag flag; call *before* asking for the snapshot, so drops
+    /// that happen meanwhile re-arm it.
+    pub fn clear_lag(&self) {
+        self.lag.lagged.store(false, Ordering::Release);
+    }
 }
 
 /// What a remote subscriber receives - the `PtyEvent`s, minus the serde tag.
@@ -72,13 +120,25 @@ pub enum RemoteOut {
 impl Sink {
     fn push(&mut self, event: PtyEvent) {
         if !self.remote.is_empty() {
-            // Closed receivers (a phone that went away) are dropped here.
-            self.remote.retain(|tx| {
-                tx.send(match &event {
+            // Closed receivers (a phone that went away) are dropped here. Never
+            // block: a full queue drops the output and flags the subscriber.
+            self.remote.retain(|sub| {
+                let out = match &event {
                     PtyEvent::Output { data, seq } => RemoteOut::Output { data: data.clone(), seq: *seq },
                     PtyEvent::Exit => RemoteOut::Exit,
-                })
-                .is_ok()
+                };
+                match sub.tx.try_send(out) {
+                    Ok(()) => true,
+                    Err(mpsc::error::TrySendError::Closed(_)) => false,
+                    Err(mpsc::error::TrySendError::Full(RemoteOut::Output { seq, .. })) => {
+                        sub.lag.dropped_seq.fetch_max(seq, Ordering::AcqRel);
+                        sub.lag.lagged.store(true, Ordering::Release);
+                        true
+                    }
+                    // The exit can't be queued: dropping the sender ends the
+                    // stream once the queue drains, and that reports the exit.
+                    Err(mpsc::error::TrySendError::Full(RemoteOut::Exit)) => false,
+                }
             });
         }
         if let Some(channel) = &self.channel {
@@ -156,12 +216,18 @@ impl PtyState {
     /// Subscribes to a session's output for a remote client. Returns the
     /// receiver, the session's size and the window showing it (`None` while
     /// in transit). `None` overall if the session doesn't exist (any more).
-    pub fn remote_subscribe(&self, id: &str) -> Option<(mpsc::UnboundedReceiver<RemoteOut>, u16, u16, Option<String>)> {
+    pub fn remote_subscribe(&self, id: &str) -> Option<(RemoteFeed, u16, u16, Option<String>)> {
         let sessions = lock(&self.0);
         let session = sessions.get(id)?;
-        let (tx, rx) = mpsc::unbounded_channel();
-        lock(&session.sink).remote.push(tx);
-        Some((rx, session.cols, session.rows, session.owner.clone()))
+        let (tx, rx) = mpsc::channel(REMOTE_QUEUE);
+        let lag = Arc::new(RemoteLag::default());
+        lock(&session.sink).remote.push(RemoteSub { tx, lag: Arc::clone(&lag) });
+        Some((RemoteFeed { rx, lag }, session.cols, session.rows, session.owner.clone()))
+    }
+
+    /// Whether a session with this id is alive.
+    pub fn exists(&self, id: &str) -> bool {
+        lock(&self.0).contains_key(id)
     }
 
     /// (pty session id, shell PID) for every live session - just enough for
@@ -850,7 +916,37 @@ pub async fn pty_foreground(state: State<'_, PtyState>, id: String) -> Result<Fo
 
 #[cfg(test)]
 mod tests {
-    use super::{emittable_len, split_wsl_unc};
+    use super::*;
+
+    #[test]
+    fn a_remote_subscriber_that_stops_reading_is_flagged_not_buffered() {
+        let mut sink = Sink { channel: None, buffered: Vec::new(), buffered_bytes: 0, seq: 0, remote: Vec::new() };
+        let (tx, rx) = mpsc::channel(REMOTE_QUEUE);
+        let lag = Arc::new(RemoteLag::default());
+        sink.remote.push(RemoteSub { tx, lag: Arc::clone(&lag) });
+        let mut feed = RemoteFeed { rx, lag };
+        for seq in 1..=REMOTE_QUEUE as u64 {
+            sink.push(PtyEvent::Output { data: "x".into(), seq });
+        }
+        assert!(!feed.is_lagged());
+        sink.push(PtyEvent::Output { data: "y".into(), seq: 1000 });
+        sink.push(PtyEvent::Output { data: "z".into(), seq: 1001 });
+        assert!(feed.is_lagged());
+        assert_eq!(feed.dropped_seq(), 1001);
+        // Only the queued part is there; the subscriber stays attached.
+        let mut queued = 0;
+        while feed.rx.try_recv().is_ok() {
+            queued += 1;
+        }
+        assert_eq!(queued, REMOTE_QUEUE);
+        assert_eq!(sink.remote.len(), 1);
+        feed.clear_lag();
+        assert!(!feed.is_lagged());
+        // A closed receiver is dropped on the next push.
+        drop(feed);
+        sink.push(PtyEvent::Output { data: "w".into(), seq: 1002 });
+        assert!(sink.remote.is_empty());
+    }
 
     #[test]
     fn holds_back_only_truncated_utf8_tail() {

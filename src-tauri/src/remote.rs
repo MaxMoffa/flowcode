@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -21,7 +21,7 @@ use flowcode_remote_proto::{
     TabContext, UsageItem,
 };
 use flowcode_shared::i18n::{is_italian, tr};
-use iroh::endpoint::{presets, Connection};
+use iroh::endpoint::{presets, Connection, IdleTimeout, QuicTransportConfig, RecvStream, SendStream};
 use iroh::{Endpoint, SecretKey};
 use iroh_tickets::endpoint::EndpointTicket;
 use serde::{Deserialize, Serialize};
@@ -39,16 +39,58 @@ const PAIR_TTL_MS: u64 = 5 * 60 * 1000;
 const MAX_PAIR_FAILURES: usize = 5;
 const FAIL_WINDOW_MS: u64 = 60_000;
 const BLOCK_MS: u64 = 60_000;
-const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
-/// Connections still before their `auth`/`pair` frame; more than this are
-/// refused so a flood of strangers can't pile up tasks.
-const MAX_HANDSHAKING: usize = 16;
+/// Before authenticating, a peer gets this long for each step (QUIC
+/// handshake, opening the stream, its first frame). A real phone needs well
+/// under a second; the short fuse keeps strangers from holding slots.
+const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Connections not yet authenticated, however far along; more than this are
+/// refused so a flood can't pile up tasks. The node id isn't known until
+/// the QUIC handshake is done, so this is the only cap that early.
+const MAX_HANDSHAKING: usize = 64;
+/// Of those, how many may come from nodes that aren't a paired device (this
+/// includes a new phone waiting for the user's confirmation). Paired phones
+/// aren't limited by it, so strangers can't lock them out.
+const MAX_UNKNOWN_HANDSHAKING: usize = 4;
+/// After this many failed `auth`s from one node within `FAIL_WINDOW_MS`, its
+/// `auth` is refused for `BLOCK_MS`.
+const MAX_AUTH_FAILURES: u32 = 5;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(3);
 const TABS_INTERVAL: Duration = Duration::from_secs(2);
-/// Agent detection walks the process table: concurrent connections share one
-/// result this old rather than each triggering a scan.
-const TABS_CACHE: Duration = Duration::from_millis(1500);
+/// Agent detection walks the process table: connections share one result this
+/// old rather than each triggering a scan. Longer than `TABS_INTERVAL`, so
+/// a connection's tick never forces a scan of its own.
+const TABS_CACHE: Duration = Duration::from_millis(2500);
+/// QUIC drops a link after this much silence. The phone pings every 20 s and
+/// gives up after 60 s, so this stays comfortably above that (the actual
+/// timeout is the smaller of the two peers'); iroh's keep-alive (5 s)
+/// keeps a quiet but healthy link from ever reaching it.
+const QUIC_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+/// Frames queued for one phone before it counts as not reading (the pty
+/// output of a phone that is merely slow is dropped well before that, see
+/// `OUT_RESERVE`). Output frames are at most ~8 KiB, so ~8 MiB per phone.
+const OUT_QUEUE: usize = 1024;
+/// Slots of `OUT_QUEUE` kept for replies and pushes: terminal output stops
+/// (and resyncs later) when only this many are free.
+const OUT_RESERVE: usize = 64;
+/// Frames from the phone queued before the connection loop gets to them. A
+/// phone that outruns this is hung up on.
+const IN_QUEUE: usize = 256;
+/// Keystroke messages queued per pty (each up to `MAX_INPUT_BYTES`).
+const INPUT_QUEUE: usize = 64;
+/// Terminals one connection may have open (and, by extension, be typing into).
+const MAX_SUBS: usize = 64;
+/// A resync waits this long between looks at the phone's queue.
+const RESYNC_POLL: Duration = Duration::from_millis(200);
+/// Snapshots tried per resync before accepting one that may miss a few bytes.
+const RESYNC_ATTEMPTS: u32 = 10;
+/// Largest `set` value, as JSON.
+const MAX_SET_BYTES: usize = 4096;
+/// A snapshot's JSON-encoded size: half a frame, leaving room for the rest.
+const SNAPSHOT_MAX_ENCODED: usize = proto::MAX_FRAME / 2;
+/// `remote_pair_start` called again within this long returns the same code:
+/// a double call (React StrictMode) must not invalidate the code on screen.
+const PAIR_REUSE_MS: u64 = 10_000;
 /// Reading a transcript's tail is cheap but not free, and the figure only
 /// moves when the agent answers.
 const CONTEXT_CACHE: Duration = Duration::from_secs(10);
@@ -65,6 +107,8 @@ const EVT_SIZE_OVERRIDE: &str = "remote://size-override";
 const EVT_RUN_ACTION: &str = "remote://run-action";
 const EVT_SET_SETTING: &str = "remote://set-setting";
 const EVT_PAIR_REQUEST: &str = "remote://pair-request";
+/// `{reqId}`: the request went away unanswered (timeout, phone left).
+const EVT_PAIR_CANCEL: &str = "remote://pair-cancel";
 /// How long the user has to confirm a new phone on the desktop. The phone
 /// waits longer for its reply (see mobile/src-tauri/src/link.rs).
 const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -119,7 +163,7 @@ impl Config {
     /// device and the token that was issued (only its hash is kept).
     fn add_device(&mut self, name: &str, node_id: &str, now: u64) -> Result<(Device, String), String> {
         let token = random_hex(32)?;
-        let name: String = name.trim().chars().take(64).collect();
+        let name = clean_name(name);
         let device = Device {
             id: random_hex(8)?,
             name: if name.is_empty() { "Phone".to_string() } else { name },
@@ -136,10 +180,27 @@ impl Config {
 
 // ---- tokens, pairing -----------------------------------------------------
 
+/// A device name from the phone, safe to show: no control characters (they
+/// could fake lines in a dialog or notification), trimmed, at most 64 chars.
+fn clean_name(raw: &str) -> String {
+    raw.chars().filter(|c| !c.is_control()).collect::<String>().trim().chars().take(64).collect()
+}
+
 fn random_hex(bytes: usize) -> Result<String, String> {
     let mut buf = vec![0u8; bytes];
     getrandom::fill(&mut buf).map_err(|e| e.to_string())?;
-    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
+    Ok(to_hex(&buf))
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn from_hex(hex: &str) -> Option<Vec<u8>> {
+    if hex.len() % 2 != 0 || !hex.is_ascii() {
+        return None;
+    }
+    (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()).collect()
 }
 
 fn hash_token(token: &str) -> String {
@@ -165,6 +226,12 @@ enum PairError {
 #[derive(Default)]
 struct Pairings {
     active: Option<(String, u64)>,
+    /// When `active` was generated.
+    started_at: u64,
+    /// The code that was last redeemed. Asking for it again (a phone retrying
+    /// after the user declined or let the confirmation time out) is just
+    /// invalid, not a guess, so it doesn't count towards the rate limit.
+    spent: Option<String>,
     failures: Vec<u64>,
     blocked_until: u64,
 }
@@ -174,7 +241,16 @@ impl Pairings {
     fn start(&mut self, code: String, now: u64) -> (String, u64) {
         let expires = now + PAIR_TTL_MS;
         self.active = Some((code.clone(), expires));
+        self.started_at = now;
+        self.spent = None;
         (code, expires)
+    }
+
+    /// The active code if it is still unexpired and was generated less than
+    /// `PAIR_REUSE_MS` ago: what a repeated start returns.
+    fn recent(&self, now: u64) -> Option<(String, u64)> {
+        let (code, expires) = self.active.as_ref()?;
+        (now < *expires && now.saturating_sub(self.started_at) < PAIR_REUSE_MS).then(|| (code.clone(), *expires))
     }
 
     /// Consumes the code if `code` is the active, unexpired one.
@@ -187,9 +263,12 @@ impl Pairings {
             None => false,
         };
         if hit {
-            self.active = None;
+            self.spent = self.active.take().map(|(code, _)| code);
             self.failures.clear();
             return Ok(());
+        }
+        if matches!(&self.spent, Some(spent) if ct_eq(spent.as_bytes(), code.as_bytes())) {
+            return Err(PairError::Invalid);
         }
         if matches!(&self.active, Some((_, expires)) if now >= *expires) {
             self.active = None;
@@ -204,13 +283,65 @@ impl Pairings {
     }
 }
 
+/// Failed `auth`s per node id. A real phone with a stale token retries on a
+/// backoff; a stranger guessing tokens is slowed to a crawl (the 256-bit
+/// token is the real defence, this just keeps the log and CPU calm).
+#[derive(Default)]
+struct AuthLimiter {
+    /// node id -> (failures in the current window, window start, blocked until)
+    nodes: HashMap<String, (u32, u64, u64)>,
+}
+
+impl AuthLimiter {
+    fn allowed(&self, node: &str, now: u64) -> bool {
+        self.nodes.get(node).is_none_or(|(_, _, blocked_until)| now >= *blocked_until)
+    }
+
+    fn failed(&mut self, node: &str, now: u64) {
+        // Bounded: unknown nodes are free to make up ids.
+        if self.nodes.len() >= 1024 {
+            self.nodes.retain(|_, (_, start, blocked)| now < *blocked || now.saturating_sub(*start) < FAIL_WINDOW_MS);
+            if self.nodes.len() >= 1024 {
+                self.nodes.clear();
+            }
+        }
+        let entry = self.nodes.entry(node.to_string()).or_insert((0, now, 0));
+        if now.saturating_sub(entry.1) >= FAIL_WINDOW_MS {
+            *entry = (0, now, entry.2);
+        }
+        entry.0 += 1;
+        if entry.0 >= MAX_AUTH_FAILURES {
+            entry.2 = now + BLOCK_MS;
+            entry.0 = 0;
+        }
+    }
+
+    fn succeeded(&mut self, node: &str) {
+        self.nodes.remove(node);
+    }
+}
+
 // ---- node key --------------------------------------------------------------
 
 /// The endpoint's secret key, persisted so the node id (and with it every
 /// paired phone's idea of this desktop) survives restarts. 64 hex chars.
+///
+/// On Windows the file holds the key sealed with DPAPI (tied to the user's
+/// login, so a copy of the file is useless elsewhere); an older plain-hex
+/// file is converted on first read.
 fn load_or_create_key(path: &Path) -> Result<SecretKey, String> {
     if let Ok(text) = std::fs::read_to_string(path) {
-        if let Some(bytes) = decode_key(text.trim()) {
+        let text = text.trim();
+        let (bytes, sealed) = match text.strip_prefix(SEALED_PREFIX) {
+            Some(blob) => (from_hex(blob).and_then(|b| unseal(&b)).and_then(|k| decode_key(&String::from_utf8(k).ok()?)), true),
+            None => (decode_key(text), false),
+        };
+        if let Some(bytes) = bytes {
+            if !sealed && SEALING {
+                if let Err(e) = write_key(path, &bytes) {
+                    eprintln!("remote: cannot protect the node key: {e}");
+                }
+            }
             return Ok(SecretKey::from_bytes(&bytes));
         }
         // An unreadable key is replaced: paired phones then fail to auth and
@@ -218,20 +349,100 @@ fn load_or_create_key(path: &Path) -> Result<SecretKey, String> {
         eprintln!("remote: {} is corrupt, generating a new node key", path.display());
     }
     let key = SecretKey::generate();
-    let hex: String = key.to_bytes().iter().map(|b| format!("{b:02x}")).collect();
-    write_private(path, hex.as_bytes()).map_err(|e| e.to_string())?;
+    write_key(path, &key.to_bytes()).map_err(|e| e.to_string())?;
     Ok(key)
 }
 
 fn decode_key(hex: &str) -> Option<[u8; 32]> {
-    if hex.len() != 64 || !hex.is_ascii() {
+    from_hex(hex.trim()).and_then(|bytes| bytes.try_into().ok())
+}
+
+/// Marks a key file whose hex is a DPAPI blob rather than the key itself.
+const SEALED_PREFIX: &str = "dpapi1:";
+/// Whether this platform seals the key file (see `seal`).
+const SEALING: bool = cfg!(windows);
+
+fn write_key(path: &Path, key: &[u8; 32]) -> std::io::Result<()> {
+    let hex = to_hex(key);
+    let content = match seal(hex.as_bytes()) {
+        Some(blob) => format!("{SEALED_PREFIX}{}", to_hex(&blob)),
+        None => hex,
+    };
+    write_private(path, content.as_bytes())
+}
+
+/// Encrypts `plain` for the current Windows user (DPAPI). `None` where there
+/// is no such facility - or if it failed, in which case the key is kept
+/// readable the way it always was rather than lost.
+#[cfg(windows)]
+fn seal(plain: &[u8]) -> Option<Vec<u8>> {
+    dpapi(plain, true)
+}
+
+#[cfg(not(windows))]
+fn seal(_plain: &[u8]) -> Option<Vec<u8>> {
+    None
+}
+
+#[cfg(windows)]
+fn unseal(blob: &[u8]) -> Option<Vec<u8>> {
+    dpapi(blob, false)
+}
+
+#[cfg(not(windows))]
+fn unseal(_blob: &[u8]) -> Option<Vec<u8>> {
+    None
+}
+
+#[cfg(windows)]
+fn dpapi(input: &[u8], protect: bool) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB};
+
+    let blob_in = CRYPT_INTEGER_BLOB { cbData: input.len() as u32, pbData: input.as_ptr() as *mut u8 };
+    let mut blob_out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+    // SAFETY: both blobs point to live memory for the call; on success the
+    // output buffer is ours (allocated by the system) and freed below.
+    let ok = unsafe {
+        if protect {
+            CryptProtectData(&blob_in, std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(), 0, &mut blob_out)
+        } else {
+            CryptUnprotectData(&blob_in, std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null(), 0, &mut blob_out)
+        }
+    };
+    if ok == 0 || blob_out.pbData.is_null() {
         return None;
     }
-    let mut out = [0u8; 32];
-    for (i, byte) in out.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
-    }
+    // SAFETY: the call succeeded, so `pbData` holds `cbData` bytes.
+    let out = unsafe { std::slice::from_raw_parts(blob_out.pbData, blob_out.cbData as usize).to_vec() };
+    unsafe { LocalFree(blob_out.pbData as _) };
     Some(out)
+}
+
+/// An exclusive lock on a file next to the node key, held for as long as the
+/// endpoint runs: two Flowcode instances sharing a config dir would otherwise
+/// fight over the same node id (each kicking the other's phone). Dropping the
+/// returned file releases it.
+fn acquire_instance_lock(key_path: &Path) -> Result<std::fs::File, String> {
+    let busy = || {
+        tr(
+            "Accesso remoto già attivo in un'altra finestra/istanza di Flowcode",
+            "Remote access is already active in another Flowcode window/instance",
+        )
+        .to_string()
+    };
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(key_path.with_extension("lock"))
+        .map_err(|e| e.to_string())?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => Err(busy()),
+        Err(std::fs::TryLockError::Error(e)) => Err(e.to_string()),
+    }
 }
 
 /// Writes through a temp file renamed into place, readable by the owner only
@@ -359,6 +570,8 @@ struct Running {
     endpoint: Endpoint,
     node_id: String,
     shutdown: watch::Sender<bool>,
+    /// Keeps the instance lock (see `acquire_instance_lock`) while running.
+    _instance_lock: std::fs::File,
 }
 
 #[derive(Default)]
@@ -389,6 +602,9 @@ struct Shared {
     conns: Mutex<HashMap<u64, ConnEntry>>,
     next_conn: AtomicU64,
     handshaking: AtomicUsize,
+    /// Of `handshaking`, those from nodes that aren't paired devices.
+    handshaking_unknown: AtomicUsize,
+    auth_limiter: Mutex<AuthLimiter>,
     waiters: Mutex<HashMap<String, oneshot::Sender<SnapshotReply>>>,
     /// Pairing requests awaiting the user's answer on the desktop.
     pair_waiters: Mutex<HashMap<String, oneshot::Sender<bool>>>,
@@ -407,6 +623,10 @@ struct Shared {
     settings: watch::Sender<serde_json::Value>,
     /// pty id -> phones sizing it, oldest first (the last one wins).
     sizing: Mutex<HashMap<String, Vec<SizeClaim>>>,
+    /// pty id -> window that showed it when last looked at, for the ptys a
+    /// phone is sizing: a change means the tab moved and the new window
+    /// must be told about the size override.
+    size_owners: Mutex<HashMap<String, String>>,
 }
 
 /// Managed by Tauri (see lib.rs).
@@ -441,6 +661,13 @@ pub struct PairStart {
     expires_at: u64,
 }
 
+/// A phone's current claim on a pty's size (see `remote_size_claim`).
+#[derive(Serialize)]
+pub struct SizeInfo {
+    cols: u16,
+    rows: u16,
+}
+
 impl RemoteState {
     pub fn load(app: &AppHandle) -> RemoteState {
         let dir = app.path().app_config_dir().unwrap_or_default();
@@ -465,6 +692,8 @@ impl RemoteState {
             conns: Mutex::new(HashMap::new()),
             next_conn: AtomicU64::new(1),
             handshaking: AtomicUsize::new(0),
+            handshaking_unknown: AtomicUsize::new(0),
+            auth_limiter: Mutex::new(AuthLimiter::default()),
             waiters: Mutex::new(HashMap::new()),
             pair_waiters: Mutex::new(HashMap::new()),
             last_active: Mutex::new(HashMap::new()),
@@ -475,6 +704,7 @@ impl RemoteState {
             actions: watch::channel(Vec::new()).0,
             settings: watch::channel(serde_json::Value::Null).0,
             sizing: Mutex::new(HashMap::new()),
+            size_owners: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -569,10 +799,21 @@ impl Shared {
 
     async fn try_start(self: &Arc<Self>) -> Result<Running, String> {
         let key_path = self.key_path.clone();
-        let secret = crate::blocking(move || load_or_create_key(&key_path)).await?;
+        let (instance_lock, secret) = crate::blocking(move || {
+            let held = acquire_instance_lock(&key_path)?;
+            Ok((held, load_or_create_key(&key_path)?))
+        })
+        .await?;
+        // iroh's keep-alive (5 s) is already on; only the idle timeout needs
+        // to be above the phone's 60 s of tolerated silence.
+        let mut transport = QuicTransportConfig::builder();
+        if let Ok(idle) = IdleTimeout::try_from(QUIC_IDLE_TIMEOUT) {
+            transport = transport.max_idle_timeout(Some(idle));
+        }
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret)
             .alpns(vec![proto::ALPN.to_vec()])
+            .transport_config(transport.build())
             .bind()
             .await
             .map_err(|e| {
@@ -585,7 +826,12 @@ impl Shared {
         let node_id = endpoint.id().to_string();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         tauri::async_runtime::spawn(accept_loop(Arc::clone(self), endpoint.clone(), shutdown_rx));
-        Ok(Running { endpoint, node_id, shutdown: shutdown_tx })
+        Ok(Running { endpoint, node_id, shutdown: shutdown_tx, _instance_lock: instance_lock })
+    }
+
+    /// Whether `node_id` is the node of a paired device.
+    fn is_known_node(&self, node_id: &str) -> bool {
+        lock(&self.config).devices.iter().any(|d| d.node_id == node_id)
     }
 
     fn touch_device(&self, id: &str) {
@@ -660,6 +906,11 @@ impl Shared {
 
     /// `conn` sizes `pty` for its screen; the most recent claimant wins.
     fn claim_size(&self, pty_id: &str, conn: u64, cols: u16, rows: u16) {
+        // A phone could name any id: a claim on a pty that isn't there would
+        // just linger.
+        if !self.app.state::<PtyState>().exists(pty_id) {
+            return;
+        }
         // A sane range: zero would panic the terminal, huge values waste memory.
         let (cols, rows) = (cols.clamp(10, 500), rows.clamp(3, 300));
         {
@@ -708,8 +959,39 @@ impl Shared {
             let _ = pty.resize(pty_id, cols, rows);
         }
         if let Some(owner) = pty.owner_of(pty_id) {
-            let payload = serde_json::json!({ "ptyId": pty_id, "cols": size.map(|s| s.0), "rows": size.map(|s| s.1) });
-            let _ = self.app.emit_to(owner.as_str(), EVT_SIZE_OVERRIDE, payload);
+            self.emit_size_override(&owner, pty_id, size);
+        }
+    }
+
+    fn emit_size_override(&self, window: &str, pty_id: &str, size: Option<(u16, u16)>) {
+        let payload = serde_json::json!({ "ptyId": pty_id, "cols": size.map(|s| s.0), "rows": size.map(|s| s.1) });
+        let _ = self.app.emit_to(window, EVT_SIZE_OVERRIDE, payload);
+    }
+
+    /// The size the most recent phone claimed for `pty_id`, if any.
+    fn size_claim(&self, pty_id: &str) -> Option<(u16, u16)> {
+        lock(&self.sizing).get(pty_id)?.last().map(|c| (c.cols, c.rows))
+    }
+
+    /// Tells the window now showing a phone-sized pty about the override when
+    /// the tab moved there from another window (it would otherwise fit the
+    /// terminal to its own size and resize the pty back under the phone).
+    fn sync_size_owners(&self, tabs: &[Tab]) {
+        let mut moved: Vec<(String, String, (u16, u16))> = Vec::new();
+        {
+            let sizing = lock(&self.sizing);
+            let mut owners = lock(&self.size_owners);
+            owners.retain(|pty, _| sizing.contains_key(pty));
+            for tab in tabs {
+                let Some(claim) = sizing.get(&tab.pty_id).and_then(|c| c.last()) else { continue };
+                let previous = owners.insert(tab.pty_id.clone(), tab.window.clone());
+                if previous.is_some_and(|window| window != tab.window) {
+                    moved.push((tab.window.clone(), tab.pty_id.clone(), (claim.cols, claim.rows)));
+                }
+            }
+        }
+        for (window, pty_id, size) in moved {
+            self.emit_size_override(&window, &pty_id, Some(size));
         }
     }
 
@@ -724,6 +1006,7 @@ impl Shared {
             }
         }
         let tabs = self.build_tabs().await;
+        self.sync_size_owners(&tabs);
         *cache = Some((Instant::now(), tabs.clone()));
         tabs
     }
@@ -819,19 +1102,31 @@ pub async fn remote_set_enabled(state: tauri::State<'_, RemoteState>, enabled: b
     Ok(shared.set_enabled(enabled).await)
 }
 
+/// A pairing code and the QR link carrying it. A code generated less than
+/// `PAIR_REUSE_MS` ago is returned again unless `force` (the "Regenerate"
+/// button) asks for a new one.
 #[tauri::command]
-pub async fn remote_pair_start(state: tauri::State<'_, RemoteState>) -> Result<PairStart, String> {
+pub async fn remote_pair_start(state: tauri::State<'_, RemoteState>, force: Option<bool>) -> Result<PairStart, String> {
     let shared = Arc::clone(&state.0);
     let endpoint = lock(&shared.runtime).running.as_ref().map(|r| r.endpoint.clone());
     let Some(endpoint) = endpoint else {
         return Err(tr("Accesso remoto non attivo", "Remote access is not running").to_string());
+    };
+    // Decided before the awaits below: two calls racing each other (React
+    // StrictMode runs effects twice) must end up with the same code.
+    let (code, expires_at) = {
+        let mut pairings = lock(&shared.pairings);
+        let now = now_ms();
+        match pairings.recent(now).filter(|_| !force.unwrap_or(false)) {
+            Some(current) => current,
+            None => pairings.start(random_hex(16)?, now),
+        }
     };
     // Wait for the relay so the ticket tells the phone how to reach us from
     // another network; without it only the (usually unreachable) direct
     // addresses would be in the QR code.
     let _ = tokio::time::timeout(ONLINE_TIMEOUT, endpoint.online()).await;
     let node = EndpointTicket::new(endpoint.addr()).to_string();
-    let (code, expires_at) = lock(&shared.pairings).start(random_hex(16)?, now_ms());
     let ticket = PairingTicket { node, code: code.clone(), host: shared.host_name.clone() }.encode();
     Ok(PairStart { ticket, code, expires_at })
 }
@@ -852,34 +1147,28 @@ pub fn remote_snapshot_reply(state: tauri::State<'_, RemoteState>, req_id: Strin
 /// The desktop's current usage readings, for the phone's usage screen.
 #[tauri::command]
 pub fn remote_publish_usage(state: tauri::State<'_, RemoteState>, items: Vec<UsageItem>) {
-    state.0.usage.send_if_modified(|current| {
-        let changed = *current != items;
-        if changed {
-            *current = items;
-        }
-        changed
-    });
+    publish(&state.0.usage, items);
 }
 
 /// The desktop settings the phone mirrors (built by the frontend's RemoteSettingsBridge).
 #[tauri::command]
 pub fn remote_publish_settings(state: tauri::State<'_, RemoteState>, settings: serde_json::Value) {
-    state.0.settings.send_if_modified(|current| {
-        let changed = *current != settings;
-        if changed {
-            *current = settings;
-        }
-        changed
-    });
+    publish(&state.0.settings, settings);
 }
 
 /// The quick actions the phone may trigger.
 #[tauri::command]
 pub fn remote_publish_actions(state: tauri::State<'_, RemoteState>, actions: Vec<Action>) {
-    state.0.actions.send_if_modified(|current| {
-        let changed = *current != actions;
+    publish(&state.0.actions, actions);
+}
+
+/// Stores `value` in the watch channel, waking the connections only if it
+/// differs from what they already have.
+fn publish<T: PartialEq>(tx: &watch::Sender<T>, value: T) {
+    tx.send_if_modified(|current| {
+        let changed = *current != value;
         if changed {
-            *current = actions;
+            *current = value;
         }
         changed
     });
@@ -893,6 +1182,19 @@ pub fn remote_pair_decide(state: tauri::State<'_, RemoteState>, req_id: String, 
     }
 }
 
+/// Invalidates the active pairing code (the QR dialog was closed).
+#[tauri::command]
+pub fn remote_pair_cancel(state: tauri::State<'_, RemoteState>) {
+    lock(&state.0.pairings).active = None;
+}
+
+/// The size a phone currently claims for `pty_id`, so a window that has just
+/// adopted the tab can re-apply the override.
+#[tauri::command]
+pub fn remote_size_claim(state: tauri::State<'_, RemoteState>, pty_id: String) -> Option<SizeInfo> {
+    state.0.size_claim(&pty_id).map(|(cols, rows)| SizeInfo { cols, rows })
+}
+
 // ---- connections -----------------------------------------------------------
 
 async fn accept_loop(shared: Arc<Shared>, endpoint: Endpoint, mut shutdown: watch::Receiver<bool>) {
@@ -900,23 +1202,24 @@ async fn accept_loop(shared: Arc<Shared>, endpoint: Endpoint, mut shutdown: watc
         tokio::select! {
             incoming = endpoint.accept() => {
                 let Some(incoming) = incoming else { break };
-                if shared.handshaking.load(Ordering::Relaxed) >= MAX_HANDSHAKING {
+                // Counted before the task is spawned, so a burst can't slip
+                // past the cap while its tasks are still starting.
+                if shared.handshaking.fetch_add(1, Ordering::AcqRel) >= MAX_HANDSHAKING {
+                    shared.handshaking.fetch_sub(1, Ordering::AcqRel);
                     incoming.refuse();
                     continue;
                 }
-                let shared = Arc::clone(&shared);
+                let guard = HandshakeGuard { shared: Arc::clone(&shared), counted: true, unknown: false };
                 let shutdown = shutdown.clone();
                 tauri::async_runtime::spawn(async move {
-                    shared.handshaking.fetch_add(1, Ordering::Relaxed);
                     let connection = match incoming.accept() {
                         Ok(accepting) => tokio::time::timeout(HANDSHAKE_TIMEOUT, accepting).await.ok().and_then(|c| c.ok()),
                         Err(_) => None,
                     };
-                    let Some(connection) = connection else {
-                        shared.handshaking.fetch_sub(1, Ordering::Relaxed);
-                        return;
-                    };
-                    serve(shared, connection, shutdown).await;
+                    // Without a connection the guard just drops.
+                    if let Some(connection) = connection {
+                        serve(guard, connection, shutdown).await;
+                    }
                 });
             }
             _ = shutdown.changed() => break,
@@ -924,20 +1227,42 @@ async fn accept_loop(shared: Arc<Shared>, endpoint: Endpoint, mut shutdown: watc
     }
 }
 
-/// Decrements the handshake counter exactly once, whichever way `serve`
+/// Releases the handshake counters exactly once, whichever way `serve`
 /// leaves its handshake.
-struct HandshakeGuard<'a>(&'a Shared, bool);
+struct HandshakeGuard {
+    shared: Arc<Shared>,
+    /// Counted in `Shared::handshaking` (every connection before its auth).
+    counted: bool,
+    /// Also holds one of the few `Shared::handshaking_unknown` slots.
+    unknown: bool,
+}
 
-impl HandshakeGuard<'_> {
+impl HandshakeGuard {
+    /// Takes one of the `MAX_UNKNOWN_HANDSHAKING` slots for a node that isn't
+    /// a paired device; false when they are all in use.
+    fn claim_unknown(&mut self) -> bool {
+        if self.unknown {
+            return true;
+        }
+        if self.shared.handshaking_unknown.fetch_add(1, Ordering::AcqRel) >= MAX_UNKNOWN_HANDSHAKING {
+            self.shared.handshaking_unknown.fetch_sub(1, Ordering::AcqRel);
+            return false;
+        }
+        self.unknown = true;
+        true
+    }
+
     fn done(&mut self) {
-        if !self.1 {
-            self.1 = true;
-            self.0.handshaking.fetch_sub(1, Ordering::Relaxed);
+        if std::mem::take(&mut self.counted) {
+            self.shared.handshaking.fetch_sub(1, Ordering::AcqRel);
+        }
+        if std::mem::take(&mut self.unknown) {
+            self.shared.handshaking_unknown.fetch_sub(1, Ordering::AcqRel);
         }
     }
 }
 
-impl Drop for HandshakeGuard<'_> {
+impl Drop for HandshakeGuard {
     fn drop(&mut self) {
         self.done();
     }
@@ -954,10 +1279,24 @@ enum Admission {
 
 fn admit(shared: &Shared, first: ClientMsg, node_id: &str) -> Result<Admission, String> {
     match first {
-        ClientMsg::Auth { token } => lock(&shared.config)
-            .authenticate(&token, node_id)
-            .map(Admission::Known)
-            .ok_or_else(|| tr("Autenticazione non riuscita", "Authentication failed").to_string()),
+        ClientMsg::Auth { token } => {
+            let now = now_ms();
+            if !lock(&shared.auth_limiter).allowed(node_id, now) {
+                return Err(tr("Troppi tentativi: riprova tra un minuto", "Too many attempts: try again in a minute").to_string());
+            }
+            let device = lock(&shared.config).authenticate(&token, node_id);
+            match device {
+                Some(device) => {
+                    lock(&shared.auth_limiter).succeeded(node_id);
+                    Ok(Admission::Known(device))
+                }
+                None => {
+                    lock(&shared.auth_limiter).failed(node_id, now);
+                    eprintln!("remote: failed auth from node {node_id}");
+                    Err(tr("Autenticazione non riuscita", "Authentication failed").to_string())
+                }
+            }
+        }
         ClientMsg::Pair { code, device_name } => {
             let redeemed = lock(&shared.pairings).redeem(code.trim(), now_ms());
             match redeemed {
@@ -965,19 +1304,24 @@ fn admit(shared: &Shared, first: ClientMsg, node_id: &str) -> Result<Admission, 
                     Err(tr("Troppi tentativi: riprova tra un minuto", "Too many attempts: try again in a minute").to_string())
                 }
                 Err(PairError::Invalid) => Err(tr("Codice non valido o scaduto", "Invalid or expired code").to_string()),
-                Ok(()) => Ok(Admission::PairRequest { device_name }),
+                // Shown in a dialog and a notification: never raw.
+                Ok(()) => Ok(Admission::PairRequest { device_name: clean_name(&device_name) }),
             }
         }
         _ => Err(tr("Autenticazione non riuscita", "Authentication failed").to_string()),
     }
 }
 
-/// Drops a pending pairing request however `confirm_pairing` is left.
+/// Drops a pending pairing request however `confirm_pairing` is left, and
+/// tells the desktop's dialog to go away if the user never answered.
 struct PairWaiterGuard<'a>(&'a Shared, String);
 
 impl Drop for PairWaiterGuard<'_> {
     fn drop(&mut self) {
-        lock(&self.0.pair_waiters).remove(&self.1);
+        // Answered requests were already taken out by `remote_pair_decide`.
+        if lock(&self.0.pair_waiters).remove(&self.1).is_some() {
+            let _ = self.0.app.emit(EVT_PAIR_CANCEL, serde_json::json!({ "reqId": self.1 }));
+        }
     }
 }
 
@@ -996,8 +1340,9 @@ async fn confirm_pairing(
     let (tx, answer) = oneshot::channel();
     lock(&shared.pair_waiters).insert(req_id.clone(), tx);
     let _guard = PairWaiterGuard(shared, req_id.clone());
-    let name = device_name.trim().to_string();
-    let payload = serde_json::json!({ "reqId": req_id, "deviceName": name });
+    let name = clean_name(device_name);
+    // The phone shows the same fingerprint, so the user can tell which request is theirs.
+    let payload = serde_json::json!({ "reqId": req_id, "deviceName": name, "fingerprint": proto::node_fingerprint(node_id) });
     if shared.app.emit_to(window.as_str(), EVT_PAIR_REQUEST, payload).is_err() {
         return Err(declined());
     }
@@ -1024,44 +1369,147 @@ async fn confirm_pairing(
     Ok((device, token))
 }
 
-async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch::Receiver<bool>) {
-    let mut handshake = HandshakeGuard(&shared, false);
+/// A connection that passed the handshake, with its (still unused) stream.
+struct Admitted {
+    device: Device,
+    /// Set when the connection was a pairing: the new device token to hand over.
+    token: Option<String>,
+    send: SendStream,
+    recv: RecvStream,
+}
+
+/// Sends a fatal `error` and hangs up.
+async fn reject(connection: &Connection, send: &mut SendStream, message: String, code: u32, reason: &[u8]) {
+    let _ = write_frame(send, &ServerMsg::Error { message, pty_id: None, fatal: true }).await;
+    let _ = send.finish();
+    // Closing right away could discard the error still in flight.
+    let _ = tokio::time::timeout(Duration::from_secs(2), send.stopped()).await;
+    connection.close(code.into(), reason);
+}
+
+/// The handshake: the phone's first frame (`auth` or `pair`, plus the
+/// desktop's confirmation for a new phone). `None` once the connection has
+/// been refused and closed.
+async fn handshake(
+    shared: &Arc<Shared>,
+    guard: &mut HandshakeGuard,
+    connection: &Connection,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Option<Admitted> {
     // Verified by iroh during the TLS handshake: this really is that key.
     let node_id = connection.remote_id().to_string();
+    // Strangers get only a few handshake slots, so they can't crowd out the
+    // phones that are actually paired.
+    if !shared.is_known_node(&node_id) && !guard.claim_unknown() {
+        connection.close(4u32.into(), b"busy");
+        return None;
+    }
     let Ok(Ok((mut send, mut recv))) = tokio::time::timeout(AUTH_TIMEOUT, connection.accept_bi()).await else {
         connection.close(1u32.into(), b"no stream");
-        return;
+        return None;
     };
     let first = tokio::time::timeout(AUTH_TIMEOUT, read_frame::<_, ClientMsg>(&mut recv)).await;
     let admission = match first {
-        Ok(Ok(msg)) => admit(&shared, msg, &node_id),
+        Ok(Ok(msg)) => admit(shared, msg, &node_id),
         _ => Err(tr("Autenticazione non riuscita", "Authentication failed").to_string()),
     };
     let admitted = match admission {
         Ok(Admission::Known(device)) => Ok((device, None)),
-        Ok(Admission::PairRequest { device_name }) => confirm_pairing(&shared, &node_id, &device_name, &mut shutdown)
+        Ok(Admission::PairRequest { device_name }) => confirm_pairing(shared, &node_id, &device_name, shutdown)
             .await
             .map(|(device, token)| (device, Some(token))),
         Err(message) => Err(message),
     };
-    let (device, token) = match admitted {
-        Ok(admitted) => admitted,
+    match admitted {
+        Ok((device, token)) => Some(Admitted { device, token, send, recv }),
         Err(message) => {
-            let _ = write_frame(&mut send, &ServerMsg::Error { message, pty_id: None, fatal: true }).await;
-            let _ = send.finish();
-            // Closing right away could discard the error still in flight.
-            let _ = tokio::time::timeout(Duration::from_secs(2), send.stopped()).await;
-            connection.close(2u32.into(), b"auth");
-            return;
+            reject(connection, &mut send, message, 2, b"auth").await;
+            None
         }
-    };
-    handshake.done();
+    }
+}
+
+async fn serve(mut guard: HandshakeGuard, connection: Connection, mut shutdown: watch::Receiver<bool>) {
+    let shared = Arc::clone(&guard.shared);
+    let Some(mut admitted) = handshake(&shared, &mut guard, &connection, &mut shutdown).await else { return };
+    guard.done();
     // The device may have been revoked, or the endpoint stopped, while the
     // handshake ran.
-    if *shutdown.borrow() || !lock(&shared.config).devices.iter().any(|d| d.id == device.id) {
-        connection.close(3u32.into(), b"gone");
+    if *shutdown.borrow() || !lock(&shared.config).devices.iter().any(|d| d.id == admitted.device.id) {
+        let message = tr("Dispositivo revocato", "Device revoked").to_string();
+        reject(&connection, &mut admitted.send, message, 3, b"gone").await;
         return;
     }
+    run_connection(shared, &connection, shutdown, admitted).await;
+}
+
+/// The single writer: it owns the send half, every producer queues into the
+/// channel. Ends when the channel closes (after flushing what is queued) or
+/// the link breaks.
+async fn write_task(mut send: SendStream, mut out_rx: mpsc::Receiver<ServerMsg>) {
+    while let Some(msg) = out_rx.recv().await {
+        match write_frame(&mut send, &msg).await {
+            Ok(()) => {}
+            // Nothing was written, so the link is fine: drop the message but
+            // say so, rather than leaving the phone waiting for it.
+            Err(FrameError::TooLarge(bytes)) => {
+                let message = format!(
+                    "{} ({} KB)",
+                    tr("Messaggio troppo grande, scartato", "Message too large, dropped"),
+                    bytes / 1024
+                );
+                let note = ServerMsg::Error { message, pty_id: msg_pty_id(&msg), fatal: false };
+                if write_frame(&mut send, &note).await.is_err() {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let _ = send.finish();
+    let _ = tokio::time::timeout(Duration::from_secs(2), send.stopped()).await;
+}
+
+fn msg_pty_id(msg: &ServerMsg) -> Option<String> {
+    match msg {
+        ServerMsg::Snapshot { pty_id, .. }
+        | ServerMsg::Output { pty_id, .. }
+        | ServerMsg::Exit { pty_id }
+        | ServerMsg::Ls { pty_id, .. }
+        | ServerMsg::File { pty_id, .. } => Some(pty_id.clone()),
+        ServerMsg::Error { pty_id, .. } => pty_id.clone(),
+        _ => None,
+    }
+}
+
+/// Reading in its own task: `read_frame` isn't cancel-safe, so it can't sit
+/// directly in the connection's `select!`. A phone that sends faster than the
+/// queue drains is hung up on.
+async fn read_task(mut recv: RecvStream, in_tx: mpsc::Sender<ClientMsg>, out: mpsc::Sender<ServerMsg>) {
+    loop {
+        match read_frame::<_, ClientMsg>(&mut recv).await {
+            Ok(msg) => {
+                if in_tx.try_send(msg).is_err() {
+                    break;
+                }
+            }
+            // The frame was consumed whole: say so and carry on.
+            Err(FrameError::Json(_)) => {
+                let message = tr("Messaggio non valido", "Invalid message").to_string();
+                let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+async fn run_connection(
+    shared: Arc<Shared>,
+    connection: &Connection,
+    mut shutdown: watch::Receiver<bool>,
+    admitted: Admitted,
+) {
+    let Admitted { device, token, send, recv } = admitted;
     shared.touch_device(&device.id);
     // A new pairing was announced when confirmed.
     if token.is_none() && shared.is_fresh_connect(&device.id) {
@@ -1072,54 +1520,10 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
     let (kick_tx, mut kick_rx) = watch::channel(false);
     let conn_id = shared.register_conn(&device.id, kick_tx);
 
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ServerMsg>();
-    // One writer task owns the send half: every producer (streams, tab
-    // pushes, replies) queues into `out_tx`.
-    let mut writer = tokio::spawn(async move {
-        while let Some(msg) = out_rx.recv().await {
-            match write_frame(&mut send, &msg).await {
-                Ok(()) => {}
-                // An oversized message is dropped, not fatal to the link.
-                Err(FrameError::TooLarge(_)) => {}
-                Err(_) => break,
-            }
-        }
-        let _ = send.finish();
-        let _ = tokio::time::timeout(Duration::from_secs(2), send.stopped()).await;
-    });
-
-    // Reading in its own task: `read_frame` isn't cancel-safe, so it can't
-    // sit directly in the `select!` below.
-    let (in_tx, mut in_rx) = mpsc::unbounded_channel::<ClientMsg>();
-    let reader_out = out_tx.clone();
-    let reader = tokio::spawn(async move {
-        loop {
-            match read_frame::<_, ClientMsg>(&mut recv).await {
-                Ok(msg) => {
-                    if in_tx.send(msg).is_err() {
-                        break;
-                    }
-                }
-                // The frame was consumed whole: say so and carry on.
-                Err(FrameError::Json(_)) => {
-                    let message = tr("Messaggio non valido", "Invalid message").to_string();
-                    let _ = reader_out.send(ServerMsg::Error { message, pty_id: None, fatal: false });
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    // Keystrokes go through one queue + one worker so they reach the pty in
-    // order; each write can block, so it runs on the blocking pool.
-    let (input_tx, mut input_rx) = mpsc::unbounded_channel::<(String, String)>();
-    let app = shared.app.clone();
-    let input_worker = tokio::spawn(async move {
-        while let Some((pty_id, data)) = input_rx.recv().await {
-            let app = app.clone();
-            let _ = crate::blocking(move || app.state::<PtyState>().write(&pty_id, &data)).await;
-        }
-    });
+    let (out_tx, out_rx) = mpsc::channel::<ServerMsg>(OUT_QUEUE);
+    let mut writer = tokio::spawn(write_task(send, out_rx));
+    let (in_tx, mut in_rx) = mpsc::channel::<ClientMsg>(IN_QUEUE);
+    let reader = tokio::spawn(read_task(recv, in_tx, out_tx.clone()));
 
     let mut usage_rx = shared.usage.subscribe();
     let mut actions_rx = shared.actions.subscribe();
@@ -1128,8 +1532,9 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
         shared: Arc::clone(&shared),
         id: conn_id,
         out_tx,
-        input_tx,
+        overflow: AtomicBool::new(false),
         subs: HashMap::new(),
+        inputs: HashMap::new(),
         last_tabs: Vec::new(),
     };
     if let Some(token) = token {
@@ -1145,13 +1550,19 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
 
     let mut tick = tokio::time::interval(TABS_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // A finished `JoinHandle` must not be polled again (it panics), and the
+    // `select!` below may be the one that saw it finish.
+    let mut writer_done = false;
     loop {
         tokio::select! {
             msg = in_rx.recv() => match msg {
                 Some(msg) => conn.handle(msg).await,
                 None => break,
             },
-            _ = tick.tick() => conn.push_tabs_if_changed().await,
+            _ = tick.tick() => {
+                conn.prune_subs();
+                conn.push_tabs_if_changed().await;
+            }
             Ok(()) = usage_rx.changed() => {
                 let items = usage_rx.borrow_and_update().clone();
                 conn.send(ServerMsg::Usage { items });
@@ -1166,42 +1577,92 @@ async fn serve(shared: Arc<Shared>, connection: Connection, mut shutdown: watch:
                     conn.send(ServerMsg::Settings { settings });
                 }
             }
-            _ = kick_rx.changed() => break,
+            // The device was revoked.
+            _ = kick_rx.changed() => {
+                let message = tr("Dispositivo revocato", "Device revoked").to_string();
+                conn.send(ServerMsg::Error { message, pty_id: None, fatal: true });
+                break;
+            }
             _ = shutdown.changed() => break,
-            _ = &mut writer => break,
+            _ = &mut writer, if !writer_done => {
+                writer_done = true;
+                break;
+            }
+        }
+        // The phone stopped reading, or floods input: not worth keeping.
+        if conn.overflow.load(Ordering::Relaxed) {
+            eprintln!("remote: dropping a connection whose queue overflowed");
+            break;
         }
     }
-    for (_, task) in conn.subs.drain() {
-        task.abort();
-    }
+    conn.shutdown();
     shared.release_all_sizes(conn_id);
     reader.abort();
-    input_worker.abort();
     shared.unregister_conn(conn_id);
     // Dropping `conn` closes the writer's channel: it flushes what is queued,
     // then finishes the stream. Give it a moment before closing the link.
     drop(conn);
-    let _ = tokio::time::timeout(Duration::from_secs(3), &mut writer).await;
+    if !writer_done {
+        let _ = tokio::time::timeout(Duration::from_secs(3), &mut writer).await;
+    }
     connection.close(0u32.into(), b"bye");
+}
+
+/// Keystrokes for one pty: a queue and a worker so they reach it in order.
+/// Each write can block, so it runs on the blocking pool - and being per pty,
+/// a stuck program stalls only its own tab's input.
+struct InputWorker {
+    tx: mpsc::Sender<String>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 struct Conn {
     shared: Arc<Shared>,
     id: u64,
-    out_tx: mpsc::UnboundedSender<ServerMsg>,
-    input_tx: mpsc::UnboundedSender<(String, String)>,
+    out_tx: mpsc::Sender<ServerMsg>,
+    /// Set when something couldn't be queued because the phone isn't keeping
+    /// up; the connection loop then hangs up.
+    overflow: AtomicBool,
     /// pty id -> the task streaming it to this client.
     subs: HashMap<String, tokio::task::JoinHandle<()>>,
+    inputs: HashMap<String, InputWorker>,
     last_tabs: Vec<Tab>,
 }
 
 impl Conn {
+    /// Queues a message without waiting: a full queue means the phone stopped
+    /// reading, which ends the connection (see `overflow`).
     fn send(&self, msg: ServerMsg) {
-        let _ = self.out_tx.send(msg);
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.out_tx.try_send(msg) {
+            self.overflow.store(true, Ordering::Relaxed);
+        }
     }
 
     fn error(&self, message: &str, pty_id: Option<String>) {
         self.send(ServerMsg::Error { message: message.to_string(), pty_id, fatal: false });
+    }
+
+    /// Forgets streams that ended on their own (the program exited), with
+    /// everything tied to them.
+    fn prune_subs(&mut self) {
+        let ended: Vec<String> = self.subs.iter().filter(|(_, task)| task.is_finished()).map(|(p, _)| p.clone()).collect();
+        for pty_id in ended {
+            self.subs.remove(&pty_id);
+            self.shared.release_size(&pty_id, self.id);
+            if let Some(worker) = self.inputs.remove(&pty_id) {
+                worker.task.abort();
+            }
+        }
+    }
+
+    /// Stops every task this connection started.
+    fn shutdown(&mut self) {
+        for (_, task) in self.subs.drain() {
+            task.abort();
+        }
+        for (_, worker) in self.inputs.drain() {
+            worker.task.abort();
+        }
     }
 
     async fn push_tabs_if_changed(&mut self) {
@@ -1209,6 +1670,35 @@ impl Conn {
         if tabs != self.last_tabs {
             self.last_tabs = tabs.clone();
             self.send(ServerMsg::Tabs { tabs });
+        }
+    }
+
+    /// Queues keystrokes for `pty_id`, in order. A phone that floods input
+    /// faster than the pty takes it is disconnected.
+    fn input(&mut self, pty_id: String, data: String) {
+        if !self.inputs.contains_key(&pty_id) {
+            if self.inputs.len() >= MAX_SUBS {
+                self.error(tr("Troppi terminali", "Too many terminals"), Some(pty_id));
+                return;
+            }
+            let (tx, mut rx) = mpsc::channel::<String>(INPUT_QUEUE);
+            let app = self.shared.app.clone();
+            let target = pty_id.clone();
+            let task = tokio::spawn(async move {
+                while let Some(data) = rx.recv().await {
+                    let (app, target) = (app.clone(), target.clone());
+                    let _ = crate::blocking(move || app.state::<PtyState>().write(&target, &data)).await;
+                }
+            });
+            self.inputs.insert(pty_id.clone(), InputWorker { tx, task });
+        }
+        let Some(worker) = self.inputs.get(&pty_id) else { return };
+        match worker.tx.try_send(data) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => self.overflow.store(true, Ordering::Relaxed),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.inputs.remove(&pty_id);
+            }
         }
     }
 
@@ -1222,6 +1712,11 @@ impl Conn {
                 self.send(ServerMsg::Tabs { tabs });
             }
             ClientMsg::Open { pty_id, cols, rows } => {
+                self.prune_subs();
+                if self.subs.len() >= MAX_SUBS && !self.subs.contains_key(&pty_id) {
+                    self.error(tr("Troppi terminali aperti", "Too many open terminals"), Some(pty_id));
+                    return;
+                }
                 if let Some(old) = self.subs.remove(&pty_id) {
                     old.abort();
                 }
@@ -1243,13 +1738,17 @@ impl Conn {
                 if let Some(task) = self.subs.remove(&pty_id) {
                     task.abort();
                 }
+                if let Some(worker) = self.inputs.remove(&pty_id) {
+                    // Lets what is queued drain, then the worker ends.
+                    drop(worker.tx);
+                }
                 self.shared.release_size(&pty_id, self.id);
             }
             ClientMsg::Input { pty_id, data } => {
                 if data.len() > proto::MAX_INPUT_BYTES {
                     self.error(tr("Input troppo lungo", "Input too large"), Some(pty_id));
                 } else {
-                    let _ = self.input_tx.send((pty_id, data));
+                    self.input(pty_id, data);
                 }
             }
             ClientMsg::Action { id, pty_id } => {
@@ -1268,6 +1767,10 @@ impl Conn {
             ClientMsg::Set { key, value } => {
                 if key.is_empty() || key.len() > 64 {
                     self.error(tr("Impostazione non valida", "Invalid setting"), None);
+                    return;
+                }
+                if serde_json::to_string(&value).map_or(true, |text| text.len() > MAX_SET_BYTES) {
+                    self.error(tr("Valore troppo grande", "Value too large"), None);
                     return;
                 }
                 // Global emit: every window's bridge applies it; the setters are
@@ -1299,7 +1802,8 @@ impl Conn {
                     crate::blocking(move || work(Path::new(&cwd), id)).await
                 }
             };
-            let _ = out.send(match result {
+            // A reply that doesn't fit the queue is dropped: the phone isn't reading.
+            let _ = out.try_send(match result {
                 Ok(msg) => msg,
                 Err(message) => ServerMsg::Error { message, pty_id: Some(pty_id), fatal: false },
             });
@@ -1316,63 +1820,158 @@ impl Drop for WaiterGuard<'_> {
     }
 }
 
-/// Keeps `data` within a frame by dropping its oldest part (at a character
-/// boundary). Only a pathological scrollback gets here.
-fn fit_snapshot(mut data: String) -> String {
-    let limit = proto::MAX_FRAME / 2;
-    if data.len() > limit {
-        let mut cut = data.len() - limit;
+/// Keeps `data` within `SNAPSHOT_MAX_ENCODED` once JSON-encoded (that is what
+/// goes on the wire: escapes make colored scrollback much bigger than its raw
+/// bytes) by dropping its oldest part, cutting at a line boundary so no line
+/// is left half-drawn. Returns whether anything was dropped.
+fn fit_snapshot(mut data: String) -> (String, bool) {
+    let encoded = |text: &str| serde_json::to_string(text).map_or(usize::MAX, |s| s.len());
+    let mut trimmed = false;
+    loop {
+        let size = encoded(&data);
+        if size <= SNAPSHOT_MAX_ENCODED || data.is_empty() {
+            break;
+        }
+        // Encoding never shrinks text, so dropping the excess is a lower bound.
+        let mut cut = (size - SNAPSHOT_MAX_ENCODED).min(data.len());
         while !data.is_char_boundary(cut) {
             cut += 1;
         }
+        if let Some(newline) = data[cut..].find('\n') {
+            cut += newline + 1;
+        }
         data.drain(..cut);
+        trimmed = true;
     }
-    data
+    (data, trimmed)
+}
+
+/// The desktop's rendering of `pty_id`, asked of the window that owns it.
+/// Empty (seq 0) when nobody can answer in time.
+async fn request_snapshot(shared: &Shared, pty_id: &str, owner: Option<String>) -> SnapshotReply {
+    let Some(owner) = owner else { return (String::new(), 0) };
+    let Ok(req_id) = random_hex(8) else { return (String::new(), 0) };
+    let (tx, reply) = oneshot::channel();
+    lock(&shared.waiters).insert(req_id.clone(), tx);
+    let _guard = WaiterGuard(shared, req_id.clone());
+    let payload = serde_json::json!({ "reqId": req_id, "ptyId": pty_id });
+    if shared.app.emit_to(owner.as_str(), EVT_SNAPSHOT_REQUEST, payload).is_ok() {
+        if let Ok(Ok(reply)) = tokio::time::timeout(SNAPSHOT_TIMEOUT, reply).await {
+            return reply;
+        }
+    }
+    (String::new(), 0)
 }
 
 /// One client's view of one pty: snapshot of the current screen, then the
 /// live output. Subscribes *before* asking for the snapshot so no output can
 /// fall in the gap; whatever the snapshot already includes (seq <= its seq)
 /// is skipped.
-async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::UnboundedSender<ServerMsg>) {
+///
+/// When the phone can't keep up (the pty's queue for it, or its share of the
+/// connection's out queue, is full) the output is dropped instead of
+/// buffered, and once things drain a new snapshot replaces what was lost.
+async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::Sender<ServerMsg>) {
     let subscription = shared.app.state::<PtyState>().remote_subscribe(&pty_id);
-    let Some((mut rx, cols, rows, owner)) = subscription else {
+    let Some((mut feed, mut cols, mut rows, owner)) = subscription else {
         let message = tr("Terminale non trovato", "Terminal not found").to_string();
-        let _ = out.send(ServerMsg::Error { message, pty_id: Some(pty_id.clone()), fatal: false });
-        let _ = out.send(ServerMsg::Exit { pty_id });
+        let _ = out.send(ServerMsg::Error { message, pty_id: Some(pty_id.clone()), fatal: false }).await;
+        let _ = out.send(ServerMsg::Exit { pty_id }).await;
         return;
     };
 
-    let mut snapshot: SnapshotReply = (String::new(), 0);
-    if let Some(owner) = owner {
-        let req_id = match random_hex(8) {
-            Ok(id) => id,
-            Err(_) => return,
-        };
-        let (tx, reply) = oneshot::channel();
-        lock(&shared.waiters).insert(req_id.clone(), tx);
-        let _guard = WaiterGuard(&shared, req_id.clone());
-        let payload = serde_json::json!({ "reqId": req_id, "ptyId": pty_id });
-        if shared.app.emit_to(owner.as_str(), EVT_SNAPSHOT_REQUEST, payload).is_ok() {
-            if let Ok(Ok(reply)) = tokio::time::timeout(SNAPSHOT_TIMEOUT, reply).await {
-                snapshot = reply;
-            }
-        }
+    let (data, mut snapshot_seq) = request_snapshot(&shared, &pty_id, owner).await;
+    if !send_snapshot(&out, &pty_id, data, cols, rows).await {
+        return;
     }
-    let (data, snapshot_seq) = snapshot;
-    let _ = out.send(ServerMsg::Snapshot { pty_id: pty_id.clone(), data: fit_snapshot(data), cols, rows });
 
-    while let Some(event) = rx.recv().await {
+    // Set while output is being dropped; `lost_seq` is the newest dropped.
+    let mut resync = false;
+    let mut lost_seq = 0u64;
+    let mut attempts = 0u32;
+    loop {
+        if feed.is_lagged() {
+            resync = true;
+        }
+        if resync {
+            // What is queued is superseded by the snapshot: discard it.
+            match feed.rx.try_recv() {
+                Ok(RemoteOut::Output { seq, .. }) => {
+                    lost_seq = lost_seq.max(seq);
+                    continue;
+                }
+                Ok(RemoteOut::Exit) | Err(mpsc::error::TryRecvError::Disconnected) => break,
+                Err(mpsc::error::TryRecvError::Empty) => {}
+            }
+            if out.is_closed() {
+                return;
+            }
+            // Wait for the phone to work through what it already has.
+            if out.capacity() < OUT_QUEUE / 2 {
+                tokio::time::sleep(RESYNC_POLL).await;
+                continue;
+            }
+            feed.clear_lag();
+            let owner = shared.app.state::<PtyState>().owner_of(&pty_id);
+            let (data, seq) = request_snapshot(&shared, &pty_id, owner).await;
+            if let Some(size) = shared.app.state::<PtyState>().sizes().get(&pty_id) {
+                (cols, rows) = *size;
+            }
+            if !send_snapshot(&out, &pty_id, data, cols, rows).await {
+                return;
+            }
+            snapshot_seq = seq;
+            // The window may not have drawn the newest dropped output yet: if
+            // the snapshot predates it, go again (a few times at most).
+            attempts += 1;
+            if seq >= lost_seq.max(feed.dropped_seq()) || attempts >= RESYNC_ATTEMPTS {
+                resync = false;
+                attempts = 0;
+                lost_seq = 0;
+            } else {
+                tokio::time::sleep(RESYNC_POLL).await;
+            }
+            continue;
+        }
+        let Some(event) = feed.rx.recv().await else { break };
         match event {
             RemoteOut::Output { data, seq } if seq > snapshot_seq => {
-                let _ = out.send(ServerMsg::Output { pty_id: pty_id.clone(), data });
+                // Keep room in the queue for replies and pushes.
+                if out.capacity() <= OUT_RESERVE {
+                    lost_seq = lost_seq.max(seq);
+                    resync = true;
+                    continue;
+                }
+                match out.try_send(ServerMsg::Output { pty_id: pty_id.clone(), data }) {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        lost_seq = lost_seq.max(seq);
+                        resync = true;
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => return,
+                }
             }
             RemoteOut::Output { .. } => {}
             RemoteOut::Exit => break,
         }
     }
     // Either the program exited or the session vanished: both end the stream.
-    let _ = out.send(ServerMsg::Exit { pty_id });
+    let _ = out.send(ServerMsg::Exit { pty_id }).await;
+}
+
+/// Queues a snapshot, trimmed to fit a frame (and saying so when it had to
+/// be). False when the connection is gone.
+async fn send_snapshot(out: &mpsc::Sender<ServerMsg>, pty_id: &str, data: String, cols: u16, rows: u16) -> bool {
+    let (data, trimmed) = fit_snapshot(data);
+    if trimmed {
+        let message = tr(
+            "Cronologia del terminale accorciata: era troppo lunga",
+            "Terminal history shortened: it was too long",
+        )
+        .to_string();
+        let _ = out.send(ServerMsg::Error { message, pty_id: Some(pty_id.to_string()), fatal: false }).await;
+    }
+    out.send(ServerMsg::Snapshot { pty_id: pty_id.to_string(), data, cols, rows }).await.is_ok()
 }
 
 #[cfg(test)]
@@ -1558,8 +2157,111 @@ mod tests {
     #[test]
     fn snapshot_is_trimmed_on_a_char_boundary() {
         let big = "é".repeat(proto::MAX_FRAME);
-        let fitted = fit_snapshot(big);
-        assert!(fitted.len() <= proto::MAX_FRAME / 2);
-        assert_eq!(fit_snapshot("short".into()), "short");
+        let (fitted, trimmed) = fit_snapshot(big);
+        assert!(trimmed && fitted.len() <= SNAPSHOT_MAX_ENCODED);
+        assert_eq!(fit_snapshot("short".into()), ("short".to_string(), false));
+    }
+
+    #[test]
+    fn snapshot_limit_counts_the_json_encoding_and_cuts_at_a_line() {
+        // Escapes (ESC is six bytes once encoded) fit by raw length but not
+        // once encoded.
+        let line = "\u{1b}[31mred\u{1b}[0m line\n";
+        let raw = line.repeat(25_000);
+        assert!(raw.len() < SNAPSHOT_MAX_ENCODED);
+        assert!(serde_json::to_string(&raw).unwrap().len() > SNAPSHOT_MAX_ENCODED);
+        let (fitted, trimmed) = fit_snapshot(raw);
+        assert!(trimmed);
+        assert!(serde_json::to_string(&fitted).unwrap().len() <= SNAPSHOT_MAX_ENCODED);
+        // Whole lines only: the oldest were dropped, the newest kept.
+        assert!(fitted.starts_with(line) && fitted.ends_with(line));
+        assert_eq!(fitted.len() % line.len(), 0);
+    }
+
+    #[test]
+    fn device_names_are_sanitized() {
+        assert_eq!(clean_name("  Pixel 8\n\u{7}\u{1b}[2J "), "Pixel 8[2J");
+        assert_eq!(clean_name(&"x".repeat(200)).chars().count(), 64);
+        assert_eq!(clean_name("\n\t"), "");
+    }
+
+    #[test]
+    fn a_repeated_pair_start_reuses_the_fresh_code() {
+        let mut p = Pairings::default();
+        let (code, expires) = p.start("first".into(), 1_000);
+        // Within the reuse window: same code, same expiry.
+        assert_eq!(p.recent(1_000 + PAIR_REUSE_MS - 1), Some((code, expires)));
+        // Past it, or once used or cancelled, a new one is needed.
+        assert_eq!(p.recent(1_000 + PAIR_REUSE_MS), None);
+        p.start("second".into(), 50_000);
+        assert_eq!(p.redeem("second", 50_001), Ok(()));
+        assert_eq!(p.recent(50_002), None);
+        p.start("third".into(), 60_000);
+        p.active = None;
+        assert_eq!(p.recent(60_001), None);
+    }
+
+    #[test]
+    fn retrying_a_spent_code_is_not_a_guess() {
+        let mut p = Pairings::default();
+        p.start("good".into(), 0);
+        assert_eq!(p.redeem("good", 10), Ok(()));
+        // The phone retries after the user declined: invalid, but never blocks.
+        for i in 0..(MAX_PAIR_FAILURES as u64 * 2) {
+            assert_eq!(p.redeem("good", 20 + i), Err(PairError::Invalid));
+        }
+        p.start("next".into(), 1_000);
+        assert_eq!(p.redeem("next", 1_001), Ok(()));
+        // Real guesses still count.
+        p.start("again".into(), 2_000);
+        for i in 0..MAX_PAIR_FAILURES as u64 {
+            assert_eq!(p.redeem("wrong", 2_001 + i), Err(PairError::Invalid));
+        }
+        assert_eq!(p.redeem("again", 2_100), Err(PairError::RateLimited));
+    }
+
+    #[test]
+    fn failed_auths_block_only_that_node() {
+        let mut l = AuthLimiter::default();
+        for i in 0..MAX_AUTH_FAILURES as u64 {
+            assert!(l.allowed("a", i));
+            l.failed("a", i);
+        }
+        assert!(!l.allowed("a", 100));
+        assert!(l.allowed("b", 100));
+        assert!(l.allowed("a", 10 + BLOCK_MS));
+        // A success forgets the failures.
+        l.failed("b", 200);
+        l.succeeded("b");
+        assert!(!l.nodes.contains_key("b"));
+    }
+
+    #[test]
+    fn a_second_instance_cannot_take_the_endpoint() {
+        let dir = scratch("lock");
+        let key = dir.join("remote-node.key");
+        let first = acquire_instance_lock(&key).unwrap();
+        assert!(acquire_instance_lock(&key).is_err());
+        drop(first);
+        assert!(acquire_instance_lock(&key).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn node_key_is_sealed_on_windows_and_a_plain_one_migrates() {
+        let dir = scratch("seal");
+        let path = dir.join("remote-node.key");
+        let key = load_or_create_key(&path).unwrap();
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.starts_with(SEALED_PREFIX));
+        assert!(!on_disk.contains(&to_hex(&key.to_bytes())));
+        assert_eq!(load_or_create_key(&path).unwrap().public(), key.public());
+
+        // A key written by an earlier version: same identity, now sealed.
+        std::fs::write(&path, to_hex(&key.to_bytes())).unwrap();
+        assert_eq!(load_or_create_key(&path).unwrap().public(), key.public());
+        assert!(std::fs::read_to_string(&path).unwrap().starts_with(SEALED_PREFIX));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

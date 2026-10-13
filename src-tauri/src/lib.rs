@@ -181,6 +181,8 @@ pub fn run() {
             remote::remote_revoke,
             remote::remote_snapshot_reply,
             remote::remote_pair_decide,
+            remote::remote_pair_cancel,
+            remote::remote_size_claim,
             remote::remote_publish_usage,
             remote::remote_publish_settings,
             remote::remote_publish_actions,
