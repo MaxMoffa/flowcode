@@ -23,6 +23,34 @@ const usage = [
   { pluginId: "codex-cli", label: "Codex", ...L, metrics: gauges(0.22, 0.95) },
 ];
 
+const mockSettings = {
+  theme: "dark",
+  resolvedTheme: "dark",
+  palette: "terracotta",
+  terminalPalette: null,
+  contrast: 0.5,
+  glassOpacity: 0.6,
+  language: "system",
+  resolvedLanguage: "it",
+  languages: [
+    { id: "it", name: "Italiano" },
+    { id: "en", name: "English" },
+  ],
+  colors: {},
+  terminalColors: {},
+  palettes: [
+    { id: "terracotta", name: "Terracotta", bg: "#1a1511", accent: "#9db984", accent2: "#c9975a" },
+    { id: "ocean", name: "Oceano", bg: "#0e1620", accent: "#6f9bcf", accent2: "#5ec2c2" },
+  ],
+  terminalFontSize: 13,
+  bannerEnabled: true,
+  confirmLinkOpen: true,
+  restoreSession: true,
+  newTabPage: false,
+  notify: { done: true, input: true, exited: false, limitReset: true },
+  autoResume: { enabled: true, message: "continua" },
+};
+
 mockIPC(
   (cmd) => {
     switch (cmd) {
@@ -33,6 +61,7 @@ mockIPC(
           await emit("remote://state", { status: "online", hostName: "Il mio PC" });
           await emit("remote://msg", { t: "tabs", tabs });
           await emit("remote://msg", { t: "usage", items: usage });
+          await emit("remote://msg", { t: "settings", settings: mockSettings });
         }, 50);
         return null;
       case "platform":

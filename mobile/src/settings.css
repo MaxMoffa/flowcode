@@ -1,0 +1,138 @@
+/* Settings: section list + per-section pages. */
+.sec-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: sec-in 0.22s ease both;
+}
+
+@keyframes sec-in {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sec-view {
+    animation: none;
+  }
+}
+
+.sec-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sec-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 0 14px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+  text-align: left;
+}
+
+.sec-row:last-child {
+  border-bottom: 0;
+}
+
+.sec-row:active {
+  background: var(--surface-2);
+}
+
+.sec-row > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.sec-ic {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--glass);
+  color: var(--fg);
+}
+
+.sec-ic.violet {
+  background: rgba(201, 143, 196, 0.16);
+  color: #d9a6d4;
+}
+
+.sec-ic.blue {
+  background: rgba(111, 155, 207, 0.14);
+  color: #9cbde6;
+}
+
+.sec-ic.amber {
+  background: rgba(209, 167, 82, 0.16);
+  color: #e3bd6e;
+}
+
+.sec-ic.green {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.sec-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.sec-tx b {
+  font-weight: 600;
+}
+
+.sec-tx span {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 0 -10px;
+}
+
+.sec-head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.sec-back {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+}
+
+.sec-intro {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+}

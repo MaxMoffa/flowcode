@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import "./settings.css";
+import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { setLockEnabled, useLock, verify } from "./applock";
 import { connectionLog, setSetting, unpair, type MirroredSettings } from "./remote";
@@ -201,70 +203,242 @@ function MessageField({ value, onCommit }: { value: string; onCommit: (v: string
   );
 }
 
+type SectionId = "appearance" | "terminal" | "agents" | "resume" | "language" | "security" | "phone";
+
+const svg = (children: ReactNode) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {children}
+  </svg>
+);
+
+const ICONS: Record<SectionId, { tone: string; icon: ReactNode }> = {
+  appearance: {
+    tone: "violet",
+    icon: svg(
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" />
+      </>,
+    ),
+  },
+  terminal: {
+    tone: "blue",
+    icon: svg(
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="3" />
+        <path d="M7 9l3 3-3 3M12 15h5" />
+      </>,
+    ),
+  },
+  agents: {
+    tone: "amber",
+    icon: svg(
+      <>
+        <path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z" />
+        <path d="M10 21h4" />
+      </>,
+    ),
+  },
+  resume: { tone: "green", icon: svg(<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5" />) },
+  language: {
+    tone: "plain",
+    icon: svg(
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" />
+      </>,
+    ),
+  },
+  security: {
+    tone: "green",
+    icon: svg(
+      <>
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+      </>,
+    ),
+  },
+  phone: {
+    tone: "plain",
+    icon: svg(
+      <>
+        <rect x="7" y="2" width="10" height="20" rx="2" />
+        <path d="M11 18h2" />
+      </>,
+    ),
+  },
+};
+
+function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: string; summary: string; onOpen: () => void }) {
+  const { tone, icon } = ICONS[id];
+  return (
+    <button type="button" className="sec-row" onClick={onOpen}>
+      <span className={"sec-ic " + tone}>{icon}</span>
+      <span className="sec-tx">
+        <b>{title}</b>
+        <span>{summary}</span>
+      </span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+        <path d="M9 6l6 6-6 6" />
+      </svg>
+    </button>
+  );
+}
+
+const onOff = (v: boolean) => (v ? t("stateOn") : t("stateOff"));
+
+function summaries(s: MirroredSettings | null, lock: ReturnType<typeof useLock>, hostName?: string): Record<SectionId, string> {
+  const paletteName = s?.palettes.find((p) => p.id === s.palette)?.name ?? s?.palette ?? "";
+  const themeName = s ? { auto: t("themeAuto"), light: t("themeLight"), dark: t("themeDark") }[s.theme] : "";
+  const notifyCount = s ? [s.notify.done, s.notify.input, s.notify.exited, s.notify.limitReset].filter(Boolean).length : 0;
+  const langName = !s ? "" : s.language === "system" ? t("langSystem") : (s.languages.find((l) => l.id === s.language)?.name ?? s.language);
+  return {
+    appearance: s ? `${paletteName} · ${themeName}` : "",
+    terminal: s ? t("sumTerminal", { size: s.terminalFontSize, banner: onOff(s.bannerEnabled) }) : "",
+    agents: s ? (notifyCount ? t("sumAgents", { n: notifyCount }) : t("sumAgentsNone")) : "",
+    resume: s ? (s.autoResume.enabled ? t("sumResumeOn", { msg: s.autoResume.message || t("autoResumePlaceholder") }) : t("sumResumeOff")) : "",
+    language: langName,
+    security: lock.enabled ? t("sumLockOn") : t("sumLockOff"),
+    phone: t("sumPhone", { host: hostName ?? "..." }),
+  };
+}
+
 export function SettingsScreen({ hostName, settings: s }: { hostName?: string; settings: MirroredSettings | null }) {
   const lock = useLock();
-  return (
-    <>
-      <header className="top">
-        <h1>{t("settings")}</h1>
-      </header>
-      <div className="mirror">
-        <b>{t("mirrorOf", { host: hostName ?? "..." })}</b>
-        <span>{t("mirrorHint")}</span>
+  const [section, setSection] = useState<SectionId | null>(null);
+  useBackHandler(section !== null, () => setSection(null));
+
+  const sum = summaries(s, lock, hostName);
+  const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", "language"] : [];
+  const phoneOnly: SectionId[] = lock.available ? ["security", "phone"] : ["phone"];
+  const titles: Record<SectionId, string> = {
+    appearance: t("appearance"),
+    terminal: t("terminalGroup"),
+    agents: t("secAgents"),
+    resume: t("autoResume"),
+    language: t("language"),
+    security: t("secSecurity"),
+    phone: t("thisPhone"),
+  };
+
+  if (section === null) {
+    return (
+      <div className="sec-view" key="list">
+        <header className="top">
+          <h1>{t("settings")}</h1>
+        </header>
+        <div className="sec-lists">
+          {!s && <div className="empty">{t("noSettings")}</div>}
+          {mirrored.length > 0 && (
+            <section>
+              <h2 className="group">{t("groupShared")}</h2>
+              <div className="card set-card">
+                {mirrored.map((id) => (
+                  <SectionRow key={id} id={id} title={titles[id]} summary={sum[id]} onOpen={() => setSection(id)} />
+                ))}
+              </div>
+            </section>
+          )}
+          <section>
+            <h2 className="group">{t("groupPhoneOnly")}</h2>
+            <div className="card set-card">
+              {phoneOnly.map((id) => (
+                <SectionRow key={id} id={id} title={titles[id]} summary={sum[id]} onOpen={() => setSection(id)} />
+              ))}
+            </div>
+          </section>
+        </div>
       </div>
-      {!s && <div className="empty">{t("noSettings")}</div>}
-      {s && (
+    );
+  }
+
+  const intro: Record<SectionId, string> = {
+    appearance: t("introShared"),
+    terminal: t("introShared"),
+    agents: t("introAgents"),
+    resume: t("introResume"),
+    language: t("introShared"),
+    security: t("introSecurity"),
+    phone: t("introPhone"),
+  };
+
+  return (
+    <div className="sec-view" key={section}>
+      <header className="sec-head">
+        <button type="button" className="sec-back" aria-label={t("back")} onClick={() => setSection(null)}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
+        <h1>{titles[section]}</h1>
+      </header>
+      <p className="sec-intro">{intro[section]}</p>
+
+      {section === "appearance" && s && (
+        <Group title={t("appearance")}>
+          <Segmented
+            label={t("theme")}
+            value={s.theme}
+            options={[
+              { id: "auto", name: t("themeAuto") },
+              { id: "light", name: t("themeLight") },
+              { id: "dark", name: t("themeDark") },
+            ]}
+            onChange={(v) => setSetting("theme", v)}
+          />
+          <PaletteGrid label={t("palette")} palettes={s.palettes} value={s.palette} onChange={(id) => setSetting("palette", id)} />
+          <Toggle label={t("separateTerminalPalette")} on={s.terminalPalette !== null} onChange={(on) => setSetting("terminalPalette", on ? s.palette : null)} />
+          {s.terminalPalette !== null && (
+            <PaletteGrid label={t("terminalPalette")} palettes={s.palettes} value={s.terminalPalette} onChange={(id) => setSetting("terminalPalette", id)} />
+          )}
+          <Slider label={t("contrast")} value={s.contrast} onCommit={(v) => setSetting("contrast", v)} />
+          <Slider label={t("glassOpacity")} value={s.glassOpacity} onCommit={(v) => setSetting("glassOpacity", v)} />
+        </Group>
+      )}
+
+      {section === "language" && s && (
+        <Group title={t("language")}>
+          <Segmented
+            label={t("language")}
+            value={s.language}
+            options={[{ id: "system", name: t("langSystem") }, ...s.languages]}
+            onChange={(v) => setSetting("language", v)}
+          />
+        </Group>
+      )}
+
+      {section === "terminal" && s && (
+        <Group title={t("terminalGroup")}>
+          <Stepper label={t("fontSize")} value={s.terminalFontSize} min={9} max={28} onChange={(v) => setSetting("terminalFontSize", v)} />
+          <Toggle label={t("banner")} on={s.bannerEnabled} onChange={(v) => setSetting("bannerEnabled", v)} />
+          <Toggle label={t("confirmLinks")} on={s.confirmLinkOpen} onChange={(v) => setSetting("confirmLinkOpen", v)} />
+          <Toggle label={t("newTabPage")} on={s.newTabPage} onChange={(v) => setSetting("newTabPage", v)} />
+          <Toggle label={t("restoreSession")} on={s.restoreSession} onChange={(v) => setSetting("restoreSession", v)} />
+        </Group>
+      )}
+
+      {section === "agents" && s && (
         <>
-          <Group title={t("appearance")}>
-            <Segmented
-              label={t("theme")}
-              value={s.theme}
-              options={[
-                { id: "auto", name: t("themeAuto") },
-                { id: "light", name: t("themeLight") },
-                { id: "dark", name: t("themeDark") },
-              ]}
-              onChange={(v) => setSetting("theme", v)}
-            />
-            <PaletteGrid label={t("palette")} palettes={s.palettes} value={s.palette} onChange={(id) => setSetting("palette", id)} />
-            <Toggle label={t("separateTerminalPalette")} on={s.terminalPalette !== null} onChange={(on) => setSetting("terminalPalette", on ? s.palette : null)} />
-            {s.terminalPalette !== null && (
-              <PaletteGrid label={t("terminalPalette")} palettes={s.palettes} value={s.terminalPalette} onChange={(id) => setSetting("terminalPalette", id)} />
-            )}
-            <Slider label={t("contrast")} value={s.contrast} onCommit={(v) => setSetting("contrast", v)} />
-            <Slider label={t("glassOpacity")} value={s.glassOpacity} onCommit={(v) => setSetting("glassOpacity", v)} />
+          <Group title={t("notifyAgentGroup")}>
+            <Toggle label={t("notifyDone")} hint={t("notifyDoneHint")} on={s.notify.done} onChange={(v) => setSetting("notify.done", v)} />
+            <Toggle label={t("notifyInput")} hint={t("notifyInputHint")} on={s.notify.input} onChange={(v) => setSetting("notify.input", v)} />
+            <Toggle label={t("notifyExited")} hint={t("notifyExitedHint")} on={s.notify.exited} onChange={(v) => setSetting("notify.exited", v)} />
           </Group>
-
-          <Group title={t("language")}>
-            <Segmented
-              label={t("language")}
-              value={s.language}
-              options={[{ id: "system", name: t("langSystem") }, ...s.languages]}
-              onChange={(v) => setSetting("language", v)}
-            />
-          </Group>
-
-          <Group title={t("terminalGroup")}>
-            <Stepper label={t("fontSize")} value={s.terminalFontSize} min={9} max={28} onChange={(v) => setSetting("terminalFontSize", v)} />
-            <Toggle label={t("banner")} on={s.bannerEnabled} onChange={(v) => setSetting("bannerEnabled", v)} />
-            <Toggle label={t("confirmLinks")} on={s.confirmLinkOpen} onChange={(v) => setSetting("confirmLinkOpen", v)} />
-            <Toggle label={t("newTabPage")} on={s.newTabPage} onChange={(v) => setSetting("newTabPage", v)} />
-            <Toggle label={t("restoreSession")} on={s.restoreSession} onChange={(v) => setSetting("restoreSession", v)} />
-          </Group>
-
-          <Group title={t("agentsGroup")}>
-            <Toggle label={t("notifyDone")} on={s.notify.done} onChange={(v) => setSetting("notify.done", v)} />
-            <Toggle label={t("notifyInput")} on={s.notify.input} onChange={(v) => setSetting("notify.input", v)} />
-            <Toggle label={t("notifyLimit")} on={s.notify.limitReset} onChange={(v) => setSetting("notify.limitReset", v)} />
-            <Toggle label={t("notifyExited")} on={s.notify.exited} onChange={(v) => setSetting("notify.exited", v)} />
-            <Toggle label={t("autoResume")} on={s.autoResume.enabled} onChange={(v) => setSetting("autoResume.enabled", v)} />
-            <MessageField value={s.autoResume.message} onCommit={(v) => setSetting("autoResume.message", v)} />
+          <Group title={t("notifyLimitGroup")}>
+            <Toggle label={t("notifyLimit")} hint={t("notifyLimitHint")} on={s.notify.limitReset} onChange={(v) => setSetting("notify.limitReset", v)} />
           </Group>
         </>
       )}
 
-      <Group title={t("thisPhone")}>
-        {lock.available && (
+      {section === "resume" && s && (
+        <Group title={t("autoResume")}>
+          <Toggle label={t("autoResume")} hint={t("autoResumeHint")} on={s.autoResume.enabled} onChange={(v) => setSetting("autoResume.enabled", v)} />
+          <MessageField value={s.autoResume.message} onCommit={(v) => setSetting("autoResume.message", v)} />
+        </Group>
+      )}
+
+      {section === "security" && (
+        <Group title={t("secSecurity")}>
           <Toggle
             label={t("lockSetting")}
             hint={t("lockHint")}
@@ -272,18 +446,23 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
             // Turning it off needs a successful unlock, so a borrowed unlocked phone can't drop the lock.
             onChange={(v) => void (v ? Promise.resolve(true) : verify()).then((ok) => ok && setLockEnabled(v))}
           />
-        )}
-        <Diagnostics />
-        <button
-          type="button"
-          className="set-row danger"
-          onClick={() => {
-            if (window.confirm(t("unpairConfirm"))) void unpair();
-          }}
-        >
-          <span className="set-label">{t("unpairFromComputer")}</span>
-        </button>
-      </Group>
-    </>
+        </Group>
+      )}
+
+      {section === "phone" && (
+        <Group title={t("thisPhone")}>
+          <Diagnostics />
+          <button
+            type="button"
+            className="set-row danger"
+            onClick={() => {
+              if (window.confirm(t("unpairConfirm"))) void unpair();
+            }}
+          >
+            <span className="set-label">{t("unpairFromComputer")}</span>
+          </button>
+        </Group>
+      )}
+    </div>
   );
 }
