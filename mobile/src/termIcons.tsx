@@ -15,32 +15,16 @@ export const CloseIcon = () => (
   </Svg>
 );
 
-export const ArrowUpIcon = () => (
-  <Svg size={18}>
-    <path d="M12 19V5m-6 6 6-6 6 6" />
-  </Svg>
+export const DotsIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.8" />
+    <circle cx="12" cy="12" r="1.8" />
+    <circle cx="19" cy="12" r="1.8" />
+  </svg>
 );
 
-export const ArrowDownIcon = () => (
-  <Svg size={18}>
-    <path d="M12 5v14m-6-6 6 6 6-6" />
-  </Svg>
-);
-
-export const ArrowLeftIcon = () => (
-  <Svg size={18}>
-    <path d="M19 12H5m6-6-6 6 6 6" />
-  </Svg>
-);
-
-export const ArrowRightIcon = () => (
-  <Svg size={18}>
-    <path d="M5 12h14m-6-6 6 6-6 6" />
-  </Svg>
-);
-
-export const KeyboardIcon = () => (
-  <Svg>
+export const KeyboardIcon = ({ size = 20 }: { size?: number }) => (
+  <Svg size={size}>
     <rect x="3" y="6" width="18" height="12" rx="3" />
     <path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" />
   </Svg>

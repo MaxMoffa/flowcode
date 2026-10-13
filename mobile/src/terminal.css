@@ -8,33 +8,69 @@
 /* ---- header ------------------------------------------------------------- */
 
 .term-head {
+  position: relative;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px 8px 6px;
+  gap: 4px;
+  height: 52px;
+  padding: 0 6px 0 2px;
 }
 
 .term-titles {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .term-title {
-  font-size: 17px;
-  font-weight: 650;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.term-sub {
-  font: 11px/1.3 var(--mono);
+.term-state {
+  flex: none;
+  font-size: 13px;
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.term-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.term-dot.is-waiting {
+  background: var(--wait);
+}
+
+.term-dot.is-busy {
+  background: var(--busy);
+}
+
+.tm-back {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+}
+
+.tm-back:active {
+  background: rgba(231, 216, 197, 0.08);
+  border-radius: 12px;
 }
 
 .tm-btn {
@@ -57,62 +93,35 @@
   background: var(--accent-bg);
 }
 
-.tm-btn.plain {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-/* ---- terminal card ------------------------------------------------------ */
+/* ---- terminal ------------------------------------------------------------ */
 
 .term-card {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  margin: 0 10px;
-  border-radius: 18px;
-  border: 1px solid var(--term-border, var(--border-strong));
-  background: var(--term-bg, #0f0e0c);
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.18), 0 18px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  overflow: hidden;
+  border-top: 1px solid var(--term-border, rgba(232, 184, 128, 0.08));
+  background: var(--term-bg, #050302);
 }
 
-.term-strip {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 12px 5px;
-  font: 11px/1.3 var(--mono);
-  color: var(--muted);
-}
-
-.term-cwd {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.term-dims,
-.term-live {
-  flex: none;
-}
-
-.term-live.on {
-  color: var(--accent);
-}
-
-.term-area {
+.term-body {
   position: relative;
   flex: 1;
   min-height: 0;
-  margin: 0 6px 6px;
-  overflow: auto;
+  display: flex;
+  padding: 6px 10px;
+}
+
+/* One-finger drags are handled in termTouch.ts. */
+.term-area {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  touch-action: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
 }
 
 .term-host {
@@ -127,6 +136,16 @@
   background: transparent !important;
 }
 
+.term-area .xterm-viewport {
+  overflow-y: hidden !important;
+}
+
+/* The hidden textarea sits inside the area, so focusing it never scrolls anything into view. */
+.term-host .xterm-helper-textarea {
+  left: 0 !important;
+  top: 0 !important;
+}
+
 .ended {
   position: absolute;
   top: 8px;
@@ -139,127 +158,132 @@
   font-size: 12px;
 }
 
-/* ---- key bar ------------------------------------------------------------ */
-
-.tm-keys {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-  padding: 8px 8px 8px;
-  border-top: 1px solid var(--border);
-  background: var(--glass, rgba(255, 255, 255, 0.05));
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+.term-fab {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: rgba(28, 21, 15, 0.92);
+  color: var(--fg);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
 }
 
-.tm-row,
-.tm-row2 {
+/* Sits left of the keyboard button so the two never overlap. */
+.term-jump {
+  position: absolute;
+  right: 78px;
+  bottom: 22px;
+  z-index: 3;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font: 13px var(--mono);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.term-jump.kb {
+  right: 14px;
+  bottom: 14px;
+}
+
+.term-wait {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+  background: rgba(209, 167, 82, 0.1);
+  border-top: 1px solid var(--wait-border);
 }
 
-.tm-row {
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tm-row::-webkit-scrollbar,
-.tm-chips::-webkit-scrollbar {
-  display: none;
-}
-
-.tm-arrows {
-  flex: none;
-  display: flex;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--glass, rgba(255, 255, 255, 0.06));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  overflow: hidden;
-}
-
-.tm-arrows {
-  margin-left: auto;
-}
-
-.tm-arrows button {
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  font: 13px var(--mono);
-  padding: 0;
-}
-
-.tm-arrows button {
-  width: 34px;
-  height: 40px;
-  color: var(--muted);
-}
-
-.tm-arrows button + button {
-  border-left: 1px solid var(--border);
-}
-
-.tm-arrows button:active,
-.tm-key:active,
-.tm-chip:active {
-  background: var(--accent-bg);
-}
-
-.tm-key,
-.tm-chip {
-  flex: none;
-  display: grid;
-  place-items: center;
-  min-width: 42px;
-  min-height: 44px;
-  padding: 0 10px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--glass, rgba(255, 255, 255, 0.06));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  font: 13px var(--mono);
-  color: var(--fg);
-}
-
-.tm-chip {
-  min-height: 40px;
-  min-width: 38px;
-  padding: 0 11px;
-  border-radius: 12px;
-}
-
-.tm-chip.danger {
-  background: rgba(240, 100, 90, 0.12);
-  border-color: rgba(240, 100, 90, 0.25);
-  color: var(--danger);
-}
-
-.tm-chips {
+.term-wait span {
   flex: 1;
   min-width: 0;
+  font-size: 13px;
+  color: var(--wait);
+}
+
+.term-wait button {
+  min-width: 44px;
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(231, 216, 197, 0.07);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.term-wait button.yes {
+  background: rgba(157, 185, 132, 0.2);
+  color: #c9dfb3;
+}
+
+/* ---- "⋯" menu ------------------------------------------------------------- */
+
+.tm-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.tm-menu {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 10px;
+  z-index: 21;
+  width: 210px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: #1b140e;
+  border: 1px solid rgba(232, 184, 128, 0.14);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+
+.tm-menu button {
   display: flex;
   align-items: center;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  gap: 12px;
+  height: 46px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font-size: 15px;
 }
 
-.tm-divider {
+.tm-menu button:active {
+  background: rgba(231, 216, 197, 0.06);
+}
+
+.tm-menu button.danger {
+  color: #f0938c;
+}
+
+.tm-menu svg {
   flex: none;
-  align-self: stretch;
-  width: 1px;
-  margin: 6px 2px;
-  background: var(--border-strong);
 }
 
-.tm-kbd {
-  color: var(--muted);
+.tm-menu-c {
+  width: 18px;
+  text-align: center;
+  font: 13px var(--mono);
 }
 
 /* ---- drawer + sheet ----------------------------------------------------- */
@@ -601,7 +625,7 @@
   overflow-wrap: anywhere;
 }
 
-/* ---- touch scrolling, page lock, key bar ergonomics ---------------------- */
+/* ---- page lock + key row ------------------------------------------------- */
 
 /* The page never scrolls while the terminal is up (see termViewport.ts). */
 html.term-lock,
@@ -613,139 +637,82 @@ html.term-lock body {
   overscroll-behavior: none;
 }
 
-.term-card {
-  position: relative;
+/* Wrapper (measured for --keybar-h); empty while the keyboard is closed. */
+.tm-keys {
+  flex: none;
+  background: #15100b;
 }
 
-/* One-finger drags are handled in termTouch.ts. */
-.term-area {
-  touch-action: none;
+.tm-keys:not(:empty) {
+  border-top: 1px solid rgba(232, 184, 128, 0.1);
+}
+
+.tm-row {
+  display: flex;
+  align-items: stretch;
+  height: 44px;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
   overscroll-behavior: contain;
 }
 
-.term-area .xterm-viewport {
-  overflow-y: hidden !important;
+.tm-row::-webkit-scrollbar {
+  display: none;
 }
 
-/* The hidden textarea sits inside the area, so focusing it never scrolls anything into view. */
-.term-host .xterm-helper-textarea {
-  left: 0 !important;
-  top: 0 !important;
-}
-
-.term-jump {
-  position: absolute;
-  right: 12px;
-  bottom: 14px;
-  z-index: 3;
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid var(--accent-border);
-  background: var(--accent-bg);
-  color: var(--accent);
-  font: 13px var(--mono);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-}
-
-/* Key bar: 44px targets, 6-8px gaps; arrows cross on the right. */
-.tm-keys {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  gap: 8px;
-  padding: 8px;
-}
-
-.tm-row,
-.tm-row2 {
-  gap: 8px;
-  min-width: 0;
-}
-
-.tm-row2 {
-  grid-column: 1;
-}
-
-.tm-side {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.tm-arrows {
-  margin-left: 0;
-  display: grid;
-  grid-template-columns: repeat(3, 44px);
-  grid-template-rows: repeat(2, 44px);
-  grid-template-areas: ". u ." "l d r";
-  gap: 6px;
-  border: 0;
-  background: none;
-  box-shadow: none;
-  overflow: visible;
-}
-
-.tm-arrows button {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--glass, rgba(255, 255, 255, 0.06));
-  color: var(--fg);
-}
-
-.tm-arrows button + button {
-  border-left: 1px solid var(--border);
-}
-
-.tm-key,
-.tm-chip {
-  min-width: 44px;
-  min-height: 44px;
-  font-size: 15px;
-}
-
-.tm-chip {
-  padding: 0 12px;
-}
-
-.tm-chips {
-  gap: 8px;
-}
-
-.tm-mod {
+.tm-k {
   position: relative;
+  flex: none;
+  min-width: 46px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  font: 14px var(--mono);
+  color: #d9c8b2;
 }
 
-.tm-mod.on {
-  background: var(--accent-bg);
-  color: var(--accent);
-  border-color: var(--accent-border);
+.tm-k:active {
+  background: rgba(231, 216, 197, 0.08);
 }
 
+.tm-sep {
+  flex: none;
+  align-self: stretch;
+  width: 1px;
+  margin: 10px 2px;
+  background: rgba(232, 184, 128, 0.14);
+}
+
+.tm-mod.on,
 .tm-mod.locked {
+  margin: 6px 2px;
+  min-width: 42px;
+  border-radius: 8px;
   background: var(--accent);
-  color: var(--bg, #0f0e0c);
+  color: #0f160b;
 }
 
 .tm-lock-dot {
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: 3px;
+  right: 3px;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: currentColor;
 }
 
-.tm-kbd {
-  align-self: flex-end;
+/* Cursor swipe strip: ~22px of label, 32px of touch area. */
+.tm-pad {
+  height: 32px;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  font: 11px var(--mono);
+  color: var(--muted);
+  opacity: 0.8;
+  background: rgba(231, 216, 197, 0.03);
 }

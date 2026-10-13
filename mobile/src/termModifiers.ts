@@ -28,7 +28,12 @@ export function useModifiers() {
     }
     return active;
   }, []);
-  return { mods, tap, lock, consume };
+  /** What is armed right now, without disarming anything. */
+  const peek = useCallback((): Active => {
+    const m = ref.current;
+    return { ctrl: m.ctrl !== "off", alt: m.alt !== "off", shift: m.shift !== "off" };
+  }, []);
+  return { mods, tap, lock, consume, peek };
 }
 
 export type NamedKey = "up" | "down" | "right" | "left" | "tab" | "esc";
