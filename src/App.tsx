@@ -1921,6 +1921,17 @@ function Shell() {
     setTabs((prev) => patchTermTab(prev, tabId, { nestedShell: "agent", wslDistro: undefined }));
   }
 
+  /** The "X isn't installed" dialog, with a one-click install in a terminal. */
+  async function offerCliInstall(cliBin: AgentCli) {
+    const label = CLI_INFO[cliBin].label;
+    const ok = await confirm({
+      title: t("app.cli.notInstalled.title", { name: label }),
+      message: t("app.cli.notInstalled.message", { name: label }),
+      confirmLabel: t("app.cli.install"),
+    });
+    if (ok) openTerminalWithCommand(cliInstallCommand(cliBin, isWindowsPlatform()));
+  }
+
   /** Before launching Claude Code / Codex / Mistral Vibe, offers a one-click install (if
    * missing) or login (if installed but signed out) in a fresh terminal
    * instead of the shortcut just quietly doing nothing useful. `check_cli_status`
@@ -1942,14 +1953,7 @@ function Shell() {
     }
 
     if (!status.installed) {
-      const isWindows = isWindowsPlatform();
-      const installCommand = cliInstallCommand(cliBin, isWindows);
-      const ok = await confirm({
-        title: t("app.cli.notInstalled.title", { name: label }),
-        message: t("app.cli.notInstalled.message", { name: label }),
-        confirmLabel: t("app.cli.install"),
-      });
-      if (ok) openTerminalWithCommand(installCommand);
+      await offerCliInstall(cliBin);
       return false;
     }
 
@@ -1992,7 +1996,16 @@ function Shell() {
 
   /** Signs `cli` in under `profileId`: its login command in a fresh terminal
    * started under that profile (Settings > Profiles). */
-  function loginProfile(profileId: string, cli: AgentCli) {
+  async function loginProfile(profileId: string, cli: AgentCli) {
+    // A login command for a CLI that isn't installed would only print "command
+    // not found" in the terminal - offer the install instead.
+    const installed = await invoke<{ installed: boolean }>("check_cli_status", { cli, profile: profileId })
+      .then((s) => s.installed)
+      .catch(() => true);
+    if (!installed) {
+      await offerCliInstall(cli);
+      return;
+    }
     openTerminalWithCommand(CLI_INFO[cli].loginCommand, profileId);
   }
 

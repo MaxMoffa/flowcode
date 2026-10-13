@@ -139,6 +139,11 @@ pub fn env_for(app: &AppHandle, profile: Option<&str>) -> Vec<(String, String)> 
         ("CLAUDE_CONFIG_DIR".to_string(), s(&d.claude)),
         ("CODEX_HOME".to_string(), s(&d.codex)),
         ("VIBE_HOME".to_string(), s(&d.vibe)),
+        // Vibe stores its API key in the OS keyring, which is shared by the
+        // whole OS user and would make every profile (and the default one)
+        // use the same key. With the keyring off it falls back to
+        // `<VIBE_HOME>/.env`, which is per profile.
+        ("VIBE_TEST_DISABLE_KEYRING".to_string(), "1".to_string()),
     ]
 }
 
@@ -175,13 +180,8 @@ fn login_state(d: &ProfileDirs) -> LoginState {
                 account || v.get("primaryApiKey").is_some_and(|k| !k.is_null())
             });
     let codex = d.codex.join("auth.json").exists();
-    let vibe = std::fs::read_to_string(d.vibe.join(".env")).is_ok_and(|env| {
-        env.lines().any(|l| {
-            l.trim()
-                .strip_prefix("MISTRAL_API_KEY=")
-                .is_some_and(|v| !v.trim().trim_matches(['"', '\'']).is_empty())
-        })
-    });
+    // Named profiles only (their keyring is off, see `env_for`).
+    let vibe = crate::vibe::has_api_key(Some(&d.vibe), false);
     LoginState { claude, codex, vibe }
 }
 

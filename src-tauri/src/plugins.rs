@@ -144,10 +144,11 @@ fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
             .ok()
             .is_some_and(|o| o.status.success() && !combined_output(&o).to_lowercase().contains("not logged in")),
         // Vibe has no status command: it's "signed in" once a Mistral API key
-        // is set - `vibe --setup` saves it to `<vibe home>/.env`.
+        // is set - `vibe --setup` saves it to the OS keyring, or to
+        // `<vibe home>/.env` when the keyring is off (named profiles).
         "vibe" => {
             let home = crate::profiles::dirs(app, profile).map(|d| d.vibe);
-            crate::vibe::has_api_key(home.as_deref())
+            crate::vibe::has_api_key(home.as_deref(), profile.is_none())
         }
         _ => false,
     }

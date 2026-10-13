@@ -365,7 +365,7 @@ use crate::spend::SpendPeriod;
 #[derive(Serialize)]
 pub struct VibeUsage {
     /// A Mistral API key is configured (`MISTRAL_API_KEY` in the environment
-    /// or in `~/.vibe/.env`, where `vibe --setup` saves it).
+    /// in `~/.vibe/.env`, or in the OS keyring, where `vibe --setup` saves it).
     #[serde(rename = "hasApiKey")]
     has_api_key: bool,
     /// Since local midnight.
@@ -379,14 +379,72 @@ pub struct VibeUsage {
 }
 
 /// Whether Vibe has a Mistral API key to work with, in the Vibe home `home`.
-pub(crate) fn has_api_key(home: Option<&Path>) -> bool {
+/// `use_keyring`: also look in the OS credential store, where Vibe saves the key
+/// first (the `.env` file is only its fallback, and is even emptied once the
+/// key is in the store). The store is shared by the whole OS user, so it only
+/// counts for the default profile - named profiles run with Vibe's keyring off
+/// (see `profiles::env_for`) and keep their key in their own `.env`.
+pub(crate) fn has_api_key(home: Option<&Path>, use_keyring: bool) -> bool {
     if std::env::var_os("MISTRAL_API_KEY").is_some_and(|v| !v.is_empty()) {
         return true;
     }
-    let Some(env) = home.and_then(|h| std::fs::read_to_string(h.join(".env")).ok()) else {
-        return false;
-    };
-    env_file_has_key(&env, "MISTRAL_API_KEY")
+    if home.and_then(|h| std::fs::read_to_string(h.join(".env")).ok()).is_some_and(|env| env_file_has_key(&env, "MISTRAL_API_KEY")) {
+        return true;
+    }
+    use_keyring && keyring_has_key("MISTRAL_API_KEY")
+}
+
+/// Vibe's keyring entry: service `ai.mistral.vibe`, username = the env var name.
+const KEYRING_SERVICE: &str = "ai.mistral.vibe";
+
+#[cfg(windows)]
+fn keyring_has_key(username: &str) -> bool {
+    use windows_sys::Win32::Security::Credentials::{CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC};
+    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    // python-keyring stores `<service>` or, when that was taken by another
+    // user name, `<username>@<service>`.
+    for target in [KEYRING_SERVICE.to_string(), format!("{username}@{KEYRING_SERVICE}")] {
+        let target = wide(&target);
+        let mut cred: *mut CREDENTIALW = std::ptr::null_mut();
+        // SAFETY: `target` is NUL-terminated; on success `cred` points to a
+        // credential we read from and then release with CredFree.
+        unsafe {
+            if CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred) == 0 || cred.is_null() {
+                continue;
+            }
+            let c = &*cred;
+            let mut user = Vec::new();
+            if !c.UserName.is_null() {
+                let mut p = c.UserName;
+                while *p != 0 {
+                    user.push(*p);
+                    p = p.add(1);
+                }
+            }
+            let hit = c.CredentialBlobSize > 0 && String::from_utf16_lossy(&user) == username;
+            CredFree(cred as *const _);
+            if hit {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn keyring_has_key(username: &str) -> bool {
+    std::process::Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", KEYRING_SERVICE, "-a", username])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn keyring_has_key(username: &str) -> bool {
+    std::process::Command::new("secret-tool")
+        .args(["lookup", "service", KEYRING_SERVICE, "username", username])
+        .output()
+        .is_ok_and(|o| o.status.success() && !o.stdout.is_empty())
 }
 
 fn env_file_has_key(env: &str, key: &str) -> bool {
@@ -425,7 +483,7 @@ pub async fn vibe_usage_stats(
             .take_while(|(_, mtime)| mtime.is_none_or(|m| now.saturating_sub(m) < 31 * 86_400_000))
             .filter_map(|(dir, _)| read_meta(dir))
             .collect();
-        Ok(summarize(&metas, now, today, has_api_key(Some(&home))))
+        Ok(summarize(&metas, now, today, has_api_key(Some(&home), profile.is_none())))
     })
     .await
 }
