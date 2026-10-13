@@ -2,6 +2,7 @@ package com.maxmoffa.flowcode.mobile
 
 import android.app.Activity
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import app.tauri.annotation.Command
@@ -11,6 +12,8 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
+import javax.crypto.BadPaddingException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -20,6 +23,9 @@ private const val ANDROID_KEYSTORE = "AndroidKeyStore"
 private const val KEY_ALIAS = "flowcode-secrets"
 private const val IV_LENGTH = 12
 private const val TAG_LENGTH_BITS = 128
+
+/** The Keystore has no key under our alias (wiped, restored on another device). */
+private class KeyMissingException : Exception("no key under the alias")
 
 @InvokeArg
 class SecureData {
@@ -56,18 +62,28 @@ class SecureStorePlugin(activity: Activity) : Plugin(activity) {
             val sealed = Base64.decode(args.data, Base64.NO_WRAP)
             if (sealed.size <= IV_LENGTH) throw IllegalArgumentException("too short")
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_LENGTH_BITS, sealed, 0, IV_LENGTH))
+            cipher.init(Cipher.DECRYPT_MODE, key(create = false), GCMParameterSpec(TAG_LENGTH_BITS, sealed, 0, IV_LENGTH))
             val plain = cipher.doFinal(sealed, IV_LENGTH, sealed.size - IV_LENGTH)
             invoke.resolve(JSObject().apply { put("data", Base64.encodeToString(plain, Base64.NO_WRAP)) })
         } catch (e: Exception) {
-            invoke.reject("Open failed: ${e.message}")
+            // The prefix tells the Rust side whether the data is lost for good
+            // (it may start over) or the failure may pass (it must not
+            // overwrite anything and retries later).
+            val code = when (e) {
+                is KeyMissingException, is KeyPermanentlyInvalidatedException, is UnrecoverableKeyException -> "KEY_MISSING"
+                is IllegalArgumentException, is BadPaddingException -> "BAD_DATA"
+                else -> "TRANSIENT"
+            }
+            invoke.reject("$code: ${e.message}")
         }
     }
 
     @Synchronized
-    private fun key(): SecretKey {
+    private fun key(create: Boolean = true): SecretKey {
         val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        // Opening must never mint a fresh key: it could not decrypt anything.
+        if (!create) throw KeyMissingException()
         val spec = KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)

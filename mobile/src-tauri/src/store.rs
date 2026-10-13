@@ -22,9 +22,29 @@ pub struct Pairing {
 /// Android Keystore; keeping it a trait leaves this module free of Tauri.
 pub trait Codec {
     fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String>;
-    fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, String>;
+    fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, OpenError>;
     /// Whether `seal` really encrypts. Gates the plaintext-to-sealed migration.
     fn seals(&self) -> bool;
+}
+
+/// Why `Codec::open` failed. The difference matters: only a `Lost` secret may
+/// be replaced by a new one; after a `Transient` failure (Keystore busy,
+/// device locked, a hiccup) the sealed file is probably still good and must
+/// not be overwritten.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenError {
+    /// The key is gone or the data cannot be decrypted, ever.
+    Lost(String),
+    /// Might work if tried again later.
+    Transient(String),
+}
+
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpenError::Lost(m) | OpenError::Transient(m) => f.write_str(m),
+        }
+    }
 }
 
 /// No encryption: desktop dev builds and the smoke example.
@@ -34,7 +54,7 @@ impl Codec for Plain {
     fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String> {
         Ok(plain.to_vec())
     }
-    fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, String> {
+    fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, OpenError> {
         Ok(sealed.to_vec())
     }
     fn seals(&self) -> bool {
@@ -47,17 +67,26 @@ const MAGIC: &[u8] = b"FCS1";
 
 enum Read {
     Missing,
+    /// Definitively unreadable (see [`OpenError::Lost`]).
+    Lost(String),
+    /// Unreadable for now; the file must be left alone.
     Failed(String),
     /// `legacy`: the file was plaintext and should be rewritten sealed.
     Found { plain: Vec<u8>, legacy: bool },
 }
 
 fn read_secret(path: &Path, codec: &dyn Codec) -> Read {
-    let Ok(bytes) = std::fs::read(path) else { return Read::Missing };
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Read::Missing,
+        // Any other I/O error says nothing about the content.
+        Err(e) => return Read::Failed(e.to_string()),
+    };
     match bytes.strip_prefix(MAGIC) {
         Some(sealed) if codec.seals() => match codec.open(sealed) {
             Ok(plain) => Read::Found { plain, legacy: false },
-            Err(e) => Read::Failed(e),
+            Err(OpenError::Lost(e)) => Read::Lost(e),
+            Err(OpenError::Transient(e)) => Read::Failed(e),
         },
         // Handing sealed bytes to a pass-through codec would yield garbage.
         Some(_) => Read::Failed("file is sealed but no secure store is available".into()),
@@ -86,7 +115,9 @@ fn migrate(path: &Path, plain: &[u8], legacy: bool, codec: &dyn Codec) {
 
 /// The phone's secret key as 64 hex chars. It is the device's identity on the
 /// desktop, so it must outlive reinstalls of the UI: a new key means pairing
-/// again.
+/// again. A new key is generated only when the old one is definitively gone
+/// (missing file, corrupt content, lost Keystore key); a transient Keystore
+/// error is returned so the caller retries instead of destroying the pairing.
 pub fn load_or_create_key(path: &Path, codec: &dyn Codec) -> Result<SecretKey, String> {
     match read_secret(path, codec) {
         Read::Found { plain, legacy } => {
@@ -99,7 +130,8 @@ pub fn load_or_create_key(path: &Path, codec: &dyn Codec) -> Result<SecretKey, S
             eprintln!("remote: {} is corrupt, generating a new key", path.display());
         }
         // E.g. the Keystore key was lost in a restore; same outcome as corrupt.
-        Read::Failed(e) => eprintln!("remote: cannot open {} ({e}), generating a new key", path.display()),
+        Read::Lost(e) => eprintln!("remote: cannot open {} ({e}), generating a new key", path.display()),
+        Read::Failed(e) => return Err(format!("cannot read the device key (will retry): {e}")),
         Read::Missing => {}
     }
     let key = SecretKey::generate();
@@ -127,7 +159,7 @@ pub fn load_pairing(path: &Path, codec: &dyn Codec) -> Option<Pairing> {
             Some(pairing)
         }
         // Unreadable means unpaired: the user pairs again.
-        Read::Failed(e) => {
+        Read::Lost(e) | Read::Failed(e) => {
             eprintln!("remote: cannot open {} ({e}), treating as unpaired", path.display());
             None
         }
@@ -181,7 +213,7 @@ mod tests {
         fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String> {
             Ok(plain.iter().map(|b| b ^ 0x5a).collect())
         }
-        fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, String> {
+        fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, OpenError> {
             Ok(sealed.iter().map(|b| b ^ 0x5a).collect())
         }
         fn seals(&self) -> bool {
@@ -194,8 +226,22 @@ mod tests {
         fn seal(&self, _: &[u8]) -> Result<Vec<u8>, String> {
             Err("no key".into())
         }
-        fn open(&self, _: &[u8]) -> Result<Vec<u8>, String> {
-            Err("no key".into())
+        fn open(&self, _: &[u8]) -> Result<Vec<u8>, OpenError> {
+            Err(OpenError::Lost("no key".into()))
+        }
+        fn seals(&self) -> bool {
+            true
+        }
+    }
+
+    /// Fails like a Keystore hiccup: the data is fine, the call is not.
+    struct Flaky;
+    impl Codec for Flaky {
+        fn seal(&self, _: &[u8]) -> Result<Vec<u8>, String> {
+            Err("busy".into())
+        }
+        fn open(&self, _: &[u8]) -> Result<Vec<u8>, OpenError> {
+            Err(OpenError::Transient("busy".into()))
         }
         fn seals(&self) -> bool {
             true
@@ -259,6 +305,19 @@ mod tests {
         assert!(load_pairing(&pair_path, &Broken).is_none());
         // Regeneration needs a working sealer to save the new key.
         assert!(load_or_create_key(&key_path, &Broken).is_err());
+        assert_eq!(load_or_create_key(&key_path, &Xor).unwrap().to_bytes(), key.to_bytes());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn transient_open_error_keeps_the_key() {
+        let dir = temp("flaky");
+        let key_path = dir.join("key");
+        let key = load_or_create_key(&key_path, &Xor).unwrap();
+        let before = std::fs::read(&key_path).unwrap();
+        assert!(load_or_create_key(&key_path, &Flaky).is_err());
+        // Neither replaced nor rewritten.
+        assert_eq!(std::fs::read(&key_path).unwrap(), before);
         assert_eq!(load_or_create_key(&key_path, &Xor).unwrap().to_bytes(), key.to_bytes());
         let _ = std::fs::remove_dir_all(dir);
     }

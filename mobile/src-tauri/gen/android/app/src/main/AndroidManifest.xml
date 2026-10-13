@@ -46,14 +46,8 @@
             <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
         </activity>
 
-        <provider
-          android:name="androidx.core.content.FileProvider"
-          android:authorities="${applicationId}.fileprovider"
-          android:exported="false"
-          android:grantUriPermissions="true">
-          <meta-data
-            android:name="android.support.FILE_PROVIDER_PATHS"
-            android:resource="@xml/file_paths" />
-        </provider>
+        <!-- No FileProvider on purpose: nothing in the app shares files by URI
+             (the barcode scanner and biometric plugins do not use one), and
+             the template's paths exposed all external and cache storage. -->
     </application>
 </manifest>

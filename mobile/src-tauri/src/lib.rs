@@ -12,38 +12,94 @@ use iroh::Endpoint;
 use link::{LinkError, Session};
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use secure::SecureStore;
 use store::Pairing;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::{mpsc, Notify, OnceCell};
+use tokio::sync::{mpsc, Notify};
 
 const PING_EVERY: Duration = Duration::from_secs(20);
 /// Pongs answer our pings, so 60 s of total silence means the link is dead
-/// even though QUIC has not noticed yet.
+/// even though QUIC has not noticed yet. (The QUIC idle timeout is 90 s, see
+/// `link::IDLE_TIMEOUT`, so this timer always fires first.)
 const DEAD_AFTER: Duration = Duration::from_secs(60);
-const BACKOFF_MIN: Duration = Duration::from_secs(1);
-const BACKOFF_MAX: Duration = Duration::from_secs(15);
+/// When the app comes back to the foreground the link may be a zombie (the OS
+/// froze the process, or Wi-Fi/mobile data switched meanwhile): a ping must be
+/// answered within this long or the link is dropped and redialed at once.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(6);
+/// After this many consecutive failed dials the iroh endpoint is rebuilt:
+/// its sockets may be bound to a network that no longer exists.
+const REBUILD_ENDPOINT_EVERY: u32 = 4;
+/// A deep link that was not picked up by the pairing screen goes stale.
+const PENDING_LINK_TTL: Duration = Duration::from_secs(120);
+
+/// Reconnect delay after `failures` consecutive failures (>= 1): 1, 2, 4, 8 s
+/// and then 8 s. Kept low on purpose: someone is looking at the phone.
+fn backoff_delay(failures: u32) -> Duration {
+    Duration::from_secs(1 << failures.saturating_sub(1).min(3))
+}
+
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+enum Status {
+    #[default]
+    Unpaired,
+    Connecting,
+    Online,
+    Offline,
+}
+
+/// Where a reconnect attempt is.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+enum Phase {
+    /// Backoff sleep.
+    Waiting,
+    Dialing,
+    Handshake,
+}
 
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct StateEvent {
-    /// "unpaired" | "connecting" | "online" | "offline"
-    status: &'static str,
+    status: Status,
     #[serde(skip_serializing_if = "Option::is_none")]
     host_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-    /// Where a reconnect attempt is: "waiting" (backoff) | "dialing" | "handshake".
     #[serde(skip_serializing_if = "Option::is_none")]
-    phase: Option<&'static str>,
+    phase: Option<Phase>,
     /// Consecutive failures since the link was last online.
     #[serde(skip_serializing_if = "Option::is_none")]
     attempt: Option<u32>,
-    /// Unix ms when the next attempt starts; only while "waiting".
+    /// Unix ms when the next attempt starts; only while waiting.
     #[serde(skip_serializing_if = "Option::is_none")]
     retry_at: Option<u64>,
+}
+
+impl StateEvent {
+    fn new(status: Status) -> Self {
+        StateEvent { status, ..Default::default() }
+    }
+
+    fn host(mut self, host_name: Option<String>) -> Self {
+        self.host_name = host_name;
+        self
+    }
+
+    fn error(mut self, error: Option<String>) -> Self {
+        self.error = error;
+        self
+    }
+
+    fn phase(mut self, phase: Phase, attempt: u32, retry_at: Option<u64>) -> Self {
+        self.phase = Some(phase);
+        self.attempt = Some(attempt);
+        self.retry_at = retry_at;
+        self
+    }
 }
 
 #[derive(Serialize)]
@@ -51,6 +107,14 @@ struct StateEvent {
 struct PairingState {
     paired: bool,
     host_name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TicketInfo {
+    host_name: String,
+    /// Fingerprint of the desktop's node id, to confirm before pairing.
+    fingerprint: String,
 }
 
 #[derive(Default)]
@@ -61,7 +125,8 @@ struct Inner {
     generation: u64,
     out: Option<mpsc::UnboundedSender<ClientMsg>>,
     state: StateEvent,
-    pending_link: Option<String>,
+    /// A `flowcode://pair` link and when it arrived; see `PENDING_LINK_TTL`.
+    pending_link: Option<(String, Instant)>,
 }
 
 struct Remote {
@@ -69,10 +134,40 @@ struct Remote {
     /// Seals the key and pairing files (Android Keystore; pass-through elsewhere).
     /// Its calls block briefly, which is fine on the async runtime workers.
     codec: SecureStore,
-    endpoint: OnceCell<Endpoint>,
+    /// Created lazily and rebuilt after repeated failures (`reset_endpoint`).
+    endpoint: tokio::sync::Mutex<Option<Endpoint>>,
     inner: Mutex<Inner>,
-    /// Cuts the backoff sleep short (`retry_now`).
+    /// Cuts the backoff sleep short (`retry_now`). Only `notify_waiters` is
+    /// used, so a call with nobody waiting leaves no permit behind to skip a
+    /// later backoff.
     retry: Notify,
+    /// The app came back to the foreground: probe an online link.
+    resume: Notify,
+    /// A `pair` is running; a second one is refused.
+    pairing: AtomicBool,
+}
+
+/// Clears `Remote::pairing` however `pair` ends.
+struct PairGuard<'a>(&'a AtomicBool);
+
+impl Drop for PairGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Dropped when `serve` ends or its task is aborted (`stop_task`): without it
+/// an aborted loop would leave the reader task and the QUIC connection alive.
+struct ServeGuard {
+    reader: tokio::task::AbortHandle,
+    conn: iroh::endpoint::Connection,
+}
+
+impl Drop for ServeGuard {
+    fn drop(&mut self) {
+        self.reader.abort();
+        self.conn.close(0u32.into(), b"bye");
+    }
 }
 
 impl Remote {
@@ -89,17 +184,30 @@ impl Remote {
     }
 
     async fn endpoint(&self) -> Result<Endpoint, String> {
-        self.endpoint
-            .get_or_try_init(|| async {
-                let key = store::load_or_create_key(&self.key_path(), &self.codec)?;
-                link::bind(key).await
-            })
-            .await
-            .cloned()
+        let mut slot = self.endpoint.lock().await;
+        if let Some(endpoint) = slot.as_ref().filter(|e| !e.is_closed()) {
+            return Ok(endpoint.clone());
+        }
+        let key = store::load_or_create_key(&self.key_path(), &self.codec)?;
+        let endpoint = link::bind(key).await?;
+        *slot = Some(endpoint.clone());
+        Ok(endpoint)
     }
 
-    fn set_state(&self, app: &AppHandle, status: &'static str, host_name: Option<String>, error: Option<String>) {
-        self.emit(app, StateEvent { status, host_name, error, ..Default::default() });
+    /// Throws the endpoint away; the next `endpoint()` binds a fresh one.
+    async fn reset_endpoint(&self) {
+        if let Some(old) = self.endpoint.lock().await.take() {
+            tauri::async_runtime::spawn(async move { old.close().await });
+        }
+    }
+
+    /// Tells iroh the network may have changed (Android does not expose that to
+    /// native code), so it re-probes its paths instead of trusting stale ones.
+    async fn network_change(&self) {
+        let endpoint = self.endpoint.lock().await.clone();
+        if let Some(endpoint) = endpoint {
+            endpoint.network_change().await;
+        }
     }
 
     fn emit(&self, app: &AppHandle, event: StateEvent) {
@@ -107,18 +215,22 @@ impl Remote {
         let _ = app.emit("remote://state", event);
     }
 
-    /// Reports a reconnect phase for the phone's "connection lost" sheet.
-    fn set_phase(&self, app: &AppHandle, status: &'static str, host: Option<String>, error: Option<String>, phase: &'static str, attempt: u32, retry_at: Option<u64>) {
-        self.emit(app, StateEvent { status, host_name: host, error, phase: Some(phase), attempt: Some(attempt), retry_at });
+    fn set_state(&self, app: &AppHandle, status: Status, host_name: Option<String>, error: Option<String>) {
+        self.emit(app, StateEvent::new(status).host(host_name).error(error));
     }
 
     /// Backoff sleep that `retry_now` can end early.
     async fn wait(&self, app: &AppHandle, host: Option<String>, error: String, attempt: u32, delay: Duration) {
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64) + delay.as_millis() as u64;
-        self.set_phase(app, "offline", host, Some(error), "waiting", attempt, Some(at));
+        // Registered before the state is published: a `retry_now` the UI sends
+        // on seeing "waiting" can then never slip in between.
+        let notified = self.retry.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        self.emit(app, StateEvent::new(Status::Offline).host(host).error(Some(error)).phase(Phase::Waiting, attempt, Some(at)));
         tokio::select! {
             _ = tokio::time::sleep(delay) => {}
-            _ = self.retry.notified() => {}
+            _ = &mut notified => {}
         }
     }
 
@@ -157,51 +269,57 @@ enum Exit {
     Lost(String),
 }
 
+/// One dial + handshake with the stored desktop.
+async fn connect_once(app: &AppHandle, remote: &Remote, pairing: &Pairing, failures: u32) -> Result<Session, LinkError> {
+    let host = Some(pairing.host_name.clone());
+    // Repeated failures may mean the endpoint is stuck on a dead network
+    // (Wi-Fi <-> mobile switch, Android suspending the app): start over with a
+    // fresh one. Not while a `pair` holds the current endpoint.
+    if failures > 0 && failures % REBUILD_ENDPOINT_EVERY == 0 && !remote.pairing.load(Ordering::SeqCst) {
+        remote.reset_endpoint().await;
+    }
+    remote.emit(app, StateEvent::new(Status::Connecting).host(host.clone()).phase(Phase::Dialing, failures, None));
+    let endpoint = remote.endpoint().await.map_err(LinkError::Transient)?;
+    // Cheap and harmless when nothing changed; cures stale paths when it did.
+    if failures > 0 {
+        endpoint.network_change().await;
+    }
+    link::handshake_with(&endpoint, &pairing.node, ClientMsg::Auth { token: pairing.token.clone() }, || {
+        remote.emit(app, StateEvent::new(Status::Connecting).host(host.clone()).phase(Phase::Handshake, failures, None))
+    })
+    .await
+}
+
 /// Connects, serves, and reconnects until the pairing is gone or the task is
 /// aborted. `initial` is a session `pair` already established.
 async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Option<Session>) {
-    let mut backoff = BACKOFF_MIN;
     let mut failures: u32 = 0;
     loop {
         let Some(pairing) = store::load_pairing(&remote.pairing_path(), &remote.codec) else {
-            remote.set_state(app, "unpaired", None, None);
+            remote.set_state(app, Status::Unpaired, None, None);
             return;
         };
-        let host = Some(pairing.host_name.clone());
         let session = match initial.take() {
             Some(s) => s,
-            None => {
-                remote.set_phase(app, "connecting", host.clone(), None, "dialing", failures, None);
-                let result = async {
-                    let endpoint = remote.endpoint().await.map_err(LinkError::Transient)?;
-                    link::handshake_with(&endpoint, &pairing.node, ClientMsg::Auth { token: pairing.token.clone() }, || {
-                        remote.set_phase(app, "connecting", host.clone(), None, "handshake", failures, None)
-                    })
-                    .await
+            None => match connect_once(app, remote, &pairing, failures).await {
+                Ok(s) => s,
+                Err(LinkError::Fatal(message)) => {
+                    forget(app, remote, message);
+                    return;
                 }
-                .await;
-                match result {
-                    Ok(s) => s,
-                    Err(LinkError::Fatal(message)) => {
-                        forget(app, remote, message);
-                        return;
-                    }
-                    Err(LinkError::Transient(message)) => {
-                        failures += 1;
-                        remote.wait(app, host, message, failures, backoff).await;
-                        backoff = (backoff * 2).min(BACKOFF_MAX);
-                        continue;
-                    }
+                Err(LinkError::Transient(message)) => {
+                    failures += 1;
+                    remote.wait(app, Some(pairing.host_name), message, failures, backoff_delay(failures)).await;
+                    continue;
                 }
-            }
+            },
         };
-        backoff = BACKOFF_MIN;
         let host_name = session.host_name.clone();
         let _ = app.emit(
             "remote://msg",
             ServerMsg::Ready { device_name: session.device_name.clone(), host_name: host_name.clone() },
         );
-        remote.set_state(app, "online", Some(host_name.clone()), None);
+        remote.set_state(app, Status::Online, Some(host_name.clone()), None);
         match serve(app, remote, session).await {
             Exit::Fatal(message) => {
                 forget(app, remote, message);
@@ -209,7 +327,7 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
             }
             Exit::Lost(message) => {
                 failures = 1;
-                remote.wait(app, Some(host_name), message, failures, BACKOFF_MIN).await;
+                remote.wait(app, Some(host_name), message, failures, backoff_delay(failures)).await;
             }
         }
     }
@@ -219,7 +337,7 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
 /// wrong token): keeping the pairing would just loop on refusals.
 fn forget(app: &AppHandle, remote: &Remote, message: String) {
     store::forget_pairing(&remote.pairing_path());
-    remote.set_state(app, "unpaired", None, Some(message));
+    remote.set_state(app, Status::Unpaired, None, Some(message));
 }
 
 async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
@@ -239,19 +357,30 @@ async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
             }
         }
     });
+    // Also covers the loop being aborted mid-`serve`.
+    let _guard = ServeGuard { reader: reader.abort_handle(), conn: session.conn.clone() };
 
     let exit = async {
         let mut ping = tokio::time::interval(PING_EVERY);
         ping.tick().await;
         let mut last_rx = Instant::now();
+        // Set when the app resumes: the link must prove itself by then.
+        let mut probe_until: Option<tokio::time::Instant> = None;
         if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &ClientMsg::List).await {
             return Exit::Lost(e.to_string());
         }
         loop {
+            let probe = async {
+                match probe_until {
+                    Some(t) => tokio::time::sleep_until(t).await,
+                    None => std::future::pending().await,
+                }
+            };
             tokio::select! {
                 incoming = in_rx.recv() => match incoming {
                     Some(Ok(msg)) => {
                         last_rx = Instant::now();
+                        probe_until = None;
                         let _ = app.emit("remote://msg", &msg);
                         if let ServerMsg::Error { message, fatal: true, .. } = msg {
                             return Exit::Fatal(message);
@@ -274,14 +403,19 @@ async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
                         return Exit::Lost(e.to_string());
                     }
                 }
+                _ = remote.resume.notified() => {
+                    if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &ClientMsg::Ping).await {
+                        return Exit::Lost(e.to_string());
+                    }
+                    probe_until.get_or_insert_with(|| tokio::time::Instant::now() + PROBE_TIMEOUT);
+                }
+                _ = probe => return Exit::Lost("the desktop did not answer after resuming".into()),
             }
         }
     }
     .await;
 
     remote.lock().out = None;
-    reader.abort();
-    session.conn.close(0u32.into(), b"bye");
     exit
 }
 
@@ -301,37 +435,77 @@ fn pairing_state(remote: State<'_, Arc<Remote>>) -> PairingState {
     PairingState { paired: pairing.is_some(), host_name: pairing.map(|p| p.host_name) }
 }
 
-/// A `flowcode://pair` link the OS opened the app with, if any (taken once).
-#[tauri::command]
+/// A `flowcode://pair` link the OS opened the app with, if any. Taken once,
+/// dropped after `PENDING_LINK_TTL`, and never offered while a pairing exists:
+/// a link only ever fills in the pairing screen, it never pairs by itself.
+// `(async)`: reads the pairing, a Keystore call.
+#[tauri::command(async)]
 fn take_pending_link(remote: State<'_, Arc<Remote>>) -> Option<String> {
-    remote.lock().pending_link.take()
+    let taken = remote.lock().pending_link.take();
+    let (url, at) = taken?;
+    if at.elapsed() > PENDING_LINK_TTL || store::load_pairing(&remote.pairing_path(), &remote.codec).is_some() {
+        return None;
+    }
+    Some(url)
+}
+
+/// What a pairing link points at, to ask "connect to <host>?" before pairing.
+#[tauri::command]
+fn inspect_ticket(ticket: String) -> Result<TicketInfo, String> {
+    let (host_name, fingerprint) = link::inspect_ticket(&ticket)?;
+    Ok(TicketInfo { host_name, fingerprint })
+}
+
+/// Fingerprint of this phone's own node id; the desktop shows the same one in
+/// its confirm dialog, so the user can compare.
+#[tauri::command]
+async fn my_fingerprint(remote: State<'_, Arc<Remote>>) -> Result<String, String> {
+    let endpoint = remote.endpoint().await?;
+    Ok(flowcode_remote_proto::node_fingerprint(&endpoint.id().to_string()))
 }
 
 #[tauri::command]
 async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, device_name: String) -> Result<(), String> {
     let remote = Arc::clone(&remote);
+    // A second pair while one waits for the desktop's confirmation is refused
+    // before it can touch any state.
+    if remote.pairing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        return Err("a pairing is already in progress".into());
+    }
+    let _guard = PairGuard(&remote.pairing);
     let parsed = PairingTicket::parse(&ticket).map_err(|e| e.to_string())?;
     let device_name = device_name.trim().to_string();
     if device_name.is_empty() {
         return Err("device name is empty".into());
     }
-    remote.stop_task();
-    remote.set_state(&app, "connecting", Some(parsed.host.clone()), None);
+    // The running connection (if any) stays up until the new pairing exists.
+    let running = remote.lock().task.is_some();
+    if !running {
+        remote.set_state(&app, Status::Connecting, Some(parsed.host.clone()), None);
+    }
     let result = async {
         let endpoint = remote.endpoint().await.map_err(LinkError::Transient)?;
         link::handshake(&endpoint, &parsed.node, ClientMsg::Pair { code: parsed.code.clone(), device_name }).await
     }
     .await;
+    let failed = |message: String| {
+        // Without a running loop the state still says "connecting": go back
+        // to the stored pairing's reconnect loop, or to unpaired if none.
+        if !running {
+            if store::load_pairing(&remote.pairing_path(), &remote.codec).is_some() {
+                remote.start_task(&app, None);
+            } else {
+                remote.set_state(&app, Status::Unpaired, None, None);
+            }
+        }
+        Err(message)
+    };
     let session = match result {
         Ok(s) => s,
-        Err(e) => {
-            remote.set_state(&app, "unpaired", None, None);
-            return Err(e.message().to_string());
-        }
+        Err(e) => return failed(e.message().to_string()),
     };
     let Some(token) = session.token.clone() else {
-        remote.set_state(&app, "unpaired", None, None);
-        return Err("the desktop did not issue a token".into());
+        return failed("the desktop did not issue a token".into());
     };
     let pairing = Pairing {
         node: parsed.node,
@@ -340,8 +514,7 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
         device_name: session.device_name.clone(),
     };
     if let Err(e) = store::save_pairing(&remote.pairing_path(), &pairing, &remote.codec) {
-        remote.set_state(&app, "unpaired", None, None);
-        return Err(e);
+        return failed(e);
     }
     remote.start_task(&app, Some(session));
     Ok(())
@@ -354,7 +527,7 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
 fn connect(app: AppHandle, remote: State<'_, Arc<Remote>>) {
     let remote = Arc::clone(&remote);
     if store::load_pairing(&remote.pairing_path(), &remote.codec).is_none() {
-        remote.set_state(&app, "unpaired", None, None);
+        remote.set_state(&app, Status::Unpaired, None, None);
         return;
     }
     let (running, state) = {
@@ -379,20 +552,43 @@ fn send(remote: State<'_, Arc<Remote>>, msg: serde_json::Value) -> Result<(), St
     out.ok_or_else(|| "not connected".to_string())?.send(msg).map_err(|_| "not connected".to_string())
 }
 
-/// "Retry now": ends the backoff sleep. Ignored unless the loop is waiting, so
-/// a stray permit cannot skip a later backoff.
+/// "Retry now": ends the backoff sleep. Ignored unless the loop is waiting.
 #[tauri::command]
 fn retry_now(remote: State<'_, Arc<Remote>>) {
-    if remote.lock().state.phase == Some("waiting") {
-        remote.retry.notify_one();
+    if remote.lock().state.phase == Some(Phase::Waiting) {
+        remote.retry.notify_waiters();
     }
+}
+
+/// The app is visible again (call on `visibilitychange` -> visible). The
+/// network may have changed while it was in the background and Android gives
+/// native code no notification, so: tell iroh, redial at once if the link is in
+/// backoff, probe it if it looks online, restart the loop if it is not running.
+#[tauri::command]
+async fn app_resumed(app: AppHandle, remote: State<'_, Arc<Remote>>) -> Result<(), String> {
+    let remote = Arc::clone(&remote);
+    remote.network_change().await;
+    let (running, phase) = {
+        let inner = remote.lock();
+        (inner.task.is_some(), inner.state.phase)
+    };
+    if !running {
+        if store::load_pairing(&remote.pairing_path(), &remote.codec).is_some() && !remote.pairing.load(Ordering::SeqCst) {
+            remote.start_task(&app, None);
+        }
+    } else if phase == Some(Phase::Waiting) {
+        remote.retry.notify_waiters();
+    } else {
+        remote.resume.notify_waiters();
+    }
+    Ok(())
 }
 
 #[tauri::command]
 fn unpair(app: AppHandle, remote: State<'_, Arc<Remote>>) {
     remote.stop_task();
     store::forget_pairing(&remote.pairing_path());
-    remote.set_state(&app, "unpaired", None, None);
+    remote.set_state(&app, Status::Unpaired, None, None);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -410,23 +606,33 @@ pub fn run() {
             let remote = Arc::new(Remote {
                 dir,
                 codec: app.state::<SecureStore>().inner().clone(),
-                endpoint: OnceCell::new(),
-                inner: Mutex::new(Inner { state: StateEvent { status: "connecting", ..Default::default() }, ..Default::default() }),
+                endpoint: tokio::sync::Mutex::new(None),
+                inner: Mutex::new(Inner { state: StateEvent::new(Status::Connecting), ..Default::default() }),
                 retry: Notify::new(),
+                resume: Notify::new(),
+                pairing: AtomicBool::new(false),
             });
             app.manage(Arc::clone(&remote));
             #[cfg(mobile)]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 // Kept for the webview to pick up (it may not be listening
-                // yet on a cold start) and also pushed live.
+                // yet on a cold start) and also pushed live. A link is only
+                // ever a suggestion for the pairing screen, and is dropped
+                // while a pairing exists. The pairing check (Keystore) runs
+                // on its own thread, off the one that delivers the link.
                 let on_link = {
                     let (remote, handle) = (Arc::clone(&remote), app.handle().clone());
                     move |urls: Vec<String>| {
-                        if let Some(url) = urls.into_iter().find(|u| u.starts_with("flowcode://")) {
-                            remote.lock().pending_link = Some(url.clone());
+                        let Some(url) = urls.into_iter().find(|u| u.starts_with("flowcode://")) else { return };
+                        let (remote, handle) = (Arc::clone(&remote), handle.clone());
+                        std::thread::spawn(move || {
+                            if store::load_pairing(&remote.pairing_path(), &remote.codec).is_some() {
+                                return;
+                            }
+                            remote.lock().pending_link = Some((url.clone(), Instant::now()));
                             let _ = handle.emit("remote://deeplink", url);
-                        }
+                        });
                     }
                 };
                 if let Ok(Some(urls)) = app.deep_link().get_current() {
@@ -436,7 +642,38 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform, pairing_state, take_pending_link, pair, connect, send, retry_now, unpair])
+        .invoke_handler(tauri::generate_handler![
+            platform,
+            pairing_state,
+            take_pending_link,
+            inspect_ticket,
+            my_fingerprint,
+            pair,
+            connect,
+            send,
+            retry_now,
+            app_resumed,
+            unpair
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Flowcode Mobile");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_doubles_up_to_eight_seconds() {
+        let secs: Vec<u64> = (0..7).map(|f| backoff_delay(f).as_secs()).collect();
+        assert_eq!(secs, [1, 1, 2, 4, 8, 8, 8]);
+    }
+
+    #[test]
+    fn state_serializes_lowercase() {
+        let json = serde_json::to_value(StateEvent::new(Status::Offline).phase(Phase::Waiting, 2, Some(5))).unwrap();
+        assert_eq!(json["status"], "offline");
+        assert_eq!(json["phase"], "waiting");
+        assert_eq!(json["retryAt"], 5);
+    }
 }

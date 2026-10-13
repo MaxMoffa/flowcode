@@ -3,13 +3,20 @@
 //! app uses.
 
 use flowcode_remote_proto::{read_frame, write_frame, ClientMsg, FrameError, ServerMsg, ALPN};
-use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
+use iroh::endpoint::{presets, Connection, QuicTransportConfig, RecvStream, SendStream};
 use iroh::{Endpoint, SecretKey};
 use iroh_tickets::endpoint::EndpointTicket;
 use std::str::FromStr;
 use std::time::Duration;
 
-const DIAL_TIMEOUT: Duration = Duration::from_secs(20);
+/// A phone user is watching the spinner: 12 s is enough for a relay round trip
+/// plus hole punching, and failing sooner lets the (short) backoff retry.
+const DIAL_TIMEOUT: Duration = Duration::from_secs(12);
+/// QUIC idle timeout. iroh sends keep-alives every 5 s by default, so this only
+/// fires when the path is really dead; it must stay above the app's 60 s
+/// silence timer (`DEAD_AFTER`), otherwise QUIC would drop a link the app
+/// still considers healthy (iroh's default is 30 s).
+const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// The server drops a connection whose first frame takes longer than 10 s;
 /// waiting a bit longer for its answer covers a slow relay path.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -46,8 +53,14 @@ impl LinkError {
 }
 
 pub async fn bind(key: SecretKey) -> Result<Endpoint, String> {
+    let mut transport = QuicTransportConfig::builder();
+    // Out of range cannot happen for 90 s; fall back to iroh's default if it did.
+    if let Ok(idle) = IDLE_TIMEOUT.try_into() {
+        transport = transport.max_idle_timeout(Some(idle));
+    }
     Endpoint::builder(presets::N0)
         .secret_key(key)
+        .transport_config(transport.build())
         .bind()
         .await
         .map_err(|e| format!("cannot start the network endpoint: {e}"))
@@ -105,4 +118,11 @@ fn frame_err(e: FrameError) -> LinkError {
         FrameError::Closed => "the desktop closed the connection".to_string(),
         other => other.to_string(),
     })
+}
+
+/// Host name and desktop fingerprint of a pairing link, without connecting.
+pub fn inspect_ticket(ticket: &str) -> Result<(String, String), String> {
+    let parsed = flowcode_remote_proto::PairingTicket::parse(ticket).map_err(|e| e.to_string())?;
+    let node = EndpointTicket::from_str(&parsed.node).map_err(|e| format!("bad desktop address: {e}"))?;
+    Ok((parsed.host, flowcode_remote_proto::node_fingerprint(&node.endpoint_addr().id.to_string())))
 }
