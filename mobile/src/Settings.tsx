@@ -3,6 +3,7 @@ import "./settings.css";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { setLockEnabled, useLock, verify } from "./applock";
+import { effectivePhone, phoneTheme, setPhoneTheme } from "./theme";
 import { connectionLog, setSetting, unpair, type MirroredSettings } from "./remote";
 
 type Palette = MirroredSettings["palettes"][number];
@@ -287,13 +288,14 @@ function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: stri
 
 const onOff = (v: boolean) => (v ? t("stateOn") : t("stateOff"));
 
-function summaries(s: MirroredSettings | null, lock: ReturnType<typeof useLock>, hostName?: string): Record<SectionId, string> {
-  const paletteName = s?.palettes.find((p) => p.id === s.palette)?.name ?? s?.palette ?? "";
-  const themeName = s ? { auto: t("themeAuto"), light: t("themeLight"), dark: t("themeDark") }[s.theme] : "";
+function summaries(s: MirroredSettings | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, hostName?: string): Record<SectionId, string> {
+  const eff = s ? effectivePhone(s, local) : null;
+  const paletteName = s && eff ? (s.palettes.find((p) => p.id === eff.palette)?.name ?? eff.palette) : "";
+  const themeName = eff ? { auto: t("themeAuto"), light: t("themeLight"), dark: t("themeDark") }[eff.theme] : "";
   const notifyCount = s ? [s.notify.done, s.notify.input, s.notify.exited, s.notify.limitReset].filter(Boolean).length : 0;
   const langName = !s ? "" : s.language === "system" ? t("langSystem") : (s.languages.find((l) => l.id === s.language)?.name ?? s.language);
   return {
-    appearance: s ? `${paletteName} · ${themeName}` : "",
+    appearance: s ? (eff?.local ? t("sumPhoneOnly", { name: paletteName }) : `${paletteName} · ${themeName}`) : "",
     terminal: s ? t("sumTerminal", { size: s.terminalFontSize, banner: onOff(s.bannerEnabled) }) : "",
     agents: s ? (notifyCount ? t("sumAgents", { n: notifyCount }) : t("sumAgentsNone")) : "",
     resume: s ? (s.autoResume.enabled ? t("sumResumeOn", { msg: s.autoResume.message || t("autoResumePlaceholder") }) : t("sumResumeOff")) : "",
@@ -308,7 +310,8 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
   const [section, setSection] = useState<SectionId | null>(null);
   useBackHandler(section !== null, () => setSection(null));
 
-  const sum = summaries(s, lock, hostName);
+  const local = phoneTheme.use();
+  const sum = summaries(s, lock, local, hostName);
   const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", "language"] : [];
   const phoneOnly: SectionId[] = lock.available ? ["security", "phone"] : ["phone"];
   const titles: Record<SectionId, string> = {
@@ -375,7 +378,8 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
       <p className="sec-intro">{intro[section]}</p>
 
       {section === "appearance" && s && (
-        <Group title={t("appearance")}>
+        <>
+        <Group title={t("scopeShared")}>
           <Segmented
             label={t("theme")}
             value={s.theme}
@@ -394,6 +398,25 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
           <Slider label={t("contrast")} value={s.contrast} onCommit={(v) => setSetting("contrast", v)} />
           <Slider label={t("glassOpacity")} value={s.glassOpacity} onCommit={(v) => setSetting("glassOpacity", v)} />
         </Group>
+        <Group title={t("scopePhone")}>
+          <Toggle label={t("phoneThemeSwitch")} hint={t("phoneThemeHint")} on={local.enabled} onChange={(on) => setPhoneTheme({ enabled: on }, s)} />
+          {local.enabled && (
+            <>
+              <Segmented
+                label={t("theme")}
+                value={effectivePhone(s, local).theme}
+                options={[
+                  { id: "auto", name: t("themeAuto") },
+                  { id: "light", name: t("themeLight") },
+                  { id: "dark", name: t("themeDark") },
+                ]}
+                onChange={(v) => setPhoneTheme({ theme: v })}
+              />
+              <PaletteGrid label={t("palette")} palettes={s.palettes} value={effectivePhone(s, local).palette} onChange={(id) => setPhoneTheme({ palette: id })} />
+            </>
+          )}
+        </Group>
+        </>
       )}
 
       {section === "language" && s && (

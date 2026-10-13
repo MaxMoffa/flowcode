@@ -3,6 +3,7 @@
 // reads them with getComputedStyle and hands them to xterm, which can't parse
 // CSS color functions.
 import type { MirroredSettings } from "./remote";
+import { createStore, safeStorage } from "./store";
 
 type Rgba = [number, number, number, number];
 
@@ -115,4 +116,82 @@ export function applyTheme(settings: MirroredSettings | null) {
   for (const k in vars) root.style.setProperty(k, vars[k]);
   root.dataset.theme = mode;
   root.style.colorScheme = mode;
+}
+
+// ---- Phone-only theme -------------------------------------------------------
+// An optional override of the desktop's theme/palette, kept on the phone only
+// and never sent to the desktop. Each field falls back to the mirrored value.
+export interface PhoneTheme {
+  enabled: boolean;
+  theme: "auto" | "light" | "dark" | null;
+  palette: string | null;
+}
+
+const PHONE_THEME_KEY = "flowcode.phoneTheme";
+
+function loadPhoneTheme(): PhoneTheme {
+  const out: PhoneTheme = { enabled: false, theme: null, palette: null };
+  const raw = safeStorage.get(PHONE_THEME_KEY);
+  if (!raw) return out;
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    out.enabled = v.enabled === true;
+    out.theme = v.theme === "auto" || v.theme === "light" || v.theme === "dark" ? v.theme : null;
+    out.palette = typeof v.palette === "string" ? v.palette : null;
+  } catch {
+    // Corrupt cache: start from the defaults.
+  }
+  return out;
+}
+
+export const phoneTheme = createStore<PhoneTheme>(loadPhoneTheme());
+
+/** Updates the phone-only theme; when enabled, empty fields are seeded from the mirrored settings. */
+export function setPhoneTheme(patch: Partial<PhoneTheme>, mirrored?: MirroredSettings | null) {
+  const next = { ...phoneTheme.get(), ...patch };
+  if (next.enabled && mirrored) {
+    next.theme ??= mirrored.theme;
+    next.palette ??= mirrored.palette;
+  }
+  phoneTheme.set(next);
+  safeStorage.set(PHONE_THEME_KEY, JSON.stringify(next));
+}
+
+/** Theme and palette the phone actually shows (an unknown stored palette id falls back to the mirrored one). */
+export function effectivePhone(s: MirroredSettings, local: PhoneTheme): { theme: "auto" | "light" | "dark"; palette: string; local: boolean } {
+  if (!local.enabled) return { theme: s.theme, palette: s.palette, local: false };
+  const known = local.palette !== null && s.palettes.some((p) => p.id === local.palette);
+  return { theme: local.theme ?? s.theme, palette: known ? (local.palette as string) : s.palette, local: true };
+}
+
+const luma = (c: string) => {
+  const [r, g, b] = parse(c);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+};
+
+/** The mirrored settings with the phone-only theme/palette applied; the same object when there is no override. */
+export function withPhoneTheme(s: MirroredSettings | null, local: PhoneTheme): MirroredSettings | null {
+  if (!s || !local.enabled) return s;
+  const e = effectivePhone(s, local);
+  const sysLight = typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: light)").matches;
+  const mode: "light" | "dark" = e.theme === "auto" ? (sysLight ? "light" : "dark") : e.theme;
+  if (e.palette === s.palette && mode === s.resolvedTheme) return { ...s, theme: e.theme };
+  const p = s.palettes.find((x) => x.id === e.palette);
+  // Only the swatch (bg + two accents) is known for other palettes: derive the rest.
+  const wantDark = mode === "dark";
+  const base = p?.bg ?? DEFAULTS[mode].bg;
+  const bg = luma(base) < 0.5 === wantDark ? base : mix(base, wantDark ? "#000000" : "#ffffff", 0.9);
+  const fg = wantDark ? mix(bg, "#ffffff", 0.88) : mix(bg, "#000000", 0.85);
+  const accent = p?.accent ?? DEFAULTS[mode]["--accent"];
+  const colors: Record<string, string> = {};
+  for (const k in s.colors) if (k.startsWith("--ansi-")) colors[k] = s.colors[k];
+  Object.assign(colors, {
+    bg,
+    "--fg": fg,
+    "--fg-muted": mix(bg, fg, 0.6),
+    "--accent": accent,
+    "--accent-2": p?.accent2 ?? DEFAULTS[mode]["--accent-2"],
+    "--on-accent": luma(accent) > 0.55 ? "#111111" : "#ffffff",
+  });
+  return { ...s, theme: e.theme, resolvedTheme: mode, palette: e.palette, colors };
 }

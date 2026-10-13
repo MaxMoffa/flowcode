@@ -10,7 +10,7 @@ import { PairingScreen } from "./Pairing";
 import { Reconnect } from "./Reconnect";
 import { resetSettingsCache, setLastOpened, start, useRemote } from "./remote";
 import { TerminalsScreen } from "./Terminals";
-import { applyTheme } from "./theme";
+import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
 
 // xterm makes the terminal the bulk of the bundle; it loads when first opened.
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
@@ -82,7 +82,8 @@ function AppContent() {
 
   // The phone wears the desktop's colors and language (see remote.ts); before
   // the first settings message the cached ones (or the defaults) apply.
-  useLayoutEffect(() => applyTheme(remote.settings), [remote.settings]);
+  const localTheme = phoneTheme.use();
+  useLayoutEffect(() => applyTheme(withPhoneTheme(remote.settings, localTheme)), [remote.settings, localTheme]);
 
   useEffect(() => {
     void start();
