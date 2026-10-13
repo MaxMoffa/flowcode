@@ -430,6 +430,8 @@ export const en: Record<MessageKey, string> = {
   "remote.pairConfirm.message": "\"{name}\" is asking for remote access to this computer: it will be able to see and type into your terminals. If you are not pairing it yourself, decline.",
   "remote.pairConfirm.accept": "Pair",
   "remote.pairConfirm.decline": "Decline",
+  "remote.pairConfirm.fingerprint": "Check that the phone shows: {code}",
+  "remote.pairConfirm.expired": "Request expired",
   "settings.remote.label": "Allow access from the Flowcode phone app",
   "settings.remote.desc": "Off by default. No VPN needed: the connection is end-to-end encrypted and works across networks. A paired device can type into your terminals.",
   "settings.remote.ready": "Ready: waiting for your phone.",

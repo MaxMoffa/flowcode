@@ -249,6 +249,10 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   const attachRef = useRef(attach);
   // `seq` of the last output written here (see ptyClient's `detachPty`).
   const lastSeqRef = useRef(0);
+  // `seq` of the last output xterm has actually PARSED (not merely received):
+  // what a serialized snapshot really contains, so a phone can skip exactly
+  // that much. Held-back output (a silent navigation) is not counted.
+  const parsedSeqRef = useRef(0);
   // Set once this tab's session has been handed to another window - its pty
   // must then outlive this view.
   const releasedRef = useRef(false);
@@ -333,6 +337,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // delay - and applied in one go once the fresh prompt has been drawn.
   const navRef = useRef<{
     held: string[];
+    /** Seq of the newest chunk in `held`. */
+    heldSeq: number;
     startRow: number;
     erases: boolean;
     titled: boolean;
@@ -346,6 +352,21 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // Grid pinned by a phone viewing this terminal (see `setSizeOverride`).
   const sizeOverrideRef = useRef<{ cols: number; rows: number } | null>(null);
   const [phoneSized, setPhoneSized] = useState(false);
+
+  function applySizeOverride(size: { cols: number; rows: number } | null) {
+    sizeOverrideRef.current = size;
+    setPhoneSized(size !== null);
+    const term = xtermRef.current;
+    if (!term) return;
+    if (size) {
+      if (term.cols !== size.cols || term.rows !== size.rows) term.resize(size.cols, size.rows);
+    } else {
+      // Forget the size last pushed so the refit resizes the pty back even
+      // when the desktop's own grid never changed.
+      ptySizeRef.current = { cols: 0, rows: 0 };
+      refit();
+    }
+  }
 
   /** Where the cursor row sits on screen, measured off xterm's own cell
    * grid rather than estimated from the font size. */
@@ -428,16 +449,19 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
    * xterm; while a silent navigation is in flight it is held instead, and its
    * title escape (the shell reporting the new cwd) starts the wait for the
    * fresh prompt to finish drawing. */
-  function receive(data: string) {
+  function receive(data: string, seq: number) {
     lastOutputAtRef.current = performance.now();
     const term = xtermRef.current;
     if (!term) return;
     const nav = navRef.current;
     if (!nav) {
-      term.write(data);
+      term.write(data, () => {
+        parsedSeqRef.current = Math.max(parsedSeqRef.current, seq);
+      });
       return;
     }
     nav.held.push(data);
+    nav.heldSeq = seq;
     if (nav.titled || !/][02];/.test(nav.held.slice(-2).join(""))) return;
     nav.titled = true;
     const startedAt = performance.now();
@@ -460,7 +484,9 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     clearTimeout(nav.safety);
     if (nav.timer) clearTimeout(nav.timer);
     if (!term) return;
+    const heldSeq = nav.heldSeq;
     term.write(nav.held.join(""), () => {
+      parsedSeqRef.current = Math.max(parsedSeqRef.current, heldSeq);
       const buf = term.buffer.active;
       // A full-screen program's alternate buffer has unrelated coordinates.
       if (nav.erases || !nav.titled || buf.type !== "normal") return;
@@ -504,6 +530,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     const buf = term.buffer.active;
     navRef.current = {
       held: [],
+      heldSeq: 0,
       startRow: buf.baseY + buf.cursorY,
       erases,
       titled: false,
@@ -630,25 +657,13 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     snapshotForRemote: () => {
       const addon = serializeAddonRef.current;
       if (!addon || releasedRef.current) return null;
-      // Serialized synchronously, so output xterm has queued but not yet
-      // parsed is not in it - an acceptable gap for a phone view, and the
-      // live output that follows keeps the screen converging.
-      return { data: addon.serialize({ scrollback: SESSION_SCROLLBACK_LINES }), seq: lastSeqRef.current };
+      // Serialized synchronously, so it holds exactly what xterm has parsed:
+      // the seq reported is the parsed one (output queued in xterm, or held
+      // back by a silent navigation, is not in the snapshot and so is not
+      // skipped - the phone gets it from the live stream).
+      return { data: addon.serialize({ scrollback: SESSION_SCROLLBACK_LINES }), seq: parsedSeqRef.current };
     },
-    setSizeOverride: (size) => {
-      sizeOverrideRef.current = size;
-      setPhoneSized(size !== null);
-      const term = xtermRef.current;
-      if (!term) return;
-      if (size) {
-        if (term.cols !== size.cols || term.rows !== size.rows) term.resize(size.cols, size.rows);
-      } else {
-        // Forget the size last pushed so the refit resizes the pty back even
-        // when the desktop's own grid never changed.
-        ptySizeRef.current = { cols: 0, rows: 0 };
-        refit();
-      }
-    },
+    setSizeOverride: (size) => applySizeOverride(size),
     // Every closure above only reads refs, so the handle never goes stale -
     // re-creating it each render just churned the parent's ref callbacks.
   }), []);
@@ -859,7 +874,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       void attachPty(attached.ptyId, {
         onOutput: (data, seq) => {
           lastSeqRef.current = seq;
-          if (!disposed) receive(data);
+          if (!disposed) receive(data, seq);
         },
         onExit: () => {
           forgetPty(attached.ptyId);
@@ -869,8 +884,16 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         .then(() => {
           if (disposed) return;
           ptyIdRef.current = attached.ptyId;
-          term.write("", () => {
+          // The tab may have moved while a phone had it open: that phone's
+          // size was pinned in the old window, so ask for it here.
+          const claim = invoke<{ cols: number; rows: number } | null>("remote_size_claim", { ptyId: attached.ptyId }).catch(
+            () => null,
+          );
+          term.write("", async () => {
             if (disposed) return;
+            const size = await claim;
+            if (disposed) return;
+            if (size && size.cols > 0 && size.rows > 0) applySizeOverride(size);
             refit();
             for (const data of pendingInput.splice(0)) writePty(attached.ptyId, data);
           });
@@ -975,7 +998,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
           profile: profileIdRef.current,
           onOutput: (data, seq) => {
             lastSeqRef.current = seq;
-            if (!disposed) receive(data);
+            if (!disposed) receive(data, seq);
           },
           onExit: () => {
             if (ptyIdRef.current) forgetPty(ptyIdRef.current);

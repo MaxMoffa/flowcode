@@ -431,6 +431,8 @@ export const it = {
   "remote.pairConfirm.message": "«{name}» chiede l'accesso remoto a questo computer: potrà vedere e scrivere nei terminali. Se non lo stai collegando tu, rifiuta.",
   "remote.pairConfirm.accept": "Collega",
   "remote.pairConfirm.decline": "Rifiuta",
+  "remote.pairConfirm.fingerprint": "Verifica che il telefono mostri: {code}",
+  "remote.pairConfirm.expired": "Richiesta scaduta",
   "settings.remote.label": "Consenti l'accesso dall'app Flowcode sul telefono",
   "settings.remote.desc": "Disattivato di default. Non serve nessuna VPN: la connessione è cifrata end-to-end e funziona anche tra reti diverse. Un dispositivo collegato può scrivere nei tuoi terminali.",
   "settings.remote.ready": "Pronto: in attesa del telefono.",

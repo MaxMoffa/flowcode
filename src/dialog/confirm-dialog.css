@@ -56,3 +56,9 @@
   background: var(--danger);
   color: var(--on-danger);
 }
+
+/* Above every other modal (e.g. the pairing QR dialog, portaled to <body>
+ * later in the DOM than the provider): a confirmation must never hide. */
+.confirm-backdrop {
+  z-index: 1300;
+}

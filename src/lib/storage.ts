@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /** localStorage access that never throws - storage can be unavailable
  * (blocked, private mode, plain browser dev) and every caller just wants the
@@ -71,13 +71,29 @@ export function readJson<T>(key: string, validate: (value: unknown) => value is 
 
 /** `useState` that persists every update to localStorage under `key`.
  * `read`/`write` define the (de)serialization - see `readBool`/`writeBool`
- * and friends. The setter keeps the identity guarantees of React's own. */
+ * and friends. The setter keeps the identity guarantees of React's own.
+ * With `syncWindows`, a change made by another window (the `storage` event)
+ * is picked up too, so every window agrees. */
 export function usePersistentState<T>(
   key: string,
   read: (key: string) => T,
   write: (key: string, value: T) => void,
+  syncWindows = false,
 ): [T, (next: T | ((prev: T) => T)) => void] {
   const [value, setValue] = useState<T>(() => read(key));
+  useEffect(() => {
+    if (!syncWindows) return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== key) return;
+      const next = read(key);
+      // Objects are re-parsed on every read: keep the old reference when equal.
+      setValue((prev) =>
+        Object.is(prev, next) || (typeof next === "object" && JSON.stringify(prev) === JSON.stringify(next)) ? prev : next,
+      );
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [key, read, syncWindows]);
   const set = useCallback(
     (next: T | ((prev: T) => T)) =>
       setValue((prev) => {

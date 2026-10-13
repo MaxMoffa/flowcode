@@ -7,20 +7,20 @@ import { LANGUAGES, useI18n } from "../i18n";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { setNotificationEnabled, useNotificationSettings, type NotificationKind } from "../notifications/notificationSettings";
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
+import { isRemoteLeader, useRemoteLeader } from "./leader";
+import { isValidSetting, type SettingContext } from "./settingDefs";
 
 /** Settings changes are coalesced: dragging a slider on the phone or the
  * desktop fires many in a row. */
 const PUBLISH_DELAY_MS = 250;
-const MAX_MESSAGE_LENGTH = 500;
-const THEME_MODES = ["auto", "light", "dark"];
-const NOTIFY_KINDS: readonly string[] = ["done", "input", "exited", "limitReset"];
-
-const isBool = (v: unknown): v is boolean => typeof v === "boolean";
-const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const SETTING_CONTEXT: SettingContext = {
+  languages: LANGUAGES.map((l) => l.code),
+  hasPalette: (id) => findPalette(id) !== undefined,
+};
 
 /** Mirrors the settings the phone shows (see docs/remote-protocol.md) to the
- * remote-access backend and applies the changes the phone sends back. Renders
- * nothing. */
+ * remote-access backend and applies the changes the phone sends back. Only the
+ * leader window publishes (see leader.ts). Renders nothing. */
 export function RemoteSettingsBridge() {
   const { theme, mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity } =
     useTheme();
@@ -28,11 +28,26 @@ export function RemoteSettingsBridge() {
   const terminal = useTerminalSettings();
   const notify = useNotificationSettings();
   const autoResume = useAutoResumeSettings();
+  const leader = useRemoteLeader();
 
-  const settings = useMemo(() => {
+  // Palettes only depend on the theme, not on what a tab's zoom does.
+  const palettes = useMemo(() => {
     const palette = findPalette(paletteId) ?? PALETTES[0];
     const termPalette = findPalette(terminalPaletteId) ?? palette;
     return {
+      colors: { bg: palette[theme].bg, ...resolvePalette(palette[theme], theme, contrast) },
+      terminalColors: { bg: termPalette[theme].bg, ...resolvePalette(termPalette[theme], theme, contrast) },
+      list: PALETTES.map((p) => ({ id: p.id, name: p.name, bg: p[theme].bg, accent: p[theme].accent, accent2: p[theme].accent2 })),
+    };
+  }, [theme, paletteId, terminalPaletteId, contrast]);
+
+  // Primitives only: the context objects change identity on unrelated updates
+  // (a tab's zoom), which must not republish.
+  const { fontSize, bannerEnabled, confirmLinkOpen, restoreSession, newTabPage } = terminal;
+  const { done, input, exited, limitReset } = notify;
+  const { enabled: autoResumeEnabled, message: autoResumeMessage } = autoResume;
+  const settings = useMemo(
+    () => ({
       theme: mode,
       resolvedTheme: theme,
       palette: paletteId,
@@ -42,75 +57,80 @@ export function RemoteSettingsBridge() {
       language: preference,
       resolvedLanguage: language,
       languages: LANGUAGES.map((l) => ({ id: l.code, name: l.name })),
-      colors: { bg: palette[theme].bg, ...resolvePalette(palette[theme], theme, contrast) },
-      terminalColors: { bg: termPalette[theme].bg, ...resolvePalette(termPalette[theme], theme, contrast) },
-      palettes: PALETTES.map((p) => ({ id: p.id, name: p.name, bg: p[theme].bg, accent: p[theme].accent, accent2: p[theme].accent2 })),
-      terminalFontSize: terminal.fontSize,
-      bannerEnabled: terminal.bannerEnabled,
-      confirmLinkOpen: terminal.confirmLinkOpen,
-      restoreSession: terminal.restoreSession,
-      newTabPage: terminal.newTabPage,
-      notify: { done: notify.done, input: notify.input, exited: notify.exited, limitReset: notify.limitReset },
-      autoResume: { enabled: autoResume.enabled, message: autoResume.message },
-    };
-  }, [theme, mode, paletteId, terminalPaletteId, contrast, glassOpacity, language, preference, terminal, notify, autoResume]);
+      colors: palettes.colors,
+      terminalColors: palettes.terminalColors,
+      palettes: palettes.list,
+      terminalFontSize: fontSize,
+      bannerEnabled,
+      confirmLinkOpen,
+      restoreSession,
+      newTabPage,
+      notify: { done, input, exited, limitReset },
+      autoResume: { enabled: autoResumeEnabled, message: autoResumeMessage },
+    }),
+    [
+      theme, mode, paletteId, terminalPaletteId, contrast, glassOpacity, language, preference, palettes,
+      fontSize, bannerEnabled, confirmLinkOpen, restoreSession, newTabPage,
+      done, input, exited, limitReset, autoResumeEnabled, autoResumeMessage,
+    ],
+  );
 
   useEffect(() => {
+    if (!leader) return;
     const timer = setTimeout(() => {
-      invoke("remote_publish_settings", { settings }).catch(() => {});
+      if (isRemoteLeader()) invoke("remote_publish_settings", { settings }).catch(() => {});
     }, PUBLISH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [settings]);
+  }, [settings, leader]);
 
   // The listener is registered once; it always calls the latest setters.
   const apply = useRef<(key: string, value: unknown) => void>(() => {});
   apply.current = (key, value) => {
+    // Unknown keys and bad values (including an unknown palette id) are dropped.
+    if (!isValidSetting(key, value, SETTING_CONTEXT)) return;
     if (key.startsWith("notify.")) {
-      const kind = key.slice("notify.".length);
-      if (NOTIFY_KINDS.includes(kind) && isBool(value)) setNotificationEnabled(kind as NotificationKind, value);
+      setNotificationEnabled(key.slice("notify.".length) as NotificationKind, value as boolean);
       return;
     }
     switch (key) {
       case "theme":
-        if (typeof value === "string" && THEME_MODES.includes(value)) setMode(value as "auto" | "light" | "dark");
+        setMode(value as "auto" | "light" | "dark");
         break;
       case "palette":
-        if (typeof value === "string") setPaletteId(value);
+        setPaletteId(value as string);
         break;
       case "terminalPalette":
-        if (value === null || typeof value === "string") setTerminalPaletteId(value);
+        setTerminalPaletteId(value as string | null);
         break;
       case "contrast":
-        if (isNum(value)) setContrast(value);
+        setContrast(value as number);
         break;
       case "glassOpacity":
-        if (isNum(value)) setGlassOpacity(value);
+        setGlassOpacity(value as number);
         break;
       case "language":
-        if (typeof value === "string" && (value === "system" || LANGUAGES.some((l) => l.code === value))) {
-          setPreference(value as typeof preference);
-        }
+        setPreference(value as typeof preference);
         break;
       case "terminalFontSize":
-        if (isNum(value)) terminal.setFontSize(value);
+        terminal.setFontSize(value as number);
         break;
       case "bannerEnabled":
-        if (isBool(value)) terminal.setBannerEnabled(value);
+        terminal.setBannerEnabled(value as boolean);
         break;
       case "confirmLinkOpen":
-        if (isBool(value)) terminal.setConfirmLinkOpen(value);
+        terminal.setConfirmLinkOpen(value as boolean);
         break;
       case "restoreSession":
-        if (isBool(value)) terminal.setRestoreSession(value);
+        terminal.setRestoreSession(value as boolean);
         break;
       case "newTabPage":
-        if (isBool(value)) terminal.setNewTabPage(value);
+        terminal.setNewTabPage(value as boolean);
         break;
       case "autoResume.enabled":
-        if (isBool(value)) setAutoResumeEnabled(value);
+        setAutoResumeEnabled(value as boolean);
         break;
       case "autoResume.message":
-        if (typeof value === "string" && value.length <= MAX_MESSAGE_LENGTH) setAutoResumeMessage(value);
+        setAutoResumeMessage(value as string);
         break;
     }
   };

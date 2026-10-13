@@ -140,15 +140,16 @@ function withoutTab(prev: Record<string, number>, tabId: string): Record<string,
 }
 
 export function TerminalSettingsProvider({ children }: { children: ReactNode }) {
-  const [fontSize, setFontSize] = usePersistentState(STORAGE_KEY, readFontSize, writeNumber);
+  const [fontSize, setFontSize] = usePersistentState(STORAGE_KEY, readFontSize, writeNumber, true);
   const [tabFontSizeOverrides, setTabFontSizeOverrides] = useState<Record<string, number>>({});
-  const [bannerEnabled, setBannerEnabled] = usePersistentState(BANNER_KEY, readBanner, writeBool);
-  const [shellId, setShellId] = usePersistentState(SHELL_KEY, readShell, writeString);
-  const [startPath, setStartPath] = usePersistentState(START_PATH_KEY, readStartPath, writeString);
+  const [bannerEnabled, setBannerEnabled] = usePersistentState(BANNER_KEY, readBanner, writeBool, true);
+  const [shellId, setShellId] = usePersistentState(SHELL_KEY, readShell, writeString, true);
+  const [startPath, setStartPath] = usePersistentState(START_PATH_KEY, readStartPath, writeString, true);
   const [shellStartPaths, setShellStartPaths] = usePersistentState(
     SHELL_START_PATHS_KEY,
     readShellStartPaths,
     writeJson,
+    true,
   );
   const setShellStartPath = useCallback(
     (shellKey: string, path: string) =>
@@ -161,14 +162,15 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       }),
     [setShellStartPaths],
   );
-  const [restoreSession, setRestoreSession] = usePersistentState(RESTORE_SESSION_KEY, readRestoreSession, writeBool);
-  const [confirmLinkOpen, setConfirmLinkOpen] = usePersistentState(CONFIRM_LINKS_KEY, readConfirmLinks, writeBool);
+  const [restoreSession, setRestoreSession] = usePersistentState(RESTORE_SESSION_KEY, readRestoreSession, writeBool, true);
+  const [confirmLinkOpen, setConfirmLinkOpen] = usePersistentState(CONFIRM_LINKS_KEY, readConfirmLinks, writeBool, true);
   const [explorerDoubleClick, setExplorerDoubleClick] = usePersistentState(
     EXPLORER_DOUBLE_CLICK_KEY,
     readExplorerDoubleClick,
     writeBool,
+    true,
   );
-  const [newTabPage, setNewTabPage] = usePersistentState(NEW_TAB_PAGE_KEY, readNewTabPage, writeBool);
+  const [newTabPage, setNewTabPage] = usePersistentState(NEW_TAB_PAGE_KEY, readNewTabPage, writeBool, true);
 
   const getTabFontSize = useCallback(
     (tabId: string) => tabFontSizeOverrides[tabId] ?? fontSize,

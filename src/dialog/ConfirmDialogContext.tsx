@@ -8,6 +8,8 @@ interface ConfirmOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** Aborting dismisses the dialog as if cancelled (e.g. the request behind it expired). */
+  signal?: AbortSignal;
 }
 
 interface PendingConfirm extends ConfirmOptions {
@@ -43,6 +45,16 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
       const entry: PendingConfirm = { ...options, resolve };
       pendingRef.current = entry;
       setPending(entry);
+      options.signal?.addEventListener(
+        "abort",
+        () => {
+          if (pendingRef.current !== entry) return;
+          pendingRef.current = null;
+          setPending(null);
+          resolve(false);
+        },
+        { once: true },
+      );
     });
   }, []);
 

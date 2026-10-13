@@ -7,7 +7,8 @@ const STALE_MS = 30_000;
 /** Usage limits don't move minute to minute, and a Codex refresh in
  * particular spawns a real (if invisible) CLI process for a few seconds -
  * 5 minutes keeps things reasonably fresh without doing that constantly in
- * the background. Skipped while the window isn't visible (e.g. minimized). */
+ * the background. Skipped while the window isn't visible (e.g. minimized), except for
+ * entries retained for the phone mirror. */
 const REFRESH_MS = 5 * 60_000;
 
 interface Snapshot {
@@ -21,6 +22,10 @@ interface Entry {
   snapshot: Snapshot;
   lastFetch: number;
   listeners: Set<() => void>;
+  /** Holders that keep it fresh for the phone mirror: they refresh on the
+   * timer even while the window is hidden (a minimized desktop is the usual
+   * case with a phone connected). */
+  retained: number;
   timer?: ReturnType<typeof setInterval>;
 }
 
@@ -41,7 +46,7 @@ function keyOf(pluginId: string, profile?: string): string {
 function entryFor(key: string, pluginId: string, profile?: string): Entry {
   let entry = entries.get(key);
   if (!entry) {
-    entry = { pluginId, profile, snapshot: EMPTY, lastFetch: 0, listeners: new Set() };
+    entry = { pluginId, profile, snapshot: EMPTY, lastFetch: 0, listeners: new Set(), retained: 0 };
     entries.set(key, entry);
   }
   return entry;
@@ -96,17 +101,19 @@ if (typeof document !== "undefined") {
   });
 }
 
-function subscribe(pluginId: string, profile: string | undefined, listener: () => void): () => void {
+function subscribe(pluginId: string, profile: string | undefined, listener: () => void, retain = false): () => void {
   const entry = entryFor(keyOf(pluginId, profile), pluginId, profile);
   entry.listeners.add(listener);
+  if (retain) entry.retained++;
   if (entry.listeners.size === 1) {
     loadUsage(pluginId, profile);
     entry.timer = setInterval(() => {
-      if (document.visibilityState === "visible") loadUsage(pluginId, profile, true);
+      if (entry.retained > 0 || document.visibilityState === "visible") loadUsage(pluginId, profile, true);
     }, REFRESH_MS);
   }
   return () => {
     entry.listeners.delete(listener);
+    if (retain) entry.retained--;
     if (entry.listeners.size === 0 && entry.timer) {
       clearInterval(entry.timer);
       entry.timer = undefined;
@@ -121,7 +128,7 @@ const noopUnsubscribe = () => {};
  * component of its own on the desktop. */
 export function retainUsage(pluginId: string, profile?: string): () => void {
   if (!usageFetcherFor(pluginId)) return noopUnsubscribe;
-  return subscribe(pluginId, profile, () => {});
+  return subscribe(pluginId, profile, () => {}, true);
 }
 
 /** Fetch/cache/auto-refresh state for a plugin's usage info under an account

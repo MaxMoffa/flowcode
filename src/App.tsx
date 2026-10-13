@@ -34,7 +34,8 @@ import { useAutoResume } from "./agents/useAutoResume";
 import { useAutoResumeSettings } from "./agents/autoResumeSettings";
 import { useAgentNotifications } from "./notifications/useAgentNotifications";
 import { watchLimitResets } from "./notifications/limitResetWatcher";
-import { isPhoneAction, publishRemoteActions, watchUsageForRemote } from "./plugins/remotePublish";
+import { isPhoneAction, publishRemoteActions, watchUsageForRemote, type UsageWatch } from "./plugins/remotePublish";
+import { useRemoteLeader } from "./remote/leader";
 import { useNotificationSettings } from "./notifications/notificationSettings";
 import { setActiveAgent } from "./agents/activeAgent";
 import { tabAgentOf, useAgentSessions, type AgentSession, type TabAgent } from "./agents/agentSessions";
@@ -1845,14 +1846,24 @@ function Shell() {
     setActiveAgent(aaCli ? { cli: aaCli, sessionId: aaId, profile: aaProfile, wsl: aaWsl, tabLabel: aaLabel } : null);
   }, [aaCli, aaId, aaProfile, aaWsl, aaLabel]);
   useEffect(watchLimitResets, []);
-  useEffect(
-    () =>
-      watchUsageForRemote(
-        (id) => allPluginsRef.current.find((p) => p.id === id)?.label ?? id,
-        () => allPluginsRef.current.map((p) => p.id),
-      ),
-    [],
-  );
+  // The phone's usage view covers the plugins the user pinned (the enabled
+  // ones), read live from this ref.
+  const quickActionIdsRef = useRef<string[]>([]);
+  quickActionIdsRef.current = quickActionIds;
+  const usageWatchRef = useRef<UsageWatch | null>(null);
+  useEffect(() => {
+    const watch = watchUsageForRemote(
+      (id) => allPluginsRef.current.find((p) => p.id === id)?.label ?? id,
+      () => quickActionIdsRef.current,
+    );
+    usageWatchRef.current = watch;
+    return () => {
+      usageWatchRef.current = null;
+      watch.dispose();
+    };
+  }, []);
+  const quickActionsKey = quickActionIds.join(" ");
+  useEffect(() => usageWatchRef.current?.refresh(), [quickActionsKey]);
   const doneTabIds = useAgentNotifications(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
@@ -1880,7 +1891,19 @@ function Shell() {
       return plugin && isPhoneAction(plugin.action) ? [{ id, label: plugin.label }] : [];
     }),
   );
-  useEffect(() => publishRemoteActions(JSON.parse(remoteActionsKey)), [remoteActionsKey]);
+  const remoteLeader = useRemoteLeader();
+  useEffect(() => {
+    if (remoteLeader) publishRemoteActions(JSON.parse(remoteActionsKey));
+  }, [remoteActionsKey, remoteLeader]);
+  // A phone's quick action waits here for its tab to become the active one,
+  // then runs against that render's state.
+  const pendingRemoteRunRef = useRef<{ tabId: string; plugin: PluginDef } | null>(null);
+  useEffect(() => {
+    const pending = pendingRemoteRunRef.current;
+    if (!pending || pending.tabId !== activeTabId) return;
+    pendingRemoteRunRef.current = null;
+    runPluginRef.current(pending.plugin);
+  }, [activeTabId]);
 
   function showPluginToast(message: string) {
     setPluginToast(message);
@@ -2273,8 +2296,12 @@ function Shell() {
       }
     }
     if (tabId && tabId !== latestRef.current.activeTabId) {
+      pendingRemoteRunRef.current = { tabId, plugin };
       selectTabRef.current(tabId);
-      setTimeout(() => runPluginRef.current(plugin), 80);
+      // If the tab never comes forward, don't run it later on a surprise tab.
+      setTimeout(() => {
+        if (pendingRemoteRunRef.current?.plugin === plugin) pendingRemoteRunRef.current = null;
+      }, 2000);
     } else {
       runPlugin(plugin);
     }
