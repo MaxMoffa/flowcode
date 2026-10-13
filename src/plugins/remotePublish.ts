@@ -45,17 +45,18 @@ const PUBLISH_DELAY_MS = 2000;
 
 export interface UsageWatch {
   dispose: () => void;
-  /** Re-reads `pluginIds` (the user pinned or unpinned something). */
+  /** Re-reads which profiles are signed in. */
   refresh: () => void;
 }
 
 /** Mirrors every usage result the app fetches (see useUsageState.ts) to the
  * remote-access backend. While a phone is connected, usage is also kept
- * fetched for every plugin in `pluginIds` (the ones the user enabled), since
- * the desktop UI only fetches what it shows. Only the leader window (see
+ * fetched for every agent with a usage fetcher, pinned or not, in every
+ * profile signed in to its CLI, since the desktop UI only fetches what it
+ * shows. Only the leader window (see
  * remote/leader.ts) publishes and retains. `labelOf` names a plugin id in the
  * current language. */
-export function watchUsageForRemote(labelOf: (pluginId: string) => string, pluginIds: () => string[]): UsageWatch {
+export function watchUsageForRemote(labelOf: (pluginId: string) => string): UsageWatch {
   const latest = new Map<string, RemoteUsageItem>();
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -111,12 +112,12 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string, plugi
     ensureProfilesLoaded();
     const { profiles } = getProfilesState();
     const wanted = new Map<string, { id: string; profile?: string }>();
-    for (const id of pluginIds()) {
+    for (const id of Object.keys(PROFILE_CLI)) {
       if (!usageFetcherFor(id)) continue;
-      wanted.set(usageKey(id), { id });
       const cli = PROFILE_CLI[id];
+      if (defaultSignedIn.has(cli)) wanted.set(usageKey(id), { id });
       for (const p of profiles) {
-        if (cli && p.logged_in[cli]) wanted.set(usageKey(id, p.id), { id, profile: p.id });
+        if (p.logged_in[cli]) wanted.set(usageKey(id, p.id), { id, profile: p.id });
       }
     }
     // A deleted profile or unpinned plugin must leave the phone too.
@@ -133,17 +134,36 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string, plugi
       if (!held.has(key)) held.set(key, retainUsage(w.id, w.profile));
     }
   };
-  const unwatchProfiles = onProfilesChanged(reconcile);
+  /** The default profile's logins: not in the profiles store, so asked of the
+   * backend (cheap, but it may spawn the CLI - hence only while publishing). */
+  const defaultSignedIn = new Set<string>();
+  const probeDefault = async () => {
+    if (!phoneConnected || !isRemoteLeader()) return;
+    for (const cli of new Set(Object.values(PROFILE_CLI))) {
+      const st = await invoke<{ installed: boolean; logged_in: boolean }>("check_cli_status", { cli }).catch(() => null);
+      if (disposed) return;
+      if (st?.installed && st.logged_in) defaultSignedIn.add(cli);
+      else if (st) defaultSignedIn.delete(cli);
+    }
+    reconcile();
+  };
+  const probeTimer = setInterval(() => void probeDefault(), 5 * 60 * 1000);
+  const unwatchProfiles = onProfilesChanged(() => {
+    reconcile();
+    void probeDefault();
+  });
   const sync = async () => {
     const status = await invoke<{ devices: { connected: boolean }[] }>("remote_status").catch(() => null);
     if (disposed) return;
     phoneConnected = !!status?.devices.some((d) => d.connected);
     reconcile();
+    void probeDefault();
   };
   void sync();
   const unlisten = listen("remote://devices-changed", () => void sync());
   const unwatchLeader = watchRemoteLeader((lead) => {
     reconcile();
+    if (lead) void probeDefault();
     // Newly in charge: hand over what this window already knows.
     if (lead && latest.size > 0 && !timer) timer = setTimeout(flush, PUBLISH_DELAY_MS);
   });
@@ -151,6 +171,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string, plugi
   return {
     dispose: () => {
       disposed = true;
+      clearInterval(probeTimer);
       stop();
       if (timer) clearTimeout(timer);
       unlisten.then((fn) => fn()).catch(() => {});
@@ -158,7 +179,10 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string, plugi
       unwatchProfiles();
       release();
     },
-    refresh: reconcile,
+    refresh: () => {
+      reconcile();
+      void probeDefault();
+    },
   };
 }
 

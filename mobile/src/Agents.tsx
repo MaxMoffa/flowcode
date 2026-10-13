@@ -55,6 +55,8 @@ interface ProfileGroup {
   items: UsageItem[];
 }
 
+const AGENT_ORDER = ["claude-code", "codex-cli", "mistral-vibe"];
+
 function groupByProfile(usage: UsageItem[]): ProfileGroup[] {
   const groups = new Map<string, ProfileGroup>();
   for (const u of usage) {
@@ -67,7 +69,13 @@ function groupByProfile(usage: UsageItem[]): ProfileGroup[] {
     g.color ??= u.profileColor;
     g.items.push(u);
   }
-  return [...groups.values()];
+  const order = (id: string) => {
+    const i = AGENT_ORDER.indexOf(id);
+    return i < 0 ? AGENT_ORDER.length : i;
+  };
+  for (const g of groups.values()) g.items.sort((x, y) => order(x.pluginId) - order(y.pluginId));
+  // The default profile leads, the named ones follow in arrival order.
+  return [...groups.values()].sort((x, y) => (x.key === "" ? -1 : 0) - (y.key === "" ? -1 : 0));
 }
 
 function Meta({ tab }: { tab: Tab }) {
@@ -148,7 +156,6 @@ export function AgentsScreen({ hostName, tabs, usage, onOpen }: { hostName?: str
     return { waiting: agents.filter((x) => x.status === "waiting"), others: agents.filter((x) => x.status !== "waiting") };
   }, [tabs]);
   const groups = useMemo(() => groupByProfile(usage), [usage]);
-  const showTitles = groups.length > 1 || (groups.length === 1 && groups[0].key !== "");
   return (
     <>
       <header className="agents-head">
@@ -171,12 +178,10 @@ export function AgentsScreen({ hostName, tabs, usage, onOpen }: { hostName?: str
       )}
       {groups.map((g) => (
         <section className="usage-section" key={g.key}>
-          {showTitles && (
-            <div className="gh usage-group">
-              {g.color && <i className="dot" style={{ background: g.color }} />}
-              {g.title}
-            </div>
-          )}
+          <div className="gh usage-group">
+            {g.color && <i className="dot" style={{ background: g.color }} />}
+            {g.title}
+          </div>
           <div className="usage-grid">
             {g.items.map((u) => (
               <UsageCard key={u.pluginId + (u.profile ?? "")} item={u} />

@@ -15,11 +15,12 @@ const gauges = (a: number, b: number) => [
   { kind: "gauge", label: "Settimana", percent: b },
 ];
 
+const L = { profile: "lavoro-1fa968", profileName: "Lavoro", profileColor: "#6f9bcf" };
 const usage = [
-  { pluginId: "claude", label: "Claude Code", metrics: gauges(0.42, 0.18) },
-  { pluginId: "codex", label: "Codex", metrics: gauges(0.09, 0.78) },
-  { pluginId: "claude", label: "Claude Code", profile: "work", profileName: "Lavoro", profileColor: "#6f9bcf", metrics: gauges(0.65, 0.31) },
-  { pluginId: "codex", label: "Codex", profile: "work", profileName: "Lavoro", profileColor: "#6f9bcf", metrics: gauges(0.22, 0.95) },
+  { pluginId: "mistral-vibe", label: "Mistral Vibe", metrics: [{ kind: "spend", label: "Questo mese", cost: 3.42, period: "month" }] },
+  { pluginId: "codex-cli", label: "Codex", metrics: gauges(0.09, 0.78) },
+  { pluginId: "claude-code", label: "Claude Code", metrics: gauges(0.42, 0.18) },
+  { pluginId: "codex-cli", label: "Codex", ...L, metrics: gauges(0.22, 0.95) },
 ];
 
 mockIPC(

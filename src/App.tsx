@@ -1852,10 +1852,7 @@ function Shell() {
   quickActionIdsRef.current = quickActionIds;
   const usageWatchRef = useRef<UsageWatch | null>(null);
   useEffect(() => {
-    const watch = watchUsageForRemote(
-      (id) => allPluginsRef.current.find((p) => p.id === id)?.label ?? id,
-      () => quickActionIdsRef.current,
-    );
+    const watch = watchUsageForRemote((id) => allPluginsRef.current.find((p) => p.id === id)?.label ?? id);
     usageWatchRef.current = watch;
     return () => {
       usageWatchRef.current = null;
