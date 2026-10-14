@@ -102,37 +102,36 @@
 }
 
 /* While an agent works a bright arc runs clockwise around the tab's outline
-   (the icon stays still). A conic gradient turned through a registered
-   angle, masked down to a ring the width of the border. */
-@property --term-tab-sweep {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
+   (the icon stays still), at a constant speed along it: dashed strokes of a
+   rounded rect (pathLength 100) whose offset runs linearly. A rotating conic
+   gradient turns at a constant angle instead, so it rushed along the short
+   sides of a wide tab. The fading tail is many thin dashes of rising opacity
+   (see BusySweep). The stroke covers the outer 1.5px of the tab's border box:
+   its centre line sits 0.25px outside the padding box, radius 10 - 0.75. */
+.term-tab-sweep {
+  position: absolute;
+  top: -0.25px;
+  left: -0.25px;
+  width: calc(100% + 0.5px);
+  height: calc(100% + 0.5px);
+  overflow: visible;
+  pointer-events: none;
 }
 
-.term-tab.attn-busy::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1.5px;
-  background: conic-gradient(
-    from var(--term-tab-sweep),
-    transparent 0deg,
-    transparent 200deg,
-    color-mix(in srgb, var(--ansi-bright-blue) 35%, transparent) 290deg,
-    var(--ansi-bright-blue) 360deg
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
-  pointer-events: none;
+.term-tab-sweep rect {
+  fill: none;
+  stroke: var(--ansi-bright-blue);
+  stroke-width: 1.5;
   animation: term-tab-sweep 1.6s linear infinite;
 }
 
+/* One fixed keyframe for every slice (TabStrip's SWEEP_DASHES): var() offsets in @keyframes don't animate. */
 @keyframes term-tab-sweep {
+  from {
+    stroke-dashoffset: 0px;
+  }
   to {
-    --term-tab-sweep: 360deg;
+    stroke-dashoffset: -100px;
   }
 }
 
@@ -141,7 +140,7 @@
     border-color: color-mix(in srgb, var(--ansi-bright-blue) 65%, transparent);
   }
 
-  .term-tab.attn-busy::before {
+  .term-tab-sweep {
     display: none;
   }
 }

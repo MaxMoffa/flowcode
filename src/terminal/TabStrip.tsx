@@ -216,6 +216,38 @@ function tabProfile(profiles: ReturnType<typeof useProfiles>, tab: AppTab): Prof
   return tab.kind === "terminal" ? profileById(profiles, tab.profileId) : undefined;
 }
 
+/** Length of the busy arc, head to tail end, in % of the tab's outline. */
+const SWEEP_LENGTH = 45;
+/** Slices the arc's fading tail is drawn in: thin enough to read as a smooth fade. */
+const SWEEP_SLICES = 24;
+/** One dash per slice of the arc (pathLength 100), the tail end first. Each
+ * runs from its slice up to the head (all end at SWEEP_LENGTH, so they move
+ * as one) and they stack: slice k's opacity is picked so the stacked result
+ * at k is ((k + 1) / SWEEP_SLICES) ** 1.6. Overlapping instead of butting
+ * leaves no seams between slices. */
+const SWEEP_DASHES = (() => {
+  const step = SWEEP_LENGTH / SWEEP_SLICES;
+  let below = 0;
+  return Array.from({ length: SWEEP_SLICES }, (_, i) => {
+    const start = i * step;
+    const target = ((i + 1) / SWEEP_SLICES) ** 1.6;
+    const opacity = 1 - (1 - target) / (1 - below);
+    below = target;
+    return { dasharray: `0 ${start} ${SWEEP_LENGTH - start} ${100 - SWEEP_LENGTH}`, opacity };
+  });
+})();
+
+/** The busy tab's arc, run round the outline at a constant speed (see tabstrip.css). */
+function BusySweep() {
+  return (
+    <svg className="term-tab-sweep" aria-hidden="true">
+      {SWEEP_DASHES.map((d, i) => (
+        <rect key={i} width="100%" height="100%" rx="9.25" pathLength="100" style={{ strokeDasharray: d.dasharray, opacity: d.opacity }} />
+      ))}
+    </svg>
+  );
+}
+
 /** `profile`: the tab's account profile, shown as a small colored dot on the
  * corner of its icon. The dot sits on a wrapper of its own, not on the logo,
  * so it stays on the icon's corner whatever the agent is doing. */
@@ -560,13 +592,14 @@ export function TabStrip({
   return (
     <div className="tab-strip" ref={containerRef} data-tauri-drag-region>
       {visibleTabs.map((tab) => {
+        const attention = tab.kind === "terminal" ? agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id)) : null;
         return (
           <div
             key={tab.id}
             className={
               "term-tab" +
               (tab.id === activeId ? " is-active" : "") +
-              (tab.kind === "terminal" ? " attn-" + agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id)) : "") +
+              (attention ? " attn-" + attention : "") +
               (draggedTab?.id === tab.id ? (drag?.detached ? " is-detached" : " is-dragging") : "")
             }
             onClick={() => {
@@ -586,6 +619,7 @@ export function TabStrip({
             onContextMenu={(e) => openMenu(e, tabMenuItems(tab))}
             title={tabTitle(tab, tabProfile(profiles, tab))}
           >
+            {attention === "busy" && <BusySweep />}
             {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id), tabProfile(profiles, tab))}
             {editingId === tab.id ? (
               <input
@@ -634,6 +668,7 @@ export function TabStrip({
           onClick={handleFolderTabClick}
           title={activeInFolder ? t("tabs.folder.clickAgain") : t("tabs.folder.grouped", { count: hiddenTabs.length })}
         >
+          {folderAttention === "busy" && <BusySweep />}
           <span className={"term-tab-folder-icon is-" + folderAttention}>
             <FolderIcon />
             <span className="tab-overflow-count">{hiddenTabs.length}</span>
