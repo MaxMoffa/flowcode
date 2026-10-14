@@ -156,6 +156,9 @@ fn decode_key(hex: &str) -> Option<[u8; 32]> {
 /// still paired, just offline for now.
 pub enum PairingLoad {
     Missing,
+    /// Opened fine but is not a pairing (corrupt or from an incompatible
+    /// version): counts as unpaired, the user pairs again.
+    Corrupt(String),
     /// Unreadable for now (transient); the file was left alone.
     Unreadable(String),
     Found(Pairing),
@@ -164,7 +167,7 @@ pub enum PairingLoad {
 impl PairingLoad {
     /// Whether the phone counts as paired: a pairing exists, readable or not.
     pub fn is_paired(&self) -> bool {
-        !matches!(self, PairingLoad::Missing)
+        !matches!(self, PairingLoad::Missing | PairingLoad::Corrupt(_))
     }
 }
 
@@ -175,7 +178,10 @@ pub fn load_pairing(path: &Path, codec: &dyn Codec) -> PairingLoad {
                 migrate(path, &plain, legacy, codec);
                 PairingLoad::Found(pairing)
             }
-            Err(_) => PairingLoad::Missing,
+            Err(e) => {
+                eprintln!("remote: {} is not a valid pairing ({e}), treating as unpaired", path.display());
+                PairingLoad::Corrupt(e.to_string())
+            }
         },
         // Definitively unreadable means unpaired: the user pairs again.
         Read::Lost(e) => {
@@ -353,6 +359,11 @@ mod tests {
         assert!(load.is_paired());
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert!(!PairingLoad::Missing.is_paired());
+        // Readable but not a pairing: unpaired, and told apart from "no file".
+        write_secret(&path, b"{not json", &Xor).unwrap();
+        let load = load_pairing(&path, &Xor);
+        assert!(matches!(load, PairingLoad::Corrupt(_)));
+        assert!(!load.is_paired());
         let _ = std::fs::remove_dir_all(dir);
     }
 

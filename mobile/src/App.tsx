@@ -8,7 +8,7 @@ import { unlock, useLock } from "./applock";
 import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { Reconnect } from "./Reconnect";
-import { clearOpenTab, resetSettingsCache, setBackgroundTexts, setLastOpened, start, useRemote, useRemoteSelector } from "./remote";
+import { clearOpenTab, resetSettingsCache, setBackgroundTexts, setLastOpened, start, useRemoteSelector } from "./remote";
 import { TerminalsScreen } from "./Terminals";
 import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
 
@@ -74,7 +74,14 @@ export function App() {
 }
 
 function AppContent() {
-  const remote = useRemote();
+  const status = useRemoteSelector((s) => s.status);
+  const pairing = useRemoteSelector((s) => s.pairing);
+  const firstConnect = useRemoteSelector((s) => s.firstConnect);
+  const hostName = useRemoteSelector((s) => s.hostName);
+  const settings = useRemoteSelector((s) => s.settings);
+  const tabs = useRemoteSelector((s) => s.tabs);
+  const openTab = useRemoteSelector((s) => s.openTab);
+  const error = useRemoteSelector((s) => s.error);
   const [page, setPage] = useState<Page>("agents");
   const [openPty, setOpenPty] = useState<string | null>(null);
   const lock = useLock();
@@ -83,7 +90,7 @@ function AppContent() {
   // The phone wears the desktop's colors and language (see remote.ts); before
   // the first settings message the cached ones (or the defaults) apply.
   const localTheme = phoneTheme.use();
-  useLayoutEffect(() => applyTheme(withPhoneTheme(remote.settings, localTheme)), [remote.settings, localTheme]);
+  useLayoutEffect(() => applyTheme(withPhoneTheme(settings, localTheme)), [settings, localTheme]);
 
   useEffect(() => {
     void start();
@@ -91,37 +98,37 @@ function AppContent() {
 
   // A phone that wasn't paired at launch has nothing to lock yet: the lock must not appear right after the first pairing.
   useEffect(() => {
-    if (remote.status === "unpaired" && lock.locked) unlock();
-  }, [remote.status, lock.locked]);
+    if (status === "unpaired" && lock.locked) unlock();
+  }, [status, lock.locked]);
 
   // A fresh pairing starts on the agents list, not wherever the last one ended.
   useEffect(() => {
-    if (remote.status === "unpaired") {
+    if (status === "unpaired") {
       setPage("agents");
       setOpenPty(null);
     }
-  }, [remote.status]);
+  }, [status]);
 
   // The permanent notification of the background mode names the desktop.
   useEffect(() => {
-    if (remote.hostName) void setBackgroundTexts(t("bgNotifTitle"), t("bgNotifText", { host: remote.hostName }));
-  }, [remote.hostName, remote.settings?.resolvedLanguage]);
+    if (hostName) void setBackgroundTexts(t("bgNotifTitle"), t("bgNotifText", { host: hostName }));
+  }, [hostName, settings?.resolvedLanguage]);
 
   // A tapped agent notification opens that tab's terminal as soon as the list has it.
   useEffect(() => {
-    if (!remote.openTab || !remote.tabs) return;
-    const target = remote.tabs.find((x) => x.tabId === remote.openTab);
+    if (!openTab || !tabs) return;
+    const target = tabs.find((x) => x.tabId === openTab);
     if (!target) return;
     setLastOpened(target.ptyId);
     setOpenPty(target.ptyId);
     clearOpenTab();
-  }, [remote.openTab, remote.tabs]);
+  }, [openTab, tabs]);
 
-  const tab = openPty ? remote.tabs?.find((x) => x.ptyId === openPty) : undefined;
+  const tab = openPty ? tabs?.find((x) => x.ptyId === openPty) : undefined;
   // The open terminal was closed on the PC: forget it, or the screen would come back if the id ever reappears.
   useEffect(() => {
-    if (openPty && remote.tabs && !tab) setOpenPty(null);
-  }, [openPty, remote.tabs, tab]);
+    if (openPty && tabs && !tab) setOpenPty(null);
+  }, [openPty, tabs, tab]);
   // Back from a terminal returns to the list; on the root it is left alone (the app exits).
   useBackHandler(!!tab, () => setOpenPty(null));
 
@@ -130,7 +137,7 @@ function AppContent() {
     setOpenPty(ptyId);
   }
 
-  const paired = remote.status !== "unpaired" && remote.status !== "loading";
+  const paired = status !== "unpaired" && status !== "loading";
   let content: ReactNode;
   if (!lock.checked) {
     // Avoids a flash of content before the first lock probe.
@@ -138,26 +145,26 @@ function AppContent() {
   } else if (lock.locked && paired) {
     // Locked: nothing else renders, so no content ends up in the task switcher thumbnail.
     content = <LockScreen />;
-  } else if (remote.status === "unpaired" || remote.pairing) {
+  } else if (status === "unpaired" || pairing) {
     // Unpaired (or mid-pairing, so a failure keeps its message on screen).
-    content = <PairingScreen initialError={remote.error} />;
-  } else if (remote.status === "loading") {
+    content = <PairingScreen initialError={error} />;
+  } else if (status === "loading") {
     content = <div className="screen" />;
   } else if (tab) {
     content = (
       <Suspense fallback={<div className="screen" />}>
-        <TerminalScreen key={tab.ptyId} tab={tab} status={remote.status} onBack={() => setOpenPty(null)} />
+        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} />
       </Suspense>
     );
   } else {
     content = (
       <div className="screen">
         <main className="page">
-          {page === "agents" && <AgentsScreen hostName={remote.hostName} tabs={remote.tabs} usage={remote.usage} onOpen={open} />}
-          {page === "terminals" && <TerminalsScreen hostName={remote.hostName} tabs={remote.tabs} onOpen={open} />}
+          {page === "agents" && <AgentsScreen hostName={hostName} tabs={tabs} onOpen={open} />}
+          {page === "terminals" && <TerminalsScreen hostName={hostName} tabs={tabs} onOpen={open} />}
           {page === "settings" && (
             <Suspense fallback={null}>
-              <SettingsScreen hostName={remote.hostName} settings={remote.settings} profiles={remote.profiles} />
+              <SettingsScreen hostName={hostName} settings={settings} />
             </Suspense>
           )}
         </main>
@@ -171,7 +178,7 @@ function AppContent() {
   return (
     <>
       {content}
-      {paired && !remote.pairing && !remote.firstConnect && <Reconnect />}
+      {paired && !pairing && !firstConnect && <Reconnect />}
       <Toast />
       {lock.hidden && <div className="privacy" aria-hidden="true" />}
     </>

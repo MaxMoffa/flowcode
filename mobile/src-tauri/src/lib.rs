@@ -16,7 +16,7 @@ use connlog::ConnLog;
 use link::{LinkError, Session};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use secure::SecureStore;
@@ -183,7 +183,16 @@ struct Remote {
     bg_texts: Mutex<(String, String)>,
     /// The webview is visible. Starts true: the app launches in the foreground.
     visible: AtomicBool,
+    /// Bumped on every hide and resume; a background-cap timer only acts if it
+    /// is still the one of the latest hide.
+    hide_gen: AtomicU64,
+    /// The background cap ran out while hidden: the service has stopped itself
+    /// (see `ConnectionService`), so the link is treated as in the mode's absence.
+    bg_capped: AtomicBool,
 }
+
+/// Upper bound for the background cap (a day).
+const MAX_CAP_MINUTES: u32 = 24 * 60;
 
 /// Messages waiting for the link; `send` refuses more instead of growing
 /// without bound while the link is stuck.
@@ -278,9 +287,34 @@ impl Remote {
         }
     }
 
-    /// Hidden with the background mode off: see `backoff_delay`.
+    /// Hidden with nothing keeping the link wanted (mode off, or its cap ran
+    /// out): see `backoff_delay`.
     fn idle(&self) -> bool {
-        !self.visible.load(Ordering::SeqCst) && !self.bg_settings().enabled
+        !self.visible.load(Ordering::SeqCst) && (!self.bg_settings().enabled || self.bg_capped.load(Ordering::SeqCst))
+    }
+
+    /// Stops the loop while the app is out of sight and the link is not wanted
+    /// (`suspend_link`, the background cap); `app_resumed` restarts it.
+    fn suspend(self: &Arc<Self>, app: &AppHandle) {
+        if self.visible.load(Ordering::SeqCst) || (self.bg_settings().enabled && !self.bg_capped.load(Ordering::SeqCst)) || self.pairing.load(Ordering::SeqCst) {
+            return;
+        }
+        let (running, host_name, status) = {
+            let inner = self.lock();
+            (inner.task.is_some(), inner.state.host_name.clone(), inner.state.status)
+        };
+        if !running || status == Status::Unpaired {
+            return;
+        }
+        self.stop_task();
+        // A resume between the check and the stop saw the loop still running and
+        // only nudged it: restart it ourselves.
+        if self.visible.load(Ordering::SeqCst) {
+            self.ensure_task(app);
+            return;
+        }
+        self.log.push("suspended in background");
+        self.set_state(app, Status::Offline, host_name, None);
     }
 
     fn key_path(&self) -> PathBuf {
@@ -304,7 +338,8 @@ impl Remote {
 
     /// Throws the endpoint away; the next `endpoint()` binds a fresh one.
     async fn reset_endpoint(&self) {
-        if let Some(old) = self.endpoint.lock().await.take() {
+        let old = self.endpoint.lock().await.take();
+        if let Some(old) = old {
             // Closed before the next bind: two endpoints with one key alive at
             // once would fight over the relay's single slot for this node id.
             let _ = tokio::time::timeout(Duration::from_secs(2), old.close()).await;
@@ -430,6 +465,11 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
         let pairing = match store::load_pairing(&remote.pairing_path(), &remote.codec) {
             store::PairingLoad::Found(p) => p,
             store::PairingLoad::Missing => {
+                remote.set_state(app, Status::Unpaired, None, None);
+                return;
+            }
+            store::PairingLoad::Corrupt(e) => {
+                remote.log.push(format!("stored pairing is invalid ({e}), treating as unpaired"));
                 remote.set_state(app, Status::Unpaired, None, None);
                 return;
             }
@@ -610,7 +650,7 @@ fn pairing_state(remote: State<'_, Arc<Remote>>) -> PairingState {
         store::PairingLoad::Found(p) => PairingState { paired: true, host_name: Some(p.host_name) },
         // Paired, only unreadable for now (the host name is unknown).
         store::PairingLoad::Unreadable(_) => PairingState { paired: true, host_name: None },
-        store::PairingLoad::Missing => PairingState { paired: false, host_name: None },
+        store::PairingLoad::Missing | store::PairingLoad::Corrupt(_) => PairingState { paired: false, host_name: None },
     }
 }
 
@@ -652,6 +692,11 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
         return Err("a pairing is already in progress".into());
     }
     let _guard = PairGuard(&remote.pairing);
+    // Registered before anything else: an `unpair` that lands before the select
+    // below first polls it must still cancel (like `wait` does).
+    let cancelled = remote.pair_cancel.notified();
+    tokio::pin!(cancelled);
+    cancelled.as_mut().enable();
     let parsed = PairingTicket::parse(&ticket).map_err(|e| e.to_string())?;
     let device_name = device_name.trim().to_string();
     if device_name.is_empty() {
@@ -668,7 +713,7 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
             remote.log.push("pairing started");
             link::handshake_with(&endpoint, &parsed.node, ClientMsg::Pair { code: parsed.code.clone(), device_name }, || {}, |line| remote.log.push(line)).await
         } => Some(r),
-        _ = remote.pair_cancel.notified() => None,
+        _ = &mut cancelled => None,
     };
     let failed = |message: String| {
         // Without a running loop the state still says "connecting": go back
@@ -767,6 +812,8 @@ async fn app_resumed(app: AppHandle, remote: State<'_, Arc<Remote>>) -> Result<(
     remote.log.push("app resumed");
     // First, so it reaches the desktop before the webview opens its streams.
     remote.visible.store(true, Ordering::SeqCst);
+    remote.hide_gen.fetch_add(1, Ordering::SeqCst);
+    remote.bg_capped.store(false, Ordering::SeqCst);
     if remote.bg_settings().enabled {
         remote.queue(ClientMsg::Background { on: false });
     }
@@ -788,35 +835,41 @@ async fn app_resumed(app: AppHandle, remote: State<'_, Arc<Remote>>) -> Result<(
 }
 
 /// The app went out of sight (call on `visibilitychange` -> hidden). With the
-/// background mode on, the desktop is asked to send notifications only.
+/// background mode on, the desktop is asked to send notifications only, and
+/// the cap (if any) starts counting: the service stops itself when it runs out
+/// and the link must follow.
 #[tauri::command]
-fn app_hidden(remote: State<'_, Arc<Remote>>) {
+fn app_hidden(app: AppHandle, remote: State<'_, Arc<Remote>>) {
+    let remote = Arc::clone(&remote);
     remote.log.push("app hidden");
     remote.visible.store(false, Ordering::SeqCst);
-    if remote.bg_settings().enabled {
+    let generation = remote.hide_gen.fetch_add(1, Ordering::SeqCst) + 1;
+    remote.bg_capped.store(false, Ordering::SeqCst);
+    let settings = remote.bg_settings();
+    if settings.enabled {
         remote.queue(ClientMsg::Background { on: true });
+        if settings.cap_minutes > 0 {
+            let cap = Duration::from_secs(u64::from(settings.cap_minutes) * 60);
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(cap).await;
+                if remote.hide_gen.load(Ordering::SeqCst) != generation || remote.visible.load(Ordering::SeqCst) {
+                    return;
+                }
+                remote.bg_capped.store(true, Ordering::SeqCst);
+                remote.log.push("background cap reached");
+                remote.suspend(&app);
+            });
+        }
     }
 }
 
 /// The webview has been hidden for a while (it calls this ~30 s after
 /// `app_hidden`). With the background mode off nobody is listening, so the
 /// loop stops pinging and redialing; `app_resumed` restarts it. With the mode
-/// on the service keeps the link, so nothing happens.
+/// on the service keeps the link, so nothing happens (until its cap runs out).
 #[tauri::command]
 fn suspend_link(app: AppHandle, remote: State<'_, Arc<Remote>>) {
-    if remote.visible.load(Ordering::SeqCst) || remote.bg_settings().enabled || remote.pairing.load(Ordering::SeqCst) {
-        return;
-    }
-    let (running, host_name, status) = {
-        let inner = remote.lock();
-        (inner.task.is_some(), inner.state.host_name.clone(), inner.state.status)
-    };
-    if !running || status == Status::Unpaired {
-        return;
-    }
-    remote.stop_task();
-    remote.log.push("suspended in background");
-    remote.set_state(&app, Status::Offline, host_name, None);
+    Arc::clone(&remote).suspend(&app);
 }
 
 #[derive(Serialize)]
@@ -835,6 +888,7 @@ fn background_settings(remote: State<'_, Arc<Remote>>) -> BackgroundState {
 // `(async)`: arming reads the pairing, a Keystore call.
 #[tauri::command(async)]
 fn set_background_settings(remote: State<'_, Arc<Remote>>, enabled: bool, cap_minutes: u32) -> Result<(), String> {
+    let cap_minutes = cap_minutes.min(MAX_CAP_MINUTES);
     let settings = background::Settings { enabled, cap_minutes };
     background::save(&remote.background_path(), &settings)?;
     *remote.bg.lock().unwrap_or_else(|e| e.into_inner()) = settings;
@@ -913,6 +967,8 @@ pub fn run() {
                 bg: Mutex::new(background::load(&bg_path)),
                 bg_texts: Mutex::new((String::new(), String::new())),
                 visible: AtomicBool::new(true),
+                hide_gen: AtomicU64::new(0),
+                bg_capped: AtomicBool::new(false),
             });
             app.manage(Arc::clone(&remote));
             #[cfg(mobile)]

@@ -124,7 +124,16 @@ pub async fn handshake_with(
     let mut device_name = String::new();
     let host_name = tokio::time::timeout(timeout, async {
         loop {
-            match read_frame::<_, ServerMsg>(&mut recv).await.map_err(frame_err)? {
+            let msg = match read_frame::<_, ServerMsg>(&mut recv).await {
+                Ok(msg) => msg,
+                // A frame we do not know (a newer desktop): skipped, as in `serve`.
+                Err(FrameError::Json(e)) => {
+                    log(format!("unknown frame skipped during the handshake: {e}"));
+                    continue;
+                }
+                Err(e) => return Err(frame_err(e)),
+            };
+            match msg {
                 ServerMsg::Paired { token: t, device_name: d } => {
                     token = Some(t);
                     device_name = d;

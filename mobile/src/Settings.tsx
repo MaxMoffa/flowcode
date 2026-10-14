@@ -8,10 +8,12 @@ import {
   DEFAULT_BACKGROUND,
   backgroundSettings,
   connectionLog,
+  notificationPermission,
   requestNotificationPermission,
   setBackgroundSettings,
   setSetting,
   unpair,
+  useRemoteSelector,
   type BackgroundSettings,
   type MirroredSettings,
   type ProfileInfo,
@@ -227,33 +229,53 @@ const CAPS: { id: string; minutes: number; name: () => string }[] = [
 /** The opt-in "stay connected in the background" mode; turning it on needs the notification permission. */
 function BackgroundPage({ bg, onChange }: { bg: BackgroundSettings; onChange: (s: BackgroundSettings) => void }) {
   const [denied, setDenied] = useState(false);
+  const [failed, setFailed] = useState(false);
 
-  const apply = (next: BackgroundSettings) => {
+  // The permission can be revoked in Android's settings while the mode stays on.
+  useEffect(() => {
+    if (!bg.enabled) return;
+    let alive = true;
+    void notificationPermission().then((granted) => alive && setDenied(!granted));
+    return () => {
+      alive = false;
+    };
+  }, [bg.enabled]);
+
+  // The switch follows the core: if it could not save, it goes back.
+  const apply = async (next: BackgroundSettings) => {
+    const prev = bg;
     onChange(next);
-    void setBackgroundSettings(next.enabled, next.capMinutes);
+    try {
+      await setBackgroundSettings(next.enabled, next.capMinutes);
+      setFailed(false);
+    } catch {
+      onChange(prev);
+      setFailed(true);
+    }
   };
   const toggle = async (on: boolean) => {
     if (!on) {
       setDenied(false);
-      apply({ ...bg, enabled: false });
+      await apply({ ...bg, enabled: false });
       return;
     }
     // Without the permission the agents' notifications could not be shown.
     const granted = await requestNotificationPermission();
     setDenied(!granted);
-    if (granted) apply({ ...bg, enabled: true });
+    if (granted) await apply({ ...bg, enabled: true });
   };
 
   return (
     <Group title={t("secBackground")}>
       <Toggle label={t("bgSwitch")} hint={t("bgHint")} on={bg.enabled} onChange={(on) => void toggle(on)} />
       {denied && <p className="prof-note set-block">{t("bgDenied")}</p>}
+      {failed && <p className="prof-note set-block" role="alert">{t("bgError")}</p>}
       {bg.enabled && (
         <Segmented
           label={t("bgCap")}
           value={String(bg.capMinutes)}
           options={CAPS.map((c) => ({ id: c.id, name: c.name() }))}
-          onChange={(v) => apply({ ...bg, capMinutes: Number(v) })}
+          onChange={(v) => void apply({ ...bg, capMinutes: Number(v) })}
         />
       )}
     </Group>
@@ -377,7 +399,8 @@ function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, l
   };
 }
 
-export function SettingsScreen({ hostName, settings: s, profiles }: { hostName?: string; settings: MirroredSettings | null; profiles: ProfileInfo[] | null }) {
+export function SettingsScreen({ hostName, settings: s }: { hostName?: string; settings: MirroredSettings | null }) {
+  const profiles = useRemoteSelector((r) => r.profiles);
   const lock = useLock();
   const [section, setSection] = useState<SectionId | null>(null);
   useBackHandler(section !== null, () => setSection(null));

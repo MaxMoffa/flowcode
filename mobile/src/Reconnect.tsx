@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "./i18n";
 import { Svg } from "./icons";
-import { appResumed, retryNow, useRemote } from "./remote";
+import { appResumed, retryNow, useRemoteSelector } from "./remote";
 import "./reconnect.css";
 
 /** Shorter outages (a relay hiccup, a quick redial) are not worth a sheet. */
@@ -77,7 +77,12 @@ function Step({ state, label }: { state: StepState; label: string }) {
 }
 
 export function Reconnect() {
-  const { status, hostName, error, phase, attempt, retryAt } = useRemote();
+  const status = useRemoteSelector((s) => s.status);
+  const hostName = useRemoteSelector((s) => s.hostName);
+  const error = useRemoteSelector((s) => s.error);
+  const phase = useRemoteSelector((s) => s.phase);
+  const attempt = useRemoteSelector((s) => s.attempt);
+  const retryAt = useRemoteSelector((s) => s.retryAt);
   const phoneOnline = useNavigatorOnline();
   const down = status === "connecting" || status === "offline";
 

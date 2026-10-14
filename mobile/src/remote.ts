@@ -10,7 +10,7 @@ import { createStore, safeStorage } from "./store";
 import type { Action, ClientMsg, MirroredSettings, ProfileAction, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
 
 // The wire types live in shared/ (also used by the desktop); screens keep importing them from here.
-export type { Action, AgentStatus, ClientMsg, LsEntry, MirroredPalette, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, TabContext, UsageItem, UsageMetric } from "../../shared/remote-types";
+export type { Action, AgentStatus, ClientMsg, LsEntry, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem, UsageMetric } from "../../shared/remote-types";
 
 export type ConnStatus = "loading" | "unpaired" | "connecting" | "online" | "offline";
 
@@ -145,9 +145,19 @@ function loadSettings(): MirroredSettings | null {
   }
 }
 
+/** What was last written to the cache, so an identical echo from the desktop costs no write. */
+let lastSaved: string | null = null;
+
 function saveSettings(s: MirroredSettings | null) {
-  if (s) safeStorage.set(SETTINGS_KEY, JSON.stringify(s));
-  else safeStorage.remove(SETTINGS_KEY);
+  if (!s) {
+    lastSaved = null;
+    safeStorage.remove(SETTINGS_KEY);
+    return;
+  }
+  const json = JSON.stringify(s);
+  if (json === lastSaved) return;
+  lastSaved = json;
+  safeStorage.set(SETTINGS_KEY, json);
 }
 
 /** Forgets the cached settings (the error boundary's "Reimposta"). */
@@ -252,19 +262,24 @@ export async function start(): Promise<void> {
     await wire();
   } catch (e) {
     // Let a retry wire the events again instead of leaving the app never connecting.
+    unlisteners.forEach((un) => un());
+    unlisteners = [];
     started = false;
     throw e;
   }
 }
 
+/** The listeners `wire` registered, dropped if it fails halfway so a retry doesn't double them. */
+let unlisteners: (() => void)[] = [];
+
 async function wire(): Promise<void> {
-  await listen<ServerMsg>("remote://msg", (e) => handleMsg(e.payload));
-  await listen<StateEvent>("remote://state", (e) => {
+  unlisteners.push(await listen<ServerMsg>("remote://msg", (e) => handleMsg(e.payload)));
+  unlisteners.push(await listen<StateEvent>("remote://state", (e) => {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
     set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null, openTab: null } : {}) });
-  });
+  }));
   void checkNotificationTap();
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {
@@ -288,12 +303,13 @@ export const appResumed = (): Promise<void> => {
   void checkNotificationTap();
   return invoke<void>("app_resumed").catch(() => {});
 };
-/** Tells the core the app went out of sight: with the background mode on, the PC is asked to send notifications only. */
 /** Drops the link after a while in the background (a no-op when the background mode is on). */
 export const suspendLink = (): Promise<void> => invoke<void>("suspend_link").catch(() => {});
+/** Tells the core the app went out of sight: with the background mode on, the PC is asked to send notifications only. */
 export const appHidden = (): Promise<void> => invoke<void>("app_hidden").catch(() => {});
 
 const OPEN_TAB_MS = 10_000;
+const PERMISSION_TIMEOUT_MS = 60_000;
 
 /** Picks up the tab of the notification that opened the app, if any; `App` opens it once the tab list has it. */
 async function checkNotificationTap() {
@@ -321,7 +337,12 @@ export const setBackgroundSettings = (enabled: boolean, capMinutes: number): Pro
 export const setBackgroundTexts = (title: string, text: string): Promise<void> => invoke<void>("background_texts", { title, text }).catch(() => {});
 export const notificationPermission = (): Promise<boolean> => invoke<boolean>("notification_permission").catch(() => false);
 /** Asks Android for the notification permission; resolves once the user has answered. */
-export const requestNotificationPermission = (): Promise<boolean> => invoke<boolean>("request_notification_permission").catch(() => false);
+export const requestNotificationPermission = (): Promise<boolean> =>
+  Promise.race([
+    invoke<boolean>("request_notification_permission").catch(() => false),
+    // The system dialog can be abandoned (activity destroyed): don't wait on it forever.
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), PERMISSION_TIMEOUT_MS)),
+  ]);
 export const retryNow = (): Promise<void> => invoke("retry_now");
 /** Stops a pairing that is waiting for the desktop's confirmation. */
 export const cancelPair = (): Promise<void> => invoke<void>("cancel_pair").catch(() => {});

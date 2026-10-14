@@ -3,7 +3,7 @@ import logo from "./assets/flowcode-icon.svg";
 import { contextPercent } from "./common";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
-import { send, type Tab, type UsageItem, type UsageMetric } from "./remote";
+import { send, useRemoteSelector, type Tab, type UsageItem, type UsageMetric } from "./remote";
 
 /** Every limit gauge (5-hour session, weekly...) gets its own row. */
 function gaugeMetrics(item: UsageItem): UsageMetric[] {
@@ -222,7 +222,8 @@ function AgentTile({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void 
   );
 }
 
-export function AgentsScreen({ hostName, tabs, usage, onOpen }: { hostName?: string; tabs: Tab[] | null; usage: UsageItem[]; onOpen: (ptyId: string) => void }) {
+export function AgentsScreen({ hostName, tabs, onOpen }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void }) {
+  const usage = useRemoteSelector((r) => r.usage);
   const { waiting, others } = useMemo(() => {
     const agents = (tabs ?? []).filter((x) => x.cli);
     return { waiting: agents.filter((x) => x.status === "waiting"), others: agents.filter((x) => x.status !== "waiting") };

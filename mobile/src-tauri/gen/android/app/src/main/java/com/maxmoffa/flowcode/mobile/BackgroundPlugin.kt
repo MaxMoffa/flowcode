@@ -52,6 +52,9 @@ class BackgroundPlugin(private val activity: Activity) : Plugin(activity) {
     private var capMinutes = 0
     private val nextId = AtomicInteger(1000)
 
+    /** Permission requests whose dialog is still up; see `onDestroy`. */
+    private val pendingPermission = mutableListOf<Invoke>()
+
     /** Tab of the notification that opened the app, until the app takes it. */
     @Volatile
     private var pendingTab: String? = null
@@ -155,12 +158,28 @@ class BackgroundPlugin(private val activity: Activity) : Plugin(activity) {
         if (granted()) {
             invoke.resolve(grantedReply())
         } else {
+            synchronized(pendingPermission) { pendingPermission.add(invoke) }
             requestPermissionForAlias(PERMISSION_ALIAS, invoke, "notificationPermissionResult")
         }
     }
 
     @PermissionCallback
     fun notificationPermissionResult(invoke: Invoke) {
+        synchronized(pendingPermission) { pendingPermission.remove(invoke) }
         invoke.resolve(grantedReply())
+    }
+
+    // The activity can die while the system dialog is up, and the callback
+    // never comes: answer with the current state so the caller is not left
+    // blocked forever.
+    override fun onDestroy(activity: AppCompatActivity) {
+        val waiting = synchronized(pendingPermission) { pendingPermission.toList().also { pendingPermission.clear() } }
+        for (invoke in waiting) {
+            try {
+                invoke.resolve(grantedReply())
+            } catch (e: Exception) {
+                Log.w(TAG, "could not resolve a pending permission request: ${e.message}")
+            }
+        }
     }
 }
