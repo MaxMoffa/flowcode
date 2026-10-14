@@ -1,7 +1,8 @@
 """Draws the Android themed-icon layer (ic_launcher_monochrome.png in every
 mipmap density) from the logo geometry in src/assets/flowcode-icon.svg:
 the frog's head as one opaque silhouette with the eyes and the prompt cut
-out, kept small enough for themed-icon padding. Run from this folder:
+out, kept small enough for themed-icon padding. app-icon.svg (the colored icon)
+uses the same placement (S and center below). Run from this folder:
     python monochrome.py
 """
 from pathlib import Path
