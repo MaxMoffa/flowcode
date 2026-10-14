@@ -1,9 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.resolve(null)) }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
-
-const { DEFAULT_SETTINGS, normalizeProfiles, normalizeSettings } = await import("./remote");
+import { describe, expect, it } from "vitest";
+import { DEFAULT_SETTINGS, normalizeProfiles, normalizeSettings } from "./settingsModel";
 
 describe("normalizeSettings", () => {
   it("is null for non-objects", () => {
