@@ -90,6 +90,8 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
               loading={loading}
               profile={profile}
               onProfileChange={setProfile}
+              onMenuPointerEnter={show}
+              onMenuPointerLeave={scheduleHide}
             />
           </div>,
           document.body,

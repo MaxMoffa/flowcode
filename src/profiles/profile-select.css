@@ -67,10 +67,8 @@
 }
 
 .profile-select-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 5;
+  position: fixed;
+  z-index: 1300;
   min-width: 150px;
   max-width: 220px;
   padding: 4px;

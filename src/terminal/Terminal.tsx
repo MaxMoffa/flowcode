@@ -666,7 +666,13 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       if (!term || !serializeAddonRef.current || releasedRef.current) return null;
       // Let xterm finish parsing what it was already handed, so the snapshot
       // is as fresh as the stream the phone is catching up with.
-      await new Promise<void>((resolve) => term.write("", resolve));
+      // Raced against a timeout: a hidden or minimized window throttles
+      // timers and can stall the flush past the backend's own snapshot
+      // timeout, which would leave the phone with an empty screen.
+      await Promise.race([
+        new Promise<void>((resolve) => term.write("", resolve)),
+        new Promise<void>((resolve) => setTimeout(resolve, 800)),
+      ]);
       const addon = serializeAddonRef.current;
       if (!addon || releasedRef.current) return null;
       // Serialized synchronously after the flush, so it holds exactly what
@@ -1099,9 +1105,25 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     // while a splitter drags, and coalesce the rest into a trailing refit.
     let pendingRefit = false;
     let refitTimer: number | null = null;
-    const resizeObserver = new ResizeObserver(() => {
+    // A container coming from 0x0 (tab shown again, window restored) is fitted
+    // at once; only the changes after that are debounced.
+    let lastW = 0;
+    let lastH = 0;
+    const resizeObserver = new ResizeObserver((entries) => {
+      const rect = entries[entries.length - 1]?.contentRect;
+      const wasHidden = lastW === 0 || lastH === 0;
+      if (rect) {
+        lastW = rect.width;
+        lastH = rect.height;
+      }
       if (isLayoutDragging()) {
         pendingRefit = true;
+        return;
+      }
+      if (wasHidden && lastW > 0 && lastH > 0) {
+        if (refitTimer !== null) window.clearTimeout(refitTimer);
+        refitTimer = null;
+        refit();
         return;
       }
       if (refitTimer !== null) window.clearTimeout(refitTimer);

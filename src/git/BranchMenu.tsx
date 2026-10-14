@@ -108,7 +108,7 @@ export function BranchMenu({ root, label, icon, onSwitched }: BranchMenuProps) {
     };
   }, [open]);
 
-  // Fresh list on every open; a failure to list shows like a failed switch.
+  // Fresh list on every open; a failure to list is shown above the (empty) list.
   useEffect(() => {
     if (!open) return;
     let stale = false;
@@ -118,7 +118,7 @@ export function BranchMenu({ root, label, icon, onSwitched }: BranchMenuProps) {
         if (!stale) setData(next);
       })
       .catch((e) => {
-        if (!stale) setError(t("git.branch.error", { error: String(e) }));
+        if (!stale) setError(t("git.branch.listError", { error: String(e) }));
       });
     return () => {
       stale = true;
@@ -192,7 +192,7 @@ export function BranchMenu({ root, label, icon, onSwitched }: BranchMenuProps) {
     return (
       <div
         key={(item.remote ? "r:" : "l:") + item.branch.name}
-        id={`${listId}-${index}`}
+        id={index >= 0 ? `${listId}-${index}` : undefined}
         role="option"
         aria-selected={item.current}
         aria-disabled={item.current || switching}

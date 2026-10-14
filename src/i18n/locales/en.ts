@@ -184,6 +184,9 @@ export const en: Record<MessageKey, string> = {
   "editor.saved": "Saved",
   "editor.save": "Save",
   "editor.openFailed": "Couldn't open the file: {error}",
+  "editor.changedOnDisk.title": "File changed on disk",
+  "editor.changedOnDisk.body": "The file was changed on disk after you opened it. Overwrite it with your version?",
+  "editor.changedOnDisk.overwrite": "Overwrite",
   // Git
   "git.tab.explorer": "Explorer",
   "git.tab.git": "Git",
@@ -223,6 +226,7 @@ export const en: Record<MessageKey, string> = {
   "git.branch.none": "No branch found",
   "git.branch.switching": "Switching branch…",
   "git.branch.error": "Couldn't switch branch: {error}",
+  "git.branch.listError": "Couldn't list branches: {error}",
   "git.diffFailed": "Couldn't show the diff: {error}",
   "git.status.M": "Modified",
   "git.status.A": "Added",
@@ -293,7 +297,6 @@ export const en: Record<MessageKey, string> = {
   "agents.profile.label": "Profile",
   "agents.profile.projectDefault": "This project's profile",
   "agents.profile.rememberForProject": "Always use for this project",
-  "usage.profile.label": "Profile",
   "tabs.profile": "Profile: {name}",
 
   // Plugins / features

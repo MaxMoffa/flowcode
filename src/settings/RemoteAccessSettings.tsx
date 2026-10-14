@@ -46,14 +46,37 @@ function formatDuration(ms: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+/** One shared 1 s ticker for every running-clock label: a single interval
+ * while at least one is mounted, paused while the window is hidden. */
+const tickListeners = new Set<() => void>();
+let tickTimer: ReturnType<typeof setInterval> | null = null;
+
+function syncTicker() {
+  const shouldRun = tickListeners.size > 0 && !document.hidden;
+  if (shouldRun && tickTimer === null) {
+    tickTimer = setInterval(() => tickListeners.forEach((fn) => fn()), 1000);
+  } else if (!shouldRun && tickTimer !== null) {
+    clearInterval(tickTimer);
+    tickTimer = null;
+  }
+}
+
+function subscribeTick(fn: () => void) {
+  if (tickListeners.size === 0) document.addEventListener("visibilitychange", syncTicker);
+  tickListeners.add(fn);
+  syncTicker();
+  return () => {
+    tickListeners.delete(fn);
+    if (tickListeners.size === 0) document.removeEventListener("visibilitychange", syncTicker);
+    syncTicker();
+  };
+}
+
 /** Re-renders itself every second, so the labels showing a running clock
  * don't cost the whole settings page a render per tick. */
 function useSecondTick() {
   const [, setTick] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  useEffect(() => subscribeTick(() => setTick((n) => n + 1)), []);
 }
 
 /** "Seen ... ago" label of a device. */
@@ -208,7 +231,9 @@ export function RemoteAccessSettings() {
     mounted.current = true;
     refresh();
     // Polling backs up the event: "last seen" changes without one.
-    const timer = setInterval(refresh, 5000);
+    const timer = setInterval(() => {
+      if (!document.hidden) refresh();
+    }, 5000);
     const unlisten = listen("remote://devices-changed", refresh);
     return () => {
       mounted.current = false;

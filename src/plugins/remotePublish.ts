@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ensureProfilesLoaded, getProfilesState, onProfilesChanged, profileById } from "../profiles/profiles";
+import { defaultCliStatus, type AgentCli } from "../agents/cliInfo";
 import { onUsageFetched, retainUsage } from "./useUsageState";
 import { isRemoteLeader, watchRemoteLeader } from "../remote/leader";
 import type { UsageItem } from "../../shared/remote-types";
@@ -13,7 +14,7 @@ import { metricText, usageFetcherFor, type UsageInfo } from "./usage";
 const usageKey = (pluginId: string, profile?: string) => `${pluginId}\u0000${profile ?? ""}`;
 
 /** Which CLI's login (profiles.ts `logged_in`) a usage plugin reads. */
-const PROFILE_CLI: Record<string, "claude" | "codex" | "vibe"> = {
+const PROFILE_CLI: Record<string, AgentCli> = {
   "claude-code": "claude",
   "codex-cli": "codex",
   "mistral-vibe": "vibe",
@@ -124,7 +125,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
     if (!force && Date.now() - lastProbeAt < 30_000) return;
     lastProbeAt = Date.now();
     for (const cli of new Set(Object.values(PROFILE_CLI))) {
-      const st = await invoke<{ installed: boolean; logged_in: boolean }>("check_cli_status", { cli }).catch(() => null);
+      const st = await defaultCliStatus(cli, force);
       if (disposed) return;
       if (st?.installed && st.logged_in) defaultSignedIn.add(cli);
       else if (st) defaultSignedIn.delete(cli);

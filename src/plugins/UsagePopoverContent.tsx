@@ -172,6 +172,8 @@ export function UsagePopoverContent({
   loading,
   profile,
   onProfileChange,
+  onMenuPointerEnter,
+  onMenuPointerLeave,
 }: {
   /** Which plugin's popover this is - the context section is for the CLIs only. */
   pluginId: string;
@@ -182,6 +184,10 @@ export function UsagePopoverContent({
    * usage doesn't depend on one, which gets no switcher. */
   profile?: string;
   onProfileChange?: (next: string | undefined) => void;
+  /** The profile list is portaled out of the popover: the hover-driven popover
+   * passes its show/schedule-hide so the pointer on the list keeps it open. */
+  onMenuPointerEnter?: () => void;
+  onMenuPointerLeave?: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -191,6 +197,8 @@ export function UsagePopoverContent({
         {onProfileChange && <ProfileSelect
             value={profile}
             onChange={onProfileChange}
+            onMenuPointerEnter={onMenuPointerEnter}
+            onMenuPointerLeave={onMenuPointerLeave}
             filter={cliOfPlugin(pluginId) ? (p) => p.logged_in[cliOfPlugin(pluginId)!] : undefined}
           />}
       </div>

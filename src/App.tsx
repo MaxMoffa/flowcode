@@ -66,7 +66,7 @@ import { hasSeenWelcome } from "./welcome/welcomeSeen";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
 import { usePanelPresence } from "./hooks/usePanelPresence";
 import { SIDEBAR_MODES, EXPLORER_LINK_MODES, type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
-import { readBool, readEnum, readJson, readString, usePersistentState, writeBool, writeJson, writeString } from "./lib/storage";
+import { readBool, readEnum, readJson, readString, removeKey, usePersistentState, writeBool, writeJson, writeString } from "./lib/storage";
 import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
 import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
@@ -569,9 +569,10 @@ function Shell() {
     // that went through; a close or a flush request always writes.
     let lastSaved: string | null = null;
     const persist = async (flushGen?: number, periodic = false) => {
-      // Nothing to look at while the window is hidden and nothing changed:
-      // skip the serialize of every terminal.
-      if (periodic && document.hidden && !sessionDirtyRef.current) return;
+      // Nothing to look at while the window is hidden, nothing changed and no
+      // agent is printing: skip the serialize of every terminal.
+      const anyTabBusy = latestRef.current.tabs.some((t) => t.kind === "terminal" && t.busy);
+      if (periodic && document.hidden && !sessionDirtyRef.current && !anyTabBusy) return;
       sessionDirtyRef.current = false;
       const snap = restoreSessionRef.current ? await snapshot() : null;
       const json = JSON.stringify(snap);
@@ -623,6 +624,15 @@ function Shell() {
 
   useEffect(() => {
     seedExamplePlugins().then(reloadCustomPlugins);
+    // Per-plugin usage profiles used to be remembered here; now they follow
+    // the active tab's profile, so the old keys are dead weight.
+    try {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith("flowcode.usageProfile.")) removeKey(key);
+      }
+    } catch {
+      /* storage unavailable */
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

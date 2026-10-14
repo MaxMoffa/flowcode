@@ -90,6 +90,8 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
               loading={loading}
               profile={profile}
               onProfileChange={setProfile}
+              onMenuPointerEnter={show}
+              onMenuPointerLeave={scheduleHide}
             />
           </div>,
           document.body,

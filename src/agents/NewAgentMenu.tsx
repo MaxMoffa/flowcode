@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { AGENT_CLIS, CLI_INFO, type AgentCli } from "./cliInfo";
+import { AGENT_CLIS, CLI_INFO, defaultCliStatus, type AgentCli } from "./cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
@@ -10,25 +9,11 @@ import { ProfileSelect } from "../profiles/ProfileSelect";
 import { activeTabProfile } from "../profiles/activeTabProfile";
 
 const NEW_IN_WORKTREE_KEY = "flowcode.agentsNewInWorktree";
-const CLI_STATUS_TTL_MS = 60_000;
-
-/** Last `check_cli_status` answer per CLI for the default profile, shared by
- * every opening of the menu. Failed checks are not cached. */
-const cliStatusCache = new Map<AgentCli, { at: number; ok: boolean }>();
 
 /** Whether a CLI is installed and signed in under the default profile. A
  * failed check counts as available. */
-function defaultProfileCliOk(cli: AgentCli): Promise<boolean> {
-  const hit = cliStatusCache.get(cli);
-  if (hit && Date.now() - hit.at < CLI_STATUS_TTL_MS) return Promise.resolve(hit.ok);
-  return invoke<{ installed: boolean; logged_in: boolean }>("check_cli_status", { cli })
-    .then((st) => {
-      const ok = st.installed && st.logged_in;
-      cliStatusCache.set(cli, { at: Date.now(), ok });
-      return ok;
-    })
-    .catch(() => true);
-}
+const defaultProfileCliOk = (cli: AgentCli): Promise<boolean> =>
+  defaultCliStatus(cli).then((st) => (st ? st.installed && st.logged_in : true));
 
 interface NewAgentMenuProps {
   /** The active tab's folder. */
@@ -72,8 +57,13 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
     };
   }, [projectPath]);
 
+  // An account profile lists the CLIs it is signed in to; the default profile
+  // uses the checks below. A stored id that no longer exists launches on the
+  // default profile, so it is filtered like the default one.
+  const account = selected ? profiles.find((p) => p.id === selected) : undefined;
+
   useEffect(() => {
-    if (selected) return;
+    if (account) return;
     let cancelled = false;
     void Promise.all(AGENT_CLIS.map((cli) => defaultProfileCliOk(cli).then((ok) => [cli, ok] as const))).then((entries) => {
       if (!cancelled) setDefaultOk(Object.fromEntries(entries) as Partial<Record<AgentCli, boolean>>);
@@ -81,12 +71,8 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
     return () => {
       cancelled = true;
     };
-  }, [selected]);
+  }, [!account]);
 
-  // An account profile lists the CLIs it is signed in to; the default profile
-  // uses the checks above. A stored id that no longer exists launches on the
-  // default profile, so it is filtered like the default one.
-  const account = selected ? profiles.find((p) => p.id === selected) : undefined;
   const visibleClis = AGENT_CLIS.filter((cli) => (account ? account.logged_in[cli] === true : (defaultOk[cli] ?? true)));
 
   useEffect(() => {
@@ -95,6 +81,8 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
       // The "+" button toggles the menu itself - closing here too would
       // make its click reopen what this just closed.
       if (target.closest(".agents-sidebar-add")) return;
+      // The profile list is portaled out of the menu.
+      if (target.closest("[data-profile-select-menu]")) return;
       if (ref.current && !ref.current.contains(target)) onClose();
     };
     const onKeyDown = (e: KeyboardEvent) => {
@@ -140,7 +128,7 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
           role="menuitem"
           className="agents-new-menu-item"
           onClick={() => {
-            onLaunch(cli, inWorktree && worktreeAvailable, profiles.some((p) => p.id === selected) ? (selected ?? undefined) : undefined);
+            onLaunch(cli, inWorktree && worktreeAvailable, account ? selected ?? undefined : undefined);
             onClose();
           }}
         >

@@ -5,8 +5,9 @@
  * "/" alone silently breaks there. */
 
 /** A directory path in one comparable shape: forward slashes, no trailing
- * slash. For matching the `fs-changed` payload against a known folder. */
-export const normalizeDir = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+ * slash (a root keeps its own). For matching the `fs-changed` payload against
+ * a known folder. */
+export const normalizeDir = (p: string) => trimTrailingSeparators(p).replace(/\\/g, "/");
 
 /** The last path segment ("file.txt" for "C:\dir\file.txt" or "/dir/file.txt"). */
 export function basename(path: string): string {

@@ -184,6 +184,9 @@ export const it = {
   "editor.saved": "Salvato",
   "editor.save": "Salva",
   "editor.openFailed": "Impossibile aprire il file: {error}",
+  "editor.changedOnDisk.title": "File modificato su disco",
+  "editor.changedOnDisk.body": "Il file è stato modificato su disco dopo l'apertura. Sovrascriverlo con la tua versione?",
+  "editor.changedOnDisk.overwrite": "Sovrascrivi",
   // Git
   "git.tab.explorer": "Esplora",
   "git.tab.git": "Git",
@@ -223,6 +226,7 @@ export const it = {
   "git.branch.none": "Nessun branch trovato",
   "git.branch.switching": "Cambio branch…",
   "git.branch.error": "Impossibile cambiare branch: {error}",
+  "git.branch.listError": "Impossibile leggere i branch: {error}",
   "git.diffFailed": "Impossibile mostrare le differenze: {error}",
   "git.status.M": "Modificato",
   "git.status.A": "Aggiunto",
@@ -293,7 +297,6 @@ export const it = {
   "agents.profile.label": "Profilo",
   "agents.profile.projectDefault": "Profilo di questo progetto",
   "agents.profile.rememberForProject": "Usa sempre per questo progetto",
-  "usage.profile.label": "Profilo",
   "tabs.profile": "Profilo: {name}",
 
   // Plugins / features

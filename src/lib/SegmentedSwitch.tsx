@@ -1,6 +1,7 @@
+import { useRef } from "react";
 import "./segmented-switch.css";
 
-export interface SegmentedOption<T extends string> {
+interface SegmentedOption<T extends string> {
   id: T;
   label: string;
   title?: string;
@@ -21,13 +22,15 @@ interface SegmentedSwitchProps<T extends string> {
 /** Two-or-more option pill switch for a panel header (Explorer/Git,
  * project/all agents): a tablist with roving tabindex and arrow-key moves. */
 export function SegmentedSwitch<T extends string>({ options, value, onChange, ariaLabel, idPrefix }: SegmentedSwitchProps<T>) {
+  const buttons = useRef(new Map<T, HTMLButtonElement>());
+
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
     const i = options.findIndex((o) => o.id === value);
     const next = options[(i + (e.key === "ArrowRight" ? 1 : options.length - 1)) % options.length];
     onChange(next.id);
-    if (idPrefix) document.getElementById(`${idPrefix}-tab-${next.id}`)?.focus();
+    buttons.current.get(next.id)?.focus();
   }
 
   return (
@@ -35,6 +38,10 @@ export function SegmentedSwitch<T extends string>({ options, value, onChange, ar
       {options.map((o) => (
         <button
           key={o.id}
+          ref={(el) => {
+            if (el) buttons.current.set(o.id, el);
+            else buttons.current.delete(o.id);
+          }}
           type="button"
           role="tab"
           id={idPrefix ? `${idPrefix}-tab-${o.id}` : undefined}
@@ -46,7 +53,7 @@ export function SegmentedSwitch<T extends string>({ options, value, onChange, ar
           onClick={() => onChange(o.id)}
         >
           <span className="segmented-switch-text">{o.label}</span>
-          {o.count !== undefined && o.count !== 0 && o.count !== "" && <span className="agents-sidebar-scope-count">{o.count}</span>}
+          {o.count !== undefined && o.count !== 0 && o.count !== "" && <span className="segmented-switch-count">{o.count}</span>}
         </button>
       ))}
     </div>

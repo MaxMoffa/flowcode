@@ -12,6 +12,7 @@ import { buildLinter } from "./lint";
 import { cmChromeTheme, cmHighlightStyle } from "./cmTheme";
 import { basename } from "../lib/path";
 import { useI18n } from "../i18n";
+import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import "./editor.css";
 
 export interface EditorHandle {
@@ -36,6 +37,11 @@ interface EditorViewProps {
 
 export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hidden, onDirtyChange, onRenamed, initialContent }, ref) => {
   const { t } = useI18n();
+  const confirm = useConfirmDialog();
+  // The save closure is captured once by the CodeMirror keymap: read the
+  // latest translator/dialog through a ref instead of re-creating the editor.
+  const promptRef = useRef({ t, confirm });
+  promptRef.current = { t, confirm };
   const [content, setContent] = useState<string | null>(null);
   // Split so a failed save never unmounts the editor (the unsaved text would
   // become unreachable); only a failed load replaces it.
@@ -78,6 +84,19 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     if (text === originalRef.current) return;
     setSaving(true);
     try {
+      // An agent (or another tool) may have rewritten the file since it was
+      // loaded or last saved: don't clobber that without asking.
+      const onDisk = await invoke<string>("read_text_file", { path: pathRef.current }).catch(() => null);
+      if (onDisk !== null && onDisk !== originalRef.current) {
+        const { t: tr, confirm: ask } = promptRef.current;
+        const overwrite = await ask({
+          title: tr("editor.changedOnDisk.title"),
+          message: tr("editor.changedOnDisk.body"),
+          confirmLabel: tr("editor.changedOnDisk.overwrite"),
+          danger: true,
+        });
+        if (!overwrite) return;
+      }
       await invoke("write_text_file", { path: pathRef.current, contents: text });
       originalRef.current = text;
       setSaveError(null);
@@ -94,6 +113,31 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     } finally {
       setSaving(false);
     }
+  }, []);
+
+  // A clean buffer follows the file when it changes on disk (an agent edited
+  // it): checked whenever the window regains focus.
+  useEffect(() => {
+    let checking = false;
+    const syncFromDisk = async () => {
+      const view = cmViewRef.current;
+      if (checking || !view || dirtyRef.current) return;
+      checking = true;
+      try {
+        const onDisk = await invoke<string>("read_text_file", { path: pathRef.current });
+        // Typing while the read was in flight makes the buffer dirty: keep it.
+        if (onDisk === originalRef.current || dirtyRef.current || cmViewRef.current !== view) return;
+        // originalRef first: the update listener then sees a clean buffer.
+        originalRef.current = onDisk;
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: onDisk } });
+      } catch {
+        /* file gone or unreadable: leave the buffer as it is */
+      } finally {
+        checking = false;
+      }
+    };
+    window.addEventListener("focus", syncFromDisk);
+    return () => window.removeEventListener("focus", syncFromDisk);
   }, []);
 
   useImperativeHandle(
