@@ -55,7 +55,7 @@ const DAY_MONTH_RE = new RegExp(`\\b(\\d{1,2})\\s+${MONTH}`);
 /** When a reset worded by the CLI happens - Claude Code: "3pm (Europe/Rome)",
  * "Sep 19, 12am (Europe/Rome)"; Codex: "07:32", "07:32 on 20 Sep". Read as
  * local time; a bare time is its next occurrence. `null` when unreadable. */
-export function parseResetTime(text: string, now = new Date()): number | null {
+function parseResetTime(text: string, now = new Date()): number | null {
   // The time zone in parentheses is the user's own.
   let s = text.replace(/\([^)]*\)/g, " ").toLowerCase();
   let hours = 0;

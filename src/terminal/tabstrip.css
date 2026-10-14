@@ -11,6 +11,7 @@
 
 .term-tab {
   box-sizing: border-box;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -50,9 +51,8 @@
 }
 
 /* Account profile badge: a small dot in the profile's color on the corner of
-   the tab's icon. It lives on a wrapper around the icon so a busy agent's
-   spinning logo doesn't carry it round; the ring keeps it readable on any
-   tab background. */
+   the tab's icon. It lives on a wrapper around the icon; the ring keeps it
+   readable on any tab background. */
 .term-tab-profiled {
   position: relative;
   display: inline-flex;
@@ -70,9 +70,9 @@
   box-shadow: 0 0 0 1.5px var(--surface);
 }
 
-/* A tab running an agent CLI: its logo in place of the dot, turning while
-   the agent works, then, on a renamed tab only, "?" while it waits on the
-   user. */
+/* A tab running an agent CLI: its logo in place of the dot, with the tab's
+   outline animating while the agent works, then, on a renamed tab only, "?"
+   while it waits on the user. */
 .term-tab-agent {
   display: inline-flex;
   align-items: center;
@@ -98,7 +98,52 @@
 }
 
 .term-tab.attn-busy {
-  border-color: color-mix(in srgb, var(--ansi-bright-blue) 65%, transparent);
+  border-color: color-mix(in srgb, var(--ansi-bright-blue) 25%, transparent);
+}
+
+/* While an agent works a bright arc runs clockwise around the tab's outline
+   (the icon stays still). A conic gradient turned through a registered
+   angle, masked down to a ring the width of the border. */
+@property --term-tab-sweep {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.term-tab.attn-busy::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--term-tab-sweep),
+    transparent 0deg,
+    transparent 200deg,
+    color-mix(in srgb, var(--ansi-bright-blue) 35%, transparent) 290deg,
+    var(--ansi-bright-blue) 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+  animation: term-tab-sweep 1.6s linear infinite;
+}
+
+@keyframes term-tab-sweep {
+  to {
+    --term-tab-sweep: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-tab.attn-busy {
+    border-color: color-mix(in srgb, var(--ansi-bright-blue) 65%, transparent);
+  }
+
+  .term-tab.attn-busy::before {
+    display: none;
+  }
 }
 
 .term-tab.attn-done {
@@ -110,11 +155,6 @@
   color: var(--ansi-bright-yellow);
 }
 
-.term-tab-agent-logo.is-busy,
-.term-tab-folder-icon.is-busy {
-  color: var(--ansi-bright-blue);
-}
-
 .term-tab-agent-logo.is-done,
 .term-tab-folder-icon.is-done,
 .term-tab-dot.is-done {
@@ -123,39 +163,6 @@
 
 .term-tab-dot.is-done {
   background: var(--ansi-bright-green);
-}
-
-/* While the agent works the logo turns slowly and breathes a little:
-   the pulse sits on the wrapper, the turn on the svg, so the two run
-   independently. */
-.term-tab-agent-logo.is-busy {
-  animation: term-tab-agent-pulse 1.6s ease-in-out infinite;
-}
-
-.term-tab-agent-logo.is-busy svg {
-  animation: term-tab-agent-spin 3s linear infinite;
-}
-
-@keyframes term-tab-agent-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes term-tab-agent-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(0.82);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .term-tab-agent-logo.is-busy svg {
-    animation: none;
-  }
 }
 
 .term-tab-agent-question {

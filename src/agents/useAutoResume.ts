@@ -25,7 +25,7 @@ const TRY_AGAIN_RE = /try again at\s+(.+?)[.\n]?(?:\n|$)/i;
  * ones may still be scrolled in). `at` is the reset time, null when the notice
  * doesn't say, says it in a way parseResetTime can't read, or is a stale
  * dateless one (see parseResetTimeGuarded). */
-export function detectLimit(text: string, now = new Date()): { at: number | null } | null {
+function detectLimit(text: string, now = new Date()): { at: number | null } | null {
   let last = -1;
   for (const m of text.matchAll(LIMIT_RE)) last = m.index ?? last;
   if (last < 0) return null;

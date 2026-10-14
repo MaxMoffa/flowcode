@@ -8,7 +8,7 @@ import { addFavorite, isFavorite, removeFavorite } from "../favorites/favoritesS
 import { FileTypeIcon } from "./fileIcons";
 import { FileInfoDialog } from "./FileInfoDialog";
 import type { ExplorerLinkMode } from "../settings/modes";
-import { isRootPath, parentPath, separatorOf, trimTrailingSeparators, truncatePath } from "../lib/path";
+import { isRootPath, normalizeDir, parentPath, separatorOf, trimTrailingSeparators, truncatePath } from "../lib/path";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { useI18n } from "../i18n";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
@@ -229,6 +229,10 @@ interface FileTreeProps {
   visible?: boolean;
 }
 
+// Counts the backend name searches up: a newer one makes the walk of an older
+// one stop (see fs.rs's `search_dir`).
+let searchGeneration = 0;
+
 export function FileTree({
   cwd,
   onNavigate,
@@ -299,7 +303,7 @@ export function FileTree({
     setSearching(true);
     let cancelled = false;
     const timer = setTimeout(() => {
-      invoke<FsEntry[]>("search_dir", { path: cwd, query, showHidden })
+      invoke<FsEntry[]>("search_dir", { path: cwd, query, showHidden, generation: ++searchGeneration })
         .then((result) => {
           if (!cancelled) setSearchResults(result);
         })
@@ -379,7 +383,7 @@ export function FileTree({
       debounce = setTimeout(reload, 150);
     };
     const unlisten = listen<string>("fs-changed", (event) => {
-      if (event.payload === cwd) scheduleReload();
+      if (normalizeDir(event.payload) === normalizeDir(cwd)) scheduleReload();
     });
     invoke("watch_dir", { path: cwd }).catch(() => {
       if (disposed) return;

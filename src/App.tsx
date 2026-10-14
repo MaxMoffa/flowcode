@@ -76,6 +76,7 @@ import { recordRecentTerminal } from "./newtab/recentTerminals";
 import { recordCommand } from "./newtab/commandHistory";
 import { profileForPath, refreshProfiles, useProfiles } from "./profiles/profiles";
 import { ProfilePicker } from "./profiles/ProfilePicker";
+import { activeTabProfile } from "./profiles/activeTabProfile";
 import { Icons } from "./app/icons";
 import { useWindowChrome } from "./window/useWindowChrome";
 import { ZoomRow } from "./terminal/ZoomRow";
@@ -190,6 +191,10 @@ function Shell() {
   const [activeTabId, setActiveTabId] = useState("tab-0");
   const [activeTerminalId, setActiveTerminalId] = useState("tab-0");
   const latestRef = useRef({ tabs, activeTabId, activeTerminalId });
+  // What the periodic session save looks at: tabs or the active tab changed,
+  // or a busy/command-line event, since the last save (see `persist`).
+  const sessionDirtyRef = useRef(true);
+  if (latestRef.current.tabs !== tabs || latestRef.current.activeTabId !== activeTabId) sessionDirtyRef.current = true;
   latestRef.current = { tabs, activeTabId, activeTerminalId };
   const { isMaximized, isEdgeFlush, isFullscreen, toggleFullscreen } = useWindowChrome();
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
@@ -564,6 +569,10 @@ function Shell() {
     // that went through; a close or a flush request always writes.
     let lastSaved: string | null = null;
     const persist = async (flushGen?: number, periodic = false) => {
+      // Nothing to look at while the window is hidden and nothing changed:
+      // skip the serialize of every terminal.
+      if (periodic && document.hidden && !sessionDirtyRef.current) return;
+      sessionDirtyRef.current = false;
       const snap = restoreSessionRef.current ? await snapshot() : null;
       const json = JSON.stringify(snap);
       if (periodic && json === lastSaved) return;
@@ -750,6 +759,8 @@ function Shell() {
   const remoteActionRef = useRef<(id: string, ptyId: string | null) => void>(() => {});
   /** The phone asked to sign a CLI in under a profile (see loginProfile). */
   const remoteProfileLoginRef = useRef<(profileId: string, cli: string) => void>(() => {});
+  const remoteLoginTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
   const allPluginsRef = useRef<PluginDef[]>([]);
 
@@ -1224,21 +1235,30 @@ function Shell() {
   // exists once its shell has spawned.
   // Keyed on what is reported, not on `tabs`: a title event that changes
   // nothing the backend shows shouldn't cost an IPC call.
+  // Bumped when a terminal learns its pty id: the tab-to-agent match and the
+  // tab report both depend on it, and neither is otherwise re-run for it.
+  const [ptyVersion, setPtyVersion] = useState(0);
   const reportedTabsKey = tabs
     .filter((t): t is TermTab => t.kind === "terminal")
     .map((t) => `${t.id}\u0000${t.label}\u0000${t.cwd}`)
     .join("\u0001");
   useEffect(() => {
-    const report = () =>
-      invoke("window_report_tabs", {
-        tabs: latestRef.current.tabs
-          .filter((t): t is TermTab => t.kind === "terminal")
-          .map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd })),
-      }).catch(() => {});
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const report = () => {
+      const reported = latestRef.current.tabs
+        .filter((t): t is TermTab => t.kind === "terminal")
+        .map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd }));
+      invoke("window_report_tabs", { tabs: reported }).catch(() => {});
+      // Retried only while some tab's shell hasn't spawned yet.
+      if (timer !== undefined && reported.every((r) => r.pty_id !== null)) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
     report();
-    const timer = setInterval(report, 3000);
+    timer = setInterval(report, 3000);
     return () => clearInterval(timer);
-  }, [reportedTabsKey]);
+  }, [reportedTabsKey, ptyVersion]);
 
   const adoptTabRef = useRef(adoptTab);
   adoptTabRef.current = adoptTab;
@@ -1268,6 +1288,7 @@ function Shell() {
         onCommandLine: (line: string) => void;
         onAnchor: (anchor: PromptAnchor) => void;
         onPromptShown: (anchor: PromptAnchor | null) => void;
+        onPtyReady: () => void;
       }
     >(),
   );
@@ -1284,6 +1305,7 @@ function Shell() {
         onCommandLine: (line) => handlersRef.current.commandLine(tabId, line),
         onAnchor: (anchor) => handlersRef.current.patchHandoff(tabId, { anchor }),
         onPromptShown: (promptShown) => handlersRef.current.patchHandoff(tabId, { promptShown }),
+        onPtyReady: () => setPtyVersion((v) => v + 1),
       };
       termCallbacksRef.current.set(tabId, callbacks);
     }
@@ -1303,14 +1325,18 @@ function Shell() {
     });
     // The remote-access server asking for the screen of one of our ptys (a
     // phone just opened it). Always answer, even empty, so it never waits.
-    const unlistenSnap = webview.listen<{ reqId: string; ptyId: string }>("remote://snapshot-request", (e) => {
+    const unlistenSnap = webview.listen<{ reqId: string; ptyId: string }>("remote://snapshot-request", async (e) => {
       const { reqId, ptyId } = e.payload;
       let snap: { data: string; seq: number } | null = null;
-      for (const h of termRefs.current.values()) {
-        if (h.getPtyId() === ptyId) {
-          snap = h.snapshotForRemote();
-          break;
+      try {
+        for (const h of termRefs.current.values()) {
+          if (h.getPtyId() === ptyId) {
+            snap = await h.snapshotForRemote();
+            break;
+          }
         }
+      } catch {
+        snap = null;
       }
       invoke("remote_snapshot_reply", { reqId, data: snap?.data ?? "", seq: snap?.seq ?? 0 }).catch(() => {});
     });
@@ -1518,6 +1544,7 @@ function Shell() {
    * the terminal-inside-the-terminal cases `handleTitleChange` below needs
    * to treat differently from a plain local `cd`. */
   function handleCommandLine(tabId: string, line: string) {
+    sessionDirtyRef.current = true;
     const trimmed = line.trim();
     const commandTab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     // Shown on the new tab page - only lines typed at a shell prompt (not
@@ -1736,6 +1763,7 @@ function Shell() {
   }
 
   function handleBusyChange(tabId: string, busy: boolean) {
+    sessionDirtyRef.current = true;
     setTabs((prev) =>
       patchTermTab(prev, tabId, (t) =>
         // The agent's full-screen UI closing is the one signal that it is gone
@@ -1814,6 +1842,12 @@ function Shell() {
   }
 
   const activeTerminal = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
+  // Popups that pick an account profile start from the terminal in front.
+  const activeTerminalProfileId = activeTerminal?.profileId;
+  const activeTerminalKey = activeTerminal?.id;
+  useEffect(() => {
+    if (activeTerminalKey) activeTabProfile.set({ tabId: activeTerminalKey, profileId: activeTerminalProfileId });
+  }, [activeTerminalKey, activeTerminalProfileId]);
   // The Agents panel's "This project" scope only makes sense while a terminal
   // is in front: with Settings or the changelog showing, the last terminal's
   // folder may not even be a project open in this window - and the new tab
@@ -1840,7 +1874,7 @@ function Shell() {
     if (same) return { tabAgents: prev, sessionByTab: byTab };
     tabAgentsRef.current = next;
     return { tabAgents: next, sessionByTab: byTab };
-  }, [agentSessions, tabs]);
+  }, [agentSessions, tabs, ptyVersion]);
   // The active tab's agent, for the usage popovers' context section.
   const activeAgentSession = activeTerminal ? sessionByTab.get(activeTerminal.id) : undefined;
   const [aaCli, aaId, aaProfile, aaWsl, aaLabel] = [
@@ -2020,9 +2054,10 @@ function Shell() {
     // Signing in happens in the terminal, away from this window: keep re-reading
     // the login state for a while so the phone's list catches up.
     let left = 60;
-    const timer = window.setInterval(() => {
+    window.clearInterval(remoteLoginTimerRef.current);
+    remoteLoginTimerRef.current = window.setInterval(() => {
       void refreshProfiles();
-      if (--left <= 0) window.clearInterval(timer);
+      if (--left <= 0) window.clearInterval(remoteLoginTimerRef.current);
     }, 5000);
   };
 
@@ -2561,6 +2596,7 @@ function Shell() {
                         attach={pendingAttachRef.current.get(tab.id)}
                         onAnchor={callbacks.onAnchor}
                         onPromptShown={callbacks.onPromptShown}
+                        onPtyReady={callbacks.onPtyReady}
                       />
                     )}
                     {showPage && (

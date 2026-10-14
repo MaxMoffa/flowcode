@@ -140,7 +140,7 @@ export function TabSwitcher({ tabs, activeId, agents, doneIds, onSelect, onClose
   );
 }
 
-export interface NarrowQuickAction {
+interface NarrowQuickAction {
   id: string;
   label: string;
   icon: ReactNode;

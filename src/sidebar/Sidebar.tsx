@@ -4,6 +4,7 @@ import { GitPanel } from "../git/GitPanel";
 import type { GitChange } from "../git/gitStatus";
 import type { ExplorerLinkMode } from "../settings/modes";
 import { readEnum, usePersistentState, writeString } from "../lib/storage";
+import { SegmentedSwitch } from "../lib/SegmentedSwitch";
 import { useI18n } from "../i18n";
 import "./sidebar.css";
 
@@ -46,33 +47,19 @@ export function Sidebar({
   const [tab, setTab] = usePersistentState<SidebarTab>(SIDEBAR_TAB_KEY, readSidebarTab, writeString);
   const [changeCount, setChangeCount] = useState(0);
 
-  function onTabKeyDown(e: React.KeyboardEvent) {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    e.preventDefault();
-    const next = tab === "explorer" ? "git" : "explorer";
-    setTab(next);
-    document.getElementById(`sidebar-tab-${next}`)?.focus();
-  }
-
   return (
     <aside className="sidebar">
-      <div className="sidebar-tabs" role="tablist" aria-label={t("git.tabs.aria")} onKeyDown={onTabKeyDown}>
-        {SIDEBAR_TABS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            id={`sidebar-tab-${id}`}
-            aria-selected={tab === id}
-            aria-controls={`sidebar-panel-${id}`}
-            tabIndex={tab === id ? 0 : -1}
-            className={"sidebar-tab" + (tab === id ? " is-active" : "")}
-            onClick={() => setTab(id)}
-          >
-            {id === "explorer" ? t("git.tab.explorer") : t("git.tab.git")}
-            {id === "git" && changeCount > 0 && <span className="sidebar-tab-badge">{changeCount > 99 ? "99+" : changeCount}</span>}
-          </button>
-        ))}
+      <div className="sidebar-switch">
+        <SegmentedSwitch
+          options={[
+            { id: "explorer", label: t("git.tab.explorer") },
+            { id: "git", label: t("git.tab.git"), count: changeCount > 99 ? "99+" : changeCount },
+          ]}
+          value={tab}
+          onChange={setTab}
+          ariaLabel={t("git.tabs.aria")}
+          idPrefix="sidebar"
+        />
       </div>
       {/* Both panels stay mounted: the FileTree keeps its folder watcher (and
        * scroll/expansion state) while Git is showing, and Git keeps its draft

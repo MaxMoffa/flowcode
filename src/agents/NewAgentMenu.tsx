@@ -1,12 +1,34 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { AGENT_CLIS, CLI_INFO, type AgentCli } from "./cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { useI18n } from "../i18n";
 import { profileForPath, setProjectDefaultProfile, useProfiles } from "../profiles/profiles";
+import { ProfileSelect } from "../profiles/ProfileSelect";
+import { activeTabProfile } from "../profiles/activeTabProfile";
 
 const NEW_IN_WORKTREE_KEY = "flowcode.agentsNewInWorktree";
+const CLI_STATUS_TTL_MS = 60_000;
+
+/** Last `check_cli_status` answer per CLI for the default profile, shared by
+ * every opening of the menu. Failed checks are not cached. */
+const cliStatusCache = new Map<AgentCli, { at: number; ok: boolean }>();
+
+/** Whether a CLI is installed and signed in under the default profile. A
+ * failed check counts as available. */
+function defaultProfileCliOk(cli: AgentCli): Promise<boolean> {
+  const hit = cliStatusCache.get(cli);
+  if (hit && Date.now() - hit.at < CLI_STATUS_TTL_MS) return Promise.resolve(hit.ok);
+  return invoke<{ installed: boolean; logged_in: boolean }>("check_cli_status", { cli })
+    .then((st) => {
+      const ok = st.installed && st.logged_in;
+      cliStatusCache.set(cli, { at: Date.now(), ok });
+      return ok;
+    })
+    .catch(() => true);
+}
 
 interface NewAgentMenuProps {
   /** The active tab's folder. */
@@ -32,21 +54,40 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
   const { profiles } = useProfiles();
   const projectPath = repoRoot ?? projectCwd;
   // The profile the project is set to use (null = the default one), and the
-  // one picked here - starts on the former, once it has been read.
+  // one picked here - starts on the active tab's profile.
   const [projectDefault, setProjectDefault] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => activeTabProfile.get().profileId ?? null);
+  // Which CLIs are signed in under the default profile; empty until checked
+  // (then every CLI is shown).
+  const [defaultOk, setDefaultOk] = useState<Partial<Record<AgentCli, boolean>>>({});
 
   useEffect(() => {
     let cancelled = false;
     void profileForPath(projectPath).then((id) => {
       if (cancelled) return;
       setProjectDefault(id);
-      setSelected(id);
     });
     return () => {
       cancelled = true;
     };
   }, [projectPath]);
+
+  useEffect(() => {
+    if (selected) return;
+    let cancelled = false;
+    void Promise.all(AGENT_CLIS.map((cli) => defaultProfileCliOk(cli).then((ok) => [cli, ok] as const))).then((entries) => {
+      if (!cancelled) setDefaultOk(Object.fromEntries(entries) as Partial<Record<AgentCli, boolean>>);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
+
+  // An account profile lists the CLIs it is signed in to; the default profile
+  // uses the checks above. A stored id that no longer exists launches on the
+  // default profile, so it is filtered like the default one.
+  const account = selected ? profiles.find((p) => p.id === selected) : undefined;
+  const visibleClis = AGENT_CLIS.filter((cli) => (account ? account.logged_in[cli] === true : (defaultOk[cli] ?? true)));
 
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
@@ -69,48 +110,30 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
 
   return (
     <div className="agents-new-menu" ref={ref} role="menu">
-      <div className="agents-new-menu-caption">{basename(repoRoot ?? projectCwd)}</div>
-      {profiles.length > 0 && (
-        <div className="agents-new-menu-profiles">
-          <div className="agents-new-menu-caption">{t("agents.profile.label")}</div>
-          <div className="agents-new-menu-chips" role="group" aria-label={t("agents.profile.label")}>
-            {[{ id: null, name: t("agents.profile.default"), color: null }, ...profiles].map((p) => (
+      <div className="agents-new-menu-head">
+        <div className="agents-new-menu-caption">{basename(repoRoot ?? projectCwd)}</div>
+        <ProfileSelect
+          value={selected ?? undefined}
+          onChange={(id) => setSelected(id ?? null)}
+          isStarred={(id) => projectDefault === (id ?? null)}
+          footer={
+            selected !== projectDefault && (
               <button
-                key={p.id ?? "default"}
                 type="button"
-                aria-pressed={selected === p.id}
-                className="agents-new-menu-chip"
-                title={projectDefault === p.id ? `${p.name} · ${t("agents.profile.projectDefault")}` : p.name}
-                onClick={() => setSelected(p.id)}
+                className="agents-new-menu-set-default"
+                onClick={() => {
+                  setProjectDefault(selected);
+                  void setProjectDefaultProfile(projectPath, selected);
+                }}
               >
-                <span
-                  className={"agents-new-menu-chip-dot" + (p.color ? "" : " is-default")}
-                  style={p.color ? { background: p.color } : undefined}
-                />
-                <span>{p.name}</span>
-                {projectDefault === p.id && (
-                  <span className="agents-new-menu-chip-star" title={t("agents.profile.projectDefault")} aria-hidden>
-                    ★
-                  </span>
-                )}
+                ☆ {t("agents.profile.rememberForProject")}
               </button>
-            ))}
-          </div>
-          {selected !== projectDefault && (
-            <button
-              type="button"
-              className="agents-new-menu-set-default"
-              onClick={() => {
-                setProjectDefault(selected);
-                void setProjectDefaultProfile(projectPath, selected);
-              }}
-            >
-              ☆ {t("agents.profile.rememberForProject")}
-            </button>
-          )}
-        </div>
-      )}
-      {AGENT_CLIS.map((cli) => (
+            )
+          }
+        />
+      </div>
+      {visibleClis.length === 0 && <div className="agents-new-menu-empty">{t("agents.new.noAgents")}</div>}
+      {visibleClis.map((cli) => (
         <button
           key={cli}
           type="button"

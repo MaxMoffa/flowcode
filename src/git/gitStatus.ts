@@ -24,6 +24,23 @@ export interface GitStatus {
   conflicted: GitChange[];
 }
 
+/** Mirrors `GitBranch` in src-tauri/src/git.rs. */
+export interface GitBranch {
+  /** Short name; `origin/feature` for a remote one. */
+  name: string;
+  upstream: string | null;
+  last_commit_unix: number | null;
+}
+
+/** Mirrors `GitBranches` in src-tauri/src/git.rs. */
+export interface GitBranches {
+  /** `null` when the HEAD is detached. */
+  current: string | null;
+  local: GitBranch[];
+  /** Without the ones a local branch already tracks. */
+  remote: GitBranch[];
+}
+
 /** The repository (main tree or linked worktree) `path` is in, `null` when it
  * isn't in one. */
 export const gitToplevel = (path: string) => invoke<string | null>("git_toplevel", { path });
@@ -37,6 +54,11 @@ export const gitShowFile = (root: string, path: string, rev: "HEAD" | "INDEX") =
   invoke<string>("git_show_file", { root, path, rev });
 export const gitDiscard = (root: string, paths: string[], untracked: boolean) =>
   invoke<void>("git_discard", { root, paths, untracked });
+export const gitBranches = (root: string) => invoke<GitBranches>("git_branches", { root });
+/** Rejects with git's own message when it refuses (e.g. changes would be
+ * overwritten). `createFromRemote`: `name` is `<remote>/<branch>`. */
+export const gitSwitchBranch = (root: string, name: string, createFromRemote: boolean) =>
+  invoke<void>("git_switch_branch", { root, name, createFromRemote });
 
 /** Builds an absolute path from the repository root and git's forward-slashed
  * relative one, using the separator the root itself uses. */

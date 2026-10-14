@@ -40,7 +40,7 @@ export interface CatchFrame {
   flicker?: boolean;
 }
 
-export type Reaction = "puff" | "hop" | "blink" | "none";
+type Reaction = "puff" | "hop" | "blink" | "none";
 
 interface Shot {
   at: number;

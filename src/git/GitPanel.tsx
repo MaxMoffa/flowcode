@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { FileTypeIcon } from "../sidebar/fileIcons";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { useI18n } from "../i18n";
-import { basename } from "../lib/path";
+import { basename, normalizeDir } from "../lib/path";
 import {
   gitCommit,
   gitDiscard,
@@ -15,6 +15,7 @@ import {
   type GitChange,
   type GitStatus,
 } from "./gitStatus";
+import { BranchMenu } from "./BranchMenu";
 import "./git-panel.css";
 
 interface GitPanelProps {
@@ -186,7 +187,7 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
     let debounce: ReturnType<typeof setTimeout> | null = null;
     const unlisten = visible
       ? listen<string>("fs-changed", (event) => {
-          if (event.payload !== cwd) return;
+          if (normalizeDir(event.payload) !== normalizeDir(cwd)) return;
           if (debounce) clearTimeout(debounce);
           debounce = setTimeout(() => void refresh(), 300);
         })
@@ -406,10 +407,7 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
   return (
     <div className="git-panel">
       <div className="git-header">
-        <span className="git-branch" title={branchLabel}>
-          {icons.branch}
-          <span className="git-branch-name">{branchLabel}</span>
-        </span>
+        <BranchMenu root={repoRoot} label={branchLabel} icon={icons.branch} onSwitched={() => void refresh(true)} />
         {(status.ahead > 0 || status.behind > 0) && (
           <span className="git-sync" title={t("git.aheadBehind", { ahead: status.ahead, behind: status.behind })}>
             {status.ahead > 0 && `↑${status.ahead}`}

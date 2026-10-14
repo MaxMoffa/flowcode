@@ -23,9 +23,14 @@
   padding: 0 10px;
   box-sizing: border-box;
   font-weight: 600;
-  border-bottom: 1px solid var(--border);
   white-space: nowrap;
   flex: 0 0 auto;
+}
+
+/* Header row + scope switch, with the divider under both. */
+.agents-sidebar-head {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
 }
 
 .agents-sidebar-close {
@@ -46,65 +51,6 @@
 .agents-sidebar-close:hover {
   background: var(--sidebar-hover);
   color: var(--fg);
-}
-
-/* Segmented control under the header: this tab's project, or everything. */
-.agents-sidebar-scope {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 2px;
-  margin: 6px 8px;
-  padding: 2px;
-  border-radius: 6px;
-  background: var(--sidebar-hover);
-  border: 1px solid var(--border);
-}
-
-.agents-sidebar-scope-option {
-  flex: 1 1 0;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.agents-sidebar-scope-option:hover {
-  color: var(--fg);
-}
-
-.agents-sidebar-scope-option.is-selected {
-  background: var(--sidebar-selected-bg);
-  color: var(--sidebar-selected-fg);
-}
-
-.agents-sidebar-scope-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.agents-sidebar-scope-count {
-  flex: 0 0 auto;
-  font-size: 10px;
-  line-height: 14px;
-  min-width: 14px;
-  padding: 0 4px;
-  border-radius: 999px;
-  text-align: center;
-  background: var(--border);
-  background: color-mix(in srgb, var(--ansi-bright-blue) 25%, transparent);
-  color: var(--ansi-bright-blue);
 }
 
 .agents-sidebar-list {
@@ -391,6 +337,12 @@
   flex: 0 0 auto;
 }
 
+.agents-new-menu-empty {
+  padding: 6px 8px;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
 .agents-new-menu-option {
   display: flex;
   align-items: center;
@@ -402,68 +354,29 @@
   cursor: pointer;
 }
 
-/* Account profile picker above the agent list: a wrapping row of chips. */
-.agents-new-menu-profiles {
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--border);
-}
-
-.agents-new-menu-chips {
+/* Caption on the left, profile dropdown on the right. */
+.agents-new-menu-head {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 2px 8px;
-}
-
-.agents-new-menu-chip {
-  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 1px 8px 1px 6px;
-  box-sizing: border-box;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: 11px;
-  white-space: nowrap;
-  cursor: pointer;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 3px;
+  margin-bottom: 2px;
 }
 
-.agents-new-menu-chip:hover {
-  background: var(--sidebar-hover);
-  color: var(--fg);
-}
-
-.agents-new-menu-chip[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--fg);
-}
-
-.agents-new-menu-chip-dot {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: 999px;
-}
-
-.agents-new-menu-chip-dot.is-default {
-  box-shadow: inset 0 0 0 1.5px currentColor;
-}
-
-.agents-new-menu-chip-star {
-  color: var(--accent);
+.agents-new-menu-head .agents-new-menu-caption {
+  min-width: 0;
 }
 
 .agents-new-menu-set-default {
   display: block;
   width: 100%;
-  padding: 3px 8px;
-  border: 0;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
   background: transparent;
   color: var(--fg-muted);
   font: inherit;

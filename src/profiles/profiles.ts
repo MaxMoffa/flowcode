@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** Whether each CLI is signed in under a profile - read off its files, see
  * `login_state` in src-tauri/src/profiles.rs. */
-export interface LoginState {
+interface LoginState {
   claude: boolean;
   codex: boolean;
   vibe: boolean;

@@ -46,6 +46,28 @@ function formatDuration(ms: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+/** Re-renders itself every second, so the labels showing a running clock
+ * don't cost the whole settings page a render per tick. */
+function useSecondTick() {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+}
+
+/** "Seen ... ago" label of a device. */
+function LastSeen({ at }: { at: number }) {
+  useSecondTick();
+  return <>{t("settings.remote.lastSeen", { time: formatDuration(Date.now() - toMs(at)) })}</>;
+}
+
+/** The pairing code's countdown. */
+function PairCountdown({ expiresAt }: { expiresAt: number }) {
+  useSecondTick();
+  return <>{t("settings.remote.pairExpires", { time: formatDuration(toMs(expiresAt) - Date.now()) })}</>;
+}
+
 interface PairDialogProps {
   /** `dismissed`: the user closed it (as opposed to a phone asking to pair). */
   onClose: (dismissed: boolean) => void;
@@ -59,7 +81,7 @@ function PairDialog({ onClose }: PairDialogProps) {
   const [pair, setPair] = useState<PairInfo | null>(null);
   const [qr, setQr] = useState("");
   const [error, setError] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const [expired, setExpired] = useState(false);
 
   const generate = useCallback((force = false) => {
     setError(false);
@@ -87,9 +109,13 @@ function PairDialog({ onClose }: PairDialogProps) {
   }, [onClose]);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    if (!pair) return;
+    const left = toMs(pair.expiresAt) - Date.now();
+    setExpired(left <= 0);
+    if (left <= 0) return;
+    const timer = setTimeout(() => setExpired(true), left);
+    return () => clearTimeout(timer);
+  }, [pair]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -113,8 +139,7 @@ function PairDialog({ onClose }: PairDialogProps) {
     };
   }, [pair]);
 
-  const remaining = pair ? toMs(pair.expiresAt) - now : 0;
-  const expired = pair !== null && remaining <= 0;
+  const showExpired = pair !== null && expired;
 
   // Portaled to <body> so no ancestor's backdrop-filter traps the fixed overlay.
   return createPortal(
@@ -131,7 +156,7 @@ function PairDialog({ onClose }: PairDialogProps) {
           <li>{t("settings.remote.pairStep2")}</li>
         </ol>
         <div
-          className={"remote-access-qr remote-pair-qr" + (expired ? " is-expired" : "")}
+          className={"remote-access-qr remote-pair-qr" + (showExpired ? " is-expired" : "")}
           // Generated locally by the qrcode package from the pairing link.
           dangerouslySetInnerHTML={{ __html: qr }}
         />
@@ -139,10 +164,8 @@ function PairDialog({ onClose }: PairDialogProps) {
           <span className="settings-field-hint is-error">{t("settings.remote.pairError")}</span>
         ) : (
           pair && (
-            <span className={"settings-field-hint" + (expired ? " is-error" : "")}>
-              {expired
-                ? t("settings.remote.pairExpired")
-                : t("settings.remote.pairExpires", { time: formatDuration(remaining) })}
+            <span className={"settings-field-hint" + (showExpired ? " is-error" : "")}>
+              {showExpired ? t("settings.remote.pairExpired") : <PairCountdown expiresAt={pair.expiresAt} />}
             </span>
           )
         )}
@@ -166,7 +189,6 @@ export function RemoteAccessSettings() {
   const [status, setStatus] = useState<RemoteStatus | null>(null);
   const [pairing, setPairing] = useState(false);
   const [justPaired, setJustPaired] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
   const mounted = useRef(true);
   // Devices that existed when the dialog opened: one that isn't among them
   // is the phone that just scanned the code.
@@ -194,12 +216,6 @@ export function RemoteAccessSettings() {
       unlisten.then((off) => off());
     };
   }, [refresh]);
-
-  // Drives the pairing countdown and the "seen ... ago" labels.
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   const enabled = status?.enabled ?? false;
 
@@ -291,7 +307,7 @@ export function RemoteAccessSettings() {
                     {d.connected
                       ? t("settings.remote.connected")
                       : d.lastSeenAt
-                        ? t("settings.remote.lastSeen", { time: formatDuration(now - toMs(d.lastSeenAt)) })
+                        ? <LastSeen at={d.lastSeenAt} />
                         : t("settings.remote.neverSeen")}
                   </span>
                 </div>

@@ -218,7 +218,7 @@ function tabProfile(profiles: ReturnType<typeof useProfiles>, tab: AppTab): Prof
 
 /** `profile`: the tab's account profile, shown as a small colored dot on the
  * corner of its icon. The dot sits on a wrapper of its own, not on the logo,
- * so it doesn't turn with a busy agent's. */
+ * so it stays on the icon's corner whatever the agent is doing. */
 function tabIcon(tab: AppTab, agent?: TabAgent, done = false, profile?: ProfileInfo) {
   if (tab.kind === "terminal") {
     const icon = agent ? agentTabIcon(agent, !!tab.customLabel, done) : <span className={"term-tab-dot" + (done ? " is-done" : "")} />;

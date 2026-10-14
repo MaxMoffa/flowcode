@@ -8,7 +8,7 @@ import { unifiedMergeView } from "@codemirror/merge";
 import { FileTypeIcon } from "../sidebar/fileIcons";
 import { languageFor } from "../editor/language";
 import { cmChromeTheme, cmHighlightStyle } from "../editor/cmTheme";
-import { basename } from "../lib/path";
+import { basename, normalizeDir } from "../lib/path";
 import { useI18n } from "../i18n";
 import { gitShowFile, joinRepoPath } from "./gitStatus";
 import "../editor/editor.css";
@@ -28,8 +28,6 @@ interface Sides {
 }
 
 const POLL_MS = 4000;
-
-const normalizeDir = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
 
 /** Read-only unified diff of one file. Staged: HEAD against the index.
  * Unstaged: the index against the file on disk (a deleted file reads as

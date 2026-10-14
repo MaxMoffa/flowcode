@@ -1,0 +1,63 @@
+/* Pill switch that sits in a panel header, between the title row and the
+ * divider below it. */
+.segmented-switch {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  margin: 6px 8px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--sidebar-hover);
+  border: 1px solid var(--border);
+}
+
+.segmented-switch-option {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.segmented-switch-option:hover {
+  color: var(--fg);
+}
+
+.segmented-switch-option.is-selected {
+  background: var(--sidebar-selected-bg);
+  color: var(--sidebar-selected-fg);
+}
+
+.segmented-switch-option:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.segmented-switch-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.agents-sidebar-scope-count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 14px;
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  text-align: center;
+  background: color-mix(in srgb, var(--ansi-bright-blue) 25%, transparent);
+  color: var(--ansi-bright-blue);
+}

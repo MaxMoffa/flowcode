@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { AGENT_CLIS, CLI_INFO, type AgentCli } from "../agents/cliInfo";
@@ -40,6 +40,8 @@ function ColorPicker({ value, onChange, label }: { value: string; onChange: (col
  * create more. `onLogin` opens the CLI's login in a terminal tab under that
  * profile; without it the sign-in buttons are hidden. */
 export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cli: AgentCli) => void }) {
+  // A focus listener is already waiting: one refresh covers every login click.
+  const loginFocusArmedRef = useRef(false);
   const { t } = useI18n();
   const confirm = useConfirmDialog();
   const { profiles } = useProfiles();
@@ -116,7 +118,16 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cl
    * user comes back to this window. */
   function handleLogin(profile: ProfileInfo, cli: AgentCli) {
     onLogin?.(profile.id, cli);
-    window.addEventListener("focus", () => void refreshProfiles(), { once: true });
+    if (loginFocusArmedRef.current) return;
+    loginFocusArmedRef.current = true;
+    window.addEventListener(
+      "focus",
+      () => {
+        loginFocusArmedRef.current = false;
+        void refreshProfiles();
+      },
+      { once: true },
+    );
   }
 
   return (

@@ -12,6 +12,7 @@ import { gitRepoRoot, gitWorktreeAdd, gitWorktrees, isWorktreeCapable, type GitW
 import { NewAgentMenu } from "./NewAgentMenu";
 import { WorktreesSection } from "./WorktreesSection";
 import { CLI_INFO } from "./cliInfo";
+import { SegmentedSwitch } from "../lib/SegmentedSwitch";
 import "./agents-sidebar.css";
 
 const POLL_MS = 3000;
@@ -57,6 +58,12 @@ function inProject(
   const b = normalize(project);
   if (isRootPath(b)) return false;
   return a === b || a.startsWith(b + separatorOf(b));
+}
+
+/** The previous array when the polled one has the same content, so an
+ * unchanged poll doesn't re-render the list. */
+function keepIfSame<T>(prev: T[], next: T[]): T[] {
+  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
 }
 
 /** A live duration label: ticks on its own, so the rest of the sidebar isn't
@@ -326,17 +333,17 @@ export function AgentsSidebar({
         // whatever was last known instead of flashing the list empty.
         invoke<ClaudeAgentEntry[]>("list_claude_agents")
           .then((result) => {
-            if (current()) setClaudeAgents(result);
+            if (current()) setClaudeAgents((prev) => keepIfSame(prev, result));
           })
           .catch(() => {}),
         invoke<CodexSessionEntry[]>("list_codex_sessions", { fresh })
           .then((result) => {
-            if (current()) setCodexSessions(result);
+            if (current()) setCodexSessions((prev) => keepIfSame(prev, result));
           })
           .catch(() => {}),
         invoke<VibeSessionEntry[]>("list_vibe_sessions", { fresh })
           .then((result) => {
-            if (current()) setVibeSessions(result);
+            if (current()) setVibeSessions((prev) => keepIfSame(prev, result));
           })
           .catch(() => {}),
       ]);
@@ -538,6 +545,7 @@ export function AgentsSidebar({
 
   return (
     <div className="agents-sidebar">
+      <div className="agents-sidebar-head">
       <div className="agents-sidebar-header">
         <button type="button" className="agents-sidebar-close" title={t("agents.closePanel")} aria-label={t("agents.closePanel")} onClick={onClose}>
           <CloseIcon />
@@ -579,30 +587,17 @@ export function AgentsSidebar({
         )}
       </div>
       {projectCwd && !newTabPage && (
-      <div className="agents-sidebar-scope" role="tablist" aria-label={t("agents.scope.label")}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={scope === "project"}
-          className={"agents-sidebar-scope-option" + (scope === "project" ? " is-selected" : "")}
-          title={repoRoot ?? projectCwd ?? t("agents.scope.noProject")}
-          onClick={() => setScope("project")}
-        >
-          <span className="agents-sidebar-scope-text">{projectName || t("agents.scope.project")}</span>
-          {projectCount > 0 && <span className="agents-sidebar-scope-count">{projectCount}</span>}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={scope === "all"}
-          className={"agents-sidebar-scope-option" + (scope === "all" ? " is-selected" : "")}
-          onClick={() => setScope("all")}
-        >
-          <span className="agents-sidebar-scope-text">{t("agents.scope.all")}</span>
-          {allCount > 0 && <span className="agents-sidebar-scope-count">{allCount}</span>}
-        </button>
-      </div>
+        <SegmentedSwitch
+          options={[
+            { id: "project", label: projectName || t("agents.scope.project"), title: repoRoot ?? projectCwd ?? t("agents.scope.noProject"), count: projectCount },
+            { id: "all", label: t("agents.scope.all"), count: allCount },
+          ]}
+          value={scope}
+          onChange={setScope}
+          ariaLabel={t("agents.scope.label")}
+        />
       )}
+      </div>
       <div className="agents-sidebar-list">
         {error && (
           <div className="agents-sidebar-error" role="alert">

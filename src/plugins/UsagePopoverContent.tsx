@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { formatTokens, metricText, modelDisplayName, type UsageInfo } from "./usage";
 import { useI18n } from "../i18n";
-import { useProfiles } from "../profiles/profiles";
+import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useActiveAgent } from "../agents/activeAgent";
 import { cliOfPlugin } from "../agents/cliInfo";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
@@ -33,44 +33,6 @@ function CopyDebugButton({ text }: { text: string }) {
     <button type="button" className="plugin-usage-debug-btn" onClick={copy}>
       {copied ? t("common.copied") : t("usage.copyDebug")}
     </button>
-  );
-}
-
-/** "Default | Work | Personal": which account's usage the popover shows. Only
- * rendered once at least one profile exists. */
-function ProfileSwitcher({
-  profile,
-  onChange,
-}: {
-  profile: string | undefined;
-  onChange: (next: string | undefined) => void;
-}) {
-  const { t } = useI18n();
-  const { profiles } = useProfiles();
-  if (profiles.length === 0) return null;
-  return (
-    <div className="plugin-usage-profiles" role="group" aria-label={t("usage.profile.label")}>
-      <button
-        type="button"
-        className={"plugin-usage-profile" + (profile === undefined ? " is-active" : "")}
-        aria-pressed={profile === undefined}
-        onClick={() => onChange(undefined)}
-      >
-        {t("agents.profile.default")}
-      </button>
-      {profiles.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          className={"plugin-usage-profile" + (profile === p.id ? " is-active" : "")}
-          aria-pressed={profile === p.id}
-          onClick={() => onChange(p.id)}
-        >
-          <span className="plugin-usage-profile-dot" style={{ background: p.color }} />
-          {p.name}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -224,8 +186,14 @@ export function UsagePopoverContent({
   const { t } = useI18n();
   return (
     <>
-      <div className="plugin-usage-popover-title">{label}</div>
-      {onProfileChange && <ProfileSwitcher profile={profile} onChange={onProfileChange} />}
+      <div className="plugin-usage-popover-head">
+        <div className="plugin-usage-popover-title">{label}</div>
+        {onProfileChange && <ProfileSelect
+            value={profile}
+            onChange={onProfileChange}
+            filter={cliOfPlugin(pluginId) ? (p) => p.logged_in[cliOfPlugin(pluginId)!] : undefined}
+          />}
+      </div>
       {loading && !usage && <div className="plugin-usage-popover-loading">{t("common.checking")}</div>}
       {usage?.metrics.map((m, i) => {
         const warn = m.percent !== undefined && m.percent >= 0.75;

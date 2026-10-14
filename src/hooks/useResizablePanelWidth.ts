@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { setLayoutDragging } from "../lib/layoutDrag";
 import { readNumber, writeString } from "../lib/storage";
 
 interface Options {
@@ -25,6 +26,7 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
 
   useEffect(() => {
     if (!dragging) return;
+    setLayoutDragging(true);
 
     function onMove(e: PointerEvent) {
       const delta = e.clientX - startXRef.current;
@@ -41,6 +43,7 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
     window.addEventListener("pointercancel", onUp);
     window.addEventListener("blur", onUp);
     return () => {
+      setLayoutDragging(false);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);

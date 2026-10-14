@@ -1,0 +1,109 @@
+/* Profile dropdown in a popup's title row (see ProfileSelect.tsx). */
+.profile-select {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: 400;
+}
+
+.profile-select-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.profile-select-btn:hover,
+.profile-select-btn[aria-expanded="true"] {
+  background: var(--sidebar-hover);
+}
+
+/* Single-profile case: a static label, not a dropdown. The button is disabled,
+   so keep its normal colors (the browser default would dim it) and no hover. */
+.profile-select-btn.is-static,
+.profile-select-btn.is-static:hover {
+  cursor: default;
+  background: transparent;
+  color: inherit;
+  opacity: 1;
+}
+
+.profile-select-btn:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.profile-select-chevron {
+  flex: none;
+  color: var(--fg-muted);
+}
+
+.profile-select-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.profile-select-dot.is-default {
+  box-shadow: inset 0 0 0 1.5px var(--fg-muted);
+}
+
+.profile-select-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  min-width: 150px;
+  max-width: 220px;
+  padding: 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--menu-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  backdrop-filter: var(--menu-backdrop);
+  -webkit-backdrop-filter: var(--menu-backdrop);
+}
+
+.profile-select-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--fg);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.profile-select-option.is-active {
+  background: var(--sidebar-hover);
+}
+
+.profile-select-option[aria-selected="true"] {
+  font-weight: 600;
+}
+
+.profile-select-star {
+  margin-left: auto;
+  color: var(--accent);
+}

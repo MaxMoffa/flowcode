@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 export type SettingsSection =
   | "appearance"
@@ -38,8 +38,12 @@ export function SettingsSectionProvider({ children }: { children: ReactNode }) {
     setFocusId(id);
   }, []);
   const clearFocus = useCallback(() => setFocusId(null), []);
+  const value = useMemo(
+    () => ({ section, setSection, focusId, goToSetting, clearFocus }),
+    [section, setSection, focusId, goToSetting, clearFocus],
+  );
   return (
-    <SettingsSectionContext.Provider value={{ section, setSection, focusId, goToSetting, clearFocus }}>
+    <SettingsSectionContext.Provider value={value}>
       {children}
     </SettingsSectionContext.Provider>
   );

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { usageFetcherFor, type UsageInfo } from "./usage";
 import { profileById, useProfiles, useProfilesLoaded } from "../profiles/profiles";
-import { readString, writeString } from "../lib/storage";
+import { createStore } from "../lib/externalStore";
+import { cliOfPlugin } from "../agents/cliInfo";
+import { activeTabProfile } from "../profiles/activeTabProfile";
 
 const STALE_MS = 30_000;
 /** Usage limits don't move minute to minute, and a Codex refresh in
@@ -149,36 +151,38 @@ export function useUsageState(pluginId: string, profile?: string, enabled = true
   return { fetcher, usage, loading, load };
 }
 
-const USAGE_PROFILE_KEY = "flowcode.usageProfile.";
-const profileListeners = new Set<() => void>();
-
-function subscribeProfile(listener: () => void): () => void {
-  profileListeners.add(listener);
-  return () => profileListeners.delete(listener);
-}
+/** Per-plugin profile picked in a usage popover, shared live between the
+ * shortcut-bar button and the plugin menu row of the same plugin. `{ id }`
+ * boxes it so "picked the default profile" (`undefined`) differs from "no
+ * pick". Dropped whenever the active terminal tab changes. */
+const overrides = createStore<Record<string, { id: string | undefined }>>({});
+activeTabProfile.subscribe(() => overrides.set({}));
 
 /** Which account's usage a plugin shows: `undefined` is the default account.
- * Remembered per plugin in localStorage (`readString`/`writeString`), and
- * shared live between the shortcut-bar button and the plugin menu row of the
- * same plugin - picking a profile in one popover moves the other too. An id
- * whose profile was deleted since counts as the default one. */
+ * Starts on the active terminal tab's profile; a choice made in the popover
+ * wins until the active tab changes. An id whose profile was deleted since
+ * counts as the default one. */
 export function useUsageProfile(
   pluginId: string,
 ): [string | undefined, (next: string | undefined) => void, boolean] {
   const profiles = useProfiles();
   const profilesLoaded = useProfilesLoaded();
-  const stored = useSyncExternalStore(subscribeProfile, () => readString(USAGE_PROFILE_KEY + pluginId) || undefined);
+  const picked = overrides.use()[pluginId];
+  const { profileId: tabProfile } = activeTabProfile.use();
+  const wanted = picked ? picked.id : tabProfile;
+  // A CLI's usage only exists for profiles it is signed in under; others
+  // (e.g. the active tab's) fall back to the default account.
+  const cli = cliOfPlugin(pluginId);
+  const profile = profileById(profiles, wanted);
+  const usable = !!profile && (!cli || profile.logged_in[cli]);
   const set = useCallback(
-    (next: string | undefined) => {
-      writeString(USAGE_PROFILE_KEY + pluginId, next ?? "");
-      profileListeners.forEach((listener) => listener());
-    },
+    (next: string | undefined) => overrides.update((prev) => ({ ...prev, [pluginId]: { id: next } })),
     [pluginId],
   );
-  // A stored profile can only be resolved once the list is in; until then
+  // A profile id can only be resolved once the list is in; until then
   // nothing is fetched rather than the default account's usage by mistake.
-  const ready = !stored || profilesLoaded;
-  return [profileById(profiles, stored) ? stored : undefined, set, ready];
+  const ready = !wanted || profilesLoaded;
+  return [usable ? wanted : undefined, set, ready];
 }
 
 /** Hover-driven popover anchoring shared by the shortcut-bar button and the

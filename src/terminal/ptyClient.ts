@@ -67,14 +67,14 @@ export function writePty(id: string, data: string): Promise<void> {
   return invoke<void>("pty_write", { id, data }).catch(() => {});
 }
 
-/** When the pty last got an Enter - a prompt sent to the agent running in
- * it, as far as the outside can tell. 0 if never. */
 /** Drops the bookkeeping for a pty that is gone, so the map doesn't grow
  * with every session ever opened. */
 export function forgetPty(id: string): void {
   submittedAt.delete(id);
 }
 
+/** When the pty last got an Enter - a prompt sent to the agent running in
+ * it, as far as the outside can tell. 0 if never. */
 export function lastSubmitAt(id: string | null | undefined): number {
   return (id && submittedAt.get(id)) || 0;
 }

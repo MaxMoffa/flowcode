@@ -26,6 +26,7 @@ import {
 } from "./asciiBanner";
 import { unrecorded } from "./shellDialect";
 import { t } from "../i18n";
+import { isLayoutDragging, onLayoutDragEnd } from "../lib/layoutDrag";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 
@@ -138,7 +139,7 @@ export interface TerminalHandle {
   /** The screen exactly as shown (scrollback, alternate screen, modes) for a
    * remote client, without detaching anything, plus the `seq` of the last
    * output written here so the client can skip what the snapshot covers. */
-  snapshotForRemote: () => { data: string; seq: number } | null;
+  snapshotForRemote: () => Promise<{ data: string; seq: number } | null>;
   /** A phone is showing this terminal and has sized the pty for its screen
    * (see remote.rs): the grid is pinned to `size` and the usual fit is
    * skipped. `null` hands control back - the terminal refits and resizes the
@@ -185,6 +186,8 @@ interface TerminalViewProps {
    * acceptable here since the only thing read out of it is a leading command
    * name, not the full line. */
   onCommandLine?: (line: string) => void;
+  /** Fires once this tab's pty id is known (`getPtyId` is non-null from here). */
+  onPtyReady?: () => void;
   /** A command to type and submit the moment this tab's shell is ready -
    * for a freshly-opened tab meant to run one specific thing (e.g. a CLI's
    * install/login command from a setup prompt), not a general-purpose API.
@@ -231,7 +234,7 @@ export interface PromptAnchor {
 // memo: the parent re-renders on every title/agent-poll change, and a
 // terminal has nothing to redraw unless one of its own props moved.
 export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, onPtyReady, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // xterm mounts into this padding-free inner box, not the padded container:
   // FitAddon sizes the grid off its parent's computed height, which under
@@ -244,6 +247,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // Serializing walks the whole scrollback; the periodic session save asks
   // for every tab, so an unchanged one answers from this cache.
   const serializeCacheRef = useRef({ text: "", dirty: true });
+  // Same idea for the phone's snapshot, which serializes with other options.
+  const remoteSerializeCacheRef = useRef({ text: "", dirty: true });
   const restoredContentRef = useRef(restoredContent);
   const ptyIdRef = useRef<string | null>(null);
   const attachRef = useRef(attach);
@@ -274,6 +279,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   onBusyChangeRef.current = onBusyChange;
   const onCommandLineRef = useRef(onCommandLine);
   onCommandLineRef.current = onCommandLine;
+  const onPtyReadyRef = useRef(onPtyReady);
+  onPtyReadyRef.current = onPtyReady;
   const lineBufferRef = useRef("");
   const { theme, paletteId, terminalPaletteId, contrast } = useTheme();
   const terminalPalette = terminalPaletteId ? findPalette(terminalPaletteId) : undefined;
@@ -654,14 +661,25 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         serializeAddonRef.current?.serialize({ scrollback: SESSION_SCROLLBACK_LINES }) ?? "";
       return { ptyId: id, snapshot };
     },
-    snapshotForRemote: () => {
+    snapshotForRemote: async () => {
+      const term = xtermRef.current;
+      if (!term || !serializeAddonRef.current || releasedRef.current) return null;
+      // Let xterm finish parsing what it was already handed, so the snapshot
+      // is as fresh as the stream the phone is catching up with.
+      await new Promise<void>((resolve) => term.write("", resolve));
       const addon = serializeAddonRef.current;
       if (!addon || releasedRef.current) return null;
-      // Serialized synchronously, so it holds exactly what xterm has parsed:
-      // the seq reported is the parsed one (output queued in xterm, or held
-      // back by a silent navigation, is not in the snapshot and so is not
-      // skipped - the phone gets it from the live stream).
-      return { data: addon.serialize({ scrollback: SESSION_SCROLLBACK_LINES }), seq: parsedSeqRef.current };
+      // Serialized synchronously after the flush, so it holds exactly what
+      // xterm has parsed: the seq reported is the parsed one (output held back
+      // by a silent navigation is not in the snapshot and so is not skipped -
+      // the phone gets it from the live stream). Reused while nothing changed
+      // (separate from serialize(): it keeps the alt buffer and modes).
+      const cache = remoteSerializeCacheRef.current;
+      if (cache.dirty) {
+        cache.text = addon.serialize({ scrollback: SESSION_SCROLLBACK_LINES });
+        cache.dirty = false;
+      }
+      return { data: cache.text, seq: parsedSeqRef.current };
     },
     setSizeOverride: (size) => applySizeOverride(size),
     // Every closure above only reads refs, so the handle never goes stale -
@@ -780,11 +798,15 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     // Any parsed output or reflow makes the cached session snapshot stale.
     const cache = serializeCacheRef.current;
     cache.dirty = true;
+    const remoteCache = remoteSerializeCacheRef.current;
+    remoteCache.dirty = true;
     const writeDisposable = term.onWriteParsed(() => {
       cache.dirty = true;
+      remoteCache.dirty = true;
     });
     const resizeDisposable = term.onResize(() => {
       cache.dirty = true;
+      remoteCache.dirty = true;
     });
 
     // Most shells emit an OSC title escape (e.g. bash's PROMPT_COMMAND) with
@@ -884,6 +906,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         .then(() => {
           if (disposed) return;
           ptyIdRef.current = attached.ptyId;
+          onPtyReadyRef.current?.();
           // The tab may have moved while a phone had it open: that phone's
           // size was pinned in the old window, so ask for it here.
           const claim = invoke<{ cols: number; rows: number } | null>("remote_size_claim", { ptyId: attached.ptyId }).catch(
@@ -1019,6 +1042,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         return;
       }
       ptyIdRef.current = id;
+      onPtyReadyRef.current?.();
       ptySizeRef.current = { cols: term.cols, rows: term.rows };
 
       // An empty write's callback runs once everything queued before it has
@@ -1070,12 +1094,34 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       });
     })();
 
-    const resizeObserver = new ResizeObserver(() => refit());
+    // Dragging a splitter (or resizing the window) changes the container on
+    // every frame; each refit reflows xterm and makes a TUI redraw. Hold off
+    // while a splitter drags, and coalesce the rest into a trailing refit.
+    let pendingRefit = false;
+    let refitTimer: number | null = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (isLayoutDragging()) {
+        pendingRefit = true;
+        return;
+      }
+      if (refitTimer !== null) window.clearTimeout(refitTimer);
+      refitTimer = window.setTimeout(() => {
+        refitTimer = null;
+        refit();
+      }, 100);
+    });
     resizeObserver.observe(containerRef.current);
+    const unsubscribeDragEnd = onLayoutDragEnd(() => {
+      if (!pendingRefit) return;
+      pendingRefit = false;
+      refit();
+    });
 
     return () => {
       disposed = true;
       resizeObserver.disconnect();
+      unsubscribeDragEnd();
+      if (refitTimer !== null) window.clearTimeout(refitTimer);
       titleDisposable.dispose();
       bufferDisposable.dispose();
       dataDisposable.dispose();

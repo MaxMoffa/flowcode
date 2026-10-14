@@ -57,6 +57,8 @@ export function RemotePairConfirm() {
     });
     return () => {
       clearTimeout(noticeTimer);
+      pending.forEach((a) => a.abort());
+      pending.clear();
       unlistenRequest.then((off) => off());
       unlistenCancel.then((off) => off());
     };
