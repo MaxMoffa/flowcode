@@ -54,7 +54,7 @@ const publish = args.includes('--publish')
 const keyIdx = args.indexOf('--key')
 const keyPath = keyIdx >= 0 ? args[keyIdx + 1] : join(homedir(), '.flowcode-release', 'signing-key.pem')
 if (!keyPath) fail('--key needs a path')
-const tag = args.find((a, i) => !a.startsWith('--') && i !== keyIdx + 1)
+const tag = args.find((a, i) => !a.startsWith('--') && (keyIdx < 0 || i !== keyIdx + 1))
 if (!tag) fail('missing release tag\n' + USAGE)
 
 const gh = (...a) => execFileSync('gh', a, { stdio: ['ignore', 'inherit', 'inherit'] })
