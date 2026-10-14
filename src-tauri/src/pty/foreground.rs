@@ -19,7 +19,7 @@ pub struct Foreground {
     /// typing into it would be input to that program, not a command.
     pub(super) kind: &'static str,
     /// Name of the foreground process, for diagnostics.
-    program: String,
+    pub(super) program: String,
     /// "wsl" only: the distro named on its command line (`-d`), if any.
     pub(super) wsl_distro: Option<String>,
 }
