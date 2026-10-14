@@ -394,41 +394,94 @@ pub(crate) fn has_api_key(home: Option<&Path>, use_keyring: bool) -> bool {
     use_keyring && keyring_has_key("MISTRAL_API_KEY")
 }
 
+/// Removes Vibe's Mistral API key from `<home>/.env` and, with `use_keyring`
+/// (the default profile), from the OS keyring - everywhere `has_api_key`
+/// looks except the environment, which Flowcode can't change.
+pub(crate) fn remove_api_key(home: &Path, use_keyring: bool) -> Result<(), String> {
+    let env_path = home.join(".env");
+    if let Ok(env) = std::fs::read_to_string(&env_path) {
+        let kept: Vec<&str> = env
+            .lines()
+            .filter(|line| {
+                let line = line.trim().trim_start_matches("export ").trim();
+                !line.split_once('=').is_some_and(|(k, _)| k.trim() == "MISTRAL_API_KEY")
+            })
+            .collect();
+        let mut out = kept.join("\n");
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        std::fs::write(&env_path, out).map_err(|e| e.to_string())?;
+    }
+    if use_keyring {
+        keyring_delete_key("MISTRAL_API_KEY");
+    }
+    if std::env::var_os("MISTRAL_API_KEY").is_some_and(|v| !v.is_empty()) {
+        return Err("MISTRAL_API_KEY is set in the environment".to_string());
+    }
+    Ok(())
+}
+
 /// Vibe's keyring entry: service `ai.mistral.vibe`, username = the env var name.
 const KEYRING_SERVICE: &str = "ai.mistral.vibe";
 
 #[cfg(windows)]
-fn keyring_has_key(username: &str) -> bool {
+fn wide_nul(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// The user name stored on the generic credential `target`, when it exists
+/// and holds a secret.
+#[cfg(windows)]
+fn cred_user(target: &str) -> Option<String> {
     use windows_sys::Win32::Security::Credentials::{CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC};
-    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-    // python-keyring stores `<service>` or, when that was taken by another
-    // user name, `<username>@<service>`.
-    for target in [KEYRING_SERVICE.to_string(), format!("{username}@{KEYRING_SERVICE}")] {
-        let target = wide(&target);
-        let mut cred: *mut CREDENTIALW = std::ptr::null_mut();
-        // SAFETY: `target` is NUL-terminated; on success `cred` points to a
-        // credential we read from and then release with CredFree.
-        unsafe {
-            if CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred) == 0 || cred.is_null() {
-                continue;
-            }
-            let c = &*cred;
-            let mut user = Vec::new();
-            if !c.UserName.is_null() {
-                let mut p = c.UserName;
-                while *p != 0 {
-                    user.push(*p);
-                    p = p.add(1);
-                }
-            }
-            let hit = c.CredentialBlobSize > 0 && String::from_utf16_lossy(&user) == username;
-            CredFree(cred as *const _);
-            if hit {
-                return true;
+    let target = wide_nul(target);
+    let mut cred: *mut CREDENTIALW = std::ptr::null_mut();
+    // SAFETY: `target` is NUL-terminated; on success `cred` points to a
+    // credential we read from and then release with CredFree.
+    unsafe {
+        if CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred) == 0 || cred.is_null() {
+            return None;
+        }
+        let c = &*cred;
+        let mut user = Vec::new();
+        if !c.UserName.is_null() {
+            let mut p = c.UserName;
+            while *p != 0 {
+                user.push(*p);
+                p = p.add(1);
             }
         }
+        let filled = c.CredentialBlobSize > 0;
+        CredFree(cred as *const _);
+        filled.then(|| String::from_utf16_lossy(&user))
     }
-    false
+}
+
+/// python-keyring stores `<service>` or, when that was taken by another
+/// user name, `<username>@<service>`.
+#[cfg(windows)]
+fn keyring_targets(username: &str) -> [String; 2] {
+    [KEYRING_SERVICE.to_string(), format!("{username}@{KEYRING_SERVICE}")]
+}
+
+#[cfg(windows)]
+fn keyring_has_key(username: &str) -> bool {
+    keyring_targets(username).iter().any(|t| cred_user(t).as_deref() == Some(username))
+}
+
+#[cfg(windows)]
+fn keyring_delete_key(username: &str) {
+    use windows_sys::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
+    for t in keyring_targets(username) {
+        // Only the entry holding `username`: the bare service name may hold
+        // another of Vibe's keys.
+        if cred_user(&t).as_deref() == Some(username) {
+            let target = wide_nul(&t);
+            // SAFETY: `target` is NUL-terminated.
+            unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) };
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -439,12 +492,26 @@ fn keyring_has_key(username: &str) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
+#[cfg(target_os = "macos")]
+fn keyring_delete_key(username: &str) {
+    let _ = std::process::Command::new("/usr/bin/security")
+        .args(["delete-generic-password", "-s", KEYRING_SERVICE, "-a", username])
+        .output();
+}
+
 #[cfg(all(not(windows), not(target_os = "macos")))]
 fn keyring_has_key(username: &str) -> bool {
     std::process::Command::new("secret-tool")
         .args(["lookup", "service", KEYRING_SERVICE, "username", username])
         .output()
         .is_ok_and(|o| o.status.success() && !o.stdout.is_empty())
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn keyring_delete_key(username: &str) {
+    let _ = std::process::Command::new("secret-tool")
+        .args(["clear", "service", KEYRING_SERVICE, "username", username])
+        .output();
 }
 
 fn env_file_has_key(env: &str, key: &str) -> bool {

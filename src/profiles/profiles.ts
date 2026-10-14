@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** Whether each CLI is signed in under a profile - read off its files, see
  * `login_state` in src-tauri/src/profiles.rs. */
-interface LoginState {
+export interface LoginState {
   claude: boolean;
   codex: boolean;
   vibe: boolean;
@@ -24,9 +24,11 @@ interface ProfilesState {
   profiles: ProfileInfo[];
   /** Normalized project folder -> profile id. */
   project_defaults: Record<string, string>;
+  /** The default profile's login state (null when its folders can't be found). */
+  default_logged_in: LoginState | null;
 }
 
-const EMPTY: ProfilesState = { profiles: [], project_defaults: {} };
+const EMPTY: ProfilesState = { profiles: [], project_defaults: {}, default_logged_in: null };
 
 let state: ProfilesState = EMPTY;
 let loaded = false;
@@ -124,6 +126,15 @@ export async function updateProfile(id: string, name: string, color: string): Pr
 export async function deleteProfile(id: string, deleteFiles: boolean): Promise<void> {
   await invoke("profile_delete", { id, deleteFiles });
   await refreshProfiles();
+}
+
+/** Signs `cli` out of profile `id` (null = the default profile). */
+export async function logoutProfile(id: string | null, cli: keyof LoginState): Promise<void> {
+  try {
+    await invoke("profile_logout", { id, cli });
+  } finally {
+    await refreshProfiles();
+  }
 }
 
 /** `id` null clears the folder's default (back to the default profile). */

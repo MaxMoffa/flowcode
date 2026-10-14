@@ -165,6 +165,7 @@ pub fn run() {
             profiles::profile_delete,
             profiles::profile_set_project_default,
             profiles::profile_for_path,
+            profiles::profile_logout,
             spend::cli_spend,
             context::agent_context,
             plugins::cli_billing_mode,

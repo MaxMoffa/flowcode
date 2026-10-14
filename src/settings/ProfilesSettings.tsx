@@ -1,14 +1,16 @@
 import { useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
-import { AGENT_CLIS, CLI_INFO, type AgentCli } from "../agents/cliInfo";
+import { AGENT_CLIS, CLI_INFO, defaultCliStatus, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import {
   createProfile,
   deleteProfile,
+  logoutProfile,
   refreshProfiles,
   updateProfile,
   useProfiles,
+  type LoginState,
   type ProfileInfo,
 } from "../profiles/profiles";
 import { settingDomId } from "./SettingsControls";
@@ -35,16 +37,78 @@ function ColorPicker({ value, onChange, label }: { value: string; onChange: (col
   );
 }
 
-/** The Profiles settings page: the implicit default profile, one card per
- * extra profile (login state per CLI, rename/recolour, delete) and a form to
- * create more. `onLogin` opens the CLI's login in a terminal tab under that
- * profile; without it the sign-in buttons are hidden. */
-export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cli: AgentCli) => void }) {
+/** `cardError` key of the default profile's card. */
+const DEFAULT_CARD = "";
+
+/** The agents signed in under one profile (sign in again, sign out) and a
+ * "+" listing the others to sign in to. */
+function ProfileClis({
+  loggedIn,
+  onLogin,
+  onLogout,
+}: {
+  loggedIn: LoginState | null;
+  onLogin?: (cli: AgentCli) => void;
+  onLogout: (cli: AgentCli) => void;
+}) {
+  const { t } = useI18n();
+  const [adding, setAdding] = useState(false);
+  const on = AGENT_CLIS.filter((cli) => loggedIn?.[cli]);
+  const off = AGENT_CLIS.filter((cli) => !loggedIn?.[cli]);
+  return (
+    <div className="profiles-clis">
+      {on.length === 0 && <p className="profiles-clis-empty">{t("settings.profiles.noAgents")}</p>}
+      {on.map((cli) => (
+        <div key={cli} className="profiles-cli">
+          <span className="profiles-cli-icon">{agentCliIcon(cli)}</span>
+          <span className="profiles-cli-name">{CLI_INFO[cli].label}</span>
+          {onLogin && (
+            <button type="button" className="settings-choice" onClick={() => onLogin(cli)}>
+              {t("settings.profiles.relogin")}
+            </button>
+          )}
+          <button type="button" className="settings-choice is-danger" onClick={() => onLogout(cli)}>
+            {t("settings.profiles.logout")}
+          </button>
+        </div>
+      ))}
+      {onLogin && off.length > 0 && (
+        <div className="profiles-add">
+          <button type="button" className="settings-choice" aria-expanded={adding} onClick={() => setAdding((v) => !v)}>
+            + {t("settings.profiles.addAgent")}
+          </button>
+          {adding &&
+            off.map((cli) => (
+              <button
+                key={cli}
+                type="button"
+                className="settings-choice profiles-add-cli"
+                onClick={() => {
+                  setAdding(false);
+                  onLogin(cli);
+                }}
+              >
+                <span className="profiles-cli-icon">{agentCliIcon(cli)}</span>
+                {CLI_INFO[cli].label}
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The Profiles settings page: the implicit default profile and one card per
+ * extra profile (each lists its signed-in agents with sign-out and a "+" to
+ * add others; rename/recolour, delete) and a form to create more. `onLogin`
+ * opens the CLI's login in a terminal tab under that profile; without it the
+ * sign-in buttons are hidden. */
+export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | null, cli: AgentCli) => void }) {
   // A focus listener is already waiting: one refresh covers every login click.
   const loginFocusArmedRef = useRef(false);
   const { t } = useI18n();
   const confirm = useConfirmDialog();
-  const { profiles } = useProfiles();
+  const { profiles, default_logged_in } = useProfiles();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -116,8 +180,8 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cl
 
   /** Hands the login to the terminal, then re-reads the login state once the
    * user comes back to this window. */
-  function handleLogin(profile: ProfileInfo, cli: AgentCli) {
-    onLogin?.(profile.id, cli);
+  function handleLogin(profileId: string | null, cli: AgentCli) {
+    onLogin?.(profileId, cli);
     if (loginFocusArmedRef.current) return;
     loginFocusArmedRef.current = true;
     window.addEventListener(
@@ -125,9 +189,29 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cl
       () => {
         loginFocusArmedRef.current = false;
         void refreshProfiles();
+        if (profileId === null) void defaultCliStatus(cli, true);
       },
       { once: true },
     );
+  }
+
+  async function handleLogout(profileId: string | null, profileName: string, cli: AgentCli) {
+    const name = CLI_INFO[cli].label;
+    const ok = await confirm({
+      title: t("settings.profiles.logoutConfirm.title", { name }),
+      message: t("settings.profiles.logoutConfirm.message", { name, profile: profileName }),
+      confirmLabel: t("settings.profiles.logout"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await logoutProfile(profileId, cli);
+      setCardError(null);
+    } catch (e) {
+      setCardError({ id: profileId ?? DEFAULT_CARD, message: String(e) });
+    }
+    // The shortcuts' cached sign-in check is the default profile's.
+    if (profileId === null) void defaultCliStatus(cli, true);
   }
 
   return (
@@ -143,6 +227,12 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cl
               <p className="settings-row-desc">{t("settings.profiles.defaultHint")}</p>
             </div>
           </div>
+          <ProfileClis
+            loggedIn={default_logged_in}
+            onLogin={onLogin && ((cli) => handleLogin(null, cli))}
+            onLogout={(cli) => void handleLogout(null, t("settings.profiles.default"), cli)}
+          />
+          {cardError?.id === DEFAULT_CARD && <span className="settings-field-hint is-error profiles-error">{cardError.message}</span>}
         </div>
 
         {profiles.length === 0 && <p className="profiles-empty">{t("settings.profiles.empty")}</p>}
@@ -203,26 +293,11 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string, cl
                 )}
               </div>
 
-              <div className="profiles-clis">
-                {AGENT_CLIS.map((cli) => {
-                  const name = CLI_INFO[cli].label;
-                  const loggedIn = profile.logged_in[cli];
-                  return (
-                    <div key={cli} className="profiles-cli">
-                      <span className="profiles-cli-icon">{agentCliIcon(cli)}</span>
-                      <span className="profiles-cli-name">{name}</span>
-                      <span className={"profiles-pill" + (loggedIn ? " is-on" : "")}>
-                        {loggedIn ? t("settings.profiles.loggedIn") : t("settings.profiles.loggedOut")}
-                      </span>
-                      {onLogin && (
-                        <button type="button" className="settings-choice" onClick={() => handleLogin(profile, cli)}>
-                          {loggedIn ? t("settings.profiles.relogin") : t("settings.profiles.login")}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <ProfileClis
+                loggedIn={profile.logged_in}
+                onLogin={onLogin && ((cli) => handleLogin(profile.id, cli))}
+                onLogout={(cli) => void handleLogout(profile.id, profile.name, cli)}
+              />
               {cardError?.id === profile.id && (
                 <span className="settings-field-hint is-error profiles-error">{cardError.message}</span>
               )}

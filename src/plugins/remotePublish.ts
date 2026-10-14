@@ -47,7 +47,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
     // Name and colour are resolved now, so a rename reaches the phone too.
     const { profiles } = getProfilesState();
     const items = [...latest.values()].map((item) => {
-      const p = profileById({ profiles, project_defaults: {} }, item.profile);
+      const p = profileById({ profiles, project_defaults: {}, default_logged_in: null }, item.profile);
       return p ? { ...item, profileName: p.name, profileColor: p.color } : item;
     });
     invoke("remote_publish_usage", { items }).catch(() => {});

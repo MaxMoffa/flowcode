@@ -63,6 +63,8 @@ pub struct ProfileInfo {
 pub struct ProfilesState {
     pub profiles: Vec<ProfileInfo>,
     pub project_defaults: HashMap<String, String>,
+    /// The default profile's login state; `None` when the home folder can't be found.
+    pub default_logged_in: Option<LoginState>,
 }
 
 fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -186,7 +188,7 @@ pub fn all_dirs(app: &AppHandle) -> Vec<(Option<String>, ProfileDirs)> {
 /// Cheap, file-only login check. Claude keeps OAuth in `.credentials.json` on
 /// Windows/Linux (the keychain on macOS, where the account shows up in
 /// `.claude.json` instead), or an API key in `.claude.json`.
-fn login_state(d: &ProfileDirs) -> LoginState {
+fn login_state(d: &ProfileDirs, use_keyring: bool) -> LoginState {
     let claude = d.claude.join(".credentials.json").exists()
         || std::fs::read_to_string(d.claude.join(".claude.json"))
             .ok()
@@ -201,8 +203,9 @@ fn login_state(d: &ProfileDirs) -> LoginState {
                 account || v.get("primaryApiKey").is_some_and(|k| !k.is_null())
             });
     let codex = d.codex.join("auth.json").exists();
-    // Named profiles only (their keyring is off, see `env_for`).
-    let vibe = crate::vibe::has_api_key(Some(&d.vibe), false);
+    // The OS keyring only counts for the default profile (named ones run
+    // with it off, see `env_for`).
+    let vibe = crate::vibe::has_api_key(Some(&d.vibe), use_keyring);
     LoginState { claude, codex, vibe }
 }
 
@@ -362,12 +365,16 @@ pub async fn profiles_list(app: AppHandle) -> Result<ProfilesState, String> {
             .profiles
             .into_iter()
             .map(|p| {
-                let logged_in = login_state(&profile_dirs(&root, &p.id));
+                let logged_in = login_state(&profile_dirs(&root, &p.id), false);
                 let dir = root.join(&p.id).to_string_lossy().into_owned();
                 ProfileInfo { id: p.id, name: p.name, color: p.color, dir, logged_in }
             })
             .collect();
-        Ok(ProfilesState { profiles, project_defaults: store.project_defaults })
+        Ok(ProfilesState {
+            profiles,
+            project_defaults: store.project_defaults,
+            default_logged_in: default_dirs().map(|d| login_state(&d, true)),
+        })
     })
     .await
 }
@@ -468,6 +475,34 @@ pub async fn profile_for_path(app: AppHandle, path: String) -> Result<Option<Str
         Ok(best_match(&store.project_defaults, &key, sep(), |id| {
             store.profiles.iter().any(|p| p.id == id)
         }))
+    })
+    .await
+}
+
+/// How long a CLI's logout command may run.
+const LOGOUT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Signs `cli` out of profile `id` (`None` = the default one). Claude Code and
+/// Codex have a logout command, run under the profile's folders; Vibe has
+/// none, so its API key is removed from where `has_api_key` finds it.
+#[tauri::command]
+pub async fn profile_logout(app: AppHandle, id: Option<String>, cli: String) -> Result<(), String> {
+    crate::blocking(move || {
+        let id = id.as_deref();
+        let d = dirs(&app, id).ok_or_else(|| "profile not found".to_string())?;
+        let command = match cli.as_str() {
+            "claude" => "claude auth logout",
+            "codex" => "codex logout",
+            "vibe" => return crate::vibe::remove_api_key(&d.vibe, id.is_none()),
+            _ => return Err(format!("unknown CLI: {cli}")),
+        };
+        let out = flowcode_shared::run_command_blocking_timeout(command, &env_for(&app, id), LOGOUT_TIMEOUT)
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(if err.is_empty() { format!("`{command}` failed") } else { err })
     })
     .await
 }

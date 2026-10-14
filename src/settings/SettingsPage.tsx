@@ -55,7 +55,7 @@ interface SettingsPageProps {
   onSetFavoritesButtonVisible: (visible: boolean) => void;
   onOpenShortcutsGuide: () => void;
   /** Opens a tab running `cli`'s login under the profile. */
-  onProfileLogin?: (profileId: string, cli: "claude" | "codex" | "vibe") => void;
+  onProfileLogin?: (profileId: string | null, cli: "claude" | "codex" | "vibe") => void;
 }
 
 function updateStatusText(status: UpdateStatus): string {

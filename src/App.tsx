@@ -1857,7 +1857,7 @@ function Shell() {
 
   /** Signs `cli` in under `profileId`: its login command in a fresh terminal
    * started under that profile (Settings > Profiles). */
-  async function loginProfile(profileId: string, cli: AgentCli) {
+  async function loginProfile(profileId: string | null, cli: AgentCli) {
     // A login command for a CLI that isn't installed would only print "command
     // not found" in the terminal - offer the install instead.
     const installed = await invoke<{ installed: boolean }>("check_cli_status", { cli, profile: profileId })
@@ -1867,7 +1867,7 @@ function Shell() {
       await offerCliInstall(cli);
       return;
     }
-    openTerminalWithCommand(CLI_INFO[cli].loginCommand, profileId);
+    openTerminalWithCommand(CLI_INFO[cli].loginCommand, profileId ?? undefined);
   }
 
   remoteProfileLoginRef.current = (profileId, cli) => {
