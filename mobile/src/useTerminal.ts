@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { onMessage, send, type ConnStatus } from "./remote";
+import { attachImeInput } from "./termIme";
 
 const DEFAULT_FONT_SIZE = 13;
 const FONT_FAMILY = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace';
@@ -94,6 +95,7 @@ export function useTerminal(opts: {
     ta?.setAttribute("autocomplete", "off");
     ta?.setAttribute("spellcheck", "false");
     ta?.setAttribute("enterkeyhint", "send");
+    const detachIme = ta ? attachImeInput(host, ta, (d) => onInputRef.current(d)) : () => {};
 
     // While remote output is being parsed xterm may answer terminal queries
     // (device attributes, cursor position...). The desktop's own terminal
@@ -208,6 +210,7 @@ export function useTerminal(opts: {
       data.dispose();
       scroll.dispose();
       userEvents.forEach((n) => ta?.removeEventListener(n, markUser, true));
+      detachIme();
       window.clearTimeout(resizeTimer);
       cancelAnimationFrame(frame);
       ro.disconnect();
