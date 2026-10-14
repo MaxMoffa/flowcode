@@ -212,7 +212,7 @@ pub async fn update_check(state: State<'_, UpdaterState>) -> Result<Option<Updat
         return Err(if is_italian() { format!("Versione non riconosciuta: {}", release.tag_name) } else { format!("Unrecognized version: {}", release.tag_name) });
     };
     if release.draft || release.prerelease || latest <= installed {
-        *state.0.lock().unwrap() = None;
+        *crate::util::lock(&state.0) = None;
         return Ok(None);
     }
     let Some(asset) = pick_asset(&release.assets) else {
@@ -238,7 +238,7 @@ pub async fn update_check(state: State<'_, UpdaterState>) -> Result<Option<Updat
     };
     let checksums_url = find_trusted(CHECKSUMS_ASSET);
     let signature_url = find_trusted(SIGNATURE_ASSET);
-    *state.0.lock().unwrap() = Some(PendingRelease {
+    *crate::util::lock(&state.0) = Some(PendingRelease {
         info: info.clone(),
         asset_name: asset.name.clone(),
         asset_url: asset.browser_download_url.clone(),
@@ -533,9 +533,21 @@ pub async fn update_install(
     result
 }
 
+/// Removes the update's work dir when dropped, unless disarmed - so an early
+/// error doesn't leave the downloaded installer behind in the temp folder.
+struct WorkDirGuard(Option<PathBuf>);
+
+impl Drop for WorkDirGuard {
+    fn drop(&mut self) {
+        if let Some(dir) = self.0.take() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
 async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel<UpdateProgress>) -> Result<(), String> {
     let (asset_name, asset_url, checksums_url, signature_url, size) = {
-        let pending = state.0.lock().unwrap();
+        let pending = crate::util::lock(&state.0);
         let pending = pending.as_ref().ok_or(tr("Nessun aggiornamento disponibile: controlla di nuovo.", "No update available: check again."))?;
         (
             pending.asset_name.clone(),
@@ -553,8 +565,9 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel
     let install_dir = install_dir()?;
 
     let progress = on_progress.clone();
-    let installer = crate::blocking(move || {
+    let (installer, mut work_guard) = crate::blocking(move || {
         let work_dir = create_work_dir()?;
+        let guard = WorkDirGuard(Some(work_dir.clone()));
         let downloaded = work_dir.join(&asset_name);
         let sha256 = download(&asset_url, &downloaded, size, &progress)?;
         let _ = progress.send(UpdateProgress::Verify);
@@ -563,7 +576,8 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel
         let url = checksums_url.ok_or(tr("La release non contiene SHA256SUMS: aggiornamento annullato.", "The release has no SHA256SUMS: update cancelled."))?;
         let sig_url = signature_url.ok_or_else(bad_signature)?;
         verify_checksum(&url, &sig_url, &asset_name, &sha256)?;
-        prepare_installer(&downloaded, &work_dir)
+        let installer = prepare_installer(&downloaded, &work_dir)?;
+        Ok((installer, guard))
     })
     .await?;
 
@@ -572,6 +586,8 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel
     // restores them (see session.rs).
     crate::session::flush_all(app).await;
     launch_installer(&installer, &install_dir)?;
+    // The installer runs from the work dir: it has to stay.
+    work_guard.0 = None;
     app.state::<crate::session::SessionStore>().set_quitting();
     app.exit(0);
     Ok(())

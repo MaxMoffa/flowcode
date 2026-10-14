@@ -59,7 +59,7 @@ pub fn get_hardware_acceleration() -> bool {
 
 #[tauri::command]
 pub fn set_hardware_acceleration(enabled: bool) -> Result<(), String> {
-    let path = settings_path().ok_or("APPDATA non disponibile")?;
+    let path = settings_path().ok_or(flowcode_shared::i18n::tr("APPDATA non disponibile", "APPDATA unavailable"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }

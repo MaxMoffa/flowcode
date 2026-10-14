@@ -99,21 +99,29 @@ const SEARCH_MAX_RESULTS: usize = 300;
 
 /// A walk gives up after this long, however big the tree.
 const SEARCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
-/// The newest search the frontend has asked for: an older walk sees it move
-/// on and stops (one is started per keystroke).
-static SEARCH_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// The newest search each window has asked for (by label; the frontend's
+/// counter is per webview): an older walk of the same window sees it move on
+/// and stops (one is started per keystroke). Other windows don't interfere.
+static SEARCH_GENERATIONS: std::sync::Mutex<Option<std::collections::HashMap<String, u64>>> =
+    std::sync::Mutex::new(None);
 
 struct SearchWalk<'a> {
     query: &'a str,
     show_hidden: bool,
+    label: String,
     generation: u64,
     deadline: std::time::Instant,
 }
 
 impl SearchWalk<'_> {
     fn stopped(&self) -> bool {
-        SEARCH_GENERATION.load(std::sync::atomic::Ordering::Relaxed) != self.generation
-            || std::time::Instant::now() >= self.deadline
+        let newer = SEARCH_GENERATIONS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|m| m.get(&self.label))
+            .is_some_and(|&latest| latest > self.generation);
+        newer || std::time::Instant::now() >= self.deadline
     }
 }
 
@@ -153,8 +161,14 @@ pub async fn search_dir(
     query: String,
     show_hidden: Option<bool>,
     generation: u64,
+    window: tauri::WebviewWindow,
 ) -> Result<Vec<FsEntry>, String> {
-    SEARCH_GENERATION.fetch_max(generation, std::sync::atomic::Ordering::Relaxed);
+    let label = window.label().to_string();
+    {
+        let mut map = SEARCH_GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
+        let latest = map.get_or_insert_with(Default::default).entry(label.clone()).or_insert(0);
+        *latest = (*latest).max(generation);
+    }
     blocking(move || {
         let query = query.trim().to_lowercase();
         if query.is_empty() {
@@ -164,6 +178,7 @@ pub async fn search_dir(
         let walk = SearchWalk {
             query: &query,
             show_hidden: show_hidden.unwrap_or(false),
+            label,
             generation,
             deadline: std::time::Instant::now() + SEARCH_DEADLINE,
         };
@@ -267,8 +282,14 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let target;
     let path = if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
-        target = std::fs::canonicalize(path)?;
-        target.as_path()
+        // A dangling link can't be resolved: write at the link's own path.
+        match std::fs::canonicalize(path) {
+            Ok(t) => {
+                target = t;
+                target.as_path()
+            }
+            Err(_) => path,
+        }
     } else {
         path
     };

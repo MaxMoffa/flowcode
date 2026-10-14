@@ -72,6 +72,29 @@ type Lookups = LazyLock<Mutex<HashMap<String, Lookup>>>;
 /// for `WSL_RETRY`. The lock is not held across `lookup` (a `wsl.exe` call):
 /// while one run is in flight other callers get the last value (none yet)
 /// instead of waiting on it or starting their own.
+/// Runs `F` on drop unless defused - resets an "in flight" flag when the
+/// blocking call it guards panics, so the flag can't stay set forever.
+pub(crate) struct OnDrop<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> OnDrop<F> {
+    pub(crate) fn new(f: F) -> Self {
+        Self(Some(f))
+    }
+
+    /// The call returned normally: the caller resets the flag itself.
+    pub(crate) fn defuse(mut self) {
+        self.0 = None;
+    }
+}
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        if let Some(f) = self.0.take() {
+            f();
+        }
+    }
+}
+
 fn cached_lookup(cache: &Lookups, key: &str, lookup: impl FnOnce() -> Option<String>) -> Option<String> {
     {
         let mut map = lock(cache);
@@ -81,7 +104,13 @@ fn cached_lookup(cache: &Lookups, key: &str, lookup: impl FnOnce() -> Option<Str
         }
         entry.running = true;
     }
+    let guard = OnDrop::new(|| {
+        if let Some(entry) = lock(cache).get_mut(key) {
+            entry.running = false;
+        }
+    });
     let value = lookup();
+    guard.defuse();
     let mut map = lock(cache);
     let entry = map.entry(key.to_string()).or_default();
     entry.running = false;
@@ -114,6 +143,7 @@ pub(crate) fn wsl_running() -> bool {
             _ => state.running = true,
         }
     }
+    let guard = OnDrop::new(|| lock(&STATE).running = false);
     let mut cmd = std::process::Command::new("wsl.exe");
     cmd.args(["-l", "--running", "-q"]);
     // One distro name per line (names have no spaces); with none running
@@ -123,6 +153,7 @@ pub(crate) fn wsl_running() -> bool {
             .lines()
             .any(|l| !l.trim().is_empty() && !l.trim().contains(char::is_whitespace))
     });
+    guard.defuse();
     let mut state = lock(&STATE);
     state.running = false;
     state.last = Some((Instant::now(), answer));

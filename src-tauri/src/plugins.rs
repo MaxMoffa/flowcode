@@ -73,26 +73,51 @@ pub fn list_plugins(app: AppHandle) -> Result<Vec<PluginManifest>, String> {
         if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        if let Ok(contents) = std::fs::read_to_string(entry.path()) {
-            if let Ok(manifest) = serde_json::from_str::<PluginManifest>(&contents) {
-                plugins.push(manifest);
-            }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        match std::fs::read_to_string(entry.path()) {
+            Ok(contents) => match serde_json::from_str::<PluginManifest>(&contents) {
+                Ok(manifest) => plugins.push(manifest),
+                Err(e) => eprintln!("plugins: skipping invalid plugin file {name}: {e}"),
+            },
+            Err(e) => eprintln!("plugins: couldn't read plugin file {name}: {e}"),
         }
     }
     plugins.sort_by_key(|p| p.label.to_lowercase());
     Ok(plugins)
 }
 
+/// The file in `dir` whose manifest id is `id` - its name can differ from the
+/// sanitized id (hand-written or imported plugins), so the name alone can't be
+/// trusted to find it.
+fn find_plugin_file(dir: &std::path::Path, id: &str) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .find(|p| {
+            std::fs::read_to_string(p)
+                .ok()
+                .and_then(|c| serde_json::from_str::<PluginManifest>(&c).ok())
+                .is_some_and(|m| m.id == id)
+        })
+}
+
 #[tauri::command]
-pub fn save_plugin(app: AppHandle, plugin: PluginManifest) -> Result<(), String> {
+pub fn save_plugin(app: AppHandle, mut plugin: PluginManifest) -> Result<(), String> {
     let dir = plugins_dir(&app)?;
-    let id = sanitize_id(&plugin.id);
-    if id.is_empty() {
-        return Err(tr("Id del plugin non valido", "Invalid plugin id").to_string());
-    }
-    let mut plugin = plugin;
-    plugin.id = id.clone();
-    let path = dir.join(format!("{id}.json"));
+    // An existing plugin is rewritten in its own file, under its own id.
+    let path = match find_plugin_file(&dir, &plugin.id) {
+        Some(existing) => existing,
+        None => {
+            let id = sanitize_id(&plugin.id);
+            if id.is_empty() {
+                return Err(tr("Id del plugin non valido", "Invalid plugin id").to_string());
+            }
+            plugin.id = id.clone();
+            dir.join(format!("{id}.json"))
+        }
+    };
     let contents = serde_json::to_string_pretty(&plugin).map_err(|e| e.to_string())?;
     crate::fs::write_atomic(&path, contents.as_bytes()).map_err(|e| e.to_string())
 }
@@ -100,8 +125,7 @@ pub fn save_plugin(app: AppHandle, plugin: PluginManifest) -> Result<(), String>
 #[tauri::command]
 pub fn delete_plugin(app: AppHandle, id: String) -> Result<(), String> {
     let dir = plugins_dir(&app)?;
-    let id = sanitize_id(&id);
-    let path = dir.join(format!("{id}.json"));
+    let path = find_plugin_file(&dir, &id).unwrap_or_else(|| dir.join(format!("{}.json", sanitize_id(&id))));
     std::fs::remove_file(path).map_err(|e| e.to_string())
 }
 

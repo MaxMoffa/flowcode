@@ -94,6 +94,8 @@ const RESYNC_POLL: Duration = Duration::from_millis(200);
 /// (the window flushes xterm's parse queue before serializing, so one or two
 /// normally suffice).
 const RESYNC_ATTEMPTS: u32 = 3;
+/// How long after accepting such a snapshot one last resync is tried.
+const RESYNC_DEFERRED: Duration = Duration::from_secs(3);
 /// Least time between two snapshot requests of one stream: each one makes the
 /// window serialize its whole terminal, which slows its parsing further.
 const RESYNC_MIN_GAP: Duration = Duration::from_secs(1);
@@ -2224,6 +2226,11 @@ async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::Sender<Serve
     let mut resync = false;
     let mut lost_seq = 0u64;
     let mut attempts = 0u32;
+    // After accepting a snapshot that still misses some output, one more
+    // resync is scheduled (`retry_at`; `deferred` = it was already used for
+    // this incident), so the phone isn't left without that output for good.
+    let mut retry_at: Option<tokio::time::Instant> = None;
+    let mut deferred = false;
     loop {
         if feed.is_lagged() {
             resync = true;
@@ -2265,16 +2272,36 @@ async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::Sender<Serve
             // The window may not have drawn the newest dropped output yet: if
             // the snapshot predates it, go again (a few times at most).
             attempts += 1;
-            if seq >= lost_seq.max(feed.dropped_seq()) || attempts >= RESYNC_ATTEMPTS {
+            let complete = seq >= lost_seq.max(feed.dropped_seq());
+            if complete || attempts >= RESYNC_ATTEMPTS {
                 resync = false;
                 attempts = 0;
-                lost_seq = 0;
+                if !complete && !deferred {
+                    // Keep `lost_seq`: the deferred resync must still cover it.
+                    deferred = true;
+                    retry_at = Some(tokio::time::Instant::now() + RESYNC_DEFERRED);
+                } else {
+                    lost_seq = 0;
+                    deferred = false;
+                    retry_at = None;
+                }
             } else {
                 tokio::time::sleep(RESYNC_POLL).await;
             }
             continue;
         }
-        let Some(event) = feed.rx.recv().await else { break };
+        let event = match retry_at {
+            Some(at) => tokio::select! {
+                event = feed.rx.recv() => event,
+                () = tokio::time::sleep_until(at) => {
+                    retry_at = None;
+                    resync = true;
+                    continue;
+                }
+            },
+            None => feed.rx.recv().await,
+        };
+        let Some(event) = event else { break };
         match event {
             RemoteOut::Output { data, seq } if seq > snapshot_seq => {
                 // Keep room in the queue for replies and pushes.

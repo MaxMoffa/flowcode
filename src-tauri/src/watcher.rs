@@ -79,15 +79,27 @@ fn poll(app: AppHandle, label: String, path: String) -> Result<Watch, String> {
     Ok(Watch::Poll(stop))
 }
 
+/// How long a burst of raw change events is gathered into one `fs-changed`.
+const DEBOUNCE: Duration = Duration::from_millis(100);
+
 fn start(app: AppHandle, label: String, path: &str) -> Result<Watch, String> {
     if is_network_path(path) {
         return poll(app, label, path.to_string());
     }
     let watched = path.to_string();
+    // A burst (npm install, git checkout) raises thousands of raw events:
+    // the first arms a short timer and the rest ride on it, so the window
+    // hears of the burst once per DEBOUNCE.
+    let pending = Arc::new(AtomicBool::new(false));
     let mut watcher = fs_watch::recommended_watcher(move |res: fs_watch::Result<fs_watch::Event>| {
         if let Ok(event) = res {
-            if changes_listing(&event.kind) {
-                let _ = app.emit_to(label.as_str(), "fs-changed", watched.as_str());
+            if changes_listing(&event.kind) && !pending.swap(true, Ordering::AcqRel) {
+                let (app, label, watched, pending) = (app.clone(), label.clone(), watched.clone(), pending.clone());
+                std::thread::spawn(move || {
+                    std::thread::sleep(DEBOUNCE);
+                    pending.store(false, Ordering::Release);
+                    let _ = app.emit_to(label.as_str(), "fs-changed", watched.as_str());
+                });
             }
         }
     })

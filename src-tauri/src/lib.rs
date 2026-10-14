@@ -81,6 +81,8 @@ pub fn run() {
                 app.state::<session::SessionStore>().forget_window(app, label);
                 app.state::<windows::WindowInits>().forget(label);
                 app.state::<windows::WindowTabs>().forget(label);
+                #[cfg(target_os = "windows")]
+                windows::forget_minimized(label);
                 app.state::<watcher::DirWatchers>().forget(label);
             }
         })

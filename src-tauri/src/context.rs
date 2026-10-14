@@ -213,11 +213,16 @@ pub(crate) fn read_context(
                     searched.display()
                 ));
             };
-            lock(&PATHS).insert(key, found.clone());
+            crate::util::insert_bounded(&mut lock(&PATHS), key.clone(), found.clone());
             found
         }
     };
-    let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let Ok(len) = std::fs::metadata(&path).map(|m| m.len()) else {
+        // The file is gone: its cache entries would only linger.
+        lock(&RESULTS).remove(&path);
+        lock(&PATHS).remove(&key);
+        return Err(no_usage_error(&path));
+    };
     if let Some((at, ctx)) = lock(&RESULTS).get(&path) {
         if *at == len {
             return ctx.clone().map(Some).ok_or_else(|| no_usage_error(&path));
@@ -227,7 +232,7 @@ pub(crate) fn read_context(
         "claude" => claude_context(&path, claude_configured_model(&dirs.claude).as_deref()),
         _ => codex_context(&path),
     };
-    lock(&RESULTS).insert(path.clone(), (len, ctx.clone()));
+    crate::util::insert_bounded(&mut lock(&RESULTS), path.clone(), (len, ctx.clone()));
     ctx.map(Some).ok_or_else(|| no_usage_error(&path))
 }
 

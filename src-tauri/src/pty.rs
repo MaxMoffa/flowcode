@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -27,6 +27,8 @@ struct PtySession {
     /// writes *and* resizes, so keystrokes and size changes reach the pty in
     /// the order they were issued. Dropping the session ends the thread.
     ops: std::sync::mpsc::Sender<PtyOp>,
+    /// Bytes of `PtyOp::Write` queued and not yet written (see `MAX_QUEUED_WRITE`).
+    queued: Arc<AtomicUsize>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     pid: Option<u32>,
     /// Where this session's output goes - swapped when its tab moves to
@@ -52,6 +54,11 @@ enum PtyOp {
     Write(String),
     Resize(u16, u16),
 }
+
+/// Cap on input queued for a session's writer thread: a program that stopped
+/// reading stdin plus a big paste or phone stream would otherwise grow the
+/// queue without limit. Past it, `write` fails instead.
+const MAX_QUEUED_WRITE: usize = 4 * 1024 * 1024;
 
 /// How long a session may stay between windows before it is considered
 /// abandoned - a move takes milliseconds.
@@ -195,7 +202,14 @@ impl PtyState {
     pub fn write(&self, id: &str, data: &str) -> Result<(), String> {
         let sessions = lock(&self.0);
         let session = sessions.get(id).ok_or("unknown pty session")?;
-        session.ops.send(PtyOp::Write(data.to_owned())).map_err(|_| "pty session ended".to_string())
+        if session.queued.load(Ordering::Relaxed) > MAX_QUEUED_WRITE {
+            return Err("pty busy".to_string());
+        }
+        session.queued.fetch_add(data.len(), Ordering::Relaxed);
+        session.ops.send(PtyOp::Write(data.to_owned())).map_err(|_| {
+            session.queued.fetch_sub(data.len(), Ordering::Relaxed);
+            "pty session ended".to_string()
+        })
     }
 
     /// Queues a resize of a session's pty - the desktop terminal's fit and a
@@ -676,12 +690,14 @@ pub fn pty_spawn(
     }));
     let master = Arc::new(Mutex::new(pair.master));
     let (ops, ops_rx) = std::sync::mpsc::channel();
-    spawn_writer(writer, Arc::clone(&master), ops_rx);
+    let queued = Arc::new(AtomicUsize::new(0));
+    spawn_writer(writer, Arc::clone(&master), ops_rx, Arc::clone(&queued));
     lock(&state.0).insert(
         id.clone(),
         PtySession {
             master,
             ops,
+            queued,
             killer: child.clone_killer(),
             pid: child.process_id(),
             sink: Arc::clone(&sink),
@@ -776,12 +792,14 @@ fn spawn_writer(
     mut writer: Box<dyn Write + Send>,
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     ops: std::sync::mpsc::Receiver<PtyOp>,
+    queued: Arc<AtomicUsize>,
 ) {
     std::thread::spawn(move || {
         for op in ops {
             match op {
                 PtyOp::Write(data) => {
                     let _ = writer.write_all(data.as_bytes()).and_then(|()| writer.flush());
+                    queued.fetch_sub(data.len(), Ordering::Relaxed);
                 }
                 PtyOp::Resize(cols, rows) => {
                     let _ = lock(&master).resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });

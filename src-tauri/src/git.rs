@@ -60,6 +60,10 @@ pub struct GitStatus {
     pub conflicted: Vec<GitChange>,
 }
 
+/// Counts git runs other than `status`, so `git_status` can tell its cached
+/// answer may be stale.
+static OTHER_RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// The one place git is spawned. Returns stdout (trimmed when `trim`) on
 /// success; a failure carries git's own message (stderr, or stdout when stderr
 /// is empty) so the UI can show - or pattern-match - it. Environment:
@@ -73,8 +77,6 @@ pub struct GitStatus {
 ///
 /// `core.fsmonitor=false` is forced because a hostile `.git/config` could set
 /// it to a command, which git would then run on every status poll.
-static OTHER_RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 fn run(dir: &str, args: &[&str], input: Option<&str>, trim: bool) -> Result<String, String> {
     use std::io::Write;
     let mut cmd = Command::new("git");
@@ -380,12 +382,22 @@ pub async fn git_status(root: String) -> Result<GitStatus, String> {
             std::sync::LazyLock::new(Default::default);
         // One status per repository at a time: overlapping polls wait for the
         // running one and share its answer instead of each spawning git. The
-        // answer is reused for a second, unless another git command ran since.
-        let slot = crate::util::lock(&SLOTS).entry(root.clone()).or_default().clone();
+        // answer is reused for a quarter second, unless another git command ran since.
+        let slot = {
+            let mut slots = crate::util::lock(&SLOTS);
+            match slots.get(&root) {
+                Some(slot) => slot.clone(),
+                None => {
+                    let slot = Slot::default();
+                    crate::util::insert_bounded(&mut slots, root.clone(), slot.clone());
+                    slot
+                }
+            }
+        };
         let mut last = crate::util::lock(&slot);
         let runs = OTHER_RUNS.load(Relaxed);
         if let Some((at, seen, status)) = last.as_ref() {
-            if *seen == runs && at.elapsed() < std::time::Duration::from_secs(1) {
+            if *seen == runs && at.elapsed() < std::time::Duration::from_millis(250) {
                 return Ok(status.clone());
             }
         }
@@ -554,7 +566,17 @@ pub async fn git_switch_branch(root: String, name: String, create_from_remote: b
     }
     crate::blocking(move || {
         check_branch_name(&root, &name)?;
-        let args: &[&str] = if create_from_remote {
+        // A remote branch whose short name is already a local branch (one that
+        // doesn't track it) can't be created again: switch to the local one.
+        let local = create_from_remote
+            .then(|| name.split_once('/').map(|(_, short)| short))
+            .flatten()
+            .filter(|short| {
+                git(&root, &["rev-parse", "--verify", "-q", &format!("refs/heads/{short}")]).is_ok()
+            });
+        let args: &[&str] = if let Some(short) = local {
+            &["switch", "--no-guess", short]
+        } else if create_from_remote {
             &["switch", "--track", &name]
         } else {
             &["switch", "--no-guess", &name]

@@ -5,8 +5,10 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use flowcode_shared::i18n::tr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::util::lock;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// What each new window starts with, keyed by its label - taken once by the
@@ -17,7 +19,7 @@ pub struct WindowInits(Mutex<HashMap<String, Value>>);
 
 impl WindowInits {
     pub fn forget(&self, label: &str) {
-        self.0.lock().unwrap().remove(label);
+        lock(&self.0).remove(label);
     }
 }
 
@@ -60,7 +62,7 @@ pub async fn window_open(
     placement: Placement,
 ) -> Result<String, String> {
     let label = format!("win-{}", uuid::Uuid::new_v4().simple());
-    inits.0.lock().unwrap().insert(label.clone(), init);
+    lock(&inits.0).insert(label.clone(), init);
     let new = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
         .title("Flowcode")
         .inner_size(1100.0, 700.0)
@@ -104,7 +106,7 @@ pub async fn window_open(
 /// The calling window's starting content, if it was opened by `window_open`.
 #[tauri::command]
 pub fn window_take_init(window: WebviewWindow, inits: State<'_, WindowInits>) -> Option<Value> {
-    inits.0.lock().unwrap().remove(window.label())
+    lock(&inits.0).remove(window.label())
 }
 
 /// Moves the calling window under the cursor - dragging a window's only tab
@@ -112,7 +114,7 @@ pub fn window_take_init(window: WebviewWindow, inits: State<'_, WindowInits>) ->
 #[tauri::command]
 pub fn window_move_to_cursor(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
-    let pos = under_cursor(&app, scale).ok_or("posizione del cursore non disponibile")?;
+    let pos = under_cursor(&app, scale).ok_or(tr("posizione del cursore non disponibile", "cursor position unavailable"))?;
     window.set_position(pos).map_err(|e| e.to_string())
 }
 
@@ -201,14 +203,14 @@ pub struct WindowTabs(Mutex<HashMap<String, Vec<TabInfo>>>);
 
 impl WindowTabs {
     pub fn forget(&self, label: &str) {
-        self.0.lock().unwrap().remove(label);
+        lock(&self.0).remove(label);
     }
 
     /// Every reported tab as (window label, tab), windows in label order and
     /// tabs in the order their window reported them - a stable listing for
     /// the remote client (see remote.rs).
     pub fn list(&self) -> Vec<(String, TabInfo)> {
-        let windows = self.0.lock().unwrap();
+        let windows = lock(&self.0);
         let mut labels: Vec<&String> = windows.keys().collect();
         labels.sort();
         labels
@@ -219,7 +221,7 @@ impl WindowTabs {
 
     /// Pty session id -> (window label, tab).
     pub fn by_pty(&self) -> HashMap<String, (String, TabInfo)> {
-        let windows = self.0.lock().unwrap();
+        let windows = lock(&self.0);
         windows
             .iter()
             .flat_map(|(label, tabs)| {
@@ -232,7 +234,7 @@ impl WindowTabs {
 
 #[tauri::command]
 pub fn window_report_tabs(window: WebviewWindow, state: State<'_, WindowTabs>, tabs: Vec<TabInfo>) {
-    state.0.lock().unwrap().insert(window.label().to_string(), tabs);
+    lock(&state.0).insert(window.label().to_string(), tabs);
 }
 
 /// Brings window `label` to the front with tab `tab_id` selected - a
@@ -240,7 +242,7 @@ pub fn window_report_tabs(window: WebviewWindow, state: State<'_, WindowTabs>, t
 #[tauri::command]
 pub fn window_focus_tab(app: AppHandle, label: String, tab_id: String) -> Result<(), String> {
     use tauri::Emitter;
-    let window = app.get_webview_window(&label).ok_or("finestra non trovata")?;
+    let window = app.get_webview_window(&label).ok_or(tr("finestra non trovata", "window not found"))?;
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
@@ -254,14 +256,23 @@ pub fn window_focus_tab(app: AppHandle, label: String, tab_id: String) -> Result
 /// frame again until it's resized. Called on every resize; acts only when
 /// the minimized state flips.
 #[cfg(target_os = "windows")]
+static MINIMIZED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+
+/// Drops a closed window's entry from the minimized set.
+#[cfg(target_os = "windows")]
+pub fn forget_minimized(label: &str) {
+    if let Some(set) = lock(&MINIMIZED).as_mut() {
+        set.remove(label);
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub fn sync_webview_visibility(window: &tauri::Window) {
     use std::collections::HashSet;
-    static MINIMIZED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
-
     let minimized = window.is_minimized().unwrap_or(false);
     let label = window.label().to_string();
     let changed = {
-        let mut set = MINIMIZED.lock().unwrap();
+        let mut set = lock(&MINIMIZED);
         let set = set.get_or_insert_with(HashSet::new);
         if minimized { set.insert(label.clone()) } else { set.remove(&label) }
     };

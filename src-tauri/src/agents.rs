@@ -641,7 +641,13 @@ fn wsl_scan(distro: Option<&str>) -> std::sync::Arc<WslScan> {
         }
         slot.running = true;
     }
+    let guard = crate::util::OnDrop::new(|| {
+        if let Some(slot) = lock(&CACHE).iter_mut().find(|s| s.key == key) {
+            slot.running = false;
+        }
+    });
     let scan = run_wsl_scan(distro);
+    guard.defuse();
     let mut cache = lock(&CACHE);
     let Some(slot) = cache.iter_mut().find(|s| s.key == key) else { return Default::default() };
     slot.running = false;
