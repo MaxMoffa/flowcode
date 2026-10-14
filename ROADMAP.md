@@ -29,19 +29,19 @@
 - [ ] Plugin/estensioni terminale (hook su output, comandi custom)
 - [ ] Palette comandi (Ctrl+Shift+P style)
 
-## Fase 4 — Accesso remoto
+## Fase 4 — Accesso remoto (fatto in 0.9.0, via iroh invece di SSH/WebSocket)
 - [ ] Connessione SSH integrata
-- [ ] Accesso remoto via WebSocket (sessioni condivise/monitorate da remoto)
-- [ ] Autenticazione e gestione profili di connessione
+- [x] Accesso remoto (sessioni monitorate da remoto): peer-to-peer cifrato end-to-end con iroh, abbinamento via QR
+- [x] Autenticazione e gestione profili di connessione
 
 ## Fase 5 — Integrazione Flowlab
 - [ ] Definire contratto di integrazione (API/eventi condivisi)
 - [ ] Bridge UI/dati tra Flowcode e Flowlab
 - [ ] Coerenza design system tra le due piattaforme
 
-## Fase 6 — Mobile
-- [ ] Valutare target Tauri Mobile (Android/iOS) per client di accesso remoto
-- [ ] UI adattata touch (no PTY locale, solo client remoto)
+## Fase 6 — Mobile (Android fatto in 0.9.0, iOS non pianificato)
+- [x] Valutare target Tauri Mobile (Android/iOS) per client di accesso remoto
+- [x] UI adattata touch (no PTY locale, solo client remoto)
 
 ## Backlog / idee non prioritizzate
 - Auto-update app (Tauri updater)

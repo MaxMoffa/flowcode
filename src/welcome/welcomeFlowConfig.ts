@@ -3,6 +3,8 @@ import flowcodeIcon from "../assets/flowcode-icon.svg";
 import { currentLanguage, t } from "../i18n";
 // Registers the custom "themeCustomize" step type parseFlow needs below.
 import "./steps/themeCustomizeStepType";
+// Registers the "mobileApp" step type (Android companion app info + download).
+import "./steps/mobileAppStepType";
 
 /** Shown once, on the very first launch (see WelcomeFlow.tsx / WELCOME_SEEN_KEY).
  * Content pulled from README.md/ROADMAP.md's actual feature list - kept in
@@ -69,6 +71,15 @@ export function buildWelcomeFlow() {
         title: t("welcome.editor.title"),
         subtitle: t("welcome.editor.subtitle"),
         image: { kind: "emoji", value: "✏️" },
+      },
+      {
+        id: "about-mobile",
+        type: "mobileApp",
+        key: "about_mobile",
+        title: t("welcome.mobile.title"),
+        subtitle: t("welcome.mobile.subtitle"),
+        image: { kind: "emoji", value: "📱" },
+        required: false,
       },
       {
         id: "theme",

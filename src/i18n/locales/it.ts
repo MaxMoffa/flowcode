@@ -634,6 +634,10 @@ export const it = {
   "welcome.agents.subtitle": "Monitora Claude Code e Codex CLI, con l'utilizzo delle sessioni sempre a portata di sguardo.",
   "welcome.editor.title": "Editor integrato",
   "welcome.editor.subtitle": "Apri e modifica file senza uscire dal terminale.",
+  "welcome.mobile.title": "Flowcode sul telefono",
+  "welcome.mobile.subtitle":
+    "L'app Android si abbina a questo PC: scansiona il codice QR in Impostazioni › Agenti › Consenti l'accesso dall'app Flowcode sul telefono. Segui i tuoi agenti, rispondi loro, apri i terminali e ricevi notifiche. La connessione è cifrata end-to-end e peer-to-peer (iroh).",
+  "welcome.mobile.download": "Scarica l'app Android",
   "welcome.theme.title": "Scegli il tuo tema",
   "welcome.theme.subtitle": "Puoi cambiarlo in qualsiasi momento dalle impostazioni.",
   "welcome.theme.light": "Chrome ambrato, ideale con tanta luce.",

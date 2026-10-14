@@ -7,7 +7,7 @@
 <p align="center">
   The desktop terminal that keeps your shell, files and AI agents together — without breaking your flow.
   <br>
-  Windows · macOS · Linux
+  Windows · macOS · Linux · Android companion app
 </p>
 
 <p align="center">
@@ -50,12 +50,16 @@ Flowcode starts from a simple idea: **the terminal is the center, everything els
 | 🗂️ **Tabbed terminal** | Several sessions side by side, draggable between windows, grouped automatically when they don't fit the bar. Per-tab text zoom. |
 | 📁 **Side file explorer** | Browse, search recursively and manage the files of the active terminal's folder. ⭐ Favorites for the folders you use most. |
 | ✏️ **Built-in editor** | Open and edit files on the fly, with syntax highlighting and a symbol outline, without leaving the app. |
-| 🤖 **Agents panel** | See every open Claude Code, Codex CLI and Mistral Vibe session, resume it with one click and keep an eye on your remaining usage (or your Mistral spend). Mistral Vibe runs on Mistral Large 4. |
+| 🤖 **Agents panel** | See every open Claude Code, Codex CLI and Mistral Vibe session, resume it with one click and keep an eye on your remaining usage (or your Mistral spend, pay-per-use). Mistral Vibe runs on Mistral Large 4. Launch new agents from the panel, optionally in their own git worktree, and switch between the current project and all of them. |
+| 👤 **Account profiles** | Several accounts for Claude Code, Codex and Mistral Vibe, with a profile selector in each agent's popup. |
+| ⏯️ **Auto-resume** | When an agent hits a usage limit, Flowcode can resume it on its own once the limit resets. |
+| 🌿 **Git panel** | Stage files, commit, review diffs and switch branches without leaving the app. |
+| 📱 **Android companion app** | Follow and answer your agents, open the PC's terminals and get notifications from your phone. See [below](#android-companion-app). |
 | ⚡ **Features and shortcuts** | A customizable quick-action bar: commands, status popups, shortcuts to your own tools. |
 | 🐧 **Your shell of choice** | PowerShell, cmd, bash, zsh, WSL… pick the default one for new tabs. |
-| 🎨 **Light, dark and automatic themes** | Frosted-glass panels with adjustable opacity. |
+| 🎨 **Light, dark and automatic themes** | Frosted-glass panels with adjustable opacity. The layout also adapts to narrow, phone-like windows. |
 | 🌐 **Multilingual** | English and Italian, following your system language by default — switchable any time from the settings. |
-| 🔄 **In-app updates** | Flowcode checks for new versions on startup and updates itself in one click. |
+| 🔄 **In-app updates** | Flowcode checks for new versions on startup and updates itself in one click. Releases ship with signed checksums, which the app verifies before updating. |
 
 ## Installation
 
@@ -64,6 +68,8 @@ Flowcode starts from a simple idea: **the terminal is the center, everything els
    - **Windows** — `Flowcode-Setup-<version>.exe`
    - **macOS** — `Flowcode-Setup-<version>-macos-universal.zip` (Apple Silicon and Intel)
    - **Linux** — `Flowcode-Setup-<version>-linux-x86_64.tar.gz`
+   - **Android** (companion app) — `Flowcode-Android-<version>.apk`, see
+     [Android companion app](#android-companion-app)
 3. Run the installer and follow the steps. If Flowcode is already installed, the installer offers to
    update it straight away, keeping your settings.
 
@@ -80,8 +86,38 @@ On first launch a short tour shows you the main features and lets you pick a the
 - **Settings** — from the `···` menu. They're split into:
   - **General** — language, theme, transparency, header, sidebar behavior;
   - **Terminal** — zoom, default shell, banner, startup folder, tab restore, links;
+  - **Agents** — alerts, auto-resume and remote access from the phone app;
   - **Features** — enable, create or import plugins for the quick bar;
   - **About** — version, updates, configuration folder, reset.
+
+## Android companion app
+
+Control your desktop's agents and terminals from your phone. There's no account to create and no VPN
+to set up.
+
+**What you can do**
+
+- Follow your agents and their usage limits, per profile.
+- Reply to agent prompts straight from the phone.
+- Open the PC's terminals and type into them.
+- Browse the PC's files.
+- Run quick actions from the shortcuts bar.
+- Mirror the desktop's settings.
+- Opt-in background mode, with notifications when an agent needs you.
+- Biometric lock for the app.
+
+**Install and pair**
+
+1. Download `Flowcode-Android-<version>.apk` from the [latest release](https://github.com/MaxMoffa/flowcode/releases/latest)
+   and open it on your phone, allowing installation from unknown sources if Android asks.
+2. On the PC, open **Settings → Agents** and turn on *Allow access from the Flowcode phone app*:
+   a QR code appears.
+3. In the app tap *Add computer* and scan the code.
+
+**How it connects.** The phone and the PC talk through [iroh](https://www.iroh.computer): the
+connection is end-to-end encrypted and peer-to-peer, with a relay as fallback when a direct path isn't
+possible. Remote access is off by default, and a paired device can be revoked at any time from the same
+settings page. Note that a paired device can type into your terminals.
 
 ## Language
 

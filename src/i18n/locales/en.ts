@@ -627,6 +627,10 @@ export const en: Record<MessageKey, string> = {
   "welcome.agents.subtitle": "Keep an eye on Claude Code and Codex CLI, with session usage always at a glance.",
   "welcome.editor.title": "Built-in editor",
   "welcome.editor.subtitle": "Open and edit files without leaving the terminal.",
+  "welcome.mobile.title": "Flowcode on your phone",
+  "welcome.mobile.subtitle":
+    "The Android app pairs with this PC: scan the QR code in Settings › Agents › Allow access from the Flowcode phone app. Follow your agents, answer them, open terminals and get notifications. The connection is end-to-end encrypted and peer-to-peer (iroh).",
+  "welcome.mobile.download": "Download the Android app",
   "welcome.theme.title": "Choose your theme",
   "welcome.theme.subtitle": "You can change it any time from the settings.",
   "welcome.theme.light": "Amber chrome, great with plenty of light.",
