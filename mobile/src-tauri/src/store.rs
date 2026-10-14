@@ -205,6 +205,39 @@ pub fn forget_pairing(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+/// The other desktops this phone is paired with, besides the active one in
+/// `pairing.json`. Sealed like it.
+pub fn load_others(path: &Path, codec: &dyn Codec) -> Result<Vec<Pairing>, String> {
+    match read_secret(path, codec) {
+        Read::Found { plain, legacy } => match serde_json::from_slice(&plain) {
+            Ok(list) => {
+                migrate(path, &plain, legacy, codec);
+                Ok(list)
+            }
+            Err(e) => {
+                eprintln!("remote: {} is not a valid list ({e}), ignoring it", path.display());
+                Ok(Vec::new())
+            }
+        },
+        Read::Missing => Ok(Vec::new()),
+        Read::Lost(e) => {
+            eprintln!("remote: cannot open {} ({e}), ignoring it", path.display());
+            Ok(Vec::new())
+        }
+        // Left alone: writing now would drop the computers it holds.
+        Read::Failed(e) => Err(format!("cannot read the saved computers (will retry): {e}")),
+    }
+}
+
+pub fn save_others(path: &Path, list: &[Pairing], codec: &dyn Codec) -> Result<(), String> {
+    if list.is_empty() {
+        let _ = std::fs::remove_file(path);
+        return Ok(());
+    }
+    let bytes = serde_json::to_vec_pretty(list).map_err(|e| e.to_string())?;
+    write_secret(path, &bytes, codec).map_err(|e| format!("cannot save the computers: {e}"))
+}
+
 /// Temp file + rename so a crash never leaves half a file; owner-only on Unix
 /// because both files are credentials.
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -290,6 +323,16 @@ mod tests {
 
     fn sample() -> Pairing {
         Pairing { node: "n".into(), token: "secret-token".into(), host_name: "h".into(), device_name: "d".into() }
+    }
+
+    #[test]
+    fn others_round_trip_and_empty_removes_file() {
+        let path = temp("others.json");
+        assert!(load_others(&path, &Xor).unwrap().is_empty());
+        save_others(&path, &[sample()], &Xor).unwrap();
+        assert_eq!(load_others(&path, &Xor).unwrap()[0].token, "secret-token");
+        save_others(&path, &[], &Xor).unwrap();
+        assert!(!path.exists());
     }
 
     #[test]

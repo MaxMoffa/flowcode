@@ -1,4 +1,4 @@
-import { Component, Suspense, lazy, useEffect, useLayoutEffect, useState, type ErrorInfo, type ReactElement, type ReactNode } from "react";
+import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useState, type ErrorInfo, type ReactElement, type ReactNode } from "react";
 import { AgentsScreen } from "./Agents";
 import { tapFeedback } from "./haptics";
 import { AgentsIcon, SlidersIcon, TerminalIcon } from "./icons";
@@ -8,7 +8,7 @@ import { unlock, useLock } from "./applock";
 import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { Reconnect } from "./Reconnect";
-import { clearOpenTab, resetSettingsCache, setBackgroundTexts, setLastOpened, start, useRemoteSelector } from "./remote";
+import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
 import { TerminalsScreen } from "./Terminals";
 import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
 
@@ -84,6 +84,14 @@ function AppContent() {
   const error = useRemoteSelector((s) => s.error);
   const [page, setPage] = useState<Page>("agents");
   const [openPty, setOpenPty] = useState<string | null>(null);
+  /** Adding another computer: the pairing screen over a paired phone, with the link that opened it if any. */
+  const [adding, setAdding] = useState(false);
+  const [link, setLink] = useState<string | null>(null);
+  const closeAdding = useCallback(() => {
+    setAdding(false);
+    setLink(null);
+  }, []);
+  const paired = status !== "unpaired" && status !== "loading";
   const lock = useLock();
   useViewportHeight();
 
@@ -106,8 +114,22 @@ function AppContent() {
     if (status === "unpaired") {
       setPage("agents");
       setOpenPty(null);
+      closeAdding();
     }
-  }, [status]);
+  }, [status, closeAdding]);
+
+  // A pairing link while a computer is already paired: add that one too.
+  useEffect(() => {
+    if (!paired || adding) return;
+    const fromLink = (url: string) => {
+      setLink(url);
+      setAdding(true);
+    };
+    void takePendingLink().then((url) => url && fromLink(url));
+    const off = onDeepLink(fromLink);
+    return () => void off.then((f) => f());
+  }, [paired, adding]);
+  useBackHandler(adding, closeAdding);
 
   // The permanent notification of the background mode names the desktop.
   useEffect(() => {
@@ -137,7 +159,6 @@ function AppContent() {
     setOpenPty(ptyId);
   }
 
-  const paired = status !== "unpaired" && status !== "loading";
   let content: ReactNode;
   if (!lock.checked) {
     // Avoids a flash of content before the first lock probe.
@@ -145,9 +166,9 @@ function AppContent() {
   } else if (lock.locked && paired) {
     // Locked: nothing else renders, so no content ends up in the task switcher thumbnail.
     content = <LockScreen />;
-  } else if (status === "unpaired" || pairing) {
-    // Unpaired (or mid-pairing, so a failure keeps its message on screen).
-    content = <PairingScreen initialError={error} />;
+  } else if (status === "unpaired" || pairing || adding) {
+    // Unpaired, adding another computer, or mid-pairing (so a failure keeps its message on screen).
+    content = <PairingScreen initialError={adding ? undefined : error} initialLink={link} onClose={adding ? closeAdding : undefined} />;
   } else if (status === "loading") {
     content = <div className="screen" />;
   } else if (tab) {
@@ -160,7 +181,7 @@ function AppContent() {
     content = (
       <div className="screen">
         <main className="page">
-          {page === "agents" && <AgentsScreen hostName={hostName} tabs={tabs} onOpen={open} />}
+          {page === "agents" && <AgentsScreen hostName={hostName} tabs={tabs} onOpen={open} onAddComputer={() => setAdding(true)} />}
           {page === "terminals" && <TerminalsScreen hostName={hostName} tabs={tabs} onOpen={open} />}
           {page === "settings" && (
             <Suspense fallback={null}>
@@ -178,7 +199,7 @@ function AppContent() {
   return (
     <>
       {content}
-      {paired && !pairing && !firstConnect && <Reconnect />}
+      {paired && !pairing && !firstConnect && !adding && <Reconnect />}
       <Toast />
       {lock.hidden && <div className="privacy" aria-hidden="true" />}
     </>

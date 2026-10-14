@@ -96,6 +96,10 @@ mockIPC(
           await emit("remote://msg", { t: "profiles", profiles: mockProfiles });
         }, 50);
         return null;
+      case "computers":
+        return [{ id: "dev", hostName: "Il mio PC", active: true }];
+      case "switch_computer":
+        return undefined;
       case "platform":
         return "mobile";
       case "background_settings":

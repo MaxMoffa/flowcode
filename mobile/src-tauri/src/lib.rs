@@ -6,6 +6,7 @@
 mod background;
 mod backoff;
 mod commands;
+mod computers;
 pub mod connlog;
 #[cfg(mobile)]
 mod deeplink;
@@ -81,7 +82,9 @@ pub fn run() {
             commands::notification_permission,
             commands::request_notification_permission,
             commands::take_pending_tab,
-            commands::unpair
+            commands::unpair,
+            computers::computers,
+            computers::switch_computer
         ])
         .run(tauri::generate_context!())
         .expect("error while running Flowcode Mobile");

@@ -37,15 +37,14 @@ pub fn pairing_state(remote: State<'_, Arc<Remote>>) -> PairingState {
     }
 }
 
-/// A `flowcode://pair` link the OS opened the app with, if any. Taken once,
-/// dropped after `PENDING_LINK_TTL`, and never offered while a pairing exists:
-/// a link only ever fills in the pairing screen, it never pairs by itself.
-// `(async)`: reads the pairing, a Keystore call.
-#[tauri::command(async)]
+/// A `flowcode://pair` link the OS opened the app with, if any. Taken once and
+/// dropped after `PENDING_LINK_TTL`. A link only ever fills in the pairing
+/// screen (also to add another computer), it never pairs by itself.
+#[tauri::command]
 pub fn take_pending_link(remote: State<'_, Arc<Remote>>) -> Option<String> {
     let taken = remote.lock().pending_link.take();
     let (url, at) = taken?;
-    if at.elapsed() > PENDING_LINK_TTL || store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() {
+    if at.elapsed() > PENDING_LINK_TTL {
         return None;
     }
     Some(url)
@@ -127,9 +126,26 @@ pub async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String
         host_name: session.host_name.clone(),
         device_name: session.device_name.clone(),
     };
+    // Pairing another desktop keeps the one in use among the saved computers.
+    let new_id = link::computer_id(&pairing.node);
+    match store::load_pairing(&remote.pairing_path(), &remote.codec) {
+        store::PairingLoad::Found(current) if link::computer_id(&current.node) != new_id => {
+            if let Err(e) = remote.stash(current) {
+                return failed(e);
+            }
+        }
+        store::PairingLoad::Unreadable(e) => return failed(format!("cannot read the current pairing: {e}")),
+        _ => {}
+    }
     if let Err(e) = store::save_pairing(&remote.pairing_path(), &pairing, &remote.codec) {
         return failed(e);
     }
+    // Paired again with a saved desktop: it is the active one now.
+    if let Err(e) = remote.unstash(&new_id) {
+        remote.log.push(e);
+    }
+    // Before the loop starts: the webview drops the old desktop's data first.
+    let _ = app.emit("remote://computer", ());
     remote.start_task(&app, Some(session));
     remote.rearm_with(true);
     Ok(())
@@ -312,13 +328,19 @@ pub fn connection_log(remote: State<'_, Arc<Remote>>) -> Vec<connlog::Entry> {
     remote.log.snapshot()
 }
 
-#[tauri::command]
+// `(async)`: promoting the next computer reads the Keystore.
+#[tauri::command(async)]
 pub fn unpair(app: AppHandle, remote: State<'_, Arc<Remote>>) {
     // A `pair` in flight must not save a pairing after this. The file goes
     // first so a loop that is still running cannot find it again.
     remote.pair_cancel.notify_waiters();
     store::forget_pairing(&remote.pairing_path());
     remote.stop_task();
+    // Another saved desktop takes over; with none left the phone is unpaired.
+    let remote = Arc::clone(&remote);
+    if remote.promote_next(&app) {
+        return;
+    }
     remote.rearm_with(false);
     remote.set_state(&app, Status::Unpaired, None, None);
 }

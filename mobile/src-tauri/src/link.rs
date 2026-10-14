@@ -180,3 +180,9 @@ pub fn inspect_ticket(ticket: &str) -> Result<(String, String), String> {
     let node = EndpointTicket::from_str(&parsed.node).map_err(|e| format!("bad desktop address: {e}"))?;
     Ok((parsed.host, flowcode_remote_proto::node_fingerprint(&node.endpoint_addr().id.to_string())))
 }
+
+/// A stable id for the desktop a stored ticket points at (its node id); the
+/// ticket string itself changes with the desktop's addresses.
+pub fn computer_id(node_ticket: &str) -> String {
+    EndpointTicket::from_str(node_ticket).map_or_else(|_| node_ticket.to_string(), |t| t.endpoint_addr().id.to_string())
+}

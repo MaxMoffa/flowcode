@@ -195,6 +195,12 @@ async function wire(): Promise<void> {
     if (status === "unpaired") saveSettings(null);
     set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null, openTab: null } : {}) });
   }));
+  // Another desktop became the active one: what is shown belongs to the old one.
+  unlisteners.push(await listen("remote://computer", () => {
+    saveSettings(null);
+    pending.clear();
+    set({ wasOnline: false, firstConnect: true, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null, openTab: null });
+  }));
   void checkNotificationTap();
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {
@@ -264,6 +270,17 @@ export const cancelPair = (): Promise<void> => invoke<void>("cancel_pair").catch
 export const unpair = (): Promise<void> => invoke("unpair");
 /** The core's last connection events (dial, handshake, backoff, close reasons), oldest first. */
 export const connectionLog = (): Promise<{ at: number; text: string }[]> => invoke<{ at: number; text: string }[]>("connection_log").catch(() => []);
+
+/** A desktop this phone is paired with. */
+export interface Computer {
+  id: string;
+  hostName: string;
+  active: boolean;
+}
+/** Every paired desktop, the one in use first. */
+export const listComputers = (): Promise<Computer[]> => invoke<Computer[]>("computers").catch(() => []);
+/** Makes another paired desktop the active one; the connection restarts on it. */
+export const switchComputer = (id: string): Promise<void> => invoke("switch_computer", { id });
 
 export function send(msg: ClientMsg) {
   // "not connected" is routine while reconnecting; the UI already shows the reconnect sheet.

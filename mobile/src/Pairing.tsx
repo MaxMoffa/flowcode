@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "./i18n";
-import { QrIcon, Svg } from "./icons";
+import { BackIcon, QrIcon, Svg } from "./icons";
 import logo from "./assets/flowcode-icon.svg";
 import { Scanner } from "./Scanner";
 import { cancelPair, inspectTicket, markFirstConnect, myFingerprint, onDeepLink, pair, platform, setPairingBusy, takePendingLink } from "./remote";
@@ -28,7 +28,8 @@ interface Proposal {
   mine?: string;
 }
 
-export function PairingScreen({ initialError }: { initialError?: string }) {
+/** First pairing, or (with onClose) adding another computer while one is paired. */
+export function PairingScreen({ initialError, initialLink, onClose }: { initialError?: string; initialLink?: string | null; onClose?: () => void }) {
   const [mobile, setMobile] = useState(false);
   const [code, setCode] = useState("");
   const [name, setName] = useState(defaultDeviceName);
@@ -44,6 +45,8 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
   const nameRef = useRef(name);
   nameRef.current = name;
   const busyRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   /** Validates a ticket (QR, link or paste) and asks for confirmation; never pairs by itself. */
   async function propose(ticket: string) {
@@ -75,6 +78,7 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
       await new Promise((r) => setTimeout(r, SUCCESS_MS));
       setProposal(null);
       setWait(null);
+      onCloseRef.current?.();
     } catch (e) {
       markFirstConnect(false);
       const why = endRef.current;
@@ -114,6 +118,7 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
       void proposeRef.current(url);
     };
     void takePendingLink().then((url) => url && fromLink(url));
+    if (initialLink) fromLink(initialLink);
     const off = onDeepLink(fromLink);
     return () => void off.then((f) => f());
   }, []);
@@ -172,11 +177,16 @@ export function PairingScreen({ initialError }: { initialError?: string }) {
 
   return (
     <div className="screen pair">
+      {onClose && (
+        <button type="button" className="pair-close" aria-label={t("back")} onClick={onClose}>
+          <BackIcon />
+        </button>
+      )}
       <div className="pair-hero">
         <div className="logo" aria-hidden="true">
           <TerminalMark />
         </div>
-        <h1>{t("welcomeTitle")}</h1>
+        <h1>{onClose ? t("addComputerTitle") : t("welcomeTitle")}</h1>
         <p className="muted">{t("welcomeBody")}</p>
       </div>
 

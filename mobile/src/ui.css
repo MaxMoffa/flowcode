@@ -420,19 +420,113 @@ button.card:active {
   border-radius: 8px;
 }
 
-.agents-host {
+.cs {
+  position: relative;
   flex: 1;
   min-width: 0;
+}
+
+.cs-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
   font-size: 15px;
   font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.cs-trigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.cs-trigger svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.cs-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.cs-menu {
+  position: absolute;
+  top: 100%;
+  left: -6px;
+  z-index: 21;
+  width: min(280px, calc(100vw - 32px));
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: var(--glass-strong, #1b140e);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
+  border: 1px solid var(--border-strong, rgba(232, 184, 128, 0.14));
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+
+.cs-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font-size: 15px;
+}
+
+.cs-menu button:active {
+  background: var(--surface-2, rgba(231, 216, 197, 0.06));
+}
+
+.cs-menu button.on {
+  font-weight: 600;
+}
+
+.cs-menu button.on svg {
+  color: var(--accent);
+}
+
+.cs-menu svg {
+  flex: none;
+}
+
+.cs-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agents-host span {
+.cs-menu .cs-add {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 11px 11px;
+  color: var(--accent);
+}
+
+.cs-empty {
+  padding: 12px;
   color: var(--muted);
-  font-weight: 400;
 }
 
 .agents-online {

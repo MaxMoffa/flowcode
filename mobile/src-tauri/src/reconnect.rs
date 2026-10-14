@@ -190,9 +190,14 @@ pub(crate) async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut in
 }
 
 /// A fatal error means the desktop no longer knows this device (revoked,
-/// wrong token): keeping the pairing would just loop on refusals.
-pub(crate) fn forget(app: &AppHandle, remote: &Remote, message: String) {
+/// wrong token): keeping the pairing would just loop on refusals. The next
+/// saved computer, if any, takes its place.
+pub(crate) fn forget(app: &AppHandle, remote: &Arc<Remote>, message: String) {
     store::forget_pairing(&remote.pairing_path());
+    // Another saved desktop takes over (its own loop replaces this one).
+    if remote.promote_next(app) {
+        return;
+    }
     remote.rearm_with(false);
     remote.set_state(app, Status::Unpaired, None, Some(message));
 }

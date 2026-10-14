@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import logo from "./assets/flowcode-icon.svg";
+import { ComputerSwitcher } from "./ComputerSwitcher";
 import { contextPercent } from "./common";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
@@ -222,7 +223,7 @@ function AgentTile({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void 
   );
 }
 
-export function AgentsScreen({ hostName, tabs, onOpen }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void }) {
+export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void; onAddComputer: () => void }) {
   const usage = useRemoteSelector((r) => r.usage);
   const { waiting, others } = useMemo(() => {
     const agents = (tabs ?? []).filter((x) => x.cli);
@@ -233,9 +234,7 @@ export function AgentsScreen({ hostName, tabs, onOpen }: { hostName?: string; ta
     <>
       <header className="agents-head">
         <img src={logo} alt="" />
-        <span className="agents-host">
-          Flowcode <span>· {hostName ?? "..."}</span>
-        </span>
+        <ComputerSwitcher hostName={hostName} onAdd={onAddComputer} />
         <span className="agents-online">
           <i className="dot idle on" />
           {t("onlineShort")}
