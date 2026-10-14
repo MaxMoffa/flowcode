@@ -79,6 +79,11 @@ export function lastSubmitAt(id: string | null | undefined): number {
   return (id && submittedAt.get(id)) || 0;
 }
 
+/** An Enter a phone sent straight to the pty (it never goes through `writePty`). */
+export function noteRemoteSubmit(id: string): void {
+  submittedAt.set(id, Date.now());
+}
+
 export function resizePty(id: string, cols: number, rows: number): Promise<void> {
   return invoke<void>("pty_resize", { id, cols, rows }).catch(() => {});
 }

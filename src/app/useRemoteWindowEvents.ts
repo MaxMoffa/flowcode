@@ -8,6 +8,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { TerminalHandle } from "../terminal/Terminal";
 import type { AppTab } from "../tabs/types";
 import type { TabTransfer } from "../tabs/transfer";
+import { noteRemoteSubmit } from "../terminal/ptyClient";
 
 const appWindow = getCurrentWindow();
 
@@ -71,6 +72,8 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
     const unlistenLogin = webview.listen<{ id?: string; cli?: string }>("remote://profile-login", (e) => {
       if (e.payload.id && e.payload.cli) remoteProfileLoginRef.current(e.payload.id, e.payload.cli);
     });
+    // A prompt sent from a phone: counts as a submit for the agent notifications.
+    const unlistenSubmit = webview.listen<string>("remote://submit", (e) => noteRemoteSubmit(e.payload));
     return () => {
       unlisten.then((off) => off());
       unlistenFocus.then((off) => off());
@@ -78,6 +81,7 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       unlistenSize.then((off) => off());
       unlistenAction.then((off) => off());
       unlistenLogin.then((off) => off());
+      unlistenSubmit.then((off) => off());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

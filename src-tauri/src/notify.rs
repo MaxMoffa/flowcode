@@ -28,6 +28,13 @@ pub fn notify_once(app: AppHandle, key: String, label: String, title: String, bo
     }
 }
 
+/// Forwards to the phones only: the user is looking at the tab on this
+/// computer, so no toast here, but a phone in the background still wants it.
+#[tauri::command]
+pub fn notify_phones(app: AppHandle, tab_id: String, title: String, body: String) {
+    forward_to_phones(&app, &title, &body, &tab_id);
+}
+
 /// Mirrors a notification the frontend asked for to the connected phones.
 fn forward_to_phones(app: &AppHandle, title: &str, body: &str, tab_id: &str) {
     use tauri::Manager;

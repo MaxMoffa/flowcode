@@ -23,8 +23,8 @@ interface Watcher {
 
 /** Watches the agents running in this window's tabs and raises a native
  * notification when one finishes its turn, needs the user, or exits - unless
- * that kind is switched off in Settings, the tab is muted, or the user is
- * already looking at it. Clicking the notification brings the tab forward
+ * that kind is switched off in Settings or the tab is muted. When the user is
+ * already looking at the tab only the paired phones are told. Clicking the notification brings the tab forward
  * (see notify.rs). The same events also drive the taskbar/Dock badge (see
  * attention.rs): agents waiting for input, or one that finished unseen. The
  * tabs whose agent finished unseen are returned too, for the tab strip. */
@@ -79,7 +79,14 @@ export function useAgentNotifications(
 
     function notify(tabId: string, agent: TabAgent, kind: NotificationKind) {
       const tab = getTab(tabId);
-      if (!tab || tab.notifyMuted || !getNotificationSettings()[kind] || isViewing(tabId)) return;
+      if (!tab || tab.notifyMuted || !getNotificationSettings()[kind]) return;
+      const body = t(`notifications.body.${kind}`, { agent: cliName(agent.cli) });
+      // Looking at the tab here: no toast, but a phone in the background
+      // (the user may have walked away from this screen) still hears of it.
+      if (isViewing(tabId)) {
+        void invoke("notify_phones", { tabId, title: tab.label, body }).catch(() => {});
+        return;
+      }
       if (kind === "done") {
         unseenDone.current.add(tabId);
         setDoneIds(new Set(unseenDone.current));
@@ -89,7 +96,7 @@ export function useAgentNotifications(
         label: getCurrentWindow().label,
         tabId,
         title: tab.label,
-        body: t(`notifications.body.${kind}`, { agent: cliName(agent.cli) }),
+        body,
       }).catch(() => {});
     }
 

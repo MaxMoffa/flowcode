@@ -111,6 +111,7 @@ pub fn run() {
             windows::window_report_tabs,
             windows::window_focus_tab,
             notify::notify_show,
+            notify::notify_phones,
             notify::notify_once,
             attention::attention_set,
             updater::update_check,

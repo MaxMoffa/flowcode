@@ -112,6 +112,8 @@ const EVT_PROFILE_LOGIN: &str = "remote://profile-login";
 const EVT_PAIR_REQUEST: &str = "remote://pair-request";
 /// `{reqId}`: the request went away unanswered (timeout, phone left).
 const EVT_PAIR_CANCEL: &str = "remote://pair-cancel";
+/// A phone sent an Enter to a pty: its window counts it as a submit (see ptyClient's `lastSubmitAt`).
+const EVT_SUBMIT: &str = "remote://submit";
 /// How long the user has to confirm a new phone on the desktop. The phone
 /// waits longer for its reply (see mobile/src-tauri/src/link.rs).
 const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -1558,6 +1560,13 @@ impl Conn {
                 if data.len() > proto::MAX_INPUT_BYTES {
                     self.error(tr("Input troppo lungo", "Input too large"), Some(pty_id));
                 } else {
+                    // A prompt sent from the phone: the window's agent
+                    // notifications must count it like an Enter typed there.
+                    if data.contains('\r') {
+                        if let Some(window) = self.shared.app.state::<PtyState>().owner_of(&pty_id) {
+                            let _ = self.shared.app.emit_to(window.as_str(), EVT_SUBMIT, &pty_id);
+                        }
+                    }
                     self.input(pty_id, data);
                 }
             }
