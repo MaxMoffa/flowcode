@@ -9,6 +9,7 @@ import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { setNotificationEnabled, useNotificationSettings, type NotificationKind } from "../notifications/notificationSettings";
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
 import { isRemoteLeader, useRemoteLeader } from "./leader";
+import type { MirroredSettings, ProfileInfo } from "../../shared/remote-types";
 import { isValidSetting, type SettingContext } from "./settingDefs";
 import { parseProfileOp } from "./profileOps";
 import { createProfile, deleteProfile, refreshProfiles, updateProfile, useProfiles } from "../profiles/profiles";
@@ -50,7 +51,7 @@ export function RemoteSettingsBridge() {
   const { fontSize, bannerEnabled, confirmLinkOpen, restoreSession, newTabPage } = terminal;
   const { done, input, exited, limitReset } = notify;
   const { enabled: autoResumeEnabled, message: autoResumeMessage } = autoResume;
-  const settings = useMemo(
+  const settings: MirroredSettings = useMemo(
     () => ({
       theme: mode,
       resolvedTheme: theme,
@@ -90,7 +91,7 @@ export function RemoteSettingsBridge() {
   // The profile list for the phone's Profili page. Login state is read off the
   // CLIs' files, so it is re-read when the window regains focus (the usual way
   // back from signing in) and for a while after the phone asked for a login.
-  const profileList = useMemo(
+  const profileList: ProfileInfo[] = useMemo(
     () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe } })),
     [profiles],
   );

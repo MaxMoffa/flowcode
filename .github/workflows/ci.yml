@@ -20,8 +20,11 @@ jobs:
           cache: npm
       - run: npm ci
       # `npm run build` is `tsc && vite build` - typecheck and bundle in one
-      # step; there's no separate test runner in this project yet.
+      # step.
       - run: npm run build
+      # Pure-logic tests (vitest): the phone's shell quoting / key encoding /
+      # settings normalisation and the desktop's setting validators.
+      - run: npm test
 
   rust:
     name: Rust (check + test, ${{ matrix.os }})

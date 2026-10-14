@@ -3,32 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import { ensureProfilesLoaded, getProfilesState, onProfilesChanged, profileById } from "../profiles/profiles";
 import { onUsageFetched, retainUsage } from "./useUsageState";
 import { isRemoteLeader, watchRemoteLeader } from "../remote/leader";
+import type { UsageItem } from "../../shared/remote-types";
 import { metricText, usageFetcherFor, type UsageInfo } from "./usage";
 
-/** What the phone app is shown (see docs/remote-protocol.md): the backend
- * keeps the latest of each and pushes it to connected phones, so publishing
- * while none is paired costs one tiny IPC call. */
-interface RemoteMetric {
-  kind: string;
-  label?: string;
-  percent?: number;
-  resets?: string;
-  command?: string;
-  period?: string;
-  cost?: number;
-  tokens?: number;
-  sessions?: number;
-}
-
-interface RemoteUsageItem {
-  pluginId: string;
-  label: string;
-  profile?: string;
-  /** Of `profile`, for grouping on the phone; absent for the default profile. */
-  profileName?: string;
-  profileColor?: string;
-  metrics: RemoteMetric[];
-}
+// What the phone app is shown (see docs/remote-protocol.md): the backend
+// keeps the latest of each and pushes it to connected phones, so publishing
+// while none is paired costs one tiny IPC call.
 
 const usageKey = (pluginId: string, profile?: string) => `${pluginId}\u0000${profile ?? ""}`;
 
@@ -57,7 +37,7 @@ export interface UsageWatch {
  * remote/leader.ts) publishes and retains. `labelOf` names a plugin id in the
  * current language. */
 export function watchUsageForRemote(labelOf: (pluginId: string) => string): UsageWatch {
-  const latest = new Map<string, RemoteUsageItem>();
+  const latest = new Map<string, UsageItem>();
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const flush = () => {
@@ -137,8 +117,12 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
   /** The default profile's logins: not in the profiles store, so asked of the
    * backend (cheap, but it may spawn the CLI - hence only while publishing). */
   const defaultSignedIn = new Set<string>();
-  const probeDefault = async () => {
+  let lastProbeAt = 0;
+  /** `force`: the profile list changed, so ask again whatever the last probe's age. */
+  const probeDefault = async (force = false) => {
     if (!phoneConnected || !isRemoteLeader()) return;
+    if (!force && Date.now() - lastProbeAt < 30_000) return;
+    lastProbeAt = Date.now();
     for (const cli of new Set(Object.values(PROFILE_CLI))) {
       const st = await invoke<{ installed: boolean; logged_in: boolean }>("check_cli_status", { cli }).catch(() => null);
       if (disposed) return;
@@ -150,7 +134,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
   const probeTimer = setInterval(() => void probeDefault(), 5 * 60 * 1000);
   const unwatchProfiles = onProfilesChanged(() => {
     reconcile();
-    void probeDefault();
+    void probeDefault(true);
   });
   const sync = async () => {
     const status = await invoke<{ devices: { connected: boolean }[] }>("remote_status").catch(() => null);

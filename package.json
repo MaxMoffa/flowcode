@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "tauri": "tauri",
     "mobile:vite": "vite --config mobile/vite.config.ts",
     "mobile:vite:build": "vite build --config mobile/vite.config.ts",
@@ -60,6 +61,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.11"
   }
 }
