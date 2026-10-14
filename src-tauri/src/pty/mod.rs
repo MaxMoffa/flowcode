@@ -387,6 +387,17 @@ pub fn pty_spawn(
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "Flowcode");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    // Flowcode started from inside a Claude Code session (or from a shell
+    // that inherited one) carries its markers, and a Claude started in our
+    // tabs would then take itself for that session's child: it skips its
+    // `sessions/<pid>.json` registry, so the tab never learns it is working
+    // (see agents/claude.rs). Every tab starts as a top-level terminal.
+    for (key, _) in std::env::vars_os() {
+        let Some(key) = key.to_str() else { continue };
+        if key == "CLAUDECODE" || key == "CLAUDE_PID" || key == "CLAUDE_EFFORT" || key.starts_with("CLAUDE_CODE_") {
+            cmd.env_remove(key);
+        }
+    }
     // Account profile: point the agent CLIs at the profile's own folders. Not
     // for WSL - these are Windows paths, meaningless inside the distro.
     if wsl_distro.is_none() && shell_stem != "wsl" {
