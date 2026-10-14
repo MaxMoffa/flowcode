@@ -90,3 +90,12 @@ export const Icons = {
     </svg>
   ),
 };
+
+export function TerminalIcon({ size }: { size: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <polyline points="7 9.5 10.5 12.5 7 15.5" />
+    </svg>
+  );
+}

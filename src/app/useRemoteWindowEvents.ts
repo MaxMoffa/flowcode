@@ -1,0 +1,84 @@
+// Window events other windows (tab moves, the Agents panel) and the
+// remote-access server (phone requests) send this one. Subscribed once for
+// the window's life, so every input is a ref that always holds the latest.
+import { useEffect, type MutableRefObject } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import type { TerminalHandle } from "../terminal/Terminal";
+import type { AppTab } from "../tabs/types";
+import type { TabTransfer } from "../tabs/transfer";
+
+const appWindow = getCurrentWindow();
+
+export interface RemoteWindowEventRefs {
+  adoptTabRef: MutableRefObject<(transfer: TabTransfer) => void>;
+  selectTabRef: MutableRefObject<(id: string) => void>;
+  latestRef: MutableRefObject<{ tabs: AppTab[] }>;
+  termRefs: MutableRefObject<Map<string, TerminalHandle>>;
+  remoteActionRef: MutableRefObject<(id: string, ptyId: string | null) => void>;
+  remoteProfileLoginRef: MutableRefObject<(profileId: string, cli: string) => void>;
+}
+
+export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
+  useEffect(() => {
+    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef } = refs;
+    const webview = getCurrentWebviewWindow();
+    const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
+      adoptTabRef.current(e.payload);
+      appWindow.setFocus().catch(() => {});
+    });
+    // Another window's Agents panel sending the user to one of our tabs.
+    const unlistenFocus = webview.listen<string>("tab:focus", (e) => {
+      // Empty for a notification about no tab in particular (notify_once).
+      if (latestRef.current.tabs.some((t) => t.id === e.payload)) selectTabRef.current(e.payload);
+    });
+    // The remote-access server asking for the screen of one of our ptys (a
+    // phone just opened it). Always answer, even empty, so it never waits.
+    const unlistenSnap = webview.listen<{ reqId: string; ptyId: string }>("remote://snapshot-request", async (e) => {
+      const { reqId, ptyId } = e.payload;
+      let snap: { data: string; seq: number } | null = null;
+      try {
+        for (const h of termRefs.current.values()) {
+          if (h.getPtyId() === ptyId) {
+            snap = await h.snapshotForRemote();
+            break;
+          }
+        }
+      } catch {
+        snap = null;
+      }
+      invoke("remote_snapshot_reply", { reqId, data: snap?.data ?? "", seq: snap?.seq ?? 0 }).catch(() => {});
+    });
+    // A phone sizing one of our ptys (or letting go of it): pin that
+    // terminal's grid to the phone's, or let it refit.
+    const unlistenSize = webview.listen<{ ptyId: string; cols: number | null; rows: number | null }>(
+      "remote://size-override",
+      (e) => {
+        const { ptyId, cols, rows } = e.payload;
+        for (const h of termRefs.current.values()) {
+          if (h.getPtyId() === ptyId) {
+            h.setSizeOverride(cols && rows ? { cols, rows } : null);
+            break;
+          }
+        }
+      },
+    );
+    // A phone tapping one of the published quick actions.
+    const unlistenAction = webview.listen<{ id: string; ptyId: string | null }>("remote://run-action", (e) => {
+      remoteActionRef.current(e.payload.id, e.payload.ptyId);
+    });
+    const unlistenLogin = webview.listen<{ id?: string; cli?: string }>("remote://profile-login", (e) => {
+      if (e.payload.id && e.payload.cli) remoteProfileLoginRef.current(e.payload.id, e.payload.cli);
+    });
+    return () => {
+      unlisten.then((off) => off());
+      unlistenFocus.then((off) => off());
+      unlistenSnap.then((off) => off());
+      unlistenSize.then((off) => off());
+      unlistenAction.then((off) => off());
+      unlistenLogin.then((off) => off());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}

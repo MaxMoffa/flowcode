@@ -9,6 +9,7 @@ import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { SettingRow, SettingsGroup, Switch } from "./SettingsControls";
 import "../dialog/modal.css";
 import "./remote-access.css";
+import { formatCompactDuration } from "../lib/time";
 
 interface RemoteDevice {
   id: string;
@@ -35,16 +36,6 @@ interface PairInfo {
 
 /** Timestamps from the backend may be seconds or milliseconds; normalize. */
 const toMs = (n: number) => (n < 1e12 ? n * 1000 : n);
-
-function formatDuration(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 48) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
 
 /** One shared 1 s ticker for every running-clock label: a single interval
  * while at least one is mounted, paused while the window is hidden. */
@@ -82,13 +73,13 @@ function useSecondTick() {
 /** "Seen ... ago" label of a device. */
 function LastSeen({ at }: { at: number }) {
   useSecondTick();
-  return <>{t("settings.remote.lastSeen", { time: formatDuration(Date.now() - toMs(at)) })}</>;
+  return <>{t("settings.remote.lastSeen", { time: formatCompactDuration(Date.now() - toMs(at)) })}</>;
 }
 
 /** The pairing code's countdown. */
 function PairCountdown({ expiresAt }: { expiresAt: number }) {
   useSecondTick();
-  return <>{t("settings.remote.pairExpires", { time: formatDuration(toMs(expiresAt) - Date.now()) })}</>;
+  return <>{t("settings.remote.pairExpires", { time: formatCompactDuration(toMs(expiresAt) - Date.now()) })}</>;
 }
 
 interface PairDialogProps {

@@ -29,131 +29,10 @@ import { t } from "../i18n";
 import { isLayoutDragging, onLayoutDragEnd } from "../lib/layoutDrag";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
+import { readTermColors } from "./termColors";
+import type { TerminalHandle, TerminalTransfer, PromptAnchor } from "./terminalTypes";
+export type { TerminalHandle, TerminalTransfer, PromptAnchor };
 
-/** --term-bg's RGB as `#rrggbb00`: fully transparent to paint (see the
- * `background` comment below), but xterm still reads the RGB channels -
- * it's what `minimumContrastRatio` checks text against and what it reports
- * to apps that query the background (OSC 11). A plain `#00000000` made both
- * treat every theme as black: dark-tuned colors were left unreadable on the
- * light theme, and apps deriving a panel shade from the reported background
- * drew it off-tone. */
-function termBackgroundHex(scope: HTMLElement): string {
-  const probe = document.createElement("div");
-  probe.style.cssText = "position:absolute;visibility:hidden;background:var(--term-bg)";
-  scope.appendChild(probe);
-  const bg = getComputedStyle(probe).backgroundColor;
-  probe.remove();
-  const [r = 0, g = 0, b = 0] = (bg.match(/[\d.]+/g) ?? []).map(Number);
-  const hex = (n: number) => Math.round(n).toString(16).padStart(2, "0");
-  return `#${hex(r)}${hex(g)}${hex(b)}00`;
-}
-
-/** Reads the terminal's colours from its own container, not `:root`, so a
- * palette set only for the terminal (see `terminalPaletteId`) is picked up. */
-function readTermColors(scope: HTMLElement) {
-  const style = getComputedStyle(scope);
-  const v = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  return {
-    // The container div already paints --term-bg (same glass surface as the
-    // rest of the window). Giving xterm's own canvas a background too would
-    // stack two translucent layers on top of each other, compositing to a
-    // darker/more opaque result than every other panel - so it stays transparent.
-    // xterm.js only accepts hex colors here (it matches /#[\da-f]{3,8}/) -
-    // the CSS keyword "transparent" and rgba() syntax silently fail to parse
-    // and fall back to opaque black, so this must be 8-digit hex.
-    background: termBackgroundHex(scope),
-    foreground: v("--term-fg", "#e6e6e6"),
-    cursor: v("--accent", "#e6e6e6"),
-    cursorAccent: v("--term-bg", "#000000"),
-    // xterm.js's own ANSI defaults assume a dark background (pure white/
-    // near-white foreground colors), which goes unreadable against the
-    // light theme - both palettes are supplied explicitly per theme in
-    // themes.css instead of relying on the built-in ones.
-    black: v("--ansi-black", "#3a2c1c"),
-    red: v("--ansi-red", "#cd3131"),
-    green: v("--ansi-green", "#0dbc79"),
-    yellow: v("--ansi-yellow", "#e5e510"),
-    blue: v("--ansi-blue", "#2472c8"),
-    magenta: v("--ansi-magenta", "#bc3fbc"),
-    cyan: v("--ansi-cyan", "#11a8cd"),
-    white: v("--ansi-white", "#e5e5e5"),
-    brightBlack: v("--ansi-bright-black", "#666666"),
-    brightRed: v("--ansi-bright-red", "#f14c4c"),
-    brightGreen: v("--ansi-bright-green", "#23d18b"),
-    brightYellow: v("--ansi-bright-yellow", "#f5f543"),
-    brightBlue: v("--ansi-bright-blue", "#3b8eea"),
-    brightMagenta: v("--ansi-bright-magenta", "#d670d6"),
-    brightCyan: v("--ansi-bright-cyan", "#29b8db"),
-    brightWhite: v("--ansi-bright-white", "#e5e5e5"),
-    selectionBackground: v("--term-selection-bg", "rgba(120, 150, 200, 0.3)"),
-  };
-}
-
-export interface TerminalHandle {
-  clear: () => void;
-  /** Copies the current selection to the clipboard (no-op without one). */
-  copySelection: () => void;
-  /** Pastes the clipboard as if typed (bracketed-paste aware). */
-  paste: () => void;
-  runCommand: (cmd: string) => void;
-  /** Same as `runCommand`, but hides the injected command and its echo
-   * entirely once the launched program redraws the prompt/title - the
-   * terminal's on-screen content doesn't show the typed line at all. Meant
-   * for shortcuts that launch a full-screen CLI (Claude Code, Codex), not
-   * for arbitrary user-defined `runCommand` plugins where the typed command
-   * is expected to stay visible. */
-  runCommandSilently: (cmd: string) => void;
-  /** Types a `cd` (built for the shell at the prompt - see shellDialect.ts's
-   * `cdCommand`), but hides it and its echo entirely - the terminal's
-   * on-screen content doesn't change at all. `build` gets the number of rows
-   * the typed line will occupy, so a shell that can (`erases`) makes the
-   * command wipe those rows itself, right where the shell drew them. */
-  navigateSilently: (build: (eraseRows: number) => string | null, erases: boolean) => void;
-  /** The backend pty session id for this tab's shell, once spawned - lets
-   * the Agents sidebar match a `list_agent_sessions` result back to the tab
-   * that owns it. `null` before the pty has finished spawning. */
-  getPtyId: () => string | null;
-  /** Plain text of the last `lines` non-empty rows on screen (the bottom of
-   * the active buffer's viewport upwards) - what a full-screen CLI is
-   * showing right now, e.g. its "usage limit reached" notice. */
-  screenTail: (lines: number) => string;
-  /** Types `data` into this tab's pty exactly like a keystroke would, so an
-   * Enter in it counts as a submit (see ptyClient's `lastSubmitAt`). */
-  sendInput: (data: string) => void;
-  /** This tab's normal-screen text (with colors) for session restore - the
-   * last `SESSION_SCROLLBACK_LINES` lines, never a full-screen program's
-   * alternate screen (that frame means nothing once the program is gone). */
-  serialize: () => string;
-  /** Whether anything was ever sent to this tab's shell on the user's
-   * behalf - typed/pasted input, a command run in it, an explorer `cd`.
-   * A tab that's still `false` at exit is a virgin one (opened, never
-   * touched), which session restore doesn't bring back. */
-  wasUsed: () => boolean;
-  /** Hands this tab's running session over for a move to another window:
-   * stops its output reaching this terminal (the program keeps running),
-   * then snapshots the screen exactly as shown - scrollback, a full-screen
-   * program's alternate screen and the terminal modes it set. Once released,
-   * unmounting this view no longer kills the session. `null` when there's no
-   * session yet to move. */
-  release: () => Promise<TerminalTransfer | null>;
-  /** The screen exactly as shown (scrollback, alternate screen, modes) for a
-   * remote client, without detaching anything, plus the `seq` of the last
-   * output written here so the client can skip what the snapshot covers. */
-  snapshotForRemote: () => Promise<{ data: string; seq: number } | null>;
-  /** A phone is showing this terminal and has sized the pty for its screen
-   * (see remote.rs): the grid is pinned to `size` and the usual fit is
-   * skipped. `null` hands control back - the terminal refits and resizes the
-   * pty to its own size again. Synchronous, so the snapshot request that
-   * follows is taken at the pinned size. */
-  setSizeOverride: (size: { cols: number; rows: number } | null) => void;
-}
-
-/** A running terminal session on its way to another window - see
- * `TerminalHandle.release` and the `attach` prop. */
-export interface TerminalTransfer {
-  ptyId: string;
-  snapshot: string;
-}
 
 /** What xterm itself answers on the shell's behalf - cursor position /
  * device attribute / status reports, focus in/out, OSC color queries - so
@@ -222,13 +101,6 @@ interface TerminalViewProps {
    * is redrawn from the snapshot and it keeps running - nothing is spawned.
    * Only read once, at mount. */
   attach?: TerminalTransfer;
-}
-
-/** Where a terminal's prompt row is on screen (viewport pixels). */
-export interface PromptAnchor {
-  left: number;
-  top: number;
-  cellHeight: number;
 }
 
 // memo: the parent re-renders on every title/agent-poll change, and a

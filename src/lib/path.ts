@@ -55,6 +55,13 @@ export function trimTrailingSeparators(path: string): string {
   return path.replace(/[\\/]+$/, "") || path;
 }
 
+/** A path in a comparable form: on a Windows host, one separator and no case
+ * (the file system ignores it); trailing separators never count. */
+export function comparablePath(p: string): string {
+  const host = isWindowsHostPath(p) ? p.replace(/\//g, "\\").toLowerCase() : p;
+  return trimTrailingSeparators(host);
+}
+
 /** The containing folder, one level up - a root is its own parent. */
 export function parentPath(path: string): string {
   if (isRootPath(path)) return path;

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useProfiles, type ProfileInfo } from "./profiles";
+import { useOutsideClose } from "../hooks/useOutsideClose";
 import "./profile-select.css";
 
 interface ProfileSelectProps {
@@ -61,16 +62,7 @@ export function ProfileSelect({ value, onChange, isStarred, footer, filter, onMe
   const items = [{ id: undefined as string | undefined, name: t("agents.profile.default"), color: undefined as string | undefined }, ...profiles];
   const current = profiles.find((p) => p.id === value);
 
-  useEffect(() => {
-    if (!open) return;
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const inside = (rootRef.current?.contains(target) ?? false) || (menuRef.current?.contains(target) ?? false);
-      if (!inside) setOpen(false);
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [open]);
+  useOutsideClose(open, [rootRef, menuRef], () => setOpen(false));
 
   // The list is fixed to the viewport: follow the button on resize, close on
   // blur or when anything but the list itself scrolls.

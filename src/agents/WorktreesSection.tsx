@@ -2,6 +2,7 @@ import { basename } from "../lib/path";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { useI18n } from "../i18n";
 import { gitWorktreeRemove, type GitWorktree, type WorktreeRemoval } from "./git";
+import { TerminalIcon } from "../app/icons";
 
 interface WorktreesSectionProps {
   repoRoot: string;
@@ -95,7 +96,7 @@ export function WorktreesSection({ repoRoot, worktrees, agentCounts, onOpenFolde
               onClick={() => onOpenFolder(wt.path)}
               onDoubleClick={(e) => e.stopPropagation()}
             >
-              <TerminalIcon />
+              <TerminalIcon size={13} />
             </button>
             <button
               type="button"
@@ -123,15 +124,6 @@ function BranchIcon() {
       <circle cx="18" cy="8" r="2" />
       <path d="M6 8v8" />
       <path d="M18 10a6 6 0 0 1-6 6H8" />
-    </svg>
-  );
-}
-
-function TerminalIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4.5" width="18" height="15" rx="2" />
-      <polyline points="7 9.5 10.5 12.5 7 15.5" />
     </svg>
   );
 }

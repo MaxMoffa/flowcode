@@ -3,7 +3,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
@@ -34,10 +33,9 @@ import { useAutoResume } from "./agents/useAutoResume";
 import { useAutoResumeSettings } from "./agents/autoResumeSettings";
 import { useAgentNotifications } from "./notifications/useAgentNotifications";
 import { watchLimitResets } from "./notifications/limitResetWatcher";
-import { isPhoneAction, publishRemoteActions, watchUsageForRemote, type UsageWatch } from "./plugins/remotePublish";
+import { isPhoneAction, publishRemoteActions } from "./plugins/remotePublish";
 import { useRemoteLeader } from "./remote/leader";
 import { useNotificationSettings } from "./notifications/notificationSettings";
-import { setActiveAgent } from "./agents/activeAgent";
 import { tabAgentOf, useAgentSessions, type AgentSession, type TabAgent } from "./agents/agentSessions";
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
@@ -57,16 +55,15 @@ import { PluginMenu } from "./plugins/PluginMenu";
 import { PluginUsageButton } from "./plugins/PluginUsageButton";
 import { PluginToast } from "./plugins/PluginToast";
 import { PluginDialog } from "./plugins/PluginDialog";
-import { builtinPlugins, examplePlugins, DEFAULT_QUICK_ACTIONS } from "./plugins/registry";
+import { builtinPlugins, examplePlugins } from "./plugins/registry";
 import { pluginIconNode } from "./plugins/icons";
 import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
 import { FavoritesButton, StarIcon, favoritesMenuItem } from "./favorites/FavoritesButton";
 import type { FavoriteFolder } from "./favorites/favoritesStore";
 import { hasSeenWelcome } from "./welcome/welcomeSeen";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
-import { usePanelPresence } from "./hooks/usePanelPresence";
-import { SIDEBAR_MODES, EXPLORER_LINK_MODES, type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
-import { readBool, readEnum, readJson, readString, removeKey, usePersistentState, writeBool, writeJson, writeString } from "./lib/storage";
+import { type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
+import { readJson, readString, removeKey, usePersistentState, writeBool, writeJson, writeString } from "./lib/storage";
 import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
 import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
@@ -78,6 +75,13 @@ import { profileForPath, refreshProfiles, useProfiles } from "./profiles/profile
 import { ProfilePicker } from "./profiles/ProfilePicker";
 import { activeTabProfile } from "./profiles/activeTabProfile";
 import { Icons } from "./app/icons";
+import { useStartPath } from "./app/useStartPath";
+import { useCliLoginEvent } from "./app/useCliLoginEvent";
+import { useRemoteWindowEvents } from "./app/useRemoteWindowEvents";
+import { useReportTabs } from "./app/useReportTabs";
+import { useActiveAgentSync } from "./app/useActiveAgentSync";
+import { useUsageWatch } from "./app/useUsageWatch";
+import { useNarrowLayout } from "./app/useNarrowLayout";
 import { useWindowChrome } from "./window/useWindowChrome";
 import { ZoomRow } from "./terminal/ZoomRow";
 import {
@@ -114,42 +118,25 @@ const DiffView = lazy(() => import("./git/DiffView").then((m) => ({ default: m.D
 const EditorView = lazy(() => import("./editor/EditorView").then((m) => ({ default: m.EditorView })));
 const WelcomeFlow = lazy(() => import("./welcome/WelcomeFlow").then((m) => ({ default: m.WelcomeFlow })));
 
-const SIDEBAR_MODE_KEY = "flowcode.sidebarMode";
-const EXPLORER_LINK_MODE_KEY = "flowcode.explorerLinkMode";
-// Below this window width, "auto" mode floats the explorer instead of
-// docking it, so a narrow window keeps its terminal usable.
-const SIDEBAR_AUTO_BREAKPOINT = 880;
-// Below this the layout switches to its phone-like form (two-row header,
-// side panels as overlays). Mirrored by the `.is-narrow` rules in App.css.
-const NARROW_BREAKPOINT = 640;
-
-const QUICK_ACTIONS_KEY = "flowcode.quickActions";
-const PLUGINS_SEEDED_KEY = "flowcode.pluginsSeeded";
-const PLUGINS_MIGRATED_KEY = "flowcode.pluginsActionMigrated";
-/** Set once the Mistral Vibe plugin, shipped after the others, has been
- * offered to an install that had already seeded them. */
-const VIBE_PLUGIN_SEEDED_KEY = "flowcode.vibePluginSeeded";
-
-/** Plugin commands the user has OK'd: `<plugin id>:<hash of the command>`
- * entries, so editing a plugin's command asks again. */
-const PLUGIN_APPROVALS_KEY = "flowcode.pluginApprovals";
-const FAVORITES_BUTTON_VISIBLE_KEY = "flowcode.favoritesButtonVisible";
-const SIDEBAR_COLLAPSED_KEY = "flowcode.sidebarCollapsed";
-const AGENTS_SIDEBAR_OPEN_KEY = "flowcode.agentsSidebarOpen";
-
-const isStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((id) => typeof id === "string");
-/** Not a security boundary, just a compact stable stamp of a command's text. */
-function hashText(text: string): string {
-  let hash = 5381;
-  for (let i = 0; i < text.length; i++) hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
-  return (hash >>> 0).toString(16);
-}
-const readQuickActions = (key: string) => readJson(key, isStringArray, DEFAULT_QUICK_ACTIONS);
-const readTrue = (key: string) => readBool(key, true);
-const readFalse = (key: string) => readBool(key, false);
-const readSidebarMode = (key: string) => readEnum(key, SIDEBAR_MODES, "auto");
-const readLinkMode = (key: string) => readEnum(key, EXPLORER_LINK_MODES, "auto");
+import {
+  SIDEBAR_MODE_KEY,
+  EXPLORER_LINK_MODE_KEY,
+  QUICK_ACTIONS_KEY,
+  PLUGINS_SEEDED_KEY,
+  PLUGINS_MIGRATED_KEY,
+  VIBE_PLUGIN_SEEDED_KEY,
+  PLUGIN_APPROVALS_KEY,
+  FAVORITES_BUTTON_VISIBLE_KEY,
+  SIDEBAR_COLLAPSED_KEY,
+  AGENTS_SIDEBAR_OPEN_KEY,
+  isStringArray,
+  hashText,
+  readQuickActions,
+  readTrue,
+  readFalse,
+  readSidebarMode,
+  readLinkMode,
+} from "./app/appPrefs";
 
 function Shell() {
   // All persisted across restarts - every toggle path (header button,
@@ -171,7 +158,6 @@ function Shell() {
     readTrue,
     writeBool,
   );
-  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const sidebarResize = useResizablePanelWidth({
     storageKey: "flowcode.sidebarWidth",
     defaultWidth: 240,
@@ -389,37 +375,7 @@ function Shell() {
       .catch(() => setHomeDir("/"));
   }, []);
 
-  // The configured start path (Settings > Terminale) may since have been
-  // deleted/unmounted, so it's re-checked here rather than trusted outright -
-  // an invalid one just falls back to home instead of handing pty_spawn a
-  // cwd that no longer exists.
-  const [resolvedStartPath, setResolvedStartPath] = useState("");
-  // Whether that check has settled at least once - the startup tab waits on
-  // it (see below), since `home_dir` usually resolves first and would
-  // otherwise spawn the very first shell at home before the configured
-  // start folder is known.
-  const [startPathChecked, setStartPathChecked] = useState(false);
-  useEffect(() => {
-    if (!startPath) {
-      setResolvedStartPath("");
-      setStartPathChecked(true);
-      return;
-    }
-    let cancelled = false;
-    invoke<boolean>("is_directory", { path: startPath })
-      .then((ok) => {
-        if (!cancelled) setResolvedStartPath(ok ? startPath : "");
-      })
-      .catch(() => {
-        if (!cancelled) setResolvedStartPath("");
-      })
-      .finally(() => {
-        if (!cancelled) setStartPathChecked(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [startPath]);
+  const { resolvedStartPath, startPathChecked } = useStartPath(startPath);
 
   useEffect(() => {
     let cancelled = false;
@@ -617,12 +573,6 @@ function Shell() {
   }, [homeDir, resolvedStartPath, startPathChecked, sessionChecked]);
 
   useEffect(() => {
-    const onResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
     seedExamplePlugins().then(reloadCustomPlugins);
     // Per-plugin usage profiles used to be remembered here; now they follow
     // the active tab's profile, so the old keys are dead weight.
@@ -643,64 +593,15 @@ function Shell() {
     [],
   );
 
-  const isNarrow = windowWidth < NARROW_BREAKPOINT;
-  // Narrow windows have no room to dock a panel next to the terminal, so the
-  // sidebar floats whatever its configured mode.
-  const effectiveSidebarMode: "docked" | "floating" = isNarrow
-    ? "floating"
-    : sidebarMode === "auto"
-      ? windowWidth < SIDEBAR_AUTO_BREAKPOINT
-        ? "floating"
-        : "docked"
-      : sidebarMode;
-  // Kept mounted a beat after closing so the docked panels can animate out.
-  const sidebarDocked = effectiveSidebarMode === "docked" && !sidebarCollapsed;
-  const sidebarPresence = usePanelPresence(sidebarDocked);
-  const agentsPresence = usePanelPresence(agentsSidebarOpen);
+  const { isNarrow, effectiveSidebarMode, sidebarPresence, agentsPresence } = useNarrowLayout({
+    sidebarMode,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    agentsSidebarOpen,
+    setAgentsSidebarOpen,
+  });
 
-  // The usage popover's "Sign in" button: a window event, since the popover
-  // is portaled far from App. Only the known login commands are honoured.
-  const openLoginRef = useRef(openTerminalWithCommand);
-  openLoginRef.current = openTerminalWithCommand;
-  useEffect(() => {
-    const onCliLogin = (e: Event) => {
-      const { command, profile } = (e as CustomEvent<{ command?: string; profile?: string }>).detail ?? {};
-      if (!command || !Object.values(CLI_INFO).some((c) => c.loginCommand === command)) return;
-      openLoginRef.current(command, profile);
-    };
-    window.addEventListener("flowcode:cli-login", onCliLogin);
-    return () => window.removeEventListener("flowcode:cli-login", onCliLogin);
-  }, []);
-
-  // Both panels are overlays when narrow, so only one may be open: whichever
-  // was opened last wins (on entering narrow with both open, the sidebar wins).
-  const prevPanelsRef = useRef({ sidebarOpen: !sidebarCollapsed, agentsOpen: agentsSidebarOpen });
-  useEffect(() => {
-    const prev = prevPanelsRef.current;
-    const sidebarOpen = !sidebarCollapsed;
-    prevPanelsRef.current = { sidebarOpen, agentsOpen: agentsSidebarOpen };
-    if (!isNarrow || !sidebarOpen || !agentsSidebarOpen) return;
-    if (!prev.agentsOpen) setSidebarCollapsed(true);
-    else setAgentsSidebarOpen(false);
-  }, [isNarrow, sidebarCollapsed, agentsSidebarOpen, setSidebarCollapsed, setAgentsSidebarOpen]);
-
-  useEffect(() => {
-    if (!isNarrow || !agentsSidebarOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setAgentsSidebarOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isNarrow, agentsSidebarOpen, setAgentsSidebarOpen]);
-
-  useEffect(() => {
-    if (effectiveSidebarMode !== "floating" || sidebarCollapsed) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSidebarCollapsed(true);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [effectiveSidebarMode, sidebarCollapsed]);
+  useCliLoginEvent(openTerminalWithCommand);
 
   // Copy/paste only make sense with a terminal on screen - an editor or
   // input keeps its own native clipboard handling.
@@ -1252,23 +1153,7 @@ function Shell() {
     .filter((t): t is TermTab => t.kind === "terminal")
     .map((t) => `${t.id}\u0000${t.label}\u0000${t.cwd}`)
     .join("\u0001");
-  useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const report = () => {
-      const reported = latestRef.current.tabs
-        .filter((t): t is TermTab => t.kind === "terminal")
-        .map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd }));
-      invoke("window_report_tabs", { tabs: reported }).catch(() => {});
-      // Retried only while some tab's shell hasn't spawned yet.
-      if (timer !== undefined && reported.every((r) => r.pty_id !== null)) {
-        clearInterval(timer);
-        timer = undefined;
-      }
-    };
-    report();
-    timer = setInterval(report, 3000);
-    return () => clearInterval(timer);
-  }, [reportedTabsKey, ptyVersion]);
+  useReportTabs(reportedTabsKey, ptyVersion, latestRef, termRefs);
 
   const adoptTabRef = useRef(adoptTab);
   adoptTabRef.current = adoptTab;
@@ -1322,64 +1207,14 @@ function Shell() {
     return callbacks;
   }
 
-  useEffect(() => {
-    const webview = getCurrentWebviewWindow();
-    const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
-      adoptTabRef.current(e.payload);
-      appWindow.setFocus().catch(() => {});
-    });
-    // Another window's Agents panel sending the user to one of our tabs.
-    const unlistenFocus = webview.listen<string>("tab:focus", (e) => {
-      // Empty for a notification about no tab in particular (notify_once).
-      if (latestRef.current.tabs.some((t) => t.id === e.payload)) selectTabRef.current(e.payload);
-    });
-    // The remote-access server asking for the screen of one of our ptys (a
-    // phone just opened it). Always answer, even empty, so it never waits.
-    const unlistenSnap = webview.listen<{ reqId: string; ptyId: string }>("remote://snapshot-request", async (e) => {
-      const { reqId, ptyId } = e.payload;
-      let snap: { data: string; seq: number } | null = null;
-      try {
-        for (const h of termRefs.current.values()) {
-          if (h.getPtyId() === ptyId) {
-            snap = await h.snapshotForRemote();
-            break;
-          }
-        }
-      } catch {
-        snap = null;
-      }
-      invoke("remote_snapshot_reply", { reqId, data: snap?.data ?? "", seq: snap?.seq ?? 0 }).catch(() => {});
-    });
-    // A phone sizing one of our ptys (or letting go of it): pin that
-    // terminal's grid to the phone's, or let it refit.
-    const unlistenSize = webview.listen<{ ptyId: string; cols: number | null; rows: number | null }>(
-      "remote://size-override",
-      (e) => {
-        const { ptyId, cols, rows } = e.payload;
-        for (const h of termRefs.current.values()) {
-          if (h.getPtyId() === ptyId) {
-            h.setSizeOverride(cols && rows ? { cols, rows } : null);
-            break;
-          }
-        }
-      },
-    );
-    // A phone tapping one of the published quick actions.
-    const unlistenAction = webview.listen<{ id: string; ptyId: string | null }>("remote://run-action", (e) => {
-      remoteActionRef.current(e.payload.id, e.payload.ptyId);
-    });
-    const unlistenLogin = webview.listen<{ id?: string; cli?: string }>("remote://profile-login", (e) => {
-      if (e.payload.id && e.payload.cli) remoteProfileLoginRef.current(e.payload.id, e.payload.cli);
-    });
-    return () => {
-      unlisten.then((off) => off());
-      unlistenFocus.then((off) => off());
-      unlistenSnap.then((off) => off());
-      unlistenSize.then((off) => off());
-      unlistenAction.then((off) => off());
-      unlistenLogin.then((off) => off());
-    };
-  }, []);
+  useRemoteWindowEvents({
+    adoptTabRef,
+    selectTabRef,
+    latestRef,
+    termRefs,
+    remoteActionRef,
+    remoteProfileLoginRef,
+  });
 
   /** Everything the receiving window needs to rebuild `tab` - for a terminal
    * this detaches its running session from this window (see
@@ -1887,32 +1722,9 @@ function Shell() {
   }, [agentSessions, tabs, ptyVersion]);
   // The active tab's agent, for the usage popovers' context section.
   const activeAgentSession = activeTerminal ? sessionByTab.get(activeTerminal.id) : undefined;
-  const [aaCli, aaId, aaProfile, aaWsl, aaLabel] = [
-    activeAgentSession?.cli,
-    activeAgentSession?.session_id ?? null,
-    activeAgentSession?.profile ?? null,
-    !!activeAgentSession?.wsl_distro,
-    activeTerminal?.label ?? "",
-  ];
-  useEffect(() => {
-    setActiveAgent(aaCli ? { cli: aaCli, sessionId: aaId, profile: aaProfile, wsl: aaWsl, tabLabel: aaLabel } : null);
-  }, [aaCli, aaId, aaProfile, aaWsl, aaLabel]);
+  useActiveAgentSync(activeAgentSession, activeTerminal?.label);
   useEffect(watchLimitResets, []);
-  // The phone's usage view covers the plugins the user pinned (the enabled
-  // ones), read live from this ref.
-  const quickActionIdsRef = useRef<string[]>([]);
-  quickActionIdsRef.current = quickActionIds;
-  const usageWatchRef = useRef<UsageWatch | null>(null);
-  useEffect(() => {
-    const watch = watchUsageForRemote((id) => allPluginsRef.current.find((p) => p.id === id)?.label ?? id);
-    usageWatchRef.current = watch;
-    return () => {
-      usageWatchRef.current = null;
-      watch.dispose();
-    };
-  }, []);
-  const quickActionsKey = quickActionIds.join(" ");
-  useEffect(() => usageWatchRef.current?.refresh(), [quickActionsKey]);
+  useUsageWatch(allPluginsRef, quickActionIds);
   const doneTabIds = useAgentNotifications(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,

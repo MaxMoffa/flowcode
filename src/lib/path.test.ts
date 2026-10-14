@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, expandHome, extOf, isAbsolutePath, isRootPath, normalizeDir, parentPath, truncatePath } from "./path";
+import { basename, comparablePath, expandHome, extOf, isAbsolutePath, isRootPath, normalizeDir, parentPath, truncatePath } from "./path";
 
 describe("path helpers", () => {
   it("normalizeDir", () => {
@@ -39,5 +39,11 @@ describe("path helpers", () => {
     expect(expandHome("~", "/home/me")).toBe("/home/me");
     expect(expandHome("~/x", "/home/me")).toBe("/home/me/x");
     expect(expandHome("~/x", "")).toBe("~/x");
+  });
+  it("comparablePath", () => {
+    expect(comparablePath("C:/Users/Me/")).toBe("c:\\users\\me");
+    expect(comparablePath("C:\\Users\\Me")).toBe("c:\\users\\me");
+    expect(comparablePath("/Home/Me/")).toBe("/Home/Me");
+    expect(comparablePath("C:\\")).toBe("c:\\");
   });
 });

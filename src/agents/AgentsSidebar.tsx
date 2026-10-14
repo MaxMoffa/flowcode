@@ -3,12 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import type { TermTab } from "../tabs/types";
 import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
 import { agentCliIcon } from "../plugins/icons";
-import { basename, isRootPath, isWindowsHostPath, separatorOf, trimTrailingSeparators } from "../lib/path";
+import { basename } from "../lib/path";
 import { readEnum, usePersistentState, writeString } from "../lib/storage";
-import { toWslPath, wslDistroOfPath } from "../terminal/wslPath";
 import { t, useI18n } from "../i18n";
 import type { AgentSession } from "./agentSessions";
 import { gitRepoRoot, gitWorktreeAdd, gitWorktrees, isWorktreeCapable, type GitWorktree } from "./git";
+import { inProject, keepIfSame } from "./agentScope";
+import type { ClaudeAgentEntry, CodexSessionEntry, SavedSession, VibeSessionEntry } from "./entryTypes";
+import { formatElapsed } from "../lib/time";
+import { TerminalIcon } from "../app/icons";
 import { NewAgentMenu } from "./NewAgentMenu";
 import { WorktreesSection } from "./WorktreesSection";
 import { CLI_INFO } from "./cliInfo";
@@ -24,48 +27,6 @@ const AGENTS_SCOPE_KEY = "flowcode.agentsScope";
 type AgentsScope = "project" | "all";
 const SCOPES = ["project", "all"] as const;
 
-/** A path in a comparable form: on a Windows host, one separator and no case
- * (the file system ignores it); trailing separators never count. */
-function normalize(p: string): string {
-  const host = isWindowsHostPath(p) ? p.replace(/\//g, "\\").toLowerCase() : p;
-  return trimTrailingSeparators(host);
-}
-
-/** Whether an agent works in the project folder or somewhere below it. An
- * agent inside WSL reports a Linux path, so the project folder is brought to
- * that form first; a folder on another machine's file system never matches.
- * A tab sitting on a root ("C:\", "/") is not a project. */
-function inProject(
-  agentCwd: string | null | undefined,
-  agentWslDistro: string | null | undefined,
-  projectCwd: string,
-  projectWslDistro: string | undefined,
-): boolean {
-  if (!agentCwd) return false;
-  let project = projectCwd;
-  if (agentWslDistro) {
-    const projectDistro = wslDistroOfPath(projectCwd) ?? projectWslDistro;
-    if (projectDistro && projectDistro.toLowerCase() !== agentWslDistro.toLowerCase()) return false;
-    if (!project.startsWith("/")) {
-      const converted = toWslPath(agentWslDistro, project);
-      if (converted === null) return false;
-      project = converted;
-    }
-  } else if (project.startsWith("/") && isWindowsHostPath(agentCwd)) {
-    return false;
-  }
-  const a = normalize(agentCwd);
-  const b = normalize(project);
-  if (isRootPath(b)) return false;
-  return a === b || a.startsWith(b + separatorOf(b));
-}
-
-/** The previous array when the polled one has the same content, so an
- * unchanged poll doesn't re-render the list. */
-function keepIfSame<T>(prev: T[], next: T[]): T[] {
-  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
-}
-
 /** A live duration label: ticks on its own, so the rest of the sidebar isn't
  * re-rendered every second for it. */
 function Elapsed({ since, ago }: { since: number; ago?: boolean }) {
@@ -76,82 +37,9 @@ function Elapsed({ since, ago }: { since: number; ago?: boolean }) {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
-  const duration = formatDuration(since);
+  const duration = formatElapsed(since);
   return <>{ago ? t("agents.ago", { duration }) : duration}</>;
 }
-
-function formatDuration(startedAt: number | null): string {
-  if (startedAt === null) return "";
-  const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  const restMinutes = minutes % 60;
-  return restMinutes > 0 ? `${hours}h ${restMinutes}min` : `${hours}h`;
-}
-
-/** One entry from `claude agents --json` - see src-tauri/src/agents.rs. Far
- * richer than the process-tree guess (a real session id, working directory
- * and busy/idle status) and not limited to this app's own terminals - a
- * background/headless run or a session in a completely different terminal
- * window shows up here too. Claude-specific: there's no Codex equivalent. */
-interface ClaudeAgentEntry {
-  pid: number;
-  cwd: string;
-  kind: string;
-  startedAt: number | null;
-  sessionId: string;
-  name: string;
-  status: string;
-  /** The terminal app it runs in, when recognizable. */
-  hostApp: string | null;
-  /** The account profile it belongs to - `null` for the default one. */
-  profile: string | null;
-}
-
-/** One saved Codex CLI session read directly off disk - see
- * `list_codex_sessions` in src-tauri/src/agents.rs for why this is the best
- * Codex can offer: unlike Claude there's no live registry, so this only
- * ever represents "something resumable", never "currently running
- * elsewhere" (a local Codex tab is only ever caught by `list_agent_sessions`
- * above, same as Claude). */
-interface CodexSessionEntry {
-  cwd: string;
-  sessionId: string;
-  startedAt: number | null;
-  /** Saved by Codex inside this WSL distro - `cwd` is then a Linux path. */
-  wslDistro: string | null;
-  /** The thread's name in Codex, when it has one. */
-  name: string | null;
-  /** Open right now in some terminal - `startedAt` is then its last write. */
-  live: boolean;
-  /** "busy" / "idle", for a live one. */
-  status: string | null;
-  /** Running in a Flowcode tab (of this app or another instance). */
-  inFlowcode: boolean;
-  /** The account profile it belongs to - `null` for the default one. */
-  profile: string | null;
-}
-
-/** One saved Mistral Vibe session, read off its `meta.json` - see
- * `list_vibe_sessions` in src-tauri/src/vibe.rs. Like Codex, Vibe keeps no
- * registry of what's running, so these are only ever "something to resume". */
-interface VibeSessionEntry {
-  cwd: string;
-  sessionId: string;
-  /** When it last wrote. */
-  startedAt: number | null;
-  /** Saved by Vibe inside this WSL distro - `cwd` is then a Linux path. */
-  wslDistro: string | null;
-  /** The title Vibe gave it, when it has one. */
-  name: string | null;
-  /** The account profile it belongs to - `null` for the default one. */
-  profile: string | null;
-}
-
-/** A row of the "saved" list - either CLI's, newest first. */
-type SavedSession = { cli: "codex" | "vibe"; cwd: string; sessionId: string; startedAt: number | null; wslDistro: string | null; name: string | null; profile: string | null };
 
 interface AgentsSidebarProps {
   /** This window's label - agents in tabs of other windows are listed
@@ -796,7 +684,7 @@ function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, profile, chip, 
               className="agents-sidebar-terminal"
               title={otherWindow ? t("agents.tabOtherWindow") : t("agents.tabHere")}
             >
-              {otherWindow ? <WindowIcon /> : <TerminalIcon />}
+              {otherWindow ? <WindowIcon /> : <TerminalIcon size={11} />}
               <span className="agents-sidebar-terminal-label">{terminal}</span>
             </span>
           )}
@@ -827,15 +715,6 @@ function runningMeta(session: AgentSession): ReactNode {
 
 function StatusChip({ kind, label }: { kind: string; label: string }) {
   return <span className={`agents-sidebar-chip agents-sidebar-chip--${kind}`}>{label}</span>;
-}
-
-function TerminalIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4.5" width="18" height="15" rx="2" />
-      <polyline points="7 9.5 10.5 12.5 7 15.5" />
-    </svg>
-  );
 }
 
 function WindowIcon() {

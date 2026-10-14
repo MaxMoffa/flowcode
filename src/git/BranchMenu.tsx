@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { currentLanguage, useI18n } from "../i18n";
+import { useI18n } from "../i18n";
+import { relativeCommitTime } from "../lib/time";
 import { gitBranches, gitSwitchBranch, type GitBranch, type GitBranches } from "./gitStatus";
+import { useOutsideClose } from "../hooks/useOutsideClose";
 
 interface BranchMenuProps {
   root: string;
@@ -17,24 +19,6 @@ interface Item {
   branch: GitBranch;
   remote: boolean;
   current: boolean;
-}
-
-/** "3d ago"-style label of a commit time (unix seconds). */
-function relativeTime(unix: number): string {
-  const seconds = unix - Date.now() / 1000;
-  const units: [Intl.RelativeTimeFormatUnit, number][] = [
-    ["year", 31536000],
-    ["month", 2592000],
-    ["week", 604800],
-    ["day", 86400],
-    ["hour", 3600],
-    ["minute", 60],
-  ];
-  const rtf = new Intl.RelativeTimeFormat(currentLanguage(), { numeric: "auto", style: "narrow" });
-  for (const [unit, size] of units) {
-    if (Math.abs(seconds) >= size) return rtf.format(Math.round(seconds / size), unit);
-  }
-  return rtf.format(0, "second");
 }
 
 const MENU_WIDTH = 260;
@@ -75,16 +59,7 @@ export function BranchMenu({ root, label, icon, onSwitched }: BranchMenuProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
 
-  useEffect(() => {
-    if (!open) return;
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const inside = (rootRef.current?.contains(target) ?? false) || (menuRef.current?.contains(target) ?? false);
-      if (!inside) setOpen(false);
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [open]);
+  useOutsideClose(open, [rootRef, menuRef], () => setOpen(false));
 
   // The menu is fixed to the viewport: follow the button on resize, close on blur
   // or when any ancestor scrolls (scrolls inside the menu's own list are kept).
@@ -209,7 +184,7 @@ export function BranchMenu({ root, label, icon, onSwitched }: BranchMenuProps) {
           )}
         </span>
         <span className="git-branch-option-name">{item.branch.name}</span>
-        {time != null && <span className="git-branch-option-time">{relativeTime(time)}</span>}
+        {time != null && <span className="git-branch-option-time">{relativeCommitTime(time)}</span>}
       </div>
     );
   }

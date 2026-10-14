@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import { profileForPath, setProjectDefaultProfile, useProfiles } from "../profiles/profiles";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { activeTabProfile } from "../profiles/activeTabProfile";
+import { useOutsideClose } from "../hooks/useOutsideClose";
 
 const NEW_IN_WORKTREE_KEY = "flowcode.agentsNewInWorktree";
 
@@ -75,26 +76,12 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
 
   const visibleClis = AGENT_CLIS.filter((cli) => (account ? account.logged_in[cli] === true : (defaultOk[cli] ?? true)));
 
-  useEffect(() => {
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as Element;
-      // The "+" button toggles the menu itself - closing here too would
-      // make its click reopen what this just closed.
-      if (target.closest(".agents-sidebar-add")) return;
-      // The profile list is portaled out of the menu.
-      if (target.closest("[data-profile-select-menu]")) return;
-      if (ref.current && !ref.current.contains(target)) onClose();
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onClose]);
+  useOutsideClose(true, [ref], onClose, {
+    escape: true,
+    // The "+" button toggles the menu itself - closing here too would make its
+    // click reopen what this just closed. The profile list is portaled out of the menu.
+    ignore: (target) => !!target.closest(".agents-sidebar-add, [data-profile-select-menu]"),
+  });
 
   return (
     <div className="agents-new-menu" ref={ref} role="menu">
