@@ -160,6 +160,21 @@ fn is_executable_file(path: &str) -> bool {
     false
 }
 
+/// How long one `wsl.exe` call may take: a wedged WSL service must not hang
+/// the caller (often a poll holding a worker thread) forever.
+const WSL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Runs a prepared `wsl.exe` command to completion with output captured
+/// (stdin closed, no console window), killing it after `WSL_TIMEOUT`.
+/// `None` when it can't start or times out.
+pub(crate) fn run_wsl(mut cmd: std::process::Command) -> Option<std::process::Output> {
+    use std::process::Stdio;
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    flowcode_shared::wait_with_timeout(cmd.spawn().ok()?, WSL_TIMEOUT).ok()
+}
+
 /// The machine's default WSL distro name (e.g. "Ubuntu"), for translating a
 /// POSIX path reported by a bare `wsl` session (no explicit `-d`) into a
 /// browsable `\\wsl.localhost\<distro>\...` UNC path - see wslPath.ts.
@@ -168,10 +183,8 @@ fn is_executable_file(path: &str) -> bool {
 #[tauri::command(async)]
 pub fn wsl_default_distro() -> Option<String> {
     let mut cmd = std::process::Command::new("wsl.exe");
-    cmd.args(["-l", "-v"]).stdin(std::process::Stdio::null());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd.output().ok()?;
+    cmd.args(["-l", "-v"]);
+    let output = run_wsl(cmd)?;
     if !output.status.success() {
         return None;
     }
@@ -204,11 +217,8 @@ pub fn wsl_home_dir(distro: String, user: Option<String>) -> Option<String> {
     }
     // `printf` rather than `echo` to avoid a trailing newline, and `sh` so
     // this doesn't depend on the session's own (possibly non-bash) shell.
-    cmd.args(["-e", "sh", "-c", "printf %s \"$HOME\""])
-        .stdin(std::process::Stdio::null());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd.output().ok()?;
+    cmd.args(["-e", "sh", "-c", "printf %s \"$HOME\""]);
+    let output = run_wsl(cmd)?;
     if !output.status.success() {
         return None;
     }

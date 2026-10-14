@@ -15,7 +15,7 @@ use flowcode_shared::CREATE_NO_WINDOW;
 use flowcode_shared::i18n::tr;
 
 use crate::pty::PtyState;
-use crate::util::{has_bytes, lock, now_ms, same_dir, wsl_unc};
+use crate::util::{has_bytes, insert_bounded, lock, now_ms, same_dir, wsl_unc};
 use crate::windows::WindowTabs;
 
 /// Pids of this app's own throwaway `claude -p "/usage"` probes (see
@@ -48,7 +48,7 @@ fn agent_binary(name: &str) -> Option<(&'static str, &'static str)> {
     }
     AGENT_BINARIES
         .iter()
-        .find(|(bin, _)| name == *bin || name.starts_with(&format!("{bin}-")))
+        .find(|(bin, _)| name.strip_prefix(bin).is_some_and(|rest| rest.is_empty() || rest.starts_with('-')))
         .copied()
 }
 
@@ -104,9 +104,10 @@ fn find_agent(
     let mut visited: HashSet<Pid> = HashSet::new();
     // Another Flowcode instance (say `tauri dev` of this very app) is its own
     // world: the `claude` probes and sessions it spawns aren't this tab's agent.
-    let own_name = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()));
+    static OWN_NAME: LazyLock<Option<String>> = LazyLock::new(|| {
+        std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()))
+    });
+    let own_name = OWN_NAME.as_deref();
 
     while let Some(pid) = queue.pop_front() {
         if !visited.insert(pid) {
@@ -129,7 +130,7 @@ fn find_agent(
                     let started_at = process.start_time().checked_mul(1000);
                     return Some((bin, label, pid.as_u32(), started_at));
                 }
-                if own_name.as_deref() == Some(name.as_str()) {
+                if own_name == Some(name.as_str()) {
                     continue;
                 }
             }
@@ -437,7 +438,7 @@ fn rollout_turn_open(path: &Path) -> Option<bool> {
         }
         None
     });
-    lock(&CACHE).insert(path.to_path_buf(), (len, open));
+    insert_bounded(&mut lock(&CACHE), path.to_path_buf(), (len, open));
     open
 }
 
@@ -483,7 +484,7 @@ fn rollout_meta(path: &Path) -> Option<RolloutMeta> {
         })())
     })();
     let meta = meta?;
-    lock(&CACHE).insert(path.to_path_buf(), meta.clone());
+    insert_bounded(&mut lock(&CACHE), path.to_path_buf(), meta.clone());
     meta
 }
 
@@ -617,32 +618,49 @@ done"#;
 const WSL_SCAN_REUSE: std::time::Duration = std::time::Duration::from_millis(1500);
 
 fn wsl_scan(distro: Option<&str>) -> std::sync::Arc<WslScan> {
-    type Cache = Vec<(Option<String>, std::time::Instant, std::sync::Arc<WslScan>)>;
-    static CACHE: Mutex<Cache> = Mutex::new(Vec::new());
-    // Held for the whole scan: a second caller waits for this one's result
-    // instead of starting another wsl.exe.
-    let mut cache = lock(&CACHE);
-    let key = distro.map(str::to_string);
-    if let Some((_, at, scan)) = cache.iter().find(|(d, _, _)| *d == key) {
-        if at.elapsed() < WSL_SCAN_REUSE {
-            return scan.clone();
-        }
+    struct Slot {
+        key: Option<String>,
+        at: Option<std::time::Instant>,
+        scan: std::sync::Arc<WslScan>,
+        running: bool,
     }
-    let scan = std::sync::Arc::new(run_wsl_scan(distro));
-    cache.retain(|(d, _, _)| *d != key);
-    cache.push((key, std::time::Instant::now(), scan.clone()));
-    scan
+    static CACHE: Mutex<Vec<Slot>> = Mutex::new(Vec::new());
+    let key = distro.map(str::to_string);
+    // The lock is not held across the scan (a slow or wedged wsl.exe must not
+    // stall every other caller): while one is in flight, others get the last
+    // result instead of starting another wsl.exe.
+    {
+        let mut cache = lock(&CACHE);
+        let index = cache.iter().position(|s| s.key == key).unwrap_or_else(|| {
+            cache.push(Slot { key: key.clone(), at: None, scan: Default::default(), running: false });
+            cache.len() - 1
+        });
+        let slot = &mut cache[index];
+        if slot.running || slot.at.is_some_and(|at| at.elapsed() < WSL_SCAN_REUSE) {
+            return slot.scan.clone();
+        }
+        slot.running = true;
+    }
+    let scan = run_wsl_scan(distro);
+    let mut cache = lock(&CACHE);
+    let Some(slot) = cache.iter_mut().find(|s| s.key == key) else { return Default::default() };
+    slot.running = false;
+    slot.at = Some(std::time::Instant::now());
+    // A timed-out scan keeps the last result.
+    if let Some(scan) = scan {
+        slot.scan = std::sync::Arc::new(scan);
+    }
+    slot.scan.clone()
 }
 
-fn run_wsl_scan(distro: Option<&str>) -> WslScan {
+/// `None` when `wsl.exe` couldn't run or timed out.
+fn run_wsl_scan(distro: Option<&str>) -> Option<WslScan> {
     let mut cmd = std::process::Command::new("wsl.exe");
     if let Some(distro) = distro {
         cmd.args(["-d", distro]);
     }
-    cmd.args(["-e", "sh", "-c", WSL_SCAN]).stdin(std::process::Stdio::null());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let Ok(output) = cmd.output() else { return WslScan::default() };
+    cmd.args(["-e", "sh", "-c", WSL_SCAN]);
+    let output = crate::system::run_wsl(cmd)?;
     let text = crate::system::decode_wsl_output(&output.stdout);
     let mut scan = WslScan::default();
     for line in text.lines() {
@@ -665,7 +683,7 @@ fn run_wsl_scan(distro: Option<&str>) -> WslScan {
             _ => {}
         }
     }
-    scan
+    Some(scan)
 }
 
 /// The agent CLI a Linux process runs as the user's own session - not
@@ -681,6 +699,10 @@ fn wsl_agent_of(proc_: &WslProc) -> Option<(&'static str, &'static str)> {
 /// process holds, worked on by a `codex` session running in that same folder
 /// (the daemon can keep a thread loaded after its terminal is gone).
 fn wsl_live_threads(distro: Option<&str>) -> Vec<LiveThread> {
+    // Scanning would boot a stopped WSL VM.
+    if !crate::util::wsl_running() {
+        return Vec::new();
+    }
     let Some(distro_name) = distro.map(str::to_string).or_else(crate::util::wsl_default_distro) else { return Vec::new() };
     let scan = wsl_scan(distro);
     let terminals: Vec<&WslProc> = scan
@@ -847,7 +869,7 @@ fn claude_registry_entry(pid: u32, claude_dirs: &[(Option<String>, PathBuf)]) ->
     })
 }
 
-/// Whether a profile's Claude folder has at least one session registry file -
+/// Whether a Claude folder (any profile's) has at least one session registry file -
 /// `claude agents` is only worth running for it then.
 fn has_claude_sessions(claude_dir: &Path) -> bool {
     std::fs::read_dir(claude_dir.join("sessions"))
@@ -962,7 +984,7 @@ pub async fn list_claude_agents(
     let runs = crate::blocking(move || {
         let mut runs: Vec<(Option<String>, Vec<ClaudeAgentEntry>)> = Vec::new();
         for (profile, dir) in &claude_dirs {
-            if profile.is_some() && !has_claude_sessions(dir) {
+            if !has_claude_sessions(dir) {
                 continue;
             }
             match claude_agents_for(profile, dir) {
@@ -1218,11 +1240,11 @@ pub(crate) fn find_codex_rollout(sessions: &Path, id: &str) -> Option<PathBuf> {
     }
     match walk(sessions, &format!("-{id}.jsonl"), 4) {
         Some(path) => {
-            lock(&FOUND).insert(key, path.clone());
+            insert_bounded(&mut lock(&FOUND), key, path.clone());
             Some(path)
         }
         None => {
-            lock(&MISSED).insert(key, std::time::Instant::now());
+            insert_bounded(&mut lock(&MISSED), key, std::time::Instant::now());
             None
         }
     }

@@ -233,7 +233,7 @@ fn turn_open(dir: &Path) -> Option<bool> {
         })())
     })
     .flatten();
-    lock(&CACHE).insert(path, (len, open));
+    crate::util::insert_bounded(&mut lock(&CACHE), path, (len, open));
     open
 }
 
@@ -547,7 +547,7 @@ pub async fn vibe_ensure_model(app: tauri::AppHandle, profile: Option<String>) -
         };
         let Some(updated) = with_large_4(&current)? else { return Ok(false) };
         std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
-        std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+        crate::fs::write_atomic(&path, updated.as_bytes()).map_err(|e| e.to_string())?;
         Ok(true)
     })
     .await

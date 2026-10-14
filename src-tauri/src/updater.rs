@@ -93,7 +93,9 @@ struct PendingRelease {
 }
 
 #[derive(Default)]
-pub struct UpdaterState(Mutex<Option<PendingRelease>>);
+pub struct UpdaterState(Mutex<Option<PendingRelease>>, std::sync::atomic::AtomicBool);
+// .1: an install is running - a second `update_install` would download into
+// a second folder and start a second installer.
 
 /// One published release, as the changelog tab lists it.
 #[derive(Serialize)]
@@ -287,11 +289,17 @@ fn create_work_dir() -> Result<PathBuf, String> {
     let temp = std::env::temp_dir();
     // Best effort: leftovers of earlier updates (the installer ran from
     // there, so they couldn't be removed at the time). Only ever succeeds on
-    // folders this user owns.
+    // folders this user owns; a younger one may belong to another running
+    // Flowcode's update, so it is left alone.
     if let Ok(entries) = std::fs::read_dir(&temp) {
+        let day = std::time::Duration::from_secs(24 * 60 * 60);
         for entry in entries.flatten() {
             let name = entry.file_name();
-            if name.to_str().is_some_and(|n| n.starts_with("flowcode-update-")) {
+            let old = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > day));
+            if old && name.to_str().is_some_and(|n| n.starts_with("flowcode-update-")) {
                 let _ = std::fs::remove_dir_all(entry.path());
             }
         }
@@ -516,6 +524,16 @@ pub async fn update_install(
     state: State<'_, UpdaterState>,
     on_progress: Channel<UpdateProgress>,
 ) -> Result<(), String> {
+    use std::sync::atomic::Ordering::SeqCst;
+    if state.1.swap(true, SeqCst) {
+        return Err(tr("Aggiornamento già in corso.", "An update is already in progress.").to_string());
+    }
+    let result = run_install(&app, &state, on_progress).await;
+    state.1.store(false, SeqCst);
+    result
+}
+
+async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel<UpdateProgress>) -> Result<(), String> {
     let (asset_name, asset_url, checksums_url, signature_url, size) = {
         let pending = state.0.lock().unwrap();
         let pending = pending.as_ref().ok_or(tr("Nessun aggiornamento disponibile: controlla di nuovo.", "No update available: check again."))?;
@@ -552,7 +570,7 @@ pub async fn update_install(
     let _ = on_progress.send(UpdateProgress::Install);
     // Every window writes its tabs out first - the relaunched version
     // restores them (see session.rs).
-    crate::session::flush_all(&app).await;
+    crate::session::flush_all(app).await;
     launch_installer(&installer, &install_dir)?;
     app.state::<crate::session::SessionStore>().set_quitting();
     app.exit(0);

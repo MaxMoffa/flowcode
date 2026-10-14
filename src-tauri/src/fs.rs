@@ -97,14 +97,34 @@ pub async fn read_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FsE
 const SEARCH_IGNORE_DIRS: &[&str] = &["node_modules", ".git", "target", "dist", "build", ".next", ".venv", "__pycache__"];
 const SEARCH_MAX_RESULTS: usize = 300;
 
-fn search_dir_recursive(dir: &Path, query: &str, show_hidden: bool, results: &mut Vec<FsEntry>) {
+/// A walk gives up after this long, however big the tree.
+const SEARCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
+/// The newest search the frontend has asked for: an older walk sees it move
+/// on and stops (one is started per keystroke).
+static SEARCH_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+struct SearchWalk<'a> {
+    query: &'a str,
+    show_hidden: bool,
+    generation: u64,
+    deadline: std::time::Instant,
+}
+
+impl SearchWalk<'_> {
+    fn stopped(&self) -> bool {
+        SEARCH_GENERATION.load(std::sync::atomic::Ordering::Relaxed) != self.generation
+            || std::time::Instant::now() >= self.deadline
+    }
+}
+
+fn search_dir_recursive(dir: &Path, walk: &SearchWalk, results: &mut Vec<FsEntry>) {
     let Ok(read) = std::fs::read_dir(dir) else { return };
     for entry in read.filter_map(|e| e.ok()) {
-        if results.len() >= SEARCH_MAX_RESULTS {
+        if results.len() >= SEARCH_MAX_RESULTS || walk.stopped() {
             return;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !show_hidden && name.starts_with('.') {
+        if !walk.show_hidden && name.starts_with('.') {
             continue;
         }
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
@@ -112,11 +132,11 @@ fn search_dir_recursive(dir: &Path, query: &str, show_hidden: bool, results: &mu
             continue;
         }
         let path = entry.path();
-        if name.to_lowercase().contains(query) {
+        if name.to_lowercase().contains(walk.query) {
             results.push(FsEntry::new(&path, is_dir));
         }
         if is_dir {
-            search_dir_recursive(&path, query, show_hidden, results);
+            search_dir_recursive(&path, walk, results);
         }
     }
 }
@@ -124,16 +144,30 @@ fn search_dir_recursive(dir: &Path, query: &str, show_hidden: bool, results: &mu
 /// Recursive name search from `path` downward - unlike `read_dir`, which
 /// only ever lists one directory. Skips `SEARCH_IGNORE_DIRS` and (unless
 /// `show_hidden`) dotfiles, and stops at `SEARCH_MAX_RESULTS` matches so a
-/// broad query over a big tree can't run forever.
+/// broad query over a big tree can't run forever. `generation` counts the
+/// frontend's searches up: a walk stops once a newer one has been asked for,
+/// and in any case after `SEARCH_DEADLINE`.
 #[tauri::command]
-pub async fn search_dir(path: String, query: String, show_hidden: Option<bool>) -> Result<Vec<FsEntry>, String> {
+pub async fn search_dir(
+    path: String,
+    query: String,
+    show_hidden: Option<bool>,
+    generation: u64,
+) -> Result<Vec<FsEntry>, String> {
+    SEARCH_GENERATION.fetch_max(generation, std::sync::atomic::Ordering::Relaxed);
     blocking(move || {
         let query = query.trim().to_lowercase();
         if query.is_empty() {
             return Ok(Vec::new());
         }
         let mut results = Vec::new();
-        search_dir_recursive(Path::new(&path), &query, show_hidden.unwrap_or(false), &mut results);
+        let walk = SearchWalk {
+            query: &query,
+            show_hidden: show_hidden.unwrap_or(false),
+            generation,
+            deadline: std::time::Instant::now() + SEARCH_DEADLINE,
+        };
+        search_dir_recursive(Path::new(&path), &walk, &mut results);
         sort_entries(&mut results);
         Ok(results)
     })
@@ -226,10 +260,21 @@ pub fn write_shortcuts_overrides(app: AppHandle, contents: String) -> Result<(),
 /// crash or a full disk mid-write leaves the old contents instead of a
 /// truncated file. `rename` replaces an existing file on Windows too. The
 /// original's permissions are kept on Unix (the temp file would otherwise come
-/// out with the default mode).
+/// out with the default mode). A symlink is written through (its target is
+/// replaced, the link stays), and the temp name is unique per call so
+/// concurrent saves of one file can't share it.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let target;
+    let path = if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        target = std::fs::canonicalize(path)?;
+        target.as_path()
+    } else {
+        path
+    };
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = path.with_file_name(format!("{name}.tmp-{}", std::process::id()));
+    let unique = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_file_name(format!("{name}.tmp-{}-{unique}", std::process::id()));
     let result = (|| {
         std::fs::write(&tmp, bytes)?;
         #[cfg(unix)]

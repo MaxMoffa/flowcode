@@ -8,8 +8,12 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use tauri::{AppHandle, Manager};
+
+use crate::util::lock;
 
 /// A named account profile, as stored in `profiles.json`.
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -29,7 +33,7 @@ pub struct ProfileDirs {
 }
 
 /// On-disk shape of `profiles.json`.
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
 struct Store {
     #[serde(default)]
     profiles: Vec<Profile>,
@@ -73,27 +77,44 @@ fn profiles_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(config_dir(app)?.join("profiles"))
 }
 
-/// Read fresh on every call (it is tiny, and other modules call in from
-/// anywhere): a missing or corrupt file just means no extra profiles.
+/// Serializes the load-modify-save of every command that changes the store,
+/// so two of them can't each save over the other's change.
+static STORE_LOCK: Mutex<()> = Mutex::new(());
+
+/// The store as last read, with the file's mtime then.
+static LOADED: Mutex<Option<(Option<SystemTime>, Store)>> = Mutex::new(None);
+
+/// Read on every call (other modules call in from anywhere, polling), but
+/// parsed again only when the file's mtime changed: a missing or corrupt file
+/// just means no extra profiles.
 fn load(app: &AppHandle) -> Store {
-    store_path(app)
+    let Ok(path) = store_path(app) else { return Store::default() };
+    let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    if let Some((at, store)) = lock(&LOADED).as_ref() {
+        if mtime.is_some() && *at == mtime {
+            return store.clone();
+        }
+    }
+    let store: Store = std::fs::read_to_string(&path)
         .ok()
-        .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    *lock(&LOADED) = Some((mtime, store.clone()));
+    store
 }
 
-/// Written to a sibling temp file and renamed, so a crash mid-write can never
+/// Written atomically (see `fs::write_atomic`), so a crash mid-write can never
 /// leave a half-written (and then silently discarded) profiles list.
 fn save(app: &AppHandle, store: &Store) -> Result<(), String> {
     let path = store_path(app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let tmp = path.with_extension("json.tmp");
     let json = serde_json::to_string_pretty(store).map_err(|e| e.to_string())?;
-    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    let written = crate::fs::write_atomic(&path, json.as_bytes()).map_err(|e| e.to_string());
+    // Dropped after the write: the file's mtime may not have moved yet.
+    *lock(&LOADED) = None;
+    written
 }
 
 fn env_dir(var: &str) -> Option<PathBuf> {
@@ -359,6 +380,7 @@ pub async fn profile_create(
     copy_settings: bool,
 ) -> Result<Profile, String> {
     crate::blocking(move || {
+        let _guard = lock(&STORE_LOCK);
         let mut store = load(&app);
         let name = validate(&store, None, &name, &color)?;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
@@ -381,6 +403,7 @@ pub async fn profile_create(
 #[tauri::command]
 pub async fn profile_update(app: AppHandle, id: String, name: String, color: String) -> Result<(), String> {
     crate::blocking(move || {
+        let _guard = lock(&STORE_LOCK);
         let mut store = load(&app);
         let name = validate(&store, Some(&id), &name, &color)?;
         let profile = store.profiles.iter_mut().find(|p| p.id == id).ok_or("Unknown profile")?;
@@ -394,6 +417,7 @@ pub async fn profile_update(app: AppHandle, id: String, name: String, color: Str
 #[tauri::command]
 pub async fn profile_delete(app: AppHandle, id: String, delete_files: bool) -> Result<(), String> {
     crate::blocking(move || {
+        let _guard = lock(&STORE_LOCK);
         let mut store = load(&app);
         store.profiles.retain(|p| p.id != id);
         store.project_defaults.retain(|_, v| *v != id);
@@ -417,6 +441,7 @@ pub async fn profile_delete(app: AppHandle, id: String, delete_files: bool) -> R
 #[tauri::command]
 pub async fn profile_set_project_default(app: AppHandle, path: String, id: Option<String>) -> Result<(), String> {
     crate::blocking(move || {
+        let _guard = lock(&STORE_LOCK);
         let mut store = load(&app);
         let key = norm_key(&path);
         match id {

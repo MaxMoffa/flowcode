@@ -19,7 +19,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::util::{json_u64 as num, lock, now_ms};
 
@@ -234,7 +234,10 @@ fn codex_filter(line: &str) -> bool {
     line.contains("token_count") || line.contains("\"turn_context\"") || line.contains("\"session_meta\"")
 }
 
-static CACHE: LazyLock<Mutex<HashMap<PathBuf, FileScan>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// One scan per transcript, each behind its own lock: the global one is only
+/// held to find the entry, never across file IO, while two callers wanting the
+/// same file take turns instead of both reading it from the start.
+static CACHE: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<FileScan>>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// New bytes are read this many at a time - a transcript can add hundreds of
 /// megabytes between two polls (a first read), which must not sit in memory
@@ -288,24 +291,28 @@ fn refresh(scan: &mut FileScan, path: &Path, wanted: LineFilter, parse: ParseLin
         // Older than the longest period can't add to any: not kept.
         let now = now_ms();
         scan.calls.retain(|c| now.saturating_sub(c.at) < 31 * DAY_MS);
+        // Their dedupe keys go with them, or `seen` would only ever grow.
+        let kept: HashSet<u64> = scan.calls.iter().map(|c| c.key).collect();
+        scan.seen.retain(|k| kept.contains(k));
     }
 }
 
-/// Runs `f` over the calls logged in `path`, once it is up to date. The file's
-/// entry is taken out of the cache while it is read, so the global lock is
-/// never held across file IO (and the calls aren't cloned for the caller).
-fn with_calls<R>(path: &Path, wanted: LineFilter, parse: ParseLine, f: impl FnOnce(&[Call]) -> R) -> R {
-    let mut scan = lock(&CACHE).remove(path).unwrap_or_default();
-    refresh(&mut scan, path, wanted, parse);
-    let out = f(&scan.calls);
-    lock(&CACHE).insert(path.to_path_buf(), scan);
-    out
+/// Runs `f` over the calls logged in `path` (currently `len` bytes), once it
+/// is up to date - a file already read to `len` isn't even opened. Callers of
+/// one file wait for each other, so the calls aren't cloned for `f`.
+fn with_calls<R>(path: &Path, len: u64, wanted: LineFilter, parse: ParseLine, f: impl FnOnce(&[Call]) -> R) -> R {
+    let entry = lock(&CACHE).entry(path.to_path_buf()).or_default().clone();
+    let mut scan = lock(&entry);
+    if scan.offset != len {
+        refresh(&mut scan, path, wanted, parse);
+    }
+    f(&scan.calls)
 }
 
 /// Drops the cached transcripts under `root` that weren't in the latest scan
 /// of it (deleted, or no longer recent) - the cache would otherwise only grow.
-fn forget_unseen(root: &Path, scanned: &[PathBuf]) {
-    let scanned: HashSet<&PathBuf> = scanned.iter().collect();
+fn forget_unseen(root: &Path, scanned: &[(PathBuf, u64)]) {
+    let scanned: HashSet<&PathBuf> = scanned.iter().map(|(path, _)| path).collect();
     lock(&CACHE).retain(|path, _| !path.starts_with(root) || scanned.contains(path));
 }
 
@@ -404,8 +411,9 @@ fn parse_codex_line(scan: &mut FileScan, line: &serde_json::Value) {
 }
 
 /// Files under `dir` (to `depth` levels) whose name passes `wanted`,
-/// written within the last 31 days - older ones can't add to any period.
-fn recent_files(dir: &Path, depth: u8, wanted: fn(&str) -> bool, since: u64, out: &mut Vec<PathBuf>) {
+/// written within the last 31 days - older ones can't add to any period - with
+/// their sizes.
+fn recent_files(dir: &Path, depth: u8, wanted: fn(&str) -> bool, since: u64, out: &mut Vec<(PathBuf, u64)>) {
     if depth == 0 {
         return;
     }
@@ -418,7 +426,7 @@ fn recent_files(dir: &Path, depth: u8, wanted: fn(&str) -> bool, since: u64, out
         } else if path.file_name().and_then(|n| n.to_str()).is_some_and(wanted)
             && crate::fs::system_time_to_millis(meta.modified()).is_some_and(|m| m >= since)
         {
-            out.push(path);
+            out.push((path, meta.len()));
         }
     }
 }
@@ -523,8 +531,8 @@ pub async fn cli_spend(
             _ => return Err(format!("unknown CLI: {cli}")),
         };
         let mut totals = Totals::new(now, today);
-        for file in &files {
-            with_calls(file, filter, parse, |calls| calls.iter().for_each(|c| totals.add(c)));
+        for (file, len) in &files {
+            with_calls(file, *len, filter, parse, |calls| calls.iter().for_each(|c| totals.add(c)));
         }
         forget_unseen(&root, &files);
         Ok(totals.finish())
@@ -560,7 +568,8 @@ mod tests {
     }
 
     fn calls_in(path: &Path, wanted: LineFilter, parse: ParseLine) -> Vec<Call> {
-        with_calls(path, wanted, parse, |calls| calls.to_vec())
+        let len = std::fs::metadata(path).map_or(0, |m| m.len());
+        with_calls(path, len, wanted, parse, |calls| calls.to_vec())
     }
 
     fn summarize(calls: &[Call], now: u64, today_start: u64) -> CliSpend {

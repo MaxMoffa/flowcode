@@ -30,6 +30,9 @@ struct Inner {
     windows: Vec<(String, Value)>,
     /// Window label -> latest `flush_all` round it has answered.
     acks: HashMap<String, u64>,
+    /// Hash of what `session.json` was last written with - an unchanged
+    /// snapshot (the periodic save with nothing new) skips the disk.
+    last_written: Option<u64>,
 }
 
 impl SessionStore {
@@ -49,14 +52,13 @@ impl SessionStore {
         let before = inner.windows.len();
         inner.windows.retain(|(l, _)| l != label);
         if inner.windows.len() != before {
-            let _ = write(app, Some(&inner.windows));
+            let Inner { windows, last_written, .. } = &mut *inner;
+            let _ = write(app, Some(windows), last_written);
         }
     }
 }
 
-fn write(app: &AppHandle, windows: Option<&[(String, Value)]>) -> Result<(), String> {
-    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+fn write(app: &AppHandle, windows: Option<&[(String, Value)]>, last_written: &mut Option<u64>) -> Result<(), String> {
     let contents = match windows {
         Some(windows) if !windows.is_empty() => {
             let mut ordered: Vec<&Value> = windows.iter().filter(|(l, _)| l == "main").map(|(_, v)| v).collect();
@@ -65,7 +67,20 @@ fn write(app: &AppHandle, windows: Option<&[(String, Value)]>) -> Result<(), Str
         }
         _ => "{}".to_string(),
     };
-    write_private(&dir.join("session.json"), contents.as_bytes()).map_err(|e| e.to_string())
+    let hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        contents.hash(&mut hasher);
+        hasher.finish()
+    };
+    if *last_written == Some(hash) {
+        return Ok(());
+    }
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    write_private(&dir.join("session.json"), contents.as_bytes()).map_err(|e| e.to_string())?;
+    *last_written = Some(hash);
+    Ok(())
 }
 
 /// Atomic like `fs::write_atomic`, but the file is created owner-only on Unix:
@@ -95,7 +110,10 @@ fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
 /// Stores the calling window's part of the session and rewrites the file.
 /// `snapshot: None` means session restore is switched off: the whole file is
 /// cleared instead. `flush_gen` answers a `session:flush` request.
-#[tauri::command]
+///
+/// `(async)`: serializing every window's snapshot and writing the file must
+/// not run on the event-loop thread.
+#[tauri::command(async)]
 pub fn session_put(
     app: AppHandle,
     window: tauri::WebviewWindow,
@@ -105,20 +123,21 @@ pub fn session_put(
 ) -> Result<(), String> {
     let label = window.label().to_string();
     let mut inner = store.inner.lock().unwrap_or_else(|e| e.into_inner());
+    let inner = &mut *inner;
     if let Some(generation) = flush_gen {
         inner.acks.insert(label.clone(), generation);
     }
     match snapshot {
         None => {
             inner.windows.clear();
-            write(&app, None)
+            write(&app, None, &mut inner.last_written)
         }
         Some(snapshot) => {
             match inner.windows.iter_mut().find(|(l, _)| *l == label) {
                 Some(entry) => entry.1 = snapshot,
                 None => inner.windows.push((label, snapshot)),
             }
-            write(&app, Some(&inner.windows))
+            write(&app, Some(&inner.windows), &mut inner.last_written)
         }
     }
 }

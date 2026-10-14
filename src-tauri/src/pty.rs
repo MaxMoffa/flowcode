@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -17,12 +18,15 @@ use std::os::windows::process::CommandExt;
 use flowcode_shared::CREATE_NO_WINDOW;
 
 struct PtySession {
-    master: Box<dyn MasterPty + Send>,
-    /// Behind its own lock (not just the map's): a write to a pty whose
-    /// program isn't reading its input can block until the pipe drains, and
-    /// holding the map-wide lock for that long would stall every other tab's
-    /// keystrokes/resizes along with it.
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// Shared with the session's writer thread, which does the resizes: a
+    /// ConPTY resize can stall, and must not do so under the map-wide lock.
+    /// Only read here for `pty_foreground` on Unix.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    /// Feeds the session's writer thread (see `spawn_writer`). One queue for
+    /// writes *and* resizes, so keystrokes and size changes reach the pty in
+    /// the order they were issued. Dropping the session ends the thread.
+    ops: std::sync::mpsc::Sender<PtyOp>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     pid: Option<u32>,
     /// Where this session's output goes - swapped when its tab moves to
@@ -32,6 +36,9 @@ struct PtySession {
     /// transit between windows. Closing a window kills what it owns (see
     /// `kill_owned_by`).
     owner: Option<String>,
+    /// When `pty_detach` left it without a window (cleared on attach): a tab
+    /// that no window ever picks up again is reaped (see `take_stale`).
+    detached_at: Option<Instant>,
     /// Account profile this tab was launched under (`None` = the default
     /// one) - lets other modules tell which account an agent in it uses.
     profile: Option<String>,
@@ -39,6 +46,16 @@ struct PtySession {
     cols: u16,
     rows: u16,
 }
+
+/// What the writer thread of a session does, in order.
+enum PtyOp {
+    Write(String),
+    Resize(u16, u16),
+}
+
+/// How long a session may stay between windows before it is considered
+/// abandoned - a move takes milliseconds.
+const DETACHED_GRACE: Duration = Duration::from_secs(30);
 
 /// Environment variable carrying a tab's pty session id into everything it
 /// runs - see `pty_spawn` and agents.rs's WSL scan.
@@ -54,7 +71,7 @@ const MAX_BUFFERED_BYTES: usize = 8 * 1024 * 1024;
 /// holds everything the program prints meanwhile, handed over on attach.
 struct Sink {
     channel: Option<Channel<PtyEvent>>,
-    buffered: Vec<PtyEvent>,
+    buffered: VecDeque<PtyEvent>,
     buffered_bytes: usize,
     /// Sequence number of the last `Output` event produced.
     seq: u64,
@@ -152,9 +169,9 @@ impl Sink {
         if let PtyEvent::Output { data, .. } = &event {
             self.buffered_bytes += data.len();
         }
-        self.buffered.push(event);
+        self.buffered.push_back(event);
         while self.buffered_bytes > MAX_BUFFERED_BYTES && self.buffered.len() > 1 {
-            if let PtyEvent::Output { data, .. } = self.buffered.remove(0) {
+            if let Some(PtyEvent::Output { data, .. }) = self.buffered.pop_front() {
                 self.buffered_bytes -= data.len();
             }
         }
@@ -171,33 +188,23 @@ pub fn profile_of(state: &PtyState, pty_id: &str) -> Option<String> {
 }
 
 impl PtyState {
-    /// Writes to a session's pty - what `pty_write` and remote clients' input
-    /// both go through. Blocks while the program isn't reading its input, so
-    /// never call it from an async task directly.
+    /// Queues a write to a session's pty - what `pty_write` and remote
+    /// clients' input both go through. Never blocks: the session's writer
+    /// thread does the actual write (which can block while the program isn't
+    /// reading its input), in the order calls were made.
     pub fn write(&self, id: &str, data: &str) -> Result<(), String> {
-        let writer = {
-            let sessions = lock(&self.0);
-            Arc::clone(&sessions.get(id).ok_or("unknown pty session")?.writer)
-        };
-        let mut writer = lock(&writer);
-        writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
-        writer.flush().map_err(|e| e.to_string())
+        let sessions = lock(&self.0);
+        let session = sessions.get(id).ok_or("unknown pty session")?;
+        session.ops.send(PtyOp::Write(data.to_owned())).map_err(|_| "pty session ended".to_string())
     }
 
-    /// Resizes a session's pty - the desktop terminal's fit and a phone
-    /// sizing a tab for its screen (remote.rs) both end up here.
+    /// Queues a resize of a session's pty - the desktop terminal's fit and a
+    /// phone sizing a tab for its screen (remote.rs) both end up here. The
+    /// size is recorded right away; the writer thread applies it to the pty.
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
         let mut sessions = lock(&self.0);
         let session = sessions.get_mut(id).ok_or("unknown pty session")?;
-        session
-            .master
-            .resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| e.to_string())?;
+        session.ops.send(PtyOp::Resize(cols, rows)).map_err(|_| "pty session ended".to_string())?;
         session.cols = cols;
         session.rows = rows;
         Ok(())
@@ -412,7 +419,12 @@ fn wsl_installed() -> bool {
     let mut cmd = std::process::Command::new("wsl.exe");
     cmd.args(["-l", "-q"]).stdin(std::process::Stdio::null());
     cmd.creation_flags(CREATE_NO_WINDOW);
-    cmd.output().map(|out| out.status.success()).unwrap_or(false)
+    // Bounded: a wedged WSL service must not hang the Settings page.
+    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    cmd.spawn()
+        .and_then(|child| flowcode_shared::wait_with_timeout(child, Duration::from_secs(10)))
+        .map(|out| out.status.success())
+        .unwrap_or(false)
 }
 
 /// The terminal choices the Settings page offers, filtered to what actually
@@ -657,20 +669,24 @@ pub fn pty_spawn(
 
     let sink = Arc::new(Mutex::new(Sink {
         channel: Some(on_event),
-        buffered: Vec::new(),
+        buffered: VecDeque::new(),
         buffered_bytes: 0,
         seq: 0,
         remote: Vec::new(),
     }));
+    let master = Arc::new(Mutex::new(pair.master));
+    let (ops, ops_rx) = std::sync::mpsc::channel();
+    spawn_writer(writer, Arc::clone(&master), ops_rx);
     lock(&state.0).insert(
         id.clone(),
         PtySession {
-            master: pair.master,
-            writer: Arc::new(Mutex::new(writer)),
+            master,
+            ops,
             killer: child.clone_killer(),
             pid: child.process_id(),
             sink: Arc::clone(&sink),
             owner: Some(window.label().to_string()),
+            detached_at: None,
             profile: profile.clone(),
             cols,
             rows,
@@ -691,12 +707,22 @@ pub fn pty_spawn(
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    pending.extend_from_slice(&buf[..n]);
-                    let emit_len = emittable_len(&pending);
-                    if emit_len > 0 {
-                        let data = String::from_utf8_lossy(&pending[..emit_len]).into_owned();
-                        pending.drain(..emit_len);
-                        emit(data);
+                    if pending.is_empty() {
+                        // Common case: nothing held back, so decode straight
+                        // from the read buffer and keep only the tail.
+                        let emit_len = emittable_len(&buf[..n]);
+                        if emit_len > 0 {
+                            emit(String::from_utf8_lossy(&buf[..emit_len]).into_owned());
+                        }
+                        pending.extend_from_slice(&buf[emit_len..n]);
+                    } else {
+                        pending.extend_from_slice(&buf[..n]);
+                        let emit_len = emittable_len(&pending);
+                        if emit_len > 0 {
+                            let data = String::from_utf8_lossy(&pending[..emit_len]).into_owned();
+                            pending.drain(..emit_len);
+                            emit(data);
+                        }
                     }
                 }
             }
@@ -716,12 +742,14 @@ pub fn pty_spawn(
     Ok(id)
 }
 
-#[tauri::command(async)]
+// Plain commands: both only enqueue (see `PtyState::write`), which is cheap
+// enough for the event-loop thread.
+#[tauri::command]
 pub fn pty_write(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
     state.write(&id, &data)
 }
 
-#[tauri::command(async)]
+#[tauri::command]
 pub fn pty_resize(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
     state.resize(&id, cols, rows)
 }
@@ -732,9 +760,59 @@ pub fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     // process is gone and does the rest of the cleanup (see pty_spawn).
     let session = lock(&state.0).remove(&id);
     if let Some(mut session) = session {
-        session.killer.kill().map_err(|e| e.to_string())?;
+        let killed = session.killer.kill().map_err(|e| e.to_string());
+        // Dropping closes the pseudo console, which can take a while.
+        std::thread::spawn(move || drop(session));
+        killed?;
     }
     Ok(())
+}
+
+/// One thread per session performs its writes and resizes in order. A write
+/// can block while the program isn't reading its input, a ConPTY resize can
+/// stall; either only delays this session's own queue. Ends when the session
+/// is dropped (the queue's sender with it).
+fn spawn_writer(
+    mut writer: Box<dyn Write + Send>,
+    master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    ops: std::sync::mpsc::Receiver<PtyOp>,
+) {
+    std::thread::spawn(move || {
+        for op in ops {
+            match op {
+                PtyOp::Write(data) => {
+                    let _ = writer.write_all(data.as_bytes()).and_then(|()| writer.flush());
+                }
+                PtyOp::Resize(cols, rows) => {
+                    let _ = lock(&master).resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+                }
+            }
+        }
+    });
+}
+
+/// Kills and drops sessions already taken out of the map, off the calling
+/// thread: the kill and the pseudo console's teardown can both be slow.
+fn reap(sessions: Vec<PtySession>) {
+    if sessions.is_empty() {
+        return;
+    }
+    std::thread::spawn(move || {
+        for mut session in sessions {
+            let _ = session.killer.kill();
+        }
+    });
+}
+
+/// Removes the sessions that stayed detached past `DETACHED_GRACE` - their
+/// tab never got attached to a window (the move failed midway).
+fn take_stale(sessions: &mut HashMap<String, PtySession>) -> Vec<PtySession> {
+    let ids: Vec<String> = sessions
+        .iter()
+        .filter(|(_, s)| s.detached_at.is_some_and(|at| at.elapsed() > DETACHED_GRACE))
+        .map(|(id, _)| id.clone())
+        .collect();
+    ids.iter().filter_map(|id| sessions.remove(id)).collect()
 }
 
 /// First half of moving a tab to another window: the session stops sending
@@ -747,9 +825,16 @@ pub fn pty_detach(state: State<'_, PtyState>, id: String) -> Result<u64, String>
     let mut sessions = lock(&state.0);
     let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
     session.owner = None;
-    let mut sink = lock(&session.sink);
-    sink.channel = None;
-    Ok(sink.seq)
+    session.detached_at = Some(Instant::now());
+    let seq = {
+        let mut sink = lock(&session.sink);
+        sink.channel = None;
+        sink.seq
+    };
+    let stale = take_stale(&mut sessions);
+    drop(sessions);
+    reap(stale);
+    Ok(seq)
 }
 
 /// Second half of the move: the session's new terminal (in `window`) takes
@@ -764,6 +849,7 @@ pub fn pty_attach(
     let mut sessions = lock(&state.0);
     let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
     session.owner = Some(window.label().to_string());
+    session.detached_at = None;
     let mut sink = lock(&session.sink);
     for event in sink.buffered.drain(..) {
         let _ = on_event.send(event);
@@ -777,19 +863,21 @@ impl PtyState {
     /// Kills every session shown in the window `label` - called when that
     /// window is destroyed, since its terminals (and the tabs to reach them)
     /// are gone with it. Sessions in transit belong to no window and are left
-    /// alone.
+    /// alone - except those abandoned for good (see `take_stale`), reaped
+    /// here too. The kills happen off this thread, after the lock is released.
     pub fn kill_owned_by(&self, label: &str) {
-        let mut sessions = lock(&self.0);
-        let ids: Vec<String> = sessions
-            .iter()
-            .filter(|(_, s)| s.owner.as_deref() == Some(label))
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in ids {
-            if let Some(mut session) = sessions.remove(&id) {
-                let _ = session.killer.kill();
-            }
-        }
+        let doomed = {
+            let mut sessions = lock(&self.0);
+            let ids: Vec<String> = sessions
+                .iter()
+                .filter(|(_, s)| s.owner.as_deref() == Some(label))
+                .map(|(id, _)| id.clone())
+                .collect();
+            let mut doomed: Vec<PtySession> = ids.iter().filter_map(|id| sessions.remove(id)).collect();
+            doomed.extend(take_stale(&mut sessions));
+            doomed
+        };
+        reap(doomed);
     }
 }
 
@@ -905,7 +993,7 @@ pub async fn pty_foreground(state: State<'_, PtyState>, id: String) -> Result<Fo
         // Unix: the terminal's foreground process group - the kernel's own
         // answer to "who gets what's typed", exact by definition.
         #[cfg(unix)]
-        let leader = session.master.process_group_leader().map(|pid| pid as u32);
+        let leader = lock(&session.master).process_group_leader().map(|pid| pid as u32);
         #[cfg(not(unix))]
         let leader: Option<u32> = None;
         (session.pid, leader)
@@ -920,7 +1008,7 @@ mod tests {
 
     #[test]
     fn a_remote_subscriber_that_stops_reading_is_flagged_not_buffered() {
-        let mut sink = Sink { channel: None, buffered: Vec::new(), buffered_bytes: 0, seq: 0, remote: Vec::new() };
+        let mut sink = Sink { channel: None, buffered: VecDeque::new(), buffered_bytes: 0, seq: 0, remote: Vec::new() };
         let (tx, rx) = mpsc::channel(REMOTE_QUEUE);
         let lag = Arc::new(RemoteLag::default());
         sink.remote.push(RemoteSub { tx, lag: Arc::clone(&lag) });

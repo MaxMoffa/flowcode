@@ -45,7 +45,7 @@ pub struct GitChange {
     pub status: String,
 }
 
-#[derive(serde::Serialize, Default, Debug)]
+#[derive(serde::Serialize, Clone, Default, Debug)]
 pub struct GitStatus {
     /// `None` when the HEAD is detached.
     pub branch: Option<String>,
@@ -73,6 +73,8 @@ pub struct GitStatus {
 ///
 /// `core.fsmonitor=false` is forced because a hostile `.git/config` could set
 /// it to a command, which git would then run on every status poll.
+static OTHER_RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn run(dir: &str, args: &[&str], input: Option<&str>, trim: bool) -> Result<String, String> {
     use std::io::Write;
     let mut cmd = Command::new("git");
@@ -94,6 +96,10 @@ fn run(dir: &str, args: &[&str], input: Option<&str>, trim: bool) -> Result<Stri
         let _ = stdin.write_all(input.as_bytes());
     }
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    // Anything but a status read may have changed what status says.
+    if args.first() != Some(&"status") {
+        OTHER_RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stdout = if trim { stdout.trim().to_string() } else { stdout.to_string() };
     if output.status.success() {
@@ -328,7 +334,11 @@ fn parse_status(out: &str) -> GitStatus {
 /// `rev:path` lookups must not be steerable outside the repository.
 fn check_relative(path: &str) -> Result<(), String> {
     let p = path.replace('\\', "/");
-    let bad = p.is_empty() || p.starts_with('/') || p.contains(':') || p.split('/').any(|seg| seg == "..");
+    // `.git` and `.`: never a file to stage, restore or delete from the UI.
+    let bad = p.is_empty()
+        || p.starts_with('/')
+        || p.contains(':')
+        || p.split('/').any(|seg| seg == ".." || seg == "." || seg.eq_ignore_ascii_case(".git"));
     if bad {
         Err(format!("Invalid path: {path}"))
     } else {
@@ -364,9 +374,26 @@ pub async fn git_status(root: String) -> Result<GitStatus, String> {
         return Err("WSL folders aren't supported yet".to_string());
     }
     crate::blocking(move || {
+        use std::sync::atomic::Ordering::Relaxed;
+        type Slot = std::sync::Arc<std::sync::Mutex<Option<(std::time::Instant, u64, GitStatus)>>>;
+        static SLOTS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Slot>>> =
+            std::sync::LazyLock::new(Default::default);
+        // One status per repository at a time: overlapping polls wait for the
+        // running one and share its answer instead of each spawning git. The
+        // answer is reused for a second, unless another git command ran since.
+        let slot = crate::util::lock(&SLOTS).entry(root.clone()).or_default().clone();
+        let mut last = crate::util::lock(&slot);
+        let runs = OTHER_RUNS.load(Relaxed);
+        if let Some((at, seen, status)) = last.as_ref() {
+            if *seen == runs && at.elapsed() < std::time::Duration::from_secs(1) {
+                return Ok(status.clone());
+            }
+        }
         // Untrimmed: `git()` would eat a trailing space of the last path.
         let out = git_raw(&root, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
-        Ok(parse_status(&out))
+        let status = parse_status(&out);
+        *last = Some((std::time::Instant::now(), runs, status.clone()));
+        Ok(status)
     })
     .await
 }
@@ -432,6 +459,111 @@ pub async fn git_show_file(root: String, path: String, rev: String) -> Result<St
     .await
 }
 
+/// One branch in the switcher.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct GitBranch {
+    /// Short name; `origin/feature` for a remote one.
+    pub name: String,
+    /// What a local branch tracks (`origin/feature`).
+    pub upstream: Option<String>,
+    pub last_commit_unix: Option<i64>,
+}
+
+#[derive(serde::Serialize, Default, Debug)]
+pub struct GitBranches {
+    /// `None` when the HEAD is detached.
+    pub current: Option<String>,
+    /// Most recently committed first.
+    pub local: Vec<GitBranch>,
+    /// Without the ones a local branch already tracks, most recent first.
+    pub remote: Vec<GitBranch>,
+}
+
+/// Parses `for-each-ref` records of `refname \x1f short \x1f upstream \x1f unix`.
+fn parse_branches(out: &str, current: Option<String>) -> GitBranches {
+    let mut local = Vec::new();
+    let mut remote = Vec::new();
+    for line in out.lines() {
+        let mut f = line.split('\x1f');
+        let (Some(full), Some(short), Some(upstream), Some(unix)) = (f.next(), f.next(), f.next(), f.next()) else {
+            continue;
+        };
+        let branch = GitBranch {
+            name: short.to_string(),
+            upstream: (!upstream.is_empty()).then(|| upstream.to_string()),
+            last_commit_unix: unix.parse().ok(),
+        };
+        if full.starts_with("refs/heads/") {
+            local.push(branch);
+        } else if full.starts_with("refs/remotes/") && !short.ends_with("/HEAD") && short.contains('/') {
+            remote.push(branch);
+        }
+    }
+    let tracked: std::collections::HashSet<&str> = local.iter().filter_map(|b| b.upstream.as_deref()).collect();
+    remote.retain(|b| !tracked.contains(b.name.as_str()));
+    // Stable: branches without a date (empty repo) keep git's alphabetical order.
+    local.sort_by_key(|b| std::cmp::Reverse(b.last_commit_unix));
+    remote.sort_by_key(|b| std::cmp::Reverse(b.last_commit_unix));
+    GitBranches { current, local, remote }
+}
+
+/// A name `git switch` can be handed safely: no option look-alike, no
+/// whitespace or control characters, and a valid ref name (which also refuses
+/// `@{-1}`-style shortcuts and `..`).
+fn check_branch_name(root: &str, name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name.starts_with('-')
+        || name.starts_with('@')
+        || name.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(format!("Invalid branch name: {name}"));
+    }
+    git(root, &["check-ref-format", "--branch", name]).map(|_| ()).map_err(|_| format!("Invalid branch name: {name}"))
+}
+
+#[tauri::command]
+pub async fn git_branches(root: String) -> Result<GitBranches, String> {
+    if unsupported(&root) {
+        return Err("WSL folders aren't supported yet".to_string());
+    }
+    crate::blocking(move || {
+        // Works on an unborn branch too; fails (-> None) on a detached HEAD.
+        let current = git(&root, &["symbolic-ref", "--short", "-q", "HEAD"]).ok().filter(|b| !b.is_empty());
+        let out = git_raw(
+            &root,
+            &[
+                "for-each-ref",
+                "--format=%(refname)%1f%(refname:short)%1f%(upstream:short)%1f%(committerdate:unix)",
+                "refs/heads",
+                "refs/remotes",
+            ],
+        )?;
+        Ok(parse_branches(&out, current))
+    })
+    .await
+}
+
+/// Switches branch. `name` is a local branch, or - with `create_from_remote` -
+/// a `<remote>/<branch>` one, for which git creates the local tracking branch.
+/// git refusing (changes that would be overwritten, ...) comes back verbatim.
+/// Like every non-status git run it invalidates the cached `git_status`.
+#[tauri::command]
+pub async fn git_switch_branch(root: String, name: String, create_from_remote: bool) -> Result<(), String> {
+    if unsupported(&root) {
+        return Err("WSL folders aren't supported yet".to_string());
+    }
+    crate::blocking(move || {
+        check_branch_name(&root, &name)?;
+        let args: &[&str] = if create_from_remote {
+            &["switch", "--track", &name]
+        } else {
+            &["switch", "--no-guess", &name]
+        };
+        git(&root, args).map(|_| ())
+    })
+    .await
+}
+
 /// Throws away working-tree changes. Tracked files are restored from the
 /// index; untracked ones are deleted (only if they resolve inside `root`).
 #[tauri::command]
@@ -456,8 +588,12 @@ pub async fn git_discard(root: String, paths: Vec<String>, untracked: bool) -> R
             let Ok(meta) = std::fs::symlink_metadata(&target) else { continue };
             if meta.is_dir() {
                 std::fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
-            } else {
-                std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+            } else if let Err(e) = std::fs::remove_file(&target) {
+                // A directory symlink on Windows is removed as a directory
+                // entry - the link itself, never what it points to.
+                if !meta.file_type().is_symlink() || std::fs::remove_dir(&target).is_err() {
+                    return Err(e.to_string());
+                }
             }
         }
         Ok(())
@@ -574,6 +710,31 @@ mod tests {
         if cfg!(windows) {
             assert_eq!(list[0].path, "C:\\dev\\app");
         }
+    }
+
+    #[test]
+    fn rejects_unsafe_branch_names() {
+        // These fail before git is ever spawned.
+        for bad in ["", "-f", "--detach", "@{-1}", "a b", "a\tb", "a\nb", "x\u{7}"] {
+            assert!(check_branch_name(".", bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn parses_branches() {
+        let sample = "refs/heads/main\x1fmain\x1forigin/main\x1f200\n\
+                      refs/heads/old\x1fold\x1f\x1f100\n\
+                      refs/heads/new\x1fnew\x1f\x1f300\n\
+                      refs/remotes/origin/HEAD\x1forigin\x1f\x1f200\n\
+                      refs/remotes/origin/main\x1forigin/main\x1f\x1f200\n\
+                      refs/remotes/origin/feat\x1forigin/feat\x1f\x1f250\n";
+        let b = parse_branches(sample, Some("main".into()));
+        let local: Vec<_> = b.local.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(local, ["new", "main", "old"]);
+        assert_eq!(b.local[1].upstream.as_deref(), Some("origin/main"));
+        let remote: Vec<_> = b.remote.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(remote, ["origin/feat"]);
+        assert_eq!(b.current.as_deref(), Some("main"));
     }
 
     #[test]

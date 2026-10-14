@@ -145,21 +145,35 @@ pub fn combined_output(output: &std::process::Output) -> String {
     }
 }
 
+const DISPLAY_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const DISPLAY_OUTPUT_MAX: usize = 256 * 1024;
+
 /// Runs `command` headlessly (no terminal, no stdin, so anything expecting
 /// interactive input fails fast instead of hanging) off the async runtime and
 /// returns its combined output for display - "(no output)" if it printed
 /// nothing. Shared by the main app's `run_plugin_command` and the installer's
-/// identically named command.
+/// identically named command. Gives up after `DISPLAY_COMMAND_TIMEOUT` and
+/// shows at most `DISPLAY_OUTPUT_MAX` bytes of output.
 pub async fn run_command_for_display(command: String) -> Result<String, String> {
     let command = command.trim().to_string();
     if command.is_empty() {
         return Err(i18n::tr("Comando vuoto", "Empty command").to_string());
     }
-    let output = tauri::async_runtime::spawn_blocking(move || run_command_blocking(&command))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
-    let text = combined_output(&output);
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        run_command_blocking_timeout(&command, &[], DISPLAY_COMMAND_TIMEOUT)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    let mut text = combined_output(&output);
+    if text.len() > DISPLAY_OUTPUT_MAX {
+        let mut end = DISPLAY_OUTPUT_MAX;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push_str("\n...");
+    }
     Ok(if text.is_empty() { i18n::tr("(nessun output)", "(no output)").to_string() } else { text })
 }
 

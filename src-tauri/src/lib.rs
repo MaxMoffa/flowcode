@@ -155,6 +155,8 @@ pub fn run() {
             git::git_commit,
             git::git_show_file,
             git::git_discard,
+            git::git_branches,
+            git::git_switch_branch,
             profiles::profiles_list,
             profiles::profile_create,
             profiles::profile_update,
