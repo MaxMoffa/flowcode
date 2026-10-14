@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
-import { BoltIcon, FolderIcon } from "./icons";
-import { KeyboardIcon } from "./termIcons";
+import { BoltIcon, FolderIcon, KeyboardIcon } from "./icons";
 
 /** The "⋯" popover: files, quick actions, keyboard toggle, interrupt. */
 export function TermMenu(props: {

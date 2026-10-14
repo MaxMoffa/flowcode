@@ -60,6 +60,9 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cli: Option<String>,
     },
+    /// The phone is in the background: send only notifications until it says
+    /// otherwise (`on: false`).
+    Background { on: bool },
     Ping,
 }
 
@@ -93,6 +96,14 @@ pub enum ServerMsg {
     /// `{id, name, color, loggedIn: {claude, codex, vibe}}`. Sent after `ready`
     /// once the desktop has published them, and again on every change.
     Profiles { profiles: serde_json::Value },
+    /// A desktop notification mirrored to phones; `tab_id` matches
+    /// `Tab::tab_id` when it is about a tab.
+    Notify {
+        title: String,
+        body: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tab_id: Option<String>,
+    },
     Pong,
 }
 
@@ -134,6 +145,12 @@ pub struct UsageItem {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// The profile's display name, so the phone can title its usage group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_name: Option<String>,
+    /// The profile's color (CSS value), for the group's dot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_color: Option<String>,
     pub metrics: Vec<UsageMetric>,
 }
 
@@ -194,6 +211,10 @@ mod tests {
         let json = serde_json::to_value(ServerMsg::Error { message: "no".into(), pty_id: None, fatal: true }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "error", "message": "no", "fatal": true }));
         assert_eq!(serde_json::to_string(&ServerMsg::Pong).unwrap(), r#"{"t":"pong"}"#);
+        let json = serde_json::to_value(ServerMsg::Notify { title: "T".into(), body: "B".into(), tab_id: Some("t1".into()) }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "notify", "title": "T", "body": "B", "tabId": "t1" }));
+        let msg: ServerMsg = serde_json::from_str(r#"{"t":"notify","title":"T","body":"B"}"#).unwrap();
+        assert_eq!(msg, ServerMsg::Notify { title: "T".into(), body: "B".into(), tab_id: None });
     }
 
     #[test]
@@ -221,6 +242,14 @@ mod tests {
         );
         let json = serde_json::to_value(ServerMsg::Profiles { profiles: serde_json::json!([]) }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "profiles", "profiles": [] }));
+    }
+
+    #[test]
+    fn background_hint_round_trips() {
+        let json = serde_json::to_value(ClientMsg::Background { on: true }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "background", "on": true }));
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"background","on":false}"#).unwrap();
+        assert_eq!(msg, ClientMsg::Background { on: false });
     }
 
     #[test]

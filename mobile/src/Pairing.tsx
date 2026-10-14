@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "./i18n";
-import { QrIcon } from "./icons";
+import { QrIcon, Svg } from "./icons";
 import logo from "./assets/flowcode-icon.svg";
 import { Scanner } from "./Scanner";
 import { cancelPair, inspectTicket, markFirstConnect, myFingerprint, onDeepLink, pair, platform, setPairingBusy, takePendingLink } from "./remote";
@@ -261,9 +261,9 @@ function PairWait({ host, mine, wait, onCancel, onExpire, onRetry }: WaitProps) 
     return (
       <div className="screen pair pair-wait pw" role="status">
         <div className="pw-check" aria-hidden="true">
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <Svg size={34} strokeWidth={2.5}>
             <path d="m5 12.500 4.500 4.500L19 7.500" />
-          </svg>
+          </Svg>
         </div>
         <h1>{t("pairDone", { host })}</h1>
       </div>
@@ -274,9 +274,9 @@ function PairWait({ host, mine, wait, onCancel, onExpire, onRetry }: WaitProps) 
     return (
       <div className="screen pair pair-wait pw" role="alert">
         <div className="pw-check is-fail" aria-hidden="true">
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <Svg size={30} strokeWidth={2.5}>
             <path d="m6 6 12 12M18 6 6 18" />
-          </svg>
+          </Svg>
         </div>
         <h1>{t("pairFailedTitle")}</h1>
         <p className="pw-body">{wait.message}</p>
@@ -318,9 +318,9 @@ function PairWait({ host, mine, wait, onCancel, onExpire, onRetry }: WaitProps) 
 
 export function TerminalMark() {
   return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Svg size={28} strokeWidth={2}>
       <path d="m6 8 4 4-4 4" />
       <path d="M13 17h5" />
-    </svg>
+    </Svg>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { authenticate, checkStatus } from "@tauri-apps/plugin-biometric";
 import { t } from "./i18n";
-import { appResumed } from "./remote";
+import { appHidden, appResumed, suspendLink } from "./remote";
 import { createStore, safeStorage } from "./store";
 
 const KEY = "flowcode.lock";
@@ -18,7 +18,10 @@ type State = {
 };
 
 const store = createStore<State>({ checked: false, available: false, enabled: safeStorage.get(KEY) !== "off", locked: false, hidden: typeof document !== "undefined" && document.hidden });
+/** Time in the background after which the link to the PC is dropped to save battery. */
+const SUSPEND_MS = 30_000;
 let hiddenAt: number | null = null;
+let suspendTimer: ReturnType<typeof setTimeout> | undefined;
 let probed: Promise<void> | null = null;
 
 /**
@@ -63,8 +66,12 @@ function onVisibility() {
   if (document.hidden) {
     hiddenAt = Date.now();
     store.set({ hidden: true });
+    void appHidden();
+    clearTimeout(suspendTimer);
+    suspendTimer = setTimeout(() => void suspendLink(), SUSPEND_MS);
     return;
   }
+  clearTimeout(suspendTimer);
   store.set({ hidden: false });
   void appResumed();
   if (hiddenAt !== null) {

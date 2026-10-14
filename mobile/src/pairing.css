@@ -18,7 +18,7 @@ html.scanning body::before {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: calc(env(safe-area-inset-top) + 16px) 20px calc(env(safe-area-inset-bottom) + 24px);
+  padding: calc(env(safe-area-inset-top) + 16px) 20px calc(var(--safe-b) + 24px);
   color: #fff;
   /* The dim comes from the frame's shadow, so the viewfinder stays clear. */
   background: transparent;

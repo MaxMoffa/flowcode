@@ -33,6 +33,8 @@ export interface Store<S> {
   set(patch: Partial<S>): void;
   subscribe(l: () => void): () => void;
   use(): S;
+  /** Re-renders only when the selected slice changes (compared by reference: return existing values, not fresh objects). */
+  useSelector<T>(select: (s: S) => T): T;
 }
 
 export function createStore<S extends object>(initial: S): Store<S> {
@@ -51,5 +53,6 @@ export function createStore<S extends object>(initial: S): Store<S> {
     },
     subscribe,
     use: () => useSyncExternalStore(subscribe, get),
+    useSelector: (select) => useSyncExternalStore(subscribe, () => select(state)),
   };
 }

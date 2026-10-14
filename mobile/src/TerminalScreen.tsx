@@ -2,13 +2,12 @@ import { useCallback, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { t } from "./i18n";
-import { BackIcon } from "./icons";
-import { send, useRemote, type ConnStatus, type Tab } from "./remote";
+import { BackIcon, DotsIcon, KeyboardIcon } from "./icons";
+import { send, useRemoteSelector, type ConnStatus, type Tab } from "./remote";
 import { TermActions } from "./TermActions";
 import { TermFiles } from "./TermFiles";
 import { TermKeyBar } from "./TermKeyBar";
 import { TermMenu } from "./TermMenu";
-import { DotsIcon, KeyboardIcon } from "./termIcons";
 import { encodeKey, encodeText, useModifiers, type Active, type NamedKey } from "./termModifiers";
 import { useTouchScroll } from "./termTouch";
 import { useKeybarHeight, useTerminalViewport } from "./termViewport";
@@ -27,8 +26,8 @@ export function TerminalScreen({ tab, status, onBack }: { tab: Tab; status: Conn
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { ptyId } = tab;
-  const remote = useRemote();
-  const { settings } = remote;
+  const settings = useRemoteSelector((s) => s.settings);
+  const actions = useRemoteSelector((s) => s.actions);
   const { mods, tap, lock, consume, peek } = useModifiers();
 
   /** What the user types (soft keyboard or symbol keys): armed modifiers apply. */
@@ -172,7 +171,7 @@ export function TerminalScreen({ tab, status, onBack }: { tab: Tab; status: Conn
         onPadDone={consume}
       />
       <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />
-      <TermActions tab={tab} actions={remote.actions} open={actionsOpen} onClose={closeActions} />
+      <TermActions tab={tab} actions={actions} open={actionsOpen} onClose={closeActions} />
     </div>
   );
 }

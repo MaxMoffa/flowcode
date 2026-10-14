@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
-import { BackIcon, ChevronIcon, FileIcon, FolderIcon } from "./icons";
-import { onMessage, send, showToast, type LsEntry, type Tab } from "./remote";
+import { BackIcon, ChevronIcon, CloseIcon, FileIcon, FolderIcon } from "./icons";
+import { onMessage, send, showToast, useRemoteSelector, type LsEntry, type Tab } from "./remote";
 import { cdCommand, dialectFor, shellQuote } from "./termShell";
-import { CloseIcon } from "./termIcons";
 
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
 
@@ -22,37 +21,45 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
   const [entries, setEntries] = useState<LsEntry[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const dialect = useMemo(() => dialectFor(cwd), [cwd]);
-  // The latest listing asked for, and whether its reply is still awaited: a
-  // symlinked folder answers with another path than the one requested.
-  const pending = useRef(false);
+  // Listings asked for and not answered yet: only the last reply is current,
+  // and a symlinked folder answers with another path than the one requested.
+  const pending = useRef(0);
+  const lastCwd = useRef(cwd);
   const [file, setFile] = useState<{ path: string; text: string; truncated: boolean } | null>(null);
-
-  // A `cd` (or any cwd change) moves the root under us.
-  useEffect(() => {
-    setPath("");
-    setSelected(null);
-  }, [cwd]);
 
   useEffect(() => {
     if (!open) return;
     setEntries(null);
     setSelected(null);
-    pending.current = true;
+    // A `cd` (or any cwd change) moves the root under us: go back to it, which re-runs this effect.
+    if (lastCwd.current !== cwd) {
+      lastCwd.current = cwd;
+      if (path) {
+        setPath("");
+        return;
+      }
+    }
+    pending.current++;
     send({ t: "ls", ptyId, path });
   }, [open, ptyId, path, cwd]);
+
+  // Replies of the old connection will never come.
+  const status = useRemoteSelector((s) => s.status);
+  useEffect(() => {
+    if (status !== "online") pending.current = 0;
+  }, [status]);
 
   useEffect(
     () =>
       onMessage((m) => {
-        if (m.t === "ls" && m.ptyId === ptyId && pending.current) {
-          pending.current = false;
-          setEntries([...m.entries].sort((a, b) => Number(b.dir) - Number(a.dir)));
+        if (m.t === "ls" && m.ptyId === ptyId && pending.current > 0) {
+          if (--pending.current === 0) setEntries([...m.entries].sort((a, b) => Number(b.dir) - Number(a.dir)));
         }
         else if (m.t === "file" && m.ptyId === ptyId) setFile({ path: m.path, text: m.text, truncated: m.truncated });
         // A refused folder (outside the sandbox, gone...) would otherwise spin forever.
         else if (m.t === "error" && m.ptyId === ptyId) {
-          pending.current = false;
-          setEntries((e) => e ?? []);
+          if (pending.current > 0) pending.current--;
+          if (pending.current === 0) setEntries((e) => e ?? []);
         }
       }),
     [ptyId],
@@ -89,7 +96,7 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
               <CloseIcon />
             </button>
           </header>
-          <nav className="tm-crumbs" aria-label="path">
+          <nav className="tm-crumbs" aria-label={t("path")}>
             <button type="button" className={parts.length === 0 ? "on" : ""} onClick={() => setPath("")}>
               {t("root")}
             </button>

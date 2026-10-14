@@ -1,9 +1,8 @@
 import { useEffect } from "react";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
-import { BoltIcon } from "./icons";
+import { BoltIcon, CloseIcon } from "./icons";
 import { send, showToast, type Action, type Tab } from "./remote";
-import { CloseIcon } from "./termIcons";
 
 /** Bottom sheet with the desktop's quick actions, run in this terminal. */
 export function TermActions({ tab, actions, open, onClose }: { tab: Tab; actions: Action[]; open: boolean; onClose: () => void }) {

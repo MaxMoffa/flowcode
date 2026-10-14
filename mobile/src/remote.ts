@@ -7,123 +7,14 @@ import { listen } from "@tauri-apps/api/event";
 import { setLanguage } from "./i18n";
 import { createStore, safeStorage } from "./store";
 
-export type AgentStatus = "busy" | "idle" | "waiting";
+import type { Action, ClientMsg, MirroredSettings, ProfileAction, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
 
-export interface Tab {
-  ptyId: string;
-  tabId: string;
-  window: string;
-  label: string;
-  cwd: string;
-  cols: number;
-  rows: number;
-  cli?: string;
-  status?: AgentStatus;
-  context?: { used: number; window: number; model?: string };
-}
-
-export interface UsageMetric {
-  kind: string;
-  label?: string;
-  percent?: number;
-  resets?: string;
-  command?: string;
-  period?: string;
-  cost?: number;
-  tokens?: number;
-  sessions?: number;
-}
-
-export interface UsageItem {
-  pluginId: string;
-  label: string;
-  profile?: string;
-  profileName?: string;
-  profileColor?: string;
-  metrics: UsageMetric[];
-}
-
-export interface Action {
-  id: string;
-  label: string;
-  icon?: string;
-}
-
-export interface LsEntry {
-  name: string;
-  dir: boolean;
-  size?: number;
-}
-
-export type ProfileCli = "claude" | "codex" | "vibe";
-
-/** An account profile on the desktop (the default one is not listed). */
-export interface ProfileInfo {
-  id: string;
-  name: string;
-  color: string;
-  loggedIn: Record<ProfileCli, boolean>;
-}
-
-export type ProfileAction =
-  | { op: "create"; name: string; color: string; copySettings: boolean }
-  | { op: "update"; id: string; name: string; color: string }
-  | { op: "delete"; id: string; deleteFiles: boolean }
-  | { op: "login"; id: string; cli: ProfileCli };
-
-export interface MirroredSettings {
-  theme: "auto" | "light" | "dark";
-  resolvedTheme: "light" | "dark";
-  palette: string;
-  terminalPalette: string | null;
-  contrast: number;
-  glassOpacity: number;
-  language: string;
-  resolvedLanguage: string;
-  languages: { id: string; name: string }[];
-  colors: Record<string, string>;
-  terminalColors: Record<string, string>;
-  palettes: { id: string; name: string; bg: string; accent: string; accent2: string }[];
-  terminalFontSize: number;
-  bannerEnabled: boolean;
-  confirmLinkOpen: boolean;
-  restoreSession: boolean;
-  newTabPage: boolean;
-  notify: { done: boolean; input: boolean; exited: boolean; limitReset: boolean };
-  autoResume: { enabled: boolean; message: string };
-}
-
-export type ServerMsg =
-  | { t: "ready"; deviceName: string; hostName: string }
-  | { t: "error"; message: string; ptyId?: string; fatal: boolean }
-  | { t: "tabs"; tabs: Tab[] }
-  | { t: "snapshot"; ptyId: string; data: string; cols: number; rows: number }
-  | { t: "output"; ptyId: string; data: string }
-  | { t: "exit"; ptyId: string }
-  | { t: "usage"; items: UsageItem[] }
-  | { t: "actions"; actions: Action[] }
-  | { t: "ls"; ptyId: string; path: string; entries: LsEntry[] }
-  | { t: "file"; ptyId: string; path: string; text: string; truncated: boolean }
-  | { t: "settings"; settings: MirroredSettings }
-  | { t: "profiles"; profiles: ProfileInfo[] }
-  | { t: "pong" };
-
-export type ClientMsg =
-  | { t: "list" }
-  | { t: "open"; ptyId: string; cols?: number; rows?: number }
-  | { t: "resize"; ptyId: string; cols: number; rows: number }
-  | { t: "close"; ptyId: string }
-  | { t: "input"; ptyId: string; data: string }
-  | { t: "action"; id: string; ptyId?: string }
-  | { t: "ls"; ptyId: string; path?: string }
-  | { t: "read"; ptyId: string; path: string }
-  | { t: "set"; key: string; value: unknown }
-  | ({ t: "profile" } & ProfileAction)
-  | { t: "ping" };
+// The wire types live in shared/ (also used by the desktop); screens keep importing them from here.
+export type { Action, AgentStatus, ClientMsg, LsEntry, MirroredPalette, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, TabContext, UsageItem, UsageMetric } from "../../shared/remote-types";
 
 export type ConnStatus = "loading" | "unpaired" | "connecting" | "online" | "offline";
 
-export interface Snapshot {
+interface Snapshot {
   status: ConnStatus;
   hostName?: string;
   /** Last connection error, shown while offline or after a forced unpair. */
@@ -149,12 +40,15 @@ export interface Snapshot {
   profiles: ProfileInfo[] | null;
   /** Last terminal the user opened: the Files screen starts there. */
   lastOpened: string | null;
+  /** The tab a tapped notification was about, until the app has opened it. */
+  openTab: string | null;
   toast: { id: number; text: string } | null;
 }
 
 const SETTINGS_KEY = "flowcode.settings";
 
 /** Used for any field a cached or incoming settings object lacks or gets wrong. */
+/** @internal exported for tests */
 export const DEFAULT_SETTINGS: MirroredSettings = {
   theme: "auto",
   resolvedTheme: "dark",
@@ -190,6 +84,7 @@ function strMap(v: unknown): Record<string, string> {
 }
 
 /** Merges a cached or incoming settings object over the defaults, dropping anything of the wrong shape. Null when it isn't an object at all. */
+/** @internal exported for tests */
 export function normalizeSettings(raw: unknown): MirroredSettings | null {
   if (!isObj(raw)) return null;
   const d = DEFAULT_SETTINGS;
@@ -228,6 +123,7 @@ export function normalizeSettings(raw: unknown): MirroredSettings | null {
 }
 
 /** The profile list as sent, dropping anything of the wrong shape. */
+/** @internal exported for tests */
 export function normalizeProfiles(raw: unknown): ProfileInfo[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((x) => {
@@ -261,7 +157,7 @@ export function resetSettingsCache() {
   store.set({ settings: null });
 }
 
-const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, usage: [], actions: [], settings: loadSettings(), profiles: null, lastOpened: null, toast: null });
+const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, usage: [], actions: [], settings: loadSettings(), profiles: null, lastOpened: null, openTab: null, toast: null });
 const msgListeners = new Set<(m: ServerMsg) => void>();
 const set = store.set;
 
@@ -272,6 +168,8 @@ followLanguage();
 store.subscribe(followLanguage);
 
 export const useRemote = store.use;
+/** Like `useRemote`, but only re-renders when the selected slice changes. */
+export const useRemoteSelector = store.useSelector;
 
 /** Raw server messages, for screens that care about replies (ls, file, output...). */
 export function onMessage(l: (m: ServerMsg) => void): () => void {
@@ -323,6 +221,10 @@ function handleMsg(m: ServerMsg) {
     case "profiles":
       set({ profiles: normalizeProfiles(m.profiles) });
       break;
+    case "notify":
+      // Out of sight, the core shows it as an Android notification instead.
+      if (!document.hidden) showToast(m.body ? `${m.title}: ${m.body}` : m.title);
+      break;
     case "error":
       // Fatal ones also arrive as a state change; only requests that failed
       // deserve a toast.
@@ -346,13 +248,24 @@ let started = false;
 export async function start(): Promise<void> {
   if (started) return;
   started = true;
+  try {
+    await wire();
+  } catch (e) {
+    // Let a retry wire the events again instead of leaving the app never connecting.
+    started = false;
+    throw e;
+  }
+}
+
+async function wire(): Promise<void> {
   await listen<ServerMsg>("remote://msg", (e) => handleMsg(e.payload));
   await listen<StateEvent>("remote://state", (e) => {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
-    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null } : {}) });
+    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null, openTab: null } : {}) });
   });
+  void checkNotificationTap();
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {
     set({ status: "connecting", hostName: state.hostName });
@@ -371,7 +284,44 @@ export const inspectTicket = (ticket: string): Promise<{ hostName: string; finge
 /** This phone's short key fingerprint, shown on both screens when pairing. */
 export const myFingerprint = (): Promise<string | null> => invoke<string>("my_fingerprint").catch(() => null);
 /** Tells the core the app is back in the foreground, so it can redial without waiting for a backoff. */
-export const appResumed = (): Promise<void> => invoke<void>("app_resumed").catch(() => {});
+export const appResumed = (): Promise<void> => {
+  void checkNotificationTap();
+  return invoke<void>("app_resumed").catch(() => {});
+};
+/** Tells the core the app went out of sight: with the background mode on, the PC is asked to send notifications only. */
+/** Drops the link after a while in the background (a no-op when the background mode is on). */
+export const suspendLink = (): Promise<void> => invoke<void>("suspend_link").catch(() => {});
+export const appHidden = (): Promise<void> => invoke<void>("app_hidden").catch(() => {});
+
+const OPEN_TAB_MS = 10_000;
+
+/** Picks up the tab of the notification that opened the app, if any; `App` opens it once the tab list has it. */
+async function checkNotificationTap() {
+  const tabId = await invoke<string | null>("take_pending_tab").catch(() => null);
+  if (!tabId) return;
+  set({ openTab: tabId });
+  setTimeout(() => {
+    if (store.get().openTab === tabId) set({ openTab: null });
+  }, OPEN_TAB_MS);
+}
+
+export const clearOpenTab = () => set({ openTab: null });
+
+export interface BackgroundSettings {
+  enabled: boolean;
+  /** Minutes in the background before the connection is dropped; 0 = never. */
+  capMinutes: number;
+}
+
+export const DEFAULT_BACKGROUND: BackgroundSettings = { enabled: false, capMinutes: 120 };
+
+export const backgroundSettings = (): Promise<BackgroundSettings> => invoke<BackgroundSettings>("background_settings").then((s) => s ?? DEFAULT_BACKGROUND).catch(() => DEFAULT_BACKGROUND);
+export const setBackgroundSettings = (enabled: boolean, capMinutes: number): Promise<void> => invoke<void>("set_background_settings", { enabled, capMinutes });
+/** The wording of the permanent notification shown while the app is in the background. */
+export const setBackgroundTexts = (title: string, text: string): Promise<void> => invoke<void>("background_texts", { title, text }).catch(() => {});
+export const notificationPermission = (): Promise<boolean> => invoke<boolean>("notification_permission").catch(() => false);
+/** Asks Android for the notification permission; resolves once the user has answered. */
+export const requestNotificationPermission = (): Promise<boolean> => invoke<boolean>("request_notification_permission").catch(() => false);
 export const retryNow = (): Promise<void> => invoke("retry_now");
 /** Stops a pairing that is waiting for the desktop's confirmation. */
 export const cancelPair = (): Promise<void> => invoke<void>("cancel_pair").catch(() => {});
@@ -385,10 +335,10 @@ export function send(msg: ClientMsg) {
 }
 
 /** Local changes the desktop hasn't echoed back yet, by setting key. */
-const pending = new Map<string, { value: unknown; at: number }>();
+const pending = new Map<SettingKey, { value: unknown; at: number }>();
 const PENDING_MS = 2000;
 
-function withPath(settings: MirroredSettings, key: string, value: unknown): MirroredSettings {
+function withPath(settings: MirroredSettings, key: SettingKey, value: unknown): MirroredSettings {
   const next: Record<string, unknown> = { ...settings };
   const [head, tail] = key.split(".");
   if (tail) next[head] = { ...(settings as unknown as Record<string, Record<string, unknown>>)[head], [tail]: value };
@@ -396,7 +346,7 @@ function withPath(settings: MirroredSettings, key: string, value: unknown): Mirr
   return next as unknown as MirroredSettings;
 }
 
-function valueAt(settings: MirroredSettings, key: string): unknown {
+function valueAt(settings: MirroredSettings, key: SettingKey): unknown {
   const [head, tail] = key.split(".");
   const v = (settings as unknown as Record<string, unknown>)[head];
   return tail ? (v as Record<string, unknown> | undefined)?.[tail] : v;
@@ -414,7 +364,7 @@ function applyPending(incoming: MirroredSettings): MirroredSettings {
 }
 
 /** Sends a setting to the desktop and patches the local copy so the UI answers at once. */
-export function setSetting(key: string, value: unknown) {
+export function setSetting(key: SettingKey, value: unknown) {
   send({ t: "set", key, value });
   const cur = store.get().settings;
   if (!cur) return;

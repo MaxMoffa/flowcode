@@ -9,7 +9,7 @@ export function dialectFor(cwd: string): Dialect {
 }
 
 /** Newlines and other control characters would run as extra commands: never quoted, always refused. */
-export function hasControlChars(s: string): boolean {
+function hasControlChars(s: string): boolean {
   return /[\x00-\x1f\x7f]/.test(s);
 }
 
@@ -43,9 +43,4 @@ export function cdCommand(path: string, dialect: Dialect): string | null {
   const q = shellQuote(path, dialect);
   if (q === null) return null;
   return dialect === "powershell" ? `cd -LiteralPath ${q}` : `cd ${q}`;
-}
-
-/** Home prefix to `~`, so the strip stays short. (Overlaps common.tsx `shortCwd`, which is not ours to edit.) */
-export function homeCwd(cwd: string): string {
-  return cwd.replace(/\\/g, "/").replace(/^(?:[A-Za-z]:)?\/(?:home|Users)\/[^/]+/, "~");
 }

@@ -10,6 +10,7 @@ use tauri::AppHandle;
 // spawns), which must not run on the UI thread.
 #[tauri::command(async)]
 pub fn notify_show(app: AppHandle, label: String, tab_id: String, title: String, body: String) {
+    forward_to_phones(&app, &title, &body, &tab_id);
     show(app, label, tab_id, title, body);
 }
 
@@ -22,7 +23,16 @@ pub fn notify_once(app: AppHandle, key: String, label: String, title: String, bo
     use std::sync::{LazyLock, Mutex};
     static SHOWN: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
     if SHOWN.lock().unwrap_or_else(|e| e.into_inner()).insert(key) {
+        forward_to_phones(&app, &title, &body, "");
         show(app, label, String::new(), title, body);
+    }
+}
+
+/// Mirrors a notification the frontend asked for to the connected phones.
+fn forward_to_phones(app: &AppHandle, title: &str, body: &str, tab_id: &str) {
+    use tauri::Manager;
+    if let Some(remote) = app.try_state::<crate::remote::RemoteState>() {
+        remote.broadcast_notify(title.to_string(), body.to_string(), Some(tab_id.to_string()));
     }
 }
 

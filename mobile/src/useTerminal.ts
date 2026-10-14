@@ -131,7 +131,7 @@ export function useTerminal(opts: {
     let resizeTimer = 0;
     const openIfReady = () => {
       const grid = gridRef.current;
-      if (!grid || statusRef.current !== "online" || openedRef.current) return;
+      if (!grid || statusRef.current !== "online" || openedRef.current || document.hidden) return;
       openedRef.current = true;
       send({ t: "open", ptyId, cols: grid.cols, rows: grid.rows });
     };
@@ -178,6 +178,16 @@ export function useTerminal(opts: {
     void document.fonts?.ready.then(remeasure);
     schedule();
 
+    // Out of sight nobody reads the stream: stop it (saves data and battery,
+    // and the PC stops sending), and open it again on return.
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (openedRef.current) send({ t: "close", ptyId });
+        openedRef.current = false;
+      } else openIfReady();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     const off = onMessage((m) => {
       if (m.t === "snapshot" && m.ptyId === ptyId) {
         term.reset();
@@ -193,6 +203,7 @@ export function useTerminal(opts: {
 
     return () => {
       disposed = true;
+      document.removeEventListener("visibilitychange", onVisibility);
       off();
       data.dispose();
       scroll.dispose();

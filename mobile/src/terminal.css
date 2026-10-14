@@ -2,7 +2,7 @@
    Colors come from the theme variables on <html>; the fallbacks keep it
    readable until they are set. */
 .term-screen {
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--safe-b);
 }
 
 /* ---- header ------------------------------------------------------------- */
@@ -227,7 +227,7 @@
 
 .term-wait button.yes {
   background: rgba(157, 185, 132, 0.2);
-  color: #c9dfb3;
+  color: var(--accent, #9db984);
 }
 
 /* ---- "⋯" menu ------------------------------------------------------------- */
@@ -249,8 +249,10 @@
   display: flex;
   flex-direction: column;
   border-radius: 16px;
-  background: #1b140e;
-  border: 1px solid rgba(232, 184, 128, 0.14);
+  background: var(--glass-strong, #1b140e);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
+  border: 1px solid var(--border-strong, rgba(232, 184, 128, 0.14));
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
 }
 
@@ -269,11 +271,11 @@
 }
 
 .tm-menu button:active {
-  background: rgba(231, 216, 197, 0.06);
+  background: var(--surface-2, rgba(231, 216, 197, 0.06));
 }
 
 .tm-menu button.danger {
-  color: #f0938c;
+  color: var(--danger, #f0938c);
 }
 
 .tm-menu svg {
@@ -321,8 +323,8 @@
   display: flex;
   flex-direction: column;
   background: var(--glass-strong, rgba(30, 28, 24, 0.9));
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
-  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
   border: 1px solid var(--border-strong);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
   transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -335,7 +337,7 @@
   width: 86%;
   max-width: 340px;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--safe-b);
   border-left: 0;
   border-radius: 0 24px 24px 0;
   transform: translateX(-102%);
@@ -346,7 +348,7 @@
   right: 0;
   bottom: 0;
   max-height: 80%;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--safe-b);
   border-bottom: 0;
   border-radius: 28px 28px 0 0;
   transform: translateY(102%);
@@ -540,8 +542,8 @@
   flex-direction: column;
   padding: env(safe-area-inset-top) 0 0;
   background: var(--glass-strong, rgba(20, 19, 16, 0.94));
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
-  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
 }
 
 .tm-viewer-head {
@@ -570,7 +572,7 @@
 
 .tm-code {
   flex: 1;
-  margin: 0 8px calc(8px + env(safe-area-inset-bottom));
+  margin: 0 8px calc(8px + var(--safe-b));
   padding: 12px 14px;
   overflow: auto;
   border-radius: 16px;
@@ -640,11 +642,11 @@ html.term-lock body {
 /* Wrapper (measured for --keybar-h); empty while the keyboard is closed. */
 .tm-keys {
   flex: none;
-  background: #15100b;
+  background: var(--term-bg, #15100b);
 }
 
 .tm-keys:not(:empty) {
-  border-top: 1px solid rgba(232, 184, 128, 0.1);
+  border-top: 1px solid var(--border, rgba(232, 184, 128, 0.1));
 }
 
 .tm-row {
@@ -669,11 +671,11 @@ html.term-lock body {
   border: 0;
   background: transparent;
   font: 14px var(--mono);
-  color: #d9c8b2;
+  color: var(--fg, #d9c8b2);
 }
 
 .tm-k:active {
-  background: rgba(231, 216, 197, 0.08);
+  background: var(--surface-2, rgba(231, 216, 197, 0.08));
 }
 
 .tm-sep {

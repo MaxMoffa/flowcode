@@ -151,19 +151,42 @@ fn decode_key(hex: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
-pub fn load_pairing(path: &Path, codec: &dyn Codec) -> Option<Pairing> {
+/// What `load_pairing` found. `Unreadable` is not `Missing`: the file is still
+/// there and probably fine (Keystore busy, device locked), so the phone is
+/// still paired, just offline for now.
+pub enum PairingLoad {
+    Missing,
+    /// Unreadable for now (transient); the file was left alone.
+    Unreadable(String),
+    Found(Pairing),
+}
+
+impl PairingLoad {
+    /// Whether the phone counts as paired: a pairing exists, readable or not.
+    pub fn is_paired(&self) -> bool {
+        !matches!(self, PairingLoad::Missing)
+    }
+}
+
+pub fn load_pairing(path: &Path, codec: &dyn Codec) -> PairingLoad {
     match read_secret(path, codec) {
-        Read::Found { plain, legacy } => {
-            let pairing = serde_json::from_slice(&plain).ok()?;
-            migrate(path, &plain, legacy, codec);
-            Some(pairing)
-        }
-        // Unreadable means unpaired: the user pairs again.
-        Read::Lost(e) | Read::Failed(e) => {
+        Read::Found { plain, legacy } => match serde_json::from_slice(&plain) {
+            Ok(pairing) => {
+                migrate(path, &plain, legacy, codec);
+                PairingLoad::Found(pairing)
+            }
+            Err(_) => PairingLoad::Missing,
+        },
+        // Definitively unreadable means unpaired: the user pairs again.
+        Read::Lost(e) => {
             eprintln!("remote: cannot open {} ({e}), treating as unpaired", path.display());
-            None
+            PairingLoad::Missing
         }
-        Read::Missing => None,
+        Read::Failed(e) => {
+            eprintln!("remote: cannot read {} ({e}), will retry", path.display());
+            PairingLoad::Unreadable(e)
+        }
+        Read::Missing => PairingLoad::Missing,
     }
 }
 
@@ -248,6 +271,13 @@ mod tests {
         }
     }
 
+    fn found(load: PairingLoad) -> Pairing {
+        match load {
+            PairingLoad::Found(p) => p,
+            _ => panic!("expected a pairing"),
+        }
+    }
+
     fn temp(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("fcm-test-{}-{name}", std::process::id()))
     }
@@ -276,7 +306,7 @@ mod tests {
         let raw = std::fs::read(&pair_path).unwrap();
         assert!(raw.starts_with(MAGIC));
         assert!(!String::from_utf8_lossy(&raw).contains("secret-token"));
-        assert_eq!(load_pairing(&pair_path, &Xor).unwrap().token, "secret-token");
+        assert_eq!(found(load_pairing(&pair_path, &Xor)).token, "secret-token");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -287,12 +317,12 @@ mod tests {
         save_pairing(&pair_path, &sample(), &Plain).unwrap();
         let key = load_or_create_key(&key_path, &Plain).unwrap();
 
-        assert_eq!(load_pairing(&pair_path, &Xor).unwrap().token, "secret-token");
+        assert_eq!(found(load_pairing(&pair_path, &Xor)).token, "secret-token");
         assert!(std::fs::read(&pair_path).unwrap().starts_with(MAGIC));
         assert_eq!(load_or_create_key(&key_path, &Xor).unwrap().to_bytes(), key.to_bytes());
         assert!(std::fs::read(&key_path).unwrap().starts_with(MAGIC));
         // Still readable after the rewrite.
-        assert!(load_pairing(&pair_path, &Xor).is_some());
+        assert!(matches!(load_pairing(&pair_path, &Xor), PairingLoad::Found(_)));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -302,10 +332,27 @@ mod tests {
         let (key_path, pair_path) = (dir.join("key"), dir.join("pairing"));
         save_pairing(&pair_path, &sample(), &Xor).unwrap();
         let key = load_or_create_key(&key_path, &Xor).unwrap();
-        assert!(load_pairing(&pair_path, &Broken).is_none());
+        assert!(matches!(load_pairing(&pair_path, &Broken), PairingLoad::Missing));
         // Regeneration needs a working sealer to save the new key.
         assert!(load_or_create_key(&key_path, &Broken).is_err());
         assert_eq!(load_or_create_key(&key_path, &Xor).unwrap().to_bytes(), key.to_bytes());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn pairing_load_has_three_states() {
+        let dir = temp("states");
+        let path = dir.join("pairing");
+        assert!(matches!(load_pairing(&path, &Xor), PairingLoad::Missing));
+        save_pairing(&path, &sample(), &Xor).unwrap();
+        assert!(matches!(load_pairing(&path, &Xor), PairingLoad::Found(_)));
+        // A Keystore hiccup is not "unpaired", and the file survives it.
+        let before = std::fs::read(&path).unwrap();
+        let load = load_pairing(&path, &Flaky);
+        assert!(matches!(load, PairingLoad::Unreadable(_)));
+        assert!(load.is_paired());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(!PairingLoad::Missing.is_paired());
         let _ = std::fs::remove_dir_all(dir);
     }
 

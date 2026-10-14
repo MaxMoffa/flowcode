@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { t } from "./i18n";
+import { Svg } from "./icons";
 import { profileAction, showToast, type ProfileCli, type ProfileInfo } from "./remote";
 
 /** Preset badge colors, same as the desktop's profile editor. */
@@ -25,9 +26,9 @@ function Check({ label, hint, on, onChange }: { label: string; hint: string; on:
     <button type="button" role="checkbox" aria-checked={on} className="prof-check" onClick={() => onChange(!on)}>
       <span className={"prof-box" + (on ? " on" : "")} aria-hidden="true">
         {on && (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <Svg size={14} strokeWidth={3}>
             <path d="M5 12l5 5 9-10" />
-          </svg>
+          </Svg>
         )}
       </span>
       <span className="set-label">

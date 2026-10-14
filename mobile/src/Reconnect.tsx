@@ -1,7 +1,8 @@
 // "Connection lost" bottom sheet (and its dismissed pill), shown over every
 // screen while the link to the desktop is down for longer than a blip.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { t } from "./i18n";
+import { Svg } from "./icons";
 import { appResumed, retryNow, useRemote } from "./remote";
 import "./reconnect.css";
 
@@ -39,21 +40,15 @@ function useNavigatorOnline(): boolean {
   return on;
 }
 
-const Svg = ({ children }: { children: ReactNode }) => (
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {children}
-  </svg>
-);
-
 const PhoneIcon = () => (
-  <Svg>
+  <Svg size={26} strokeWidth={1.7}>
     <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
     <path d="M11 18.5h2" />
   </Svg>
 );
 
 const MonitorIcon = () => (
-  <Svg>
+  <Svg size={26} strokeWidth={1.7}>
     <rect x="3" y="4" width="18" height="12" rx="2.5" />
     <path d="M9 20h6M12 16v4" />
   </Svg>
@@ -66,14 +61,14 @@ function Step({ state, label }: { state: StepState; label: string }) {
     <li className={`rc-step is-${state}`}>
       <span className="rc-bubble" aria-hidden="true">
         {state === "ok" && (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <Svg size={12} strokeWidth={3}>
             <path d="m5 12.5 4.5 4.5L19 7.5" />
-          </svg>
+          </Svg>
         )}
         {state === "fail" && (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+          <Svg size={12} strokeWidth={3}>
             <path d="m6 6 12 12M18 6 6 18" />
-          </svg>
+          </Svg>
         )}
       </span>
       <span>{label}</span>

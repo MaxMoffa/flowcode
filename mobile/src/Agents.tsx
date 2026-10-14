@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import logo from "./assets/flowcode-icon.svg";
 import { contextPercent } from "./common";
 import { tapFeedback } from "./haptics";
@@ -76,6 +76,78 @@ function groupByProfile(usage: UsageItem[]): ProfileGroup[] {
   for (const g of groups.values()) g.items.sort((x, y) => order(x.pluginId) - order(y.pluginId));
   // The default profile leads, the named ones follow in arrival order.
   return [...groups.values()].sort((x, y) => (x.key === "" ? -1 : 0) - (y.key === "" ? -1 : 0));
+}
+
+/** One profile's cards in a snap-scrolling row, with pager dots synced to the scroll position. */
+function UsageCarousel({ group }: { group: ProfileGroup }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
+  const count = group.items.length;
+
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row || count < 2) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const cards = Array.from(row.children) as HTMLElement[];
+      let idx = 0;
+      if (row.scrollLeft + row.clientWidth >= row.scrollWidth - 2) {
+        idx = cards.length - 1;
+      } else {
+        let best = Infinity;
+        cards.forEach((c, i) => {
+          const d = Math.abs(c.offsetLeft - row.scrollLeft);
+          if (d < best) {
+            best = d;
+            idx = i;
+          }
+        });
+      }
+      setActive(idx);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    row.addEventListener("scroll", onScroll, { passive: true });
+    update();
+    return () => {
+      row.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [count]);
+
+  const goTo = (i: number) => {
+    const row = rowRef.current;
+    const card = row?.children[i] as HTMLElement | undefined;
+    if (!row || !card) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    row.scrollTo({ left: card.offsetLeft, behavior: reduce ? "auto" : "smooth" });
+  };
+
+  return (
+    <>
+      <div className={"usage-row" + (count < 2 ? " single" : "")} ref={rowRef} role="group" aria-label={group.title}>
+        {group.items.map((u) => (
+          <UsageCard key={u.pluginId + (u.profile ?? "")} item={u} />
+        ))}
+      </div>
+      {count > 1 && (
+        <div className="usage-pager">
+          {group.items.map((u, i) => (
+            <button
+              key={u.pluginId + (u.profile ?? "")}
+              type="button"
+              className={"usage-dot" + (i === active ? " on" : "")}
+              aria-label={t("showUsageOf", { name: u.label })}
+              aria-current={i === active ? "true" : undefined}
+              onClick={() => goTo(i)}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
 }
 
 function Meta({ tab }: { tab: Tab }) {
@@ -182,11 +254,7 @@ export function AgentsScreen({ hostName, tabs, usage, onOpen }: { hostName?: str
             {g.color && <i className="dot" style={{ background: g.color }} />}
             {g.title}
           </div>
-          <div className="usage-grid">
-            {g.items.map((u) => (
-              <UsageCard key={u.pluginId + (u.profile ?? "")} item={u} />
-            ))}
-          </div>
+          <UsageCarousel group={g} />
         </section>
       ))}
       {others.length > 0 && (

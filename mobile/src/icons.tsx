@@ -1,9 +1,10 @@
-// 20px stroke icons, inline so the app needs no icon font or network.
+// 20px stroke icons, inline so the app needs no icon font or network. The last
+// three are used only by the terminal page.
 import type { ReactNode } from "react";
 
-function Svg({ children, size = 20 }: { children: ReactNode; size?: number }) {
+export function Svg({ children, size = 20, strokeWidth = 1.8 }: { children: ReactNode; size?: number; strokeWidth?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {children}
     </svg>
   );
@@ -65,17 +66,31 @@ export const QrIcon = () => (
   </Svg>
 );
 
-export const SendIcon = () => (
-  <Svg>
-    <path d="M5 12h13" />
-    <path d="m13 6 6 6-6 6" />
-  </Svg>
-);
-
 export const SlidersIcon = () => (
   <Svg>
     <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
     <circle cx="15" cy="7" r="2" />
     <circle cx="9" cy="17" r="2" />
+  </Svg>
+);
+
+export const CloseIcon = () => (
+  <Svg>
+    <path d="m6 6 12 12M18 6 6 18" />
+  </Svg>
+);
+
+export const DotsIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.8" />
+    <circle cx="12" cy="12" r="1.8" />
+    <circle cx="19" cy="12" r="1.8" />
+  </svg>
+);
+
+export const KeyboardIcon = ({ size = 20 }: { size?: number }) => (
+  <Svg size={size}>
+    <rect x="3" y="6" width="18" height="12" rx="3" />
+    <path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" />
   </Svg>
 );

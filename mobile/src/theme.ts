@@ -26,14 +26,14 @@ function parse(c: string): Rgba {
 const hex = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, "0");
 
 /** `a` moved `pct` (0..1) of the way toward `b`, as opaque hex. */
-export function mix(a: string, b: string, pct: number): string {
+function mix(a: string, b: string, pct: number): string {
   const x = parse(a);
   const y = parse(b);
   return "#" + [0, 1, 2].map((i) => hex(x[i] + (y[i] - x[i]) * pct)).join("");
 }
 
 /** `c` at the given alpha, as rgba(). */
-export function alpha(c: string, a: number): string {
+function alpha(c: string, a: number): string {
   const [r, g, b] = parse(c);
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }

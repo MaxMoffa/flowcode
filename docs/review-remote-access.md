@@ -83,6 +83,25 @@ gravità A (alta) / M (media) / B (bassa) · sforzo S / M / L.
 | R14 | Re-render inutili: `useRemote()` intero nel terminale, `sort` in render in Agents, `setLanguage` nel render | `mobile/src/` | S |
 | R15 | Test mancanti: colori, quoting, `setSetting`, validatori del bridge, coalescenza utilizzo | — | M |
 
+## 5. Da verificare sul dispositivo
+
+### Batteria in background su rete mobile (modalità "Connessione in background", opzione A)
+
+**Stato:** da testare (13/10/2026). Se il consumo risulta troppo alto, passare all'opzione B.
+
+**Perché potrebbe consumare troppo:** con la connessione iroh aperta il telefono riceve comunque traffico ogni pochi secondi. iroh 1.3 forza un keep-alive per path di al massimo 5 s (`default_path_keep_alive_interval` ignora valori più alti) e il client relay pinga ogni 15 s (costante interna). Su Wi-Fi il costo è basso; su 4G/5G la radio dopo ogni pacchetto resta accesa ~5-10 s, quindi non va quasi mai in idle. Il desktop ha già il keep-alive di connessione a 25 s e in background manda solo le notifiche.
+
+**Come misurare** (telefono collegato via USB, debug attivo):
+1. `adb shell dumpsys batterystats --reset`
+2. Attivare la modalità in Impostazioni, aprire l'app, poi bloccare lo schermo e scollegare il cavo.
+3. Lasciare 30 min senza toccare il telefono, una volta su Wi-Fi e una su rete mobile (Wi-Fi spento).
+4. Ricollegare e leggere `adb shell dumpsys batterystats com.maxmoffa.flowcode.mobile` (oppure caricare `adb bugreport` in Battery Historian): consumo stimato dell'app, tempo di radio mobile attiva, wakeup.
+5. Ripetere con la modalità spenta come riferimento.
+
+**Soglia indicativa:** oltre ~2-3 %/h su rete mobile, la modalità A non è sostenibile per sessioni lunghe.
+
+**Opzione B (se serve):** in background chiudere del tutto la connessione (endpoint iroh incluso) e riconnettersi ogni N minuti con `AlarmManager` (in Doze al massimo circa ogni 9 min); il desktop accoda le notifiche e le consegna alla riconnessione. Notifiche con qualche minuto di ritardo, ma la radio dorme tra un controllo e l'altro. Il foreground service, il plugin delle notifiche e il messaggio `Background` già fatti per A restano riutilizzabili.
+
 ## Fatto bene (dalla revisione di sicurezza)
 
 Pairing monouso con scadenza e rate limit, conferma sul desktop, token a 256 bit salvati come hash e confrontati a tempo costante, legati al node id; revoca che chiude le connessioni; frame limitati a 1 MiB e input a 64 KiB; `confine()` corretto contro `..` e symlink; allowlist e controllo di tipo sulle impostazioni dal telefono; azioni validate contro quelle pubblicate; nessun `innerHTML` con dati non fidati; CSP restrittiva in entrambe le webview; segreti del telefono sigillati nel Keystore, backup disattivato.

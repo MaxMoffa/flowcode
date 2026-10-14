@@ -4,7 +4,19 @@ import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { setLockEnabled, useLock, verify } from "./applock";
 import { effectivePhone, phoneTheme, setPhoneTheme } from "./theme";
-import { connectionLog, setSetting, unpair, type MirroredSettings, type ProfileInfo } from "./remote";
+import {
+  DEFAULT_BACKGROUND,
+  backgroundSettings,
+  connectionLog,
+  requestNotificationPermission,
+  setBackgroundSettings,
+  setSetting,
+  unpair,
+  type BackgroundSettings,
+  type MirroredSettings,
+  type ProfileInfo,
+} from "./remote";
+import { Svg } from "./icons";
 import { ProfilesPage } from "./ProfilesSettings";
 
 type Palette = MirroredSettings["palettes"][number];
@@ -205,13 +217,52 @@ function MessageField({ value, onCommit }: { value: string; onCommit: (v: string
   );
 }
 
-type SectionId = "appearance" | "terminal" | "agents" | "resume" | "profiles" | "language" | "security" | "phone";
+const CAPS: { id: string; minutes: number; name: () => string }[] = [
+  { id: "60", minutes: 60, name: () => t("bgCap1") },
+  { id: "120", minutes: 120, name: () => t("bgCap2") },
+  { id: "240", minutes: 240, name: () => t("bgCap4") },
+  { id: "0", minutes: 0, name: () => t("bgCapNever") },
+];
 
-const svg = (children: ReactNode) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {children}
-  </svg>
-);
+/** The opt-in "stay connected in the background" mode; turning it on needs the notification permission. */
+function BackgroundPage({ bg, onChange }: { bg: BackgroundSettings; onChange: (s: BackgroundSettings) => void }) {
+  const [denied, setDenied] = useState(false);
+
+  const apply = (next: BackgroundSettings) => {
+    onChange(next);
+    void setBackgroundSettings(next.enabled, next.capMinutes);
+  };
+  const toggle = async (on: boolean) => {
+    if (!on) {
+      setDenied(false);
+      apply({ ...bg, enabled: false });
+      return;
+    }
+    // Without the permission the agents' notifications could not be shown.
+    const granted = await requestNotificationPermission();
+    setDenied(!granted);
+    if (granted) apply({ ...bg, enabled: true });
+  };
+
+  return (
+    <Group title={t("secBackground")}>
+      <Toggle label={t("bgSwitch")} hint={t("bgHint")} on={bg.enabled} onChange={(on) => void toggle(on)} />
+      {denied && <p className="prof-note set-block">{t("bgDenied")}</p>}
+      {bg.enabled && (
+        <Segmented
+          label={t("bgCap")}
+          value={String(bg.capMinutes)}
+          options={CAPS.map((c) => ({ id: c.id, name: c.name() }))}
+          onChange={(v) => apply({ ...bg, capMinutes: Number(v) })}
+        />
+      )}
+    </Group>
+  );
+}
+
+type SectionId = "appearance" | "terminal" | "agents" | "resume" | "profiles" | "language" | "security" | "background" | "phone";
+
+const svg = (children: ReactNode) => <Svg size={18}>{children}</Svg>;
 
 const ICONS: Record<SectionId, { tone: string; icon: ReactNode }> = {
   appearance: {
@@ -269,6 +320,15 @@ const ICONS: Record<SectionId, { tone: string; icon: ReactNode }> = {
       </>,
     ),
   },
+  background: {
+    tone: "amber",
+    icon: svg(
+      <>
+        <path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" />
+        <circle cx="12" cy="19" r="1" fill="currentColor" />
+      </>,
+    ),
+  },
   phone: {
     tone: "plain",
     icon: svg(
@@ -298,7 +358,7 @@ function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: stri
 
 const onOff = (v: boolean) => (v ? t("stateOn") : t("stateOff"));
 
-function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, hostName?: string): Record<SectionId, string> {
+function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, bg: BackgroundSettings, hostName?: string): Record<SectionId, string> {
   const eff = s ? effectivePhone(s, local) : null;
   const paletteName = s && eff ? (s.palettes.find((p) => p.id === eff.palette)?.name ?? eff.palette) : "";
   const themeName = eff ? { auto: t("themeAuto"), light: t("themeLight"), dark: t("themeDark") }[eff.theme] : "";
@@ -312,6 +372,7 @@ function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, l
     resume: s ? (s.autoResume.enabled ? t("sumResumeOn", { msg: s.autoResume.message || t("autoResumePlaceholder") }) : t("sumResumeOff")) : "",
     language: langName,
     security: lock.enabled ? t("sumLockOn") : t("sumLockOff"),
+    background: !bg.enabled ? t("sumBgOff") : bg.capMinutes ? t("sumBgOn", { n: bg.capMinutes / 60 }) : t("sumBgOnNever"),
     phone: t("sumPhone", { host: hostName ?? "..." }),
   };
 }
@@ -322,9 +383,13 @@ export function SettingsScreen({ hostName, settings: s, profiles }: { hostName?:
   useBackHandler(section !== null, () => setSection(null));
 
   const local = phoneTheme.use();
-  const sum = summaries(s, profiles, lock, local, hostName);
+  const [bg, setBg] = useState<BackgroundSettings>(DEFAULT_BACKGROUND);
+  useEffect(() => {
+    void backgroundSettings().then(setBg);
+  }, []);
+  const sum = summaries(s, profiles, lock, local, bg, hostName);
   const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", "profiles", "language"] : [];
-  const phoneOnly: SectionId[] = lock.available ? ["security", "phone"] : ["phone"];
+  const phoneOnly: SectionId[] = lock.available ? ["security", "background", "phone"] : ["background", "phone"];
   const titles: Record<SectionId, string> = {
     appearance: t("appearance"),
     terminal: t("terminalGroup"),
@@ -333,6 +398,7 @@ export function SettingsScreen({ hostName, settings: s, profiles }: { hostName?:
     profiles: t("secProfiles"),
     language: t("language"),
     security: t("secSecurity"),
+    background: t("secBackground"),
     phone: t("thisPhone"),
   };
 
@@ -375,6 +441,7 @@ export function SettingsScreen({ hostName, settings: s, profiles }: { hostName?:
     profiles: t("introProfiles"),
     language: t("introShared"),
     security: t("introSecurity"),
+    background: t("introBackground"),
     phone: t("introPhone"),
   };
 
@@ -382,9 +449,9 @@ export function SettingsScreen({ hostName, settings: s, profiles }: { hostName?:
     <div className="sec-view" key={section}>
       <header className="sec-head">
         <button type="button" className="sec-back" aria-label={t("back")} onClick={() => setSection(null)}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <Svg size={22} strokeWidth={2}>
             <path d="M15 6l-6 6 6 6" />
-          </svg>
+          </Svg>
         </button>
         <h1>{titles[section]}</h1>
       </header>
@@ -486,6 +553,8 @@ export function SettingsScreen({ hostName, settings: s, profiles }: { hostName?:
           />
         </Group>
       )}
+
+      {section === "background" && <BackgroundPage bg={bg} onChange={setBg} />}
 
       {section === "phone" && (
         <Group title={t("thisPhone")}>

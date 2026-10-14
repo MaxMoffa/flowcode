@@ -1,0 +1,4 @@
+<resources>
+    <string name="channel_connection">Connessione al PC</string>
+    <string name="channel_agents">Notifiche degli agenti</string>
+</resources>

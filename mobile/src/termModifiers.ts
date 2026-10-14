@@ -2,9 +2,9 @@ import { useCallback, useRef, useState } from "react";
 
 export type ModKey = "ctrl" | "alt" | "shift";
 /** once = disarms after the next key; lock = stays armed until tapped again. */
-export type ModState = "off" | "once" | "lock";
+type ModState = "off" | "once" | "lock";
 export type Mods = Record<ModKey, ModState>;
-export const NO_MODS: Mods = { ctrl: "off", alt: "off", shift: "off" };
+const NO_MODS: Mods = { ctrl: "off", alt: "off", shift: "off" };
 
 export type Active = { ctrl: boolean; alt: boolean; shift: boolean };
 

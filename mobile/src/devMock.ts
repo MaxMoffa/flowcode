@@ -98,6 +98,11 @@ mockIPC(
         return null;
       case "platform":
         return "mobile";
+      case "background_settings":
+        return { enabled: false, capMinutes: 120 };
+      case "request_notification_permission":
+      case "notification_permission":
+        return true;
       default:
         return termMock(cmd, args);
     }

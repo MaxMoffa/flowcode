@@ -3,12 +3,14 @@
 //! WebSocket/CORS tricks); the webview gets every server message as an event
 //! and sends client messages through `send`.
 
+mod background;
 pub mod connlog;
 pub mod link;
 mod secure;
 pub mod store;
 
-use flowcode_remote_proto::{ClientMsg, PairingTicket, ServerMsg};
+use background::Background;
+use flowcode_remote_proto::{ClientMsg, FrameError, PairingTicket, ServerMsg};
 use iroh::Endpoint;
 use connlog::ConnLog;
 use link::{LinkError, Session};
@@ -44,9 +46,12 @@ const REBUILD_ENDPOINT_EVERY: u32 = 4;
 const PENDING_LINK_TTL: Duration = Duration::from_secs(120);
 
 /// Reconnect delay after `failures` consecutive failures (>= 1): 1, 2, 4, 8 s
-/// and then 8 s. Kept low on purpose: someone is looking at the phone.
-fn backoff_delay(failures: u32) -> Duration {
-    Duration::from_secs(1 << failures.saturating_sub(1).min(3))
+/// and then 8 s. Kept low on purpose: someone is looking at the phone. With
+/// the app hidden and nothing keeping it alive (`idle`) nobody is, so it
+/// goes on to 16 and then 30 s to spare the battery.
+fn backoff_delay(failures: u32, idle: bool) -> Duration {
+    let exp = failures.saturating_sub(1).min(if idle { 5 } else { 3 });
+    Duration::from_secs((1u64 << exp).min(if idle { 30 } else { 8 }))
 }
 
 /// Failure count after a link that was online for `lived` ended: a link that
@@ -141,7 +146,7 @@ struct Inner {
     /// Bumped on every (re)start so a finishing task knows whether it is
     /// still the current one.
     generation: u64,
-    out: Option<mpsc::UnboundedSender<ClientMsg>>,
+    out: Option<mpsc::Sender<ClientMsg>>,
     state: StateEvent,
     /// A `flowcode://pair` link and when it arrived; see `PENDING_LINK_TTL`.
     pending_link: Option<(String, Instant)>,
@@ -159,7 +164,9 @@ struct Remote {
     /// used, so a call with nobody waiting leaves no permit behind to skip a
     /// later backoff.
     retry: Notify,
-    /// The app came back to the foreground: probe an online link.
+    /// The app came back to the foreground: probe an online link. Signalled
+    /// with `notify_one` so a resume that lands while `serve` is busy writing
+    /// is kept (the future is recreated every iteration of its select).
     resume: Notify,
     /// A `pair` is running; a second one is refused.
     pairing: AtomicBool,
@@ -167,6 +174,37 @@ struct Remote {
     pair_cancel: Notify,
     /// The last events of the connection, for Settings > diagnostics.
     log: ConnLog,
+    /// Foreground service + notifications (Android only).
+    background: Background,
+    /// "Stay connected in the background", kept in memory and in `background.json`.
+    bg: Mutex<background::Settings>,
+    /// Title and text of the service's ongoing notification, as the webview
+    /// worded them (it knows the language and the desktop's name).
+    bg_texts: Mutex<(String, String)>,
+    /// The webview is visible. Starts true: the app launches in the foreground.
+    visible: AtomicBool,
+}
+
+/// Messages waiting for the link; `send` refuses more instead of growing
+/// without bound while the link is stuck.
+const OUT_QUEUE: usize = 256;
+
+/// What the reader task hands to `serve`.
+enum Inbound {
+    Msg(ServerMsg),
+    /// A frame that arrived whole but is not a message we know (a newer
+    /// desktop): skipped, the link goes on.
+    Skipped(String),
+    /// I/O or framing error: the stream cannot be trusted any more.
+    Failed(String),
+}
+
+fn classify_frame(frame: Result<ServerMsg, FrameError>) -> Inbound {
+    match frame {
+        Ok(msg) => Inbound::Msg(msg),
+        Err(FrameError::Json(e)) => Inbound::Skipped(e.to_string()),
+        Err(e) => Inbound::Failed(e.to_string()),
+    }
 }
 
 /// Clears `Remote::pairing` however `pair` ends.
@@ -195,6 +233,54 @@ impl Drop for ServeGuard {
 impl Remote {
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn background_path(&self) -> PathBuf {
+        self.dir.join("background.json")
+    }
+
+    fn bg_settings(&self) -> background::Settings {
+        *self.bg.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Tells the Kotlin side whether to keep the app alive in the background:
+    /// only when the mode is on and a desktop is paired.
+    fn rearm_with(&self, paired: bool) {
+        let settings = self.bg_settings();
+        let (title, text) = self.bg_texts.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Err(e) = self.background.set_armed(settings.enabled && paired, &title, &text, settings.cap_minutes) {
+            self.log.push(format!("background service not armed: {e}"));
+        }
+    }
+
+    /// Like `rearm_with`, reading the pairing (a Keystore call: not on the main thread).
+    fn rearm(&self) {
+        self.rearm_with(store::load_pairing(&self.pairing_path(), &self.codec).is_paired());
+    }
+
+    /// Queues a message on the live link, if there is one.
+    fn queue(&self, msg: ClientMsg) {
+        let out = self.lock().out.clone();
+        if let Some(out) = out {
+            let _ = out.try_send(msg);
+        }
+    }
+
+    /// A desktop notification arrived: with the app out of sight and the mode
+    /// on, show it as an Android notification (the webview shows it otherwise).
+    fn on_notify(&self, title: &str, body: &str, tab_id: Option<&str>) {
+        let post = !self.visible.load(Ordering::SeqCst) && self.bg_settings().enabled;
+        self.log.push(format!("notification from the desktop ({})", if post { "posted" } else { "app visible or mode off" }));
+        if post {
+            if let Err(e) = self.background.notify(title, body, tab_id) {
+                self.log.push(format!("notification failed: {e}"));
+            }
+        }
+    }
+
+    /// Hidden with the background mode off: see `backoff_delay`.
+    fn idle(&self) -> bool {
+        !self.visible.load(Ordering::SeqCst) && !self.bg_settings().enabled
     }
 
     fn key_path(&self) -> PathBuf {
@@ -314,7 +400,7 @@ async fn connect_once(app: &AppHandle, remote: &Remote, pairing: &Pairing, failu
     // Repeated failures may mean the endpoint is stuck on a dead network
     // (Wi-Fi <-> mobile switch, Android suspending the app): start over with a
     // fresh one. Not while a `pair` holds the current endpoint.
-    if failures > 0 && failures % REBUILD_ENDPOINT_EVERY == 0 && !remote.pairing.load(Ordering::SeqCst) {
+    if failures > 0 && failures.is_multiple_of(REBUILD_ENDPOINT_EVERY) && !remote.pairing.load(Ordering::SeqCst) {
         remote.log.push(format!("endpoint rebuilt after {failures} failed attempts"));
         remote.reset_endpoint().await;
     }
@@ -341,9 +427,18 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
     let mut failures: u32 = 0;
     remote.log.push("connection loop started");
     loop {
-        let Some(pairing) = store::load_pairing(&remote.pairing_path(), &remote.codec) else {
-            remote.set_state(app, Status::Unpaired, None, None);
-            return;
+        let pairing = match store::load_pairing(&remote.pairing_path(), &remote.codec) {
+            store::PairingLoad::Found(p) => p,
+            store::PairingLoad::Missing => {
+                remote.set_state(app, Status::Unpaired, None, None);
+                return;
+            }
+            // Still paired, the Keystore just did not answer: try again later.
+            store::PairingLoad::Unreadable(message) => {
+                failures += 1;
+                remote.wait(app, None, message, failures, backoff_delay(failures, remote.idle())).await;
+                continue;
+            }
         };
         let session = match initial.take() {
             Some(s) => s,
@@ -356,7 +451,7 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
                 }
                 Err(LinkError::Transient(message)) => {
                     failures += 1;
-                    remote.wait(app, Some(pairing.host_name), message, failures, backoff_delay(failures)).await;
+                    remote.wait(app, Some(pairing.host_name), message, failures, backoff_delay(failures, remote.idle())).await;
                     continue;
                 }
             },
@@ -381,7 +476,7 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
                 // A link that held is a fresh start; one that died at once keeps
                 // counting, so the backoff grows and the endpoint gets rebuilt.
                 failures = failures_after_link(failures, lived);
-                remote.wait(app, Some(host_name), message, failures, backoff_delay(failures)).await;
+                remote.wait(app, Some(host_name), message, failures, backoff_delay(failures, remote.idle())).await;
             }
         }
     }
@@ -391,21 +486,22 @@ async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Opti
 /// wrong token): keeping the pairing would just loop on refusals.
 fn forget(app: &AppHandle, remote: &Remote, message: String) {
     store::forget_pairing(&remote.pairing_path());
+    remote.rearm_with(false);
     remote.set_state(app, Status::Unpaired, None, Some(message));
 }
 
 async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ClientMsg>();
+    let (out_tx, mut out_rx) = mpsc::channel::<ClientMsg>(OUT_QUEUE);
     remote.lock().out = Some(out_tx);
 
     // read_frame is not cancel-safe, so it lives in its own task and the
     // select below only touches the channel.
-    let (in_tx, mut in_rx) = mpsc::unbounded_channel::<Result<ServerMsg, String>>();
+    let (in_tx, mut in_rx) = mpsc::unbounded_channel::<Inbound>();
     let mut recv = session.recv;
     let reader = tokio::spawn(async move {
         loop {
-            let item = flowcode_remote_proto::read_frame::<_, ServerMsg>(&mut recv).await.map_err(|e| e.to_string());
-            let stop = item.is_err();
+            let item = classify_frame(flowcode_remote_proto::read_frame::<_, ServerMsg>(&mut recv).await);
+            let stop = matches!(item, Inbound::Failed(_));
             if in_tx.send(item).is_err() || stop {
                 break;
             }
@@ -423,6 +519,13 @@ async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
         if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &ClientMsg::List).await {
             return Exit::Lost(e.to_string());
         }
+        // Back on a link while hidden: the desktop starts out sending everything.
+        if !remote.visible.load(Ordering::SeqCst) && remote.bg_settings().enabled {
+            if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &ClientMsg::Background { on: true }).await {
+                return Exit::Lost(e.to_string());
+            }
+        }
+        let mut warned_unknown = false;
         loop {
             let probe = async {
                 match probe_until {
@@ -432,15 +535,27 @@ async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
             };
             tokio::select! {
                 incoming = in_rx.recv() => match incoming {
-                    Some(Ok(msg)) => {
+                    Some(Inbound::Msg(msg)) => {
                         last_rx = Instant::now();
                         probe_until = None;
                         let _ = app.emit("remote://msg", &msg);
+                        if let ServerMsg::Notify { title, body, tab_id } = &msg {
+                            remote.on_notify(title, body, tab_id.as_deref());
+                        }
                         if let ServerMsg::Error { message, fatal: true, .. } = msg {
                             return Exit::Fatal(message);
                         }
                     }
-                    Some(Err(e)) => return Exit::Lost(e),
+                    Some(Inbound::Skipped(e)) => {
+                        // Still proof that the link is alive.
+                        last_rx = Instant::now();
+                        probe_until = None;
+                        if !warned_unknown {
+                            warned_unknown = true;
+                            remote.log.push(format!("skipped a message this version does not understand: {e}"));
+                        }
+                    }
+                    Some(Inbound::Failed(e)) => return Exit::Lost(e),
                     None => return Exit::Lost("connection closed".into()),
                 },
                 outgoing = out_rx.recv() => {
@@ -491,8 +606,12 @@ fn platform() -> &'static str {
 // `(async)`: off the main thread, which the Android Keystore call needs free.
 #[tauri::command(async)]
 fn pairing_state(remote: State<'_, Arc<Remote>>) -> PairingState {
-    let pairing = store::load_pairing(&remote.pairing_path(), &remote.codec);
-    PairingState { paired: pairing.is_some(), host_name: pairing.map(|p| p.host_name) }
+    match store::load_pairing(&remote.pairing_path(), &remote.codec) {
+        store::PairingLoad::Found(p) => PairingState { paired: true, host_name: Some(p.host_name) },
+        // Paired, only unreadable for now (the host name is unknown).
+        store::PairingLoad::Unreadable(_) => PairingState { paired: true, host_name: None },
+        store::PairingLoad::Missing => PairingState { paired: false, host_name: None },
+    }
 }
 
 /// A `flowcode://pair` link the OS opened the app with, if any. Taken once,
@@ -503,7 +622,7 @@ fn pairing_state(remote: State<'_, Arc<Remote>>) -> PairingState {
 fn take_pending_link(remote: State<'_, Arc<Remote>>) -> Option<String> {
     let taken = remote.lock().pending_link.take();
     let (url, at) = taken?;
-    if at.elapsed() > PENDING_LINK_TTL || store::load_pairing(&remote.pairing_path(), &remote.codec).is_some() {
+    if at.elapsed() > PENDING_LINK_TTL || store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() {
         return None;
     }
     Some(url)
@@ -555,7 +674,7 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
         // Without a running loop the state still says "connecting": go back
         // to the stored pairing's reconnect loop, or to unpaired if none.
         if !running {
-            if store::load_pairing(&remote.pairing_path(), &remote.codec).is_some() {
+            if store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() {
                 remote.ensure_task(&app);
             } else {
                 remote.set_state(&app, Status::Unpaired, None, None);
@@ -584,6 +703,7 @@ async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String, de
         return failed(e);
     }
     remote.start_task(&app, Some(session));
+    remote.rearm_with(true);
     Ok(())
 }
 
@@ -599,7 +719,7 @@ fn cancel_pair(remote: State<'_, Arc<Remote>>) {
 #[tauri::command(async)]
 fn connect(app: AppHandle, remote: State<'_, Arc<Remote>>) {
     let remote = Arc::clone(&remote);
-    if store::load_pairing(&remote.pairing_path(), &remote.codec).is_none() {
+    if !store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() {
         remote.set_state(&app, Status::Unpaired, None, None);
         return;
     }
@@ -622,7 +742,10 @@ fn send(remote: State<'_, Arc<Remote>>, msg: serde_json::Value) -> Result<(), St
         return Err("handshake messages cannot be sent".into());
     }
     let out = remote.lock().out.clone();
-    out.ok_or_else(|| "not connected".to_string())?.send(msg).map_err(|_| "not connected".to_string())
+    out.ok_or_else(|| "not connected".to_string())?.try_send(msg).map_err(|e| match e {
+        mpsc::error::TrySendError::Full(_) => "busy".to_string(),
+        mpsc::error::TrySendError::Closed(_) => "not connected".to_string(),
+    })
 }
 
 /// "Retry now": ends the backoff sleep. Ignored unless the loop is waiting.
@@ -642,21 +765,108 @@ fn retry_now(remote: State<'_, Arc<Remote>>) {
 async fn app_resumed(app: AppHandle, remote: State<'_, Arc<Remote>>) -> Result<(), String> {
     let remote = Arc::clone(&remote);
     remote.log.push("app resumed");
+    // First, so it reaches the desktop before the webview opens its streams.
+    remote.visible.store(true, Ordering::SeqCst);
+    if remote.bg_settings().enabled {
+        remote.queue(ClientMsg::Background { on: false });
+    }
     remote.network_change().await;
     let (running, phase) = {
         let inner = remote.lock();
         (inner.task.is_some(), inner.state.phase)
     };
     if !running {
-        if store::load_pairing(&remote.pairing_path(), &remote.codec).is_some() && !remote.pairing.load(Ordering::SeqCst) {
+        if store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() && !remote.pairing.load(Ordering::SeqCst) {
             remote.ensure_task(&app);
         }
     } else if phase == Some(Phase::Waiting) {
         remote.retry.notify_waiters();
     } else {
-        remote.resume.notify_waiters();
+        remote.resume.notify_one();
     }
     Ok(())
+}
+
+/// The app went out of sight (call on `visibilitychange` -> hidden). With the
+/// background mode on, the desktop is asked to send notifications only.
+#[tauri::command]
+fn app_hidden(remote: State<'_, Arc<Remote>>) {
+    remote.log.push("app hidden");
+    remote.visible.store(false, Ordering::SeqCst);
+    if remote.bg_settings().enabled {
+        remote.queue(ClientMsg::Background { on: true });
+    }
+}
+
+/// The webview has been hidden for a while (it calls this ~30 s after
+/// `app_hidden`). With the background mode off nobody is listening, so the
+/// loop stops pinging and redialing; `app_resumed` restarts it. With the mode
+/// on the service keeps the link, so nothing happens.
+#[tauri::command]
+fn suspend_link(app: AppHandle, remote: State<'_, Arc<Remote>>) {
+    if remote.visible.load(Ordering::SeqCst) || remote.bg_settings().enabled || remote.pairing.load(Ordering::SeqCst) {
+        return;
+    }
+    let (running, host_name, status) = {
+        let inner = remote.lock();
+        (inner.task.is_some(), inner.state.host_name.clone(), inner.state.status)
+    };
+    if !running || status == Status::Unpaired {
+        return;
+    }
+    remote.stop_task();
+    remote.log.push("suspended in background");
+    remote.set_state(&app, Status::Offline, host_name, None);
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackgroundState {
+    enabled: bool,
+    cap_minutes: u32,
+}
+
+#[tauri::command]
+fn background_settings(remote: State<'_, Arc<Remote>>) -> BackgroundState {
+    let s = remote.bg_settings();
+    BackgroundState { enabled: s.enabled, cap_minutes: s.cap_minutes }
+}
+
+// `(async)`: arming reads the pairing, a Keystore call.
+#[tauri::command(async)]
+fn set_background_settings(remote: State<'_, Arc<Remote>>, enabled: bool, cap_minutes: u32) -> Result<(), String> {
+    let settings = background::Settings { enabled, cap_minutes };
+    background::save(&remote.background_path(), &settings)?;
+    *remote.bg.lock().unwrap_or_else(|e| e.into_inner()) = settings;
+    remote.log.push(format!("background mode {} (cap {} min)", if enabled { "on" } else { "off" }, cap_minutes));
+    remote.rearm();
+    Ok(())
+}
+
+/// The wording of the service's ongoing notification (the webview knows the
+/// language and the desktop's name); re-arms with it.
+// `(async)`: arming reads the pairing, a Keystore call.
+#[tauri::command(async)]
+fn background_texts(remote: State<'_, Arc<Remote>>, title: String, text: String) {
+    *remote.bg_texts.lock().unwrap_or_else(|e| e.into_inner()) = (title, text);
+    remote.rearm();
+}
+
+// `(async)`: the plugin calls block, the permission one until the user answers.
+#[tauri::command(async)]
+fn notification_permission(remote: State<'_, Arc<Remote>>) -> Result<bool, String> {
+    remote.background.notification_permission()
+}
+
+#[tauri::command(async)]
+fn request_notification_permission(remote: State<'_, Arc<Remote>>) -> Result<bool, String> {
+    remote.background.request_notification_permission()
+}
+
+/// The tab of the notification the app was opened from, once.
+#[tauri::command(async)]
+fn take_pending_tab(remote: State<'_, Arc<Remote>>) -> Option<String> {
+    remote.background.take_pending_tab().ok().flatten()
 }
 
 /// The recent connection events, oldest first (Settings > diagnostics).
@@ -667,15 +877,19 @@ fn connection_log(remote: State<'_, Arc<Remote>>) -> Vec<connlog::Entry> {
 
 #[tauri::command]
 fn unpair(app: AppHandle, remote: State<'_, Arc<Remote>>) {
-    remote.stop_task();
+    // A `pair` in flight must not save a pairing after this. The file goes
+    // first so a loop that is still running cannot find it again.
+    remote.pair_cancel.notify_waiters();
     store::forget_pairing(&remote.pairing_path());
+    remote.stop_task();
+    remote.rearm_with(false);
     remote.set_state(&app, Status::Unpaired, None, None);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default().plugin(secure::init());
+    let mut builder = tauri::Builder::default().plugin(secure::init()).plugin(background::init());
     #[cfg(mobile)]
     {
         builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init()).plugin(tauri_plugin_deep_link::init()).plugin(tauri_plugin_haptics::init());
@@ -684,6 +898,7 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            let bg_path = dir.join("background.json");
             let remote = Arc::new(Remote {
                 dir,
                 codec: app.state::<SecureStore>().inner().clone(),
@@ -694,6 +909,10 @@ pub fn run() {
                 pairing: AtomicBool::new(false),
                 pair_cancel: Notify::new(),
                 log: ConnLog::default(),
+                background: app.state::<Background>().inner().clone(),
+                bg: Mutex::new(background::load(&bg_path)),
+                bg_texts: Mutex::new((String::new(), String::new())),
+                visible: AtomicBool::new(true),
             });
             app.manage(Arc::clone(&remote));
             #[cfg(mobile)]
@@ -710,7 +929,7 @@ pub fn run() {
                         let Some(url) = urls.into_iter().find(|u| u.starts_with("flowcode://")) else { return };
                         let (remote, handle) = (Arc::clone(&remote), handle.clone());
                         std::thread::spawn(move || {
-                            if store::load_pairing(&remote.pairing_path(), &remote.codec).is_some() {
+                            if store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() {
                                 return;
                             }
                             remote.lock().pending_link = Some((url.clone(), Instant::now()));
@@ -738,6 +957,14 @@ pub fn run() {
             retry_now,
             app_resumed,
             connection_log,
+            app_hidden,
+            suspend_link,
+            background_settings,
+            set_background_settings,
+            background_texts,
+            notification_permission,
+            request_notification_permission,
+            take_pending_tab,
             unpair
         ])
         .run(tauri::generate_context!())
@@ -750,14 +977,25 @@ mod tests {
 
     #[test]
     fn backoff_doubles_up_to_eight_seconds() {
-        let secs: Vec<u64> = (0..7).map(|f| backoff_delay(f).as_secs()).collect();
+        let secs: Vec<u64> = (0..7).map(|f| backoff_delay(f, false).as_secs()).collect();
         assert_eq!(secs, [1, 1, 2, 4, 8, 8, 8]);
+        let idle: Vec<u64> = (0..8).map(|f| backoff_delay(f, true).as_secs()).collect();
+        assert_eq!(idle, [1, 1, 2, 4, 8, 16, 30, 30]);
     }
 
     #[test]
     fn a_link_that_dies_at_once_keeps_the_backoff_growing() {
         assert_eq!(failures_after_link(3, Duration::from_secs(2)), 4);
         assert_eq!(failures_after_link(3, Duration::from_secs(600)), 1);
+    }
+
+    #[test]
+    fn an_undecodable_frame_is_skipped_but_io_errors_are_fatal() {
+        let bad = serde_json::from_str::<ServerMsg>(r#"{"t":"from-the-future"}"#).unwrap_err();
+        assert!(matches!(classify_frame(Err(FrameError::Json(bad))), Inbound::Skipped(_)));
+        assert!(matches!(classify_frame(Err(FrameError::Closed)), Inbound::Failed(_)));
+        assert!(matches!(classify_frame(Err(FrameError::TooLarge(1 << 30))), Inbound::Failed(_)));
+        assert!(matches!(classify_frame(Ok(ServerMsg::Pong)), Inbound::Msg(ServerMsg::Pong)));
     }
 
     #[test]

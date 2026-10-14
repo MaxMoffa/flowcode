@@ -27,7 +27,7 @@ use iroh_tickets::endpoint::EndpointTicket;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::pty::{PtyState, RemoteOut};
 use crate::util::{lock, now_ms};
@@ -66,10 +66,14 @@ const TABS_INTERVAL: Duration = Duration::from_secs(2);
 /// a connection's tick never forces a scan of its own.
 const TABS_CACHE: Duration = Duration::from_millis(2500);
 /// QUIC drops a link after this much silence. The phone pings every 20 s and
-/// gives up after 60 s, so this stays comfortably above that (the actual
-/// timeout is the smaller of the two peers'); iroh's keep-alive (5 s)
-/// keeps a quiet but healthy link from ever reaching it.
-const QUIC_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+/// gives up after 60-90 s, so this stays comfortably above that (the actual
+/// timeout is the smaller of the two peers'); the keep-alive below keeps a
+/// quiet but healthy link from ever reaching it.
+const QUIC_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+/// How often the desktop sends a QUIC keep-alive. The phone drives liveness
+/// (its own pings and keep-alives), so the desktop stays quiet and lets a
+/// backgrounded phone's radio idle instead of waking it every 5 s.
+const QUIC_KEEP_ALIVE: Duration = Duration::from_secs(25);
 /// Frames queued for one phone before it counts as not reading (the pty
 /// output of a phone that is merely slow is dropped well before that, see
 /// `OUT_RESERVE`). Output frames are at most ~8 KiB, so ~8 MiB per phone.
@@ -86,8 +90,16 @@ const INPUT_QUEUE: usize = 64;
 const MAX_SUBS: usize = 64;
 /// A resync waits this long between looks at the phone's queue.
 const RESYNC_POLL: Duration = Duration::from_millis(200);
-/// Snapshots tried per resync before accepting one that may miss a few bytes.
-const RESYNC_ATTEMPTS: u32 = 10;
+/// Snapshots tried per resync before accepting one that may miss a few bytes
+/// (the window flushes xterm's parse queue before serializing, so one or two
+/// normally suffice).
+const RESYNC_ATTEMPTS: u32 = 3;
+/// Least time between two snapshot requests of one stream: each one makes the
+/// window serialize its whole terminal, which slows its parsing further.
+const RESYNC_MIN_GAP: Duration = Duration::from_secs(1);
+/// How long a pty keeps the phone's size after the last phone stopped sizing
+/// it, so a reattach or reconnect doesn't resize it back and forth.
+const RELEASE_GRACE: Duration = Duration::from_secs(4);
 /// Largest `set` value, as JSON.
 const MAX_SET_BYTES: usize = 4096;
 /// A snapshot's JSON-encoded size: half a frame, leaving room for the rest.
@@ -205,7 +217,7 @@ fn to_hex(bytes: &[u8]) -> String {
 }
 
 fn from_hex(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 || !hex.is_ascii() {
+    if !hex.len().is_multiple_of(2) || !hex.is_ascii() {
         return None;
     }
     (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()).collect()
@@ -648,6 +660,8 @@ struct Runtime {
 }
 
 type SnapshotReply = (String, u64);
+/// A held-back size release: the owner's id and the (cols, rows) to restore.
+type PendingRelease = (u64, (u16, u16));
 
 /// One phone's claim on a pty's size.
 struct SizeClaim {
@@ -692,8 +706,16 @@ struct Shared {
     settings: watch::Sender<serde_json::Value>,
     /// Latest account profiles the frontend published (`Null` until then).
     profiles: watch::Sender<serde_json::Value>,
+    /// Desktop notifications mirrored to every connected phone.
+    notices: broadcast::Sender<ServerMsg>,
     /// pty id -> phones sizing it, oldest first (the last one wins).
     sizing: Mutex<HashMap<String, Vec<SizeClaim>>>,
+    /// pty id -> (release id, size) for a pty whose last phone let go less
+    /// than `RELEASE_GRACE` ago: it still has that size, and the deferred
+    /// release only applies if its id is still the one stored here (a new
+    /// claim removes the entry).
+    pending_release: Mutex<HashMap<String, PendingRelease>>,
+    release_seq: AtomicU64,
     /// pty id -> window that showed it when last looked at, for the ptys a
     /// phone is sizing: a change means the tab moved and the new window
     /// must be told about the size override.
@@ -776,9 +798,19 @@ impl RemoteState {
             actions: watch::channel(Vec::new()).0,
             settings: watch::channel(serde_json::Value::Null).0,
             profiles: watch::channel(serde_json::Value::Null).0,
+            notices: broadcast::channel(32).0,
             sizing: Mutex::new(HashMap::new()),
+            pending_release: Mutex::new(HashMap::new()),
+            release_seq: AtomicU64::new(0),
             size_owners: Mutex::new(HashMap::new()),
         }))
+    }
+
+    /// Mirrors a desktop notification to the connected phones (a no-op while
+    /// none are connected). An empty `tab_id` means it isn't about a tab.
+    pub fn broadcast_notify(&self, title: String, body: String, tab_id: Option<String>) {
+        let tab_id = tab_id.filter(|id| !id.is_empty());
+        let _ = self.0.notices.send(ServerMsg::Notify { title, body, tab_id });
     }
 
     /// Starts the endpoint at launch if the user left it enabled.
@@ -880,9 +912,11 @@ impl Shared {
             Ok((held, load_or_create_key(&key_path)?))
         })
         .await?;
-        // iroh's keep-alive (5 s) is already on; only the idle timeout needs
-        // to be above the phone's 60 s of tolerated silence.
-        let mut transport = QuicTransportConfig::builder();
+        // The idle timeout has to be above the phone's tolerated silence, and
+        // the keep-alive is stretched from iroh's 5 s (see `QUIC_KEEP_ALIVE`).
+        // iroh ignores a per-path keep-alive above 5 s and clamps the path
+        // idle timeout to 15 s, so those stay at their defaults.
+        let mut transport = QuicTransportConfig::builder().keep_alive_interval(QUIC_KEEP_ALIVE);
         if let Ok(idle) = IdleTimeout::try_from(QUIC_IDLE_TIMEOUT) {
             transport = transport.max_idle_timeout(Some(idle));
         }
@@ -1002,22 +1036,34 @@ impl Shared {
         }
         // A sane range: zero would panic the terminal, huge values waste memory.
         let (cols, rows) = (cols.clamp(10, 500), rows.clamp(3, 300));
-        {
+        let before = {
             let mut sizing = lock(&self.sizing);
             let claims = sizing.entry(pty_id.to_string()).or_default();
+            let before = claims.last().map(|c| (c.cols, c.rows));
             claims.retain(|c| c.conn != conn);
             claims.push(SizeClaim { conn, cols, rows });
+            before
+        };
+        // A claim during the grace period cancels the deferred release; the
+        // pty still has the size it was left with.
+        let held = lock(&self.pending_release).remove(pty_id).map(|(_, size)| size);
+        // Same size as before: resizing again would only make a TUI redraw.
+        if before.or(held) == Some((cols, rows)) {
+            return;
         }
         self.apply_size(pty_id, Some((cols, rows)));
     }
 
     /// `conn` stopped sizing `pty`: the previous claimant's size comes back,
     /// or the desktop's own when there is none.
-    fn release_size(&self, pty_id: &str, conn: u64) {
-        let next = {
+    /// When no phone is left the desktop's size only comes back after
+    /// `RELEASE_GRACE`, unless a phone claims the pty again before.
+    fn release_size(self: &Arc<Self>, pty_id: &str, conn: u64) {
+        let (prev, next) = {
             let mut sizing = lock(&self.sizing);
             let Some(claims) = sizing.get_mut(pty_id) else { return };
             let before = claims.len();
+            let prev = claims.last().map(|c| (c.cols, c.rows));
             claims.retain(|c| c.conn != conn);
             if claims.len() == before {
                 return;
@@ -1026,12 +1072,38 @@ impl Shared {
             if claims.is_empty() {
                 sizing.remove(pty_id);
             }
-            next
+            (prev, next)
         };
-        self.apply_size(pty_id, next);
+        match (prev, next) {
+            // Another phone keeps the size in force: nothing changes.
+            (Some(p), Some(n)) if p == n => {}
+            (_, Some(_)) => self.apply_size(pty_id, next),
+            (None, None) => {}
+            (Some(size), None) => {
+                let id = self.release_seq.fetch_add(1, Ordering::Relaxed) + 1;
+                lock(&self.pending_release).insert(pty_id.to_string(), (id, size));
+                let shared = Arc::clone(self);
+                let pty_id = pty_id.to_string();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(RELEASE_GRACE).await;
+                    let due = {
+                        let mut pending = lock(&shared.pending_release);
+                        if pending.get(&pty_id).is_some_and(|(i, _)| *i == id) {
+                            pending.remove(&pty_id);
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if due && !lock(&shared.sizing).contains_key(&pty_id) {
+                        shared.apply_size(&pty_id, None);
+                    }
+                });
+            }
+        }
     }
 
-    fn release_all_sizes(&self, conn: u64) {
+    fn release_all_sizes(self: &Arc<Self>, conn: u64) {
         let ptys: Vec<String> =
             lock(&self.sizing).iter().filter(|(_, c)| c.iter().any(|c| c.conn == conn)).map(|(p, _)| p.clone()).collect();
         for pty in ptys {
@@ -1695,6 +1767,7 @@ async fn run_connection(
     let mut actions_rx = shared.actions.subscribe();
     let mut settings_rx = shared.settings.subscribe();
     let mut profiles_rx = shared.profiles.subscribe();
+    let mut notices_rx = shared.notices.subscribe();
     let mut conn = Conn {
         shared: Arc::clone(&shared),
         id: conn_id,
@@ -1703,6 +1776,7 @@ async fn run_connection(
         subs: HashMap::new(),
         inputs: HashMap::new(),
         last_tabs: Vec::new(),
+        background: false,
     };
     if let Some(token) = token {
         conn.send(ServerMsg::Paired { token, device_name: device.name.clone() });
@@ -1733,28 +1807,43 @@ async fn run_connection(
             },
             _ = tick.tick() => {
                 conn.prune_subs();
-                conn.push_tabs_if_changed().await;
+                if !conn.background {
+                    conn.push_tabs_if_changed().await;
+                }
             }
+            // While the phone is in the background the arms below still
+            // consume their channel (so it doesn't spin) but send nothing;
+            // `Conn::set_background` catches the phone up afterwards.
             Ok(()) = usage_rx.changed() => {
                 let items = usage_rx.borrow_and_update().clone();
-                conn.send(ServerMsg::Usage { items });
+                if !conn.background {
+                    conn.send(ServerMsg::Usage { items });
+                }
             }
             Ok(()) = actions_rx.changed() => {
                 let actions = actions_rx.borrow_and_update().clone();
-                conn.send(ServerMsg::Actions { actions });
+                if !conn.background {
+                    conn.send(ServerMsg::Actions { actions });
+                }
             }
             Ok(()) = settings_rx.changed() => {
                 let settings = settings_rx.borrow_and_update().clone();
-                if !settings.is_null() {
+                if !conn.background && !settings.is_null() {
                     conn.send(ServerMsg::Settings { settings });
                 }
             }
             Ok(()) = profiles_rx.changed() => {
                 let profiles = profiles_rx.borrow_and_update().clone();
-                if !profiles.is_null() {
+                if !conn.background && !profiles.is_null() {
                     conn.send(ServerMsg::Profiles { profiles });
                 }
             }
+            // Lagging just drops the notifications missed; a closed channel
+            // (never, `Shared` holds the sender) would only disable this arm.
+            notice = notices_rx.recv() => match notice {
+                Ok(msg) => conn.send(msg),
+                Err(_) => continue,
+            },
             // The device was revoked.
             _ = kick_rx.changed() => {
                 let message = tr("Dispositivo revocato", "Device revoked").to_string();
@@ -1814,6 +1903,8 @@ struct Conn {
     subs: HashMap<String, tokio::task::JoinHandle<()>>,
     inputs: HashMap<String, InputWorker>,
     last_tabs: Vec<Tab>,
+    /// The phone said it is in the background: only notifications go out.
+    background: bool,
 }
 
 impl Conn {
@@ -1849,6 +1940,35 @@ impl Conn {
         }
         for (_, worker) in self.inputs.drain() {
             worker.task.abort();
+        }
+    }
+
+    /// Enters or leaves background mode. Entering stops every stream (the
+    /// phone closes them too); leaving sends the current state again, like
+    /// right after the connection was admitted.
+    async fn set_background(&mut self, on: bool) {
+        if self.background == on {
+            return;
+        }
+        self.background = on;
+        if on {
+            for (pty_id, task) in self.subs.drain() {
+                task.abort();
+                self.shared.release_size(&pty_id, self.id);
+            }
+            return;
+        }
+        self.last_tabs = self.shared.tabs().await;
+        self.send(ServerMsg::Tabs { tabs: self.last_tabs.clone() });
+        self.send(ServerMsg::Usage { items: self.shared.usage.borrow().clone() });
+        self.send(ServerMsg::Actions { actions: self.shared.actions.borrow().clone() });
+        let settings = self.shared.settings.borrow().clone();
+        if !settings.is_null() {
+            self.send(ServerMsg::Settings { settings });
+        }
+        let profiles = self.shared.profiles.borrow().clone();
+        if !profiles.is_null() {
+            self.send(ServerMsg::Profiles { profiles });
         }
     }
 
@@ -1898,6 +2018,7 @@ impl Conn {
                 self.last_tabs = tabs.clone();
                 self.send(ServerMsg::Tabs { tabs });
             }
+            ClientMsg::Background { on } => self.set_background(on).await,
             ClientMsg::Open { pty_id, cols, rows } => {
                 self.prune_subs();
                 if self.subs.len() >= MAX_SUBS && !self.subs.contains_key(&pty_id) {
@@ -1965,7 +2086,7 @@ impl Conn {
                 let _ = self.shared.app.emit(EVT_SET_SETTING, serde_json::json!({ "key": key, "value": value }));
             }
             ClientMsg::Profile { op, id, name, color, copy_settings, delete_files, cli } => {
-                let short = |v: &Option<String>, max: usize| v.as_ref().map_or(true, |s| s.len() <= max);
+                let short = |v: &Option<String>, max: usize| v.as_ref().is_none_or(|s| s.len() <= max);
                 let ok = short(&id, 64) && short(&name, 64) && short(&color, 16) && short(&cli, 16);
                 let needs_id = matches!(op.as_str(), "update" | "delete" | "login");
                 let needs_look = matches!(op.as_str(), "create" | "update");
@@ -2093,6 +2214,7 @@ async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::Sender<Serve
         return;
     };
 
+    let mut last_request = tokio::time::Instant::now();
     let (data, mut snapshot_seq) = request_snapshot(&shared, &pty_id, owner).await;
     if !send_snapshot(&out, &pty_id, data, cols, rows).await {
         return;
@@ -2124,7 +2246,13 @@ async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::Sender<Serve
                 tokio::time::sleep(RESYNC_POLL).await;
                 continue;
             }
+            // At most one snapshot request per RESYNC_MIN_GAP.
+            if last_request.elapsed() < RESYNC_MIN_GAP {
+                tokio::time::sleep(RESYNC_POLL).await;
+                continue;
+            }
             feed.clear_lag();
+            last_request = tokio::time::Instant::now();
             let owner = shared.app.state::<PtyState>().owner_of(&pty_id);
             let (data, seq) = request_snapshot(&shared, &pty_id, owner).await;
             if let Some(size) = shared.app.state::<PtyState>().sizes().get(&pty_id) {

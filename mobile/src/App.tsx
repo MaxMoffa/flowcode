@@ -8,7 +8,7 @@ import { unlock, useLock } from "./applock";
 import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { Reconnect } from "./Reconnect";
-import { resetSettingsCache, setLastOpened, start, useRemote } from "./remote";
+import { clearOpenTab, resetSettingsCache, setBackgroundTexts, setLastOpened, start, useRemote, useRemoteSelector } from "./remote";
 import { TerminalsScreen } from "./Terminals";
 import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
 
@@ -102,7 +102,26 @@ function AppContent() {
     }
   }, [remote.status]);
 
+  // The permanent notification of the background mode names the desktop.
+  useEffect(() => {
+    if (remote.hostName) void setBackgroundTexts(t("bgNotifTitle"), t("bgNotifText", { host: remote.hostName }));
+  }, [remote.hostName, remote.settings?.resolvedLanguage]);
+
+  // A tapped agent notification opens that tab's terminal as soon as the list has it.
+  useEffect(() => {
+    if (!remote.openTab || !remote.tabs) return;
+    const target = remote.tabs.find((x) => x.tabId === remote.openTab);
+    if (!target) return;
+    setLastOpened(target.ptyId);
+    setOpenPty(target.ptyId);
+    clearOpenTab();
+  }, [remote.openTab, remote.tabs]);
+
   const tab = openPty ? remote.tabs?.find((x) => x.ptyId === openPty) : undefined;
+  // The open terminal was closed on the PC: forget it, or the screen would come back if the id ever reappears.
+  useEffect(() => {
+    if (openPty && remote.tabs && !tab) setOpenPty(null);
+  }, [openPty, remote.tabs, tab]);
   // Back from a terminal returns to the list; on the root it is left alone (the app exits).
   useBackHandler(!!tab, () => setOpenPty(null));
 
@@ -160,7 +179,7 @@ function AppContent() {
 }
 
 function Toast() {
-  const { toast } = useRemote();
+  const toast = useRemoteSelector((s) => s.toast);
   if (!toast) return null;
   return (
     <div className="toast" role="status" key={toast.id}>
