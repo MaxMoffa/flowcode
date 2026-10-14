@@ -415,7 +415,6 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
             {status.behind > 0 && `↓${status.behind}`}
           </span>
         )}
-        <span className="git-header-spacer" />
         <button type="button" className="git-icon-btn" title={t("git.refresh")} aria-label={t("git.refresh")} onClick={() => void refresh(true)}>
           {icons.refresh}
         </button>
