@@ -12,7 +12,8 @@ import { isRemoteLeader, useRemoteLeader } from "./leader";
 import type { MirroredSettings, ProfileInfo } from "../../shared/remote-types";
 import { isValidSetting, type SettingContext } from "./settingDefs";
 import { parseProfileOp } from "./profileOps";
-import { createProfile, deleteProfile, refreshProfiles, updateProfile, useProfiles } from "../profiles/profiles";
+import { createProfile, deleteProfile, logoutProfile, refreshProfiles, updateProfile, useProfiles } from "../profiles/profiles";
+import { defaultCliStatus } from "../agents/cliInfo";
 
 /** Settings changes are coalesced: dragging a slider on the phone or the
  * desktop fires many in a row. */
@@ -33,7 +34,7 @@ export function RemoteSettingsBridge() {
   const notify = useNotificationSettings();
   const autoResume = useAutoResumeSettings();
   const leader = useRemoteLeader();
-  const { profiles } = useProfiles();
+  const { profiles, default_logged_in: defaultLoggedIn } = useProfiles();
 
   // Palettes only depend on the theme, not on what a tab's zoom does.
   const palettes = useMemo(() => {
@@ -95,10 +96,14 @@ export function RemoteSettingsBridge() {
     () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe } })),
     [profiles],
   );
+  const defaultLogin = useMemo(
+    () => (defaultLoggedIn ? { claude: defaultLoggedIn.claude, codex: defaultLoggedIn.codex, vibe: defaultLoggedIn.vibe } : null),
+    [defaultLoggedIn],
+  );
   useEffect(() => {
     if (!leader) return;
-    if (isRemoteLeader()) invoke("remote_publish_profiles", { profiles: profileList }).catch(() => {});
-  }, [profileList, leader]);
+    if (isRemoteLeader()) invoke("remote_publish_profiles", { profiles: profileList, defaultLoggedIn: defaultLogin }).catch(() => {});
+  }, [profileList, defaultLogin, leader]);
 
   useEffect(() => {
     if (!leader) return;
@@ -169,7 +174,7 @@ export function RemoteSettingsBridge() {
   }, []);
 
   // Profile changes from the phone. The backend sends them to the leader window only; the check
-  // here covers a role change in flight. Sign-in (`remote://profile-login`) is handled by App.
+  // here covers a role change in flight. Sign-in (`remote://profile-login`) is handled by App; sign-out has no confirm here, the phone asks.
   useEffect(() => {
     const unlisten = getCurrentWebviewWindow().listen<unknown>("remote://profile", (e) => {
       if (!isRemoteLeader()) return;
@@ -182,7 +187,12 @@ export function RemoteSettingsBridge() {
             ? updateProfile(op.id, op.name, op.color)
             : op.op === "delete"
               ? deleteProfile(op.id, op.deleteFiles)
-              : Promise.resolve();
+              : op.op === "logout"
+                ? logoutProfile(op.id, op.cli).then(() => {
+                    // The shortcuts' cached sign-in check is the default profile's.
+                    if (op.id === null) void defaultCliStatus(op.cli, true);
+                  })
+                : Promise.resolve();
       // A rejected name / color (duplicate, empty) leaves the list as it was.
       void done.catch(() => refreshProfiles());
     });

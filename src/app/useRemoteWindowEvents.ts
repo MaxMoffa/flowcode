@@ -18,7 +18,7 @@ export interface RemoteWindowEventRefs {
   latestRef: MutableRefObject<{ tabs: AppTab[] }>;
   termRefs: MutableRefObject<Map<string, TerminalHandle>>;
   remoteActionRef: MutableRefObject<(id: string, ptyId: string | null) => void>;
-  remoteProfileLoginRef: MutableRefObject<(profileId: string, cli: string) => void>;
+  remoteProfileLoginRef: MutableRefObject<(profileId: string | null, cli: string) => void>;
   remoteNewTabRef: MutableRefObject<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>;
   remoteRenameRef: MutableRefObject<(ptyId: string, label: string) => void>;
 }
@@ -71,8 +71,9 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
     const unlistenAction = webview.listen<{ id: string; ptyId: string | null }>("remote://run-action", (e) => {
       remoteActionRef.current(e.payload.id, e.payload.ptyId);
     });
-    const unlistenLogin = webview.listen<{ id?: string; cli?: string }>("remote://profile-login", (e) => {
-      if (e.payload.id && e.payload.cli) remoteProfileLoginRef.current(e.payload.id, e.payload.cli);
+    const unlistenLogin = webview.listen<{ id?: string | null; cli?: string }>("remote://profile-login", (e) => {
+      // An empty id is the default profile.
+      if (e.payload.cli) remoteProfileLoginRef.current(e.payload.id || null, e.payload.cli);
     });
     // A phone asking for a new terminal tab here.
     const unlistenNewTab = webview.listen<{ cwd?: string | null; cli?: string | null; profile?: string | null }>("remote://new-tab", (e) => {

@@ -78,7 +78,9 @@ export type ProfileAction =
   | { op: "create"; name: string; color: string; copySettings: boolean }
   | { op: "update"; id: string; name: string; color: string }
   | { op: "delete"; id: string; deleteFiles: boolean }
-  | { op: "login"; id: string; cli: ProfileCli };
+  /** `id` `""` = the default profile (also for `logout`). */
+  | { op: "login"; id: string; cli: ProfileCli }
+  | { op: "logout"; id: string; cli: ProfileCli };
 
 export interface MirroredPalette {
   id: string;
@@ -138,7 +140,7 @@ export type ServerMsg =
   | { t: "ls"; ptyId: string; path: string; entries: LsEntry[] }
   | { t: "file"; ptyId: string; path: string; text: string; truncated: boolean }
   | { t: "settings"; settings: MirroredSettings }
-  | { t: "profiles"; profiles: ProfileInfo[] }
+  | { t: "profiles"; profiles: ProfileInfo[]; defaultLoggedIn?: Record<ProfileCli, boolean> | null }
   | { t: "notify"; title: string; body: string; tabId?: string }
   | { t: "pong" };
 

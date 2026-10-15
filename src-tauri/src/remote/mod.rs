@@ -109,7 +109,7 @@ const EVT_SET_SETTING: &str = "remote://set-setting";
 const EVT_NEW_TAB: &str = "remote://new-tab";
 /// `{op, id?, name?, color?, copySettings?, deleteFiles?}`: a profile change, to the leader window only.
 const EVT_PROFILE: &str = "remote://profile";
-/// `{id, cli}`: sign a CLI in under a profile (needs the window's terminal tabs), to the leader window only.
+/// `{id, cli}`: sign a CLI in under a profile (`id` empty = the default; needs the window's terminal tabs), to the leader window only.
 const EVT_PROFILE_LOGIN: &str = "remote://profile-login";
 const EVT_PAIR_REQUEST: &str = "remote://pair-request";
 /// `{reqId}`: the request went away unanswered (timeout, phone left).
@@ -212,7 +212,7 @@ struct Shared {
     /// Latest desktop settings the frontend published for the phone to mirror
     /// (`Null` until the first publish).
     settings: watch::Sender<serde_json::Value>,
-    /// Latest account profiles the frontend published (`Null` until then).
+    /// Latest account profiles the frontend published, as `{profiles, defaultLoggedIn}` (`Null` until then).
     profiles: watch::Sender<serde_json::Value>,
     /// Desktop notifications mirrored to every connected phone.
     notices: broadcast::Sender<ServerMsg>,
@@ -827,8 +827,15 @@ pub fn remote_publish_settings(state: tauri::State<'_, RemoteState>, settings: s
 
 /// The account profiles the phone lists (built by the frontend's RemoteSettingsBridge).
 #[tauri::command]
-pub fn remote_publish_profiles(state: tauri::State<'_, RemoteState>, profiles: serde_json::Value) {
-    publish(&state.0.profiles, profiles);
+pub fn remote_publish_profiles(state: tauri::State<'_, RemoteState>, profiles: serde_json::Value, default_logged_in: Option<serde_json::Value>) {
+    publish(&state.0.profiles, serde_json::json!({ "profiles": profiles, "defaultLoggedIn": default_logged_in }));
+}
+
+/// The `profiles` message for what the frontend published; none until it has.
+fn profiles_msg(published: &serde_json::Value) -> Option<ServerMsg> {
+    let profiles = published.get("profiles").filter(|p| !p.is_null())?.clone();
+    let default_logged_in = published.get("defaultLoggedIn").filter(|d| !d.is_null()).cloned();
+    Some(ServerMsg::Profiles { profiles, default_logged_in })
 }
 
 /// The quick actions the phone may trigger.
@@ -1296,9 +1303,8 @@ async fn run_connection(
     if !settings.is_null() {
         conn.send(ServerMsg::Settings { settings });
     }
-    let profiles = profiles_rx.borrow_and_update().clone();
-    if !profiles.is_null() {
-        conn.send(ServerMsg::Profiles { profiles });
+    if let Some(msg) = profiles_msg(&profiles_rx.borrow_and_update()) {
+        conn.send(msg);
     }
 
     let mut tick = tokio::time::interval(TABS_INTERVAL);
@@ -1341,9 +1347,9 @@ async fn run_connection(
                 }
             }
             Ok(()) = profiles_rx.changed() => {
-                let profiles = profiles_rx.borrow_and_update().clone();
-                if !conn.background && !profiles.is_null() {
-                    conn.send(ServerMsg::Profiles { profiles });
+                let msg = profiles_msg(&profiles_rx.borrow_and_update());
+                if let Some(msg) = msg.filter(|_| !conn.background) {
+                    conn.send(msg);
                 }
             }
             // Lagging just drops the notifications missed; a closed channel
@@ -1474,9 +1480,8 @@ impl Conn {
         if !settings.is_null() {
             self.send(ServerMsg::Settings { settings });
         }
-        let profiles = self.shared.profiles.borrow().clone();
-        if !profiles.is_null() {
-            self.send(ServerMsg::Profiles { profiles });
+        if let Some(msg) = profiles_msg(&self.shared.profiles.borrow()) {
+            self.send(msg);
         }
     }
 
@@ -1642,13 +1647,15 @@ impl Conn {
             ClientMsg::Profile { op, id, name, color, copy_settings, delete_files, cli } => {
                 let short = |v: &Option<String>, max: usize| v.as_ref().is_none_or(|s| s.len() <= max);
                 let ok = short(&id, 64) && short(&name, 64) && short(&color, 16) && short(&cli, 16);
-                let needs_id = matches!(op.as_str(), "update" | "delete" | "login");
+                // Sign-in / out also take the default profile (`""`); the rest need a real one.
+                let needs_id = matches!(op.as_str(), "update" | "delete");
                 let needs_look = matches!(op.as_str(), "create" | "update");
                 let valid = ok
-                    && matches!(op.as_str(), "create" | "update" | "delete" | "login")
+                    && matches!(op.as_str(), "create" | "update" | "delete" | "login" | "logout")
                     && (!needs_id || id.as_deref().is_some_and(|s| !s.is_empty()))
+                    && (needs_id || !matches!(op.as_str(), "login" | "logout") || id.is_some())
                     && (!needs_look || (name.as_deref().is_some_and(|s| !s.trim().is_empty()) && color.is_some()))
-                    && (op != "login" || matches!(cli.as_deref(), Some("claude" | "codex" | "vibe")));
+                    && (!matches!(op.as_str(), "login" | "logout") || matches!(cli.as_deref(), Some("claude" | "codex" | "vibe")));
                 if !valid {
                     self.error(tr("Richiesta profilo non valida", "Invalid profile request"), None);
                     return;

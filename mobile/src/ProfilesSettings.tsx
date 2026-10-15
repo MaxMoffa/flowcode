@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useBackHandler } from "./back";
 import { t } from "./i18n";
-import { Svg } from "./icons";
+import { CloseIcon, Svg } from "./icons";
 import { profileAction, showToast, type ProfileCli, type ProfileInfo } from "./remote";
+import { useSheetDrag } from "./useSheetDrag";
 
 /** Preset badge colors, same as the desktop's profile editor. */
 const COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6", "#ec4899", "#64748b"];
@@ -10,6 +13,11 @@ const CLIS: { id: ProfileCli; name: string }[] = [
   { id: "codex", name: "Codex" },
   { id: "vibe", name: "Mistral Vibe" },
 ];
+
+type LoggedIn = Record<ProfileCli, boolean>;
+
+/** What the open sheet is about: the new-profile form, the agents a profile can still sign in, or a sign-out to confirm. `id` "" is the default profile. */
+type SheetState = { kind: "new" } | { kind: "add"; id: string; name: string; off: ProfileCli[] } | { kind: "logout"; id: string; name: string; cli: ProfileCli };
 
 function Colors({ value, onChange }: { value: string; onChange: (c: string) => void }) {
   return (
@@ -39,7 +47,105 @@ function Check({ label, hint, on, onChange }: { label: string; hint: string; on:
   );
 }
 
-function ProfileCard({ p }: { p: ProfileInfo }) {
+/** Bottom sheet, same look as the terminal's. Always mounted so it can slide; closes on Escape, Back, the scrim or a swipe down. */
+function Sheet({ open, onClose, title, subtitle, children }: { open: boolean; onClose: () => void; title: string; subtitle?: string; children: ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  useBackHandler(open, onClose);
+  useSheetDrag(ref, onClose, open);
+
+  // In the body, not the page: the page slides in with a transform, which would pin the fixed layer to it.
+  return createPortal(
+    <div className={"ps-layer" + (open ? " open" : "")}>
+      <div className="ps-scrim" data-sheet-scrim onClick={onClose} />
+      <section ref={ref} className="ps-sheet" role="dialog" aria-modal="true" aria-label={title} aria-hidden={!open}>
+        <div className="ps-grabber" />
+        <header className="ps-head">
+          <div className="ps-titles">
+            <h2>{title}</h2>
+            {subtitle && <p>{subtitle}</p>}
+          </div>
+          <button type="button" className="ps-close" aria-label={t("closeViewer")} onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </header>
+        <div className="ps-body">{children}</div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function NewProfileSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(COLORS[0]);
+  const [copy, setCopy] = useState(true);
+  const close = () => {
+    onClose();
+    setName("");
+    setColor(COLORS[0]);
+    setCopy(true);
+  };
+  const create = () => {
+    const n = name.trim();
+    if (!n) return;
+    profileAction({ op: "create", name: n, color, copySettings: copy });
+    close();
+  };
+  return (
+    <Sheet open={open} onClose={close} title={t("profileNew")}>
+      <input className="set-input" value={name} maxLength={64} aria-label={t("profileName")} placeholder={t("profileName")} enterKeyHint="done" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+      <Colors value={color} onChange={setColor} />
+      <Check label={t("profileCopySettings")} hint={t("profileCopySettingsHint")} on={copy} onChange={setCopy} />
+      <button type="button" className="btn primary big" disabled={!name.trim()} onClick={create}>
+        {t("profileCreate")}
+      </button>
+    </Sheet>
+  );
+}
+
+/** The agents signed in under a profile, each with sign-in-again / sign-out, and the way to add one. */
+function Agents({ id, name, loggedIn, onAdd, onLogout }: { id: string; name: string; loggedIn: LoggedIn; onAdd: (off: ProfileCli[]) => void; onLogout: (cli: ProfileCli) => void }) {
+  const on = CLIS.filter((c) => loggedIn[c.id]);
+  const off = CLIS.filter((c) => !loggedIn[c.id]);
+  return (
+    <>
+      {on.length === 0 && <div className="prof-cli prof-none">{t("profileNoAgents")}</div>}
+      {on.map((c) => (
+        <div key={c.id} className="prof-cli">
+          <b className="prof-cli-tx">{c.name}</b>
+          <button
+            type="button"
+            className="btn ghost prof-small"
+            onClick={() => {
+              profileAction({ op: "login", id, cli: c.id });
+              showToast(t("profileLoginSent"));
+            }}
+          >
+            {t("profileRelogin")}
+          </button>
+          <button type="button" className="btn ghost prof-small prof-out" aria-label={`${t("profileLogout")} ${c.name} (${name})`} onClick={() => onLogout(c.id)}>
+            {t("profileLogout")}
+          </button>
+        </div>
+      ))}
+      {off.length > 0 && (
+        <div className="prof-cli">
+          <button type="button" className="btn ghost prof-add" onClick={() => onAdd(off.map((c) => c.id))}>
+            + {t("profileAddAgent")}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ProfileCard({ p, onAdd, onLogout }: { p: ProfileInfo; onAdd: (off: ProfileCli[]) => void; onLogout: (cli: ProfileCli) => void }) {
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
   const [name, setName] = useState(p.name);
   const [color, setColor] = useState(p.color);
@@ -113,78 +219,92 @@ function ProfileCard({ p }: { p: ProfileInfo }) {
         </div>
       )}
 
-      {mode !== "delete" &&
-        CLIS.map((c) => {
-          const on = p.loggedIn[c.id];
-          return (
-            <div key={c.id} className="prof-cli">
-              <span className="prof-cli-tx">
-                <b>{c.name}</b>
-                <small className={"prof-state" + (on ? " on" : "")}>{on ? t("profileSignedIn") : t("profileSignedOut")}</small>
-              </span>
-              <button
-                type="button"
-                className="btn ghost prof-small"
-                onClick={() => {
-                  profileAction({ op: "login", id: p.id, cli: c.id });
-                  showToast(t("profileLoginSent"));
-                }}
-              >
-                {on ? t("profileRelogin") : t("profileLogin")}
-              </button>
-            </div>
-          );
-        })}
+      {mode !== "delete" && <Agents id={p.id} name={p.name} loggedIn={p.loggedIn} onAdd={onAdd} onLogout={onLogout} />}
     </div>
   );
 }
 
-function NewProfile() {
-  const [name, setName] = useState("");
-  const [color, setColor] = useState(COLORS[0]);
-  const [copy, setCopy] = useState(true);
-  const create = () => {
-    const n = name.trim();
-    if (!n) return;
-    profileAction({ op: "create", name: n, color, copySettings: copy });
-    setName("");
-    setColor(COLORS[0]);
+/** The Profili page: the desktop's account profiles, mirrored. Every change is a request to the desktop; the list updates when it answers. `defaultLoggedIn` is null for a desktop that doesn't send it. */
+export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileInfo[] | null; defaultLoggedIn: LoggedIn | null }) {
+  const [sheet, setSheet] = useState<SheetState | null>(null);
+  const [open, setOpen] = useState(false);
+  const show = (s: SheetState) => {
+    setSheet(s);
+    setOpen(true);
   };
-  return (
-    <section>
-      <h2 className="group">{t("profileNew")}</h2>
-      <div className="card set-card prof-card">
-        <div className="prof-form">
-          <input className="set-input" value={name} maxLength={64} aria-label={t("profileName")} placeholder={t("profileName")} enterKeyHint="done" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
-          <Colors value={color} onChange={setColor} />
-          <Check label={t("profileCopySettings")} hint={t("profileCopySettingsHint")} on={copy} onChange={setCopy} />
-          <button type="button" className="btn primary" disabled={!name.trim()} onClick={create}>
-            {t("profileCreate")}
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
+  const close = () => setOpen(false);
+  // The state outlives the closing, so the sheet's content stays put while it slides out.
+  const add = sheet?.kind === "add" ? sheet : null;
+  const out = sheet?.kind === "logout" ? sheet : null;
+  const outName = CLIS.find((c) => c.id === out?.cli)?.name ?? "";
 
-/** The Profili page: the desktop's account profiles, mirrored. Every change is a request to the desktop; the list updates when it answers. */
-export function ProfilesPage({ profiles }: { profiles: ProfileInfo[] | null }) {
   if (profiles === null) return <div className="empty">{t("profilesWaiting")}</div>;
+  const defaultName = t("defaultProfile");
   return (
     <>
+      <button type="button" className="btn primary big prof-new" onClick={() => show({ kind: "new" })}>
+        + {t("profileNew")}
+      </button>
+
       <div className="card set-card prof-card">
         <div className="prof-head">
           <i className="prof-dot default" />
-          <span className="set-label">
-            <b>{t("defaultProfile")}</b>
-            <small className="set-hint">{t("profileDefaultHint")}</small>
-          </span>
+          {defaultLoggedIn ? (
+            <b className="prof-name">{defaultName}</b>
+          ) : (
+            <span className="set-label">
+              <b>{defaultName}</b>
+              <small className="set-hint">{t("profileDefaultHint")}</small>
+            </span>
+          )}
         </div>
+        {defaultLoggedIn && (
+          <Agents
+            id=""
+            name={defaultName}
+            loggedIn={defaultLoggedIn}
+            onAdd={(off) => show({ kind: "add", id: "", name: defaultName, off })}
+            onLogout={(cli) => show({ kind: "logout", id: "", name: defaultName, cli })}
+          />
+        )}
       </div>
       {profiles.map((p) => (
-        <ProfileCard key={p.id} p={p} />
+        <ProfileCard key={p.id} p={p} onAdd={(off) => show({ kind: "add", id: p.id, name: p.name, off })} onLogout={(cli) => show({ kind: "logout", id: p.id, name: p.name, cli })} />
       ))}
-      <NewProfile />
+
+      <NewProfileSheet open={open && sheet?.kind === "new"} onClose={close} />
+      <Sheet open={open && sheet?.kind === "add"} onClose={close} title={t("profileAddAgent")} subtitle={add?.name}>
+        {CLIS.filter((c) => add?.off.includes(c.id)).map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            className="ps-row"
+            onClick={() => {
+              if (add) profileAction({ op: "login", id: add.id, cli: c.id });
+              showToast(t("profileLoginSent"));
+              close();
+            }}
+          >
+            {c.name}
+          </button>
+        ))}
+      </Sheet>
+      <Sheet open={open && sheet?.kind === "logout"} onClose={close} title={t("profileLogoutTitle", { name: outName })}>
+        <p className="prof-note">{t("profileLogoutHint", { name: outName, profile: out?.name ?? "" })}</p>
+        <button
+          type="button"
+          className="btn big prof-danger-fill"
+          onClick={() => {
+            if (out) profileAction({ op: "logout", id: out.id, cli: out.cli });
+            close();
+          }}
+        >
+          {t("profileLogout")}
+        </button>
+        <button type="button" className="btn ghost big" onClick={close}>
+          {t("profileCancel")}
+        </button>
+      </Sheet>
     </>
   );
 }

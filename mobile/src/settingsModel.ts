@@ -79,12 +79,15 @@ export function normalizeSettings(raw: unknown): MirroredSettings | null {
 
 /** The profile list as sent, dropping anything of the wrong shape. */
 /** @internal exported for tests */
+export function normalizeLoggedIn(raw: unknown): ProfileInfo["loggedIn"] | null {
+  return isObj(raw) ? { claude: bool(raw.claude, false), codex: bool(raw.codex, false), vibe: bool(raw.vibe, false) } : null;
+}
+
 export function normalizeProfiles(raw: unknown): ProfileInfo[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((x) => {
     if (!isObj(x) || typeof x.id !== "string") return [];
-    const l = isObj(x.loggedIn) ? x.loggedIn : {};
     const color = typeof x.color === "string" && /^#[0-9a-fA-F]{6}$/.test(x.color) ? x.color : "#64748b";
-    return [{ id: x.id, name: str(x.name, x.id), color, loggedIn: { claude: bool(l.claude, false), codex: bool(l.codex, false), vibe: bool(l.vibe, false) } }];
+    return [{ id: x.id, name: str(x.name, x.id), color, loggedIn: normalizeLoggedIn(x.loggedIn) ?? { claude: false, codex: false, vibe: false } }];
   });
 }

@@ -45,8 +45,10 @@ pub enum ClientMsg {
     Set { key: String, value: serde_json::Value },
     /// Manage the account profiles (see `ServerMsg::Profiles`). `op` is
     /// `create` (`name`, `color`, optional `copySettings`), `update` (`id`,
-    /// `name`, `color`), `delete` (`id`, optional `deleteFiles`) or `login`
-    /// (`id`, `cli`: opens that CLI's sign-in in a new desktop terminal tab).
+    /// `name`, `color`), `delete` (`id`, optional `deleteFiles`), `login`
+    /// (`id`, `cli`: opens that CLI's sign-in in a new desktop terminal tab) or
+    /// `logout` (`id`, `cli`). For `login` / `logout` an `id` of `""` is the
+    /// default profile.
     Profile {
         op: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -110,7 +112,13 @@ pub enum ServerMsg {
     /// The account profiles, as a JSON array of
     /// `{id, name, color, loggedIn: {claude, codex, vibe}}`. Sent after `ready`
     /// once the desktop has published them, and again on every change.
-    Profiles { profiles: serde_json::Value },
+    /// `default_logged_in` is the default profile's `{claude, codex, vibe}`
+    /// login state, when the desktop knows it.
+    Profiles {
+        profiles: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default_logged_in: Option<serde_json::Value>,
+    },
     /// A desktop notification mirrored to phones; `tab_id` matches
     /// `Tab::tab_id` when it is about a tab.
     Notify {
@@ -255,8 +263,10 @@ mod tests {
                 cli: None
             }
         );
-        let json = serde_json::to_value(ServerMsg::Profiles { profiles: serde_json::json!([]) }).unwrap();
+        let json = serde_json::to_value(ServerMsg::Profiles { profiles: serde_json::json!([]), default_logged_in: None }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "profiles", "profiles": [] }));
+        let json = serde_json::to_value(ServerMsg::Profiles { profiles: serde_json::json!([]), default_logged_in: Some(serde_json::json!({ "claude": true })) }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "profiles", "profiles": [], "defaultLoggedIn": { "claude": true } }));
     }
 
     #[test]

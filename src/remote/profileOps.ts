@@ -9,7 +9,9 @@ export type ProfileOp =
   | { op: "create"; name: string; color: string; copySettings: boolean }
   | { op: "update"; id: string; name: string; color: string }
   | { op: "delete"; id: string; deleteFiles: boolean }
-  | { op: "login"; id: string; cli: ProfileCli };
+  /** `id` null = the default profile. */
+  | { op: "login"; id: string | null; cli: ProfileCli }
+  | { op: "logout"; id: string | null; cli: ProfileCli };
 
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 const MAX_NAME = 64;
@@ -32,7 +34,10 @@ export function parseProfileOp(payload: unknown): ProfileOp | null {
     case "delete":
       return id ? { op: "delete", id, deleteFiles: p.deleteFiles === true } : null;
     case "login":
-      return id && (PROFILE_CLIS as readonly unknown[]).includes(p.cli) ? { op: "login", id, cli: p.cli as ProfileCli } : null;
+    case "logout":
+      // An empty id is the default profile; a malformed one is not.
+      if (!(PROFILE_CLIS as readonly unknown[]).includes(p.cli) || !isStr(p.id) || p.id.length > MAX_NAME) return null;
+      return { op: p.op, id: p.id === "" ? null : p.id, cli: p.cli as ProfileCli };
     default:
       return null;
   }

@@ -666,7 +666,7 @@ function Shell() {
   // render for the long-lived "remote://run-action" listener.
   const remoteActionRef = useRef<(id: string, ptyId: string | null) => void>(() => {});
   /** The phone asked to sign a CLI in under a profile (see loginProfile). */
-  const remoteProfileLoginRef = useRef<(profileId: string, cli: string) => void>(() => {});
+  const remoteProfileLoginRef = useRef<(profileId: string | null, cli: string) => void>(() => {});
   /** The phone asked for a new terminal tab (see useRemoteWindowEvents). */
   const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>(() => {});
   const remoteRenameRef = useRef<(ptyId: string, label: string) => void>(() => {});

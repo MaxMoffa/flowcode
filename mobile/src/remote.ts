@@ -6,9 +6,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { setLanguage, t } from "./i18n";
 import { createStore, safeStorage } from "./store";
-import { normalizeProfiles, normalizeSettings } from "./settingsModel";
+import { normalizeLoggedIn, normalizeProfiles, normalizeSettings } from "./settingsModel";
 
-import type { Action, ClientMsg, MirroredSettings, ProfileAction, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
+import type { Action, ClientMsg, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
 
 // The wire types live in shared/ (also used by the desktop); screens keep importing them from here.
 export type { Action, AgentStatus, ClientMsg, LsEntry, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem, UsageMetric } from "../../shared/remote-types";
@@ -39,6 +39,8 @@ interface Snapshot {
   settings: MirroredSettings | null;
   /** The desktop's account profiles besides the default; null until it sends them (older desktops never do). */
   profiles: ProfileInfo[] | null;
+  /** The default profile's sign-ins; null when the desktop doesn't say (older desktops). */
+  defaultLoggedIn: Record<ProfileCli, boolean> | null;
   /** Last terminal the user opened: the Files screen starts there. */
   lastOpened: string | null;
   /** The tab a tapped notification was about, until the app has opened it. */
@@ -82,7 +84,7 @@ export function resetSettingsCache() {
   store.set({ settings: null });
 }
 
-const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, usage: [], actions: [], settings: loadSettings(), profiles: null, lastOpened: null, openTab: null, toast: null });
+const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, usage: [], actions: [], settings: loadSettings(), profiles: null, defaultLoggedIn: null, lastOpened: null, openTab: null, toast: null });
 const msgListeners = new Set<(m: ServerMsg) => void>();
 const set = store.set;
 
@@ -144,7 +146,7 @@ function handleMsg(m: ServerMsg) {
       break;
     }
     case "profiles":
-      set({ profiles: normalizeProfiles(m.profiles) });
+      set({ profiles: normalizeProfiles(m.profiles), defaultLoggedIn: normalizeLoggedIn(m.defaultLoggedIn) });
       break;
     case "notify":
       // Out of sight, the core shows it as an Android notification instead.
@@ -193,13 +195,13 @@ async function wire(): Promise<void> {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
-    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null, openTab: null } : {}) });
+    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, profiles: null, defaultLoggedIn: null, lastOpened: null, openTab: null } : {}) });
   }));
   // Another desktop became the active one: what is shown belongs to the old one.
   unlisteners.push(await listen("remote://computer", () => {
     saveSettings(null);
     pending.clear();
-    set({ wasOnline: false, firstConnect: true, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null, openTab: null });
+    set({ wasOnline: false, firstConnect: true, tabs: null, usage: [], actions: [], settings: null, profiles: null, defaultLoggedIn: null, lastOpened: null, openTab: null });
   }));
   // The active desktop refused this phone for good; the core already moved to another saved one.
   unlisteners.push(await listen<{ host: string; message: string }>("remote://revoked", (e) => showToast(t("computerRevoked", { host: e.payload.host, message: e.payload.message }))));
