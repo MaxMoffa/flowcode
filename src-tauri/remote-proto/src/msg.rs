@@ -122,9 +122,9 @@ pub enum ServerMsg {
     /// `ready` once the desktop has published them, and again on every change.
     Settings { settings: serde_json::Value },
     /// The account profiles, as a JSON array of
-    /// `{id, name, color, loggedIn: {claude, codex, vibe}}`. Sent after `ready`
+    /// `{id, name, color, loggedIn: {claude, codex, vibe, gemini}}`. Sent after `ready`
     /// once the desktop has published them, and again on every change.
-    /// `default_logged_in` is the default profile's `{claude, codex, vibe}`
+    /// `default_logged_in` is the default profile's `{claude, codex, vibe, gemini}`
     /// login state, when the desktop knows it.
     Profiles {
         profiles: serde_json::Value,

@@ -9,6 +9,7 @@ import "./welcome-overrides.css";
 // Registers the theme-customization step's component (its type is registered
 // by welcomeFlowConfig).
 import "./steps/ThemeCustomizeStepView";
+import "./steps/MobileAppStepView";
 import { useTheme } from "../themes/ThemeContext";
 import { buildWelcomeFlow } from "./welcomeFlowConfig";
 import { flowThemeForPalette } from "./flowcodeFlowTheme";

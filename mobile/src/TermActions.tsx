@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { useBackHandler } from "./back";
+import { useRef } from "react";
+import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { BoltIcon, CloseIcon } from "./icons";
 import { send, showToast, type Action, type Tab } from "./remote";
@@ -13,12 +13,7 @@ export function runAction(ptyId: string, a: Action) {
 
 /** Bottom sheet with the desktop's quick actions, run in this terminal. */
 export function TermActions({ tab, actions, open, onClose }: { tab: Tab; actions: Action[]; open: boolean; onClose: () => void }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscape(open, onClose);
 
   useBackHandler(open, onClose);
   const sheet = useRef<HTMLElement>(null);

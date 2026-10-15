@@ -3,8 +3,6 @@
 // counts as protocol 1 with none of the optional features.
 import type { RemoteCap } from "../../shared/remote-types";
 
-/** The protocol revision this phone speaks (Rust: `PROTOCOL_VERSION`). */
-export const PHONE_PROTO = 2;
 /** The oldest desktop protocol this phone still works with; below it the app is blocked. */
 export const MIN_DESKTOP_PROTO = 1;
 

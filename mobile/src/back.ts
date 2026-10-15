@@ -40,3 +40,17 @@ export function useBackHandler(active: boolean, onBack: () => void): void {
     };
   }, [active]);
 }
+
+/** Closes an open sheet or menu on Escape (hardware keyboards); `onClose` may change every render. */
+export function useEscape(open: boolean, onClose: () => void) {
+  const ref = useRef(onClose);
+  ref.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") ref.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+}

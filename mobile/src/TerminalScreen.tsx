@@ -35,6 +35,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
   const canRename = useSupports("rename");
   const [draft, setDraft] = useState("");
   const cancelRename = useRef(false);
+  const lastLink = useRef({ url: "", at: 0 });
   const { ptyId } = tab;
   const settings = useRemoteSelector((s) => s.settings);
   const tabs = useRemoteSelector((s) => s.tabs);
@@ -49,6 +50,9 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
   /** A link was tapped: open it at once when the user opted out of the prompt, else ask in the sheet. */
   const onLink = useCallback(
     (url: string) => {
+      const now = Date.now();
+      if (lastLink.current.url === url && now - lastLink.current.at < 600) return;
+      lastLink.current = { url, at: now };
       if (settings?.confirmLinkOpen === false) void openLink(url);
       else setLinkUrl(url);
     },

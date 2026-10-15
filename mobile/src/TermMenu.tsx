@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { useBackHandler } from "./back";
+import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { BoltIcon, FolderIcon, KeyboardIcon } from "./icons";
 
@@ -15,12 +14,7 @@ export function TermMenu(props: {
 }) {
   const { open, onClose } = props;
   useBackHandler(open, onClose);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscape(open, onClose);
   if (!open) return null;
   return (
     <>

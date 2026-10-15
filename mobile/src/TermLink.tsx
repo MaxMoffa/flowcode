@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useBackHandler } from "./back";
+import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { CheckIcon, CloseIcon, CopyIcon, GlobeIcon } from "./icons";
 import { setSetting, showToast } from "./remote";
@@ -24,12 +24,7 @@ export function TermLink({ url, onClose }: { url: string | null; onClose: () => 
   if (url) last.current = url;
   const shown = last.current;
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscape(open, onClose);
 
   useBackHandler(open, onClose);
   const sheet = useRef<HTMLElement>(null);

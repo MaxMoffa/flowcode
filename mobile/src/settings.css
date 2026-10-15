@@ -202,20 +202,6 @@
   overflow-wrap: anywhere;
 }
 
-.prof-cli-tx {
-  display: flex;
-  flex-direction: column;
-}
-
-.prof-state {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.prof-state.on {
-  color: var(--accent);
-}
-
 .prof-small {
   flex: none;
   min-height: 44px;

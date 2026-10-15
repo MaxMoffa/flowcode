@@ -138,10 +138,14 @@ export function markFirstConnect(on: boolean) {
 
 function handleMsg(m: ServerMsg) {
   switch (m.t) {
-    case "ready":
-      // A different desktop (or an update) deserves the banner again.
-      set({ host: hostInfoFrom(m), compatDismissed: false });
+    case "ready": {
+      // A different desktop (or an update) deserves the banner again; a plain reconnect to the same one does not.
+      const host = hostInfoFrom(m);
+      const prev = store.get().host;
+      const same = !!prev && prev.appVersion === host.appVersion && prev.proto === host.proto && prev.caps.join(",") === host.caps.join(",");
+      set(same ? { host } : { host, compatDismissed: false });
       break;
+    }
     case "tabs":
       set({ tabs: m.tabs });
       break;

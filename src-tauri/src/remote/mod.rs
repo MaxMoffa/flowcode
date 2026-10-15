@@ -1605,7 +1605,7 @@ impl Conn {
                 if label.is_empty() {
                     return;
                 }
-                if label.len() > 128 {
+                if label.chars().count() > 128 {
                     self.error(tr("Nome troppo lungo", "Name too long"), Some(pty_id));
                     return;
                 }

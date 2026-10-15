@@ -98,12 +98,12 @@ Client messages:
 | `close {ptyId}` | Stop streaming; the pty gets its desktop size back. |
 | `input {ptyId, data}` | Keystrokes, UTF-8, at most **64 KiB** (`proto::MAX_INPUT_BYTES`), written to the pty in order. |
 | `action {id, ptyId?}` | Run a published action (see `actions`) in the tab owning `ptyId`, or in the main window. Unknown ids get an `error`. |
-| `rename {ptyId, label}` | Rename the desktop tab owning `ptyId`, like a desktop rename: the label is trimmed (max 128 bytes) and a blank one is ignored. An unknown pty gets an `error`. No reply: the next `tabs` shows the new label. |
+| `rename {ptyId, label}` | Rename the desktop tab owning `ptyId`, like a desktop rename: the label is trimmed (max 128 characters) and a blank one is ignored. An unknown pty gets an `error`. No reply: the next `tabs` shows the new label. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
 | `set {key, value}` | Change one mirrored desktop setting (see `settings`). `key` must be non-empty and at most 64 bytes and `value` at most 4 KiB as JSON, else `error`; an unknown key or a value of the wrong type is ignored by the desktop (it is not applied; an unknown palette id falls back to the default palette). |
-| `profile {op, ...}` | Manage the account profiles (see `profiles`). `op` is `create` (`name`, `color` as `#rrggbb`, optional `copySettings`, default true), `update` (`id`, `name`, `color`), `delete` (`id`, optional `deleteFiles`, default false) `login` (`id`, `cli`: `claude`, `codex` or `vibe`) or `logout` (`id`, `cli`). For `login` and `logout` an `id` of `""` is the default profile; `update`/`delete` need a real id. Strings are at most 64 bytes (`color`/`cli` 16); a malformed request gets an `error`. Only the desktop's remote leader window acts on it (the same window as `action`); `create`/`update`/`delete` apply the desktop's own rules (non-empty unique name, valid color) and a rejected one is simply not applied, the next `profiles` shows the truth. `login` opens the CLI's sign-in in a **new terminal tab on the desktop** (after checking the CLI is installed; otherwise the desktop offers to install it): the phone can then open that tab from its `tabs` list. `logout` signs the CLI out of the profile right away (no confirm on the desktop; the phone asks first). There is no reply; watch `profiles`. |
-| `newtab {cwd?, cli?}` | Open a new terminal tab on the desktop, in `cwd` (else the shell's start folder), starting the agent `cli` (`claude`, `codex` or `vibe`) in it if given. A `cwd` that is not an existing folder on the computer, or an unknown `cli`, gets an `error`. There is no reply; the new tab shows in the next `tabs`. |
+| `profile {op, ...}` | Manage the account profiles (see `profiles`). `op` is `create` (`name`, `color` as `#rrggbb`, optional `copySettings`, default true), `update` (`id`, `name`, `color`), `delete` (`id`, optional `deleteFiles`, default false) `login` (`id`, `cli`: `claude`, `codex`, `vibe` or `gemini`) or `logout` (`id`, `cli`). For `login` and `logout` an `id` of `""` is the default profile; `update`/`delete` need a real id. Strings are at most 64 bytes (`color`/`cli` 16); a malformed request gets an `error`. Only the desktop's remote leader window acts on it (the same window as `action`); `create`/`update`/`delete` apply the desktop's own rules (non-empty unique name, valid color) and a rejected one is simply not applied, the next `profiles` shows the truth. `login` opens the CLI's sign-in in a **new terminal tab on the desktop** (after checking the CLI is installed; otherwise the desktop offers to install it): the phone can then open that tab from its `tabs` list. `logout` signs the CLI out of the profile right away (no confirm on the desktop; the phone asks first). There is no reply; watch `profiles`. |
+| `newtab {cwd?, cli?, profile?}` | Open a new terminal tab on the desktop, in `cwd` (else the shell's start folder), starting the agent `cli` (`claude`, `codex`, `vibe` or `gemini`) in it if given, under the account profile `profile` (`""` = the default one, an unknown id falls back to it; absent = automatic, the folder's project default). A `cwd` that is not an existing folder on the computer, or an unknown `cli`, gets an `error`. There is no reply; the new tab shows in the next `tabs`. |
 | `ping` | Answered with `pong`. Send one now and then to detect a dead link. |
 
 Server messages:
@@ -117,7 +117,7 @@ Server messages:
 | `usage {items}` | Usage readings the desktop shows (Claude Code / Codex limits...). Pushed on `ready` and on change. |
 | `actions {actions}` | Quick actions the phone may run. Pushed on `ready` and on change. |
 | `settings {settings}` | The desktop settings the phone mirrors, as one JSON object (keys below). Pushed after `ready` once published, and on every change, including ones made on the desktop. |
-| `profiles {profiles, defaultLoggedIn?}` | The account profiles besides the default one, as an array of `{id, name, color, loggedIn: {claude, codex, vibe}}` (booleans, read off the CLIs' files). `defaultLoggedIn` is the default profile's `{claude, codex, vibe}` in the same form; absent from older desktops (and until the desktop knows it). Pushed after `ready` once published, and on every change, including ones made on the desktop and sign-ins finishing. |
+| `profiles {profiles, defaultLoggedIn?}` | The account profiles besides the default one, as an array of `{id, name, color, loggedIn: {claude, codex, vibe, gemini}}` (booleans, read off the CLIs' files). `defaultLoggedIn` is the default profile's `{claude, codex, vibe, gemini}` in the same form; absent from older desktops (and until the desktop knows it). Pushed after `ready` once published, and on every change, including ones made on the desktop and sign-ins finishing. |
 | `ls {ptyId, path, entries}` | Reply to `ls`. |
 | `file {ptyId, path, text, truncated}` | Reply to `read`. |
 | `pong` | Reply to `ping`. |
@@ -151,7 +151,7 @@ the desktop and then applied as if changed in its own settings.
 
 ```
 Tab        {ptyId, tabId, window, label, cwd, cols, rows,
-            cli?: "claude"|"codex"|"vibe", status?: "busy"|"idle"|"waiting",
+            cli?: "claude"|"codex"|"vibe"|"gemini", status?: "busy"|"idle"|"waiting",
             context?: {used, window, model?}}
 UsageItem  {pluginId, label, profile?, profileName?, profileColor?, metrics: [UsageMetric]}
 UsageMetric{kind, label?, percent?, resets?, command?, period?, cost?, tokens?, sessions?}

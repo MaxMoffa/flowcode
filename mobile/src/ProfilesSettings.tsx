@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useBackHandler } from "./back";
+import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { CloseIcon, Svg } from "./icons";
 import { profileAction, showToast, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
@@ -51,12 +51,7 @@ function Check({ label, hint, on, onChange }: { label: string; hint: string; on:
 /** Bottom sheet, same look as the terminal's. Always mounted so it can slide; closes on Escape, Back, the scrim or a swipe down. */
 function Sheet({ open, onClose, title, subtitle, children }: { open: boolean; onClose: () => void; title: string; subtitle?: string; children: ReactNode }) {
   const ref = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscape(open, onClose);
   useBackHandler(open, onClose);
   useSheetDrag(ref, onClose, open);
 

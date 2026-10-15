@@ -27,7 +27,7 @@ export function IncompatibleScreen({ host, hostName }: { host: HostInfo; hostNam
 /** Some features need a newer desktop; the phone works, minus those. */
 export function CompatBanner({ host, hostName }: { host: HostInfo; hostName?: string }) {
   const { missing } = checkCompat(host);
-  const features = missing.map((c) => t(CAP_LABELS[c])).join(", ");
+  const features = [...new Set(missing.map((c) => t(CAP_LABELS[c])))].join(", ");
   return (
     <div className="compat-banner" role="status">
       <div className="compat-tx">

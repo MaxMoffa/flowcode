@@ -77,12 +77,12 @@ export function normalizeSettings(raw: unknown): MirroredSettings | null {
   };
 }
 
-/** The profile list as sent, dropping anything of the wrong shape. */
-/** @internal exported for tests */
+/** One `{claude, codex, vibe, gemini}` sign-in map as sent; null when it isn't an object. */
 export function normalizeLoggedIn(raw: unknown): ProfileInfo["loggedIn"] | null {
   return isObj(raw) ? { claude: bool(raw.claude, false), codex: bool(raw.codex, false), vibe: bool(raw.vibe, false), gemini: bool(raw.gemini, false) } : null;
 }
 
+/** The profile list as sent, dropping anything of the wrong shape. */
 export function normalizeProfiles(raw: unknown): ProfileInfo[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((x) => {
