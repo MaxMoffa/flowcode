@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type AgentCli = "claude" | "codex" | "vibe";
-export const AGENT_CLIS: readonly AgentCli[] = ["claude", "codex", "vibe"];
+export type AgentCli = "claude" | "codex" | "vibe" | "gemini";
+export const AGENT_CLIS: readonly AgentCli[] = ["claude", "codex", "vibe", "gemini"];
 
 interface CliInfo {
   /** Id of the example plugin that launches it (also the usage fetcher key). */
@@ -18,6 +18,8 @@ export const CLI_INFO: Record<AgentCli, CliInfo> = {
   claude: { pluginId: "claude-code", name: "Claude Code", label: "Claude Code", loginCommand: "claude auth login" },
   codex: { pluginId: "codex-cli", name: "Codex", label: "Codex CLI", loginCommand: "codex login" },
   vibe: { pluginId: "mistral-vibe", name: "Mistral Vibe", label: "Mistral Vibe", loginCommand: "vibe --setup" },
+  // Gemini signs in from its own first-run screen (Google account or API key).
+  gemini: { pluginId: "gemini-cli", name: "Gemini", label: "Gemini CLI", loginCommand: "gemini" },
 };
 
 export const cliOfPlugin = (pluginId: string): AgentCli | undefined => AGENT_CLIS.find((c) => CLI_INFO[c].pluginId === pluginId);

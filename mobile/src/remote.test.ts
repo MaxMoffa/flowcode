@@ -49,8 +49,8 @@ describe("normalizeProfiles", () => {
   it("drops entries without a string id and fills the rest", () => {
     const out = normalizeProfiles([{ id: "w", name: "Work", color: "#112233", loggedIn: { claude: true, codex: "yes" } }, { name: "x" }, 7, { id: "p" }]);
     expect(out).toEqual([
-      { id: "w", name: "Work", color: "#112233", loggedIn: { claude: true, codex: false, vibe: false } },
-      { id: "p", name: "p", color: "#64748b", loggedIn: { claude: false, codex: false, vibe: false } },
+      { id: "w", name: "Work", color: "#112233", loggedIn: { claude: true, codex: false, vibe: false, gemini: false } },
+      { id: "p", name: "p", color: "#64748b", loggedIn: { claude: false, codex: false, vibe: false, gemini: false } },
     ]);
   });
 

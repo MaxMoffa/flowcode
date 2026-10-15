@@ -18,6 +18,7 @@ const PROFILE_CLI: Record<string, AgentCli> = {
   "claude-code": "claude",
   "codex-cli": "codex",
   "mistral-vibe": "vibe",
+  "gemini-cli": "gemini",
 };
 
 /** Usage changes are coalesced: a refresh round fetches several plugins and

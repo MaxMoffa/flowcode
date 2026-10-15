@@ -6,11 +6,12 @@ import { AgentLogo, FolderIcon, TerminalIcon } from "./icons";
 import { send, useRemoteSelector } from "./remote";
 import { useSheetDrag } from "./useSheetDrag";
 
-type Cli = "claude" | "codex" | "vibe";
+type Cli = "claude" | "codex" | "vibe" | "gemini";
 const AGENTS: { id: Cli; name: string }[] = [
   { id: "claude", name: "Claude Code" },
   { id: "codex", name: "Codex" },
   { id: "vibe", name: "Mistral Vibe" },
+  { id: "gemini", name: "Gemini CLI" },
 ];
 
 /** "Nuovo terminale": where (a folder of the open tabs, or the desktop's start

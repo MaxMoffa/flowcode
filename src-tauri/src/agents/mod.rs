@@ -46,7 +46,7 @@ pub struct ProbePids(Mutex<HashSet<u32>>);
 /// launcher (uv/pip) starting Python, elsewhere a script whose process takes
 /// its name - and `vibe-rs` when it runs its Rust TUI.
 const AGENT_BINARIES: &[(&str, &str)] =
-    &[("claude", "Claude Code"), ("codex", "Codex CLI"), ("vibe", "Mistral Vibe")];
+    &[("claude", "Claude Code"), ("codex", "Codex CLI"), ("vibe", "Mistral Vibe"), ("gemini", "Gemini CLI")];
 
 /// Matches a process name against `AGENT_BINARIES` - the binary itself or a
 /// `<bin>-...` variant of it, except for Vibe's editor/desktop servers
@@ -138,6 +138,15 @@ fn find_agent(
                 if let Some((bin, label)) = agent_binary(&name) {
                     let started_at = process.start_time().checked_mul(1000);
                     return Some((bin, label, pid.as_u32(), started_at));
+                }
+                // Gemini CLI is a Node script: its process is `node` (a `gemini.cmd`
+                // shim on Windows), told apart by the script on the command line.
+                if name == "node" {
+                    let args: Vec<String> = process.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+                    if node_runs_gemini(&args) {
+                        let started_at = process.start_time().checked_mul(1000);
+                        return Some(("gemini", "Gemini CLI", pid.as_u32(), started_at));
+                    }
                 }
                 if own_name == Some(name.as_str()) {
                     continue;
@@ -392,6 +401,15 @@ fn thread_in<'a>(threads: &'a [LiveThread], cwd: &str) -> Option<&'a LiveThread>
     threads.iter().filter(|t| same_dir(&t.cwd, cwd)).max_by_key(|t| t.updated_at)
 }
 
+/// Whether a `node` command line runs Gemini CLI: its script is `gemini` /
+/// `gemini.js` or lives in the `@google/gemini-cli` package (either slash).
+fn node_runs_gemini(args: &[String]) -> bool {
+    args.iter().skip(1).take(3).any(|a| {
+        let a = a.to_lowercase().replace('\\', "/");
+        a.contains("@google/gemini-cli") || matches!(a.rsplit('/').next(), Some("gemini" | "gemini.js" | "gemini.mjs"))
+    })
+}
+
 /// Which agent CLI a Linux process is: by its own name, or - for a Node
 /// wrapper (`node .../codex.js`, `node .../claude/cli.js`) or Python
 /// (`python .../bin/vibe`) - by the script it runs.
@@ -424,6 +442,11 @@ mod tests {
         assert_eq!(agent_of("python3", "python3 /home/u/.local/bin/vibe --resume x").map(|a| a.0), Some("vibe"));
         assert_eq!(agent_of("vibe-rs", "vibe-rs").map(|a| a.0), Some("vibe"));
         assert_eq!(agent_of("vibe-app-serv", "/home/u/.local/bin/vibe-app-server"), None);
+        assert_eq!(agent_of("node", "node /usr/lib/node_modules/@google/gemini-cli/dist/index.js").map(|a| a.0), Some("gemini"));
+        assert_eq!(agent_of("node", "node /usr/bin/gemini").map(|a| a.0), Some("gemini"));
+        assert_eq!(agent_of("gemini", "gemini --resume latest").map(|a| a.0), Some("gemini"));
+        assert!(super::node_runs_gemini(&["node".into(), r"C:\Users\u\AppData\Roaming\npm\node_modules\@google\gemini-cli\dist\index.js".into()]));
+        assert!(!super::node_runs_gemini(&["node".into(), "server.js".into()]));
         assert_eq!(agent_of("node", "node server.js"), None);
         assert_eq!(agent_of("bash", "bash"), None);
     }

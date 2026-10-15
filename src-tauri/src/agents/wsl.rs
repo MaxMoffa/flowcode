@@ -62,7 +62,7 @@ pub(super) struct WslProc {
 /// tab-separated.
 pub(super) const WSL_SCAN: &str = r#"for d in /proc/[0-9]*; do
   read -r c < "$d/comm" 2>/dev/null || continue
-  case "$c" in claude|codex|codex-*|vibe|vibe-*|node|MainThread) ;; *) continue ;; esac
+  case "$c" in claude|codex|codex-*|vibe|vibe-*|gemini|node|MainThread) ;; *) continue ;; esac
   p=${d#/proc/}
   case "$c" in codex*)
     for f in "$d"/fd/*; do

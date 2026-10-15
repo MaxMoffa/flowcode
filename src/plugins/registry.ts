@@ -64,5 +64,13 @@ export function examplePlugins(): PluginManifest[] {
       command: "vibe",
       icon: "M4 5h4v4H4zM16 5h4v4h-4zM4 10h16v4H4zM4 15h4v4H4zM16 15h4v4h-4z",
     },
+    {
+      id: "gemini-cli",
+      label: "Gemini CLI",
+      description: t("plugin.cli.description", { name: "Gemini CLI" }),
+      action: "runCommand",
+      command: "gemini",
+      icon: "M12 3c.6 5.4 3.6 8.4 9 9-5.4.6-8.4 3.6-9 9-.6-5.4-3.6-8.4-9-9 5.4-.6 8.4-3.6 9-9z",
+    },
   ];
 }

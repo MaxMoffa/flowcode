@@ -124,6 +124,7 @@ import {
   PLUGINS_SEEDED_KEY,
   PLUGINS_MIGRATED_KEY,
   VIBE_PLUGIN_SEEDED_KEY,
+  GEMINI_PLUGIN_SEEDED_KEY,
   PLUGIN_APPROVALS_KEY,
   FAVORITES_BUTTON_VISIBLE_KEY,
   SIDEBAR_COLLAPSED_KEY,
@@ -332,12 +333,17 @@ function Shell() {
         const vibe = examplePlugins().find((p) => p.id === CLI_INFO.vibe.pluginId);
         if (vibe) await invoke("save_plugin", { plugin: vibe });
       }
+      if (seededBefore && !chosen && !readString(GEMINI_PLUGIN_SEEDED_KEY) && !byId.has(CLI_INFO.gemini.pluginId)) {
+        const gemini = examplePlugins().find((p) => p.id === CLI_INFO.gemini.pluginId);
+        if (gemini) await invoke("save_plugin", { plugin: gemini });
+      }
     } catch {
       /* plugins folder unavailable (e.g. dev in a plain browser) */
     }
     writeString(PLUGINS_MIGRATED_KEY, "1");
     writeString(PLUGINS_SEEDED_KEY, "1");
     writeString(VIBE_PLUGIN_SEEDED_KEY, "1");
+    writeString(GEMINI_PLUGIN_SEEDED_KEY, "1");
   }
 
   async function reloadCustomPlugins() {
@@ -910,7 +916,9 @@ function Shell() {
           ? `claude --resume ${sessionId}`
           : cli === "vibe"
             ? `vibe --resume ${sessionId}`
-            : `codex resume ${sessionId}`;
+            : cli === "gemini"
+              ? `gemini --resume ${sessionId}`
+              : `codex resume ${sessionId}`;
       const id = addTab(toWindowsPath(wslDistro, cwd), wslShellId(wslDistro));
       pendingCommandsRef.current.set(id, command);
       return;
@@ -920,7 +928,9 @@ function Shell() {
         ? `claude --resume ${sessionId}`
         : cli === "vibe"
           ? `vibe --resume ${sessionId}`
-          : await withCodexLaunchFlags(`codex resume ${sessionId}`);
+          : cli === "gemini"
+            ? `gemini --resume ${sessionId}`
+            : await withCodexLaunchFlags(`codex resume ${sessionId}`);
     const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
     setTabs((prev) => [...prev, makeTermTab(id, cwd, { profileId })]);
@@ -1403,7 +1413,7 @@ function Shell() {
     // Same tracking as `markAgentLaunching` (see its doc comment), but for
     // the CLI typed straight into the prompt rather than launched through a
     // shortcut - `checkCliAndMaybeLaunch` only ever sees the shortcut path.
-    if (/^(claude|codex|vibe)(\.exe)?(?:\s|$)/i.test(trimmed)) {
+    if (/^(claude|codex|vibe|gemini)(\.exe)?(?:\s|$)/i.test(trimmed)) {
       setTabs((prev) => patchTermTab(prev, tabId, { nestedShell: "agent", wslDistro: undefined }));
     }
   }

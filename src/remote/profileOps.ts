@@ -2,7 +2,7 @@
  * `profile`). The backend already checks shapes and lengths; this re-checks
  * what the desktop acts on, and is pure so it can be unit-tested. */
 
-const PROFILE_CLIS = ["claude", "codex", "vibe"] as const;
+const PROFILE_CLIS = ["claude", "codex", "vibe", "gemini"] as const;
 type ProfileCli = (typeof PROFILE_CLIS)[number];
 
 export type ProfileOp =

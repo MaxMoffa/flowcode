@@ -57,7 +57,7 @@ interface ProfileGroup {
   items: UsageItem[];
 }
 
-const AGENT_ORDER = ["claude-code", "codex-cli", "mistral-vibe"];
+const AGENT_ORDER = ["claude-code", "codex-cli", "mistral-vibe", "gemini-cli"];
 
 function groupByProfile(usage: UsageItem[]): ProfileGroup[] {
   const groups = new Map<string, ProfileGroup>();

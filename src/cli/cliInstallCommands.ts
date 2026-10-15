@@ -23,6 +23,7 @@ import type { AgentCli } from "../agents/cliInfo";
  * inside the double quotes before the inner `powershell` ever saw it. */
 export function cliInstallCommand(cli: AgentCli, isWindows: boolean): string {
   if (cli === "codex") return "npm install -g @openai/codex";
+  if (cli === "gemini") return "npm install -g @google/gemini-cli";
   if (cli === "vibe") {
     return isWindows
       ? 'powershell -NoProfile -ExecutionPolicy ByPass -Command "if (Get-Command uv -ErrorAction SilentlyContinue) { uv tool install mistral-vibe } else { irm https://astral.sh/uv/install.ps1 | iex; Set-Location ~; .\\.local\\bin\\uv.exe tool install mistral-vibe }"'

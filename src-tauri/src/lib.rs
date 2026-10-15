@@ -14,6 +14,7 @@ mod spend;
 mod system;
 mod updater;
 mod util;
+mod gemini;
 mod vibe;
 mod watcher;
 mod windows;

@@ -69,7 +69,7 @@ interface AgentsSidebarProps {
    * `vibe --resume <sessionId>`) - used for a background/saved session with
    * no local tab of its own to switch to. `profileId` is the account profile
    * that owns the session, so it resumes under the same account. */
-  onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex" | "vibe", wslDistro?: string, profileId?: string) => void;
+  onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex" | "vibe" | "gemini", wslDistro?: string, profileId?: string) => void;
   /** The shell id the active tab runs (see `tabShell` in App.tsx), so an
    * agent started in the project folder lands in the same kind of terminal. */
   projectShell?: string;
@@ -77,7 +77,7 @@ interface AgentsSidebarProps {
    * the shell to open it in - absent for a fresh worktree, which is on the
    * host file system. `profileId` is the account profile to run it under
    * (the default one when absent). */
-  onLaunchAgent: (cli: "claude" | "codex" | "vibe", cwd: string, shell?: string, profileId?: string) => void;
+  onLaunchAgent: (cli: "claude" | "codex" | "vibe" | "gemini", cwd: string, shell?: string, profileId?: string) => void;
   /** Opens a plain terminal tab in a folder (a worktree). */
   onOpenFolder: (cwd: string) => void;
   onClose: () => void;
@@ -413,7 +413,7 @@ export function AgentsSidebar({
   );
 
   /** Starts `cli` in the project folder, or in a fresh worktree of its repo. */
-  async function launch(cli: "claude" | "codex" | "vibe", inWorktree: boolean, profileId?: string) {
+  async function launch(cli: "claude" | "codex" | "vibe" | "gemini", inWorktree: boolean, profileId?: string) {
     if (!projectCwd) return;
     if (!inWorktree || !repoRoot) {
       onLaunchAgent(cli, projectCwd, projectShell, profileId);

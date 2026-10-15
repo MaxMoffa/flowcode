@@ -174,6 +174,11 @@ fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
             let home = crate::profiles::dirs(app, profile).map(|d| d.vibe);
             crate::vibe::has_api_key(home.as_deref(), profile.is_none())
         }
+        // Gemini signs in from its own first-run screen (Google account or
+        // API key), so a missing sign-in must never block launching it: being
+        // installed is enough. Profiles' real sign-in state is file-based
+        // (see `gemini::has_login`).
+        "gemini" => true,
         _ => false,
     }
 }
@@ -197,7 +202,7 @@ fn run_status_command(command: &str, envs: &[(String, String)]) -> std::io::Resu
 #[tauri::command]
 pub async fn check_cli_status(app: AppHandle, cli: String, profile: Option<String>) -> Result<CliStatus, String> {
     // `cli` ends up inside a shell command line - only the names this knows.
-    if !matches!(cli.as_str(), "claude" | "codex" | "vibe") {
+    if !matches!(cli.as_str(), "claude" | "codex" | "vibe" | "gemini") {
         return Ok(CliStatus { installed: false, logged_in: false });
     }
     crate::blocking(move || {
@@ -231,6 +236,8 @@ pub async fn cli_billing_mode(
                 .ok()
                 .map_or("unknown", |o| codex_billing_mode(&combined_output(&o))),
             "vibe" => "api",
+            // Gemini: a Google plan or an API key, not told apart from outside.
+            "gemini" => "unknown",
             _ => "unknown",
         })
     })

@@ -21,7 +21,7 @@ export interface Tab {
   cwd: string;
   cols: number;
   rows: number;
-  /** Agent running in the tab (`claude`, `codex`, `vibe`). */
+  /** Agent running in the tab (`claude`, `codex`, `vibe`, `gemini`). */
   cli?: string;
   status?: AgentStatus;
   context?: TabContext;
@@ -64,7 +64,7 @@ export interface LsEntry {
   size?: number;
 }
 
-export type ProfileCli = "claude" | "codex" | "vibe";
+export type ProfileCli = "claude" | "codex" | "vibe" | "gemini";
 
 /** An account profile on the desktop (the default one is not listed). */
 export interface ProfileInfo {

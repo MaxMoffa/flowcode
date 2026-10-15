@@ -1612,7 +1612,7 @@ impl Conn {
             }
             ClientMsg::NewTab { cwd, cli, profile } => {
                 let cwd = cwd.filter(|c| !c.trim().is_empty());
-                if cli.as_deref().is_some_and(|c| !matches!(c, "claude" | "codex" | "vibe")) {
+                if cli.as_deref().is_some_and(|c| !matches!(c, "claude" | "codex" | "vibe" | "gemini")) {
                     self.error(tr("Agente sconosciuto", "Unknown agent"), None);
                     return;
                 }
@@ -1655,7 +1655,7 @@ impl Conn {
                     && (!needs_id || id.as_deref().is_some_and(|s| !s.is_empty()))
                     && (needs_id || !matches!(op.as_str(), "login" | "logout") || id.is_some())
                     && (!needs_look || (name.as_deref().is_some_and(|s| !s.trim().is_empty()) && color.is_some()))
-                    && (!matches!(op.as_str(), "login" | "logout") || matches!(cli.as_deref(), Some("claude" | "codex" | "vibe")));
+                    && (!matches!(op.as_str(), "login" | "logout") || matches!(cli.as_deref(), Some("claude" | "codex" | "vibe" | "gemini")));
                 if !valid {
                     self.error(tr("Richiesta profilo non valida", "Invalid profile request"), None);
                     return;

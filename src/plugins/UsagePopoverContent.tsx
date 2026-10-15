@@ -94,7 +94,7 @@ function ContextSection({ pluginId }: { pluginId: string }) {
   const agent = useActiveAgent();
   // Context is only read for Claude Code and Codex sessions.
   const pluginCli = cliOfPlugin(pluginId);
-  const cli = pluginCli === "vibe" ? undefined : pluginCli;
+  const cli = pluginCli === "vibe" || pluginCli === "gemini" ? undefined : pluginCli;
   const mine = !!agent && agent.cli === cli;
   const sessionId = mine ? agent.sessionId : null;
   const profile = mine ? agent.profile : null;

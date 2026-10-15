@@ -7,9 +7,10 @@ export interface LoginState {
   claude: boolean;
   codex: boolean;
   vibe: boolean;
+  gemini: boolean;
 }
 
-/** An account profile: its own CLAUDE_CONFIG_DIR / CODEX_HOME / VIBE_HOME
+/** An account profile: its own CLAUDE_CONFIG_DIR / CODEX_HOME / VIBE_HOME / GEMINI_CLI_HOME
  * under `dir`. The default profile (the CLIs' usual folders) is never in this
  * list - everywhere it's an absent / `null` / `undefined` profile id. */
 export interface ProfileInfo {

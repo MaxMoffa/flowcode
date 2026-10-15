@@ -12,6 +12,7 @@ const CLIS: { id: ProfileCli; name: string }[] = [
   { id: "claude", name: "Claude Code" },
   { id: "codex", name: "Codex" },
   { id: "vibe", name: "Mistral Vibe" },
+  { id: "gemini", name: "Gemini CLI" },
 ];
 
 type LoggedIn = Record<ProfileCli, boolean>;
