@@ -335,3 +335,16 @@ html.scanning body::before {
   background: transparent;
   color: var(--fg);
 }
+
+/* Adding a computer: room for the back button above the hero, which would
+   otherwise sit under it. */
+.pair.has-close {
+  padding-top: calc(env(safe-area-inset-top) + 68px);
+}
+
+.pair-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  margin-bottom: 8px;
+}

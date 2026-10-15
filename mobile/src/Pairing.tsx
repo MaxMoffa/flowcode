@@ -157,9 +157,7 @@ export function PairingScreen({ initialError, initialLink, onClose }: { initialE
   if (proposal) {
     return (
       <div className="screen pair pair-wait">
-        <div className="logo" aria-hidden="true">
-          <TerminalMark />
-        </div>
+        <img className="pair-logo" src={logo} alt="" />
         <h1>{t("pairConfirmTitle", { host: proposal.hostName ?? t("reconHostFallback") })}</h1>
         {proposal.mine && (
           <p className="muted">
@@ -182,16 +180,14 @@ export function PairingScreen({ initialError, initialLink, onClose }: { initialE
   }
 
   return (
-    <div className="screen pair">
+    <div className={"screen pair" + (onClose && !wait ? " has-close" : "")}>
       {onClose && !wait && (
         <button type="button" className="pair-close" aria-label={t("back")} onClick={onClose}>
           <BackIcon />
         </button>
       )}
       <div className="pair-hero">
-        <div className="logo" aria-hidden="true">
-          <TerminalMark />
-        </div>
+        <img className="pair-logo" src={logo} alt="" />
         <h1>{addMode ? t("addComputerTitle") : t("welcomeTitle")}</h1>
         <p className="muted">{t("welcomeBody")}</p>
       </div>
