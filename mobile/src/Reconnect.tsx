@@ -2,6 +2,7 @@
 // screen while the link to the desktop is down for longer than a blip.
 import { useEffect, useRef, useState } from "react";
 import { t } from "./i18n";
+import { useSheetDrag } from "./useSheetDrag";
 import { Svg } from "./icons";
 import { appResumed, retryNow, useRemoteSelector } from "./remote";
 import "./reconnect.css";
@@ -123,6 +124,7 @@ export function Reconnect() {
   }, [armed, phase]);
 
   const open = armed && !dismissed;
+  useSheetDrag(sheet, () => setDismissed(true), open && mounted);
   useEffect(() => {
     if (open) (primary.current && !primary.current.disabled ? primary.current : sheet.current)?.focus();
   }, [open]);

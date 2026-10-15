@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { BoltIcon, CloseIcon } from "./icons";
 import { send, showToast, type Action, type Tab } from "./remote";
+import { useSheetDrag } from "./useSheetDrag";
 
 /** Runs a quick action in a terminal. */
 export function runAction(ptyId: string, a: Action) {
@@ -20,6 +21,8 @@ export function TermActions({ tab, actions, open, onClose }: { tab: Tab; actions
   }, [open, onClose]);
 
   useBackHandler(open, onClose);
+  const sheet = useRef<HTMLElement>(null);
+  useSheetDrag(sheet, onClose, open);
 
   function run(a: Action) {
     runAction(tab.ptyId, a);
@@ -29,7 +32,7 @@ export function TermActions({ tab, actions, open, onClose }: { tab: Tab; actions
   return (
     <div className={"tm-layer" + (open ? " open" : "")}>
       <div className="tm-scrim" onClick={onClose} />
-      <section className="tm-sheet" role="dialog" aria-modal="true" aria-label={t("features")} aria-hidden={!open}>
+      <section ref={sheet} className="tm-sheet" role="dialog" aria-modal="true" aria-label={t("features")} aria-hidden={!open}>
         <div className="tm-grabber" />
         <header className="tm-sheet-head">
           <div className="tm-sheet-titles">

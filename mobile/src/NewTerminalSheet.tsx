@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useBackHandler } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
 import { AgentLogo, FolderIcon, TerminalIcon } from "./icons";
 import { send, useRemoteSelector } from "./remote";
+import { useSheetDrag } from "./useSheetDrag";
 
 type Cli = "claude" | "codex" | "vibe";
 const AGENTS: { id: Cli; name: string }[] = [
@@ -24,6 +25,8 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
   const [profile, setProfile] = useState<string | null>(null);
   const profiles = useRemoteSelector((r) => r.profiles);
   useBackHandler(open, onClose);
+  const sheet = useRef<HTMLDivElement>(null);
+  useSheetDrag(sheet, onClose, open);
   if (!open) return null;
 
   const create = () => {
@@ -35,7 +38,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
   return (
     <div className="nts-layer">
       <div className="nts-scrim" onClick={onClose} />
-      <div className="nts" role="dialog" aria-modal="true" aria-label={t("newTerminal")}>
+      <div ref={sheet} className="nts" role="dialog" aria-modal="true" aria-label={t("newTerminal")}>
         <div className="nts-grab" aria-hidden="true" />
         <h2>{t("newTerminal")}</h2>
         <div className="nts-field">

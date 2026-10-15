@@ -10,6 +10,7 @@ import { NewTerminalSheet } from "./NewTerminalSheet";
 import { interrupt, useRemoteSelector, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
 import { BusyArc, useOpenNewTab } from "./Terminals";
+import { useSheetDrag } from "./useSheetDrag";
 import { useDocked } from "./wide";
 import { WideFileView } from "./WideFileView";
 import { WideFiles } from "./WideFiles";
@@ -62,6 +63,11 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     setFilesOpen(false);
   };
   useBackHandler(!docked && (agentsOpen || filesOpen), closeDrawers);
+  // Floating panels (not docked) close by dragging them back toward their edge.
+  const filesPanel = useRef<HTMLElement>(null);
+  const agentsPanel = useRef<HTMLElement>(null);
+  useSheetDrag(filesPanel, () => setFilesOpen(false), !docked && filesOpen, "left");
+  useSheetDrag(agentsPanel, () => setAgentsOpen(false), !docked && agentsOpen, "right");
   useBackHandler(doc !== null, () => setDoc(null));
 
   // A closed terminal takes its files with it.
@@ -214,7 +220,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
       </header>
       <div className="w-body">
         {/* Kept mounted while closed, so the folder browsed survives closing the panel. */}
-        <aside className="w-side w-left" hidden={!filesOpen}>
+        <aside ref={filesPanel} className="w-side w-left" hidden={!filesOpen}>
           <WideFiles
             tab={active}
             activeFile={activeFile}
@@ -243,7 +249,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           ) : null}
         </main>
         {agentsOpen && (
-          <aside className="w-side w-right">
+          <aside ref={agentsPanel} className="w-side w-right">
             <div className="w-ph">
               <span className="w-ph-title">{t("activeAgents")}</span>
               <button type="button" className="w-ib sm" aria-label={t("newTerminal")} onClick={() => setSheet(true)}>
