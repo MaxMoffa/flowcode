@@ -1,66 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { BackIcon, ChevronIcon, CloseIcon, FileIcon, FolderIcon } from "./icons";
-import { onMessage, send, showToast, useRemoteSelector, type LsEntry, type Tab } from "./remote";
+import { formatSize } from "./common";
+import { joinPath, useListing } from "./fileListing";
+import { onMessage, send, showToast, type Tab } from "./remote";
 import { cdCommand, dialectFor, shellQuote } from "./termShell";
-
-const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
-
-function formatSize(n?: number): string {
-  if (n === undefined) return "";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 /** The file explorer drawer of one terminal; paths are relative to the tab's cwd. */
 export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: boolean; onClose: () => void; onType: (text: string) => void }) {
   const { ptyId, cwd } = tab;
   const [path, setPath] = useState("");
-  const [entries, setEntries] = useState<LsEntry[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const dialect = useMemo(() => dialectFor(cwd), [cwd]);
-  // Listings asked for and not answered yet: only the last reply is current,
-  // and a symlinked folder answers with another path than the one requested.
-  const pending = useRef(0);
-  const lastCwd = useRef(cwd);
   const [file, setFile] = useState<{ path: string; text: string; truncated: boolean } | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setEntries(null);
-    setSelected(null);
-    // A `cd` (or any cwd change) moves the root under us: go back to it, which re-runs this effect.
-    if (lastCwd.current !== cwd) {
-      lastCwd.current = cwd;
-      if (path) {
-        setPath("");
-        return;
-      }
-    }
-    pending.current++;
-    send({ t: "ls", ptyId, path });
-  }, [open, ptyId, path, cwd]);
-
-  // Replies of the old connection will never come.
-  const status = useRemoteSelector((s) => s.status);
-  useEffect(() => {
-    if (status !== "online") pending.current = 0;
-  }, [status]);
+  const entries = useListing({ ptyId, cwd, path, setPath, enabled: open });
+  useEffect(() => setSelected(null), [open, ptyId, path, cwd]);
 
   useEffect(
     () =>
       onMessage((m) => {
-        if (m.t === "ls" && m.ptyId === ptyId && pending.current > 0) {
-          if (--pending.current === 0) setEntries([...m.entries].sort((a, b) => Number(b.dir) - Number(a.dir)));
-        }
-        else if (m.t === "file" && m.ptyId === ptyId) setFile({ path: m.path, text: m.text, truncated: m.truncated });
-        // A refused folder (outside the sandbox, gone...) would otherwise spin forever.
-        else if (m.t === "error" && m.ptyId === ptyId) {
-          if (pending.current > 0) pending.current--;
-          if (pending.current === 0) setEntries((e) => e ?? []);
-        }
+        if (m.t === "file" && m.ptyId === ptyId) setFile({ path: m.path, text: m.text, truncated: m.truncated });
       }),
     [ptyId],
   );
@@ -113,7 +74,7 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
             {entries === null && <div className="tm-empty">{t("loading")}</div>}
             {entries?.length === 0 && <div className="tm-empty">{t("noEntries")}</div>}
             {entries?.map((e) => {
-              const full = join(path, e.name);
+              const full = joinPath(path, e.name);
               const on = selected === e.name;
               return (
                 <div key={e.name} className={"tm-entry" + (on ? " on" : "")}>

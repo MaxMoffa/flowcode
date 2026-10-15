@@ -6,6 +6,7 @@ export type SettingsSection =
   | "startup"
   | "explorer"
   | "agents"
+  | "remote"
   | "shortcuts"
   | "funzionalita"
   | "profiles"

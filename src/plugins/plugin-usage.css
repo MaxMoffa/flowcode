@@ -283,3 +283,27 @@
 .plugin-usage-context .plugin-usage-metric {
   margin-top: 6px;
 }
+
+/* "Compact context": a full-width secondary button under the context metric. */
+.plugin-usage-compact-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.plugin-usage-compact-btn:hover:not(:disabled) {
+  background: var(--ctrl-hover-bg);
+}
+
+.plugin-usage-compact-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

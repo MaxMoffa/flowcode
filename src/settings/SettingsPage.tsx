@@ -560,10 +560,10 @@ export function SettingsPage({
                 </SettingRow>
               )}
             </SettingsGroup>
-
-            <RemoteAccessSettings />
           </>
         )}
+
+        {section === "remote" && <RemoteAccessSettings />}
 
         {section === "shortcuts" && <ShortcutsSettings onOpenGuide={onOpenShortcutsGuide} />}
 

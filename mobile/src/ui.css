@@ -479,6 +479,25 @@ button.card:active {
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
 }
 
+.cs-row {
+  display: flex;
+  align-items: center;
+}
+
+.cs-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.cs-menu .cs-forget {
+  flex: none;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: var(--muted);
+}
+
 .cs-menu button {
   display: flex;
   align-items: center;
@@ -667,14 +686,17 @@ button.card:active {
   gap: 8px;
 }
 
-/* Horizontal carousel: bleeds to the right screen edge (cancels the page's 16px gutter). */
+/* Horizontal carousel: bleeds to both screen edges (cancels the page's 16px
+   gutter) so cards slide off-screen instead of being cut at the gutter; the
+   padding and scroll-padding keep the resting card aligned with the page. */
 .usage-row {
   position: relative;
   display: flex;
   align-items: stretch;
   gap: 10px;
-  margin-right: -16px;
-  padding-right: 16px;
+  margin: 0 -16px;
+  padding: 0 16px;
+  scroll-padding-inline: 16px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
@@ -760,10 +782,18 @@ button.card:active {
 
 .th {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 2px 0;
   line-height: 1.2;
+}
+
+.th-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .th h1 {
@@ -774,124 +804,6 @@ button.card:active {
 .th-sub {
   font-size: 12px;
   color: var(--muted);
-}
-
-.tsection {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.tcard {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 20px;
-  color: inherit;
-}
-
-.tcard.is-waiting {
-  border-color: var(--wait-border);
-}
-
-.tcard-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.tcard-title {
-  font-size: 16px;
-  font-weight: 650;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tcard .row-sub,
-.trow .row-sub {
-  font-size: 11px;
-}
-
-.tcard .pill {
-  gap: 5px;
-  padding: 2px 8px;
-  font-size: 11px;
-}
-
-.tcard .pill i {
-  width: 6px;
-  height: 6px;
-}
-
-.tbadge {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 700;
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
-  color: var(--muted);
-}
-
-.tbadge.claude {
-  background: rgba(217, 119, 87, 0.16);
-  color: #e59a7c;
-}
-
-.tbadge.codex {
-  background: var(--busy-bg);
-  color: var(--busy);
-}
-
-.tbadge.plain svg {
-  width: 18px;
-  height: 18px;
-}
-
-.tlist {
-  display: flex;
-  flex-direction: column;
-  border-radius: 20px;
-  overflow: hidden;
-}
-
-.trow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 60px;
-  padding: 0 14px;
-  border: 0;
-  border-top: 1px solid var(--border);
-  background: transparent;
-  text-align: left;
-  color: inherit;
-}
-
-.trow:first-child {
-  border-top: 0;
-}
-
-.trow:active {
-  background: var(--surface-2);
-}
-
-.trow-title {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.trow > svg {
-  color: var(--muted);
-  flex: none;
 }
 
 /* ---- bottom nav --------------------------------------------------------- */
@@ -1368,4 +1280,276 @@ button.set-row.danger {
   gap: 16px;
   padding: 24px 32px;
   text-align: center;
+}
+
+/* ---- Terminals page: rows by desktop window -------------------------------- */
+
+.th-new {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px 0 10px;
+  border-radius: 12px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font: 600 13.5px var(--font);
+}
+
+.tr-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tr-ghead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 2px 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tr-ghead b {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.tr-list {
+  padding: 0;
+  overflow: hidden;
+}
+
+.tr-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+}
+
+.tr-row + .tr-row {
+  border-top: 1px solid var(--border);
+}
+
+.tr-row:active {
+  background: var(--surface-2);
+}
+
+.tr-row > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.tr-ico {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.tr-ico.is-busy,
+.tr-state.is-busy {
+  color: var(--busy);
+}
+
+.tr-ico.is-waiting,
+.tr-state.is-waiting {
+  color: var(--wait);
+}
+
+.tr-state.is-idle {
+  color: var(--muted);
+}
+
+/* Same constant-speed arc as the desktop's busy tabs (shared/busySweep.ts). */
+.tr-sweep {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tr-sweep rect {
+  fill: none;
+  stroke: var(--busy);
+  stroke-width: 1.5;
+  animation: tr-sweep 1.6s linear infinite;
+}
+
+@keyframes tr-sweep {
+  from {
+    stroke-dashoffset: 0px;
+  }
+  to {
+    stroke-dashoffset: -100px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tr-sweep {
+    display: none;
+  }
+}
+
+.tr-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tr-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tr-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tr-state {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tr-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---- "Nuovo terminale" sheet ---------------------------------------------- */
+
+.nts-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.nts-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.nts {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 85%;
+  overflow-y: auto;
+  padding: 10px 16px calc(20px + var(--safe-b));
+  border-radius: 24px 24px 0 0;
+  border-top: 1px solid var(--border-strong);
+  background: var(--glass-strong, #1b140e);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
+}
+
+.nts h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.nts-grab {
+  width: 38px;
+  height: 4px;
+  margin: 0 auto;
+  border-radius: 4px;
+  background: var(--surface-3);
+}
+
+.nts-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nts-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.nts-folders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.nts-folder,
+.nts-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  text-align: left;
+  font: 500 13.5px var(--font);
+}
+
+.nts-folder span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nts-folder svg,
+.nts-choice svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.nts-folder.on,
+.nts-choice.on {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.nts-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }

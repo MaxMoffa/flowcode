@@ -19,11 +19,12 @@ export interface RemoteWindowEventRefs {
   termRefs: MutableRefObject<Map<string, TerminalHandle>>;
   remoteActionRef: MutableRefObject<(id: string, ptyId: string | null) => void>;
   remoteProfileLoginRef: MutableRefObject<(profileId: string, cli: string) => void>;
+  remoteNewTabRef: MutableRefObject<(cwd: string | null, cli: string | null) => void>;
 }
 
 export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
   useEffect(() => {
-    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef } = refs;
+    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef } = refs;
     const webview = getCurrentWebviewWindow();
     const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
       adoptTabRef.current(e.payload);
@@ -72,6 +73,10 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
     const unlistenLogin = webview.listen<{ id?: string; cli?: string }>("remote://profile-login", (e) => {
       if (e.payload.id && e.payload.cli) remoteProfileLoginRef.current(e.payload.id, e.payload.cli);
     });
+    // A phone asking for a new terminal tab here.
+    const unlistenNewTab = webview.listen<{ cwd?: string | null; cli?: string | null }>("remote://new-tab", (e) => {
+      remoteNewTabRef.current(e.payload.cwd ?? null, e.payload.cli ?? null);
+    });
     // A prompt sent from a phone: counts as a submit for the agent notifications.
     const unlistenSubmit = webview.listen<string>("remote://submit", (e) => noteRemoteSubmit(e.payload));
     return () => {
@@ -81,6 +86,7 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       unlistenSize.then((off) => off());
       unlistenAction.then((off) => off());
       unlistenLogin.then((off) => off());
+      unlistenNewTab.then((off) => off());
       unlistenSubmit.then((off) => off());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

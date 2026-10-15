@@ -6,6 +6,7 @@ import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useActiveAgent } from "../agents/activeAgent";
 import { cliOfPlugin } from "../agents/cliInfo";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
+import { writePty } from "../terminal/ptyClient";
 
 /** Small "copy debug info" button under a failed probe's "Unavailable":
  * the raw error/CLI output is useful for a bug report but just noise in the
@@ -46,11 +47,48 @@ interface AgentContext {
 
 const CONTEXT_POLL_MS = 5000;
 const CONTEXT_OPEN_KEY = "flowcode.usage.contextOpen";
+/** Pause between typing a slash command and its Enter: sent together, the TUI can take the burst for a paste and the Enter for a newline. */
+const SUBMIT_DELAY_MS = 250;
+/** How long the button stays in its "started" state after a compact was sent. */
+const COMPACT_FEEDBACK_MS = 2500;
+
+/** Asks the agent in the active tab to compact its context (`/compact`), as
+ * if typed there. Off while the agent works: the command would queue behind
+ * the running turn. */
+function CompactButton({ ptyId, busy }: { ptyId: string; busy: boolean }) {
+  const { t } = useI18n();
+  const [sent, setSent] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  async function compact() {
+    setSent(true);
+    await writePty(ptyId, "/compact");
+    await new Promise((r) => setTimeout(r, SUBMIT_DELAY_MS));
+    await writePty(ptyId, "\r");
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setSent(false), COMPACT_FEEDBACK_MS);
+  }
+
+  return (
+    <button
+      type="button"
+      className="plugin-usage-compact-btn"
+      disabled={busy || sent || !ptyId}
+      title={busy ? t("usage.context.compactBusy") : undefined}
+      onClick={() => void compact()}
+    >
+      {sent ? t("usage.context.compactSent") : t("usage.context.compact")}
+    </button>
+  );
+}
 
 /** How full the context window of the agent in the active terminal tab is.
  * Re-read every few seconds while expanded - the backend only reads the tail
  * of the session's transcript, so that stays cheap. */
-function ContextSection({ pluginId, label }: { pluginId: string; label: string }) {
+function ContextSection({ pluginId }: { pluginId: string }) {
   const { t } = useI18n();
   const [open, setOpen] = usePersistentState(CONTEXT_OPEN_KEY, (k) => readBool(k, false), writeBool);
   const agent = useActiveAgent();
@@ -91,7 +129,8 @@ function ContextSection({ pluginId, label }: { pluginId: string; label: string }
     };
   }, [open, readable, cli, sessionId, profile]);
 
-  if (!cli) return null;
+  // Only when the active tab runs this agent: otherwise there's nothing to show.
+  if (!cli || !mine) return null;
   const percent = context ? Math.min(1, context.used / context.window) : 0;
   const warn = percent >= 0.75;
   return (
@@ -119,9 +158,7 @@ function ContextSection({ pluginId, label }: { pluginId: string; label: string }
         </svg>
       </button>
       {open &&
-        (!mine ? (
-          <div className="plugin-usage-context-note">{t("usage.context.noSession", { agent: label })}</div>
-        ) : !readable || context === null ? (
+        (!readable || context === null ? (
           <>
             <div className="plugin-usage-context-note">{t("usage.context.unavailable")}</div>
             {(() => {
@@ -158,6 +195,7 @@ function ContextSection({ pluginId, label }: { pluginId: string; label: string }
             {agent.tabLabel && <div className="plugin-usage-metric-detail">{agent.tabLabel}</div>}
           </div>
         ) : null)}
+      {open && mine && <CompactButton ptyId={agent.ptyId} busy={agent.status === "busy"} />}
     </div>
   );
 }
@@ -241,7 +279,7 @@ export function UsagePopoverContent({
         );
       })}
       {usage?.debug && <CopyDebugButton text={usage.debug} />}
-      <ContextSection pluginId={pluginId} label={label} />
+      <ContextSection pluginId={pluginId} />
     </>
   );
 }

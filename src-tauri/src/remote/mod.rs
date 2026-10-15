@@ -105,6 +105,8 @@ const EVT_SNAPSHOT_REQUEST: &str = "remote://snapshot-request";
 const EVT_SIZE_OVERRIDE: &str = "remote://size-override";
 const EVT_RUN_ACTION: &str = "remote://run-action";
 const EVT_SET_SETTING: &str = "remote://set-setting";
+/// A phone asked for a new terminal tab (see `ClientMsg::NewTab`).
+const EVT_NEW_TAB: &str = "remote://new-tab";
 /// `{op, id?, name?, color?, copySettings?, deleteFiles?}`: a profile change, to the leader window only.
 const EVT_PROFILE: &str = "remote://profile";
 /// `{id, cli}`: sign a CLI in under a profile (needs the window's terminal tabs), to the leader window only.
@@ -1562,7 +1564,9 @@ impl Conn {
                 } else {
                     // A prompt sent from the phone: the window's agent
                     // notifications must count it like an Enter typed there.
-                    if data.contains('\r') {
+                    // A paste with line breaks inside doesn't count, only input
+                    // that ends in Enter.
+                    if data.ends_with('\r') {
                         if let Some(window) = self.shared.app.state::<PtyState>().owner_of(&pty_id) {
                             let _ = self.shared.app.emit_to(window.as_str(), EVT_SUBMIT, &pty_id);
                         }
@@ -1582,6 +1586,23 @@ impl Conn {
                 };
                 let payload = serde_json::json!({ "id": id, "ptyId": pty_id });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_RUN_ACTION, payload);
+            }
+            ClientMsg::NewTab { cwd, cli } => {
+                let cwd = cwd.filter(|c| !c.trim().is_empty());
+                if cli.as_deref().is_some_and(|c| !matches!(c, "claude" | "codex" | "vibe")) {
+                    self.error(tr("Agente sconosciuto", "Unknown agent"), None);
+                    return;
+                }
+                if cwd.as_deref().is_some_and(|c| c.len() > 4096 || !std::path::Path::new(c).is_dir()) {
+                    self.error(tr("Cartella non trovata sul computer", "Folder not found on the computer"), None);
+                    return;
+                }
+                let Some(window) = self.shared.default_window() else {
+                    self.error(tr("Nessuna finestra aperta", "No window is open"), None);
+                    return;
+                };
+                let payload = serde_json::json!({ "cwd": cwd, "cli": cli });
+                let _ = self.shared.app.emit_to(window.as_str(), EVT_NEW_TAB, payload);
             }
             ClientMsg::Set { key, value } => {
                 if key.is_empty() || key.len() > 64 {

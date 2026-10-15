@@ -434,13 +434,11 @@ function Shell() {
         }
       }
       if (cancelled) return;
-      if (!restored.some((r) => r.kind === "terminal")) {
-        restored.unshift(makeTermTab("tab-0", ""));
-      }
+      if (restored.length === 0) restored.push(makeTermTab("tab-0", ""));
       const active = restored[Math.min(Math.max(saved.activeIndex, 0), restored.length - 1)];
       setTabs(restored);
       setActiveTabId(active.id);
-      setActiveTerminalId(active.kind === "terminal" ? active.id : restored.find((r) => r.kind === "terminal")!.id);
+      setActiveTerminalId(active.kind === "terminal" ? active.id : (restored.find((r) => r.kind === "terminal")?.id ?? ""));
     }
 
     (async () => {
@@ -670,6 +668,8 @@ function Shell() {
   const remoteActionRef = useRef<(id: string, ptyId: string | null) => void>(() => {});
   /** The phone asked to sign a CLI in under a profile (see loginProfile). */
   const remoteProfileLoginRef = useRef<(profileId: string, cli: string) => void>(() => {});
+  /** The phone asked for a new terminal tab (see useRemoteWindowEvents). */
+  const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null) => void>(() => {});
   const remoteLoginTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
@@ -1214,6 +1214,7 @@ function Shell() {
     termRefs,
     remoteActionRef,
     remoteProfileLoginRef,
+    remoteNewTabRef,
   });
 
   /** Everything the receiving window needs to rebuild `tab` - for a terminal
@@ -1326,33 +1327,7 @@ function Shell() {
   async function closeTab(id: string) {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
-    if (tab.kind === "terminal") {
-      // Closing the very last tab of any kind (nothing else open - no
-      // editor, no settings) mirrors how a plain terminal app behaves:
-      // there's nothing left to show, so quit rather than leave an empty
-      // shell of a window around. Editor/settings tabs still open take
-      // priority - closing just falls through to the "replace in place"
-      // branch below instead, so nothing else gets torn down unprompted.
-      if (tabs.length === 1) {
-        appWindow.close();
-        return;
-      }
-      // The app always needs at least one terminal, but that's no reason to
-      // refuse to close the last one outright - a stuck/broken session
-      // (e.g. one whose shell never started right) then has no way to
-      // recover short of restarting the whole app. Replace it in place with
-      // a fresh tab instead: same effect for the user (a working terminal,
-      // same slot), minus the dead end.
-      if (tabs.filter((t) => t.kind === "terminal").length <= 1) {
-        const cwd = tab.cwd || homeDir;
-        const newId = newTabId("tab");
-        setTabs((prev) => prev.map((t) => (t.id === id ? makeTermTab(newId, cwd) : t)));
-        setActiveTabId(newId);
-        setActiveTerminalId(newId);
-        forgetTab(id);
-        return;
-      }
-    } else {
+    if (tab.kind !== "terminal") {
       const handle = editorRefs.current.get(id);
       if (handle?.isDirty()) {
         const ok = await confirm({
@@ -1371,14 +1346,23 @@ function Shell() {
     const current = latestRef.current;
     const idx = current.tabs.findIndex((t) => t.id === id);
     if (idx === -1) return;
+    // Closing the very last tab of any kind mirrors a plain terminal app:
+    // nothing left to show, so close the window rather than leave it empty.
+    // Any other tab can go, terminals included - a window holding just
+    // Settings or an editor is fine.
+    if (current.tabs.length === 1) {
+      appWindow.close();
+      return;
+    }
     const next = current.tabs.filter((t) => t.id !== id);
     if (id === current.activeTabId) {
       const fallback = next[Math.max(0, idx - 1)] ?? next[0];
       if (fallback) setActiveTabId(fallback.id);
     }
     if (id === current.activeTerminalId) {
-      const fallbackTerminal = next.find((t) => t.kind === "terminal");
-      if (fallbackTerminal) setActiveTerminalId(fallbackTerminal.id);
+      // No terminal left (e.g. only Settings open) is fine: "" just means
+      // no terminal is in front until a new one opens.
+      setActiveTerminalId(next.find((t) => t.kind === "terminal")?.id ?? "");
     }
     setTabs((prev) => prev.filter((t) => t.id !== id));
     forgetTab(id);
@@ -1881,6 +1865,11 @@ function Shell() {
       void refreshProfiles();
       if (--left <= 0) window.clearInterval(remoteLoginTimerRef.current);
     }, 5000);
+  };
+
+  remoteNewTabRef.current = (cwd, cli) => {
+    if (cli && (AGENT_CLIS as readonly string[]).includes(cli)) void launchAgentInNewTab(cli as AgentCli, cwd ?? homeDir);
+    else addTab(cwd ?? undefined);
   };
 
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the

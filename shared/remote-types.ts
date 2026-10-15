@@ -153,6 +153,8 @@ export type ClientMsg =
   | { t: "read"; ptyId: string; path: string }
   | { t: "set"; key: SettingKey; value: unknown }
   | ({ t: "profile" } & ProfileAction)
+  /** Opens a new desktop terminal tab, in `cwd` (else the start folder), starting `cli` in it if given. */
+  | { t: "newtab"; cwd?: string; cli?: string }
   /** Sent by the core itself when the app goes out of sight; listed for completeness. */
   | { t: "background"; on: boolean }
   | { t: "ping" };

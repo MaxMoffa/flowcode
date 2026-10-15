@@ -296,17 +296,38 @@
   -webkit-backdrop-filter: none;
 }
 
+/* Behind a floating panel: blurs the terminals so their text doesn't show
+   through the panel's translucent card. On this full-width layer rather
+   than on the panel: WebView2 doesn't clip a backdrop-filter to rounded
+   corners (see the note above). */
 .sidebar-floating-backdrop {
   position: absolute;
   inset: 0;
   z-index: 50;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  animation: sidebar-floating-backdrop-in 0.14s ease-out;
 }
 
-/* Over the terminals rather than beside them; fills the body's height like
-   the docked panel does. */
+@keyframes sidebar-floating-backdrop-in {
+  from {
+    -webkit-backdrop-filter: blur(0);
+    backdrop-filter: blur(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-floating-backdrop {
+    animation: none;
+  }
+}
+
+/* Over the terminals rather than beside them, with the terminal card's
+   height: .app-body has no top padding (the header bar leaves the gap), so
+   top 0 lines it up with the card. */
 .sidebar-floating-panel {
   position: absolute;
-  top: 8px;
+  top: 0;
   bottom: 8px;
   left: 8px;
   border: 1px solid var(--card-border);

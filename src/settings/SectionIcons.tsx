@@ -31,6 +31,12 @@ const PATHS: Record<SettingsSection, ReactNode> = {
       <path d="M14.5 4.5v15" />
     </>
   ),
+  remote: (
+    <>
+      <rect x="7" y="3" width="10" height="18" rx="2.2" />
+      <path d="M11 17.5h2" />
+    </>
+  ),
   shortcuts: (
     <>
       <rect x="3" y="6" width="18" height="12" rx="2" />

@@ -299,7 +299,7 @@ export function RemoteAccessSettings() {
   }
 
   return (
-    <SettingsGroup title={t("settings.group.remote")}>
+    <SettingsGroup title={t("settings.group.phone")}>
       <SettingRow id="remoteAccess" label={t("settings.remote.label")} desc={t("settings.remote.desc")}>
         <Switch checked={enabled} onChange={setEnabled} label={t("settings.remote.label")} stateLabels={onOff} />
       </SettingRow>

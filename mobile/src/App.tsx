@@ -11,6 +11,8 @@ import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
 import { TerminalsScreen } from "./Terminals";
 import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
+import { WideShell } from "./WideShell";
+import { useWide } from "./wide";
 
 // xterm makes the terminal the bulk of the bundle; it loads when first opened.
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
@@ -94,6 +96,7 @@ function AppContent() {
   const paired = status !== "unpaired" && status !== "loading";
   const lock = useLock();
   useViewportHeight();
+  const wide = useWide();
 
   // The phone wears the desktop's colors and language (see remote.ts); before
   // the first settings message the cached ones (or the defaults) apply.
@@ -122,6 +125,7 @@ function AppContent() {
   useEffect(() => {
     if (!paired || adding) return;
     const fromLink = (url: string) => {
+      if (!window.confirm(t("addComputerFromLink"))) return;
       setLink(url);
       setAdding(true);
     };
@@ -152,12 +156,17 @@ function AppContent() {
     if (openPty && tabs && !tab) setOpenPty(null);
   }, [openPty, tabs, tab]);
   // Back from a terminal returns to the list; on the root it is left alone (the app exits).
-  useBackHandler(!!tab, () => setOpenPty(null));
+  useBackHandler(!!tab && !wide, () => setOpenPty(null));
 
   function open(ptyId: string) {
     setLastOpened(ptyId);
     setOpenPty(ptyId);
   }
+
+  // The wide layout always shows a terminal: pick the first when none is open.
+  useEffect(() => {
+    if (wide && tabs && tabs.length > 0 && !(openPty && tabs.some((x) => x.ptyId === openPty))) open(tabs[0].ptyId);
+  });
 
   let content: ReactNode;
   if (!lock.checked) {
@@ -171,6 +180,10 @@ function AppContent() {
     content = <PairingScreen initialError={adding ? undefined : error} initialLink={link} onClose={adding ? closeAdding : undefined} />;
   } else if (status === "loading") {
     content = <div className="screen" />;
+  } else if (wide) {
+    content = (
+      <WideShell hostName={hostName} tabs={tabs} settings={settings} status={status} activePty={openPty} onSelectPty={open} onAddComputer={() => setAdding(true)} />
+    );
   } else if (tab) {
     content = (
       <Suspense fallback={<div className="screen" />}>

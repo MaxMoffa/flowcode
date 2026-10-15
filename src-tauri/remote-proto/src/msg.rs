@@ -60,6 +60,15 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cli: Option<String>,
     },
+    /// Open a new terminal tab on the desktop, in `cwd` (else the shell's
+    /// start folder) and, with `cli` (`claude`, `codex`, `vibe`), starting
+    /// that agent in it. The phone sees it in the next `tabs`.
+    NewTab {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cli: Option<String>,
+    },
     /// The phone is in the background: send only notifications until it says
     /// otherwise (`on: false`).
     Background { on: bool },
@@ -250,6 +259,14 @@ mod tests {
         assert_eq!(json, serde_json::json!({ "t": "background", "on": true }));
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"background","on":false}"#).unwrap();
         assert_eq!(msg, ClientMsg::Background { on: false });
+    }
+
+    #[test]
+    fn newtab_round_trips() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"newtab","cwd":"C:\\x","cli":"claude"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::NewTab { cwd: Some("C:\\x".into()), cli: Some("claude".into()) });
+        let json = serde_json::to_value(ClientMsg::NewTab { cwd: None, cli: None }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "newtab" }));
     }
 
     #[test]

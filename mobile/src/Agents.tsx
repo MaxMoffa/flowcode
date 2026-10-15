@@ -96,9 +96,10 @@ function UsageCarousel({ group }: { group: ProfileGroup }) {
       if (row.scrollLeft + row.clientWidth >= row.scrollWidth - 2) {
         idx = cards.length - 1;
       } else {
+        const pad = parseFloat(getComputedStyle(row).scrollPaddingLeft) || 0;
         let best = Infinity;
         cards.forEach((c, i) => {
-          const d = Math.abs(c.offsetLeft - row.scrollLeft);
+          const d = Math.abs(c.offsetLeft - pad - row.scrollLeft);
           if (d < best) {
             best = d;
             idx = i;
@@ -123,7 +124,8 @@ function UsageCarousel({ group }: { group: ProfileGroup }) {
     const card = row?.children[i] as HTMLElement | undefined;
     if (!row || !card) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    row.scrollTo({ left: card.offsetLeft, behavior: reduce ? "auto" : "smooth" });
+    const pad = parseFloat(getComputedStyle(row).scrollPaddingLeft) || 0;
+    row.scrollTo({ left: card.offsetLeft - pad, behavior: reduce ? "auto" : "smooth" });
   };
 
   return (
@@ -223,7 +225,8 @@ function AgentTile({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void 
   );
 }
 
-export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void; onAddComputer: () => void }) {
+/** `compact` drops the header (logo, computer switcher): the wide layout's top bar already has it. */
+export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void; onAddComputer: () => void; compact?: boolean }) {
   const usage = useRemoteSelector((r) => r.usage);
   const { waiting, others } = useMemo(() => {
     const agents = (tabs ?? []).filter((x) => x.cli);
@@ -232,6 +235,7 @@ export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer }: { hostNa
   const groups = useMemo(() => groupByProfile(usage), [usage]);
   return (
     <>
+      {!compact && (
       <header className="agents-head">
         <img src={logo} alt="" />
         <ComputerSwitcher hostName={hostName} onAdd={onAddComputer} />
@@ -240,6 +244,7 @@ export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer }: { hostNa
           {t("onlineShort")}
         </span>
       </header>
+      )}
       {waiting.length > 0 && (
         <div className="stack">
           <Hero tab={waiting[0]} count={waiting.length} onOpen={onOpen} />

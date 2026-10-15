@@ -19,7 +19,8 @@ const keepFocus = {
   onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
 };
 
-export function TerminalScreen({ tab, status, onBack }: { tab: Tab; status: ConnStatus; onBack: () => void }) {
+/** `embedded`: the wide layout's main area; the tab strip stands in for the header, so only a floating "⋯" remains. `onFiles`: opens the layout's own files panel instead of the drawer. */
+export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab: Tab; status: ConnStatus; onBack: () => void; embedded?: boolean; onFiles?: () => void }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -85,43 +86,53 @@ export function TerminalScreen({ tab, status, onBack }: { tab: Tab; status: Conn
   const cliName = tab.cli ? tab.cli[0].toUpperCase() + tab.cli.slice(1) : "";
   const showWait = tab.status === "waiting" && !!tab.cli;
 
+  const more = (
+    <>
+      <button type="button" className="tm-back" aria-label={t("termMore")} aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
+        <DotsIcon />
+      </button>
+      <TermMenu
+        open={menuOpen}
+        kbOpen={kbOpen}
+        onClose={closeMenu}
+        onFiles={() => {
+          setMenuOpen(false);
+          if (onFiles) onFiles();
+          else setFilesOpen(true);
+        }}
+        onActions={() => {
+          setMenuOpen(false);
+          setActionsOpen(true);
+        }}
+        onKeyboard={() => {
+          setMenuOpen(false);
+          toggleKeyboard();
+        }}
+        onInterrupt={() => {
+          setMenuOpen(false);
+          send({ t: "input", ptyId, data: "" });
+        }}
+      />
+    </>
+  );
+
   return (
-    <div className="screen term-screen" ref={screenRef}>
-      <header className="term-head">
-        <button type="button" className="tm-back" aria-label={t("back")} onClick={onBack}>
-          <BackIcon />
-        </button>
-        <div className="term-titles">
-          <i className={"term-dot is-" + state} />
-          <span className="term-title">{tab.label}</span>
-          <span className="term-state">{stateText}</span>
-        </div>
-        <button type="button" className="tm-back" aria-label={t("termMore")} aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
-          <DotsIcon />
-        </button>
-        <TermMenu
-          open={menuOpen}
-          kbOpen={kbOpen}
-          onClose={closeMenu}
-          onFiles={() => {
-            setMenuOpen(false);
-            setFilesOpen(true);
-          }}
-          onActions={() => {
-            setMenuOpen(false);
-            setActionsOpen(true);
-          }}
-          onKeyboard={() => {
-            setMenuOpen(false);
-            toggleKeyboard();
-          }}
-          onInterrupt={() => {
-            setMenuOpen(false);
-            send({ t: "input", ptyId, data: "" });
-          }}
-        />
-      </header>
+    <div className={"screen term-screen" + (embedded ? " is-embedded" : "")} ref={screenRef}>
+      {!embedded && (
+        <header className="term-head">
+          <button type="button" className="tm-back" aria-label={t("back")} onClick={onBack}>
+            <BackIcon />
+          </button>
+          <div className="term-titles">
+            <i className={"term-dot is-" + state} />
+            <span className="term-title">{tab.label}</span>
+            <span className="term-state">{stateText}</span>
+          </div>
+          {more}
+        </header>
+      )}
       <div className="term-card">
+        {embedded && <div className="term-float">{more}</div>}
         <div className="term-body">
           <div className="term-area" ref={areaRef} onClick={() => focusTerminal(termRef.current)}>
             {ended && <div className="ended">{t("ended")}</div>}

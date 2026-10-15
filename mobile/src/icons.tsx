@@ -1,6 +1,7 @@
 // 20px stroke icons, inline so the app needs no icon font or network. The last
 // three are used only by the terminal page.
 import type { ReactNode } from "react";
+import { AGENT_LOGOS } from "../../shared/agentLogos";
 
 export function Svg({ children, size = 20, strokeWidth = 1.8 }: { children: ReactNode; size?: number; strokeWidth?: number }) {
   return (
@@ -92,5 +93,41 @@ export const KeyboardIcon = ({ size = 20 }: { size?: number }) => (
   <Svg size={size}>
     <rect x="3" y="6" width="18" height="12" rx="3" />
     <path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" />
+  </Svg>
+);
+
+export const PlusIcon = () => (
+  <Svg size={18} strokeWidth={2.2}>
+    <path d="M12 5v14M5 12h14" />
+  </Svg>
+);
+
+/** An agent CLI's mark (filled), or null for an unknown CLI. */
+export function AgentLogo({ cli, size = 18 }: { cli: string; size?: number }) {
+  const logo = AGENT_LOGOS[cli as keyof typeof AGENT_LOGOS];
+  if (!logo) return null;
+  return (
+    <svg width={size} height={size} viewBox={logo.viewBox} aria-hidden="true">
+      <path d={logo.path} fill="currentColor" />
+    </svg>
+  );
+}
+
+export const UpIcon = () => (
+  <Svg>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Svg>
+);
+
+export const HomeIcon = () => (
+  <Svg>
+    <path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z" />
+  </Svg>
+);
+
+export const FilesPanelIcon = () => (
+  <Svg>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+    <path d="M9.5 4.5v15" />
   </Svg>
 );

@@ -11,6 +11,7 @@ import { wslDistroOfShell } from "./wslPath";
 import type { TabAgent } from "../agents/agentSessions";
 import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
 import { ChangelogIcon, GearIcon } from "../app/icons";
+import { SWEEP_DASHES } from "../../shared/busySweep";
 import "./tabstrip.css";
 
 interface TabStripProps {
@@ -215,27 +216,6 @@ function agentTabIcon(agent: TabAgent, renamed: boolean, done: boolean) {
 function tabProfile(profiles: ReturnType<typeof useProfiles>, tab: AppTab): ProfileInfo | undefined {
   return tab.kind === "terminal" ? profileById(profiles, tab.profileId) : undefined;
 }
-
-/** Length of the busy arc, head to tail end, in % of the tab's outline. */
-const SWEEP_LENGTH = 45;
-/** Slices the arc's fading tail is drawn in: thin enough to read as a smooth fade. */
-const SWEEP_SLICES = 24;
-/** One dash per slice of the arc (pathLength 100), the tail end first. Each
- * runs from its slice up to the head (all end at SWEEP_LENGTH, so they move
- * as one) and they stack: slice k's opacity is picked so the stacked result
- * at k is ((k + 1) / SWEEP_SLICES) ** 1.6. Overlapping instead of butting
- * leaves no seams between slices. */
-const SWEEP_DASHES = (() => {
-  const step = SWEEP_LENGTH / SWEEP_SLICES;
-  let below = 0;
-  return Array.from({ length: SWEEP_SLICES }, (_, i) => {
-    const start = i * step;
-    const target = ((i + 1) / SWEEP_SLICES) ** 1.6;
-    const opacity = 1 - (1 - target) / (1 - below);
-    below = target;
-    return { dasharray: `0 ${start} ${SWEEP_LENGTH - start} ${100 - SWEEP_LENGTH}`, opacity };
-  });
-})();
 
 /** The busy tab's arc, run round the outline at a constant speed (see tabstrip.css). */
 function BusySweep() {
