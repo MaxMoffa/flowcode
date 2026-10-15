@@ -176,3 +176,17 @@ export const CopyIcon = () => (
     <path d="M5 15V6a1 1 0 0 1 1-1h9" />
   </Svg>
 );
+
+export const GlobeIcon = () => (
+  <Svg>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3Z" />
+  </Svg>
+);
+
+export const CheckIcon = () => (
+  <Svg>
+    <path d="m5 12.5 4.5 4.5L19 7.5" />
+  </Svg>
+);

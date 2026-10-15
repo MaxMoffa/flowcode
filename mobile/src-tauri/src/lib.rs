@@ -29,7 +29,7 @@ use tokio::sync::Notify;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default().plugin(secure::init()).plugin(background::init());
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(secure::init()).plugin(background::init());
     #[cfg(mobile)]
     {
         builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init()).plugin(tauri_plugin_deep_link::init()).plugin(tauri_plugin_haptics::init());

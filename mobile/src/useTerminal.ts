@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { onMessage, send, type ConnStatus } from "./remote";
 import { attachImeInput } from "./termIme";
+import { isWebUrl } from "./termLinks";
 
 const DEFAULT_FONT_SIZE = 13;
 const FONT_FAMILY = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace';
@@ -49,6 +50,8 @@ export function useTerminal(opts: {
   /** Changes when the app theme may have changed. */
   themeKey: unknown;
   onInput: (data: string) => void;
+  /** An OSC 8 hyperlink was activated (web links only). */
+  onLink?: (url: string) => void;
 }) {
   const { ptyId, status, themeKey } = opts;
   const fontSize = opts.fontSize ?? DEFAULT_FONT_SIZE;
@@ -68,6 +71,8 @@ export function useTerminal(opts: {
   fontSizeRef.current = fontSize;
   const onInputRef = useRef(opts.onInput);
   onInputRef.current = opts.onInput;
+  const onLinkRef = useRef(opts.onLink);
+  onLinkRef.current = opts.onLink;
   const [ended, setEnded] = useState(false);
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -84,6 +89,12 @@ export function useTerminal(opts: {
       scrollback: 5000,
       cursorBlink: true,
       theme: readTheme(),
+      linkHandler: {
+        activate: (_e, uri) => {
+          if (isWebUrl(uri)) onLinkRef.current?.(uri);
+        },
+        allowNonHttpProtocols: false,
+      },
     });
     termRef.current = term;
     term.open(host);

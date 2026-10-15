@@ -6,10 +6,13 @@ import { AgentsIcon, BackIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icon
 import { interrupt, send, useRemoteSelector, type ConnStatus, type Tab } from "./remote";
 import { TermActions } from "./TermActions";
 import { TermFiles } from "./TermFiles";
+import { openLink, TermLink } from "./TermLink";
 import { TermKeyBar } from "./TermKeyBar";
 import { TermMenu } from "./TermMenu";
 import { encodeKey, encodeText, useModifiers, type Active, type NamedKey } from "./termModifiers";
+import { tapFeedback } from "./haptics";
 import { phoneFontSize } from "./termFont";
+import { linkAtCell } from "./termLinks";
 import { useTouchScroll } from "./termTouch";
 import { useKeybarHeight, useTerminalViewport } from "./termViewport";
 import { focusTerminal, useTerminal } from "./useTerminal";
@@ -27,6 +30,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
   const [filesOpen, setFilesOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const cancelRename = useRef(false);
@@ -40,12 +44,22 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
 
   /** What the user types (soft keyboard or symbol keys): armed modifiers apply. */
   const onInput = useCallback((data: string) => send({ t: "input", ptyId, data: encodeText(data, consume()) }), [ptyId, consume]);
+
+  /** A link was tapped: open it at once when the user opted out of the prompt, else ask in the sheet. */
+  const onLink = useCallback(
+    (url: string) => {
+      if (settings?.confirmLinkOpen === false) void openLink(url);
+      else setLinkUrl(url);
+    },
+    [settings?.confirmLinkOpen],
+  );
   const { areaRef, hostRef, termRef, ended, atBottom } = useTerminal({
     ptyId,
     status,
     fontSize: localFont ?? settings?.terminalFontSize,
     themeKey: settings,
     onInput,
+    onLink,
   });
   useTouchScroll(areaRef, termRef, ptyId);
 
@@ -69,6 +83,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
 
   const closeFiles = useCallback(() => setFilesOpen(false), []);
   const closeActions = useCallback(() => setActionsOpen(false), []);
+  const closeLink = useCallback(() => setLinkUrl(null), []);
 
   /** Types text as-is (no modifiers, never Enter), then hands the keyboard back to the terminal. */
   const typeText = useCallback(
@@ -79,6 +94,28 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
     },
     [ptyId, termRef],
   );
+
+  /** A tap that lands on a link opens it instead of raising the keyboard. */
+  function onAreaTap(e: React.MouseEvent) {
+    const term = termRef.current;
+    const screen = areaRef.current?.querySelector<HTMLElement>(".xterm-screen");
+    if (term && screen) {
+      // The rect already reflects an over-wide pty panned by the area's scrollLeft.
+      const r = screen.getBoundingClientRect();
+      const col = Math.floor(((e.clientX - r.left) / r.width) * term.cols);
+      const row = Math.floor(((e.clientY - r.top) / r.height) * term.rows);
+      if (col >= 0 && col < term.cols && row >= 0 && row < term.rows) {
+        const buf = term.buffer.active;
+        const url = linkAtCell(buf, buf.viewportY + row, col);
+        if (url) {
+          tapFeedback();
+          onLink(url);
+          return;
+        }
+      }
+    }
+    focusTerminal(term);
+  }
 
   function toggleKeyboard() {
     if (kbOpen) termRef.current?.blur();
@@ -209,7 +246,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
       )}
       <div className="term-card">
         <div className="term-body">
-          <div className="term-area" ref={areaRef} onClick={() => focusTerminal(termRef.current)}>
+          <div className="term-area" ref={areaRef} onClick={onAreaTap}>
             {ended && <div className="ended">{t("ended")}</div>}
             <div ref={hostRef} className="term-host" />
           </div>
@@ -270,6 +307,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
       {!embedded && keyBar}
       {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
       {!embedded && <TermActions tab={tab} actions={actions} open={actionsOpen} onClose={closeActions} />}
+      <TermLink url={linkUrl} onClose={closeLink} />
     </div>
   );
 }

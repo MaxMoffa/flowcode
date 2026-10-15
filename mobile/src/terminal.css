@@ -727,6 +727,50 @@
   overflow-wrap: anywhere;
 }
 
+/* link */
+
+.tm-sheet-titles p.tm-link-url {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font: 12px var(--mono);
+}
+
+.tm-link-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 14px 16px;
+}
+
+.tm-link-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--glass, rgba(255, 255, 255, 0.06));
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.tm-link-row svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.tm-link-row:active {
+  background: var(--accent-bg);
+}
+
 /* ---- page lock + key row ------------------------------------------------- */
 
 /* The page never scrolls while the terminal is up (see termViewport.ts). */
