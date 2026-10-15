@@ -2234,8 +2234,7 @@ function Shell() {
       title={t("app.toggleSidebar.title")}
     >
       <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-        <line x1="9.5" y1="4.5" x2="9.5" y2="19.5" />
+        <path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
       </svg>
     </button>
   );
@@ -2295,8 +2294,11 @@ function Shell() {
         onClick={() => setAgentsSidebarOpen((o) => !o)}
       >
         <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-          <line x1="14.5" y1="4.5" x2="14.5" y2="19.5" />
+          <rect x="4" y="7" width="16" height="12" rx="4" />
+          <path d="M12 7V4" />
+          <circle cx="12" cy="3.5" r="0.6" />
+          <circle cx="9" cy="13" r="0.8" />
+          <circle cx="15" cy="13" r="0.8" />
         </svg>
       </button>
     </>

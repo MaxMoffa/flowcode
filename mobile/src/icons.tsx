@@ -119,21 +119,6 @@ export const HomeIcon = () => (
   </Svg>
 );
 
-export const FilesPanelIcon = () => (
-  <Svg>
-    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-    <path d="M9.5 4.5v15" />
-  </Svg>
-);
-
-/** The desktop header's toggle for the right-hand panel: the frame with its divider near the right edge. */
-export const AgentsPanelIcon = () => (
-  <Svg>
-    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-    <path d="M14.500 4.500v15" />
-  </Svg>
-);
-
 export const GridIcon = () => (
   <Svg>
     <rect x="4" y="4" width="6.500" height="6.500" rx="1.500" />

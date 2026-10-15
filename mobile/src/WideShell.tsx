@@ -5,9 +5,9 @@ import { AgentsScreen } from "./Agents";
 import { useBackHandler } from "./back";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
-import { AgentLogo, AgentsPanelIcon, BoltIcon, CloseIcon, FileIcon, FilesPanelIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, Svg, TerminalIcon } from "./icons";
+import { AgentLogo, AgentsIcon, BoltIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, Svg, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
-import { interrupt, useRemoteSelector, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
+import { interrupt, send, useRemoteSelector, useSupports, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
 import { BusyArc, useOpenNewTab } from "./Terminals";
 import { useSheetDrag } from "./useSheetDrag";
@@ -48,6 +48,11 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   /** The key bar docked under the terminal. */
   const [keys, setKeys] = useState(true);
   const actions = useRemoteSelector((r) => r.actions);
+  const canRename = useSupports("rename");
+  /** The terminal tab being renamed, with its draft label. */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const cancelRename = useRef(false);
   useEffect(() => setAgentsOpen(docked), [docked]);
   useEffect(() => setFilesOpen(docked), [docked]);
 
@@ -79,6 +84,27 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     setDocs(keep);
     if (doc !== null && !keep.some((d) => d.id === doc)) setDoc(null);
   }, [tabs, docs, doc]);
+
+  // A tab closed on the desktop ends its rename.
+  useEffect(() => {
+    if (renaming !== null && !all.some((x) => x.ptyId === renaming)) setRenaming(null);
+  }, [all, renaming]);
+
+  const startRename = (x: Tab) => {
+    setDraft(x.label);
+    setRenaming(x.ptyId);
+  };
+  /** Ends the title edit: Escape sets `cancelRename` before blurring, so it is dropped here. */
+  const commitRename = (x: Tab) => {
+    if (cancelRename.current) {
+      cancelRename.current = false;
+      setRenaming(null);
+      return;
+    }
+    const label = draft.trim();
+    setRenaming(null);
+    if (label && label !== x.label) send({ t: "rename", ptyId: x.ptyId, label });
+  };
 
   const openDoc = (d: Doc) => {
     setDocs((cur) => (cur.some((x) => x.id === d.id) ? cur : [...cur, d]));
@@ -121,17 +147,53 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     <div className={"screen wide" + (docked ? " docked" : "")}>
       <header className="w-top">
         <button type="button" className="w-ib" aria-label={t("showFiles")} aria-pressed={filesOpen} onClick={toggleFiles}>
-          <FilesPanelIcon />
+          <FolderIcon />
         </button>
         <div className="w-tabs" role="tablist" ref={tabsRef}>
           {all.map((x) => {
             const on = doc === null && x.ptyId === activePty;
+            const ico = (
+              <span className="w-tab-ico">
+                {(x.cli && <AgentLogo cli={x.cli} size={16} />) || <TerminalIcon />}
+                {x.cli && x.status === "busy" && <BusyArc />}
+              </span>
+            );
+            if (renaming === x.ptyId)
+              return (
+                <div key={x.ptyId} role="tab" aria-selected={on} className="w-tab on">
+                  {ico}
+                  <input
+                    className="w-tab-input"
+                    value={draft}
+                    autoFocus
+                    maxLength={128}
+                    enterKeyHint="done"
+                    aria-label={t("renameTerminal")}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      else if (e.key === "Escape") {
+                        cancelRename.current = true;
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => commitRename(x)}
+                  />
+                </div>
+              );
             return (
-              <button key={x.ptyId} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={x.label} onClick={() => select(x.ptyId)}>
-                <span className="w-tab-ico">
-                  {(x.cli && <AgentLogo cli={x.cli} size={16} />) || <TerminalIcon />}
-                  {x.cli && x.status === "busy" && <BusyArc />}
-                </span>
+              <button
+                key={x.ptyId}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                className={"w-tab" + (on ? " on" : "")}
+                title={x.label}
+                onClick={() => (on && canRename ? startRename(x) : select(x.ptyId))}
+                onDoubleClick={() => canRename && startRename(x)}
+              >
+                {ico}
                 <span className="w-tab-label">{x.label}</span>
                 {x.cli && <i className={"dot " + (x.status === "waiting" ? "wait" : x.status === "busy" ? "busy" : "idle")} />}
               </button>
@@ -213,7 +275,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             />
           </div>
           <button type="button" className="w-ib" aria-label={t("showAgents")} aria-pressed={agentsOpen} onClick={toggleAgents}>
-            <AgentsPanelIcon />
+            <AgentsIcon />
           </button>
         </div>
         <ComputerSwitcher pill hostName={hostName} onAdd={onAddComputer} open={computersOpen} onOpenChange={setComputersOpen} />
