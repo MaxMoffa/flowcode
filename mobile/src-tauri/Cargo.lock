@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-mobile"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "base64 0.22.1",
  "flowcode-remote-proto",
@@ -1423,7 +1423,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-remote-proto"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "data-encoding",
  "serde",
