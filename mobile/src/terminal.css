@@ -27,11 +27,32 @@
 
 .term-title {
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
   font-size: 16px;
   font-weight: 600;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.term-title-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  outline: none;
 }
 
 .term-state {

@@ -27,6 +27,9 @@ export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: T
   const [filesOpen, setFilesOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const cancelRename = useRef(false);
   const { ptyId } = tab;
   const settings = useRemoteSelector((s) => s.settings);
   const localFont = phoneFontSize.use().size;
@@ -83,6 +86,18 @@ export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: T
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const answer = (data: string) => send({ t: "input", ptyId, data });
 
+  /** Ends the title edit: Escape sets `cancelRename` before blurring, so it is dropped here. */
+  function commitRename() {
+    if (cancelRename.current) {
+      cancelRename.current = false;
+      setEditing(false);
+      return;
+    }
+    const label = draft.trim();
+    setEditing(false);
+    if (label && label !== tab.label) send({ t: "rename", ptyId, label });
+  }
+
   const state = tab.status === "waiting" ? "waiting" : tab.status === "busy" ? "busy" : "idle";
   const stateText = state === "waiting" ? t("termStateWaiting") : state === "busy" ? t("termStateBusy") : t("termStateIdle");
   const cliName = tab.cli ? tab.cli[0].toUpperCase() + tab.cli.slice(1) : "";
@@ -120,7 +135,7 @@ export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: T
   const keyBar = (
     <TermKeyBar
       barRef={barRef}
-      open={embedded ? !!keys : kbOpen}
+      open={embedded ? !!keys : kbOpen && !editing}
       mods={mods}
       onTap={tap}
       onLock={lock}
@@ -153,8 +168,39 @@ export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: T
           </button>
           <div className="term-titles">
             <i className={"term-dot is-" + state} />
-            <span className="term-title">{tab.label}</span>
-            <span className="term-state">{stateText}</span>
+            {editing ? (
+              <input
+                className="term-title-input"
+                value={draft}
+                autoFocus
+                maxLength={128}
+                enterKeyHint="done"
+                aria-label={t("renameTerminal")}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  else if (e.key === "Escape") {
+                    cancelRename.current = true;
+                    e.currentTarget.blur();
+                  }
+                }}
+                onBlur={commitRename}
+              />
+            ) : (
+              <button
+                type="button"
+                className="term-title"
+                aria-label={t("renameTerminal")}
+                onClick={() => {
+                  setDraft(tab.label);
+                  setEditing(true);
+                }}
+              >
+                {tab.label}
+              </button>
+            )}
+            {!editing && <span className="term-state">{stateText}</span>}
           </div>
           {more}
         </header>

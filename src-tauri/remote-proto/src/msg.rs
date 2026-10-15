@@ -30,6 +30,8 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pty_id: Option<String>,
     },
+    /// Rename the desktop tab showing `pty_id`, as the user would on the desktop. At most 128 bytes; blank is ignored.
+    Rename { pty_id: String, label: String },
     /// List a directory under the tab's working directory.
     Ls {
         pty_id: String,
@@ -279,5 +281,7 @@ mod tests {
         assert_eq!(msg, ClientMsg::Open { pty_id: "p".into(), cols: None, rows: None });
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"action","id":"git"}"#).unwrap();
         assert_eq!(msg, ClientMsg::Action { id: "git".into(), pty_id: None });
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"rename","ptyId":"p","label":"x"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::Rename { pty_id: "p".into(), label: "x".into() });
     }
 }

@@ -116,6 +116,8 @@ const EVT_PAIR_REQUEST: &str = "remote://pair-request";
 const EVT_PAIR_CANCEL: &str = "remote://pair-cancel";
 /// A phone sent an Enter to a pty: its window counts it as a submit (see ptyClient's `lastSubmitAt`).
 const EVT_SUBMIT: &str = "remote://submit";
+/// `{ptyId, label}`: a phone renamed the tab showing that pty, to its owner window.
+const EVT_RENAME_TAB: &str = "remote://rename-tab";
 /// How long the user has to confirm a new phone on the desktop. The phone
 /// waits longer for its reply (see mobile/src-tauri/src/link.rs).
 const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -1586,6 +1588,22 @@ impl Conn {
                 };
                 let payload = serde_json::json!({ "id": id, "ptyId": pty_id });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_RUN_ACTION, payload);
+            }
+            ClientMsg::Rename { pty_id, label } => {
+                let label = label.trim();
+                if label.is_empty() {
+                    return;
+                }
+                if label.len() > 128 {
+                    self.error(tr("Nome troppo lungo", "Name too long"), Some(pty_id));
+                    return;
+                }
+                let Some(window) = self.shared.app.state::<PtyState>().owner_of(&pty_id) else {
+                    self.error(tr("Terminale non trovato", "Terminal not found"), Some(pty_id));
+                    return;
+                };
+                let payload = serde_json::json!({ "ptyId": pty_id, "label": label });
+                let _ = self.shared.app.emit_to(window.as_str(), EVT_RENAME_TAB, payload);
             }
             ClientMsg::NewTab { cwd, cli, profile } => {
                 let cwd = cwd.filter(|c| !c.trim().is_empty());

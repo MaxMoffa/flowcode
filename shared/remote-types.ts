@@ -149,6 +149,8 @@ export type ClientMsg =
   | { t: "close"; ptyId: string }
   | { t: "input"; ptyId: string; data: string }
   | { t: "action"; id: string; ptyId?: string }
+  /** Renames the desktop tab showing `ptyId`. */
+  | { t: "rename"; ptyId: string; label: string }
   | { t: "ls"; ptyId: string; path?: string }
   | { t: "read"; ptyId: string; path: string }
   | { t: "set"; key: SettingKey; value: unknown }

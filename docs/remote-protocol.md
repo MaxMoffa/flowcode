@@ -98,6 +98,7 @@ Client messages:
 | `close {ptyId}` | Stop streaming; the pty gets its desktop size back. |
 | `input {ptyId, data}` | Keystrokes, UTF-8, at most **64 KiB** (`proto::MAX_INPUT_BYTES`), written to the pty in order. |
 | `action {id, ptyId?}` | Run a published action (see `actions`) in the tab owning `ptyId`, or in the main window. Unknown ids get an `error`. |
+| `rename {ptyId, label}` | Rename the desktop tab owning `ptyId`, like a desktop rename: the label is trimmed (max 128 bytes) and a blank one is ignored. An unknown pty gets an `error`. No reply: the next `tabs` shows the new label. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
 | `set {key, value}` | Change one mirrored desktop setting (see `settings`). `key` must be non-empty and at most 64 bytes and `value` at most 4 KiB as JSON, else `error`; an unknown key or a value of the wrong type is ignored by the desktop (it is not applied; an unknown palette id falls back to the default palette). |

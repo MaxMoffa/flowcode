@@ -20,11 +20,12 @@ export interface RemoteWindowEventRefs {
   remoteActionRef: MutableRefObject<(id: string, ptyId: string | null) => void>;
   remoteProfileLoginRef: MutableRefObject<(profileId: string, cli: string) => void>;
   remoteNewTabRef: MutableRefObject<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>;
+  remoteRenameRef: MutableRefObject<(ptyId: string, label: string) => void>;
 }
 
 export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
   useEffect(() => {
-    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef } = refs;
+    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef } = refs;
     const webview = getCurrentWebviewWindow();
     const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
       adoptTabRef.current(e.payload);
@@ -77,6 +78,10 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
     const unlistenNewTab = webview.listen<{ cwd?: string | null; cli?: string | null; profile?: string | null }>("remote://new-tab", (e) => {
       remoteNewTabRef.current(e.payload.cwd ?? null, e.payload.cli ?? null, e.payload.profile ?? undefined);
     });
+    // A phone renaming one of our terminal tabs.
+    const unlistenRename = webview.listen<{ ptyId: string; label: string }>("remote://rename-tab", (e) =>
+      remoteRenameRef.current(e.payload.ptyId, e.payload.label),
+    );
     // A prompt sent from a phone: counts as a submit for the agent notifications.
     const unlistenSubmit = webview.listen<string>("remote://submit", (e) => noteRemoteSubmit(e.payload));
     return () => {
@@ -87,6 +92,7 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       unlistenAction.then((off) => off());
       unlistenLogin.then((off) => off());
       unlistenNewTab.then((off) => off());
+      unlistenRename.then((off) => off());
       unlistenSubmit.then((off) => off());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

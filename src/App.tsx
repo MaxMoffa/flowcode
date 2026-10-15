@@ -669,6 +669,7 @@ function Shell() {
   const remoteProfileLoginRef = useRef<(profileId: string, cli: string) => void>(() => {});
   /** The phone asked for a new terminal tab (see useRemoteWindowEvents). */
   const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>(() => {});
+  const remoteRenameRef = useRef<(ptyId: string, label: string) => void>(() => {});
   const remoteLoginTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
@@ -1214,6 +1215,7 @@ function Shell() {
     remoteActionRef,
     remoteProfileLoginRef,
     remoteNewTabRef,
+    remoteRenameRef,
   });
 
   /** Everything the receiving window needs to rebuild `tab` - for a terminal
@@ -2165,6 +2167,13 @@ function Shell() {
 
   allPluginsRef.current = allPlugins;
   runPluginRef.current = runPlugin;
+  remoteRenameRef.current = (ptyId, label) => {
+    let tabId: string | undefined;
+    for (const [id, h] of termRefs.current) {
+      if (h.getPtyId() === ptyId) tabId = id;
+    }
+    if (tabId) renameTab(tabId, label);
+  };
   remoteActionRef.current = (id, ptyId) => {
     const plugin = quickActionIds.includes(id) ? allPlugins.find((p) => p.id === id) : undefined;
     if (!plugin || !isPhoneAction(plugin.action)) return;
