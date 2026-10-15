@@ -68,6 +68,10 @@ pub enum ClientMsg {
         cwd: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cli: Option<String>,
+        /// Account profile id to start the tab under; `""` = the default
+        /// profile; absent = automatic (the folder's project default).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile: Option<String>,
     },
     /// The phone is in the background: send only notifications until it says
     /// otherwise (`on: false`).
@@ -263,9 +267,9 @@ mod tests {
 
     #[test]
     fn newtab_round_trips() {
-        let msg: ClientMsg = serde_json::from_str(r#"{"t":"newtab","cwd":"C:\\x","cli":"claude"}"#).unwrap();
-        assert_eq!(msg, ClientMsg::NewTab { cwd: Some("C:\\x".into()), cli: Some("claude".into()) });
-        let json = serde_json::to_value(ClientMsg::NewTab { cwd: None, cli: None }).unwrap();
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"newtab","cwd":"C:\\x","cli":"claude","profile":"p1"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::NewTab { cwd: Some("C:\\x".into()), cli: Some("claude".into()), profile: Some("p1".into()) });
+        let json = serde_json::to_value(ClientMsg::NewTab { cwd: None, cli: None, profile: None }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "newtab" }));
     }
 

@@ -1553,3 +1553,10 @@ button.set-row.danger {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+
+.nts-profile-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

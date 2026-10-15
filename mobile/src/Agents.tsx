@@ -263,11 +263,14 @@ export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact }:
         </section>
       ))}
       {others.length > 0 && (
-        <div className="tile-grid">
-          {others.map((x) => (
-            <AgentTile key={x.ptyId} tab={x} onOpen={onOpen} />
-          ))}
-        </div>
+        <section className="usage-section">
+          <div className="gh">{t("activeAgents")}</div>
+          <div className="tile-grid">
+            {others.map((x) => (
+              <AgentTile key={x.ptyId} tab={x} onOpen={onOpen} />
+            ))}
+          </div>
+        </section>
       )}
       {tabs !== null && waiting.length + others.length === 0 && <div className="empty">{t("noAgents")}</div>}
     </>

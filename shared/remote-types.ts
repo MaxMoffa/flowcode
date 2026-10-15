@@ -154,7 +154,7 @@ export type ClientMsg =
   | { t: "set"; key: SettingKey; value: unknown }
   | ({ t: "profile" } & ProfileAction)
   /** Opens a new desktop terminal tab, in `cwd` (else the start folder), starting `cli` in it if given. */
-  | { t: "newtab"; cwd?: string; cli?: string }
+  | { t: "newtab"; cwd?: string; cli?: string; /** Account profile id; "" = the default one; absent = automatic. */ profile?: string }
   /** Sent by the core itself when the app goes out of sight; listed for completeness. */
   | { t: "background"; on: boolean }
   | { t: "ping" };

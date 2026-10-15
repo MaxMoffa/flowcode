@@ -669,7 +669,7 @@ function Shell() {
   /** The phone asked to sign a CLI in under a profile (see loginProfile). */
   const remoteProfileLoginRef = useRef<(profileId: string, cli: string) => void>(() => {});
   /** The phone asked for a new terminal tab (see useRemoteWindowEvents). */
-  const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null) => void>(() => {});
+  const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>(() => {});
   const remoteLoginTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
@@ -1867,9 +1867,15 @@ function Shell() {
     }, 5000);
   };
 
-  remoteNewTabRef.current = (cwd, cli) => {
-    if (cli && (AGENT_CLIS as readonly string[]).includes(cli)) void launchAgentInNewTab(cli as AgentCli, cwd ?? homeDir);
-    else addTab(cwd ?? undefined);
+  remoteNewTabRef.current = (cwd, cli, profile) => {
+    // From the phone: "" = the default profile, an unknown id falls back to it, absent = automatic.
+    const profileId = profile == null ? undefined : profiles.some((p) => p.id === profile) ? profile : null;
+    if (cli && (AGENT_CLIS as readonly string[]).includes(cli)) {
+      const dir = cwd ?? homeDir;
+      // Automatic for an agent: the folder's project default, like a shell tab gets.
+      const pick = profileId !== undefined ? Promise.resolve(profileId) : profileForPath(dir);
+      void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, undefined, id ?? undefined));
+    } else addTab(cwd ?? undefined, undefined, false, profileId);
   };
 
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the

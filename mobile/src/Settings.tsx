@@ -4,6 +4,7 @@ import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { setLockEnabled, useLock, verify } from "./applock";
 import { effectivePhone, phoneTheme, setPhoneTheme } from "./theme";
+import { FONT_MAX, FONT_MIN, phoneFontSize, setPhoneFontSize } from "./termFont";
 import {
   DEFAULT_BACKGROUND,
   backgroundSettings,
@@ -39,7 +40,7 @@ function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: stri
 
 const onOff = (v: boolean) => (v ? t("stateOn") : t("stateOff"));
 
-function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, bg: BackgroundSettings, hostName?: string): Record<SectionId, string> {
+function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, localFont: number | null, bg: BackgroundSettings, hostName?: string): Record<SectionId, string> {
   const eff = s ? effectivePhone(s, local) : null;
   const paletteName = s && eff ? (s.palettes.find((p) => p.id === eff.palette)?.name ?? eff.palette) : "";
   const themeName = eff ? { auto: t("themeAuto"), light: t("themeLight"), dark: t("themeDark") }[eff.theme] : "";
@@ -47,7 +48,7 @@ function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, l
   const langName = !s ? "" : s.language === "system" ? t("langSystem") : (s.languages.find((l) => l.id === s.language)?.name ?? s.language);
   return {
     appearance: s ? (eff?.local ? t("sumPhoneOnly", { name: paletteName }) : `${paletteName} · ${themeName}`) : "",
-    terminal: s ? t("sumTerminal", { size: s.terminalFontSize, banner: onOff(s.bannerEnabled) }) : "",
+    terminal: s ? t("sumTerminal", { size: localFont ?? s.terminalFontSize, banner: onOff(s.bannerEnabled) }) : "",
     agents: s ? (notifyCount ? t("sumAgents", { n: notifyCount }) : t("sumAgentsNone")) : "",
     profiles: profiles === null ? "" : profiles.length ? t("sumProfiles", { n: profiles.length }) : t("sumProfilesNone"),
     resume: s ? (s.autoResume.enabled ? t("sumResumeOn", { msg: s.autoResume.message || t("autoResumePlaceholder") }) : t("sumResumeOff")) : "",
@@ -65,11 +66,12 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
   useBackHandler(section !== null, () => setSection(null));
 
   const local = phoneTheme.use();
+  const localFont = phoneFontSize.use().size;
   const [bg, setBg] = useState<BackgroundSettings>(DEFAULT_BACKGROUND);
   useEffect(() => {
     void backgroundSettings().then(setBg);
   }, []);
-  const sum = summaries(s, profiles, lock, local, bg, hostName);
+  const sum = summaries(s, profiles, lock, local, localFont, bg, hostName);
   const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", "profiles", "language"] : [];
   const phoneOnly: SectionId[] = lock.available ? ["security", "background", "phone"] : ["background", "phone"];
   const titles: Record<SectionId, string> = {
@@ -194,7 +196,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
 
       {section === "terminal" && s && (
         <Group title={t("terminalGroup")}>
-          <Stepper label={t("fontSize")} value={s.terminalFontSize} min={9} max={28} onChange={(v) => setSetting("terminalFontSize", v)} />
+          <Stepper label={t("fontSize")} hint={t("fontSizeHint")} value={localFont ?? s.terminalFontSize} min={FONT_MIN} max={FONT_MAX} onChange={setPhoneFontSize} />
           <Toggle label={t("banner")} on={s.bannerEnabled} onChange={(v) => setSetting("bannerEnabled", v)} />
           <Toggle label={t("confirmLinks")} on={s.confirmLinkOpen} onChange={(v) => setSetting("confirmLinkOpen", v)} />
           <Toggle label={t("newTabPage")} on={s.newTabPage} onChange={(v) => setSetting("newTabPage", v)} />

@@ -9,6 +9,7 @@ import { TermFiles } from "./TermFiles";
 import { TermKeyBar } from "./TermKeyBar";
 import { TermMenu } from "./TermMenu";
 import { encodeKey, encodeText, useModifiers, type Active, type NamedKey } from "./termModifiers";
+import { phoneFontSize } from "./termFont";
 import { useTouchScroll } from "./termTouch";
 import { useKeybarHeight, useTerminalViewport } from "./termViewport";
 import { focusTerminal, useTerminal } from "./useTerminal";
@@ -28,6 +29,7 @@ export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab
   const [menuOpen, setMenuOpen] = useState(false);
   const { ptyId } = tab;
   const settings = useRemoteSelector((s) => s.settings);
+  const localFont = phoneFontSize.use().size;
   const actions = useRemoteSelector((s) => s.actions);
   const { mods, tap, lock, consume, peek } = useModifiers();
 
@@ -36,7 +38,7 @@ export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab
   const { areaRef, hostRef, termRef, ended, atBottom } = useTerminal({
     ptyId,
     status,
-    fontSize: settings?.terminalFontSize,
+    fontSize: localFont ?? settings?.terminalFontSize,
     themeKey: settings,
     onInput,
   });

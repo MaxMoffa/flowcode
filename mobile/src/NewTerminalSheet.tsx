@@ -3,7 +3,7 @@ import { useBackHandler } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
 import { AgentLogo, FolderIcon, TerminalIcon } from "./icons";
-import { send } from "./remote";
+import { send, useRemoteSelector } from "./remote";
 
 type Cli = "claude" | "codex" | "vibe";
 const AGENTS: { id: Cli; name: string }[] = [
@@ -13,17 +13,21 @@ const AGENTS: { id: Cli; name: string }[] = [
 ];
 
 /** "Nuovo terminale": where (a folder of the open tabs, or the desktop's start
- * folder) and what to run (a shell, or an agent straight away). The desktop
- * opens it as a new tab; `onCreate` runs once the request is sent. */
+ * folder), what to run (a shell, or an agent straight away) and under which
+ * account profile. The desktop opens it as a new tab; `onCreate` runs once the
+ * request is sent. */
 export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: boolean; folders: string[]; onClose: () => void; onCreate: () => void }) {
   /** null = the desktop's start folder. */
   const [cwd, setCwd] = useState<string | null>(null);
   const [cli, setCli] = useState<Cli | null>(null);
+  /** null = automatic (the folder's project default), "" = the default profile. */
+  const [profile, setProfile] = useState<string | null>(null);
+  const profiles = useRemoteSelector((r) => r.profiles);
   useBackHandler(open, onClose);
   if (!open) return null;
 
   const create = () => {
-    send({ t: "newtab", ...(cwd ? { cwd } : {}), ...(cli ? { cli } : {}) });
+    send({ t: "newtab", ...(cwd ? { cwd } : {}), ...(cli ? { cli } : {}), ...(profile !== null ? { profile } : {}) });
     onCreate();
     onClose();
   };
@@ -64,6 +68,27 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
             ))}
           </div>
         </div>
+        {profiles && profiles.length > 0 && (
+          <div className="nts-field">
+            <span className="nts-label">{t("newTermProfile")}</span>
+            <div className="nts-choices">
+              <button type="button" className={"nts-choice" + (profile === null ? " on" : "")} onClick={() => setProfile(null)}>
+                <i className="dot" />
+                {t("newTermProfileAuto")}
+              </button>
+              <button type="button" className={"nts-choice" + (profile === "" ? " on" : "")} onClick={() => setProfile("")}>
+                <i className="dot" style={{ background: "var(--muted)" }} />
+                {t("defaultProfile")}
+              </button>
+              {profiles.map((p) => (
+                <button key={p.id} type="button" className={"nts-choice" + (profile === p.id ? " on" : "")} onClick={() => setProfile(p.id)}>
+                  <i className="dot" style={{ background: p.color }} />
+                  <span className="nts-profile-name">{p.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <button type="button" className="btn primary big" onClick={create}>
           {t("newTermOpen")}
         </button>

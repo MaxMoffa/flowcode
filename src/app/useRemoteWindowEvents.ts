@@ -19,7 +19,7 @@ export interface RemoteWindowEventRefs {
   termRefs: MutableRefObject<Map<string, TerminalHandle>>;
   remoteActionRef: MutableRefObject<(id: string, ptyId: string | null) => void>;
   remoteProfileLoginRef: MutableRefObject<(profileId: string, cli: string) => void>;
-  remoteNewTabRef: MutableRefObject<(cwd: string | null, cli: string | null) => void>;
+  remoteNewTabRef: MutableRefObject<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>;
 }
 
 export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
@@ -74,8 +74,8 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       if (e.payload.id && e.payload.cli) remoteProfileLoginRef.current(e.payload.id, e.payload.cli);
     });
     // A phone asking for a new terminal tab here.
-    const unlistenNewTab = webview.listen<{ cwd?: string | null; cli?: string | null }>("remote://new-tab", (e) => {
-      remoteNewTabRef.current(e.payload.cwd ?? null, e.payload.cli ?? null);
+    const unlistenNewTab = webview.listen<{ cwd?: string | null; cli?: string | null; profile?: string | null }>("remote://new-tab", (e) => {
+      remoteNewTabRef.current(e.payload.cwd ?? null, e.payload.cli ?? null, e.payload.profile ?? undefined);
     });
     // A prompt sent from a phone: counts as a submit for the agent notifications.
     const unlistenSubmit = webview.listen<string>("remote://submit", (e) => noteRemoteSubmit(e.payload));

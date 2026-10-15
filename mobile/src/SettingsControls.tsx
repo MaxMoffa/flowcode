@@ -100,10 +100,13 @@ export function Slider({ label, value, onCommit }: { label: string; value: numbe
   );
 }
 
-export function Stepper({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+export function Stepper({ label, hint, value, min, max, onChange }: { label: string; hint?: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   return (
     <div className="set-row">
-      <span className="set-label">{label}</span>
+      <span className="set-label">
+        {label}
+        {hint && <small className="set-hint">{hint}</small>}
+      </span>
       <div className="stepper">
         <button type="button" aria-label={t("decrease")} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>
           −

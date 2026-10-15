@@ -1587,7 +1587,7 @@ impl Conn {
                 let payload = serde_json::json!({ "id": id, "ptyId": pty_id });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_RUN_ACTION, payload);
             }
-            ClientMsg::NewTab { cwd, cli } => {
+            ClientMsg::NewTab { cwd, cli, profile } => {
                 let cwd = cwd.filter(|c| !c.trim().is_empty());
                 if cli.as_deref().is_some_and(|c| !matches!(c, "claude" | "codex" | "vibe")) {
                     self.error(tr("Agente sconosciuto", "Unknown agent"), None);
@@ -1597,11 +1597,15 @@ impl Conn {
                     self.error(tr("Cartella non trovata sul computer", "Folder not found on the computer"), None);
                     return;
                 }
+                if profile.as_deref().is_some_and(|p| p.len() > 128) {
+                    self.error(tr("Profilo non valido", "Invalid profile"), None);
+                    return;
+                }
                 let Some(window) = self.shared.default_window() else {
                     self.error(tr("Nessuna finestra aperta", "No window is open"), None);
                     return;
                 };
-                let payload = serde_json::json!({ "cwd": cwd, "cli": cli });
+                let payload = serde_json::json!({ "cwd": cwd, "cli": cli, "profile": profile });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_NEW_TAB, payload);
             }
             ClientMsg::Set { key, value } => {
