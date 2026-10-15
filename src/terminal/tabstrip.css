@@ -9,6 +9,79 @@
   overflow: hidden;
 }
 
+/* The scrolling row plus the arrows' overlays laid over its edges. */
+.tab-strip-scroller {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  align-items: flex-end;
+}
+
+/* Registered so the viewport's mask edges can animate (see below). */
+@property --tab-fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --tab-fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* All the tabs in one row that scrolls sideways (see TabStrip); the arrows
+   float over its edges (.term-tab-fade) and the "+" button sits outside it.
+   The 1px padding keeps the busy sweep, which spills 0.25px past the tab,
+   from being clipped - the negative margin cancels it out so the tabs don't
+   move. */
+.tab-strip-viewport {
+  position: relative; /* the tabs' offsetLeft is measured from here */
+  display: flex;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding-block: 1px;
+  margin-block: -1px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  /* The edges under the arrows fade the tabs out (see .term-tab-fade): a
+     mask rather than a gradient laid over them, since the bar behind is
+     translucent and a painted fade would never match it. */
+  --tab-fade-left: 0px;
+  --tab-fade-right: 0px;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent calc(var(--tab-fade-left) * 0.55),
+    #000 var(--tab-fade-left),
+    #000 calc(100% - var(--tab-fade-right)),
+    transparent calc(100% - var(--tab-fade-right) * 0.55)
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent calc(var(--tab-fade-left) * 0.55),
+    #000 var(--tab-fade-left),
+    #000 calc(100% - var(--tab-fade-right)),
+    transparent calc(100% - var(--tab-fade-right) * 0.55)
+  );
+  transition: --tab-fade-left 160ms ease, --tab-fade-right 160ms ease;
+}
+
+.tab-strip-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-strip-viewport.fade-left {
+  --tab-fade-left: 48px;
+}
+
+.tab-strip-viewport.fade-right {
+  --tab-fade-right: 48px;
+}
+
 .term-tab {
   box-sizing: border-box;
   position: relative;
@@ -30,6 +103,12 @@
      text instead got in the way. Renaming re-enables it on its input. */
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Narrow windows (TabStrip's `compact`): keep in sync with COMPACT_TAB_SLOT. */
+.tab-strip.is-compact .term-tab {
+  width: 120px;
+  flex-basis: 120px;
 }
 
 /* The selected tab is filled and outlined with the accent so it stands out
@@ -149,13 +228,11 @@
   border-color: color-mix(in srgb, var(--ansi-bright-green) 65%, transparent);
 }
 
-.term-tab-agent-logo.is-waiting,
-.term-tab-folder-icon.is-waiting {
+.term-tab-agent-logo.is-waiting {
   color: var(--ansi-bright-yellow);
 }
 
 .term-tab-agent-logo.is-done,
-.term-tab-folder-icon.is-done,
 .term-tab-dot.is-done {
   color: var(--ansi-bright-green);
 }
@@ -258,7 +335,8 @@
   fill: none;
 }
 
-.term-tab-new {
+.term-tab-new,
+.term-tab-scroll {
   -webkit-app-region: no-drag;
   width: 26px;
   height: 26px;
@@ -275,169 +353,70 @@
   cursor: pointer;
 }
 
-.term-tab-new:hover {
+.term-tab-scroll {
+  margin-left: 0;
+}
+
+/* Each arrow floats over an edge of the row, where the viewport's mask fades
+   the tabs out, so they slide under it instead of being cut off. Width
+   matches FADE_WIDTH in TabStrip and --tab-fade-* above. */
+.term-tab-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 48px;
+  display: flex;
+  align-items: flex-end;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 160ms ease, visibility 0s linear 160ms;
+}
+
+.term-tab-fade.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 160ms ease, visibility 0s;
+}
+
+.term-tab-fade.is-left {
+  left: 0;
+  justify-content: flex-start;
+}
+
+.term-tab-fade.is-right {
+  right: 0;
+  justify-content: flex-end;
+}
+
+.term-tab-fade .term-tab-scroll {
+  pointer-events: auto;
+}
+
+.term-tab-fade:not(.is-visible) .term-tab-scroll {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-strip-viewport,
+  .term-tab-fade,
+  .term-tab-fade.is-visible {
+    transition: none;
+  }
+}
+
+.term-tab-new:hover,
+.term-tab-scroll:hover {
   background: var(--ctrl-hover-bg);
 }
 
-.term-tab-new svg {
+.term-tab-new svg,
+.term-tab-scroll svg {
   width: 14px;
   height: 14px;
   stroke: currentColor;
   fill: none;
-}
-
-.term-tab-folder {
-  /* Stacked-cards cue via layered box-shadows (not extra boxes), offset
-     purely horizontally - a diagonal (x and y) offset left too little room
-     for the shape's own corner radius at this scale, rendering as a
-     malformed sliver in the top-right corner instead of a clean curve. */
-  margin-right: 7px;
-  box-shadow:
-    3px 0 0 -2px var(--border),
-    6px 0 0 -4px var(--border);
-}
-
-.term-tab-folder-icon {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  color: var(--ctrl-fg);
-}
-
-.tab-overflow-count {
-  position: absolute;
-  bottom: -3px;
-  left: 50%;
-  transform: translateX(-50%);
-  min-width: 13px;
-  height: 12px;
-  padding: 0 3px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: var(--accent-2);
-  color: var(--on-accent-2);
-  font: 700 8.5px/1 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  pointer-events: none;
-}
-
-.tab-overflow-menu {
-  position: fixed;
-  z-index: 1000;
-  max-height: 320px;
-  display: flex;
-  flex-direction: column;
-  background: var(--menu-surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14);
-  backdrop-filter: var(--menu-backdrop);
-  -webkit-backdrop-filter: var(--menu-backdrop);
-  overflow: hidden;
-  transform-origin: top;
-  animation: tab-menu-open 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes tab-menu-open {
-  from {
-    opacity: 0;
-    transform: scaleY(0.35);
-  }
-  to {
-    opacity: 1;
-    transform: scaleY(1);
-  }
-}
-
-.tab-overflow-search {
-  flex: 0 0 auto;
-  height: 30px;
-  padding: 0 10px;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  outline: none;
-  background: transparent;
-  color: var(--fg);
-  font-size: 12.5px;
-}
-
-.tab-overflow-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 5px;
-}
-
-.tab-overflow-item {
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  border: none;
-  background: transparent;
-  color: var(--fg);
-  font-size: 12.5px;
-  text-align: left;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.tab-overflow-item:hover {
-  background: var(--sidebar-hover);
-}
-
-.tab-overflow-item.is-active {
-  background: var(--sidebar-selected-bg);
-  color: var(--sidebar-selected-fg);
-}
-
-.tab-overflow-item-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tab-overflow-item-close {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: currentColor;
-  opacity: 0.55;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  flex: 0 0 auto;
-  cursor: pointer;
-}
-
-.tab-overflow-item-close:hover {
-  opacity: 1;
-  background: var(--ctrl-hover-bg);
-}
-
-.tab-overflow-item-close svg {
-  width: 11px;
-  height: 11px;
-  stroke: currentColor;
-  fill: none;
-}
-
-.tab-overflow-empty {
-  padding: 10px;
-  color: var(--fg-muted);
-  font-size: 12px;
 }
 
 /* Tab drag (see TabStrip's pointer handlers): lifted while sliding along the

@@ -289,37 +289,38 @@
    extra GPU work, and WebView2 doesn't clip it to a card's rounded corners
    (square corners showed over the cards). */
 .panel-card-content > *,
-.sidebar-floating-panel > *,
 .terminal-stack .terminal-container,
 .terminal-stack .newtab {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
-/* Behind a floating panel: blurs the terminals so their text doesn't show
-   through the panel's translucent card. On this full-width layer rather
-   than on the panel: WebView2 doesn't clip a backdrop-filter to rounded
-   corners (see the note above). */
+/* Behind a floating panel: catches the click that closes it. Clear - the
+   blur sits on the panel's card alone (see below). */
 .sidebar-floating-backdrop {
   position: absolute;
   inset: 0;
   z-index: 50;
+}
+
+/* A floating panel's card blurs the terminals behind it so their text
+   doesn't show through it. WebView2 doesn't clip a backdrop-filter to
+   rounded corners (see the note above) but does clip it to a clip-path, so
+   the blur is cut to the card's shape there; the drop shadow lives on the
+   unclipped element around it. The sidebar's blur goes on the panel inside
+   the floating card (which has a 1px border, hence the smaller radius). */
+.sidebar-floating-panel > *,
+.app-shell.is-narrow .resizable-panel-right .panel-card {
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
-  animation: sidebar-floating-backdrop-in 0.14s ease-out;
 }
 
-@keyframes sidebar-floating-backdrop-in {
-  from {
-    -webkit-backdrop-filter: blur(0);
-    backdrop-filter: blur(0);
-  }
+.sidebar-floating-panel > * {
+  clip-path: inset(0 round calc(var(--card-radius) - 1px));
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-floating-backdrop {
-    animation: none;
-  }
+.app-shell.is-narrow .resizable-panel-right .panel-card {
+  clip-path: inset(0 round var(--card-radius));
 }
 
 /* Over the terminals rather than beside them, with the terminal card's
@@ -352,10 +353,11 @@
   }
 }
 
-/* Phone-like layout (App.tsx NARROW_BREAKPOINT): a single 44px bar (tab
-   switcher, "+", window controls), the terminal card, then the bottom area
-   (NarrowChrome.tsx). Side panels are overlays between bar and bottom area
-   (App.tsx floats the sidebar and backs both with a backdrop). */
+/* Phone-like layout (App.tsx NARROW_BREAKPOINT): the header holds just the
+   tabs, "+" and the window controls, then the terminal card, then the panel
+   toggles and tools on a row of their own (.narrow-toolbar). Side panels are
+   overlays over the body (App.tsx floats the sidebar and backs both with a
+   backdrop). */
 .app-shell.is-narrow .app-headerbar {
   gap: 4px;
   padding: 0 6px;
@@ -368,6 +370,45 @@
 .app-shell.is-narrow .window-controls {
   margin-left: 2px;
   padding-left: 4px;
+}
+
+/* Below the terminal card, on the same surface as the header bar. */
+.narrow-toolbar {
+  position: relative;
+  /* Above the window texture, like the cards. */
+  z-index: 2;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 6px;
+  background: var(--bg-elevated);
+}
+
+/* Everything but the sidebar toggle, pushed right; the shortcuts scroll
+   sideways when they don't fit. */
+.narrow-toolbar-tools {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.narrow-toolbar .quick-actions {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.narrow-toolbar .quick-actions::-webkit-scrollbar {
+  display: none;
 }
 
 .app-shell.is-narrow .app-body {

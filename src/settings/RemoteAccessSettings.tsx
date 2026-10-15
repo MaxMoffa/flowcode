@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import QRCode from "qrcode";
 import { t, useI18n } from "../i18n";
@@ -197,6 +199,90 @@ function PairDialog({ onClose }: PairDialogProps) {
   );
 }
 
+/** The Android release matching this desktop version (a dev build counts as
+ * its release): its page, and the APK's direct download link. */
+function useAppRelease() {
+  const [release, setRelease] = useState<{ page: string; apk: string } | null>(null);
+  useEffect(() => {
+    let stale = false;
+    getVersion()
+      .then((v) => {
+        const version = v.replace(/-dev$/, "");
+        const base = "https://github.com/MaxMoffa/flowcode/releases";
+        if (!stale) setRelease({ page: `${base}/tag/v${version}`, apk: `${base}/download/v${version}/Flowcode-Android-${version}.apk` });
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, []);
+  return release;
+}
+
+/** The APK's download link as a QR code, for the phone's camera. */
+function AppQrDialog({ url, onClose }: { url: string; onClose: () => void }) {
+  const [qr, setQr] = useState("");
+  useEffect(() => {
+    let stale = false;
+    QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" })
+      .then((svg) => !stale && setQr(svg))
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [url]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="modal-panel remote-pair-panel" role="dialog" aria-modal="true" aria-label={t("settings.remote.appQrTitle")}>
+        <div className="remote-pair-title">{t("settings.remote.appQrTitle")}</div>
+        <span className="settings-field-hint">{t("settings.remote.appQrHint")}</span>
+        <div
+          className="remote-access-qr remote-pair-qr"
+          // Generated locally by the qrcode package from the release link.
+          dangerouslySetInnerHTML={{ __html: qr }}
+        />
+        <div className="remote-pair-actions">
+          <button type="button" className="settings-choice" onClick={onClose}>
+            {t("common.close")}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function AppDownload() {
+  const release = useAppRelease();
+  const [qrOpen, setQrOpen] = useState(false);
+  const closeQr = useCallback(() => setQrOpen(false), []);
+  return (
+    <div className="remote-app-actions">
+      <button type="button" className="settings-choice" disabled={!release} onClick={() => release && openUrl(release.page).catch(() => {})}>
+        {t("settings.remote.appRelease")}
+      </button>
+      <button type="button" className="settings-choice" disabled={!release} onClick={() => setQrOpen(true)}>
+        {t("settings.remote.appShowQr")}
+      </button>
+      {qrOpen && release && <AppQrDialog url={release.apk} onClose={closeQr} />}
+    </div>
+  );
+}
+
 export function RemoteAccessSettings() {
   useI18n();
   const confirm = useConfirmDialog();
@@ -299,6 +385,16 @@ export function RemoteAccessSettings() {
   }
 
   return (
+    <>
+    {/* The app download stands apart, above the settings: it's needed before
+        there's anything to pair. */}
+    <section className="settings-group">
+      <div className="settings-card">
+        <SettingRow id="remoteApp" label={t("settings.remote.appLabel")} desc={t("settings.remote.appDesc")} stacked>
+          <AppDownload />
+        </SettingRow>
+      </div>
+    </section>
     <SettingsGroup title={t("settings.group.phone")}>
       <SettingRow id="remoteAccess" label={t("settings.remote.label")} desc={t("settings.remote.desc")}>
         <Switch checked={enabled} onChange={setEnabled} label={t("settings.remote.label")} stateLabels={onOff} />
@@ -337,5 +433,6 @@ export function RemoteAccessSettings() {
       )}
       {pairing && <PairDialog onClose={closePairing} />}
     </SettingsGroup>
+    </>
   );
 }

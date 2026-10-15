@@ -464,8 +464,20 @@
 }
 
 /* Profiles section */
-.profiles-intro {
+.profiles-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   margin: 0 0 16px;
+}
+
+.profiles-toolbar .settings-choice {
+  flex-shrink: 0;
+}
+
+.profiles-intro {
+  margin: 0;
   color: var(--fg-muted);
   font-size: 12.5px;
   line-height: 1.5;
@@ -592,12 +604,6 @@
   border-top: 1px solid var(--border);
 }
 
-.profiles-add-cli {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .profiles-colors {
   display: flex;
   flex-wrap: wrap;
@@ -643,4 +649,24 @@
 
 .profiles-error {
   display: block;
+}
+
+.profiles-dialog {
+  --modal-w: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profiles-dialog-title {
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.profiles-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
 }

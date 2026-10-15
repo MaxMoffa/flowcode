@@ -62,6 +62,13 @@
   align-self: flex-end;
 }
 
+/* The app download buttons, under the row's text. */
+.remote-app-actions {
+  display: flex;
+  gap: 8px;
+  align-self: flex-start;
+}
+
 .remote-access-device {
   display: flex;
   align-items: center;

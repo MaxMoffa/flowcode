@@ -1,6 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
+import { useContextMenu } from "../context-menu/ContextMenuContext";
+import "../dialog/modal.css";
 import { AGENT_CLIS, CLI_INFO, defaultCliStatus, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import {
@@ -41,7 +44,7 @@ function ColorPicker({ value, onChange, label }: { value: string; onChange: (col
 const DEFAULT_CARD = "";
 
 /** The agents signed in under one profile (sign in again, sign out) and a
- * "+" listing the others to sign in to. */
+ * "+" opening a menu of the others to sign in to. */
 function ProfileClis({
   loggedIn,
   onLogin,
@@ -52,7 +55,7 @@ function ProfileClis({
   onLogout: (cli: AgentCli) => void;
 }) {
   const { t } = useI18n();
-  const [adding, setAdding] = useState(false);
+  const { show } = useContextMenu();
   const on = AGENT_CLIS.filter((cli) => loggedIn?.[cli]);
   const off = AGENT_CLIS.filter((cli) => !loggedIn?.[cli]);
   return (
@@ -74,35 +77,117 @@ function ProfileClis({
       ))}
       {onLogin && off.length > 0 && (
         <div className="profiles-add">
-          <button type="button" className="settings-choice" aria-expanded={adding} onClick={() => setAdding((v) => !v)}>
+          <button
+            type="button"
+            className="settings-choice"
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              show(
+                rect.left,
+                rect.bottom + 4,
+                off.map((cli) => ({
+                  label: CLI_INFO[cli].label,
+                  icon: agentCliIcon(cli),
+                  onSelect: () => onLogin(cli),
+                })),
+              );
+            }}
+          >
             + {t("settings.profiles.addAgent")}
           </button>
-          {adding &&
-            off.map((cli) => (
-              <button
-                key={cli}
-                type="button"
-                className="settings-choice profiles-add-cli"
-                onClick={() => {
-                  setAdding(false);
-                  onLogin(cli);
-                }}
-              >
-                <span className="profiles-cli-icon">{agentCliIcon(cli)}</span>
-                {CLI_INFO[cli].label}
-              </button>
-            ))}
         </div>
       )}
     </div>
   );
 }
 
+/** The dialog behind the page's "New profile" button: name, colour and
+ * whether to copy the default profile's settings. Closes itself on success. */
+function NewProfileDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(PROFILE_COLORS[0]);
+  const [copySettings, setCopySettings] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  async function handleCreate() {
+    const trimmed = name.trim();
+    if (!trimmed || creating) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await createProfile(trimmed, color, copySettings);
+      onClose();
+    } catch (e) {
+      setError(String(e));
+      setCreating(false);
+    }
+  }
+
+  return createPortal(
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="modal-panel profiles-dialog" role="dialog" aria-modal="true" aria-label={t("settings.profiles.newTitle")}>
+        <div className="profiles-dialog-title">{t("settings.profiles.newTitle")}</div>
+        <input
+          type="text"
+          className="settings-text-input"
+          value={name}
+          aria-label={t("settings.profiles.name")}
+          placeholder={t("settings.profiles.name")}
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void handleCreate();
+          }}
+        />
+        <ColorPicker value={color} onChange={setColor} label={t("settings.profiles.color")} />
+        <label className="profiles-check">
+          <input type="checkbox" checked={copySettings} onChange={(e) => setCopySettings(e.target.checked)} />
+          <span>
+            <span className="settings-row-label">{t("settings.profiles.copySettings")}</span>
+            <span className="settings-row-desc">{t("settings.profiles.copySettingsHint")}</span>
+          </span>
+        </label>
+        {error && <span className="settings-field-hint is-error">{error}</span>}
+        <div className="profiles-dialog-actions">
+          <button type="button" className="settings-choice" onClick={onClose}>
+            {t("settings.profiles.cancel")}
+          </button>
+          <button
+            type="button"
+            className="settings-choice is-primary"
+            disabled={!name.trim() || creating}
+            onClick={() => void handleCreate()}
+          >
+            {t("settings.profiles.create")}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /** The Profiles settings page: the implicit default profile and one card per
  * extra profile (each lists its signed-in agents with sign-out and a "+" to
- * add others; rename/recolour, delete) and a form to create more. `onLogin`
- * opens the CLI's login in a terminal tab under that profile; without it the
- * sign-in buttons are hidden. */
+ * add others; rename/recolour, delete) and a button opening a dialog to create
+ * more. `onLogin` opens the CLI's login in a terminal tab under that profile;
+ * without it the sign-in buttons are hidden. */
 export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | null, cli: AgentCli) => void }) {
   // A focus listener is already waiting: one refresh covers every login click.
   const loginFocusArmedRef = useRef(false);
@@ -115,11 +200,7 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | n
   const [editColor, setEditColor] = useState(PROFILE_COLORS[0]);
   const [cardError, setCardError] = useState<{ id: string; message: string } | null>(null);
 
-  const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState(PROFILE_COLORS[0]);
-  const [copySettings, setCopySettings] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  const [creatingOpen, setCreatingOpen] = useState(false);
 
   function startEdit(profile: ProfileInfo) {
     setEditingId(profile.id);
@@ -162,22 +243,6 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | n
     }
   }
 
-  async function handleCreate() {
-    const name = newName.trim();
-    if (!name || creating) return;
-    setCreating(true);
-    setCreateError(null);
-    try {
-      await createProfile(name, newColor, copySettings);
-      setNewName("");
-      setNewColor(PROFILE_COLORS[0]);
-    } catch (e) {
-      setCreateError(String(e));
-    } finally {
-      setCreating(false);
-    }
-  }
-
   /** Hands the login to the terminal, then re-reads the login state once the
    * user comes back to this window. */
   function handleLogin(profileId: string | null, cli: AgentCli) {
@@ -216,7 +281,12 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | n
 
   return (
     <div id={settingDomId("profiles")}>
-      <p className="profiles-intro">{t("settings.profiles.intro")}</p>
+      <div className="profiles-toolbar">
+        <p className="profiles-intro">{t("settings.profiles.intro")}</p>
+        <button type="button" className="settings-choice is-primary" onClick={() => setCreatingOpen(true)}>
+          + {t("settings.profiles.newTitle")}
+        </button>
+      </div>
 
       <div className="profiles-list">
         <div className="settings-card profiles-card">
@@ -306,41 +376,7 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | n
         })}
       </div>
 
-      <section className="settings-group">
-        <h3 className="settings-group-title">{t("settings.profiles.newTitle")}</h3>
-        <div className="settings-card profiles-card profiles-new">
-          <input
-            type="text"
-            className="settings-text-input"
-            value={newName}
-            aria-label={t("settings.profiles.name")}
-            placeholder={t("settings.profiles.name")}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleCreate();
-            }}
-          />
-          <ColorPicker value={newColor} onChange={setNewColor} label={t("settings.profiles.color")} />
-          <label className="profiles-check">
-            <input type="checkbox" checked={copySettings} onChange={(e) => setCopySettings(e.target.checked)} />
-            <span>
-              <span className="settings-row-label">{t("settings.profiles.copySettings")}</span>
-              <span className="settings-row-desc">{t("settings.profiles.copySettingsHint")}</span>
-            </span>
-          </label>
-          <div className="settings-choice-row">
-            <button
-              type="button"
-              className="settings-choice is-primary"
-              disabled={!newName.trim() || creating}
-              onClick={() => void handleCreate()}
-            >
-              {t("settings.profiles.create")}
-            </button>
-          </div>
-          {createError && <span className="settings-field-hint is-error">{createError}</span>}
-        </div>
-      </section>
+      {creatingOpen && <NewProfileDialog onClose={() => setCreatingOpen(false)} />}
     </div>
   );
 }

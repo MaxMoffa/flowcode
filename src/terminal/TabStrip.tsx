@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { createPortal } from "react-dom";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "./shellOptions";
@@ -47,6 +47,8 @@ interface TabStripProps {
    * under the cursor (another window, or a new one): see App.tsx's
    * `handleTabDragOut`. */
   onDragOut: (id: string) => void;
+  /** Narrow windows: narrower tabs, so more of them fit. */
+  compact?: boolean;
 }
 
 /** How far the pointer has to travel before a press on a tab becomes a drag
@@ -68,23 +70,23 @@ interface TabDrag {
   y: number;
 }
 
-// Tabs have a fixed CSS width, so how many fit is plain arithmetic instead
-// of measuring each one - see tabstrip.css for the matching values. The
-// folder tab takes up exactly one regular tab slot (same size), so there's
-// no separate reservation for it.
+// Tabs have a fixed CSS width, so a pointer position maps to a slot with plain
+// arithmetic instead of measuring each tab - see tabstrip.css for the matching
+// values.
 const TAB_SLOT = 162; // 160px tab + 2px gap
-const NEW_BTN_SLOT = 28; // 26px button + 2px gap
+const COMPACT_TAB_SLOT = 122; // 120px compact tab + 2px gap
+/** Within this distance of the row's edge, dragging a tab scrolls it. */
+const AUTOSCROLL_EDGE = 40;
+/** Fastest auto-scroll speed while dragging, in px per frame. */
+const AUTOSCROLL_MAX = 14;
+/** Width of the row's faded edge under each scroll arrow (keep in sync with
+ * --tab-fade-* in tabstrip.css): tabs scrolled into view clear it. */
+const FADE_WIDTH = 48;
 
-function computeVisibleSlots(containerWidth: number, total: number): number {
-  if (total === 0 || containerWidth <= 0) return total;
-  const maxSlots = Math.floor((containerWidth - NEW_BTN_SLOT) / TAB_SLOT);
-  return Math.max(1, Math.min(maxSlots, total));
-}
-
-function FolderIcon() {
+function ChevronIcon({ direction }: { direction: "left" | "right" }) {
   return (
-    <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" width="16" height="16" stroke="currentColor" fill="none">
-      <path d="M3.5 6.5a1 1 0 0 1 1-1H9l2 2h8.5a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" />
+    <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={direction === "left" ? "M15 6 9 12l6 6" : "M9 6l6 6-6 6"} />
     </svg>
   );
 }
@@ -264,106 +266,6 @@ function tabTitle(tab: AppTab, profile?: ProfileInfo): string {
   return tabDisplayLabel(tab);
 }
 
-interface TabOverflowMenuProps {
-  tabs: AppTab[];
-  activeId: string;
-  agents?: Map<string, TabAgent>;
-  doneIds?: ReadonlySet<string>;
-  anchorRect: DOMRect;
-  onSelect: (id: string) => void;
-  onCloseTab: (id: string) => void;
-  /** Closes the overflow popup itself (Escape, click outside) - distinct
-   * from `onCloseTab`, which closes one of the tabs listed inside it. */
-  onDismiss: () => void;
-}
-
-function TabOverflowMenu({ tabs, activeId, agents, doneIds, anchorRect, onSelect, onCloseTab, onDismiss }: TabOverflowMenuProps) {
-  const profiles = useProfiles();
-  const { t } = useI18n();
-  const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const onMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onDismiss();
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDismiss();
-    };
-    window.addEventListener("mousedown", onMouseDown, true);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", onMouseDown, true);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onDismiss]);
-
-  const filtered = tabs.filter((tab) => tabDisplayLabel(tab).toLowerCase().includes(query.trim().toLowerCase()));
-
-  // Same width as the tab it unfolds from, anchored right under it - the
-  // opening animation (see tabstrip.css) is what sells the illusion that
-  // the tab itself is the thing expanding open.
-  const style: CSSProperties = {
-    top: anchorRect.bottom + 2,
-    left: anchorRect.left,
-    width: anchorRect.width,
-  };
-
-  return createPortal(
-    <div className="tab-overflow-menu" style={style} ref={menuRef}>
-      <input
-        ref={inputRef}
-        className="tab-overflow-search"
-        placeholder={t("tabs.search")}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      <div className="tab-overflow-list">
-        {filtered.length === 0 && <div className="tab-overflow-empty">{t("common.noResults")}</div>}
-        {filtered.map((tab) => (
-          <div
-            key={tab.id}
-            className={"tab-overflow-item" + (tab.id === activeId ? " is-active" : "")}
-            onClick={() => {
-              onSelect(tab.id);
-              onDismiss();
-            }}
-          >
-            {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id), tabProfile(profiles, tab))}
-            <span className="tab-overflow-item-label">{tabDisplayLabel(tab)}</span>
-            {tab.kind === "terminal" && tab.notifyMuted && <MutedIcon />}
-            <button
-              type="button"
-              className="tab-overflow-item-close"
-              aria-label={t("tabs.closeNamed", { name: tabDisplayLabel(tab) })}
-              onClick={(e) => {
-                e.stopPropagation();
-                // A stacked tab needs at least two tabs inside it: closing
-                // one of the last two leaves a lone tab that's no longer a
-                // stack, so the popup is dismissed along with it. (Counts
-                // all the stacked tabs, not just the search-filtered ones.)
-                if (tabs.length <= 2) onDismiss();
-                onCloseTab(tab.id);
-              }}
-            >
-              <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-                <line x1="6" y1="6" x2="18" y2="18" />
-                <line x1="18" y1="6" x2="6" y2="18" />
-              </svg>
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
 export function TabStrip({
   tabs,
   activeId,
@@ -380,22 +282,28 @@ export function TabStrip({
   onToggleNotifications,
   onReorder,
   onDragOut,
+  compact,
 }: TabStripProps) {
   const { t } = useI18n();
   const profiles = useProfiles();
+  const tabSlot = compact ? COMPACT_TAB_SLOT : TAB_SLOT;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [overflowAnchorRect, setOverflowAnchorRect] = useState<DOMRect | null>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
-  const [lastFolderSelection, setLastFolderSelection] = useState<string | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const folderTabRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const openMenu = useOpenContextMenu();
   // The tab being dragged, if any - state for rendering (the ghost, the
   // dimmed tab), mirrored in a ref for the pointer handlers.
   const [drag, setDrag] = useState<TabDrag | null>(null);
   const dragRef = useRef<TabDrag | null>(null);
+  // Auto-scroll while dragging near the row's edge: the frame loop and a
+  // pointer-to-slot function re-assigned every render (the loop outlives
+  // the render that started it, and `tabs` moves on under it).
+  const autoScrollRef = useRef(0);
+  const reorderAtRef = useRef<(id: string, clientX: number) => void>(() => {});
   // The click that follows the pointerup ending a drag must not also count
   // as a click on the tab.
   const suppressClickRef = useRef(false);
@@ -417,15 +325,72 @@ export function TabStrip({
     }
   }, [editingId]);
 
-  useEffect(() => {
-    const el = containerRef.current;
+  function updateScrollState() {
+    const el = viewportRef.current;
     if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      setContainerWidth(entries[0].contentRect.width);
-    });
+    setCanScrollLeft(el.scrollLeft > 1);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(updateScrollState);
     observer.observe(el);
-    return () => observer.disconnect();
+    el.addEventListener("scroll", updateScrollState, { passive: true });
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("scroll", updateScrollState);
+    };
   }, []);
+
+  // The row's content width changed.
+  useEffect(updateScrollState, [tabs]);
+
+  // A vertical wheel scrolls the row sideways (a horizontal one already does).
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || el.scrollWidth <= el.clientWidth) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * el.clientWidth : e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Keep the active tab in view. Done by hand on the row alone:
+  // scrollIntoView could scroll the window's other containers too.
+  const shownActiveRef = useRef<string | null>(null);
+  useEffect(() => {
+    const el = viewportRef.current;
+    const index = tabs.findIndex((tab) => tab.id === activeId);
+    const tabEl = el?.children[index] as HTMLElement | undefined;
+    const activeChanged = shownActiveRef.current !== activeId;
+    shownActiveRef.current = activeId;
+    // A drag moves tabs under the pointer; its auto-scroll owns the position.
+    if (!el || !tabEl || dragRef.current?.dragging) return;
+    const behavior = activeChanged ? "smooth" : "auto";
+    // The arrows' overlays cover the row's edges, so a tab under one isn't
+    // really in view - unless it's the first/last, where that arrow goes away.
+    const leftInset = el.scrollLeft > 1 ? FADE_WIDTH : 0;
+    const rightInset = el.scrollLeft + el.clientWidth < el.scrollWidth - 1 ? FADE_WIDTH : 0;
+    if (tabEl.offsetLeft < el.scrollLeft + leftInset) {
+      el.scrollTo({ left: tabEl.offsetLeft - FADE_WIDTH, behavior });
+    } else if (tabEl.offsetLeft + tabEl.offsetWidth > el.scrollLeft + el.clientWidth - rightInset) {
+      el.scrollTo({ left: tabEl.offsetLeft + tabEl.offsetWidth - el.clientWidth + FADE_WIDTH, behavior });
+    }
+  }, [activeId, tabs]);
+
+  useEffect(() => () => cancelAnimationFrame(autoScrollRef.current), []);
+
+  function scrollByPage(direction: -1 | 1) {
+    const el = viewportRef.current;
+    if (!el) return;
+    const slots = Math.max(1, Math.floor(el.clientWidth / tabSlot));
+    el.scrollBy({ left: direction * slots * tabSlot, behavior: "smooth" });
+  }
 
   function startEditing(tab: AppTab) {
     setEditingId(tab.id);
@@ -457,45 +422,6 @@ export function TabStrip({
     items.push({ label: t("common.close"), icon: MenuIcons.close, danger: true, onSelect: () => onClose(tab.id) });
     return items;
   }
-
-  const totalSlots = computeVisibleSlots(containerWidth, tabs.length);
-  const hasOverflow = totalSlots < tabs.length;
-  // One of the fitted slots becomes the folder tab itself when there's
-  // overflow, so it never shows a "folder of one" - whatever doesn't fit
-  // regularly plus that reserved slot is always at least two tabs.
-  const regularCount = hasOverflow ? Math.max(0, totalSlots - 1) : totalSlots;
-
-  // Always a stable *prefix* of the tab list - a plain derived value with no
-  // memory of its own, so there's no stored window position to drift out of
-  // sync. Tabs already in the bar never move: growing the window only turns
-  // more of the *tail* (the newest overflow) back into regular tabs, right
-  // where the folder tab sits, instead of hidden tabs reappearing on the
-  // opposite side of tabs that were already visible.
-  const visibleTabs = tabs.slice(0, regularCount);
-  const hiddenTabs = tabs.slice(regularCount);
-  const activeInFolder = hiddenTabs.find((t) => t.id === activeId);
-  // Remember the last hidden tab that was actually selected (set
-  // synchronously during render, React's documented way to react to a prop
-  // change without an extra render's lag) so switching to a regular tab and
-  // back doesn't reset the folder's preview to some arbitrary tab - it
-  // keeps showing whichever one you were last looking at in there.
-  if (activeInFolder && activeInFolder.id !== lastFolderSelection) {
-    setLastFolderSelection(activeInFolder.id);
-  }
-  const rememberedTab = hiddenTabs.find((t) => t.id === lastFolderSelection);
-  // What the folder tab itself displays: the active hidden tab if there is
-  // one, otherwise the last one that was, otherwise the most recent tab in
-  // the group - reasonable stand-ins for a preview, in that order.
-  const folderPreview = activeInFolder ?? rememberedTab ?? hiddenTabs[hiddenTabs.length - 1];
-  // Tabs tucked into the folder can't show their own state, so the folder
-  // shows the most pressing one among them.
-  const folderAttention = hiddenTabs.some((tab) => agents?.get(tab.id)?.state === "waiting")
-    ? "waiting"
-    : hiddenTabs.some((tab) => doneIds?.has(tab.id))
-      ? "done"
-      : hiddenTabs.some((tab) => agents?.get(tab.id)?.state === "busy")
-        ? "busy"
-        : "idle";
 
   function handleTabPointerDown(e: ReactPointerEvent<HTMLDivElement>, tab: AppTab) {
     if (e.button !== 0 || editingId === tab.id) return;
@@ -533,19 +459,53 @@ export function TabStrip({
     const next = { ...current, dragging: true, detached, x: e.clientX, y: e.clientY };
     dragRef.current = next;
     setDrag(next);
-    if (detached) return;
-    // Still in the strip: slide it into the slot under the pointer. Only
-    // among the regular tabs - the overflow folder isn't a drop slot.
-    const first = strip.querySelector(".term-tab:not(.term-tab-folder)")?.getBoundingClientRect();
-    if (!first || visibleTabs.length === 0) return;
-    const slot = Math.max(0, Math.min(visibleTabs.length - 1, Math.floor((e.clientX - first.left) / TAB_SLOT)));
-    if (tabs[slot]?.id !== current.id) onReorder(current.id, slot);
+    if (detached) {
+      cancelAnimationFrame(autoScrollRef.current);
+      autoScrollRef.current = 0;
+      return;
+    }
+    // Still in the strip: slide it into the slot under the pointer.
+    reorderAtRef.current(current.id, e.clientX);
+    if (!autoScrollRef.current) autoScrollRef.current = requestAnimationFrame(autoScrollTick);
+  }
+
+  // Scroll-aware, so it works across tabs that are out of view.
+  reorderAtRef.current = (id, clientX) => {
+    const el = viewportRef.current;
+    const first = el?.querySelector<HTMLElement>(".term-tab");
+    if (!el || !first || tabs.length === 0) return;
+    const x = clientX - el.getBoundingClientRect().left + el.scrollLeft - first.offsetLeft;
+    const slot = Math.max(0, Math.min(tabs.length - 1, Math.floor(x / tabSlot)));
+    if (tabs[slot]?.id !== id) onReorder(id, slot);
+  };
+
+  // Runs while a tab is dragged inside the strip: near either edge of the
+  // row it scrolls, faster the closer the pointer is, and the dragged tab
+  // keeps following the pointer.
+  function autoScrollTick() {
+    autoScrollRef.current = 0;
+    const current = dragRef.current;
+    const el = viewportRef.current;
+    if (!current?.dragging || current.detached || !el) return;
+    const rect = el.getBoundingClientRect();
+    const fromLeft = Math.max(0, current.x - rect.left);
+    const fromRight = Math.max(0, rect.right - current.x);
+    const speed = (edge: number) => ((AUTOSCROLL_EDGE - edge) / AUTOSCROLL_EDGE) * AUTOSCROLL_MAX;
+    const delta = fromLeft < AUTOSCROLL_EDGE ? -speed(fromLeft) : fromRight < AUTOSCROLL_EDGE ? speed(fromRight) : 0;
+    if (delta !== 0) {
+      const before = el.scrollLeft;
+      el.scrollLeft += delta;
+      if (el.scrollLeft !== before) reorderAtRef.current(current.id, current.x);
+    }
+    autoScrollRef.current = requestAnimationFrame(autoScrollTick);
   }
 
   function endTabDrag(e: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) {
     const current = dragRef.current;
     if (!current || e.pointerId !== current.pointerId) return;
     dragRef.current = null;
+    cancelAnimationFrame(autoScrollRef.current);
+    autoScrollRef.current = 0;
     setDrag(null);
     if (!current.dragging) return;
     suppressClickRef.current = true;
@@ -557,105 +517,110 @@ export function TabStrip({
 
   const draggedTab = drag?.dragging ? tabs.find((t) => t.id === drag.id) : undefined;
 
-  function handleFolderTabClick() {
-    if (!folderPreview) return;
-    if (overflowAnchorRect) {
-      setOverflowAnchorRect(null);
-    } else if (activeInFolder) {
-      // Already the selected tab - a second click is what opens the list.
-      setOverflowAnchorRect(folderTabRef.current?.getBoundingClientRect() ?? null);
-    } else {
-      onSelect(folderPreview.id);
-    }
-  }
-
   return (
-    <div className="tab-strip" ref={containerRef} data-tauri-drag-region>
-      {visibleTabs.map((tab) => {
-        const attention = tab.kind === "terminal" ? agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id)) : null;
-        return (
-          <div
-            key={tab.id}
-            className={
-              "term-tab" +
-              (tab.id === activeId ? " is-active" : "") +
-              (attention ? " attn-" + attention : "") +
-              (draggedTab?.id === tab.id ? (drag?.detached ? " is-detached" : " is-dragging") : "")
-            }
-            onClick={() => {
-              if (!suppressClickRef.current) onSelect(tab.id);
-            }}
-            onPointerDown={(e) => handleTabPointerDown(e, tab)}
-            onPointerMove={handleTabPointerMove}
-            onPointerUp={(e) => endTabDrag(e, false)}
-            onPointerCancel={(e) => endTabDrag(e, true)}
-            onDoubleClick={(e) => {
-              // On the whole tab, not just its label: the pointerdown above
-              // captures the pointer to the tab, so the label itself never
-              // sees the double-click.
-              if ((e.target as HTMLElement).closest(".term-tab-close, input")) return;
-              startEditing(tab);
-            }}
-            onContextMenu={(e) => openMenu(e, tabMenuItems(tab))}
-            title={tabTitle(tab, tabProfile(profiles, tab))}
-          >
-            {attention === "busy" && <BusySweep />}
-            {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id), tabProfile(profiles, tab))}
-            {editingId === tab.id ? (
-              <input
-                ref={inputRef}
-                className="term-tab-rename-input"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                onBlur={commitEditing}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitEditing();
-                  if (e.key === "Escape") setEditingId(null);
-                }}
-              />
-            ) : (
-              <span className="term-tab-label">{tabDisplayLabel(tab)}</span>
-            )}
-            {tab.kind === "terminal" && tab.notifyMuted && <MutedIcon />}
-            {tab.kind === "terminal" && resumeAt?.has(tab.id) && onCancelResume && (
-              <ResumeBadge at={resumeAt.get(tab.id)!} onCancel={() => onCancelResume(tab.id)} />
-            )}
-            {tab.kind === "editor" && dirtyIds?.has(tab.id) && (
-              <span className="term-tab-dirty-dot" title={t("app.unsaved.title")} />
-            )}
-            <button
-              type="button"
-              className="term-tab-close"
-              aria-label={t("tabs.closeNamed", { name: tabDisplayLabel(tab) })}
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose(tab.id);
-              }}
-            >
-              <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-                <line x1="6" y1="6" x2="18" y2="18" />
-                <line x1="18" y1="6" x2="6" y2="18" />
-              </svg>
-            </button>
-          </div>
-        );
-      })}
-      {folderPreview && (
+    <div className={"tab-strip" + (compact ? " is-compact" : "")} ref={containerRef} data-tauri-drag-region>
+      <div className="tab-strip-scroller">
         <div
-          ref={folderTabRef}
-          className={"term-tab term-tab-folder attn-" + folderAttention + (activeInFolder ? " is-active" : "")}
-          onClick={handleFolderTabClick}
-          title={activeInFolder ? t("tabs.folder.clickAgain") : t("tabs.folder.grouped", { count: hiddenTabs.length })}
+          className={"tab-strip-viewport" + (canScrollLeft ? " fade-left" : "") + (canScrollRight ? " fade-right" : "")}
+          ref={viewportRef}
+          data-tauri-drag-region
         >
-          {folderAttention === "busy" && <BusySweep />}
-          <span className={"term-tab-folder-icon is-" + folderAttention}>
-            <FolderIcon />
-            <span className="tab-overflow-count">{hiddenTabs.length}</span>
-          </span>
-          <span className="term-tab-label">{tabDisplayLabel(folderPreview)}</span>
+          {tabs.map((tab) => {
+            const attention = tab.kind === "terminal" ? agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id)) : null;
+            return (
+              <div
+                key={tab.id}
+                className={
+                  "term-tab" +
+                  (tab.id === activeId ? " is-active" : "") +
+                  (attention ? " attn-" + attention : "") +
+                  (draggedTab?.id === tab.id ? (drag?.detached ? " is-detached" : " is-dragging") : "")
+                }
+                onClick={() => {
+                  if (!suppressClickRef.current) onSelect(tab.id);
+                }}
+                onPointerDown={(e) => handleTabPointerDown(e, tab)}
+                onPointerMove={handleTabPointerMove}
+                onPointerUp={(e) => endTabDrag(e, false)}
+                onPointerCancel={(e) => endTabDrag(e, true)}
+                onDoubleClick={(e) => {
+                  // On the whole tab, not just its label: the pointerdown above
+                  // captures the pointer to the tab, so the label itself never
+                  // sees the double-click.
+                  if ((e.target as HTMLElement).closest(".term-tab-close, input")) return;
+                  startEditing(tab);
+                }}
+                onContextMenu={(e) => openMenu(e, tabMenuItems(tab))}
+                title={tabTitle(tab, tabProfile(profiles, tab))}
+              >
+                {attention === "busy" && <BusySweep />}
+                {tabIcon(tab, agents?.get(tab.id), doneIds?.has(tab.id), tabProfile(profiles, tab))}
+                {editingId === tab.id ? (
+                  <input
+                    ref={inputRef}
+                    className="term-tab-rename-input"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={commitEditing}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitEditing();
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                  />
+                ) : (
+                  <span className="term-tab-label">{tabDisplayLabel(tab)}</span>
+                )}
+                {tab.kind === "terminal" && tab.notifyMuted && <MutedIcon />}
+                {tab.kind === "terminal" && resumeAt?.has(tab.id) && onCancelResume && (
+                  <ResumeBadge at={resumeAt.get(tab.id)!} onCancel={() => onCancelResume(tab.id)} />
+                )}
+                {tab.kind === "editor" && dirtyIds?.has(tab.id) && (
+                  <span className="term-tab-dirty-dot" title={t("app.unsaved.title")} />
+                )}
+                <button
+                  type="button"
+                  className="term-tab-close"
+                  aria-label={t("tabs.closeNamed", { name: tabDisplayLabel(tab) })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose(tab.id);
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            );
+          })}
         </div>
-      )}
+        {/* Always mounted, over the tabs, so they fade in and out instead of
+            popping and shifting the row. */}
+        <div className={"term-tab-fade is-left" + (canScrollLeft ? " is-visible" : "")} aria-hidden={!canScrollLeft}>
+          <button
+            type="button"
+            className="term-tab-scroll"
+            tabIndex={canScrollLeft ? 0 : -1}
+            aria-label={t("tabs.scrollLeft")}
+            onClick={() => scrollByPage(-1)}
+          >
+            <ChevronIcon direction="left" />
+          </button>
+        </div>
+        <div className={"term-tab-fade is-right" + (canScrollRight ? " is-visible" : "")} aria-hidden={!canScrollRight}>
+          <button
+            type="button"
+            className="term-tab-scroll"
+            tabIndex={canScrollRight ? 0 : -1}
+            aria-label={t("tabs.scrollRight")}
+            onClick={() => scrollByPage(1)}
+          >
+            <ChevronIcon direction="right" />
+          </button>
+        </div>
+      </div>
       <button
         type="button"
         className="term-tab-new"
@@ -719,18 +684,6 @@ export function TabStrip({
           </div>,
           document.body,
         )}
-      {overflowAnchorRect && (
-        <TabOverflowMenu
-          tabs={hiddenTabs}
-          activeId={activeId}
-          agents={agents}
-          doneIds={doneIds}
-          anchorRect={overflowAnchorRect}
-          onSelect={onSelect}
-          onCloseTab={onClose}
-          onDismiss={() => setOverflowAnchorRect(null)}
-        />
-      )}
     </div>
   );
 }

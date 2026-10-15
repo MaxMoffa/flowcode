@@ -39,7 +39,7 @@ export function takeWindowInit(): Promise<WindowInit | null> {
 export function tabStripDropIndex(drop: { x: number; y: number } | undefined): number | undefined {
   const strip = document.querySelector(".tab-strip")?.getBoundingClientRect();
   if (!drop || !strip || drop.y < strip.top - 30 || drop.y > strip.bottom + 30) return undefined;
-  return Array.from(document.querySelectorAll(".tab-strip > .term-tab:not(.term-tab-folder)")).filter((el) => {
+  return Array.from(document.querySelectorAll(".tab-strip-viewport > .term-tab")).filter((el) => {
     const r = el.getBoundingClientRect();
     return r.left + r.width / 2 < drop.x;
   }).length;
