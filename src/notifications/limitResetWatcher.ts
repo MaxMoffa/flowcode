@@ -48,9 +48,10 @@ function watchedName(pluginId: string): string | undefined {
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const MONTH = `(${MONTHS.join("|")})[a-z]*\\.?`;
-/** "Sep 19" (Claude Code) / "20 Sep" (Codex). */
-const MONTH_DAY_RE = new RegExp(`\\b${MONTH}\\s+(\\d{1,2})\\b`);
-const DAY_MONTH_RE = new RegExp(`\\b(\\d{1,2})\\s+${MONTH}`);
+/** "Sep 19" (Claude Code) / "20 Sep" / "Sep 20th, 2026" (Codex). */
+const ORDINAL = "(?:st|nd|rd|th)?";
+const MONTH_DAY_RE = new RegExp(`\\b${MONTH}\\s+(\\d{1,2})${ORDINAL}\\b`);
+const DAY_MONTH_RE = new RegExp(`\\b(\\d{1,2})${ORDINAL}\\s+${MONTH}`);
 
 /** When a reset worded by the CLI happens - Claude Code: "3pm (Europe/Rome)",
  * "Sep 19, 12am (Europe/Rome)"; Codex: "07:32", "07:32 on 20 Sep". Read as

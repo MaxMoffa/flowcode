@@ -17,21 +17,32 @@ const GRACE_MS = 60_000;
 const LATE_MS = 15 * 60_000;
 const SCREEN_LINES = 20;
 
-const LIMIT_RE = /hit your (?:session |weekly |usage )?limit/gi;
+// Claude Code: "You've hit your limit · resets 3pm"; Codex: "You've hit your
+// usage limit. ... or try again at Oct 20th, 2026 3:45 PM." The terminal wraps
+// these, so spaces and the reset's own text may span lines.
+const LIMIT_RE = /hit\s+your\s+(?:session\s+|weekly\s+|usage\s+)?limit/gi;
 const RESETS_RE = /resets\s+(.+?)(?:\n|$)/i;
-const TRY_AGAIN_RE = /try again at\s+(.+?)[.\n]?(?:\n|$)/i;
+const TRY_AGAIN_RE = /try\s+again\s+at\s+([^.]{1,48})/i;
+/** Codex's status line / notice for a goal (/goal) it paused at the limit. */
+const GOAL_PAUSED_RE = /goal[^\n]{0,40}paused|paused[^\n]{0,40}\/goal/i;
 
 /** Reads a usage-limit notice off the screen text (its last occurrence - older
  * ones may still be scrolled in). `at` is the reset time, null when the notice
  * doesn't say, says it in a way parseResetTime can't read, or is a stale
  * dateless one (see parseResetTimeGuarded). */
-function detectLimit(text: string, now = new Date()): { at: number | null } | null {
+export function detectLimit(text: string, now = new Date()): { at: number | null } | null {
   let last = -1;
   for (const m of text.matchAll(LIMIT_RE)) last = m.index ?? last;
   if (last < 0) return null;
   const rest = text.slice(last);
-  const when = rest.match(RESETS_RE)?.[1] ?? rest.match(TRY_AGAIN_RE)?.[1];
+  const when = rest.match(RESETS_RE)?.[1] ?? rest.match(TRY_AGAIN_RE)?.[1]?.replace(/\s+/g, " ");
   return { at: when ? parseResetTimeGuarded(when, now) : null };
+}
+
+/** What to type at the reset: a Codex goal paused by the limit is resumed with
+ * its own command, anything else gets the "continue" message. */
+export function wakeText(cli: string, screen: string, message: string): string {
+  return cli === "codex" && GOAL_PAUSED_RE.test(screen) ? "/goal resume" : message;
 }
 
 interface Deps {
@@ -140,13 +151,14 @@ export function useAutoResume(
       if (!tab || !term || !agent || agent.cli !== a.cli) continue;
       if ((term.getPtyId() ?? null) !== (a.ptyId ?? null) || deps.lastSubmitAt(id) > a.armedAt) continue;
       lastWokenFor.current.set(id, a.at);
+      const screen = term.screenTail(SCREEN_LINES);
       void (async () => {
         // Esc closes the limit options menu Claude Code may be showing.
         if (a.cli === "claude") {
           term.sendInput("\x1b");
           await sleep(300);
         }
-        term.sendInput(autoResumeMessage());
+        term.sendInput(wakeText(a.cli, screen, autoResumeMessage()));
         await sleep(250);
         term.sendInput("\r");
       })();
