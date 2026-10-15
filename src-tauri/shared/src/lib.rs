@@ -71,7 +71,13 @@ pub fn run_command_blocking_timeout(
     timeout: std::time::Duration,
 ) -> std::io::Result<std::process::Output> {
     use std::process::Stdio;
-    let child = shell_command(command, envs).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    // These runs are non-interactive: a CLI asking for confirmation must get
+    // EOF, not hang until the timeout.
+    let child = shell_command(command, envs)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
     wait_with_timeout(child, timeout)
 }
 

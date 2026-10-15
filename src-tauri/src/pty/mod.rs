@@ -310,6 +310,19 @@ fn emittable_len(pending: &[u8]) -> usize {
     len
 }
 
+/// The markers a Claude Code session sets for its children. The user's own
+/// `CLAUDE_CODE_*` settings (Bedrock, Git Bash path...) must pass through.
+const CLAUDE_SESSION_VARS: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_PID",
+    "CLAUDE_EFFORT",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_SSE_PORT",
+    "CLAUDE_CODE_CHILD_SESSION",
+];
+const CLAUDE_SESSION_PREFIXES: &[&str] = &["CLAUDE_CODE_SESSION_", "CLAUDE_CODE_MESSAGING_"];
+
 // `(async)` - i.e. "run this off the main thread". A plain `#[tauri::command]`
 // on a non-async fn runs on the event-loop thread, where the warmup wait below
 // (and openpty/spawn_command's own blocking syscalls) would stall the window.
@@ -394,7 +407,7 @@ pub fn pty_spawn(
     // (see agents/claude.rs). Every tab starts as a top-level terminal.
     for (key, _) in std::env::vars_os() {
         let Some(key) = key.to_str() else { continue };
-        if key == "CLAUDECODE" || key == "CLAUDE_PID" || key == "CLAUDE_EFFORT" || key.starts_with("CLAUDE_CODE_") {
+        if CLAUDE_SESSION_VARS.contains(&key) || CLAUDE_SESSION_PREFIXES.iter().any(|p| key.starts_with(p)) {
             cmd.env_remove(key);
         }
     }

@@ -99,6 +99,7 @@ mockIPC(
       case "computers":
         return [{ id: "dev", hostName: "Il mio PC", active: true }];
       case "switch_computer":
+      case "forget_computer":
         return undefined;
       case "platform":
         return "mobile";

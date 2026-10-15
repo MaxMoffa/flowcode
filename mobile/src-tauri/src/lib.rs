@@ -47,6 +47,7 @@ pub fn run() {
                 retry: Notify::new(),
                 resume: Notify::new(),
                 pairing: AtomicBool::new(false),
+                others_lock: Mutex::new(()),
                 pair_cancel: Notify::new(),
                 log: ConnLog::default(),
                 background: app.state::<Background>().inner().clone(),
@@ -84,7 +85,8 @@ pub fn run() {
             commands::take_pending_tab,
             commands::unpair,
             computers::computers,
-            computers::switch_computer
+            computers::switch_computer,
+            computers::forget_computer
         ])
         .run(tauri::generate_context!())
         .expect("error while running Flowcode Mobile");

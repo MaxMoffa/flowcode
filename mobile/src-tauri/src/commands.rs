@@ -84,6 +84,11 @@ pub async fn pair(app: AppHandle, remote: State<'_, Arc<Remote>>, ticket: String
     if device_name.is_empty() {
         return Err("device name is empty".into());
     }
+    // Checked before the desktop registers this phone: failing after the
+    // handshake would leave an orphan device there.
+    if let store::PairingLoad::Unreadable(e) = store::load_pairing(&remote.pairing_path(), &remote.codec) {
+        return Err(format!("cannot read the current pairing: {e}"));
+    }
     // The running connection (if any) stays up until the new pairing exists.
     let running = remote.lock().task.is_some();
     if !running {

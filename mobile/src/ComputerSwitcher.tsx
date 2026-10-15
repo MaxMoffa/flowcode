@@ -3,7 +3,7 @@ import { useBackHandler } from "./back";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
 import { Svg } from "./icons";
-import { listComputers, showToast, switchComputer, type Computer } from "./remote";
+import { forgetComputer, listComputers, showToast, switchComputer, type Computer } from "./remote";
 
 /** "Flowcode · <host>" in the Agents header: the paired computers to switch between, and "add one". */
 export function ComputerSwitcher({ hostName, onAdd }: { hostName?: string; onAdd: () => void }) {
@@ -14,7 +14,13 @@ export function ComputerSwitcher({ hostName, onAdd }: { hostName?: string; onAdd
   useEffect(() => {
     if (!open) return;
     let live = true;
-    void listComputers().then((l) => live && setList(l));
+    listComputers()
+      .then((l) => live && setList(l))
+      .catch((e) => {
+        if (!live) return;
+        setList([]);
+        showToast(typeof e === "string" ? e : t("computersFailed"));
+      });
     return () => {
       live = false;
     };
@@ -25,6 +31,14 @@ export function ComputerSwitcher({ hostName, onAdd }: { hostName?: string; onAdd
     if (c.active) return;
     tapFeedback();
     switchComputer(c.id).catch((e) => showToast(typeof e === "string" ? e : t("switchFailed")));
+  }
+
+  function forget(c: Computer) {
+    if (!window.confirm(t("forgetComputerConfirm", { host: c.hostName }))) return;
+    forgetComputer(c.id)
+      .then(() => listComputers())
+      .then(setList)
+      .catch((e) => showToast(typeof e === "string" ? e : t("forgetComputerFailed")));
   }
 
   return (
@@ -43,14 +57,23 @@ export function ComputerSwitcher({ hostName, onAdd }: { hostName?: string; onAdd
               <div className="cs-empty">...</div>
             ) : (
               list.map((c) => (
-                <button key={c.id} type="button" role="menuitemradio" aria-checked={c.active} className={c.active ? "on" : ""} onClick={() => pick(c)}>
-                  <span className="cs-name">{c.hostName}</span>
-                  {c.active && (
-                    <Svg size={18} strokeWidth={2.4}>
-                      <path d="m5 12.5 4.5 4.5L19 7.5" />
-                    </Svg>
+                <div key={c.id} className="cs-row">
+                  <button type="button" role="menuitemradio" aria-checked={c.active} className={c.active ? "on" : ""} onClick={() => pick(c)}>
+                    <span className="cs-name">{c.hostName}</span>
+                    {c.active && (
+                      <Svg size={18} strokeWidth={2.4}>
+                        <path d="m5 12.5 4.5 4.5L19 7.5" />
+                      </Svg>
+                    )}
+                  </button>
+                  {!c.active && (
+                    <button type="button" className="cs-forget" aria-label={t("forgetComputer")} onClick={() => forget(c)}>
+                      <Svg size={16}>
+                        <path d="M6 6l12 12M18 6 6 18" />
+                      </Svg>
+                    </button>
                   )}
-                </button>
+                </div>
               ))
             )}
             <button

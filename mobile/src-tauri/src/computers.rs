@@ -30,6 +30,7 @@ impl Remote {
     /// Keeps `pairing` among the other computers (replacing an older entry
     /// for the same desktop).
     pub(crate) fn stash(&self, pairing: Pairing) -> Result<(), String> {
+        let _guard = self.others_lock.lock().unwrap_or_else(|e| e.into_inner());
         let id = link::computer_id(&pairing.node);
         let mut list = self.others()?;
         list.retain(|p| link::computer_id(&p.node) != id);
@@ -39,6 +40,7 @@ impl Remote {
 
     /// Drops the desktop `id` from the other computers.
     pub(crate) fn unstash(&self, id: &str) -> Result<(), String> {
+        let _guard = self.others_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut list = self.others()?;
         let before = list.len();
         list.retain(|p| link::computer_id(&p.node) != id);
@@ -46,6 +48,18 @@ impl Remote {
             return Ok(());
         }
         store::save_others(&self.others_path(), &list, &self.codec)
+    }
+
+    /// Drops the saved desktop `id`, returning its name; None when not saved.
+    fn forget_saved(&self, id: &str) -> Result<Option<String>, String> {
+        let _guard = self.others_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut list = self.others()?;
+        let Some(at) = list.iter().position(|p| link::computer_id(&p.node) == id) else {
+            return Ok(None);
+        };
+        let host = list.remove(at).host_name;
+        store::save_others(&self.others_path(), &list, &self.codec)?;
+        Ok(Some(host))
     }
 
     /// Makes `pairing` the active one and restarts the loop on it. The webview
@@ -103,6 +117,20 @@ pub fn computers(remote: State<'_, Arc<Remote>>) -> Result<Vec<Computer>, String
         }
     }
     Ok(out)
+}
+
+/// Removes the saved, inactive desktop `id` from this phone. The desktop
+/// keeps listing the phone until it is revoked there.
+#[tauri::command(async)]
+pub fn forget_computer(remote: State<'_, Arc<Remote>>, id: String) -> Result<(), String> {
+    if let store::PairingLoad::Found(p) = store::load_pairing(&remote.pairing_path(), &remote.codec) {
+        if link::computer_id(&p.node) == id {
+            return Err("the computer in use is removed with unpair".into());
+        }
+    }
+    let host = remote.forget_saved(&id)?.ok_or_else(|| "computer not found".to_string())?;
+    remote.log.push(format!("forgot {host}"));
+    Ok(())
 }
 
 /// Switches to the saved desktop `id`; the one in use joins the others.

@@ -391,7 +391,7 @@ pub(crate) fn has_api_key(home: Option<&Path>, use_keyring: bool) -> bool {
     if home.and_then(|h| std::fs::read_to_string(h.join(".env")).ok()).is_some_and(|env| env_file_has_key(&env, "MISTRAL_API_KEY")) {
         return true;
     }
-    use_keyring && keyring_has_key("MISTRAL_API_KEY")
+    use_keyring && keyring_has_key_cached("MISTRAL_API_KEY")
 }
 
 /// Removes Vibe's Mistral API key from `<home>/.env` and, with `use_keyring`
@@ -400,6 +400,9 @@ pub(crate) fn has_api_key(home: Option<&Path>, use_keyring: bool) -> bool {
 pub(crate) fn remove_api_key(home: &Path, use_keyring: bool) -> Result<(), String> {
     let env_path = home.join(".env");
     if let Ok(env) = std::fs::read_to_string(&env_path) {
+        // Keeps the file's line endings, writes only when a key line was removed,
+        // and goes through a temp file + rename so a crash never truncates it.
+        let nl = if env.contains("\r\n") { "\r\n" } else { "\n" };
         let kept: Vec<&str> = env
             .lines()
             .filter(|line| {
@@ -407,15 +410,22 @@ pub(crate) fn remove_api_key(home: &Path, use_keyring: bool) -> Result<(), Strin
                 !line.split_once('=').is_some_and(|(k, _)| k.trim() == "MISTRAL_API_KEY")
             })
             .collect();
-        let mut out = kept.join("\n");
-        if !out.is_empty() {
-            out.push('\n');
+        if kept.len() != env.lines().count() {
+            let mut out = kept.join(nl);
+            if env.ends_with('\n') && !out.is_empty() {
+                out.push_str(nl);
+            }
+            let tmp = home.join(".env.flowcode-tmp");
+            if let Err(e) = std::fs::write(&tmp, out).and_then(|()| std::fs::rename(&tmp, &env_path)) {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e.to_string());
+            }
         }
-        std::fs::write(&env_path, out).map_err(|e| e.to_string())?;
     }
     if use_keyring {
         keyring_delete_key("MISTRAL_API_KEY");
     }
+    forget_keyring_cache();
     if std::env::var_os("MISTRAL_API_KEY").is_some_and(|v| !v.is_empty()) {
         return Err("MISTRAL_API_KEY is set in the environment".to_string());
     }
@@ -494,9 +504,16 @@ fn keyring_has_key(username: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 fn keyring_delete_key(username: &str) {
-    let _ = std::process::Command::new("/usr/bin/security")
-        .args(["delete-generic-password", "-s", KEYRING_SERVICE, "-a", username])
-        .output();
+    // One call deletes one matching item, there may be several.
+    for _ in 0..8 {
+        let deleted = std::process::Command::new("/usr/bin/security")
+            .args(["delete-generic-password", "-s", KEYRING_SERVICE, "-a", username])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !deleted {
+            break;
+        }
+    }
 }
 
 #[cfg(all(not(windows), not(target_os = "macos")))]
@@ -512,6 +529,30 @@ fn keyring_delete_key(username: &str) {
     let _ = std::process::Command::new("secret-tool")
         .args(["clear", "service", KEYRING_SERVICE, "username", username])
         .output();
+}
+
+/// Last keyring answer and when it was read: profile refreshes come in bursts.
+static KEYRING_CACHE: std::sync::Mutex<Option<(std::time::Instant, bool)>> = std::sync::Mutex::new(None);
+const KEYRING_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `keyring_has_key`, answered from `KEYRING_CACHE` while it is younger than
+/// `KEYRING_CACHE_TTL`. The cache is one slot, not a map per key: it is only
+/// ever asked about "MISTRAL_API_KEY".
+fn keyring_has_key_cached(username: &str) -> bool {
+    let mut cache = KEYRING_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, has)) = *cache {
+        if at.elapsed() < KEYRING_CACHE_TTL {
+            return has;
+        }
+    }
+    let has = keyring_has_key(username);
+    *cache = Some((std::time::Instant::now(), has));
+    has
+}
+
+/// Drops the cached keyring answer, so the next check asks the store again.
+fn forget_keyring_cache() {
+    *KEYRING_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 fn env_file_has_key(env: &str, key: &str) -> bool {

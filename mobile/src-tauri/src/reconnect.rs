@@ -7,6 +7,7 @@ use crate::serve::{serve, Exit};
 use crate::state::{Phase, Remote, StateEvent, Status};
 use crate::store::{self, Pairing};
 use flowcode_remote_proto::{ClientMsg, ServerMsg};
+use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -153,7 +154,7 @@ pub(crate) async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut in
                 Ok(s) => s,
                 Err(LinkError::Fatal(message)) => {
                     remote.log.push(format!("refused for good, pairing forgotten: {message}"));
-                    forget(app, remote, message);
+                    forget(app, remote, &pairing.host_name, message);
                     return;
                 }
                 Err(LinkError::Transient(message)) => {
@@ -174,7 +175,7 @@ pub(crate) async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut in
         match serve(app, remote, session).await {
             Exit::Fatal(message) => {
                 remote.log.push(format!("desktop sent a fatal error, pairing forgotten: {message}"));
-                forget(app, remote, message);
+                forget(app, remote, &host_name, message);
                 return;
             }
             Exit::Lost(message) => {
@@ -189,13 +190,23 @@ pub(crate) async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut in
     }
 }
 
+/// Tells the webview which desktop refused this phone and switched away.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RevokedEvent {
+    host: String,
+    message: String,
+}
+
 /// A fatal error means the desktop no longer knows this device (revoked,
 /// wrong token): keeping the pairing would just loop on refusals. The next
 /// saved computer, if any, takes its place.
-pub(crate) fn forget(app: &AppHandle, remote: &Arc<Remote>, message: String) {
+pub(crate) fn forget(app: &AppHandle, remote: &Arc<Remote>, host_name: &str, message: String) {
     store::forget_pairing(&remote.pairing_path());
     // Another saved desktop takes over (its own loop replaces this one).
     if remote.promote_next(app) {
+        // After `promote_next`, whose `remote://computer` resets the webview.
+        let _ = app.emit("remote://revoked", RevokedEvent { host: host_name.to_string(), message });
         return;
     }
     remote.rearm_with(false);

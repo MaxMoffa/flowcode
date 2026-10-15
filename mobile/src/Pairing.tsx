@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { BackIcon, QrIcon, Svg } from "./icons";
 import logo from "./assets/flowcode-icon.svg";
@@ -45,6 +46,8 @@ export function PairingScreen({ initialError, initialLink, onClose }: { initialE
   const nameRef = useRef(name);
   nameRef.current = name;
   const busyRef = useRef(false);
+  // Adding vs first pairing, fixed at mount: App drops onClose while `pair` is in flight.
+  const [addMode] = useState(() => !!onClose);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -102,6 +105,9 @@ export function PairingScreen({ initialError, initialLink, onClose }: { initialE
     endRef.current = why;
     void cancelPair();
   }
+
+  // Pushed after App's own handler, so Back during the wait cancels the pairing like the Cancel button.
+  useBackHandler(wait?.stage === "waiting", () => endWait("cancel"));
 
   function retry() {
     setWait(null);
@@ -177,7 +183,7 @@ export function PairingScreen({ initialError, initialLink, onClose }: { initialE
 
   return (
     <div className="screen pair">
-      {onClose && (
+      {onClose && !wait && (
         <button type="button" className="pair-close" aria-label={t("back")} onClick={onClose}>
           <BackIcon />
         </button>
@@ -186,7 +192,7 @@ export function PairingScreen({ initialError, initialLink, onClose }: { initialE
         <div className="logo" aria-hidden="true">
           <TerminalMark />
         </div>
-        <h1>{onClose ? t("addComputerTitle") : t("welcomeTitle")}</h1>
+        <h1>{addMode ? t("addComputerTitle") : t("welcomeTitle")}</h1>
         <p className="muted">{t("welcomeBody")}</p>
       </div>
 

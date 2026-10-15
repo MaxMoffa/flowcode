@@ -4,7 +4,7 @@
 // lets individual screens subscribe to the raw stream for the rest.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { setLanguage } from "./i18n";
+import { setLanguage, t } from "./i18n";
 import { createStore, safeStorage } from "./store";
 import { normalizeProfiles, normalizeSettings } from "./settingsModel";
 
@@ -201,6 +201,8 @@ async function wire(): Promise<void> {
     pending.clear();
     set({ wasOnline: false, firstConnect: true, tabs: null, usage: [], actions: [], settings: null, profiles: null, lastOpened: null, openTab: null });
   }));
+  // The active desktop refused this phone for good; the core already moved to another saved one.
+  unlisteners.push(await listen<{ host: string; message: string }>("remote://revoked", (e) => showToast(t("computerRevoked", { host: e.payload.host, message: e.payload.message }))));
   void checkNotificationTap();
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {
@@ -277,10 +279,12 @@ export interface Computer {
   hostName: string;
   active: boolean;
 }
-/** Every paired desktop, the one in use first. */
-export const listComputers = (): Promise<Computer[]> => invoke<Computer[]>("computers").catch(() => []);
+/** Every paired desktop, the one in use first; rejects with the core's message when they can't be read. */
+export const listComputers = (): Promise<Computer[]> => invoke<Computer[]>("computers");
 /** Makes another paired desktop the active one; the connection restarts on it. */
 export const switchComputer = (id: string): Promise<void> => invoke("switch_computer", { id });
+/** Removes a saved, non-active computer from this phone (the desktop keeps listing the phone until revoked there). */
+export const forgetComputer = (id: string): Promise<void> => invoke("forget_computer", { id });
 
 export function send(msg: ClientMsg) {
   // "not connected" is routine while reconnecting; the UI already shows the reconnect sheet.

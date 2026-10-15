@@ -125,6 +125,8 @@ pub(crate) struct Remote {
     pub(crate) resume: Notify,
     /// A `pair` is running; a second one is refused.
     pub(crate) pairing: AtomicBool,
+    /// Serializes read-modify-write of computers.json.
+    pub(crate) others_lock: Mutex<()>,
     /// Wakes a running `pair` to abandon the wait for the desktop's confirmation.
     pub(crate) pair_cancel: Notify,
     /// The last events of the connection, for Settings > diagnostics.

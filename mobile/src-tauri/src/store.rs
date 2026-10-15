@@ -215,7 +215,11 @@ pub fn load_others(path: &Path, codec: &dyn Codec) -> Result<Vec<Pairing>, Strin
                 Ok(list)
             }
             Err(e) => {
-                eprintln!("remote: {} is not a valid list ({e}), ignoring it", path.display());
+                // Moved aside: the next `save_others` would overwrite it and lose every saved computer.
+                let aside = path.with_extension("json.corrupt");
+                eprintln!("remote: {} is not a valid list ({e}), moved to {}", path.display(), aside.display());
+                let _ = std::fs::remove_file(&aside);
+                let _ = std::fs::rename(path, &aside);
                 Ok(Vec::new())
             }
         },
@@ -333,6 +337,17 @@ mod tests {
         assert_eq!(load_others(&path, &Xor).unwrap()[0].token, "secret-token");
         save_others(&path, &[], &Xor).unwrap();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn corrupt_others_is_moved_aside() {
+        let path = temp("corrupt-others.json");
+        let aside = path.with_extension("json.corrupt");
+        write_secret(&path, b"not json", &Xor).unwrap();
+        assert!(load_others(&path, &Xor).unwrap().is_empty());
+        assert!(!path.exists());
+        assert!(aside.exists());
+        let _ = std::fs::remove_file(&aside);
     }
 
     #[test]
