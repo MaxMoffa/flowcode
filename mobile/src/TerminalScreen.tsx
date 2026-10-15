@@ -268,19 +268,17 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
           )}
           {!kbOpen && !embedded && (
             <div className="term-pill" role="toolbar" aria-label={t("termTools")}>
-              <button type="button" onPointerDown={(e) => e.preventDefault()} onClick={() => setFilesOpen(true)}>
+              <button type="button" aria-label={t("termMenuFiles")} onPointerDown={(e) => e.preventDefault()} onClick={() => setFilesOpen(true)}>
                 <FolderIcon />
-                <span>{t("termMenuFiles")}</span>
               </button>
               <i className="term-pill-sep" />
               <button
                 type="button"
-                aria-label={othersWaiting ? t("agentsWaitingAria", { n: othersWaiting }) : undefined}
+                aria-label={othersWaiting ? t("agentsWaitingAria", { n: othersWaiting }) : t("agents")}
                 onPointerDown={(e) => e.preventDefault()}
                 onClick={onAgents}
               >
                 <AgentsIcon />
-                <span>{t("agents")}</span>
                 {othersWaiting > 0 && <b className="term-pill-badge">{othersWaiting}</b>}
               </button>
               <button type="button" className="term-pill-kb" aria-label={t("showKeyboard")} onPointerDown={(e) => e.preventDefault()} onClick={toggleKeyboard}>

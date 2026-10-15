@@ -200,11 +200,11 @@
    gone while the keyboard is up (the key bar takes over). */
 .term-pill {
   position: absolute;
-  left: 50%;
+  right: 14px;
   bottom: 14px;
   z-index: 3;
-  transform: translateX(-50%);
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 4px;
   padding: 5px;
@@ -216,11 +216,13 @@
 }
 
 .term-pill button {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  width: 46px;
   height: 46px;
-  padding: 0 16px;
+  padding: 0;
   border: 0;
   border-radius: 23px;
   background: transparent;
@@ -248,12 +250,16 @@
 }
 
 .term-pill-sep {
-  width: 1px;
-  height: 22px;
+  width: 22px;
+  height: 1px;
   background: var(--border-strong);
 }
 
 .term-pill-badge {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  box-shadow: 0 0 0 2px rgba(28, 21, 15, 0.92);
   min-width: 18px;
   height: 18px;
   box-sizing: border-box;
@@ -289,11 +295,11 @@
   bottom: 14px;
 }
 
-/* Above the pill instead of beside the keyboard button. */
+/* Centered, level with the tool column's bottom. */
 .term-jump.pill {
   right: auto;
   left: 50%;
-  bottom: 76px;
+  bottom: 19px;
   transform: translateX(-50%);
 }
 
