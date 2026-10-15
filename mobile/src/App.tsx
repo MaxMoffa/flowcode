@@ -187,7 +187,7 @@ function AppContent() {
   } else if (tab) {
     content = (
       <Suspense fallback={<div className="screen" />}>
-        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} />
+        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} onAgents={() => { setPage("agents"); setOpenPty(null); }} />
       </Suspense>
     );
   } else {

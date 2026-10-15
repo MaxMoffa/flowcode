@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { t } from "./i18n";
-import { BackIcon, DotsIcon, KeyboardIcon } from "./icons";
+import { AgentsIcon, BackIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
 import { interrupt, send, useRemoteSelector, type ConnStatus, type Tab } from "./remote";
 import { TermActions } from "./TermActions";
 import { TermFiles } from "./TermFiles";
@@ -21,7 +21,7 @@ const keepFocus = {
 };
 
 /** `embedded`: the wide layout's main card; its header owns the files, quick actions and menu, so only the terminal and its docked key bar (shown while `keys`) remain. */
-export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: Tab; status: ConnStatus; onBack: () => void; embedded?: boolean; keys?: boolean }) {
+export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }: { tab: Tab; status: ConnStatus; onBack: () => void; onAgents?: () => void; embedded?: boolean; keys?: boolean }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -32,6 +32,8 @@ export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: T
   const cancelRename = useRef(false);
   const { ptyId } = tab;
   const settings = useRemoteSelector((s) => s.settings);
+  const tabs = useRemoteSelector((s) => s.tabs);
+  const othersWaiting = (tabs ?? []).filter((x) => x.cli && x.status === "waiting" && x.ptyId !== ptyId).length;
   const localFont = phoneFontSize.use().size;
   const actions = useRemoteSelector((s) => s.actions);
   const { mods, tap, lock, consume, peek } = useModifiers();
@@ -214,7 +216,7 @@ export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: T
           {!atBottom && (
             <button
               type="button"
-              className={"term-jump" + (kbOpen ? " kb" : "")}
+              className={"term-jump" + (kbOpen ? " kb" : "") + (!kbOpen && !embedded ? " pill" : "")}
               onPointerDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -224,7 +226,29 @@ export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: T
               {t("jumpToEnd")}
             </button>
           )}
-          {!kbOpen && (
+          {!kbOpen && !embedded && (
+            <div className="term-pill" role="toolbar" aria-label={t("termTools")}>
+              <button type="button" onPointerDown={(e) => e.preventDefault()} onClick={() => setFilesOpen(true)}>
+                <FolderIcon />
+                <span>{t("termMenuFiles")}</span>
+              </button>
+              <i className="term-pill-sep" />
+              <button
+                type="button"
+                aria-label={othersWaiting ? t("agentsWaitingAria", { n: othersWaiting }) : undefined}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={onAgents}
+              >
+                <AgentsIcon />
+                <span>{t("agents")}</span>
+                {othersWaiting > 0 && <b className="term-pill-badge">{othersWaiting}</b>}
+              </button>
+              <button type="button" className="term-pill-kb" aria-label={t("showKeyboard")} onPointerDown={(e) => e.preventDefault()} onClick={toggleKeyboard}>
+                <KeyboardIcon size={21} />
+              </button>
+            </div>
+          )}
+          {!kbOpen && embedded && (
             <button type="button" className="term-fab" aria-label={t("showKeyboard")} onPointerDown={(e) => e.preventDefault()} onClick={toggleKeyboard}>
               <KeyboardIcon size={22} />
             </button>

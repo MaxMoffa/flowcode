@@ -196,6 +196,77 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
 }
 
+/* Files, agents and keyboard in one pill over the terminal's bottom edge;
+   gone while the keyboard is up (the key bar takes over). */
+.term-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 3;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 28px;
+  border: 1px solid var(--border-strong);
+  background: rgba(28, 21, 15, 0.92);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+}
+
+.term-pill button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 23px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.term-pill button:active {
+  background: rgba(231, 216, 197, 0.08);
+}
+
+.term-pill .term-pill-kb {
+  width: 46px;
+  padding: 0;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.term-pill .term-pill-kb:active {
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+.term-pill-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--border-strong);
+}
+
+.term-pill-badge {
+  min-width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--wait);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
 /* Sits left of the keyboard button so the two never overlap. */
 .term-jump {
   position: absolute;
@@ -216,6 +287,14 @@
 .term-jump.kb {
   right: 14px;
   bottom: 14px;
+}
+
+/* Above the pill instead of beside the keyboard button. */
+.term-jump.pill {
+  right: auto;
+  left: 50%;
+  bottom: 76px;
+  transform: translateX(-50%);
 }
 
 .term-wait {
