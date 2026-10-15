@@ -11,6 +11,7 @@ import {
   setSetting,
   unpair,
   useRemoteSelector,
+  useSupports,
   type BackgroundSettings,
   type MirroredSettings,
   type ProfileInfo,
@@ -73,7 +74,8 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
     void backgroundSettings().then(setBg);
   }, []);
   const sum = summaries(s, profiles, lock, local, localFont, bg, hostName);
-  const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", "profiles", "language"] : [];
+  const canProfiles = useSupports("profiles");
+  const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", ...(canProfiles ? (["profiles"] as SectionId[]) : []), "language"] : [];
   const phoneOnly: SectionId[] = lock.available ? ["security", "background", "phone"] : ["background", "phone"];
   const titles: Record<SectionId, string> = {
     appearance: t("appearance"),

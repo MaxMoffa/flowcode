@@ -40,5 +40,15 @@ mod tests {
 /// fail the handshake instead of misreading frames.
 pub const ALPN: &[u8] = b"flowcode/remote/1";
 
+/// Revision of the message set, sent in `ready`. 1 is what every desktop
+/// without a `proto` field speaks; a breaking change that an ALPN bump does not
+/// cover raises it, and a phone refuses desktops below its own minimum.
+pub const PROTOCOL_VERSION: u32 = 2;
+
+/// Features this desktop supports, sent in `ready` as `caps`, so the phone
+/// can hide what an older desktop lacks. Keep in step with `RemoteCap` in
+/// shared/remote-types.ts and docs/remote-protocol.md.
+pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini"];
+
 /// Largest `input` payload (bytes of UTF-8) a client may send in one frame.
 pub const MAX_INPUT_BYTES: usize = 64 * 1024;

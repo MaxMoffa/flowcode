@@ -89,7 +89,19 @@ pub enum ServerMsg {
     /// Reply to `pair`. The token is shown to the phone once; keep it.
     Paired { token: String, device_name: String },
     /// Reply to a successful `auth` (or to `pair`, right after `paired`).
-    Ready { device_name: String, host_name: String },
+    /// `app_version`, `proto` and `caps` tell the phone what this desktop can
+    /// do (see `PROTOCOL_VERSION` / `CAPABILITIES`); a desktop that predates
+    /// them sends none, which the phone reads as "old".
+    Ready {
+        device_name: String,
+        host_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app_version: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proto: Option<u32>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        caps: Vec<String>,
+    },
     Error {
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -267,6 +279,21 @@ mod tests {
         assert_eq!(json, serde_json::json!({ "t": "profiles", "profiles": [] }));
         let json = serde_json::to_value(ServerMsg::Profiles { profiles: serde_json::json!([]), default_logged_in: Some(serde_json::json!({ "claude": true })) }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "profiles", "profiles": [], "defaultLoggedIn": { "claude": true } }));
+    }
+
+    #[test]
+    fn ready_advertises_version_and_caps_but_old_ones_omit_them() {
+        let old: ServerMsg = serde_json::from_str(r#"{"t":"ready","deviceName":"d","hostName":"h"}"#).unwrap();
+        assert_eq!(old, ServerMsg::Ready { device_name: "d".into(), host_name: "h".into(), app_version: None, proto: None, caps: vec![] });
+        let json = serde_json::to_value(ServerMsg::Ready {
+            device_name: "d".into(),
+            host_name: "h".into(),
+            app_version: Some("0.10.0".into()),
+            proto: Some(2),
+            caps: vec!["rename".into()],
+        })
+        .unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "ready", "deviceName": "d", "hostName": "h", "appVersion": "0.10.0", "proto": 2, "caps": ["rename"] }));
     }
 
     #[test]

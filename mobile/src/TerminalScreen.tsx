@@ -3,7 +3,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { t } from "./i18n";
 import { AgentsIcon, BackIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
-import { interrupt, send, useRemoteSelector, type ConnStatus, type Tab } from "./remote";
+import { interrupt, send, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
 import { TermActions } from "./TermActions";
 import { TermFiles } from "./TermFiles";
 import { openLink, TermLink } from "./TermLink";
@@ -32,6 +32,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
   const [menuOpen, setMenuOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const canRename = useSupports("rename");
   const [draft, setDraft] = useState("");
   const cancelRename = useRef(false);
   const { ptyId } = tab;
@@ -226,6 +227,8 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
                 }}
                 onBlur={commitRename}
               />
+            ) : !canRename ? (
+              <span className="term-title">{tab.label}</span>
             ) : (
               <button
                 type="button"

@@ -167,7 +167,13 @@ pub(crate) async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut in
         let host_name = session.host_name.clone();
         let _ = app.emit(
             "remote://msg",
-            ServerMsg::Ready { device_name: session.device_name.clone(), host_name: host_name.clone() },
+            ServerMsg::Ready {
+                device_name: session.device_name.clone(),
+                host_name: host_name.clone(),
+                app_version: session.app_version.clone(),
+                proto: session.proto,
+                caps: session.caps.clone(),
+            },
         );
         remote.set_state(app, Status::Online, Some(host_name.clone()), None);
         remote.log.push(format!("online with {host_name}"));

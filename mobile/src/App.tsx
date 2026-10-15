@@ -7,6 +7,8 @@ import { LockScreen } from "./Lock";
 import { unlock, useLock } from "./applock";
 import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
+import { CompatBanner, IncompatibleScreen } from "./Compat";
+import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
 import { TerminalsScreen } from "./Terminals";
@@ -84,6 +86,9 @@ function AppContent() {
   const tabs = useRemoteSelector((s) => s.tabs);
   const openTab = useRemoteSelector((s) => s.openTab);
   const error = useRemoteSelector((s) => s.error);
+  const host = useRemoteSelector((s) => s.host);
+  const compatDismissed = useRemoteSelector((s) => s.compatDismissed);
+  const compat = checkCompat(host);
   const [page, setPage] = useState<Page>("agents");
   const [openPty, setOpenPty] = useState<string | null>(null);
   /** Adding another computer: the pairing screen over a paired phone, with the link that opened it if any. */
@@ -180,6 +185,8 @@ function AppContent() {
     content = <PairingScreen initialError={adding ? undefined : error} initialLink={link} onClose={adding ? closeAdding : undefined} />;
   } else if (status === "loading") {
     content = <div className="screen" />;
+  } else if (compat.level === "blocked" && host) {
+    content = <IncompatibleScreen host={host} hostName={hostName} />;
   } else if (wide) {
     content = (
       <WideShell hostName={hostName} tabs={tabs} settings={settings} status={status} activePty={openPty} onSelectPty={open} onAddComputer={() => setAdding(true)} />
@@ -212,6 +219,7 @@ function AppContent() {
   return (
     <>
       {content}
+      {compat.level === "partial" && host && !compatDismissed && paired && !adding && !lock.locked && <CompatBanner host={host} hostName={hostName} />}
       {paired && !pairing && !firstConnect && !adding && <Reconnect />}
       <Toast />
       {lock.hidden && <div className="privacy" aria-hidden="true" />}

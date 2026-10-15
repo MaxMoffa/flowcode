@@ -3,7 +3,7 @@ import { useBackHandler } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
 import { AgentLogo, FolderIcon, TerminalIcon } from "./icons";
-import { send, useRemoteSelector } from "./remote";
+import { send, useRemoteSelector, useSupports } from "./remote";
 import { useSheetDrag } from "./useSheetDrag";
 
 type Cli = "claude" | "codex" | "vibe" | "gemini";
@@ -24,6 +24,8 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
   const [cli, setCli] = useState<Cli | null>(null);
   /** null = automatic (the folder's project default), "" = the default profile. */
   const [profile, setProfile] = useState<string | null>(null);
+  const canPickProfile = useSupports("newTabProfile");
+  const canGemini = useSupports("gemini");
   const profiles = useRemoteSelector((r) => r.profiles);
   useBackHandler(open, onClose);
   const sheet = useRef<HTMLDivElement>(null);
@@ -31,7 +33,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
   if (!open) return null;
 
   const create = () => {
-    send({ t: "newtab", ...(cwd ? { cwd } : {}), ...(cli ? { cli } : {}), ...(profile !== null ? { profile } : {}) });
+    send({ t: "newtab", ...(cwd ? { cwd } : {}), ...(cli ? { cli } : {}), ...(canPickProfile && profile !== null ? { profile } : {}) });
     onCreate();
     onClose();
   };
@@ -64,7 +66,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
               <TerminalIcon />
               {t("newTermShell")}
             </button>
-            {AGENTS.map((a) => (
+            {AGENTS.filter((a) => a.id !== "gemini" || canGemini).map((a) => (
               <button key={a.id} type="button" className={"nts-choice" + (cli === a.id ? " on" : "")} onClick={() => setCli(a.id)}>
                 <AgentLogo cli={a.id} size={18} />
                 {a.name}
@@ -72,7 +74,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
             ))}
           </div>
         </div>
-        {profiles && profiles.length > 0 && (
+        {canPickProfile && profiles && profiles.length > 0 && (
           <div className="nts-field">
             <span className="nts-label">{t("newTermProfile")}</span>
             <div className="nts-choices">

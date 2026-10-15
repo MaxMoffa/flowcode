@@ -1560,3 +1560,65 @@ button.set-row.danger {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- Older desktop: blocking screen and banner ------------------------------ */
+
+.compat-block {
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px 32px;
+  text-align: center;
+}
+
+.compat-block p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.compat-block .compat-ver {
+  font-size: 13px;
+}
+
+.compat-banner {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 8px 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  /* Above the screens, under the toast (40). */
+  z-index: 35;
+}
+
+.compat-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.compat-tx span {
+  color: var(--muted);
+}
+
+.compat-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+}

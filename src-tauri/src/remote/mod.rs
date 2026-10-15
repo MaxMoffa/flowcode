@@ -1296,7 +1296,13 @@ async fn run_connection(
     if let Some(token) = token {
         conn.send(ServerMsg::Paired { token, device_name: device.name.clone() });
     }
-    conn.send(ServerMsg::Ready { device_name: device.name.clone(), host_name: shared.host_name.clone() });
+    conn.send(ServerMsg::Ready {
+        device_name: device.name.clone(),
+        host_name: shared.host_name.clone(),
+        app_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        proto: Some(proto::PROTOCOL_VERSION),
+        caps: proto::CAPABILITIES.iter().map(|c| c.to_string()).collect(),
+    });
     conn.send(ServerMsg::Usage { items: usage_rx.borrow_and_update().clone() });
     conn.send(ServerMsg::Actions { actions: actions_rx.borrow_and_update().clone() });
     let settings = settings_rx.borrow_and_update().clone();

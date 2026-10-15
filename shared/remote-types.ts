@@ -128,8 +128,14 @@ export type SettingKey =
   | `notify.${keyof MirroredSettings["notify"]}`
   | `autoResume.${keyof MirroredSettings["autoResume"]}`;
 
+/**
+ * Features a desktop advertises in `ready.caps` (Rust: `CAPABILITIES` in
+ * remote-proto/src/lib.rs). A desktop that sends no `caps` is an old one.
+ */
+export type RemoteCap = "rename" | "profiles" | "profileLogin" | "profileAgents" | "newTabProfile" | "background" | "gemini";
+
 export type ServerMsg =
-  | { t: "ready"; deviceName: string; hostName: string }
+  | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
   | { t: "error"; message: string; ptyId?: string; fatal: boolean }
   | { t: "tabs"; tabs: Tab[] }
   | { t: "snapshot"; ptyId: string; data: string; cols: number; rows: number }

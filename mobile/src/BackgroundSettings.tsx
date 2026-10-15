@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { t } from "./i18n";
-import { notificationPermission, requestNotificationPermission, setBackgroundSettings, type BackgroundSettings } from "./remote";
+import { notificationPermission, requestNotificationPermission, setBackgroundSettings, useSupports, type BackgroundSettings } from "./remote";
 import { Group, Segmented, Toggle } from "./SettingsControls";
 
 const CAPS: { id: string; minutes: number; name: () => string }[] = [
@@ -14,6 +14,7 @@ const CAPS: { id: string; minutes: number; name: () => string }[] = [
 export function BackgroundPage({ bg, onChange }: { bg: BackgroundSettings; onChange: (s: BackgroundSettings) => void }) {
   const [denied, setDenied] = useState(false);
   const [failed, setFailed] = useState(false);
+  const supported = useSupports("background");
 
   // The permission can be revoked in Android's settings while the mode stays on.
   useEffect(() => {
@@ -52,6 +53,7 @@ export function BackgroundPage({ bg, onChange }: { bg: BackgroundSettings; onCha
   return (
     <Group title={t("secBackground")}>
       <Toggle label={t("bgSwitch")} hint={t("bgHint")} on={bg.enabled} onChange={(on) => void toggle(on)} />
+      {!supported && <p className="prof-note set-block">{t("bgNeedsUpdate")}</p>}
       {denied && <p className="prof-note set-block">{t("bgDenied")}</p>}
       {failed && <p className="prof-note set-block" role="alert">{t("bgError")}</p>}
       {bg.enabled && (

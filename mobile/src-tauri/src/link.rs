@@ -32,6 +32,10 @@ pub struct Session {
     pub recv: RecvStream,
     pub host_name: String,
     pub device_name: String,
+    /// What the desktop said about itself in `ready` (empty/None from an old one).
+    pub app_version: Option<String>,
+    pub proto: Option<u32>,
+    pub caps: Vec<String>,
     /// Set only when this handshake was a `pair`.
     pub token: Option<String>,
 }
@@ -122,6 +126,7 @@ pub async fn handshake_with(
 
     let mut token = None;
     let mut device_name = String::new();
+    let mut info = (None, None, Vec::new());
     let host_name = tokio::time::timeout(timeout, async {
         loop {
             let msg = match read_frame::<_, ServerMsg>(&mut recv).await {
@@ -138,7 +143,8 @@ pub async fn handshake_with(
                     token = Some(t);
                     device_name = d;
                 }
-                ServerMsg::Ready { device_name: d, host_name } => {
+                ServerMsg::Ready { device_name: d, host_name, app_version, proto, caps } => {
+                    info = (app_version, proto, caps);
                     if device_name.is_empty() {
                         device_name = d;
                     }
@@ -164,7 +170,8 @@ pub async fn handshake_with(
         Ok(Ok(host)) => host,
     };
     log(format!("handshake ok in {} ms", handshake_started.elapsed().as_millis()));
-    Ok(Session { conn, send, recv, host_name, device_name, token })
+    let (app_version, proto, caps) = info;
+    Ok(Session { conn, send, recv, host_name, device_name, app_version, proto, caps, token })
 }
 
 fn frame_err(e: FrameError) -> LinkError {

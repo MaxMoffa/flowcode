@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { CloseIcon, Svg } from "./icons";
-import { profileAction, showToast, type ProfileCli, type ProfileInfo } from "./remote";
+import { profileAction, showToast, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
 import { useSheetDrag } from "./useSheetDrag";
 
 /** Preset badge colors, same as the desktop's profile editor. */
@@ -112,8 +112,13 @@ function NewProfileSheet({ open, onClose }: { open: boolean; onClose: () => void
 
 /** The agents signed in under a profile, each with sign-in-again / sign-out, and the way to add one. */
 function Agents({ id, name, loggedIn, onAdd, onLogout }: { id: string; name: string; loggedIn: LoggedIn; onAdd: (off: ProfileCli[]) => void; onLogout: (cli: ProfileCli) => void }) {
-  const on = CLIS.filter((c) => loggedIn[c.id]);
-  const off = CLIS.filter((c) => !loggedIn[c.id]);
+  // Older desktops can sign a profile in but not out, and know nothing of the default profile's agents.
+  const canLogin = useSupports("profileLogin");
+  const canLogout = useSupports("profileAgents");
+  const canGemini = useSupports("gemini");
+  if (!canLogin) return null;
+  const on = CLIS.filter((c) => loggedIn[c.id] && (c.id !== "gemini" || canGemini));
+  const off = CLIS.filter((c) => !loggedIn[c.id] && (c.id !== "gemini" || canGemini));
   return (
     <>
       {on.length === 0 && <div className="prof-cli prof-none">{t("profileNoAgents")}</div>}
@@ -130,9 +135,11 @@ function Agents({ id, name, loggedIn, onAdd, onLogout }: { id: string; name: str
           >
             {t("profileRelogin")}
           </button>
-          <button type="button" className="btn ghost prof-small prof-out" aria-label={`${t("profileLogout")} ${c.name} (${name})`} onClick={() => onLogout(c.id)}>
-            {t("profileLogout")}
-          </button>
+          {canLogout && (
+            <button type="button" className="btn ghost prof-small prof-out" aria-label={`${t("profileLogout")} ${c.name} (${name})`} onClick={() => onLogout(c.id)}>
+              {t("profileLogout")}
+            </button>
+          )}
         </div>
       ))}
       {off.length > 0 && (
@@ -229,6 +236,8 @@ function ProfileCard({ p, onAdd, onLogout }: { p: ProfileInfo; onAdd: (off: Prof
 export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileInfo[] | null; defaultLoggedIn: LoggedIn | null }) {
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [open, setOpen] = useState(false);
+  const canAgents = useSupports("profileAgents");
+  const canGemini = useSupports("gemini");
   const show = (s: SheetState) => {
     setSheet(s);
     setOpen(true);
@@ -259,7 +268,7 @@ export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileI
             </span>
           )}
         </div>
-        {defaultLoggedIn && (
+        {defaultLoggedIn && canAgents && (
           <Agents
             id=""
             name={defaultName}
@@ -275,7 +284,7 @@ export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileI
 
       <NewProfileSheet open={open && sheet?.kind === "new"} onClose={close} />
       <Sheet open={open && sheet?.kind === "add"} onClose={close} title={t("profileAddAgent")} subtitle={add?.name}>
-        {CLIS.filter((c) => add?.off.includes(c.id)).map((c) => (
+        {CLIS.filter((c) => add?.off.includes(c.id) && (c.id !== "gemini" || canGemini)).map((c) => (
           <button
             key={c.id}
             type="button"
