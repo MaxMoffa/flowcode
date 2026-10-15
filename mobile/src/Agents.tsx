@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import logo from "./assets/flowcode-icon.svg";
 import { ComputerSwitcher } from "./ComputerSwitcher";
-import { contextPercent } from "./common";
+import { contextPercent, shortCwd } from "./common";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
+import { AgentLogo } from "./icons";
 import { send, useRemoteSelector, type Tab, type UsageItem, type UsageMetric } from "./remote";
 
 /** Every limit gauge (5-hour session, weekly...) gets its own row. */
@@ -225,17 +226,58 @@ function AgentTile({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void 
   );
 }
 
-/** `compact` drops the header (logo, computer switcher): the wide layout's top bar already has it. */
-export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void; onAddComputer: () => void; compact?: boolean }) {
+/** The wide layout's agent row, as in the desktop's agents sidebar: logo tile, name, folder, status chip and CLI / context. */
+function AgentRow({ tab, active, onOpen }: { tab: Tab; active: boolean; onOpen: (ptyId: string) => void }) {
+  const st = tab.status ?? "idle";
+  return (
+    <button type="button" className={"ag-row" + (active ? " on" : "")} onClick={() => onOpen(tab.ptyId)}>
+      <span className="ag-logo">{tab.cli && <AgentLogo cli={tab.cli} size={16} />}</span>
+      <span className="ag-body">
+        <b className="ag-name">{tab.label}</b>
+        <span className="ag-path mono">{shortCwd(tab.cwd)}</span>
+        <span className="ag-line">
+          <span className={"ag-chip " + st}>{st === "waiting" ? t("statusWaiting") : st === "busy" ? t("statusBusy") : t("statusIdle")}</span>
+          <Meta tab={tab} />
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/** `compact` is the wide layout's side card: its own header holds the title and the computer switcher is in the top bar, and agents are rows with the shown one (`activePty`) marked. */
+export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact, activePty }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void; onAddComputer: () => void; compact?: boolean; activePty?: string | null }) {
   const usage = useRemoteSelector((r) => r.usage);
   const { waiting, others } = useMemo(() => {
     const agents = (tabs ?? []).filter((x) => x.cli);
     return { waiting: agents.filter((x) => x.status === "waiting"), others: agents.filter((x) => x.status !== "waiting") };
   }, [tabs]);
   const groups = useMemo(() => groupByProfile(usage), [usage]);
+  if (compact) {
+    return (
+      <>
+        {waiting.length + others.length > 0 && (
+          <section className="ag-section">
+            <div className="gh">{t("thisComputer")}</div>
+            {[...waiting, ...others].map((x) => (
+              <AgentRow key={x.ptyId} tab={x} active={x.ptyId === activePty} onOpen={onOpen} />
+            ))}
+          </section>
+        )}
+        {groups.map((g) => (
+          <section className="usage-section" key={g.key}>
+            <div className="gh usage-group">
+              {g.color && <i className="dot" style={{ background: g.color }} />}
+              {g.title}
+            </div>
+            <UsageCarousel group={g} />
+          </section>
+        ))}
+        {tabs !== null && waiting.length + others.length === 0 && <div className="empty">{t("noAgents")}</div>}
+      </>
+    );
+  }
   return (
     <>
-      {!compact && (
       <header className="agents-head">
         <img src={logo} alt="" />
         <ComputerSwitcher hostName={hostName} onAdd={onAddComputer} />
@@ -244,7 +286,6 @@ export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact }:
           {t("onlineShort")}
         </span>
       </header>
-      )}
       {waiting.length > 0 && (
         <div className="stack">
           <Hero tab={waiting[0]} count={waiting.length} onOpen={onOpen} />

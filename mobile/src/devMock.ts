@@ -11,6 +11,8 @@ const tabs = [
   { ptyId: "p4", tabId: "t4", window: "w2", label: "PowerShell", cwd: "C:/Users/massi", cols: 80, rows: 24 },
 ];
 
+const mockActions = [{ id: "commit", label: "Commit" }, { id: "usage", label: "Utilizzo Claude", icon: "M4 18a8 8 0 1 1 16 0M12 18l4-7" }];
+
 const gauges = (a: number, b: number) => [
   { kind: "gauge", label: "5 ore", percent: a },
   { kind: "gauge", label: "Settimana", percent: b },
@@ -80,6 +82,7 @@ mockIPC(
             void emit("remote://msg", { t: "usage", items: usage });
             void emit("remote://msg", { t: "settings", settings: mockSettings });
             void emit("remote://msg", { t: "profiles", profiles: mockProfiles });
+            void emit("remote://msg", { t: "actions", actions: mockActions });
           }, 3000);
         });
       case "plugin:barcode-scanner|check_permissions":
@@ -94,6 +97,7 @@ mockIPC(
           await emit("remote://msg", { t: "usage", items: usage });
           await emit("remote://msg", { t: "settings", settings: mockSettings });
           await emit("remote://msg", { t: "profiles", profiles: mockProfiles });
+          await emit("remote://msg", { t: "actions", actions: mockActions });
         }, 50);
         return null;
       case "computers":

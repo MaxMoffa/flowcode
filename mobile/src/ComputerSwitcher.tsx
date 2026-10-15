@@ -2,14 +2,20 @@ import { useCallback, useEffect, useState } from "react";
 import { useBackHandler } from "./back";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
-import { Svg } from "./icons";
-import { forgetComputer, listComputers, showToast, switchComputer, type Computer } from "./remote";
+import { ChevronDownIcon, MonitorIcon, Svg } from "./icons";
+import { forgetComputer, listComputers, showToast, switchComputer, useRemoteSelector, type Computer } from "./remote";
 
-/** "Flowcode · <host>" in the Agents header: the paired computers to switch between, and "add one". */
-export function ComputerSwitcher({ hostName, onAdd }: { hostName?: string; onAdd: () => void }) {
-  const [open, setOpen] = useState(false);
+/**
+ * "Flowcode · <host>" in the Agents header: the paired computers to switch between, and "add one".
+ * `pill`: the wide layout's bordered chip (connection dot, host, chevron); `open` / `onOpenChange` let the layout open the menu from elsewhere.
+ */
+export function ComputerSwitcher({ hostName, onAdd, pill, open: openProp, onOpenChange }: { hostName?: string; onAdd: () => void; pill?: boolean; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
+  const status = useRemoteSelector((s) => s.status);
   const [list, setList] = useState<Computer[] | null>(null);
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => setOpen(false), [setOpen]);
   useBackHandler(open, close);
   useEffect(() => {
     if (!open) return;
@@ -42,13 +48,22 @@ export function ComputerSwitcher({ hostName, onAdd }: { hostName?: string; onAdd
   }
 
   return (
-    <div className="cs">
-      <button type="button" className="cs-trigger" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        Flowcode <span>· {hostName ?? "..."}</span>
-        <Svg size={16}>
-          <path d="m6 9 6 6 6-6" />
-        </Svg>
-      </button>
+    <div className={"cs" + (pill ? " is-pill" : "")}>
+      {pill ? (
+        <button type="button" className="cs-pill" aria-label={t("computers")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <i className={"dot" + (status === "online" ? " on" : status === "offline" ? "" : " wait")} />
+          <MonitorIcon />
+          <span className="cs-host">{hostName ?? "..."}</span>
+          <ChevronDownIcon />
+        </button>
+      ) : (
+        <button type="button" className="cs-trigger" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+          Flowcode <span>· {hostName ?? "..."}</span>
+          <Svg size={16}>
+            <path d="m6 9 6 6 6-6" />
+          </Svg>
+        </button>
+      )}
       {open && (
         <>
           <div className="cs-scrim" onClick={close} />

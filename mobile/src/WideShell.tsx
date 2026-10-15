@@ -1,16 +1,19 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "./terminal.css";
 import "./wide.css";
 import { AgentsScreen } from "./Agents";
 import { useBackHandler } from "./back";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
-import { AgentLogo, AgentsIcon, FileIcon, FilesPanelIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { AgentLogo, AgentsPanelIcon, BoltIcon, CloseIcon, FileIcon, FilesPanelIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, Svg, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
-import type { ConnStatus, MirroredSettings, Tab } from "./remote";
+import { interrupt, useRemoteSelector, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
+import { TermActions, runAction } from "./TermActions";
 import { BusyArc, useOpenNewTab } from "./Terminals";
 import { useDocked } from "./wide";
 import { WideFileView } from "./WideFileView";
 import { WideFiles } from "./WideFiles";
+import { WideMenu } from "./WideMenu";
 
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
 const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
@@ -28,7 +31,7 @@ interface Props {
   onAddComputer: () => void;
 }
 
-/** The desktop-like layout of large screens: tab strip on top, one terminal, the agents panel on the right. */
+/** The desktop-like layout of large screens: a header (panel toggles, tab strip, quick actions), then cards: files, one terminal, agents. */
 export function WideShell({ hostName, tabs, settings, status, activePty, onSelectPty, onAddComputer }: Props) {
   const docked = useDocked();
   const [agentsOpen, setAgentsOpen] = useState(docked);
@@ -38,6 +41,12 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   /** The id of the shown doc; null = the terminal is shown. */
   const [doc, setDoc] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [computersOpen, setComputersOpen] = useState(false);
+  /** The key bar docked under the terminal. */
+  const [keys, setKeys] = useState(true);
+  const actions = useRemoteSelector((r) => r.actions);
   useEffect(() => setAgentsOpen(docked), [docked]);
   useEffect(() => setFilesOpen(docked), [docked]);
 
@@ -84,33 +93,40 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     setFilesOpen((v) => !v);
   };
 
-  // A narrow strip scrolls: keep the shown tab in view.
+  // A narrow strip scrolls: keep the shown tab in view (within the strip only).
   const tabsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    tabsRef.current?.querySelector(".w-tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const strip = tabsRef.current;
+    const tab = strip?.querySelector<HTMLElement>(".w-tab.on");
+    if (!strip || !tab) return;
+    if (tab.offsetLeft < strip.scrollLeft) strip.scrollLeft = tab.offsetLeft;
+    else if (tab.offsetLeft + tab.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = tab.offsetLeft + tab.offsetWidth - strip.clientWidth;
   }, [doc, activePty, docs.length]);
+
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const closeActions = useCallback(() => setActionsOpen(false), []);
 
   const active = activePty ? all.find((x) => x.ptyId === activePty) : undefined;
   const shown = doc !== null ? docs.find((d) => d.id === doc) : undefined;
   const activeFile = shown?.kind === "file" && shown.ptyId === activePty ? shown.path : null;
+  const fileTab = shown?.kind === "file" ? all.find((x) => x.ptyId === shown.ptyId) : undefined;
 
   return (
     <div className={"screen wide" + (docked ? " docked" : "")}>
       <header className="w-top">
-        <ComputerSwitcher hostName={hostName} onAdd={onAddComputer} />
-        <button type="button" className="w-icon-btn" aria-label={t("showFiles")} aria-pressed={filesOpen} onClick={toggleFiles}>
+        <button type="button" className="w-ib" aria-label={t("showFiles")} aria-pressed={filesOpen} onClick={toggleFiles}>
           <FilesPanelIcon />
         </button>
         <div className="w-tabs" role="tablist" ref={tabsRef}>
           {all.map((x) => {
             const on = doc === null && x.ptyId === activePty;
             return (
-              <button key={x.ptyId} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} onClick={() => select(x.ptyId)}>
+              <button key={x.ptyId} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={x.label} onClick={() => select(x.ptyId)}>
                 <span className="w-tab-ico">
                   {(x.cli && <AgentLogo cli={x.cli} size={16} />) || <TerminalIcon />}
                   {x.cli && x.status === "busy" && <BusyArc />}
                 </span>
-                <span>{x.label}</span>
+                <span className="w-tab-label">{x.label}</span>
                 {x.cli && <i className={"dot " + (x.status === "waiting" ? "wait" : x.status === "busy" ? "busy" : "idle")} />}
               </button>
             );
@@ -121,7 +137,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             return (
               <button key={d.id} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={d.kind === "file" ? d.path : undefined} onClick={() => setDoc(d.id)}>
                 <span className="w-tab-ico">{d.kind === "settings" ? <SlidersIcon /> : <FileIcon />}</span>
-                <span>{label}</span>
+                <span className="w-tab-label">{label}</span>
                 <span
                   role="button"
                   className="w-tab-x"
@@ -136,34 +152,78 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               </button>
             );
           })}
-          <button type="button" className="w-icon-btn" aria-label={t("newTerminal")} onClick={() => setSheet(true)}>
+          <button type="button" className="w-ib" aria-label={t("newTerminal")} onClick={() => setSheet(true)}>
             <PlusIcon />
           </button>
         </div>
-        <button type="button" className="w-icon-btn" aria-label={t("showAgents")} aria-pressed={agentsOpen} onClick={toggleAgents}>
-          <AgentsIcon />
-        </button>
-        <button
-          type="button"
-          className="w-icon-btn"
-          aria-label={t("navSettings")}
-          onClick={() => openDoc({ id: "settings", kind: "settings" })}
-        >
-          <SlidersIcon />
-        </button>
-      </header>
-      <div className="w-body">
-        {/* Kept mounted while closed, so the folder browsed survives closing the drawer. */}
-        <aside className="w-side w-left" hidden={!filesOpen}>
-            <WideFiles
-              tab={active}
-              activeFile={activeFile}
-              onOpenFile={(p) => {
-                if (!active) return;
-                openFile(active.ptyId, p);
-                if (!docked) setFilesOpen(false);
+        {active && actions.length > 0 && (
+          <div className="w-group">
+            {actions.map((a) => (
+              <button key={a.id} type="button" className="w-ib" aria-label={t("runAction", { label: a.label })} title={a.label} onClick={() => runAction(active.ptyId, a)}>
+                {a.icon ? (
+                  <Svg>
+                    <path d={a.icon} />
+                  </Svg>
+                ) : (
+                  <BoltIcon />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="w-group">
+          <button type="button" className="w-ib" aria-label={t("features")} disabled={!active} onClick={() => setActionsOpen(true)}>
+            <GridIcon />
+          </button>
+          <div className="w-anchor">
+            <button type="button" className="w-ib" aria-label={t("moreOptions")} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
+              <KebabIcon />
+            </button>
+            <WideMenu
+              open={menuOpen}
+              keys={keys}
+              noTerminal={!active}
+              onClose={closeMenu}
+              onNewTerminal={() => {
+                setMenuOpen(false);
+                setSheet(true);
+              }}
+              onKeys={() => {
+                setMenuOpen(false);
+                setKeys((v) => !v);
+              }}
+              onInterrupt={() => {
+                setMenuOpen(false);
+                if (active) interrupt(active.ptyId);
+              }}
+              onComputers={() => {
+                setMenuOpen(false);
+                setComputersOpen(true);
+              }}
+              onSettings={() => {
+                setMenuOpen(false);
+                openDoc({ id: "settings", kind: "settings" });
               }}
             />
+          </div>
+          <button type="button" className="w-ib" aria-label={t("showAgents")} aria-pressed={agentsOpen} onClick={toggleAgents}>
+            <AgentsPanelIcon />
+          </button>
+        </div>
+        <ComputerSwitcher pill hostName={hostName} onAdd={onAddComputer} open={computersOpen} onOpenChange={setComputersOpen} />
+      </header>
+      <div className="w-body">
+        {/* Kept mounted while closed, so the folder browsed survives closing the panel. */}
+        <aside className="w-side w-left" hidden={!filesOpen}>
+          <WideFiles
+            tab={active}
+            activeFile={activeFile}
+            onOpenFile={(p) => {
+              if (!active) return;
+              openFile(active.ptyId, p);
+              if (!docked) setFilesOpen(false);
+            }}
+          />
         </aside>
         <main className="w-main">
           {shown?.kind === "settings" ? (
@@ -173,15 +233,10 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               </Suspense>
             </div>
           ) : shown?.kind === "file" ? (
-            <WideFileView key={shown.id} ptyId={shown.ptyId} path={shown.path} />
+            <WideFileView key={shown.id} ptyId={shown.ptyId} path={shown.path} cwd={fileTab?.cwd} />
           ) : active ? (
             <Suspense fallback={<div className="screen" />}>
-              <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={() => {}} embedded
-                onFiles={() => {
-                  setFilesOpen(true);
-                  if (!docked) setAgentsOpen(false);
-                }}
-              />
+              <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={() => {}} embedded keys={keys} />
             </Suspense>
           ) : tabs !== null && tabs.length === 0 ? (
             <div className="empty">{t("noTabs")}</div>
@@ -189,11 +244,21 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
         </main>
         {agentsOpen && (
           <aside className="w-side w-right">
-            <div className="page w-page">
+            <div className="w-ph">
+              <span className="w-ph-title">{t("activeAgents")}</span>
+              <button type="button" className="w-ib sm" aria-label={t("newTerminal")} onClick={() => setSheet(true)}>
+                <PlusIcon />
+              </button>
+              <button type="button" className="w-ib sm" aria-label={t("closePanel")} onClick={() => setAgentsOpen(false)}>
+                <CloseIcon />
+              </button>
+            </div>
+            <div className="w-scroll">
               <AgentsScreen
                 compact
                 hostName={hostName}
                 tabs={tabs}
+                activePty={doc === null ? activePty : null}
                 onOpen={(id) => {
                   select(id);
                   if (!docked) setAgentsOpen(false);
@@ -205,6 +270,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
         )}
       </div>
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
+      {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
     </div>
   );

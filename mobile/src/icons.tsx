@@ -113,12 +113,6 @@ export function AgentLogo({ cli, size = 18 }: { cli: string; size?: number }) {
   );
 }
 
-export const UpIcon = () => (
-  <Svg>
-    <path d="M12 19V5M6 11l6-6 6 6" />
-  </Svg>
-);
-
 export const HomeIcon = () => (
   <Svg>
     <path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z" />
@@ -129,5 +123,56 @@ export const FilesPanelIcon = () => (
   <Svg>
     <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
     <path d="M9.5 4.5v15" />
+  </Svg>
+);
+
+/** The desktop header's toggle for the right-hand panel: the frame with its divider near the right edge. */
+export const AgentsPanelIcon = () => (
+  <Svg>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+    <path d="M14.500 4.500v15" />
+  </Svg>
+);
+
+export const GridIcon = () => (
+  <Svg>
+    <rect x="4" y="4" width="6.500" height="6.500" rx="1.500" />
+    <rect x="13.500" y="4" width="6.500" height="6.500" rx="1.500" />
+    <rect x="4" y="13.500" width="6.500" height="6.500" rx="1.500" />
+    <rect x="13.500" y="13.500" width="6.500" height="6.500" rx="1.500" />
+  </Svg>
+);
+
+export const KebabIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="12" cy="5.500" r="1.600" />
+    <circle cx="12" cy="12" r="1.600" />
+    <circle cx="12" cy="18.500" r="1.600" />
+  </svg>
+);
+
+export const MonitorIcon = () => (
+  <Svg size={18}>
+    <rect x="3" y="5" width="18" height="12" rx="2" />
+    <path d="M8 20h8" />
+  </Svg>
+);
+
+export const ChevronDownIcon = () => (
+  <Svg size={16}>
+    <path d="m6 9 6 6 6-6" />
+  </Svg>
+);
+
+export const StopIcon = () => (
+  <Svg>
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </Svg>
+);
+
+export const CopyIcon = () => (
+  <Svg>
+    <rect x="8" y="8" width="11" height="11" rx="2" />
+    <path d="M5 15V6a1 1 0 0 1 1-1h9" />
   </Svg>
 );

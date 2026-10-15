@@ -4,6 +4,12 @@ import { t } from "./i18n";
 import { BoltIcon, CloseIcon } from "./icons";
 import { send, showToast, type Action, type Tab } from "./remote";
 
+/** Runs a quick action in a terminal. */
+export function runAction(ptyId: string, a: Action) {
+  send({ t: "action", id: a.id, ptyId });
+  showToast(t("done"));
+}
+
 /** Bottom sheet with the desktop's quick actions, run in this terminal. */
 export function TermActions({ tab, actions, open, onClose }: { tab: Tab; actions: Action[]; open: boolean; onClose: () => void }) {
   useEffect(() => {
@@ -16,8 +22,7 @@ export function TermActions({ tab, actions, open, onClose }: { tab: Tab; actions
   useBackHandler(open, onClose);
 
   function run(a: Action) {
-    send({ t: "action", id: a.id, ptyId: tab.ptyId });
-    showToast(t("done"));
+    runAction(tab.ptyId, a);
     onClose();
   }
 

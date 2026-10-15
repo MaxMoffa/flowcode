@@ -3,7 +3,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { t } from "./i18n";
 import { BackIcon, DotsIcon, KeyboardIcon } from "./icons";
-import { send, useRemoteSelector, type ConnStatus, type Tab } from "./remote";
+import { interrupt, send, useRemoteSelector, type ConnStatus, type Tab } from "./remote";
 import { TermActions } from "./TermActions";
 import { TermFiles } from "./TermFiles";
 import { TermKeyBar } from "./TermKeyBar";
@@ -20,8 +20,8 @@ const keepFocus = {
   onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
 };
 
-/** `embedded`: the wide layout's main area; the tab strip stands in for the header, so only a floating "⋯" remains. `onFiles`: opens the layout's own files panel instead of the drawer. */
-export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab: Tab; status: ConnStatus; onBack: () => void; embedded?: boolean; onFiles?: () => void }) {
+/** `embedded`: the wide layout's main card; its header owns the files, quick actions and menu, so only the terminal and its docked key bar (shown while `keys`) remain. */
+export function TerminalScreen({ tab, status, onBack, embedded, keys }: { tab: Tab; status: ConnStatus; onBack: () => void; embedded?: boolean; keys?: boolean }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -88,7 +88,7 @@ export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab
   const cliName = tab.cli ? tab.cli[0].toUpperCase() + tab.cli.slice(1) : "";
   const showWait = tab.status === "waiting" && !!tab.cli;
 
-  const more = (
+  const more = !embedded && (
     <>
       <button type="button" className="tm-back" aria-label={t("termMore")} aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
         <DotsIcon />
@@ -99,8 +99,7 @@ export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab
         onClose={closeMenu}
         onFiles={() => {
           setMenuOpen(false);
-          if (onFiles) onFiles();
-          else setFilesOpen(true);
+          setFilesOpen(true);
         }}
         onActions={() => {
           setMenuOpen(false);
@@ -112,10 +111,37 @@ export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab
         }}
         onInterrupt={() => {
           setMenuOpen(false);
-          send({ t: "input", ptyId, data: "" });
+          interrupt(ptyId);
         }}
       />
     </>
+  );
+
+  const keyBar = (
+    <TermKeyBar
+      barRef={barRef}
+      open={embedded ? !!keys : kbOpen}
+      mods={mods}
+      onTap={tap}
+      onLock={lock}
+      onKey={sendKey}
+      onText={onInput}
+      peek={peek}
+      onPadKey={padKey}
+      onPadDone={consume}
+      trailing={
+        embedded && (
+          <>
+            <button type="button" {...keepFocus} className="tm-k tm-int" onClick={() => interrupt(ptyId)}>
+              {t("termMenuInterrupt")}
+            </button>
+            <button type="button" {...keepFocus} className="tm-k" aria-label={kbOpen ? t("hideKeyboard") : t("showKeyboard")} onClick={toggleKeyboard}>
+              <KeyboardIcon size={18} />
+            </button>
+          </>
+        )
+      }
+    />
   );
 
   return (
@@ -134,7 +160,6 @@ export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab
         </header>
       )}
       <div className="term-card">
-        {embedded && <div className="term-float">{more}</div>}
         <div className="term-body">
           <div className="term-area" ref={areaRef} onClick={() => focusTerminal(termRef.current)}>
             {ended && <div className="ended">{t("ended")}</div>}
@@ -170,21 +195,11 @@ export function TerminalScreen({ tab, status, onBack, embedded, onFiles }: { tab
             </button>
           </div>
         )}
+        {embedded && keyBar}
       </div>
-      <TermKeyBar
-        barRef={barRef}
-        open={kbOpen}
-        mods={mods}
-        onTap={tap}
-        onLock={lock}
-        onKey={sendKey}
-        onText={onInput}
-        peek={peek}
-        onPadKey={padKey}
-        onPadDone={consume}
-      />
-      <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />
-      <TermActions tab={tab} actions={actions} open={actionsOpen} onClose={closeActions} />
+      {!embedded && keyBar}
+      {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
+      {!embedded && <TermActions tab={tab} actions={actions} open={actionsOpen} onClose={closeActions} />}
     </div>
   );
 }

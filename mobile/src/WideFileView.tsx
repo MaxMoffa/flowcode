@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { shortCwd } from "./common";
 import { t } from "./i18n";
-import { onMessage, send, useRemoteSelector } from "./remote";
+import { CopyIcon } from "./icons";
+import { onMessage, send, showToast, useRemoteSelector } from "./remote";
 
 type Body = { state: "loading" } | { state: "error" } | { state: "text"; text: string; truncated: boolean };
 
-/** A read-only view of one file of a terminal's folder, with line numbers. */
-export function WideFileView({ ptyId, path }: { ptyId: string; path: string }) {
+/** A read-only view of one file of a terminal's folder (`cwd`), with line numbers and the desktop editor's toolbar minus save. */
+export function WideFileView({ ptyId, path, cwd }: { ptyId: string; path: string; cwd?: string }) {
   const [body, setBody] = useState<Body>({ state: "loading" });
   // Reads asked for and not answered yet: only the reply to the latest one counts.
   const pending = useRef(0);
@@ -41,12 +43,27 @@ export function WideFileView({ ptyId, path }: { ptyId: string; path: string }) {
     return l;
   }, [body]);
 
+  const slash = path.lastIndexOf("/") + 1;
+  const dir = (cwd ? shortCwd(cwd) + "/" : "") + path.slice(0, slash);
+  const copyPath = () =>
+    navigator.clipboard
+      .writeText(cwd ? `${cwd.replace(/[\/]+$/, "")}/${path}` : path)
+      .then(() => showToast(t("copied")))
+      .catch(() => {});
+
   return (
     <div className="wfv">
-      <div className="wfv-bar">
-        <span className="wfv-path">{path}</span>
+      <div className="w-ph wfv-bar">
+        <span className="wfv-path" title={path}>
+          {dir}
+          <b>{path.slice(slash)}</b>
+        </span>
         <span className="wfv-tag">{t("readOnly")}</span>
-        {body.state === "text" && body.truncated && <span className="wfv-tag">{t("truncated")}</span>}
+        {body.state === "text" && body.truncated && <span className="wfv-tag warn">{t("truncated")}</span>}
+        <span className="w-grow" />
+        <button type="button" className="w-ib sm" aria-label={t("copyPath")} onClick={copyPath}>
+          <CopyIcon />
+        </button>
       </div>
       {body.state === "loading" && <div className="empty">{t("loading")}</div>}
       {body.state === "error" && <div className="empty">{t("fileError")}</div>}

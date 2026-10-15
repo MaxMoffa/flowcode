@@ -339,3 +339,8 @@ export function profileAction(action: ProfileAction) {
 export function onDeepLink(l: (url: string) => void): Promise<() => void> {
   return listen<string>("remote://deeplink", (e) => l(e.payload));
 }
+
+/** Types Ctrl+C into a terminal. */
+export function interrupt(ptyId: string) {
+  send({ t: "input", ptyId, data: "\x03" });
+}

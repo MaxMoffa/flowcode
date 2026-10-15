@@ -1,4 +1,4 @@
-import { useRef, type RefObject } from "react";
+import { useRef, type ReactNode, type RefObject } from "react";
 import { lockFeedback } from "./haptics";
 import { t } from "./i18n";
 import { TermCursorPad } from "./TermCursorPad";
@@ -86,29 +86,41 @@ export function TermKeyBar(props: {
   peek: () => Active;
   onPadKey: (k: NamedKey, mods: Active) => void;
   onPadDone: () => void;
+  /** Keys pinned at the end of the row (the wide layout's interrupt and keyboard buttons). */
+  trailing?: ReactNode;
 }) {
-  const { mods, onTap, onLock, onKey, onText } = props;
+  const { mods, onTap, onLock, onKey, onText, trailing } = props;
+  const row = (
+    <div className="tm-row" role="toolbar" aria-label={t("termKeys")}>
+      {ITEMS.map((it, i) => {
+        if (it.kind === "sep") return <i key={i} className="tm-sep" />;
+        if (it.kind === "mod") return <ModButton key={it.key} label={it.label} state={mods[it.key]} onTap={() => onTap(it.key)} onLock={() => onLock(it.key)} />;
+        if (it.kind === "text")
+          return (
+            <button key={it.text} type="button" {...keepFocus} className="tm-k" onClick={() => onText(it.text)}>
+              {it.text}
+            </button>
+          );
+        return (
+          <button key={it.key} type="button" {...keepFocus} className="tm-k" aria-label={it.aria ? t(it.aria as "keyUp") : undefined} onClick={() => onKey(it.key)}>
+            {it.label}
+          </button>
+        );
+      })}
+    </div>
+  );
   return (
     <div className="tm-keys" ref={props.barRef}>
       {props.open && (
         <>
-          <div className="tm-row" role="toolbar" aria-label={t("termKeys")}>
-            {ITEMS.map((it, i) => {
-              if (it.kind === "sep") return <i key={i} className="tm-sep" />;
-              if (it.kind === "mod") return <ModButton key={it.key} label={it.label} state={mods[it.key]} onTap={() => onTap(it.key)} onLock={() => onLock(it.key)} />;
-              if (it.kind === "text")
-                return (
-                  <button key={it.text} type="button" {...keepFocus} className="tm-k" onClick={() => onText(it.text)}>
-                    {it.text}
-                  </button>
-                );
-              return (
-                <button key={it.key} type="button" {...keepFocus} className="tm-k" aria-label={it.aria ? t(it.aria as "keyUp") : undefined} onClick={() => onKey(it.key)}>
-                  {it.label}
-                </button>
-              );
-            })}
-          </div>
+          {trailing ? (
+            <div className="tm-line">
+              {row}
+              {trailing}
+            </div>
+          ) : (
+            row
+          )}
           <TermCursorPad peek={props.peek} onKey={props.onPadKey} onDone={props.onPadDone} />
         </>
       )}
