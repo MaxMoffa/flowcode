@@ -215,7 +215,7 @@
 /* Dismissed: a compact pill, the cached content stays usable. */
 .rc-pill {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 10px);
+  top: calc(var(--safe-t) + 10px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 31;

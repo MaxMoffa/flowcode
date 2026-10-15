@@ -18,7 +18,7 @@ html.scanning body::before {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: calc(env(safe-area-inset-top) + 16px) 20px calc(var(--safe-b) + 24px);
+  padding: calc(var(--safe-t) + 16px) 20px calc(var(--safe-b) + 24px);
   color: #fff;
   /* The dim comes from the frame's shadow, so the viewfinder stays clear. */
   background: transparent;
@@ -32,7 +32,7 @@ html.scanning body::before {
 
 .scan-close {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 12px);
+  top: calc(var(--safe-t) + 12px);
   left: 12px;
   z-index: 2;
   display: grid;
@@ -323,7 +323,7 @@ html.scanning body::before {
 
 .pair-close {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 12px);
+  top: calc(var(--safe-t) + 12px);
   left: 12px;
   z-index: 2;
   display: grid;
@@ -339,7 +339,7 @@ html.scanning body::before {
 /* Adding a computer: room for the back button above the hero, which would
    otherwise sit under it. */
 .pair.has-close {
-  padding-top: calc(env(safe-area-inset-top) + 68px);
+  padding-top: calc(var(--safe-t) + 68px);
 }
 
 .pair-logo {

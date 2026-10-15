@@ -358,7 +358,10 @@
 }
 
 .wide .term-screen.is-embedded .term-card {
-  border-top: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* The touch keys, docked at the bottom of the terminal card. */
@@ -595,103 +598,6 @@
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-}
-
-.ag-section {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.ag-row {
-  display: flex;
-  gap: 10px;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--fg);
-  text-align: left;
-}
-
-.ag-row:active {
-  background: var(--surface-2);
-}
-
-.ag-row.on {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border-color: var(--accent-border);
-}
-
-.ag-logo {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--accent-2) 20%, transparent);
-  color: var(--accent-2);
-}
-
-.ag-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.ag-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13.5px;
-  font-weight: 600;
-}
-
-.ag-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.ag-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.ag-line .agent-meta {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: 11.5px var(--font);
-}
-
-.ag-chip {
-  flex: none;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--surface-3);
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 600;
-}
-
-.ag-chip.busy {
-  background: var(--busy-bg);
-  color: var(--busy);
-}
-
-.ag-chip.waiting {
-  background: var(--wait-bg);
-  color: var(--wait);
 }
 
 /* The read-only file tab: the desktop editor's toolbar without save / edit. */

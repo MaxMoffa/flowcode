@@ -37,6 +37,25 @@ function useViewportHeight() {
   }, []);
 }
 
+/** Android's WebView under-reports env(safe-area-inset-*) edge-to-edge; MainActivity.kt hands over the system bar insets instead. */
+function useSystemInsets() {
+  useEffect(() => {
+    const bridge = (window as { FlowcodeInsets?: { get(): string } }).FlowcodeInsets;
+    if (!bridge) return;
+    const apply = () => {
+      const raw = bridge.get();
+      if (!raw) return;
+      const [top, bottom] = raw.split(",").map(Number);
+      const root = document.documentElement.style;
+      root.setProperty("--inset-t", `${top}px`);
+      root.setProperty("--inset-b", `${bottom}px`);
+    };
+    apply();
+    window.addEventListener("flowcode-insets", apply);
+    return () => window.removeEventListener("flowcode-insets", apply);
+  }, []);
+}
+
 /** Bad cached or incoming data must not brick the app: offer to drop the cached settings. */
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -101,6 +120,7 @@ function AppContent() {
   const paired = status !== "unpaired" && status !== "loading";
   const lock = useLock();
   useViewportHeight();
+  useSystemInsets();
   const wide = useWide();
 
   // The phone wears the desktop's colors and language (see remote.ts); before
@@ -194,7 +214,7 @@ function AppContent() {
   } else if (tab) {
     content = (
       <Suspense fallback={<div className="screen" />}>
-        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} onAgents={() => { setPage("agents"); setOpenPty(null); }} />
+        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} onSwitch={open} />
       </Suspense>
     );
   } else {

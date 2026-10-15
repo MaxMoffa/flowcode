@@ -5,6 +5,7 @@ import { t } from "./i18n";
 import { AgentsIcon, BackIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
 import { interrupt, send, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
 import { TermActions } from "./TermActions";
+import { TermAgents } from "./TermAgents";
 import { TermFiles } from "./TermFiles";
 import { openLink, TermLink } from "./TermLink";
 import { TermKeyBar } from "./TermKeyBar";
@@ -24,10 +25,11 @@ const keepFocus = {
 };
 
 /** `embedded`: the wide layout's main card; its header owns the files, quick actions and menu, so only the terminal and its docked key bar (shown while `keys`) remain. */
-export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }: { tab: Tab; status: ConnStatus; onBack: () => void; onAgents?: () => void; embedded?: boolean; keys?: boolean }) {
+export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; embedded?: boolean; keys?: boolean }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
@@ -87,6 +89,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
   };
 
   const closeFiles = useCallback(() => setFilesOpen(false), []);
+  const closeAgents = useCallback(() => setAgentsOpen(false), []);
   const closeActions = useCallback(() => setActionsOpen(false), []);
   const closeLink = useCallback(() => setLinkUrl(null), []);
 
@@ -280,7 +283,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
                 type="button"
                 aria-label={othersWaiting ? t("agentsWaitingAria", { n: othersWaiting }) : t("agents")}
                 onPointerDown={(e) => e.preventDefault()}
-                onClick={onAgents}
+                onClick={() => setAgentsOpen(true)}
               >
                 <AgentsIcon />
                 {othersWaiting > 0 && <b className="term-pill-badge">{othersWaiting}</b>}
@@ -311,6 +314,7 @@ export function TerminalScreen({ tab, status, onBack, onAgents, embedded, keys }
       </div>
       {!embedded && keyBar}
       {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
+      {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} onOpen={onSwitch} />}
       {!embedded && <TermActions tab={tab} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>

@@ -4,7 +4,8 @@
    Sans / JetBrains Mono are used when installed): nothing is fetched at
    runtime. */
 :root {
-  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: var(--inset-t, env(safe-area-inset-top, 0px));
+  --safe-b: var(--inset-b, env(safe-area-inset-bottom, 0px));
   --blur-sheet: blur(22px) saturate(140%);
   --blur-card: blur(16px) saturate(130%);
   --bg: #1a1511;
@@ -116,7 +117,7 @@ h1 {
   flex-direction: column;
   height: var(--app-h, 100dvh);
   overflow: hidden;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  padding: var(--safe-t) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
 
 .page {
@@ -859,7 +860,7 @@ button.card:active {
 
 .pair {
   overflow-y: auto;
-  padding: calc(env(safe-area-inset-top) + 24px) 20px calc(24px + var(--safe-b));
+  padding: calc(var(--safe-t) + 24px) 20px calc(24px + var(--safe-b));
   gap: 16px;
   height: var(--app-h, 100dvh);
 }
@@ -1582,7 +1583,7 @@ button.set-row.danger {
 
 .compat-banner {
   position: fixed;
-  top: calc(8px + env(safe-area-inset-top, 0px));
+  top: calc(8px + var(--safe-t));
   left: 12px;
   right: 12px;
   display: flex;
