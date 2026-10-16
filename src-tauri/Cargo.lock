@@ -1502,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "ed25519-dalek 2.2.0",
  "flowcode-remote-proto",
@@ -1531,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-installer"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "flowcode-shared",
  "mslnk",
@@ -1547,7 +1547,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-remote-proto"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "data-encoding",
  "serde",
@@ -1558,7 +1558,7 @@ dependencies = [
 
 [[package]]
 name = "flowcode-shared"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "raw-window-handle",
  "tauri",
