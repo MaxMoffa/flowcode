@@ -3,6 +3,7 @@ import "./settings.css";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { setLockEnabled, useLock, verify } from "./applock";
+import { screenshotsSupported, setScreenshotsAllowed, useScreenshots } from "./screenshots";
 import { effectivePhone, phoneTheme, setPhoneTheme } from "./theme";
 import { FONT_MAX, FONT_MIN, phoneFontSize, setPhoneFontSize } from "./termFont";
 import {
@@ -43,7 +44,7 @@ function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: stri
 
 const onOff = (v: boolean) => (v ? t("stateOn") : t("stateOff"));
 
-function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, localFont: number | null, bg: BackgroundSettings, upd: ReturnType<typeof updates.use>, hostName?: string): Record<SectionId, string> {
+function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, shots: ReturnType<typeof useScreenshots>, local: ReturnType<typeof phoneTheme.get>, localFont: number | null, bg: BackgroundSettings, upd: ReturnType<typeof updates.use>, hostName?: string): Record<SectionId, string> {
   const eff = s ? effectivePhone(s, local) : null;
   const paletteName = s && eff ? (s.palettes.find((p) => p.id === eff.palette)?.name ?? eff.palette) : "";
   const themeName = eff ? { auto: t("themeAuto"), light: t("themeLight"), dark: t("themeDark") }[eff.theme] : "";
@@ -56,7 +57,7 @@ function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, l
     profiles: profiles === null ? "" : profiles.length ? t("sumProfiles", { n: profiles.length }) : t("sumProfilesNone"),
     resume: s ? (s.autoResume.enabled ? t("sumResumeOn", { msg: s.autoResume.message || t("autoResumePlaceholder") }) : t("sumResumeOff")) : "",
     language: langName,
-    security: lock.enabled ? t("sumLockOn") : t("sumLockOff"),
+    security: lock.available ? (lock.enabled ? t("sumLockOn") : t("sumLockOff")) : shots.allowed ? t("sumScreenshotsOn") : t("sumScreenshotsOff"),
     background: !bg.enabled ? t("sumBgOff") : bg.capMinutes ? t("sumBgOn", { n: bg.capMinutes / 60 }) : t("sumBgOnNever"),
     updates: upd.info ? t("updSumAvailable", { version: upd.info.version }) : upd.currentVersion ? t("updSumCurrent", { version: upd.currentVersion }) : "",
     phone: t("sumPhone", { host: hostName ?? "..." }),
@@ -67,6 +68,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
   const profiles = useRemoteSelector((r) => r.profiles);
   const defaultLoggedIn = useRemoteSelector((r) => r.defaultLoggedIn);
   const lock = useLock();
+  const shots = useScreenshots();
   const [section, setSection] = useState<SectionId | null>(null);
   useBackHandler(section !== null, () => setSection(null));
 
@@ -77,10 +79,10 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
     void backgroundSettings().then(setBg);
   }, []);
   const upd = updates.use();
-  const sum = summaries(s, profiles, lock, local, localFont, bg, upd, hostName);
+  const sum = summaries(s, profiles, lock, shots, local, localFont, bg, upd, hostName);
   const canProfiles = useSupports("profiles");
   const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", ...(canProfiles ? (["profiles"] as SectionId[]) : []), "language"] : [];
-  const phoneOnly: SectionId[] = lock.available ? ["security", "background", "updates", "phone"] : ["background", "updates", "phone"];
+  const phoneOnly: SectionId[] = lock.available || screenshotsSupported() ? ["security", "background", "updates", "phone"] : ["background", "updates", "phone"];
   const titles: Record<SectionId, string> = {
     appearance: t("appearance"),
     terminal: t("terminalGroup"),
@@ -237,13 +239,24 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
 
       {section === "security" && (
         <Group title={t("secSecurity")}>
-          <Toggle
-            label={t("lockSetting")}
-            hint={t("lockHint")}
-            on={lock.enabled}
-            // Turning it off needs a successful unlock, so a borrowed unlocked phone can't drop the lock.
-            onChange={(v) => void (v ? Promise.resolve(true) : verify()).then((ok) => ok && setLockEnabled(v))}
-          />
+          {lock.available && (
+            <Toggle
+              label={t("lockSetting")}
+              hint={t("lockHint")}
+              on={lock.enabled}
+              // Turning it off needs a successful unlock, so a borrowed unlocked phone can't drop the lock.
+              onChange={(v) => void (v ? Promise.resolve(true) : verify()).then((ok) => ok && setLockEnabled(v))}
+            />
+          )}
+          {screenshotsSupported() && (
+            <Toggle
+              label={t("screenshotsSetting")}
+              hint={t("screenshotsHint")}
+              on={shots.allowed}
+              // Allowing them needs a successful unlock when the lock is on, like turning the lock off.
+              onChange={(v) => void (v && lock.available && lock.enabled ? verify() : Promise.resolve(true)).then((ok) => ok && setScreenshotsAllowed(v))}
+            />
+          )}
         </Group>
       )}
 

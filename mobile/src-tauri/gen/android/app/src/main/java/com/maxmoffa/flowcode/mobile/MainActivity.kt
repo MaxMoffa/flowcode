@@ -17,14 +17,21 @@ class MainActivity : TauriActivity() {
   // reliably report env(safe-area-inset-*) edge-to-edge, so the page reads
   // them from here (App.tsx, useSystemInsets).
   @Volatile private var insets = ""
+  private val prefs by lazy { getSharedPreferences("flowcode", MODE_PRIVATE) }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
-    // The screen shows live terminals: keep it out of screenshots, screen
-    // recording and the Recents thumbnail.
-    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+    applySecure()
     updateImmersiveRequest()
+  }
+
+  // The screen shows live terminals: keep it out of screenshots, screen
+  // recording and the Recents thumbnail, unless the user allowed them in
+  // Settings > Security (screenshots.ts).
+  private fun applySecure() {
+    if (prefs.getBoolean(KEY_SCREENSHOTS, false)) window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    else window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
   }
 
   override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
@@ -52,6 +59,7 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     webView.addJavascriptInterface(InsetsBridge(), "FlowcodeInsets")
+    webView.addJavascriptInterface(ScreenshotsBridge(), "FlowcodeScreenshots")
     ViewCompat.setOnApplyWindowInsetsListener(webView) { view, all ->
       val bars = all.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
       val density = view.resources.displayMetrics.density
@@ -69,5 +77,20 @@ class MainActivity : TauriActivity() {
   inner class InsetsBridge {
     @JavascriptInterface
     fun get(): String = insets
+  }
+
+  inner class ScreenshotsBridge {
+    @JavascriptInterface
+    fun allowed(): Boolean = prefs.getBoolean(KEY_SCREENSHOTS, false)
+
+    @JavascriptInterface
+    fun setAllowed(on: Boolean) {
+      prefs.edit().putBoolean(KEY_SCREENSHOTS, on).apply()
+      runOnUiThread { applySecure() }
+    }
+  }
+
+  private companion object {
+    const val KEY_SCREENSHOTS = "screenshotsAllowed"
   }
 }
