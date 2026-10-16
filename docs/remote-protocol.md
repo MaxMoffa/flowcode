@@ -155,7 +155,7 @@ Tab        {ptyId, tabId, window, label, cwd, cols, rows,
             context?: {used, window, model?}}
 UsageItem  {pluginId, label, profile?, profileName?, profileColor?, metrics: [UsageMetric]}
 UsageMetric{kind, label?, percent?, resets?, command?, period?, cost?, tokens?, sessions?}
-Action     {id, label, icon?}
+Action     {id, label, icon?, cli?: "claude"|"codex"|"vibe"|"gemini"}
 LsEntry    {name, dir, size?}
 ```
 

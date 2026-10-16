@@ -32,7 +32,7 @@ import { useAutoResume } from "./agents/useAutoResume";
 import { useAutoResumeSettings } from "./agents/autoResumeSettings";
 import { useAgentNotifications } from "./notifications/useAgentNotifications";
 import { watchLimitResets } from "./notifications/limitResetWatcher";
-import { isPhoneAction, publishRemoteActions } from "./plugins/remotePublish";
+import { isPhoneAction, PROFILE_CLI, publishRemoteActions } from "./plugins/remotePublish";
 import { useRemoteLeader } from "./remote/leader";
 import { useNotificationSettings } from "./notifications/notificationSettings";
 import { tabAgentOf, useAgentSessions, type AgentSession, type TabAgent } from "./agents/agentSessions";
@@ -1744,7 +1744,7 @@ function Shell() {
   const remoteActionsKey = JSON.stringify(
     quickActionIds.flatMap((id) => {
       const plugin = allPlugins.find((p) => p.id === id);
-      return plugin && isPhoneAction(plugin.action) ? [{ id, label: plugin.label }] : [];
+      return plugin && isPhoneAction(plugin.action) ? [{ id, label: plugin.label, icon: plugin.icon, cli: PROFILE_CLI[id] }] : [];
     }),
   );
   const remoteLeader = useRemoteLeader();

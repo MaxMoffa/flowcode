@@ -58,6 +58,8 @@ export interface Action {
   id: string;
   label: string;
   icon?: string;
+  /** The agent CLI the action launches: the phone draws its logo instead of `icon`. */
+  cli?: string;
 }
 
 export interface LsEntry {

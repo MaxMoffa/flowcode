@@ -13,8 +13,8 @@ import { metricText, usageFetcherFor, type UsageInfo } from "./usage";
 
 const usageKey = (pluginId: string, profile?: string) => `${pluginId}\u0000${profile ?? ""}`;
 
-/** Which CLI's login (profiles.ts `logged_in`) a usage plugin reads. */
-const PROFILE_CLI: Record<string, AgentCli> = {
+/** The agent CLI behind a bundled plugin: whose login (profiles.ts `logged_in`) its usage reads, and whose logo the phone draws for it. */
+export const PROFILE_CLI: Record<string, AgentCli> = {
   "claude-code": "claude",
   "codex-cli": "codex",
   "mistral-vibe": "vibe",
@@ -181,7 +181,7 @@ export function isPhoneAction(action: string): boolean {
   return PHONE_ACTIONS.has(action);
 }
 
-export function publishRemoteActions(actions: { id: string; label: string }[]) {
+export function publishRemoteActions(actions: { id: string; label: string; icon?: string; cli?: string }[]) {
   if (!isRemoteLeader()) return;
   invoke("remote_publish_actions", { actions }).catch(() => {});
 }

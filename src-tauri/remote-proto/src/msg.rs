@@ -225,6 +225,9 @@ pub struct Action {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// The agent CLI the action launches ("claude", "codex", "vibe", "gemini"): the phone draws its logo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

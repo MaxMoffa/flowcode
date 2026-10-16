@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
-import { BoltIcon, CloseIcon } from "./icons";
+import { ActionIcon, CloseIcon } from "./icons";
 import { send, showToast, type Action, type Tab } from "./remote";
 import { useSheetDrag } from "./useSheetDrag";
 
@@ -43,7 +43,7 @@ export function TermActions({ tab, actions, open, onClose }: { tab: Tab; actions
           {actions.map((a) => (
             <button key={a.id} type="button" className="tm-tile" onClick={() => run(a)}>
               <span className="tm-tile-icon">
-                <BoltIcon />
+                <ActionIcon action={a} />
               </span>
               <span className="tm-tile-label">{a.label}</span>
             </button>

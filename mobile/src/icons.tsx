@@ -113,6 +113,18 @@ export function AgentLogo({ cli, size = 18 }: { cli: string; size?: number }) {
   );
 }
 
+/** A quick action's mark: the agent's logo, else the plugin's own path, else a bolt. */
+export function ActionIcon({ action }: { action: { icon?: string; cli?: string } }) {
+  if (action.cli && action.cli in AGENT_LOGOS) return <AgentLogo cli={action.cli} />;
+  if (action.icon)
+    return (
+      <Svg>
+        <path d={action.icon} />
+      </Svg>
+    );
+  return <BoltIcon />;
+}
+
 export const HomeIcon = () => (
   <Svg>
     <path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z" />

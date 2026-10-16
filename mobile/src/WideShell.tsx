@@ -5,7 +5,7 @@ import { AgentsScreen } from "./Agents";
 import { useBackHandler } from "./back";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
-import { AgentLogo, AgentsIcon, BoltIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, Svg, TerminalIcon } from "./icons";
+import { ActionIcon, AgentLogo, AgentsIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
 import { interrupt, send, useRemoteSelector, useSupports, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
@@ -228,13 +228,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           <div className="w-group">
             {actions.map((a) => (
               <button key={a.id} type="button" className="w-ib" aria-label={t("runAction", { label: a.label })} title={a.label} onClick={() => runAction(active.ptyId, a)}>
-                {a.icon ? (
-                  <Svg>
-                    <path d={a.icon} />
-                  </Svg>
-                ) : (
-                  <BoltIcon />
-                )}
+                <ActionIcon action={a} />
               </button>
             ))}
           </div>
