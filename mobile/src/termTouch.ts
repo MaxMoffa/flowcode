@@ -40,7 +40,8 @@ function scrollTerminal(term: Terminal, ptyId: string, lines: number) {
  * One-finger drag on the terminal area: vertical scrolls lines with inertia,
  * horizontal pans an over-wide pty. A tap (no travel) is left to the click
  * handler, which focuses the terminal. A long press selects the word under the
- * finger, and dragging then extends the selection.
+ * finger, and dragging then extends the selection. A mouse wheel or trackpad
+ * scrolls the same way.
  */
 export function useTouchScroll(areaRef: RefObject<HTMLElement | null>, termRef: RefObject<Terminal | null>, ptyId: string) {
   useEffect(() => {
@@ -91,6 +92,28 @@ export function useTouchScroll(areaRef: RefObject<HTMLElement | null>, termRef: 
       if (whole) {
         rest -= whole * h;
         scrollTerminal(term, ptyId, -whole); // finger down = older output
+      }
+    };
+
+    // Mouse wheel and trackpad (Android desktop windows): same scrolling as a drag.
+    // The area keeps xterm's own viewport from scrolling, so it is handled here.
+    let wheelRest = 0; // sub-line remainder in px
+    const wheel = (e: WheelEvent) => {
+      const term = termRef.current;
+      if (!term) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        area.scrollLeft += e.deltaX;
+        return;
+      }
+      const h = cellH();
+      const unit = e.deltaMode === 1 ? h : e.deltaMode === 2 ? h * term.rows : 1;
+      wheelRest += e.deltaY * unit;
+      const whole = Math.trunc(wheelRest / h);
+      if (whole) {
+        wheelRest -= whole * h;
+        scrollTerminal(term, ptyId, whole); // wheel down = newer output
       }
     };
 
@@ -187,6 +210,7 @@ export function useTouchScroll(areaRef: RefObject<HTMLElement | null>, termRef: 
     area.addEventListener("touchmove", move, { passive: false });
     area.addEventListener("touchend", end, { passive: true });
     area.addEventListener("touchcancel", end, { passive: true });
+    area.addEventListener("wheel", wheel, { passive: false, capture: true });
     const onClick = (e: MouseEvent) => {
       if (!suppressClick) return;
       suppressClick = false;
@@ -205,6 +229,7 @@ export function useTouchScroll(areaRef: RefObject<HTMLElement | null>, termRef: 
       area.removeEventListener("touchmove", move);
       area.removeEventListener("touchend", end);
       area.removeEventListener("touchcancel", end);
+      area.removeEventListener("wheel", wheel, { capture: true });
     };
   }, [areaRef, termRef, ptyId]);
 }
