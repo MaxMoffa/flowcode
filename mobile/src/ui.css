@@ -1606,7 +1606,8 @@ button.set-row.danger {
   padding: 10px 8px 10px 14px;
   border-radius: 14px;
   border: 1px solid var(--accent-border);
-  background: var(--accent-bg);
+  /* The tint alone is see-through: the page under it made the text unreadable. */
+  background: linear-gradient(var(--accent-bg), var(--accent-bg)), var(--surface);
   color: var(--fg);
   box-shadow: var(--shadow);
   font-size: 13px;
