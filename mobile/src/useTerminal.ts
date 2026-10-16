@@ -78,6 +78,7 @@ export function useTerminal(opts: {
   const [ended, setEnded] = useState(false);
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+  const [hasSelection, setHasSelection] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current!;
@@ -139,6 +140,7 @@ export function useTerminal(opts: {
       setAtBottom(b.type === "alternate" || b.viewportY >= b.baseY);
     };
     const scroll = term.onScroll(updateBottom);
+    const selection = term.onSelectionChange(() => setHasSelection(term.hasSelection()));
 
     // Cell size comes from the rendered 80x24 screen rather than from font
     // metrics: that is exactly what xterm will lay out, whatever font the
@@ -223,6 +225,7 @@ export function useTerminal(opts: {
       off();
       data.dispose();
       scroll.dispose();
+      selection.dispose();
       userEvents.forEach((n) => ta?.removeEventListener(n, markUser, true));
       ime?.detach();
       imeResetRef.current = () => {};
@@ -263,5 +266,5 @@ export function useTerminal(opts: {
 
   const resetIme = useCallback(() => imeResetRef.current(), []);
 
-  return { areaRef, hostRef, termRef, ended, dims, atBottom, resetIme };
+  return { areaRef, hostRef, termRef, ended, dims, atBottom, hasSelection, resetIme };
 }

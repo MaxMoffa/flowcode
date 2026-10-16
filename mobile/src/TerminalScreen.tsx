@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { t } from "./i18n";
-import { AgentsIcon, BackIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
+import { AgentsIcon, BackIcon, CopyIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
 import { interrupt, send, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
 import { TermActions } from "./TermActions";
 import { TermAgents } from "./TermAgents";
@@ -60,7 +60,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
     },
     [settings?.confirmLinkOpen],
   );
-  const { areaRef, hostRef, termRef, ended, atBottom, resetIme } = useTerminal({
+  const { areaRef, hostRef, termRef, ended, atBottom, hasSelection, resetIme } = useTerminal({
     ptyId,
     status,
     fontSize: localFont ?? settings?.terminalFontSize,
@@ -118,6 +118,10 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
   /** A tap that lands on a link opens it instead of raising the keyboard. */
   function onAreaTap(e: React.MouseEvent) {
     const term = termRef.current;
+    if (term?.hasSelection()) {
+      term.clearSelection();
+      return;
+    }
     const screen = areaRef.current?.querySelector<HTMLElement>(".xterm-screen");
     if (term && screen) {
       // The rect already reflects an over-wide pty panned by the area's scrollLeft.
@@ -126,7 +130,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
       const row = Math.floor(((e.clientY - r.top) / r.height) * term.rows);
       if (col >= 0 && col < term.cols && row >= 0 && row < term.rows) {
         const buf = term.buffer.active;
-        const url = linkAtCell(buf, buf.viewportY + row, col);
+        const url = linkAtCell(buf, buf.viewportY + row, col, term.cols);
         if (url) {
           tapFeedback();
           onLink(url);
@@ -272,6 +276,23 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
             {ended && <div className="ended">{t("ended")}</div>}
             <div ref={hostRef} className="term-host" />
           </div>
+          {hasSelection && (
+            <button
+              type="button"
+              className="term-copy"
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation();
+                const term = termRef.current;
+                const text = term?.getSelection() ?? "";
+                term?.clearSelection();
+                if (text) void navigator.clipboard.writeText(text).then(tapFeedback, () => {});
+              }}
+            >
+              <CopyIcon />
+              {t("copy")}
+            </button>
+          )}
           {!atBottom && (
             <button
               type="button"
