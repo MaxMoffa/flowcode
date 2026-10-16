@@ -1,7 +1,9 @@
 /* Terminal page: header, terminal card, key bar, file drawer, actions sheet.
    Colors come from the theme variables on <html>; the fallbacks keep it
    readable until they are set. */
-.term-screen {
+/* .screen (ui.css) sets padding with a 0 bottom, and terminal.css can land
+   before ui.css in the bundle (WideShell imports it eagerly): out-rank it. */
+.screen.term-screen {
   padding-bottom: var(--safe-b);
 }
 
