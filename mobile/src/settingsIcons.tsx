@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Svg } from "./icons";
 
-export type SectionId = "appearance" | "terminal" | "agents" | "resume" | "profiles" | "language" | "security" | "background" | "phone";
+export type SectionId = "appearance" | "terminal" | "agents" | "resume" | "profiles" | "language" | "security" | "background" | "updates" | "phone";
 
 const svg = (children: ReactNode) => <Svg size={18}>{children}</Svg>;
 
@@ -69,6 +69,10 @@ export const ICONS: Record<SectionId, { tone: string; icon: ReactNode }> = {
         <circle cx="12" cy="19" r="1" fill="currentColor" />
       </>,
     ),
+  },
+  updates: {
+    tone: "green",
+    icon: svg(<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14" />),
   },
   phone: {
     tone: "plain",

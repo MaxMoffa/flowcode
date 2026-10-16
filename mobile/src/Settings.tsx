@@ -22,6 +22,8 @@ import { BackgroundPage } from "./BackgroundSettings";
 import { Diagnostics } from "./SettingsDiagnostics";
 import { Group, MessageField, PaletteGrid, Segmented, Slider, Stepper, Toggle } from "./SettingsControls";
 import { ICONS, type SectionId } from "./settingsIcons";
+import { UpdatesPage } from "./UpdatesUi";
+import { updates } from "./updates";
 
 function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: string; summary: string; onOpen: () => void }) {
   const { tone, icon } = ICONS[id];
@@ -41,7 +43,7 @@ function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: stri
 
 const onOff = (v: boolean) => (v ? t("stateOn") : t("stateOff"));
 
-function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, localFont: number | null, bg: BackgroundSettings, hostName?: string): Record<SectionId, string> {
+function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, lock: ReturnType<typeof useLock>, local: ReturnType<typeof phoneTheme.get>, localFont: number | null, bg: BackgroundSettings, upd: ReturnType<typeof updates.use>, hostName?: string): Record<SectionId, string> {
   const eff = s ? effectivePhone(s, local) : null;
   const paletteName = s && eff ? (s.palettes.find((p) => p.id === eff.palette)?.name ?? eff.palette) : "";
   const themeName = eff ? { auto: t("themeAuto"), light: t("themeLight"), dark: t("themeDark") }[eff.theme] : "";
@@ -56,6 +58,7 @@ function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, l
     language: langName,
     security: lock.enabled ? t("sumLockOn") : t("sumLockOff"),
     background: !bg.enabled ? t("sumBgOff") : bg.capMinutes ? t("sumBgOn", { n: bg.capMinutes / 60 }) : t("sumBgOnNever"),
+    updates: upd.info ? t("updSumAvailable", { version: upd.info.version }) : upd.currentVersion ? t("updSumCurrent", { version: upd.currentVersion }) : "",
     phone: t("sumPhone", { host: hostName ?? "..." }),
   };
 }
@@ -73,10 +76,11 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
   useEffect(() => {
     void backgroundSettings().then(setBg);
   }, []);
-  const sum = summaries(s, profiles, lock, local, localFont, bg, hostName);
+  const upd = updates.use();
+  const sum = summaries(s, profiles, lock, local, localFont, bg, upd, hostName);
   const canProfiles = useSupports("profiles");
   const mirrored: SectionId[] = s ? ["appearance", "terminal", "agents", "resume", ...(canProfiles ? (["profiles"] as SectionId[]) : []), "language"] : [];
-  const phoneOnly: SectionId[] = lock.available ? ["security", "background", "phone"] : ["background", "phone"];
+  const phoneOnly: SectionId[] = lock.available ? ["security", "background", "updates", "phone"] : ["background", "updates", "phone"];
   const titles: Record<SectionId, string> = {
     appearance: t("appearance"),
     terminal: t("terminalGroup"),
@@ -86,6 +90,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
     language: t("language"),
     security: t("secSecurity"),
     background: t("secBackground"),
+    updates: t("updTitle"),
     phone: t("thisPhone"),
   };
 
@@ -129,6 +134,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
     language: t("introShared"),
     security: t("introSecurity"),
     background: t("introBackground"),
+    updates: t("updIntro"),
     phone: t("introPhone"),
   };
 
@@ -242,6 +248,8 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
       )}
 
       {section === "background" && <BackgroundPage bg={bg} onChange={setBg} />}
+
+      {section === "updates" && <UpdatesPage />}
 
       {section === "phone" && (
         <Group title={t("thisPhone")}>

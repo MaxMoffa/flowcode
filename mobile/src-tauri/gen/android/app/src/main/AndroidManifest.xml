@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- In-app update: hands the downloaded APK to the package installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -60,8 +62,17 @@
                 android:value="Keeps the encrypted link to the user's own PC open to deliver coding-agent notifications" />
         </service>
 
-        <!-- No FileProvider on purpose: nothing in the app shares files by URI
-             (the barcode scanner and biometric plugins do not use one), and
-             the template's paths exposed all external and cache storage. -->
+        <!-- Serves the downloaded update APK to the package installer, and
+             nothing else: update_file_paths.xml lists only cache/updates/
+             (the template's paths exposed all external and cache storage). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_file_paths" />
+        </provider>
     </application>
 </manifest>

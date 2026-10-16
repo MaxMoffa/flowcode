@@ -12,6 +12,8 @@ import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
 import { TerminalsScreen } from "./Terminals";
+import { UpdateSheet } from "./UpdatesUi";
+import { autoCheckForUpdates, updates } from "./updates";
 import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
 import { WideShell } from "./WideShell";
 import { useWide } from "./wide";
@@ -132,6 +134,21 @@ function AppContent() {
     void start();
   }, []);
 
+  // Look for a newer app a few seconds after start (and when the app comes
+  // back after hours), once there is a paired, unlocked screen to show it on.
+  const update = updates.use();
+  const updatesReady = paired && lock.checked && !lock.locked;
+  useEffect(() => {
+    if (!updatesReady) return;
+    const timer = setTimeout(autoCheckForUpdates, 4000);
+    const onVisible = () => document.visibilityState === "visible" && autoCheckForUpdates();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [updatesReady]);
+
   // A phone that wasn't paired at launch has nothing to lock yet: the lock must not appear right after the first pairing.
   useEffect(() => {
     if (status === "unpaired" && lock.locked) unlock();
@@ -229,7 +246,7 @@ function AppContent() {
             </Suspense>
           )}
         </main>
-        <BottomNav page={page} onChange={setPage} />
+        <BottomNav page={page} onChange={setPage} updateAvailable={!!update.info} />
       </div>
     );
   }
@@ -241,6 +258,7 @@ function AppContent() {
       {content}
       {compat.level === "partial" && host && !compatDismissed && paired && !adding && !lock.locked && <CompatBanner host={host} hostName={hostName} />}
       {paired && !pairing && !firstConnect && !adding && <Reconnect />}
+      {update.sheetPending && updatesReady && !pairing && !adding && compat.level !== "blocked" && <UpdateSheet />}
       <Toast />
       {lock.hidden && <div className="privacy" aria-hidden="true" />}
     </>
@@ -257,7 +275,7 @@ function Toast() {
   );
 }
 
-function BottomNav({ page, onChange }: { page: Page; onChange: (p: Page) => void }) {
+function BottomNav({ page, onChange, updateAvailable }: { page: Page; onChange: (p: Page) => void; updateAvailable: boolean }) {
   const items: { id: Page; label: string; icon: ReactElement }[] = [
     { id: "agents", label: t("navAgents"), icon: <AgentsIcon /> },
     { id: "terminals", label: t("navTerminals"), icon: <TerminalIcon /> },
@@ -272,6 +290,7 @@ function BottomNav({ page, onChange }: { page: Page; onChange: (p: Page) => void
           }}>
           {it.icon}
           <span>{it.label}</span>
+          {it.id === "settings" && updateAvailable && <i className="nav-dot" aria-label={t("updSheetTitle")} />}
         </button>
       ))}
     </nav>

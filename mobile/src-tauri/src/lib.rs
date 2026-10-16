@@ -16,6 +16,7 @@ mod secure;
 mod serve;
 mod state;
 pub mod store;
+mod updater;
 
 use background::Background;
 use connlog::ConnLog;
@@ -29,7 +30,7 @@ use tokio::sync::Notify;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(secure::init()).plugin(background::init());
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(secure::init()).plugin(background::init()).plugin(updater::init());
     #[cfg(mobile)]
     {
         builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init()).plugin(tauri_plugin_deep_link::init()).plugin(tauri_plugin_haptics::init());
@@ -84,6 +85,8 @@ pub fn run() {
             commands::request_notification_permission,
             commands::take_pending_tab,
             commands::unpair,
+            updater::update_check,
+            updater::update_install,
             computers::computers,
             computers::switch_computer,
             computers::forget_computer

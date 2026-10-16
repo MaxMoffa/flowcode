@@ -434,3 +434,79 @@
   border-color: var(--accent-border);
   color: var(--accent);
 }
+
+/* ---- updates --------------------------------------------------------------- */
+
+.upd-notes {
+  max-height: 40vh;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.upd-notes > :first-child {
+  margin-top: 0;
+}
+
+.upd-notes h2,
+.upd-notes h3,
+.upd-notes h4 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+}
+
+.upd-notes p {
+  margin: 6px 0;
+}
+
+.upd-notes ul,
+.upd-notes ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.upd-notes code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  font-size: 0.9em;
+}
+
+.upd-notes a {
+  color: var(--accent);
+}
+
+.upd-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upd-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--surface-3);
+}
+
+.upd-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.upd-fill.indeterminate {
+  width: 40%;
+  animation: upd-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes upd-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}

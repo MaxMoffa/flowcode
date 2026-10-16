@@ -846,6 +846,20 @@ button.card:active {
   font-weight: 600;
 }
 
+.nav button {
+  position: relative;
+}
+
+.nav-dot {
+  position: absolute;
+  top: 8px;
+  left: calc(50% + 6px);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .nav button svg {
   width: 22px;
   height: 22px;
