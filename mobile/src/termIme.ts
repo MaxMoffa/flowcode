@@ -1,3 +1,6 @@
+/** How long the keyboard must stay quiet before the textarea is emptied. */
+const RESET_IDLE_MS = 400;
+
 /**
  * Soft-keyboard input for xterm on Android.
  *
@@ -9,8 +12,8 @@
  *
  * Here the textarea is the only source of truth: every change is diffed
  * against what was already sent (backspaces for the replaced tail, then the
- * new text), and once nothing is being composed the textarea is emptied so
- * the keyboard has no old words to re-compose. xterm never sees the
+ * new text), and once the keyboard goes quiet the textarea is emptied so
+ * it has no old words to re-compose. xterm never sees the
  * composition or input events; real key presses (Enter, Backspace on an empty
  * field, hardware keys) still go through it.
  */
@@ -19,6 +22,7 @@ export function attachImeInput(host: HTMLElement, ta: HTMLTextAreaElement, send:
   let sent = "";
   let composing = false;
   let resyncTimer = 0;
+  let resetTimer = 0;
 
   const flush = () => {
     const prev = Array.from(sent);
@@ -33,14 +37,25 @@ export function attachImeInput(host: HTMLElement, ta: HTMLTextAreaElement, send:
     ta.value = "";
     sent = "";
   };
+  // Emptying the field mid-edit races the keyboard: tapping a suggestion is
+  // several IME operations (end the composition, drop the typed part, commit
+  // the word...) arriving as separate tasks, and one landing after the reset
+  // re-sends the whole word. Until then the diff handles any edit.
   const settle = () => {
     flush();
-    if (!composing) reset();
+    window.clearTimeout(resetTimer);
+    if (composing) return;
+    resetTimer = window.setTimeout(() => {
+      if (composing) return;
+      flush();
+      reset();
+    }, RESET_IDLE_MS);
   };
 
   const onCompositionStart = (e: Event) => {
     if (e.target !== ta) return;
     e.stopPropagation();
+    window.clearTimeout(resetTimer);
     composing = true;
   };
   const onCompositionUpdate = (e: Event) => {
@@ -80,6 +95,7 @@ export function attachImeInput(host: HTMLElement, ta: HTMLTextAreaElement, send:
   const onFocusChange = (e: Event) => {
     if (e.target !== ta) return;
     composing = false;
+    window.clearTimeout(resetTimer);
     reset();
   };
 
@@ -96,6 +112,7 @@ export function attachImeInput(host: HTMLElement, ta: HTMLTextAreaElement, send:
   listeners.forEach(([n, fn]) => host.addEventListener(n, fn as EventListener, true));
   return () => {
     window.clearTimeout(resyncTimer);
+    window.clearTimeout(resetTimer);
     listeners.forEach(([n, fn]) => host.removeEventListener(n, fn as EventListener, true));
   };
 }
