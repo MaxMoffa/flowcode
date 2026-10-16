@@ -24,6 +24,8 @@ const val EXTRA_TAB_ID = "tabId"
 const val EXTRA_TITLE = "title"
 const val EXTRA_TEXT = "text"
 const val EXTRA_CAP_MINUTES = "capMinutes"
+/** The ongoing notification's "turn off for now" button. */
+private const val ACTION_PAUSE = "com.maxmoffa.flowcode.mobile.PAUSE_BACKGROUND"
 
 /** Creates the notification channels (idempotent; they only exist on API 26+). */
 fun ensureChannels(context: Context) {
@@ -49,7 +51,9 @@ fun openAppIntent(context: Context, requestCode: Int, tabId: String?): PendingIn
 /**
  * Keeps the process, and so the iroh link to the PC, alive while the app is in
  * the background. Started by `BackgroundPlugin` when the app is paused with
- * the mode armed, stopped when the app comes back or after the cap.
+ * the mode armed, stopped when the app comes back, after the cap, or from the
+ * notification's button. The mode stays armed, so leaving the app again
+ * starts it again.
  */
 class ConnectionService : Service() {
     private val handler = Handler(Looper.getMainLooper())
@@ -57,12 +61,23 @@ class ConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_PAUSE) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         ensureChannels(this)
+        val pause = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, ConnectionService::class.java).setAction(ACTION_PAUSE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_CONNECTION)
             .setSmallIcon(R.mipmap.ic_launcher_monochrome)
             .setContentTitle(intent?.getStringExtra(EXTRA_TITLE) ?: getString(R.string.app_name))
             .setContentText(intent?.getStringExtra(EXTRA_TEXT) ?: "")
             .setContentIntent(openAppIntent(this, 0, null))
+            .addAction(0, getString(R.string.background_pause), pause)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

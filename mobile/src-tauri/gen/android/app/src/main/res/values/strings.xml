@@ -3,4 +3,5 @@
     <string name="main_activity_title">"Flowcode Mobile"</string>
     <string name="channel_connection">Connection to your PC</string>
     <string name="channel_agents">Agent notifications</string>
+    <string name="background_pause">Turn off for now</string>
 </resources>
