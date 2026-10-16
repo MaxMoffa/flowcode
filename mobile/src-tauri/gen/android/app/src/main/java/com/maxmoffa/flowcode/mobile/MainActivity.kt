@@ -1,12 +1,16 @@
 package com.maxmoffa.flowcode.mobile
 
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : TauriActivity() {
   // System bar insets as "top,bottom" in CSS px. Android's WebView doesn't
@@ -20,6 +24,30 @@ class MainActivity : TauriActivity() {
     // The screen shows live terminals: keep it out of screenshots, screen
     // recording and the Recents thumbnail.
     window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+    updateImmersiveRequest()
+  }
+
+  override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
+    super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+    updateImmersiveRequest()
+  }
+
+  // Android's desktop windowing offers full screen ("Immersive") in a window's
+  // header menu only to apps that ask to hide the system bars. A desktop window
+  // keeps the bars anyway, so ask only there: the phone keeps its status bar.
+  private fun updateImmersiveRequest() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return
+    val bars = WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars()
+    val controller = WindowCompat.getInsetsController(window, window.decorView)
+    val display = windowManager.maximumWindowMetrics.bounds
+    val density = resources.displayMetrics.density
+    val largeScreen = minOf(display.width(), display.height()) / density >= 600
+    if (isInMultiWindowMode && largeScreen) {
+      controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+      controller.hide(bars)
+    } else {
+      controller.show(bars)
+    }
   }
 
   override fun onWebViewCreate(webView: WebView) {
