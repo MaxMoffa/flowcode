@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="https://maxmoffa.github.io/flowcode/">Website</a> ·
   <a href="https://github.com/MaxMoffa/flowcode/releases/latest">Download the latest version</a> ·
   <a href="PLUGINS.md">Create a plugin</a> ·
   <a href="LICENSE">Apache 2.0 License</a>
