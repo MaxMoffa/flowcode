@@ -99,8 +99,7 @@ export function attachImeInput(
     if (e.target !== ta) return;
     composing = false;
     window.clearTimeout(flushTimer);
-    ta.value = "";
-    sent = "";
+    clear();
   };
 
   const listeners: [string, (e: never) => void][] = [
