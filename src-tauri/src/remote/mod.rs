@@ -687,20 +687,20 @@ impl Shared {
         let sizes = app.state::<PtyState>().sizes();
         let sessions = crate::agents::collect_agent_sessions(app).await.unwrap_or_default();
         let contexts = self.contexts_for(&sessions).await;
-        let agents: HashMap<String, (String, Option<String>)> =
-            sessions.into_iter().map(|s| (s.pty_id, (s.cli, s.status))).collect();
+        let agents: HashMap<String, (String, Option<String>, Option<String>)> =
+            sessions.into_iter().map(|s| (s.pty_id, (s.cli, s.status, s.profile))).collect();
         app.state::<crate::windows::WindowTabs>()
             .list()
             .into_iter()
             .filter_map(|(window, tab)| {
                 let pty_id = tab.pty_id?;
                 let (cols, rows) = *sizes.get(&pty_id)?;
-                let (cli, status) = match agents.get(&pty_id) {
-                    Some((cli, status)) => (Some(cli.clone()), status.clone()),
-                    None => (None, None),
+                let (cli, status, profile) = match agents.get(&pty_id) {
+                    Some((cli, status, profile)) => (Some(cli.clone()), status.clone(), profile.clone()),
+                    None => (None, None, None),
                 };
                 let context = contexts.get(&pty_id).cloned().flatten();
-                Some(Tab { pty_id, tab_id: tab.tab_id, window, label: tab.label, cwd: tab.cwd, cli, status, cols, rows, context })
+                Some(Tab { pty_id, tab_id: tab.tab_id, window, label: tab.label, cwd: tab.cwd, cli, profile, status, cols, rows, context })
             })
             .collect()
     }

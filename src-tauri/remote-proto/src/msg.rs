@@ -154,6 +154,9 @@ pub struct Tab {
     /// Agent running in the tab (`claude`, `codex`, `vibe`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli: Option<String>,
+    /// Account profile the agent runs under (absent: the default one, or no agent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
     /// `busy` / `idle` / `waiting`, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,

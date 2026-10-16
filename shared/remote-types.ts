@@ -23,6 +23,8 @@ export interface Tab {
   rows: number;
   /** Agent running in the tab (`claude`, `codex`, `vibe`, `gemini`). */
   cli?: string;
+  /** Account profile the agent runs under; absent for the default one (and from desktops before 0.11.3). */
+  profile?: string;
   status?: AgentStatus;
   context?: TabContext;
 }

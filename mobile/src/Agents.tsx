@@ -59,7 +59,11 @@ interface ProfileGroup {
 
 const AGENT_ORDER = ["claude-code", "codex-cli", "mistral-vibe", "gemini-cli"];
 
-function groupByProfile(usage: UsageItem[]): ProfileGroup[] {
+/** Usage plugin of each agent CLI (`Tab.cli`). */
+const PLUGIN_OF: Record<string, string> = { claude: "claude-code", codex: "codex-cli", vibe: "mistral-vibe", gemini: "gemini-cli" };
+
+/** `focus`: the agent of the terminal being viewed - its profile's group leads, and its card leads every group. */
+function groupByProfile(usage: UsageItem[], focus?: { plugin: string; profile: string }): ProfileGroup[] {
   const groups = new Map<string, ProfileGroup>();
   for (const u of usage) {
     const key = u.profile ?? "";
@@ -72,12 +76,14 @@ function groupByProfile(usage: UsageItem[]): ProfileGroup[] {
     g.items.push(u);
   }
   const order = (id: string) => {
+    if (id === focus?.plugin) return -1;
     const i = AGENT_ORDER.indexOf(id);
     return i < 0 ? AGENT_ORDER.length : i;
   };
   for (const g of groups.values()) g.items.sort((x, y) => order(x.pluginId) - order(y.pluginId));
-  // The default profile leads, the named ones follow in arrival order.
-  return [...groups.values()].sort((x, y) => (x.key === "" ? -1 : 0) - (y.key === "" ? -1 : 0));
+  // The viewed agent's profile leads, then the default one, then the named ones in arrival order.
+  const rank = (g: ProfileGroup) => (focus && g.key === focus.profile && g.items.some((u) => u.pluginId === focus.plugin) ? -2 : g.key === "" ? -1 : 0);
+  return [...groups.values()].sort((x, y) => rank(x) - rank(y));
 }
 
 /** One profile's cards in a snap-scrolling row, with pager dots synced to the scroll position. */
@@ -251,7 +257,10 @@ export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact, a
     const agents = (tabs ?? []).filter((x) => x.cli);
     return { waiting: agents.filter((x) => x.status === "waiting"), others: agents.filter((x) => x.status !== "waiting") };
   }, [tabs]);
-  const groups = useMemo(() => groupByProfile(usage), [usage]);
+  const active = activePty ? tabs?.find((x) => x.ptyId === activePty) : undefined;
+  const focusPlugin = active?.cli ? PLUGIN_OF[active.cli] : undefined;
+  const focusProfile = active?.profile ?? "";
+  const groups = useMemo(() => groupByProfile(usage, focusPlugin ? { plugin: focusPlugin, profile: focusProfile } : undefined), [usage, focusPlugin, focusProfile]);
   if (compact) {
     return (
       <>
