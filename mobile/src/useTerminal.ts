@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { onMessage, send, type ConnStatus } from "./remote";
 import { attachImeInput } from "./termIme";
@@ -73,6 +73,8 @@ export function useTerminal(opts: {
   onInputRef.current = opts.onInput;
   const onLinkRef = useRef(opts.onLink);
   onLinkRef.current = opts.onLink;
+  /** Ends the soft keyboard's line: text that bypasses it (key bar, inserted paths) must not be diffed against. */
+  const imeResetRef = useRef<() => void>(() => {});
   const [ended, setEnded] = useState(false);
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -106,7 +108,8 @@ export function useTerminal(opts: {
     ta?.setAttribute("autocomplete", "off");
     ta?.setAttribute("spellcheck", "false");
     ta?.setAttribute("enterkeyhint", "send");
-    const detachIme = ta ? attachImeInput(host, ta, (d) => onInputRef.current(d)) : () => {};
+    const ime = ta ? attachImeInput(host, ta, (d) => onInputRef.current(d)) : null;
+    imeResetRef.current = () => ime?.reset();
 
     // While remote output is being parsed xterm may answer terminal queries
     // (device attributes, cursor position...). The desktop's own terminal
@@ -221,7 +224,8 @@ export function useTerminal(opts: {
       data.dispose();
       scroll.dispose();
       userEvents.forEach((n) => ta?.removeEventListener(n, markUser, true));
-      detachIme();
+      ime?.detach();
+      imeResetRef.current = () => {};
       window.clearTimeout(resizeTimer);
       cancelAnimationFrame(frame);
       ro.disconnect();
@@ -257,5 +261,7 @@ export function useTerminal(opts: {
     else openedRef.current = false;
   }, [status]);
 
-  return { areaRef, hostRef, termRef, ended, dims, atBottom };
+  const resetIme = useCallback(() => imeResetRef.current(), []);
+
+  return { areaRef, hostRef, termRef, ended, dims, atBottom, resetIme };
 }

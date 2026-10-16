@@ -60,7 +60,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
     },
     [settings?.confirmLinkOpen],
   );
-  const { areaRef, hostRef, termRef, ended, atBottom } = useTerminal({
+  const { areaRef, hostRef, termRef, ended, atBottom, resetIme } = useTerminal({
     ptyId,
     status,
     fontSize: localFont ?? settings?.terminalFontSize,
@@ -70,6 +70,15 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
   });
   useTouchScroll(areaRef, termRef, ptyId);
 
+  /** A symbol key from the key bar: the keyboard's line ends there, so later corrections can't reach past it. */
+  const onBarText = useCallback(
+    (data: string) => {
+      resetIme();
+      onInput(data);
+    },
+    [resetIme, onInput],
+  );
+
   // The page never scrolls; the keyboard state comes from the viewport, so Back hiding the IME is noticed.
   const kbOpen = useTerminalViewport(
     screenRef,
@@ -78,12 +87,14 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
   useKeybarHeight(screenRef, barRef);
 
   const sendKey = (key: NamedKey) => {
+    resetIme();
     const appCursor = termRef.current?.modes.applicationCursorKeysMode ?? false;
     send({ t: "input", ptyId, data: encodeKey(key, consume(), appCursor) });
   };
 
   /** A cursor-pad step: modifiers were snapshotted at drag start and stay armed for the whole drag. */
   const padKey = (key: NamedKey, a: Active) => {
+    resetIme();
     const appCursor = termRef.current?.modes.applicationCursorKeysMode ?? false;
     send({ t: "input", ptyId, data: encodeKey(key, a, appCursor) });
   };
@@ -96,11 +107,12 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
   /** Types text as-is (no modifiers, never Enter), then hands the keyboard back to the terminal. */
   const typeText = useCallback(
     (text: string) => {
+      resetIme();
       send({ t: "input", ptyId, data: text });
       setFilesOpen(false);
       focusTerminal(termRef.current);
     },
-    [ptyId, termRef],
+    [ptyId, termRef, resetIme],
   );
 
   /** A tap that lands on a link opens it instead of raising the keyboard. */
@@ -187,7 +199,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
       onTap={tap}
       onLock={lock}
       onKey={sendKey}
-      onText={onInput}
+      onText={onBarText}
       peek={peek}
       onPadKey={padKey}
       onPadDone={consume}
