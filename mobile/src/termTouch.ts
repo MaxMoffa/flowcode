@@ -78,11 +78,14 @@ export function useTouchScroll(areaRef: RefObject<HTMLElement | null>, termRef: 
       term.select(s % term.cols, Math.floor(s / term.cols), e - s + 1);
     };
 
-    const cellH = () => {
+    const measureCellH = () => {
       const term = termRef.current;
       const screen = area.querySelector<HTMLElement>(".xterm-screen");
       return term && screen && term.rows > 0 && screen.offsetHeight > 0 ? screen.offsetHeight / term.rows : 18;
     };
+    // Measured once per gesture (drag and the inertia that follows), not on every frame.
+    let gestureH = 0;
+    const cellH = () => gestureH || (gestureH = measureCellH());
     const dragBy = (dy: number) => {
       const term = termRef.current;
       if (!term) return;
@@ -107,7 +110,7 @@ export function useTouchScroll(areaRef: RefObject<HTMLElement | null>, termRef: 
         area.scrollLeft += e.deltaX;
         return;
       }
-      const h = cellH();
+      const h = measureCellH();
       const unit = e.deltaMode === 1 ? h : e.deltaMode === 2 ? h * term.rows : 1;
       wheelRest += e.deltaY * unit;
       const whole = Math.trunc(wheelRest / h);
@@ -119,7 +122,11 @@ export function useTouchScroll(areaRef: RefObject<HTMLElement | null>, termRef: 
 
     const start = (e: TouchEvent) => {
       cancelAnimationFrame(id);
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1) {
+        window.clearTimeout(pressTimer);
+        return;
+      }
+      gestureH = 0;
       const p = e.touches[0];
       touching = true;
       axis = null;

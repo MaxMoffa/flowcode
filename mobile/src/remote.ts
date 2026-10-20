@@ -12,7 +12,7 @@ import { normalizeLoggedIn, normalizeProfiles, normalizeSettings } from "./setti
 import type { Action, ClientMsg, RemoteCap, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
 
 // The wire types live in shared/ (also used by the desktop); screens keep importing them from here.
-export type { Action, AgentStatus, ClientMsg, LsEntry, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem, UsageMetric } from "../../shared/remote-types";
+export type { Action, LsEntry, MirroredSettings, ProfileCli, ProfileInfo, Tab, UsageItem, UsageMetric } from "../../shared/remote-types";
 
 export type ConnStatus = "loading" | "unpaired" | "connecting" | "online" | "offline";
 
@@ -99,8 +99,7 @@ const followLanguage = () => setLanguage(store.get().settings?.resolvedLanguage)
 followLanguage();
 store.subscribe(followLanguage);
 
-export const useRemote = store.use;
-/** Like `useRemote`, but only re-renders when the selected slice changes. */
+/** Subscribes to a slice of the store; re-renders only when the selected value changes. */
 export const useRemoteSelector = store.useSelector;
 
 /** Whether the connected desktop supports a feature (true while it is not known yet). */

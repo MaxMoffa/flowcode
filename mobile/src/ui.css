@@ -133,12 +133,6 @@ h1 {
   padding: 12px 4px 2px;
 }
 
-.eyebrow {
-  color: var(--muted);
-  font-size: 13px;
-  margin-bottom: 2px;
-}
-
 .stack {
   display: flex;
   flex-direction: column;
@@ -181,36 +175,6 @@ button.card {
 
 button.card:active {
   background: var(--surface-2);
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 56px;
-  padding: 10px 14px;
-}
-
-
-.row-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.row-sub {
-  font-size: 12px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row > svg {
-  color: var(--muted);
-  flex: none;
 }
 
 .run {
@@ -258,41 +222,7 @@ button.card:active {
 }
 
 
-/* ---- status pills, toast ---------------------------------------- */
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  background: var(--surface-3);
-  color: var(--muted);
-}
-
-.pill i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.pill.is-waiting {
-  background: var(--wait-bg);
-  color: var(--wait);
-}
-
-.pill.is-busy {
-  background: var(--busy-bg);
-  color: var(--busy);
-}
-
-.pill.is-busy i {
-  animation: pulse 1.4s ease-in-out infinite;
-}
+/* ---- toast ---------------------------------------- */
 
 @keyframes pulse {
   50% {
@@ -1483,10 +1413,9 @@ button.set-row.danger {
   bottom: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   max-height: 85%;
-  overflow-y: auto;
-  padding: 10px 16px calc(20px + var(--safe-b));
+  padding: 10px 16px calc(16px + var(--safe-b));
   border-radius: 24px 24px 0 0;
   border-top: 1px solid var(--border-strong);
   background: var(--glass-strong, #1b140e);
@@ -1507,6 +1436,20 @@ button.set-row.danger {
   background: var(--surface-3);
 }
 
+/* Only the fields scroll: the "Apri" button below stays in view. */
+.nts-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.nts-go {
+  flex: none;
+}
+
 .nts-field {
   display: flex;
   flex-direction: column;
@@ -1521,59 +1464,132 @@ button.set-row.danger {
   text-transform: uppercase;
 }
 
-.nts-folders {
+.nts-recents {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 200px;
-  overflow-y: auto;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
-.nts-folder,
-.nts-choice {
+.nts-chip,
+.nts-sel {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 11px 12px;
-  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--fg);
-  text-align: left;
   font: 500 13.5px var(--font);
 }
 
-.nts-folder span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.nts-chip {
+  flex: none;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
   white-space: nowrap;
 }
 
-.nts-folder svg,
-.nts-choice svg {
-  flex: none;
-  color: var(--muted);
+.nts-sel {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border-radius: 12px;
+  text-align: left;
 }
 
-.nts-folder.on,
-.nts-choice.on {
+.nts-sel.open {
   border-color: var(--accent-border);
   background: var(--accent-bg);
 }
 
-.nts-choices {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+.nts-chip svg,
+.nts-sel svg {
+  flex: none;
+  color: var(--muted);
 }
 
-.nts-profile-name {
+.nts-sel-value {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ChevronIcon points right; the row opens downward. */
+.nts-sel-chev {
+  display: flex;
+  flex: none;
+  transform: rotate(90deg);
+}
+
+/* Context menu under (or above) a select row; portalled to <body>, hence its own tokens. */
+.nts-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.nts-menu {
+  position: fixed;
+  z-index: 81;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  overflow-y: auto;
+  border-radius: 14px;
+  border: 1px solid var(--border-strong, rgba(232, 184, 128, 0.14));
+  background: var(--glass-strong, #1b140e);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+
+.nts-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg);
+  font: 500 14px var(--font);
+  text-align: left;
+}
+
+.nts-menu button:active {
+  background: var(--surface-3);
+}
+
+.nts-menu button.on {
+  color: var(--accent);
+}
+
+.nts-menu svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.nts-opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nts-menu-hint {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
 /* ---- Older desktop: blocking screen and banner ------------------------------ */

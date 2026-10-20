@@ -1,7 +1,7 @@
 // Pure helpers for putting paths into a remote shell. Kept free of React so
 // the quoting rules can be read (and tested) on their own.
 
-export type Dialect = "posix" | "powershell";
+type Dialect = "posix" | "powershell";
 
 /** A tab whose cwd has a drive letter or backslashes runs a Windows shell (PowerShell). */
 export function dialectFor(cwd: string): Dialect {

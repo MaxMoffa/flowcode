@@ -206,14 +206,26 @@ export function useTerminal(opts: {
     };
     document.addEventListener("visibilitychange", onVisibility);
 
+    // A snapshot replaces the screen: reset only once writes queued before it have been applied,
+    // and hold the output that arrives meanwhile so it still lands after the snapshot.
+    let held: string[] | null = null;
+    let snapGen = 0;
     const off = onMessage((m) => {
       if (m.t === "snapshot" && m.ptyId === ptyId) {
-        term.reset();
-        term.resize(m.cols, m.rows);
-        write(m.data);
-        setEnded(false);
+        const gen = ++snapGen;
+        const held0: string[] = (held = []);
+        term.write("", () => {
+          if (disposed || gen !== snapGen) return;
+          term.reset();
+          term.resize(m.cols, m.rows);
+          write(m.data);
+          held = null;
+          held0.forEach(write);
+          setEnded(false);
+        });
       } else if (m.t === "output" && m.ptyId === ptyId) {
-        write(m.data);
+        if (held) held.push(m.data);
+        else write(m.data);
       } else if (m.t === "exit" && m.ptyId === ptyId) {
         setEnded(true);
       }

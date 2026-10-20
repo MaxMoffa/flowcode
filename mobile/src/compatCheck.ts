@@ -4,7 +4,7 @@
 import type { RemoteCap } from "../../shared/remote-types";
 
 /** The oldest desktop protocol this phone still works with; below it the app is blocked. */
-export const MIN_DESKTOP_PROTO = 1;
+const MIN_DESKTOP_PROTO = 1;
 
 /** What desktops that send no `caps` (0.9 / 0.10) already had: profile create/update/delete/login for non-default profiles, and the background mode. */
 export const LEGACY_CAPS: string[] = ["profiles", "profileLogin", "background"];
@@ -12,6 +12,7 @@ export const LEGACY_CAPS: string[] = ["profiles", "profileLogin", "background"];
 /** Every optional feature the phone knows, and the i18n key naming it for the user. */
 export const CAP_LABELS = {
   rename: "capRename",
+  closeTab: "capCloseTab",
   profiles: "capProfiles",
   profileLogin: "capProfileAgents",
   profileAgents: "capProfileAgents",
@@ -28,9 +29,9 @@ export interface HostInfo {
   legacy: boolean;
 }
 
-export type CompatLevel = "ok" | "partial" | "blocked";
+type CompatLevel = "ok" | "partial" | "blocked";
 
-export interface Compat {
+interface Compat {
   level: CompatLevel;
   /** Known features this desktop lacks, in `CAP_LABELS` order. */
   missing: RemoteCap[];

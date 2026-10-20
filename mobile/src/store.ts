@@ -27,7 +27,7 @@ export const safeStorage = {
   },
 };
 
-export interface Store<S> {
+interface Store<S> {
   get(): S;
   /** Merges `patch` into the state and notifies subscribers. */
   set(patch: Partial<S>): void;

@@ -13,6 +13,7 @@ import { TermMenu } from "./TermMenu";
 import { encodeKey, encodeText, useModifiers, type Active, type NamedKey } from "./termModifiers";
 import { tapFeedback } from "./haptics";
 import { phoneFontSize } from "./termFont";
+import { phoneTheme } from "./theme";
 import { linkAtCell } from "./termLinks";
 import { useTouchScroll } from "./termTouch";
 import { useKeybarHeight, useTerminalViewport } from "./termViewport";
@@ -35,13 +36,18 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const canRename = useSupports("rename");
+  const canClose = useSupports("closeTab");
   const [draft, setDraft] = useState("");
   const cancelRename = useRef(false);
   const lastLink = useRef({ url: "", at: 0 });
   const { ptyId } = tab;
   const settings = useRemoteSelector((s) => s.settings);
-  const tabs = useRemoteSelector((s) => s.tabs);
-  const othersWaiting = (tabs ?? []).filter((x) => x.cli && x.status === "waiting" && x.ptyId !== ptyId).length;
+  // Counts, not the tabs array: a tabs message that changes neither re-renders nothing here.
+  const othersWaiting = useRemoteSelector((s) => (s.tabs ?? []).filter((x) => x.cli && x.status === "waiting" && x.ptyId !== ptyId).length);
+  const lastInWindow = useRemoteSelector((s) => (s.tabs ?? []).filter((x) => x.window === tab.window).length <= 1);
+  const local = phoneTheme.use();
+  // Only what the colors derive from: the terminal re-reads its theme when this changes, not on every settings echo.
+  const themeKey = JSON.stringify([settings?.resolvedTheme, settings?.theme, settings?.palette, settings?.colors, settings?.terminalColors, local.enabled, local.theme, local.palette]);
   const localFont = phoneFontSize.use().size;
   const actions = useRemoteSelector((s) => s.actions);
   const { mods, tap, lock, consume, peek } = useModifiers();
@@ -64,7 +70,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
     ptyId,
     status,
     fontSize: localFont ?? settings?.terminalFontSize,
-    themeKey: settings,
+    themeKey,
     onInput,
     onLink,
   });
@@ -161,6 +167,14 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
     if (label && label !== tab.label) send({ t: "rename", ptyId, label });
   }
 
+  /** Closing the window's only tab would close the window, which the desktop refuses from a phone. */
+  function closeThisTab() {
+    setMenuOpen(false);
+    if (!window.confirm(t("closeTerminalConfirm", { label: tab.label }))) return;
+    send({ t: "closetab", ptyId });
+    onBack();
+  }
+
   const state = tab.status === "waiting" ? "waiting" : tab.status === "busy" ? "busy" : "idle";
   const stateText = state === "waiting" ? t("termStateWaiting") : state === "busy" ? t("termStateBusy") : t("termStateIdle");
   const cliName = tab.cli ? tab.cli[0].toUpperCase() + tab.cli.slice(1) : "";
@@ -191,6 +205,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
           setMenuOpen(false);
           interrupt(ptyId);
         }}
+        onCloseTab={canClose && !lastInWindow ? closeThisTab : undefined}
       />
     </>
   );

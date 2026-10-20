@@ -39,6 +39,22 @@ class MainActivity : TauriActivity() {
     updateImmersiveRequest()
   }
 
+  // The request set in onCreate can be lost or reset by the WebView: renew it.
+  override fun onResume() {
+    super.onResume()
+    updateImmersiveRequest()
+  }
+
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    if (hasFocus) updateImmersiveRequest()
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    updateImmersiveRequest()
+  }
+
   // Android's desktop windowing offers full screen ("Immersive") in a window's
   // header menu only to apps that ask to hide the system bars. A desktop window
   // keeps the bars anyway, so ask only there: the phone keeps its status bar.

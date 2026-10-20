@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import "./terminal.css";
 import "./wide.css";
 import { AgentsScreen } from "./Agents";
@@ -10,7 +10,9 @@ import { NewTerminalSheet } from "./NewTerminalSheet";
 import { interrupt, send, useRemoteSelector, useSupports, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
 import { BusyArc, useOpenNewTab } from "./Terminals";
+import { useUiZoom } from "./uiScale";
 import { useSheetDrag } from "./useSheetDrag";
+import { useSideWidth } from "./useSideWidth";
 import { useDocked } from "./wide";
 import { WideFileView } from "./WideFileView";
 import { WideFiles } from "./WideFiles";
@@ -18,6 +20,7 @@ import { WideMenu } from "./WideMenu";
 
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
 const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
+const noop = () => {};
 
 /** A non-terminal tab: the settings page or a read-only file of a terminal's folder. */
 type Doc = { id: "settings"; kind: "settings" } | { id: string; kind: "file"; ptyId: string; path: string };
@@ -35,6 +38,7 @@ interface Props {
 /** The desktop-like layout of large screens: a header (panel toggles, tab strip, quick actions), then cards: files, one terminal, agents. */
 export function WideShell({ hostName, tabs, settings, status, activePty, onSelectPty, onAddComputer }: Props) {
   const docked = useDocked();
+  const zoom = useUiZoom();
   const [agentsOpen, setAgentsOpen] = useState(docked);
   const [filesOpen, setFilesOpen] = useState(docked);
   /** The open non-terminal tabs, in opening order. */
@@ -42,6 +46,13 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   /** The id of the shown doc; null = the terminal is shown. */
   const [doc, setDoc] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
+  /** The "+" the new-terminal popover hangs from. */
+  const [sheetAnchor, setSheetAnchor] = useState<DOMRect | null>(null);
+  const plusBtn = useRef<HTMLButtonElement>(null);
+  const openSheet = (from: Element | null) => {
+    setSheetAnchor(from?.getBoundingClientRect() ?? null);
+    setSheet(true);
+  };
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [computersOpen, setComputersOpen] = useState(false);
@@ -49,6 +60,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const [keys, setKeys] = useState(true);
   const actions = useRemoteSelector((r) => r.actions);
   const canRename = useSupports("rename");
+  const canClose = useSupports("closeTab");
   /** The terminal tab being renamed, with its draft label. */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -73,6 +85,8 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const agentsPanel = useRef<HTMLElement>(null);
   useSheetDrag(filesPanel, () => setFilesOpen(false), !docked && filesOpen, "left");
   useSheetDrag(agentsPanel, () => setAgentsOpen(false), !docked && agentsOpen, "right");
+  const files = useSideWidth({ key: "wide.filesWidth", defaultWidth: 260, min: 200, max: 520, edge: "right" });
+  const agents = useSideWidth({ key: "wide.agentsWidth", defaultWidth: 290, min: 220, max: 520, edge: "left" });
   useBackHandler(doc !== null, () => setDoc(null));
 
   // A closed terminal takes its files with it.
@@ -144,7 +158,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const fileTab = shown?.kind === "file" ? all.find((x) => x.ptyId === shown.ptyId) : undefined;
 
   return (
-    <div className={"screen wide" + (docked ? " docked" : "")}>
+    <div className={"screen wide" + (docked ? " docked" : "")} style={{ "--w-zoom": zoom } as CSSProperties}>
       <header className="w-top">
         <button type="button" className="w-ib" aria-label={t("showFiles")} aria-pressed={filesOpen} onClick={toggleFiles}>
           <FolderIcon />
@@ -196,6 +210,19 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 {ico}
                 <span className="w-tab-label">{x.label}</span>
                 {x.cli && <i className={"dot " + (x.status === "waiting" ? "wait" : x.status === "busy" ? "busy" : "idle")} />}
+                {canClose && all.filter((y) => y.window === x.window).length > 1 && (
+                  <span
+                    role="button"
+                    className="w-tab-x"
+                    aria-label={t("closeTerminal")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(t("closeTerminalConfirm", { label: x.label }))) send({ t: "closetab", ptyId: x.ptyId });
+                    }}
+                  >
+                    ×
+                  </span>
+                )}
               </button>
             );
           })}
@@ -220,7 +247,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               </button>
             );
           })}
-          <button type="button" className="w-ib" aria-label={t("newTerminal")} onClick={() => setSheet(true)}>
+          <button ref={plusBtn} type="button" className="w-ib" aria-label={t("newTerminal")} onClick={(e) => openSheet(e.currentTarget)}>
             <PlusIcon />
           </button>
         </div>
@@ -248,7 +275,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               onClose={closeMenu}
               onNewTerminal={() => {
                 setMenuOpen(false);
-                setSheet(true);
+                openSheet(plusBtn.current);
               }}
               onKeys={() => {
                 setMenuOpen(false);
@@ -276,7 +303,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
       </header>
       <div className="w-body">
         {/* Kept mounted while closed, so the folder browsed survives closing the panel. */}
-        <aside ref={filesPanel} className="w-side w-left" hidden={!filesOpen}>
+        <aside ref={filesPanel} className="w-side w-left" hidden={!filesOpen} style={files.width !== null ? { width: files.width } : undefined}>
           <WideFiles
             tab={active}
             activeFile={activeFile}
@@ -286,6 +313,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               if (!docked) setFilesOpen(false);
             }}
           />
+          <div className={"w-resize right" + (files.dragging ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label={t("resizePanel")} data-no-sheet-drag {...files.handleProps} />
         </aside>
         <main className="w-main">
           {shown?.kind === "settings" ? (
@@ -296,19 +324,23 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             </div>
           ) : shown?.kind === "file" ? (
             <WideFileView key={shown.id} ptyId={shown.ptyId} path={shown.path} cwd={fileTab?.cwd} />
-          ) : active ? (
-            <Suspense fallback={<div className="screen" />}>
-              <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={() => {}} embedded keys={keys} />
-            </Suspense>
-          ) : tabs !== null && tabs.length === 0 ? (
+          ) : null}
+          {/* Stays mounted (hidden) under a settings / file doc, so the stream and scrollback survive. */}
+          {active ? (
+            <div style={{ display: shown ? "none" : "contents" }}>
+              <Suspense fallback={<div className="screen" />}>
+                <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={noop} embedded keys={keys} />
+              </Suspense>
+            </div>
+          ) : !shown && tabs !== null && tabs.length === 0 ? (
             <div className="empty">{t("noTabs")}</div>
           ) : null}
         </main>
         {agentsOpen && (
-          <aside ref={agentsPanel} className="w-side w-right">
+          <aside ref={agentsPanel} className="w-side w-right" style={agents.width !== null ? { width: agents.width } : undefined}>
             <div className="w-ph">
               <span className="w-ph-title">{t("activeAgents")}</span>
-              <button type="button" className="w-ib sm" aria-label={t("newTerminal")} onClick={() => setSheet(true)}>
+              <button type="button" className="w-ib sm" aria-label={t("newTerminal")} onClick={(e) => openSheet(e.currentTarget)}>
                 <PlusIcon />
               </button>
               <button type="button" className="w-ib sm" aria-label={t("closePanel")} onClick={() => setAgentsOpen(false)}>
@@ -328,12 +360,13 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 onAddComputer={onAddComputer}
               />
             </div>
+            <div className={"w-resize left" + (agents.dragging ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label={t("resizePanel")} data-no-sheet-drag {...agents.handleProps} />
           </aside>
         )}
       </div>
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
-      <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
+      <NewTerminalSheet open={sheet} anchor={sheetAnchor} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
     </div>
   );
 }

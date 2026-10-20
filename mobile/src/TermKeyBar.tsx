@@ -1,4 +1,4 @@
-import { useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { lockFeedback } from "./haptics";
 import { t } from "./i18n";
 import { TermCursorPad } from "./TermCursorPad";
@@ -40,6 +40,7 @@ function ModButton({ label, state, onTap, onLock }: { label: string; state: Mods
   const timer = useRef(0);
   const fired = useRef(false);
   const cancel = () => window.clearTimeout(timer.current);
+  useEffect(() => cancel, []);
   return (
     <button
       type="button"

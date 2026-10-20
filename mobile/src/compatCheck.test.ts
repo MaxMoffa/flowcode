@@ -7,7 +7,7 @@ describe("desktop compatibility", () => {
     expect(host).toEqual({ appVersion: undefined, proto: 1, caps: LEGACY_CAPS, legacy: true });
     const c = checkCompat(host);
     expect(c.level).toBe("partial");
-    expect(c.missing).toEqual(["rename", "profileAgents", "newTabProfile", "gemini"]);
+    expect(c.missing).toEqual(["rename", "closeTab", "profileAgents", "newTabProfile", "gemini"]);
     expect(supports(host, "rename")).toBe(false);
     expect(supports(host, "profiles")).toBe(true);
     expect(supports(host, "profileLogin")).toBe(true);
@@ -15,13 +15,13 @@ describe("desktop compatibility", () => {
   });
 
   it("is fine with a desktop that has every capability", () => {
-    const host = hostInfoFrom({ appVersion: "0.11.0", proto: 2, caps: ["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "future"] });
+    const host = hostInfoFrom({ appVersion: "0.11.0", proto: 2, caps: ["rename", "closeTab", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "future"] });
     expect(checkCompat(host)).toEqual({ level: "ok", missing: [] });
   });
 
   it("lists only what is missing", () => {
     const host = hostInfoFrom({ appVersion: "0.10.5", proto: 2, caps: ["rename", "profiles"] });
-    expect(checkCompat(host).missing).toEqual(["profileLogin", "profileAgents", "newTabProfile", "background", "gemini"]);
+    expect(checkCompat(host).missing).toEqual(["closeTab", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini"]);
     expect(supports(host, "profiles")).toBe(true);
   });
 

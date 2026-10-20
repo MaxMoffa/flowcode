@@ -121,7 +121,7 @@ export function applyTheme(settings: MirroredSettings | null) {
 // ---- Phone-only theme -------------------------------------------------------
 // An optional override of the desktop's theme/palette, kept on the phone only
 // and never sent to the desktop. Each field falls back to the mirrored value.
-export interface PhoneTheme {
+interface PhoneTheme {
   enabled: boolean;
   theme: "auto" | "light" | "dark" | null;
   palette: string | null;

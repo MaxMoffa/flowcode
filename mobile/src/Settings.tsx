@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import "./settings.css";
 import { useBackHandler } from "./back";
+import { useWide } from "./wide";
 import { t } from "./i18n";
 import { setLockEnabled, useLock, verify } from "./applock";
 import { screenshotsSupported, setScreenshotsAllowed, useScreenshots } from "./screenshots";
@@ -24,6 +25,7 @@ import { Diagnostics } from "./SettingsDiagnostics";
 import { Group, MessageField, PaletteGrid, Segmented, Slider, Stepper, Toggle } from "./SettingsControls";
 import { ICONS, type SectionId } from "./settingsIcons";
 import { UpdatesPage } from "./UpdatesUi";
+import { setUiScale, useUiScale } from "./uiScale";
 import { updates } from "./updates";
 
 function SectionRow({ id, title, summary, onOpen }: { id: SectionId; title: string; summary: string; onOpen: () => void }) {
@@ -69,6 +71,8 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
   const defaultLoggedIn = useRemoteSelector((r) => r.defaultLoggedIn);
   const lock = useLock();
   const shots = useScreenshots();
+  const wide = useWide();
+  const uiScale = useUiScale();
   const [section, setSection] = useState<SectionId | null>(null);
   useBackHandler(section !== null, () => setSection(null));
 
@@ -189,6 +193,18 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
               />
               <PaletteGrid label={t("palette")} palettes={s.palettes} value={effectivePhone(s, local).palette} onChange={(id) => setPhoneTheme({ palette: id })} />
             </>
+          )}
+          {wide && (
+            <Segmented
+              label={t("uiSize")}
+              value={uiScale}
+              options={[
+                { id: "compact", name: t("uiSizeCompact") },
+                { id: "normal", name: t("uiSizeNormal") },
+                { id: "large", name: t("uiSizeLarge") },
+              ]}
+              onChange={setUiScale}
+            />
           )}
         </Group>
         </>

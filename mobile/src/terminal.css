@@ -283,6 +283,9 @@
 /* Sits left of the keyboard button so the two never overlap. */
 .term-jump {
   position: absolute;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
   right: 78px;
   bottom: 22px;
   z-index: 3;

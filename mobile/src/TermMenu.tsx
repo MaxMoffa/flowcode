@@ -1,8 +1,8 @@
 import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
-import { BoltIcon, FolderIcon, KeyboardIcon } from "./icons";
+import { BoltIcon, CloseIcon, FolderIcon, KeyboardIcon } from "./icons";
 
-/** The "⋯" popover: files, quick actions, keyboard toggle, interrupt. */
+/** The "⋯" popover: files, quick actions, keyboard toggle, interrupt, and closing the tab when `onCloseTab` is given. */
 export function TermMenu(props: {
   open: boolean;
   kbOpen: boolean;
@@ -11,6 +11,7 @@ export function TermMenu(props: {
   onActions: () => void;
   onKeyboard: () => void;
   onInterrupt: () => void;
+  onCloseTab?: () => void;
 }) {
   const { open, onClose } = props;
   useBackHandler(open, onClose);
@@ -36,6 +37,12 @@ export function TermMenu(props: {
           <span className="tm-menu-c">^C</span>
           {t("termMenuInterrupt")}
         </button>
+        {props.onCloseTab && (
+          <button type="button" role="menuitem" className="danger" onClick={props.onCloseTab}>
+            <CloseIcon />
+            {t("closeTerminal")}
+          </button>
+        )}
       </div>
     </>
   );

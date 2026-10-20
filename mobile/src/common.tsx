@@ -1,16 +1,4 @@
-import { t } from "./i18n";
-import type { AgentStatus, Tab } from "./remote";
-
-export function StatusPill({ status }: { status: AgentStatus | undefined }) {
-  const st = status ?? "idle";
-  const label = st === "waiting" ? t("statusWaiting") : st === "busy" ? t("statusBusy") : t("statusIdle");
-  return (
-    <span className={`pill is-${st}`}>
-      <i />
-      {label}
-    </span>
-  );
-}
+import type { Tab } from "./remote";
 
 /** Last two path segments: a full path never fits a phone. */
 export function shortCwd(cwd: string): string {

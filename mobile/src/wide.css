@@ -9,6 +9,17 @@
   --w-selected: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
+/* UI size (--w-zoom, set on .wide): CSS `zoom` goes on the chrome only. Never on the terminal card (xterm measures its cells and maps pointer coordinates in unzoomed px). The new-terminal popover and its menu are zoomed in NewTerminalSheet, which also divides their positions. */
+.w-top,
+.w-side,
+.w-main > .w-page,
+.wfv,
+.wide .tm-keys,
+.wide .tm-sheet,
+.wide .tm-drawer {
+  zoom: var(--w-zoom, 1);
+}
+
 .w-top {
   flex: none;
   display: flex;
@@ -420,6 +431,7 @@
 
 .w-side {
   flex: none;
+  position: relative;
 }
 
 .w-side[hidden] {
@@ -432,6 +444,42 @@
 
 .w-right {
   width: 290px;
+}
+
+/* The drag edge of a panel: a 12px hit area, with a 3px line lit on hover and while dragging. */
+.w-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.w-resize.right {
+  right: 0;
+}
+
+.w-resize.left {
+  left: 0;
+}
+
+.w-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--accent);
+  opacity: 0;
+}
+
+.w-resize:hover::after,
+.w-resize.is-dragging::after {
+  opacity: 0.5;
 }
 
 .w-page {
@@ -461,25 +509,26 @@
 .wide:not(.docked) .w-side {
   position: absolute;
   top: 0;
-  bottom: 8px;
+  bottom: calc(8px / var(--w-zoom, 1));
   z-index: 30;
   width: min(340px, calc(100% - 16px));
+  max-width: calc(100% - 16px);
   background: var(--w-float);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
 }
 
 .wide:not(.docked) .w-right {
-  right: 8px;
+  right: calc(8px / var(--w-zoom, 1));
 }
 
 .wide:not(.docked) .w-left {
-  left: 8px;
+  left: calc(8px / var(--w-zoom, 1));
   width: min(300px, calc(100% - 16px));
 }
 
 .w-scrim {
   position: absolute;
-  inset: 52px 0 0 0;
+  inset: calc(52px * var(--w-zoom, 1)) 0 0 0;
   background: rgba(10, 7, 5, 0.45);
   z-index: 29;
 }
@@ -677,4 +726,20 @@
 .wfv-text {
   white-space: pre;
   padding-right: 14px;
+}
+
+/* "Nuovo terminale" as a popover card under the tab strip's "+" (NewTerminalSheet with an anchor). */
+.nts-layer.nts-pop .nts-scrim {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.nts-layer.nts-pop .nts {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  width: 360px;
+  padding: 14px 14px 14px;
+  border: 1px solid var(--w-line);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 /** Tracks a CSS media query; false where matchMedia doesn't exist. */
-export function useMediaQuery(query: string): boolean {
+function useMediaQuery(query: string): boolean {
   const get = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
   const [matches, setMatches] = useState(get);
   useEffect(() => {

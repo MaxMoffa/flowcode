@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 /** The edge a sheet or drawer slides in from; dragging toward it closes. */
-export type SheetEdge = "down" | "left" | "right";
+type SheetEdge = "down" | "left" | "right";
 
 /** Movement before a touch is judged a scroll or a close drag. */
 const SLOP = 8;
@@ -81,6 +81,8 @@ export function useSheetDrag(sheetRef: RefObject<HTMLElement | null>, onClose: (
     let dist = 0;
     let samples: Sample[] = [];
     let swallowClick = false;
+    let swallowTimer = 0;
+    let resetTimer = 0;
 
     const translate = (d: number) => (vertical ? `translateY(${d}px)` : `translateX(${sign * d}px)`);
 
@@ -91,6 +93,10 @@ export function useSheetDrag(sheetRef: RefObject<HTMLElement | null>, onClose: (
     }
 
     function onStart(e: TouchEvent) {
+      // A new touch ends the previous drag's leftovers: its spring-back reset and click swallowing.
+      window.clearTimeout(swallowTimer);
+      window.clearTimeout(resetTimer);
+      swallowClick = false;
       tracking = false;
       captured = false;
       if (e.touches.length !== 1 || (e.target as Element).closest(NO_DRAG)) return;
@@ -132,7 +138,7 @@ export function useSheetDrag(sheetRef: RefObject<HTMLElement | null>, onClose: (
       if (!captured) return;
       captured = false;
       swallowClick = true;
-      setTimeout(() => (swallowClick = false), 400);
+      swallowTimer = window.setTimeout(() => (swallowClick = false), 400);
       if (e.type === "touchend" && shouldClose(dist, size, releaseVelocity(samples, e.timeStamp))) {
         // Keep the dragged position through the render that closes it, then hand over to the
         // closed-state CSS, which animates on from here.
@@ -147,7 +153,7 @@ export function useSheetDrag(sheetRef: RefObject<HTMLElement | null>, onClose: (
       el.style.transition = "transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)";
       el.style.transform = translate(0);
       if (scrim) scrim.style.opacity = "";
-      setTimeout(reset, 220);
+      resetTimer = window.setTimeout(reset, 220);
     }
 
     // The click that follows a drag must not press the button under the finger.
@@ -170,6 +176,8 @@ export function useSheetDrag(sheetRef: RefObject<HTMLElement | null>, onClose: (
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onEnd);
       el.removeEventListener("click", onClick, true);
+      window.clearTimeout(swallowTimer);
+      window.clearTimeout(resetTimer);
       reset();
     };
   }, [sheetRef, enabled, edge]);

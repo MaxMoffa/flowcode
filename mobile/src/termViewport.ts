@@ -45,6 +45,11 @@ export function useTerminalViewport(screenRef: RefObject<HTMLElement | null>, on
     const onResize = () => {
       if (!isTextInput(document.activeElement)) reset();
     };
+    // With the keyboard up the viewport height is not the full height: keep the baseline and just re-sync.
+    const onOrientation = () => {
+      if (isTextInput(document.activeElement)) sync();
+      else reset();
+    };
     const onFocusOut = (e: FocusEvent) => {
       if (isTextInput(e.target as Element | null)) {
         // The keyboard is closing: the next full height is the new baseline.
@@ -55,7 +60,7 @@ export function useTerminalViewport(screenRef: RefObject<HTMLElement | null>, on
     vv?.addEventListener("resize", sync);
     vv?.addEventListener("scroll", sync);
     window.addEventListener("scroll", sync);
-    window.addEventListener("orientationchange", reset);
+    window.addEventListener("orientationchange", onOrientation);
     window.addEventListener("resize", onResize);
     document.addEventListener("focusout", onFocusOut);
     return () => {
@@ -63,7 +68,7 @@ export function useTerminalViewport(screenRef: RefObject<HTMLElement | null>, on
       vv?.removeEventListener("resize", sync);
       vv?.removeEventListener("scroll", sync);
       window.removeEventListener("scroll", sync);
-      window.removeEventListener("orientationchange", reset);
+      window.removeEventListener("orientationchange", onOrientation);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("focusout", onFocusOut);
       if (screenRef.current) screenRef.current.style.transform = "";
