@@ -6,7 +6,8 @@ use std::path::Path;
 use flowcode_shared::i18n::tr;
 use iroh::SecretKey;
 
-use super::hex::{from_hex, to_hex};
+use super::hex::to_hex;
+use crate::util::decode_hex;
 
 /// The endpoint's secret key, persisted so the node id (and with it every
 /// paired phone's idea of this desktop) survives restarts. 64 hex chars.
@@ -18,7 +19,7 @@ pub(super) fn load_or_create_key(path: &Path) -> Result<SecretKey, String> {
     if let Ok(text) = std::fs::read_to_string(path) {
         let text = text.trim();
         let (bytes, sealed) = match text.strip_prefix(SEALED_PREFIX) {
-            Some(blob) => (from_hex(blob).and_then(|b| unseal(&b)).and_then(|k| decode_key(&String::from_utf8(k).ok()?)), true),
+            Some(blob) => (decode_hex(blob).and_then(|b| unseal(&b)).and_then(|k| decode_key(&String::from_utf8(k).ok()?)), true),
             None => (decode_key(text), false),
         };
         if let Some(bytes) = bytes {
@@ -39,7 +40,7 @@ pub(super) fn load_or_create_key(path: &Path) -> Result<SecretKey, String> {
 }
 
 fn decode_key(hex: &str) -> Option<[u8; 32]> {
-    from_hex(hex.trim()).and_then(|bytes| bytes.try_into().ok())
+    decode_hex(hex.trim()).and_then(|bytes| bytes.try_into().ok())
 }
 
 /// Marks a key file whose hex is a DPAPI blob rather than the key itself.

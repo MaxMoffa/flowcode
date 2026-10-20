@@ -10,6 +10,7 @@
 //! saved beforehand (see `session::session_flush_all`), so the new version
 //! comes back with the same windows and tabs.
 
+use crate::util::decode_hex;
 use flowcode_shared::i18n::{is_italian, tr};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -365,20 +366,6 @@ fn download(
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect())
-}
-
-fn decode_hex(s: &str) -> Option<Vec<u8>> {
-    let s = s.as_bytes();
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    s.chunks(2)
-        .map(|pair| {
-            let hi = (pair[0] as char).to_digit(16)?;
-            let lo = (pair[1] as char).to_digit(16)?;
-            Some((hi * 16 + lo) as u8)
-        })
-        .collect()
 }
 
 fn bad_signature() -> String {

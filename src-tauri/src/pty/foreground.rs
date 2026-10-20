@@ -100,16 +100,23 @@ pub(super) fn foreground(leader: Option<u32>, root: u32) -> Option<Foreground> {
 
 #[tauri::command]
 pub async fn pty_foreground(state: State<'_, PtyState>, id: String) -> Result<Foreground, String> {
-    let (root, leader) = {
+    let (root, master) = {
         let sessions = lock(&state.0);
         let session = sessions.get(&id).ok_or("unknown pty session")?;
+        (session.pid, Arc::clone(&session.master))
+    };
+    let leader = {
+        // The master is locked only after the global sessions lock is released.
         // Unix: the terminal's foreground process group - the kernel's own
         // answer to "who gets what's typed", exact by definition.
         #[cfg(unix)]
-        let leader = lock(&session.master).process_group_leader().map(|pid| pid as u32);
+        let leader = lock(&master).process_group_leader().map(|pid| pid as u32);
         #[cfg(not(unix))]
-        let leader: Option<u32> = None;
-        (session.pid, leader)
+        let leader: Option<u32> = {
+            let _ = &master;
+            None
+        };
+        leader
     };
     let root = root.ok_or("pid della shell sconosciuto")?;
     crate::blocking(move || foreground(leader, root).ok_or_else(|| "shell non trovata".to_string())).await

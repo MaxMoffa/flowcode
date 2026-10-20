@@ -51,8 +51,8 @@ fn shell_command(command: &str, envs: &[(String, String)]) -> std::process::Comm
 
 /// The actual blocking spawn-and-wait, shared by every command that needs to
 /// run a shell command headlessly. Always call through `spawn_blocking`
-/// (never directly from an async command body) - `Command::output()` blocks
-/// its calling thread until the child exits.
+/// (never directly from an async command body) - it blocks its calling
+/// thread until the child exits, or `DEFAULT_COMMAND_TIMEOUT` passes.
 pub fn run_command_blocking(command: &str) -> std::io::Result<std::process::Output> {
     run_command_blocking_env(command, &[])
 }
@@ -60,8 +60,13 @@ pub fn run_command_blocking(command: &str) -> std::io::Result<std::process::Outp
 /// `run_command_blocking` with extra environment variables on the child - how
 /// a status command is pointed at an account profile's own folders.
 pub fn run_command_blocking_env(command: &str, envs: &[(String, String)]) -> std::io::Result<std::process::Output> {
-    shell_command(command, envs).output()
+    // Every caller is a quick probe (`where x`, `x --help`): a hung one must
+    // not pin its thread forever.
+    run_command_blocking_timeout(command, envs, DEFAULT_COMMAND_TIMEOUT)
 }
+
+/// Upper bound for `run_command_blocking(_env)`, whose callers set no timeout.
+const DEFAULT_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Like `run_command_blocking_env`, but gives up after `timeout` (see
 /// `wait_with_timeout`). For CLIs that can hang on a login or network prompt.
@@ -96,14 +101,19 @@ pub fn wait_with_timeout(
 
     // Drained on their own threads so a chatty child can't fill a pipe and
     // block forever while we poll for its exit.
-    fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+    // The result goes through a channel rather than a `JoinHandle`: a
+    // grandchild that outlives the child can keep the pipe open forever, and
+    // joining would then hang. A reader that misses its deadline is abandoned.
+    fn drain(pipe: Option<impl Read + Send + 'static>) -> std::sync::mpsc::Receiver<Vec<u8>> {
+        let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut buf = Vec::new();
             if let Some(mut pipe) = pipe {
                 let _ = pipe.read_to_end(&mut buf);
             }
-            buf
-        })
+            let _ = tx.send(buf);
+        });
+        rx
     }
     let out = drain(child.stdout.take());
     let err = drain(child.stderr.take());
@@ -120,11 +130,14 @@ pub fn wait_with_timeout(
         }
         std::thread::sleep(std::time::Duration::from_millis(25));
     };
-    Ok(std::process::Output {
-        status,
-        stdout: out.join().unwrap_or_default(),
-        stderr: err.join().unwrap_or_default(),
-    })
+    // The pipes normally hit EOF with the child's exit; allow whatever is left
+    // of the budget (at least a short grace) for them, then give up on them.
+    let wait = deadline.saturating_duration_since(Instant::now()).max(std::time::Duration::from_millis(500));
+    let readers_deadline = Instant::now() + wait;
+    let collect = |rx: std::sync::mpsc::Receiver<Vec<u8>>| {
+        rx.recv_timeout(readers_deadline.saturating_duration_since(Instant::now())).unwrap_or_default()
+    };
+    Ok(std::process::Output { status, stdout: collect(out), stderr: collect(err) })
 }
 
 fn kill_tree(child: &mut std::process::Child) {

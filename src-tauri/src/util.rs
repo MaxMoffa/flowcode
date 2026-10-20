@@ -17,6 +17,21 @@ pub(crate) fn now_ms() -> u64 {
     crate::fs::system_time_to_millis(Ok(std::time::SystemTime::now())).unwrap_or(0)
 }
 
+/// Decodes a hex string (either case); `None` for an odd length or any other character.
+pub(crate) fn decode_hex(s: &str) -> Option<Vec<u8>> {
+    let s = s.as_bytes();
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    s.chunks(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16)?;
+            let lo = (pair[1] as char).to_digit(16)?;
+            Some((hi * 16 + lo) as u8)
+        })
+        .collect()
+}
+
 /// A JSON value as an unsigned integer, 0 when missing or not one.
 pub(crate) fn json_u64(value: Option<&serde_json::Value>) -> u64 {
     value.and_then(|v| v.as_u64()).unwrap_or(0)

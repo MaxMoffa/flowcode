@@ -303,7 +303,11 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
+        // Symlinks are resolved so a linked folder is copied as a folder
+        // (`file_type()` alone would send it to `fs::copy`, which fails).
+        let file_type = entry.file_type()?;
+        let is_dir = if file_type.is_symlink() { std::fs::metadata(entry.path())?.is_dir() } else { file_type.is_dir() };
+        if is_dir {
             copy_dir(&entry.path(), &target)?;
         } else {
             std::fs::copy(entry.path(), &target)?;

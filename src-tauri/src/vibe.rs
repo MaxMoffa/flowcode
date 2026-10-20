@@ -494,12 +494,20 @@ fn keyring_delete_key(username: &str) {
     }
 }
 
+/// Runs a keyring CLI for its output, giving up after 3s: a locked or
+/// unresponsive keyring (a prompt, a stuck daemon) must not hang the caller.
+#[cfg(not(windows))]
+fn keyring_output(mut cmd: std::process::Command) -> Option<std::process::Output> {
+    use std::process::Stdio;
+    let child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
+    flowcode_shared::wait_with_timeout(child, std::time::Duration::from_secs(3)).ok()
+}
+
 #[cfg(target_os = "macos")]
 fn keyring_has_key(username: &str) -> bool {
-    std::process::Command::new("/usr/bin/security")
-        .args(["find-generic-password", "-s", KEYRING_SERVICE, "-a", username])
-        .output()
-        .is_ok_and(|o| o.status.success())
+    let mut cmd = std::process::Command::new("/usr/bin/security");
+    cmd.args(["find-generic-password", "-s", KEYRING_SERVICE, "-a", username]);
+    keyring_output(cmd).is_some_and(|o| o.status.success())
 }
 
 #[cfg(target_os = "macos")]
@@ -518,10 +526,9 @@ fn keyring_delete_key(username: &str) {
 
 #[cfg(all(not(windows), not(target_os = "macos")))]
 fn keyring_has_key(username: &str) -> bool {
-    std::process::Command::new("secret-tool")
-        .args(["lookup", "service", KEYRING_SERVICE, "username", username])
-        .output()
-        .is_ok_and(|o| o.status.success() && !o.stdout.is_empty())
+    let mut cmd = std::process::Command::new("secret-tool");
+    cmd.args(["lookup", "service", KEYRING_SERVICE, "username", username]);
+    keyring_output(cmd).is_some_and(|o| o.status.success() && !o.stdout.is_empty())
 }
 
 #[cfg(all(not(windows), not(target_os = "macos")))]
@@ -539,14 +546,18 @@ const KEYRING_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5)
 /// `KEYRING_CACHE_TTL`. The cache is one slot, not a map per key: it is only
 /// ever asked about "MISTRAL_API_KEY".
 fn keyring_has_key_cached(username: &str) -> bool {
-    let mut cache = KEYRING_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((at, has)) = *cache {
-        if at.elapsed() < KEYRING_CACHE_TTL {
-            return has;
+    {
+        let cache = KEYRING_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, has)) = *cache {
+            if at.elapsed() < KEYRING_CACHE_TTL {
+                return has;
+            }
         }
     }
+    // The (possibly slow) keyring lookup runs with the cache unlocked; two
+    // concurrent misses just both ask, and store the same answer.
     let has = keyring_has_key(username);
-    *cache = Some((std::time::Instant::now(), has));
+    *KEYRING_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), has));
     has
 }
 

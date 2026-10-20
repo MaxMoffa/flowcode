@@ -482,6 +482,8 @@ pub fn pty_spawn(
         Ok(reader) => reader,
         Err(e) => {
             let _ = child.kill();
+            // Reap it too, or it lingers as a zombie on Unix.
+            let _ = child.wait();
             return Err(e.to_string());
         }
     };
@@ -489,6 +491,7 @@ pub fn pty_spawn(
         Ok(writer) => writer,
         Err(e) => {
             let _ = child.kill();
+            let _ = child.wait();
             return Err(e.to_string());
         }
     };
@@ -563,7 +566,10 @@ pub fn pty_spawn(
         // drop it from the map so its handles are released now rather than
         // whenever the tab happens to close, and reap the child so it doesn't
         // linger as a zombie on Unix.
-        lock(&app.state::<PtyState>().0).remove(&session_id);
+        // Taken out under the global lock but dropped after it is released:
+        // dropping the session closes the pseudo console, which can be slow.
+        let gone = lock(&app.state::<PtyState>().0).remove(&session_id);
+        drop(gone);
         let _ = child.wait();
     });
 
@@ -676,11 +682,18 @@ pub fn pty_attach(
     id: String,
     on_event: Channel<PtyEvent>,
 ) -> Result<(), String> {
-    let mut sessions = lock(&state.0);
-    let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
-    session.owner = Some(window.label().to_string());
-    session.detached_at = None;
-    let mut sink = lock(&session.sink);
+    // Only the sink's Arc is taken under the global sessions lock: draining
+    // and sending up to MBs of buffered output must not block every other
+    // session. The sink lock alone keeps drain + channel swap atomic against
+    // the reader thread, so no event is lost or duplicated.
+    let sink = {
+        let mut sessions = lock(&state.0);
+        let session = sessions.get_mut(&id).ok_or("unknown pty session")?;
+        session.owner = Some(window.label().to_string());
+        session.detached_at = None;
+        Arc::clone(&session.sink)
+    };
+    let mut sink = lock(&sink);
     for event in sink.buffered.drain(..) {
         let _ = on_event.send(event);
     }

@@ -63,7 +63,18 @@ pub fn run() {
         // `install_dir`) can't remove itself synchronously, but Windows
         // allows deleting an in-use exe - it's unlinked once this process
         // exits, so `remove_dir_all` still succeeds.
-        let _ = std::fs::remove_dir_all(&install_dir);
+        //
+        // Guard: InstallLocation is user-chosen, so only wipe a directory that
+        // is recognisably ours and is neither a drive root nor the profile dir
+        // (installing straight into `D:\` or Documents must not delete it).
+        let is_ours = install_dir.join("flowcode.exe").is_file() && install_dir.join("uninstall.exe").is_file();
+        let is_root = install_dir.parent().is_none();
+        let is_home = std::env::var_os("USERPROFILE")
+            .map(|h| h.to_string_lossy().trim_end_matches(['\\', '/']).eq_ignore_ascii_case(install_dir.to_string_lossy().trim_end_matches(['\\', '/'])))
+            .unwrap_or(false);
+        if is_ours && !is_root && !is_home {
+            let _ = std::fs::remove_dir_all(&install_dir);
+        }
     }
 
     remove_uninstall_registry();

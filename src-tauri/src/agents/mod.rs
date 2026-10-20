@@ -370,26 +370,35 @@ pub(crate) fn scan_lines_backwards<T>(
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
     let mut end = len;
-    // Bytes of the line cut off at the start of the previous chunk.
-    let mut carry: Vec<u8> = Vec::new();
+    // The line cut off at the start of the previous chunk(s), as the pieces it
+    // was read in (nearest to the end of the file first), so a line spanning
+    // many chunks is joined once instead of copied again for every chunk.
+    let mut carry: Vec<Vec<u8>> = Vec::new();
     while end > 0 && len - end < max_scan {
         let start = end.saturating_sub(chunk);
         let mut buf = vec![0u8; (end - start) as usize];
         file.seek(SeekFrom::Start(start)).ok()?;
         file.read_exact(&mut buf).ok()?;
-        buf.extend_from_slice(&carry);
         // Unless this chunk starts the file, its first line may be partial.
-        let (head, lines) = match buf.iter().position(|&b| b == b'\n') {
-            _ if start == 0 => (Vec::new(), &buf[..]),
-            Some(i) => (buf[..i].to_vec(), &buf[i + 1..]),
-            None => (buf.clone(), &buf[..0]),
+        let first_newline = buf.iter().position(|&b| b == b'\n');
+        if start != 0 && first_newline.is_none() {
+            carry.push(buf);
+            end = start;
+            continue;
+        }
+        for piece in carry.iter().rev() {
+            buf.extend_from_slice(piece);
+        }
+        let (head, lines) = match first_newline {
+            Some(i) if start != 0 => (buf[..i].to_vec(), &buf[i + 1..]),
+            _ => (Vec::new(), &buf[..]),
         };
         for line in lines.split(|&b| b == b'\n').rev() {
             if let Some(found) = visit(line) {
                 return Some(found);
             }
         }
-        carry = head;
+        carry = if head.is_empty() { Vec::new() } else { vec![head] };
         end = start;
     }
     None
@@ -504,6 +513,24 @@ mod tests {
         append(complete);
         append(r#"{"type":"event_msg","payload":{"type":"token_count"}}"#);
         assert_eq!(rollout_turn_open(&path), Some(false));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn scans_backwards_across_lines_longer_than_a_chunk() {
+        let path = std::env::temp_dir().join(format!("scan-{}.jsonl", uuid::Uuid::new_v4()));
+        let long = "x".repeat(1000);
+        std::fs::write(&path, format!("first\n{long}\nlast\n")).unwrap();
+        for chunk in [7u64, 64, 4096] {
+            let mut seen: Vec<Vec<u8>> = Vec::new();
+            let none = super::scan_lines_backwards::<()>(&path, chunk, u64::MAX, |l| {
+                seen.push(l.to_vec());
+                None
+            });
+            assert!(none.is_none());
+            let expected: Vec<&[u8]> = vec![b"", b"last", long.as_bytes(), b"first"];
+            assert_eq!(seen.iter().map(Vec::as_slice).collect::<Vec<_>>(), expected, "chunk {chunk}");
+        }
         let _ = std::fs::remove_file(path);
     }
 }

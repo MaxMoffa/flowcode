@@ -351,7 +351,11 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let dest_path = dest.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
+        // `file_type()` doesn't follow symlinks: resolve them with `metadata`
+        // so a symlinked folder is copied as a folder, not handed to `fs::copy`.
+        let file_type = entry.file_type()?;
+        let is_dir = if file_type.is_symlink() { std::fs::metadata(entry.path())?.is_dir() } else { file_type.is_dir() };
+        if is_dir {
             copy_dir_recursive(&entry.path(), &dest_path)?;
         } else {
             std::fs::copy(entry.path(), &dest_path)?;

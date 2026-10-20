@@ -6,7 +6,7 @@ use crate::link::Session;
 use crate::state::{Remote, OUT_QUEUE};
 use flowcode_remote_proto::{ClientMsg, FrameError, ServerMsg};
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
@@ -43,6 +43,23 @@ impl Drop for ServeGuard {
 }
 
 
+/// Reader-to-serve queue: when full the reader stops reading and QUIC flow
+/// control pushes back on the desktop.
+const IN_QUEUE: usize = 1024;
+/// A write that has not completed in this long means the peer stopped reading:
+/// without a cap it would block the select loop (and so the dead-link check)
+/// until the QUIC idle timeout.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// `write_frame` with a deadline. A cancelled write may leave half a frame on
+/// the stream, so an error here (timeout included) must end the link.
+async fn send_frame(send: &mut iroh::endpoint::SendStream, msg: &ClientMsg) -> Result<(), String> {
+    match tokio::time::timeout(WRITE_TIMEOUT, flowcode_remote_proto::write_frame(send, msg)).await {
+        Ok(r) => r.map_err(|e| e.to_string()),
+        Err(_) => Err("write stalled".into()),
+    }
+}
+
 pub(crate) enum Exit {
     /// The desktop refused us for good.
     Fatal(String),
@@ -51,17 +68,17 @@ pub(crate) enum Exit {
 
 pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
     let (out_tx, mut out_rx) = mpsc::channel::<ClientMsg>(OUT_QUEUE);
-    remote.lock().out = Some(out_tx);
+    remote.lock().out = Some(out_tx.clone());
 
     // read_frame is not cancel-safe, so it lives in its own task and the
     // select below only touches the channel.
-    let (in_tx, mut in_rx) = mpsc::unbounded_channel::<Inbound>();
+    let (in_tx, mut in_rx) = mpsc::channel::<Inbound>(IN_QUEUE);
     let mut recv = session.recv;
     let reader = tokio::spawn(async move {
         loop {
             let item = classify_frame(flowcode_remote_proto::read_frame::<_, ServerMsg>(&mut recv).await);
             let stop = matches!(item, Inbound::Failed(_));
-            if in_tx.send(item).is_err() || stop {
+            if in_tx.send(item).await.is_err() || stop {
                 break;
             }
         }
@@ -75,13 +92,13 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
         let mut last_rx = Instant::now();
         // Set when the app resumes: the link must prove itself by then.
         let mut probe_until: Option<tokio::time::Instant> = None;
-        if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &ClientMsg::List).await {
-            return Exit::Lost(e.to_string());
+        if let Err(e) = send_frame(&mut session.send, &ClientMsg::List).await {
+            return Exit::Lost(e);
         }
         // Back on a link while hidden: the desktop starts out sending everything.
         if !remote.visible.load(Ordering::SeqCst) && remote.bg_settings().enabled {
-            if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &ClientMsg::Background { on: true }).await {
-                return Exit::Lost(e.to_string());
+            if let Err(e) = send_frame(&mut session.send, &ClientMsg::Background { on: true }).await {
+                return Exit::Lost(e);
             }
         }
         let mut warned_unknown = false;
@@ -119,22 +136,22 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                 },
                 outgoing = out_rx.recv() => {
                     let Some(msg) = outgoing else { return Exit::Lost("stopped".into()) };
-                    if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &msg).await {
-                        return Exit::Lost(e.to_string());
+                    if let Err(e) = send_frame(&mut session.send, &msg).await {
+                        return Exit::Lost(e);
                     }
                 }
                 _ = ping.tick() => {
                     if last_rx.elapsed() > DEAD_AFTER {
                         return Exit::Lost("the desktop stopped answering".into());
                     }
-                    if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &ClientMsg::Ping).await {
-                        return Exit::Lost(e.to_string());
+                    if let Err(e) = send_frame(&mut session.send, &ClientMsg::Ping).await {
+                        return Exit::Lost(e);
                     }
                 }
                 _ = remote.resume.notified() => {
                     remote.log.push("app resumed: probing the link");
-                    if let Err(e) = flowcode_remote_proto::write_frame(&mut session.send, &ClientMsg::Ping).await {
-                        return Exit::Lost(e.to_string());
+                    if let Err(e) = send_frame(&mut session.send, &ClientMsg::Ping).await {
+                        return Exit::Lost(e);
                     }
                     probe_until.get_or_insert_with(|| tokio::time::Instant::now() + PROBE_TIMEOUT);
                 }
@@ -144,7 +161,13 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
     }
     .await;
 
-    remote.lock().out = None;
+    // An aborted-and-replaced serve may finish late: only clear our own sender.
+    {
+        let mut inner = remote.lock();
+        if inner.out.as_ref().is_some_and(|o| o.same_channel(&out_tx)) {
+            inner.out = None;
+        }
+    }
     // Before the guard closes the connection ourselves: what QUIC saw end it.
     match session.conn.close_reason() {
         Some(reason) => remote.log.push(format!("QUIC connection closed: {reason}")),

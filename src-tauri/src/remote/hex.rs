@@ -12,13 +12,6 @@ pub(super) fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-pub(super) fn from_hex(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) || !hex.is_ascii() {
-        return None;
-    }
-    (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()).collect()
-}
-
 pub(super) fn hash_token(token: &str) -> String {
     Sha256::digest(token.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }

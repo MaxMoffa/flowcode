@@ -33,6 +33,8 @@ const RESYNC_MIN_GAP: Duration = Duration::from_secs(1);
 
 /// A snapshot's JSON-encoded size: half a frame, leaving room for the rest.
 const SNAPSHOT_MAX_ENCODED: usize = proto::MAX_FRAME / 2;
+/// Live output events waiting in the queue are folded into one frame up to about this size.
+const COALESCE_BYTES: usize = 32 * 1024;
 
 /// Drops a pending snapshot request if its stream is cancelled or times out.
 struct WaiterGuard<'a>(&'a Shared, String);
@@ -190,20 +192,41 @@ pub(super) async fn stream_pty(shared: Arc<Shared>, pty_id: String, out: mpsc::S
         };
         let Some(event) = event else { break };
         match event {
-            RemoteOut::Output { data, seq } if seq > snapshot_seq => {
+            RemoteOut::Output { mut data, mut seq } if seq > snapshot_seq => {
+                // Fold what is already waiting into this frame (up to
+                // COALESCE_BYTES); an exit met on the way is handled after it.
+                let mut exited = false;
+                while data.len() < COALESCE_BYTES {
+                    match feed.rx.try_recv() {
+                        Ok(RemoteOut::Output { data: more, seq: next }) => {
+                            if next > snapshot_seq {
+                                data.push_str(&more);
+                                seq = next;
+                            }
+                        }
+                        Ok(RemoteOut::Exit) | Err(mpsc::error::TryRecvError::Disconnected) => {
+                            exited = true;
+                            break;
+                        }
+                        Err(mpsc::error::TryRecvError::Empty) => break,
+                    }
+                }
                 // Keep room in the queue for replies and pushes.
                 if out.capacity() <= OUT_RESERVE {
                     lost_seq = lost_seq.max(seq);
                     resync = true;
-                    continue;
-                }
-                match out.try_send(ServerMsg::Output { pty_id: pty_id.clone(), data }) {
-                    Ok(()) => {}
-                    Err(mpsc::error::TrySendError::Full(_)) => {
-                        lost_seq = lost_seq.max(seq);
-                        resync = true;
+                } else {
+                    match out.try_send(ServerMsg::Output { pty_id: pty_id.clone(), data }) {
+                        Ok(()) => {}
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            lost_seq = lost_seq.max(seq);
+                            resync = true;
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => return,
                     }
-                    Err(mpsc::error::TrySendError::Closed(_)) => return,
+                }
+                if exited {
+                    break;
                 }
             }
             RemoteOut::Output { .. } => {}

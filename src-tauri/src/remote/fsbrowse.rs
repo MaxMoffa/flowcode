@@ -83,6 +83,14 @@ pub(super) fn read_text(root: &Path, rel: &str) -> Result<(String, String, bool)
     }
     let mut truncated = bytes.len() > MAX_READ_BYTES;
     bytes.truncate(MAX_READ_BYTES);
+    // The cut may have split a character: drop its first bytes rather than show a U+FFFD.
+    if truncated {
+        if let Err(e) = std::str::from_utf8(&bytes) {
+            if e.error_len().is_none() {
+                bytes.truncate(e.valid_up_to());
+            }
+        }
+    }
     let mut text = String::from_utf8_lossy(&bytes).into_owned();
     // Escaping can inflate text (control characters become six bytes), so
     // trim until the encoded form is safely inside a frame.

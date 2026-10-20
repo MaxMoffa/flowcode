@@ -89,16 +89,43 @@ fn write_executable(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> 
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())
 }
 
+/// A shell known folder's real path (`SHGetKnownFolderPath`): the Desktop
+/// and Start menu can be redirected (OneDrive's folder backup moves the
+/// Desktop to `%USERPROFILE%\OneDrive\Desktop`), so the `%USERPROFILE%`-based
+/// guess may name a folder that doesn't exist. `None` if the shell can't say.
+#[cfg(target_os = "windows")]
+fn known_folder(id: &windows_sys::core::GUID) -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
+    let mut raw: windows_sys::core::PWSTR = std::ptr::null_mut();
+    // SAFETY: on success `raw` is a NUL-terminated wide string the shell
+    // allocated; it's freed with CoTaskMemFree either way, as documented.
+    unsafe {
+        let hr = SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut raw);
+        let path = if hr >= 0 && !raw.is_null() {
+            let len = (0..).take_while(|&i| *raw.add(i) != 0).count();
+            Some(PathBuf::from(std::ffi::OsString::from_wide(std::slice::from_raw_parts(raw, len))))
+        } else {
+            None
+        };
+        CoTaskMemFree(raw as *const _);
+        path
+    }
+}
+
 #[cfg(target_os = "windows")]
 pub(crate) fn start_menu_shortcut_path() -> PathBuf {
-    let appdata = std::env::var("APPDATA").unwrap_or_default();
-    PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\Flowcode.lnk")
+    known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_Programs)
+        .unwrap_or_else(|| PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join(r"Microsoft\Windows\Start Menu\Programs"))
+        .join("Flowcode.lnk")
 }
 
 #[cfg(target_os = "windows")]
 pub(crate) fn desktop_shortcut_path() -> PathBuf {
-    let profile = std::env::var("USERPROFILE").unwrap_or_default();
-    PathBuf::from(profile).join(r"Desktop\Flowcode.lnk")
+    known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_Desktop)
+        .unwrap_or_else(|| PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("Desktop"))
+        .join("Flowcode.lnk")
 }
 
 /// Registers Flowcode under Windows' per-user uninstall list -
@@ -207,6 +234,9 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
 
     if desktop_shortcut {
         let desktop = desktop_shortcut_path();
+        if let Some(parent) = desktop.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
         ShellLink::new(&exe_path)
             .and_then(|link| link.create_lnk(&desktop))
             .map_err(|e| e.to_string())?;
@@ -500,5 +530,12 @@ mod tests {
         let _ = child.wait();
         remove_stale_replaced(&dir);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The Desktop may be redirected (OneDrive), so its shortcut path must
+    /// resolve to a folder that actually exists on this machine.
+    #[test]
+    fn desktop_shortcut_parent_exists() {
+        assert!(desktop_shortcut_path().parent().unwrap().is_dir());
     }
 }

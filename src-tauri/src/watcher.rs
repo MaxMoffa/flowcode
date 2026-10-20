@@ -111,7 +111,9 @@ fn start(app: AppHandle, label: String, path: &str) -> Result<Watch, String> {
 /// Starts watching `path` for this window, replacing whatever it watched
 /// before. Errors when the folder can't be watched (a network/WSL share, a
 /// path that's gone) - the explorer then falls back to polling.
-#[tauri::command]
+// `async`: runs off the event-loop thread, since a UNC / WSL path makes the
+// metadata check inside `start` a slow network round-trip.
+#[tauri::command(async)]
 pub fn watch_dir(app: AppHandle, window: WebviewWindow, state: State<'_, DirWatchers>, path: String) -> Result<(), String> {
     let label = window.label().to_string();
     state.forget(&label);
