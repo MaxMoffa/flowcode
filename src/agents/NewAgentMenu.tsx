@@ -63,8 +63,9 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
   // default profile, so it is filtered like the default one.
   const account = selected ? profiles.find((p) => p.id === selected) : undefined;
 
+  const useDefaultAccount = !account;
   useEffect(() => {
-    if (account) return;
+    if (!useDefaultAccount) return;
     let cancelled = false;
     void Promise.all(AGENT_CLIS.map((cli) => defaultProfileCliOk(cli).then((ok) => [cli, ok] as const))).then((entries) => {
       if (!cancelled) setDefaultOk(Object.fromEntries(entries) as Partial<Record<AgentCli, boolean>>);
@@ -72,7 +73,7 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
     return () => {
       cancelled = true;
     };
-  }, [!account]);
+  }, [useDefaultAccount]);
 
   const visibleClis = AGENT_CLIS.filter((cli) => (account ? account.logged_in[cli] === true : (defaultOk[cli] ?? true)));
 

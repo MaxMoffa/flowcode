@@ -91,7 +91,9 @@ export function toWslPath(distro: string, path: string): string | null {
     return `/mnt/${drive[1].toLowerCase()}${rest}`;
   }
   const prefix = `\\\\wsl.localhost\\${distro}`;
+  // Boundary check too: "Ubuntu" must not match "Ubuntu-22.04".
   if (!path.toLowerCase().startsWith(prefix.toLowerCase())) return null;
+  if (path.length > prefix.length && path[prefix.length] !== "\\" && path[prefix.length] !== "/") return null;
   const rest = path.slice(prefix.length).replace(/\\/g, "/");
   return rest || "/";
 }

@@ -191,6 +191,19 @@ function NewProfileDialog({ onClose }: { onClose: () => void }) {
 export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | null, cli: AgentCli) => void }) {
   // A focus listener is already waiting: one refresh covers every login click.
   const loginFocusArmedRef = useRef(false);
+  // Default-profile CLIs whose login was started since the listener was armed
+  // - each needs its own status re-read when the user comes back.
+  const pendingDefaultClisRef = useRef(new Set<AgentCli>());
+  const loginFocusHandlerRef = useRef<(() => void) | null>(null);
+
+  // Don't leave the window listener behind if the page closes mid-login.
+  useEffect(() => {
+    return () => {
+      if (loginFocusHandlerRef.current) window.removeEventListener("focus", loginFocusHandlerRef.current);
+      loginFocusHandlerRef.current = null;
+      loginFocusArmedRef.current = false;
+    };
+  }, []);
   const { t } = useI18n();
   const confirm = useConfirmDialog();
   const { profiles, default_logged_in } = useProfiles();
@@ -247,17 +260,19 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | n
    * user comes back to this window. */
   function handleLogin(profileId: string | null, cli: AgentCli) {
     onLogin?.(profileId, cli);
+    if (profileId === null) pendingDefaultClisRef.current.add(cli);
     if (loginFocusArmedRef.current) return;
     loginFocusArmedRef.current = true;
-    window.addEventListener(
-      "focus",
-      () => {
-        loginFocusArmedRef.current = false;
-        void refreshProfiles();
-        if (profileId === null) void defaultCliStatus(cli, true);
-      },
-      { once: true },
-    );
+    const onFocus = () => {
+      window.removeEventListener("focus", onFocus);
+      loginFocusHandlerRef.current = null;
+      loginFocusArmedRef.current = false;
+      void refreshProfiles();
+      for (const c of pendingDefaultClisRef.current) void defaultCliStatus(c, true);
+      pendingDefaultClisRef.current.clear();
+    };
+    loginFocusHandlerRef.current = onFocus;
+    window.addEventListener("focus", onFocus);
   }
 
   async function handleLogout(profileId: string | null, profileName: string, cli: AgentCli) {

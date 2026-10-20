@@ -27,7 +27,7 @@ export const cliOfPlugin = (pluginId: string): AgentCli | undefined => AGENT_CLI
 /** Short display name; the raw id for a CLI this build doesn't know. */
 export const cliName = (cli: string): string => CLI_INFO[cli as AgentCli]?.name ?? cli;
 
-export interface CliStatus {
+interface CliStatus {
   installed: boolean;
   logged_in: boolean;
 }

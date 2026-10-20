@@ -42,6 +42,11 @@ const COMPARED_FIELDS: (keyof AgentSession)[] = [
   "tab_id",
   "window",
   "cwd",
+  "pid",
+  "cli_label",
+  "started_at",
+  "tab_label",
+  "tab_cwd",
 ];
 
 function sameSessions(a: AgentSession[], b: AgentSession[]): boolean {

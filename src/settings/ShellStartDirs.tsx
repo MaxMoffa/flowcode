@@ -26,7 +26,10 @@ function ShellStartDirRow({ option }: { option: ShellOption }) {
   const saved = shellStartPaths[key] ?? "";
   const [customMode, setCustomMode] = useState(saved !== "");
   const [draft, setDraft] = useState(saved);
-  const [valid, setValid] = useState<boolean | null>(null);
+  // The verdict is tied to the draft it was computed for, so a newer draft
+  // never inherits it for the render before the validate effect resets it.
+  const [checked, setChecked] = useState<{ path: string; ok: boolean } | null>(null);
+  const valid = checked && checked.path === draft ? checked.ok : null;
 
   // Cleared from outside the row - "Ripristina impostazioni" on this page.
   useEffect(() => {
@@ -36,12 +39,12 @@ function ShellStartDirRow({ option }: { option: ShellOption }) {
   }, [saved]);
 
   useEffect(() => {
-    setValid(null);
+    setChecked(null);
     if (!customMode || !draft) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       void isValidStartDir(isWsl, draft).then((ok) => {
-        if (!cancelled) setValid(ok);
+        if (!cancelled) setChecked({ path: draft, ok });
       });
     }, 300);
     return () => {

@@ -43,6 +43,8 @@ const POLL_MS = 4000;
 const HIDDEN_POLL_MS = 15000;
 // Failed polls in a row before the panel stops saying "Loading".
 const FAIL_LIMIT = 2;
+// How long a folder known not to be a repository skips `git rev-parse` (a `git init` shows up within this).
+const NO_REPO_RECHECK_MS = 30_000;
 
 const icons = {
   branch: (
@@ -117,15 +119,22 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
   // a failure.
   const topRef = useRef<{ cwd: string; top: string } | null>(null);
   const failRef = useRef(0);
+  // The folder known not to be in a repository: the 4 s / 15 s polls skip it
+  // for up to 30 s instead of spawning `git rev-parse` each time. Cleared by a
+  // folder change, a manual refresh, a window focus or a finished action.
+  const noRepoRef = useRef<{ cwd: string; at: number } | null>(null);
 
   const refresh = useCallback(
     async (force = false) => {
+      if (force) noRepoRef.current = null;
+      if (noRepoRef.current?.cwd === cwd && Date.now() - noRepoRef.current.at < NO_REPO_RECHECK_MS) return;
       const id = ++requestRef.current;
       let top: string | null = !force && topRef.current?.cwd === cwd ? topRef.current.top : null;
       if (!top) {
         top = await gitToplevel(cwd).catch(() => null);
         if (id !== requestRef.current) return;
         topRef.current = top ? { cwd, top } : null;
+        noRepoRef.current = top ? null : { cwd, at: Date.now() };
       }
       setRoot(top);
       if (!top) {
@@ -165,6 +174,7 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
     setMessage("");
     lastJson.current = "";
     topRef.current = null;
+    noRepoRef.current = null;
     failRef.current = 0;
   }, [cwd]);
 
@@ -173,7 +183,10 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
   useEffect(() => {
     void refresh();
     if (!visible) return;
-    const onFocus = () => void refresh();
+    const onFocus = () => {
+      noRepoRef.current = null;
+      void refresh();
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [visible, refresh]);
@@ -217,7 +230,9 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
   const total = staged.length + conflicts.length + changes.length;
   // No status (loading, not a repository, failing) reports 0, which hides the badge.
   const reported = status ? total : 0;
-  useEffect(() => onCountChange(reported), [reported, onCountChange]);
+  useEffect(() => {
+    onCountChange(reported);
+  }, [reported, onCountChange]);
 
   async function run(action: () => Promise<unknown>) {
     setError(null);
@@ -226,6 +241,7 @@ export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }
     } catch (e) {
       setError(t("git.error", { error: String(e) }));
     }
+    noRepoRef.current = null;
     await refresh();
   }
 

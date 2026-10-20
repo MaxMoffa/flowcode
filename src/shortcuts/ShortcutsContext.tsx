@@ -60,22 +60,34 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const commit = useCallback((next: ShortcutMap) => {
-    setShortcuts(next);
-    saveShortcutOverrides(diffFromDefaults(next, defaultsRef.current)).catch(() => {});
+  // Set by the user's own edits, so loading the saved overrides doesn't
+  // write them straight back.
+  const editedRef = useRef(false);
+
+  // Functional updaters: two edits in the same tick both land instead of the
+  // second overwriting the first with a stale `shortcuts`.
+  const update = useCallback((change: (prev: ShortcutMap) => ShortcutMap) => {
+    editedRef.current = true;
+    setShortcuts(change);
   }, []);
+
+  // Persisting lives in an effect, not in the updater (StrictMode runs those twice).
+  useEffect(() => {
+    if (!editedRef.current) return;
+    saveShortcutOverrides(diffFromDefaults(shortcuts, defaultsRef.current)).catch(() => {});
+  }, [shortcuts]);
 
   const value = useMemo<ShortcutsValue>(
     () => ({
       shortcuts,
       defaults,
-      setShortcut: (action, combo) => commit({ ...shortcuts, [action]: combo }),
-      resetShortcut: (action) => commit({ ...shortcuts, [action]: defaults[action] ?? "" }),
-      resetAll: () => commit({ ...defaults }),
+      setShortcut: (action, combo) => update((prev) => ({ ...prev, [action]: combo })),
+      resetShortcut: (action) => update((prev) => ({ ...prev, [action]: defaultsRef.current[action] ?? "" })),
+      resetAll: () => update(() => ({ ...defaultsRef.current })),
       suspended,
       setSuspended,
     }),
-    [shortcuts, defaults, suspended, commit],
+    [shortcuts, defaults, suspended, update],
   );
 
   return <ShortcutsCtx.Provider value={value}>{children}</ShortcutsCtx.Provider>;

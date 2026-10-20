@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icons } from "../app/icons";
 import { useI18n } from "../i18n";
 import { useTerminalSettings } from "./TerminalSettingsContext";
@@ -37,8 +37,14 @@ export function ZoomRow({ tabId }: { tabId: string }) {
   // real size on Escape or on unparsable input.
   const [draft, setDraft] = useState(String(size));
   useEffect(() => setDraft(String(size)), [size]);
+  // Escape blurs the input, and that blur must not commit the stale draft.
+  const cancelRef = useRef(false);
 
   function commit() {
+    if (cancelRef.current) {
+      cancelRef.current = false;
+      return;
+    }
     const parsed = parseInt(draft, 10);
     if (Number.isFinite(parsed)) setTabFontSize(tabId, parsed);
     else setDraft(String(size));
@@ -71,6 +77,7 @@ export function ZoomRow({ tabId }: { tabId: string }) {
             } else if (e.key === "Escape") {
               e.stopPropagation();
               setDraft(String(size));
+              cancelRef.current = true;
               e.currentTarget.blur();
             }
           }}

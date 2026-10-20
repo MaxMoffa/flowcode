@@ -270,7 +270,14 @@ export function FileTree({
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
+  // Re-reads when the panel is shown again; the first run is skipped because
+  // the cwd effect below already loads on mount.
+  const visibleMountedRef = useRef(false);
   useEffect(() => {
+    if (!visibleMountedRef.current) {
+      visibleMountedRef.current = true;
+      return;
+    }
     if (visible) reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
@@ -361,6 +368,14 @@ export function FileTree({
   function toggleShowHidden() {
     setShowHidden((prev) => !prev);
   }
+
+  // The old folder's rows must not stay clickable while the new listing is
+  // loading (a click would navigate relative to the wrong folder): back to the
+  // "loading" state until read_dir answers.
+  useEffect(() => {
+    setEntries(null);
+    setSelected(null);
+  }, [cwd]);
 
   useEffect(() => {
     setCreating(null);

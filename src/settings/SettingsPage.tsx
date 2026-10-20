@@ -162,14 +162,18 @@ export function SettingsPage({
   // (which was only rendered when a draft already existed) never appeared.
   const [customPathMode, setCustomPathMode] = useState(startPath !== "");
   const [startPathDraft, setStartPathDraft] = useState(startPath);
-  const [startPathValid, setStartPathValid] = useState<boolean | null>(null);
+  // Which draft the verdict is for: a render with a newer draft can see the
+  // previous verdict for one pass (effects run after render), so the commit
+  // effect compares `path` instead of trusting a bare boolean.
+  const [startPathChecked, setStartPathChecked] = useState<{ path: string; ok: boolean } | null>(null);
+  const startPathValid = startPathChecked && startPathChecked.path === startPathDraft ? startPathChecked.ok : null;
   const startPathCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Re-validates on every keystroke (debounced) - `null` while unchecked, so
   // the commit effect below never mistakes "haven't verified yet" for
   // "verified valid".
   useEffect(() => {
-    setStartPathValid(null);
+    setStartPathChecked(null);
     if (!startPathDraft) return;
     if (startPathCheckTimer.current) clearTimeout(startPathCheckTimer.current);
     // A slow result for an older draft must not validate a newer one.
@@ -177,10 +181,10 @@ export function SettingsPage({
     startPathCheckTimer.current = setTimeout(() => {
       invoke<boolean>("is_directory", { path: startPathDraft })
         .then((ok) => {
-          if (!cancelled) setStartPathValid(ok);
+          if (!cancelled) setStartPathChecked({ path: startPathDraft, ok });
         })
         .catch(() => {
-          if (!cancelled) setStartPathValid(false);
+          if (!cancelled) setStartPathChecked({ path: startPathDraft, ok: false });
         });
     }, 300);
     return () => {

@@ -22,20 +22,25 @@ export function useNarrowLayout({
   agentsSidebarOpen,
   setAgentsSidebarOpen,
 }: NarrowLayoutInput) {
-  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  // Booleans, not the raw width: React bails out of the re-render when a
+  // resize frame doesn't cross a breakpoint.
+  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_BREAKPOINT);
+  const [autoFloats, setAutoFloats] = useState(() => window.innerWidth < SIDEBAR_AUTO_BREAKPOINT);
   useEffect(() => {
-    const onResize = () => setWindowWidth(window.innerWidth);
+    const onResize = () => {
+      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+      setAutoFloats(window.innerWidth < SIDEBAR_AUTO_BREAKPOINT);
+    };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const isNarrow = windowWidth < NARROW_BREAKPOINT;
   // Narrow windows have no room to dock a panel next to the terminal, so the
   // sidebar floats whatever its configured mode.
   const effectiveSidebarMode: "docked" | "floating" = isNarrow
     ? "floating"
     : sidebarMode === "auto"
-      ? windowWidth < SIDEBAR_AUTO_BREAKPOINT
+      ? autoFloats
         ? "floating"
         : "docked"
       : sidebarMode;

@@ -11,6 +11,7 @@ import { gitRepoRoot, gitWorktreeAdd, gitWorktrees, isWorktreeCapable, type GitW
 import { inProject, keepIfSame } from "./agentScope";
 import type { ClaudeAgentEntry, CodexSessionEntry, SavedSession, VibeSessionEntry } from "./entryTypes";
 import { formatElapsed } from "../lib/time";
+import { useSecondTick } from "../lib/useSecondTick";
 import { TerminalIcon } from "../app/icons";
 import { NewAgentMenu } from "./NewAgentMenu";
 import { WorktreesSection } from "./WorktreesSection";
@@ -30,13 +31,7 @@ const SCOPES = ["project", "all"] as const;
 /** A live duration label: ticks on its own, so the rest of the sidebar isn't
  * re-rendered every second for it. */
 function Elapsed({ since, ago }: { since: number; ago?: boolean }) {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") setTick((n) => n + 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+  useSecondTick();
   const duration = formatElapsed(since);
   return <>{ago ? t("agents.ago", { duration }) : duration}</>;
 }
@@ -300,7 +295,6 @@ export function AgentsSidebar({
   // Without a project in front there's nothing to narrow to: show everything,
   // but keep the saved choice for when a terminal is back in front.
   const projectScope = scope === "project" && !!projectCwd && !newTabPage;
-  const projectReady = projectScope && !!projectCwd;
   // Every worktree of the repo counts as the project (the repo root too, even
   // when the active tab sits in a subfolder of it).
   const projectRoots = repoRoot
@@ -356,10 +350,10 @@ export function AgentsSidebar({
     projectLiveCodexElsewhere.length;
   const allCount = localRows.length + otherWindowRows.length + backgroundClaudeAgents.length + liveCodexElsewhere.length;
 
-  const shownLocalRows = projectScope ? (projectReady ? projectLocalRows : []) : localRows;
-  const shownOtherWindowRows = projectScope ? (projectReady ? projectOtherWindowRows : []) : otherWindowRows;
-  const shownBackgroundClaudeAgents = projectScope ? (projectReady ? projectBackgroundClaudeAgents : []) : backgroundClaudeAgents;
-  const shownLiveCodexElsewhere = projectScope ? (projectReady ? projectLiveCodexElsewhere : []) : liveCodexElsewhere;
+  const shownLocalRows = projectScope ? projectLocalRows : localRows;
+  const shownOtherWindowRows = projectScope ? projectOtherWindowRows : otherWindowRows;
+  const shownBackgroundClaudeAgents = projectScope ? projectBackgroundClaudeAgents : backgroundClaudeAgents;
+  const shownLiveCodexElsewhere = projectScope ? projectLiveCodexElsewhere : liveCodexElsewhere;
   const listedSavedSessions = projectScope ? [] : savedSessions;
 
   // Saved sessions are only a way back into an old chat: the latest few are

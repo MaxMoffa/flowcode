@@ -16,12 +16,12 @@ export function useReportTabs(
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
     const report = () => {
-      const reported = latestRef.current.tabs
-        .filter((t): t is TermTab => t.kind === "terminal")
-        .map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd }));
+      const tabsNow = latestRef.current.tabs.filter((t): t is TermTab => t.kind === "terminal");
+      const reported = tabsNow.map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd }));
       invoke("window_report_tabs", { tabs: reported }).catch(() => {});
-      // Retried only while some tab's shell hasn't spawned yet.
-      if (timer !== undefined && reported.every((r) => r.pty_id !== null)) {
+      // Retried only while some tab's shell hasn't spawned yet (a tab still
+      // on the New Tab page has none to wait for).
+      if (timer !== undefined && reported.every((r, i) => r.pty_id !== null || tabsNow[i].newTab)) {
         clearInterval(timer);
         timer = undefined;
       }

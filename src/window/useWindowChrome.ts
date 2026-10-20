@@ -66,13 +66,12 @@ export function useWindowChrome() {
       }
     };
     updateMaximizedState();
+    // onMoved/onResized fire every frame while dragging, and each read is
+    // several IPC calls: read once things settle (which also covers Windows
+    // Snap's animation into place).
     const recheck = () => {
-      updateMaximizedState();
-      // Windows Snap animates the window into place - re-check once the
-      // animation has almost certainly settled, in case the event fired
-      // mid-animation and read a not-yet-final position.
       if (recheckTimer) clearTimeout(recheckTimer);
-      recheckTimer = setTimeout(updateMaximizedState, 250);
+      recheckTimer = setTimeout(updateMaximizedState, 150);
     };
     // `onMoved` as well as `onResized`: snapping from one half to the other
     // (or dragging a full-height window onto another monitor) changes the

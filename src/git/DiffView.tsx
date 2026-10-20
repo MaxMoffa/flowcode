@@ -96,6 +96,13 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
     };
   }, [root, path, staged, hidden]);
 
+  // The view is rebuilt whenever the text changes (a poll that found an edit):
+  // carry the scroll position over, but start at the top for another file.
+  const scrollTopRef = useRef(0);
+  useEffect(() => {
+    scrollTopRef.current = 0;
+  }, [root, path, staged]);
+
   useEffect(() => {
     if (!sides || !hostRef.current) return;
     const view = new EditorView({
@@ -112,7 +119,12 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
         ],
       }),
     });
-    return () => view.destroy();
+    view.scrollDOM.scrollTop = scrollTopRef.current;
+    return () => {
+      // A hidden (display:none) view reports 0 - keep the last real position.
+      if (view.scrollDOM.clientHeight > 0) scrollTopRef.current = view.scrollDOM.scrollTop;
+      view.destroy();
+    };
   }, [sides, name]);
 
   return (

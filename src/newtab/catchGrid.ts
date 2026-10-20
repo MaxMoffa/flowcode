@@ -5,11 +5,11 @@ import { MOUTH, sceneBounds, sceneRgb, toWorld, tongueTip } from "./frog3d";
 
 /** The terminal's font (see Terminal.tsx) - the page's banner and prompt are
  * set in it so they line up cell for cell with what replaces them. */
-export const TERM_FONT = "Menlo, Consolas, monospace";
+const TERM_FONT = "Menlo, Consolas, monospace";
 /** What a terminal's columns leave out of its width: `.terminal-container`'s
  * horizontal padding (terminal.css) and the scrollbar FitAddon reserves. */
-export const TERM_GUTTER_X = 28 + 14;
-export interface Segment {
+const TERM_GUTTER_X = 28 + 14;
+interface Segment {
   text: string;
   style: CSSProperties;
 }
@@ -98,7 +98,7 @@ export interface CatchGrid {
 }
 
 /** A cell column / pixel row (two per cell row) in the frog's drawing units. */
-export const toUnits = (g: CatchGrid, col: number, pixelRow: number) => ({
+const toUnits = (g: CatchGrid, col: number, pixelRow: number) => ({
   x: FROG_BOX.x + (col - g.frogAt.col + 0.5) * UNIT_X,
   y: FROG_BOX.y + (pixelRow - 2 * g.frogAt.top + 0.5) * UNIT_Y,
 });

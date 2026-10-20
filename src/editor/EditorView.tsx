@@ -116,12 +116,16 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   }, []);
 
   // A clean buffer follows the file when it changes on disk (an agent edited
-  // it): checked whenever the window regains focus.
+  // it): checked whenever the window regains focus. A hidden (display:none)
+  // editor skips the check and catches up when it is shown again.
+  const hiddenRef = useRef(!!hidden);
+  hiddenRef.current = !!hidden;
+  const syncFromDiskRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     let checking = false;
     const syncFromDisk = async () => {
       const view = cmViewRef.current;
-      if (checking || !view || dirtyRef.current) return;
+      if (checking || !view || dirtyRef.current || hiddenRef.current) return;
       checking = true;
       try {
         const onDisk = await invoke<string>("read_text_file", { path: pathRef.current });
@@ -136,9 +140,21 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
         checking = false;
       }
     };
+    syncFromDiskRef.current = syncFromDisk;
     window.addEventListener("focus", syncFromDisk);
     return () => window.removeEventListener("focus", syncFromDisk);
   }, []);
+
+  // Shown again: pick up what changed on disk meanwhile. The first run is
+  // skipped - mounting already loads the file.
+  const shownOnceRef = useRef(false);
+  useEffect(() => {
+    if (!shownOnceRef.current) {
+      shownOnceRef.current = true;
+      return;
+    }
+    if (!hidden) void syncFromDiskRef.current();
+  }, [hidden]);
 
   useImperativeHandle(
     ref,

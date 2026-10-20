@@ -1,6 +1,6 @@
 import { readString, writeString } from "./storage";
 
-export interface ListStore<T> {
+interface ListStore<T> {
   /** The cached list - the same reference until something changes, as
    * `useSyncExternalStore`'s `getSnapshot` requires. */
   get: () => T[];

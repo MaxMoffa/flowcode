@@ -17,7 +17,7 @@ export interface TabTransfer {
 
 /** What a window opened by `window_open` (src-tauri/src/windows.rs) starts
  * with. */
-export type WindowInit = { kind: "adopt"; transfer: TabTransfer } | { kind: "restore"; window: SavedWindow };
+type WindowInit = { kind: "adopt"; transfer: TabTransfer } | { kind: "restore"; window: SavedWindow };
 
 /** Mirrors `CursorTarget` in src-tauri/src/windows.rs. */
 export interface CursorTarget {

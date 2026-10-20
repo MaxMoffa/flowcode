@@ -5,7 +5,7 @@
 const PROFILE_CLIS = ["claude", "codex", "vibe", "gemini"] as const;
 type ProfileCli = (typeof PROFILE_CLIS)[number];
 
-export type ProfileOp =
+type ProfileOp =
   | { op: "create"; name: string; color: string; copySettings: boolean }
   | { op: "update"; id: string; name: string; color: string }
   | { op: "delete"; id: string; deleteFiles: boolean }

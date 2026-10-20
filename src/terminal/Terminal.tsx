@@ -133,6 +133,9 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // Set once this tab's session has been handed to another window - its pty
   // must then outlive this view.
   const releasedRef = useRef(false);
+  // Bumped by every run of the mount effect: under StrictMode a dev remount
+  // re-attaches the same pty, so an older run must not kill it.
+  const mountGenRef = useRef(0);
   const runOnStartRef = useRef(runOnStart);
   const typeOnStartRef = useRef(typeOnStart);
   const onAnchorRef = useRef(onAnchor);
@@ -586,7 +589,20 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   }, [fontSize]);
 
   useEffect(() => {
-    if (!hidden) requestAnimationFrame(refit);
+    if (hidden) return;
+    const id = requestAnimationFrame(() => {
+      refit();
+      // A display:none textarea loses focus, so switching back to this tab
+      // would otherwise need a click before typing - unless focus already
+      // went somewhere that wants it (e.g. the tab rename input).
+      const active = document.activeElement;
+      const typingElsewhere =
+        active instanceof HTMLElement &&
+        (active.isContentEditable || active.tagName === "INPUT" || active.tagName === "TEXTAREA") &&
+        !containerRef.current?.contains(active);
+      if (!typingElsewhere) xtermRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
   }, [hidden]);
 
   useEffect(() => {
@@ -672,6 +688,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     });
 
     let disposed = false;
+    const mountGen = ++mountGenRef.current;
 
     // Any parsed output or reflow makes the cached session snapshot stale.
     const cache = serializeCacheRef.current;
@@ -736,7 +753,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     const dataDisposable = term.onData((data) => {
       if (!TERMINAL_REPORT.test(data)) usedRef.current = true;
       const id = ptyIdRef.current;
-      if (!id) {
+      // Still queued input goes first, so nothing typed now overtakes it.
+      if (!id || pendingInput.length > 0) {
         pendingInput.push(data);
         return;
       }
@@ -782,7 +800,12 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         },
       })
         .then(() => {
-          if (disposed) return;
+          // Closed while attaching: nothing else will ever kill it - unless
+          // a remount (StrictMode) took it over or it was handed on again.
+          if (disposed) {
+            if (mountGenRef.current === mountGen && !releasedRef.current) killPty(attached.ptyId);
+            return;
+          }
           ptyIdRef.current = attached.ptyId;
           onPtyReadyRef.current?.();
           // The tab may have moved while a phone had it open: that phone's

@@ -28,12 +28,23 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
     if (!dragging) return;
     setLayoutDragging(true);
 
+    let raf = 0;
+    let next = 0;
     function onMove(e: PointerEvent) {
       const delta = e.clientX - startXRef.current;
       const signedDelta = handleSide === "right" ? delta : -delta;
-      setWidth(Math.max(min, Math.min(max, startWidthRef.current + signedDelta)));
+      next = Math.max(min, Math.min(max, startWidthRef.current + signedDelta));
+      if (!raf) raf = requestAnimationFrame(() => {
+        raf = 0;
+        setWidth(next);
+      });
     }
     function onUp() {
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+        setWidth(next);
+      }
       setDragging(false);
     }
     window.addEventListener("pointermove", onMove);

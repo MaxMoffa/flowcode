@@ -32,17 +32,28 @@ async function recheck() {
   }
 }
 
+// The window list only changes when windows open or close, so a hidden window
+// (minimized, behind another) needn't ask for it every few seconds: it
+// re-checks once when it becomes visible again.
+function onVisibilityChange() {
+  if (!document.hidden) void recheck();
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   if (listeners.size === 1) {
     void recheck();
-    timer = setInterval(() => void recheck(), RECHECK_MS);
+    timer = setInterval(() => {
+      if (!document.hidden) void recheck();
+    }, RECHECK_MS);
+    document.addEventListener("visibilitychange", onVisibilityChange);
   }
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0 && timer) {
       clearInterval(timer);
       timer = null;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     }
   };
 }
