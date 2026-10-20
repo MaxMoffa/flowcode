@@ -6,7 +6,7 @@
 export type AgentStatus = "busy" | "idle" | "waiting";
 
 /** How full an agent's context window is (tokens). */
-export interface TabContext {
+interface TabContext {
   used: number;
   window: number;
   model?: string;
@@ -86,7 +86,7 @@ export type ProfileAction =
   | { op: "login"; id: string; cli: ProfileCli }
   | { op: "logout"; id: string; cli: ProfileCli };
 
-export interface MirroredPalette {
+interface MirroredPalette {
   id: string;
   name: string;
   bg: string;
@@ -136,7 +136,7 @@ export type SettingKey =
  * Features a desktop advertises in `ready.caps` (Rust: `CAPABILITIES` in
  * remote-proto/src/lib.rs). A desktop that sends no `caps` is an old one.
  */
-export type RemoteCap = "rename" | "profiles" | "profileLogin" | "profileAgents" | "newTabProfile" | "background" | "gemini";
+export type RemoteCap = "rename" | "profiles" | "profileLogin" | "profileAgents" | "newTabProfile" | "background" | "gemini" | "closeTab";
 
 export type ServerMsg =
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -163,6 +163,8 @@ export type ClientMsg =
   | { t: "action"; id: string; ptyId?: string }
   /** Renames the desktop tab showing `ptyId`. */
   | { t: "rename"; ptyId: string; label: string }
+  /** Closes the desktop tab showing `ptyId` (not the last one of its window). */
+  | { t: "closetab"; ptyId: string }
   | { t: "ls"; ptyId: string; path?: string }
   | { t: "read"; ptyId: string; path: string }
   | { t: "set"; key: SettingKey; value: unknown }

@@ -230,6 +230,12 @@ impl WindowTabs {
             })
             .collect()
     }
+
+    /// The working folder of the tab showing a pty session, if any.
+    pub fn cwd_of(&self, pty_id: &str) -> Option<String> {
+        let windows = lock(&self.0);
+        windows.values().flatten().find(|t| t.pty_id.as_deref() == Some(pty_id)).map(|t| t.cwd.clone())
+    }
 }
 
 #[tauri::command]

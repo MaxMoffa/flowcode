@@ -676,6 +676,7 @@ function Shell() {
   /** The phone asked for a new terminal tab (see useRemoteWindowEvents). */
   const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>(() => {});
   const remoteRenameRef = useRef<(ptyId: string, label: string) => void>(() => {});
+  const remoteCloseRef = useRef<(ptyId: string) => void>(() => {});
   const remoteLoginTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
@@ -1226,6 +1227,7 @@ function Shell() {
     remoteProfileLoginRef,
     remoteNewTabRef,
     remoteRenameRef,
+    remoteCloseRef,
   });
 
   /** Everything the receiving window needs to rebuild `tab` - for a terminal
@@ -1741,11 +1743,15 @@ function Shell() {
   const terminalTabs = useMemo(() => tabs.filter((t): t is TermTab => t.kind === "terminal"), [tabs]);
 
   // The quick actions a paired phone may trigger.
-  const remoteActionsKey = JSON.stringify(
-    quickActionIds.flatMap((id) => {
-      const plugin = allPlugins.find((p) => p.id === id);
-      return plugin && isPhoneAction(plugin.action) ? [{ id, label: plugin.label, icon: plugin.icon, cli: PROFILE_CLI[id] }] : [];
-    }),
+  const remoteActionsKey = useMemo(
+    () =>
+      JSON.stringify(
+        quickActionIds.flatMap((id) => {
+          const plugin = allPlugins.find((p) => p.id === id);
+          return plugin && isPhoneAction(plugin.action) ? [{ id, label: plugin.label, icon: plugin.icon, cli: PROFILE_CLI[id] }] : [];
+        }),
+      ),
+    [quickActionIds, allPlugins],
   );
   const remoteLeader = useRemoteLeader();
   useEffect(() => {
@@ -2183,6 +2189,14 @@ function Shell() {
       if (h.getPtyId() === ptyId) tabId = id;
     }
     if (tabId) renameTab(tabId, label);
+  };
+  remoteCloseRef.current = (ptyId) => {
+    let tabId: string | undefined;
+    for (const [id, h] of termRefs.current) {
+      if (h.getPtyId() === ptyId) tabId = id;
+    }
+    // Closing the window's last tab would close the window: not from a phone.
+    if (tabId && latestRef.current.tabs.length > 1) void closeTab(tabId);
   };
   remoteActionRef.current = (id, ptyId) => {
     const plugin = quickActionIds.includes(id) ? allPlugins.find((p) => p.id === id) : undefined;

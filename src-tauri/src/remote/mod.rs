@@ -84,9 +84,7 @@ const OUT_RESERVE: usize = 64;
 /// Frames from the phone queued before the connection loop gets to them. A
 /// phone that outruns this is hung up on.
 const IN_QUEUE: usize = 256;
-/// Keystroke messages queued per pty (each up to `MAX_INPUT_BYTES`).
-const INPUT_QUEUE: usize = 64;
-/// Terminals one connection may have open (and, by extension, be typing into).
+/// Terminals one connection may have open.
 const MAX_SUBS: usize = 64;
 /// How long a pty keeps the phone's size after the last phone stopped sizing
 /// it, so a reattach or reconnect doesn't resize it back and forth.
@@ -118,33 +116,16 @@ const EVT_PAIR_CANCEL: &str = "remote://pair-cancel";
 const EVT_SUBMIT: &str = "remote://submit";
 /// `{ptyId, label}`: a phone renamed the tab showing that pty, to its owner window.
 const EVT_RENAME_TAB: &str = "remote://rename-tab";
+/// `{ptyId}`: a phone closed the tab showing that pty, to its owner window.
+const EVT_CLOSE_TAB: &str = "remote://close-tab";
 /// How long the user has to confirm a new phone on the desktop. The phone
 /// waits longer for its reply (see mobile/src-tauri/src/link.rs).
 const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
 /// A known phone connecting again within this long of its last connection
 /// doesn't raise another notification.
 const CONNECT_NOTIFY_QUIET: Duration = Duration::from_secs(10 * 60);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/// See `Conn::input_error_at`.
+const INPUT_ERROR_QUIET: Duration = Duration::from_secs(3);
 
 // ---- shared state --------------------------------------------------------
 
@@ -1289,9 +1270,9 @@ async fn run_connection(
         out_tx,
         overflow: AtomicBool::new(false),
         subs: HashMap::new(),
-        inputs: HashMap::new(),
         last_tabs: Vec::new(),
         background: false,
+        input_error_at: None,
     };
     if let Some(token) = token {
         conn.send(ServerMsg::Paired { token, device_name: device.name.clone() });
@@ -1404,14 +1385,6 @@ async fn run_connection(
     format!("{why}; QUIC: {quic}")
 }
 
-/// Keystrokes for one pty: a queue and a worker so they reach it in order.
-/// Each write can block, so it runs on the blocking pool - and being per pty,
-/// a stuck program stalls only its own tab's input.
-struct InputWorker {
-    tx: mpsc::Sender<String>,
-    task: tokio::task::JoinHandle<()>,
-}
-
 struct Conn {
     shared: Arc<Shared>,
     id: u64,
@@ -1421,10 +1394,12 @@ struct Conn {
     overflow: AtomicBool,
     /// pty id -> the task streaming it to this client.
     subs: HashMap<String, tokio::task::JoinHandle<()>>,
-    inputs: HashMap<String, InputWorker>,
     last_tabs: Vec<Tab>,
     /// The phone said it is in the background: only notifications go out.
     background: bool,
+    /// The last input error reported (pty id, when): repeats for the same pty
+    /// are held back for `INPUT_ERROR_QUIET`, or each keystroke would toast.
+    input_error_at: Option<(String, Instant)>,
 }
 
 impl Conn {
@@ -1447,9 +1422,6 @@ impl Conn {
         for pty_id in ended {
             self.subs.remove(&pty_id);
             self.shared.release_size(&pty_id, self.id);
-            if let Some(worker) = self.inputs.remove(&pty_id) {
-                worker.task.abort();
-            }
         }
     }
 
@@ -1457,9 +1429,6 @@ impl Conn {
     fn shutdown(&mut self) {
         for (_, task) in self.subs.drain() {
             task.abort();
-        }
-        for (_, worker) in self.inputs.drain() {
-            worker.task.abort();
         }
     }
 
@@ -1499,31 +1468,19 @@ impl Conn {
         }
     }
 
-    /// Queues keystrokes for `pty_id`, in order. A phone that floods input
-    /// faster than the pty takes it is disconnected.
+    /// Queues keystrokes for `pty_id`, in order. `PtyState::write` only
+    /// enqueues (the session's writer thread does the blocking write), so it
+    /// runs inline; a pty that can't take more (or is gone) is reported.
     fn input(&mut self, pty_id: String, data: String) {
-        if !self.inputs.contains_key(&pty_id) {
-            if self.inputs.len() >= MAX_SUBS {
-                self.error(tr("Troppi terminali", "Too many terminals"), Some(pty_id));
-                return;
-            }
-            let (tx, mut rx) = mpsc::channel::<String>(INPUT_QUEUE);
-            let app = self.shared.app.clone();
-            let target = pty_id.clone();
-            let task = tokio::spawn(async move {
-                while let Some(data) = rx.recv().await {
-                    let (app, target) = (app.clone(), target.clone());
-                    let _ = crate::blocking(move || app.state::<PtyState>().write(&target, &data)).await;
-                }
-            });
-            self.inputs.insert(pty_id.clone(), InputWorker { tx, task });
-        }
-        let Some(worker) = self.inputs.get(&pty_id) else { return };
-        match worker.tx.try_send(data) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => self.overflow.store(true, Ordering::Relaxed),
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                self.inputs.remove(&pty_id);
+        let result = self.shared.app.state::<PtyState>().write(&pty_id, &data);
+        if let Err(message) = result {
+            let recent = self
+                .input_error_at
+                .as_ref()
+                .is_some_and(|(id, at)| *id == pty_id && at.elapsed() < INPUT_ERROR_QUIET);
+            if !recent {
+                self.input_error_at = Some((pty_id.clone(), Instant::now()));
+                self.error(&message, Some(pty_id));
             }
         }
     }
@@ -1564,10 +1521,6 @@ impl Conn {
             ClientMsg::Close { pty_id } => {
                 if let Some(task) = self.subs.remove(&pty_id) {
                     task.abort();
-                }
-                if let Some(worker) = self.inputs.remove(&pty_id) {
-                    // Lets what is queued drain, then the worker ends.
-                    drop(worker.tx);
                 }
                 self.shared.release_size(&pty_id, self.id);
             }
@@ -1615,6 +1568,14 @@ impl Conn {
                 };
                 let payload = serde_json::json!({ "ptyId": pty_id, "label": label });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_RENAME_TAB, payload);
+            }
+            ClientMsg::CloseTab { pty_id } => {
+                let Some(window) = self.shared.app.state::<PtyState>().owner_of(&pty_id) else {
+                    self.error(tr("Terminale non trovato", "Terminal not found"), Some(pty_id));
+                    return;
+                };
+                let payload = serde_json::json!({ "ptyId": pty_id });
+                let _ = self.shared.app.emit_to(window.as_str(), EVT_CLOSE_TAB, payload);
             }
             ClientMsg::NewTab { cwd, cli, profile } => {
                 let cwd = cwd.filter(|c| !c.trim().is_empty());
@@ -1693,7 +1654,7 @@ impl Conn {
     where
         F: FnOnce(&Path, String) -> Result<ServerMsg, String> + Send + 'static,
     {
-        let cwd = self.shared.app.state::<crate::windows::WindowTabs>().by_pty().get(&pty_id).map(|(_, t)| t.cwd.clone());
+        let cwd = self.shared.app.state::<crate::windows::WindowTabs>().cwd_of(&pty_id);
         let out = self.out_tx.clone();
         tauri::async_runtime::spawn(async move {
             let result = match cwd {
@@ -1737,9 +1698,4 @@ mod tests {
         assert_eq!(EndpointTicket::from_str(&parsed.node).unwrap().endpoint_addr(), &addr);
         assert_eq!(parsed.code, "abc");
     }
-
-
-
-
-
 }

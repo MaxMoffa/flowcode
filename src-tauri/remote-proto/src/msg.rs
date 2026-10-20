@@ -32,6 +32,8 @@ pub enum ClientMsg {
     },
     /// Rename the desktop tab showing `pty_id`, as the user would on the desktop. At most 128 bytes; blank is ignored.
     Rename { pty_id: String, label: String },
+    /// Close the desktop tab showing `pty_id`, as the user would on the desktop. The last tab of a window is left open.
+    CloseTab { pty_id: String },
     /// List a directory under the tab's working directory.
     Ls {
         pty_id: String,
@@ -326,5 +328,13 @@ mod tests {
         assert_eq!(msg, ClientMsg::Action { id: "git".into(), pty_id: None });
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"rename","ptyId":"p","label":"x"}"#).unwrap();
         assert_eq!(msg, ClientMsg::Rename { pty_id: "p".into(), label: "x".into() });
+    }
+
+    #[test]
+    fn closetab_round_trips() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"closetab","ptyId":"p"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::CloseTab { pty_id: "p".into() });
+        let json = serde_json::to_value(ClientMsg::CloseTab { pty_id: "p".into() }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "closetab", "ptyId": "p" }));
     }
 }

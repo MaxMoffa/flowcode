@@ -21,20 +21,6 @@ pub fn node_fingerprint(node_id: &str) -> String {
     data_encoding::BASE32_NOPAD.encode(&hash[..5]).chars().take(6).collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::node_fingerprint;
-
-    #[test]
-    fn fingerprint_is_short_stable_and_node_specific() {
-        let a = node_fingerprint("node-a");
-        assert_eq!(a.len(), 6);
-        assert!(a.chars().all(|c| c.is_ascii_uppercase() || ('2'..='7').contains(&c)));
-        assert_eq!(a, node_fingerprint(" node-a "));
-        assert_ne!(a, node_fingerprint("node-b"));
-    }
-}
-
 /// ALPN the desktop's iroh endpoint accepts. The trailing number is the
 /// protocol major version: a breaking change gets a new ALPN so old phones
 /// fail the handshake instead of misreading frames.
@@ -48,7 +34,21 @@ pub const PROTOCOL_VERSION: u32 = 2;
 /// Features this desktop supports, sent in `ready` as `caps`, so the phone
 /// can hide what an older desktop lacks. Keep in step with `RemoteCap` in
 /// shared/remote-types.ts and docs/remote-protocol.md.
-pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini"];
+pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab"];
 
 /// Largest `input` payload (bytes of UTF-8) a client may send in one frame.
 pub const MAX_INPUT_BYTES: usize = 64 * 1024;
+
+#[cfg(test)]
+mod tests {
+    use super::node_fingerprint;
+
+    #[test]
+    fn fingerprint_is_short_stable_and_node_specific() {
+        let a = node_fingerprint("node-a");
+        assert_eq!(a.len(), 6);
+        assert!(a.chars().all(|c| c.is_ascii_uppercase() || ('2'..='7').contains(&c)));
+        assert_eq!(a, node_fingerprint(" node-a "));
+        assert_ne!(a, node_fingerprint("node-b"));
+    }
+}
