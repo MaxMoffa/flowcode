@@ -9,10 +9,10 @@ import { createStore, safeStorage } from "./store";
 import { hostInfoFrom, supports, type HostInfo } from "./compatCheck";
 import { normalizeLoggedIn, normalizeProfiles, normalizeSettings } from "./settingsModel";
 
-import type { Action, ClientMsg, RemoteCap, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
+import type { Action, ChatInfo, ClientMsg, RemoteCap, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
 
 // The wire types live in shared/ (also used by the desktop); screens keep importing them from here.
-export type { Action, LsEntry, MirroredSettings, ProfileCli, ProfileInfo, Tab, UsageItem, UsageMetric } from "../../shared/remote-types";
+export type { Action, ChatInfo, LsEntry, MirroredSettings, ProfileCli, ProfileInfo, Tab, UsageItem, UsageMetric } from "../../shared/remote-types";
 
 export type ConnStatus = "loading" | "unpaired" | "connecting" | "online" | "offline";
 
@@ -34,6 +34,8 @@ interface Snapshot {
   /** A pairing was just made and the link hasn't come online yet: no "connection lost" sheet for that. */
   firstConnect: boolean;
   tabs: Tab[] | null;
+  /** The desktop's chat tabs; null until it sends them (older desktops never do). */
+  chats: ChatInfo[] | null;
   usage: UsageItem[];
   actions: Action[];
   /** The desktop's settings, mirrored; null until it sends them (older desktops never do). */
@@ -89,7 +91,7 @@ export function resetSettingsCache() {
   store.set({ settings: null });
 }
 
-const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, usage: [], actions: [], settings: loadSettings(), profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null, toast: null });
+const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, chats: null, usage: [], actions: [], settings: loadSettings(), profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null, toast: null });
 const msgListeners = new Set<(m: ServerMsg) => void>();
 const set = store.set;
 
@@ -111,6 +113,15 @@ export const dismissCompat = () => set({ compatDismissed: true });
 export function onMessage(l: (m: ServerMsg) => void): () => void {
   msgListeners.add(l);
   return () => void msgListeners.delete(l);
+}
+
+/** Chat tabs whose ChatScreen is on screen now, counted so a chat mounted twice stays shown until both unmount. */
+const shownChatTabs = new Map<string, number>();
+/** A ChatScreen calls this with its chat's tab id on mount (`true`) and again on unmount (`false`). */
+export function setChatTabShown(tabId: string, shown: boolean) {
+  const n = (shownChatTabs.get(tabId) ?? 0) + (shown ? 1 : -1);
+  if (n > 0) shownChatTabs.set(tabId, n);
+  else shownChatTabs.delete(tabId);
 }
 
 let toastId = 0;
@@ -148,6 +159,9 @@ function handleMsg(m: ServerMsg) {
     case "tabs":
       set({ tabs: m.tabs });
       break;
+    case "chats":
+      set({ chats: m.chats });
+      break;
     case "usage":
       set({ usage: m.items });
       break;
@@ -166,8 +180,8 @@ function handleMsg(m: ServerMsg) {
       set({ profiles: normalizeProfiles(m.profiles), defaultLoggedIn: normalizeLoggedIn(m.defaultLoggedIn) });
       break;
     case "notify":
-      // Out of sight, the core shows it as an Android notification instead.
-      if (!document.hidden) showToast(m.body ? `${m.title}: ${m.body}` : m.title);
+      // Out of sight, the core shows it as an Android notification instead; a chat already on screen needs no toast.
+      if (!document.hidden && !(m.tabId !== undefined && shownChatTabs.has(m.tabId))) showToast(m.body ? `${m.title}: ${m.body}` : m.title);
       break;
     case "error":
       // Fatal ones also arrive as a state change; only requests that failed
@@ -212,13 +226,13 @@ async function wire(): Promise<void> {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
-    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, usage: [], actions: [], settings: null, profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null } : {}) });
+    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, chats: null, usage: [], actions: [], settings: null, profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null } : {}) });
   }));
   // Another desktop became the active one: what is shown belongs to the old one.
   unlisteners.push(await listen("remote://computer", () => {
     saveSettings(null);
     pending.clear();
-    set({ wasOnline: false, firstConnect: true, tabs: null, usage: [], actions: [], settings: null, profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null });
+    set({ wasOnline: false, firstConnect: true, tabs: null, chats: null, usage: [], actions: [], settings: null, profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null });
   }));
   // The active desktop refused this phone for good; the core already moved to another saved one.
   unlisteners.push(await listen<{ host: string; message: string }>("remote://revoked", (e) => showToast(t("computerRevoked", { host: e.payload.host, message: e.payload.message }))));
@@ -309,6 +323,12 @@ export function send(msg: ClientMsg) {
   // "not connected" is routine while reconnecting; the UI already shows the reconnect sheet.
   invoke("send", { msg }).catch(() => {});
 }
+
+/** Like `send`, for messages that must not vanish quietly (a chat prompt): false when the link refused it. */
+export const sendChecked = (msg: ClientMsg): Promise<boolean> => invoke("send", { msg }).then(() => true, () => false);
+
+/** The chats now, for code outside React (the chat store reconciles its subscriptions against them). */
+export const currentChats = (): ChatInfo[] | null => store.get().chats;
 
 /** Local changes the desktop hasn't echoed back yet, by setting key. */
 const pending = new Map<SettingKey, { value: unknown; at: number }>();

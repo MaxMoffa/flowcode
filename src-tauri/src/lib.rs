@@ -3,7 +3,9 @@ mod fs;
 mod git;
 mod gpu;
 mod attention;
+mod chat;
 mod context;
+mod dictation;
 mod notify;
 mod plugins;
 mod profiles;
@@ -15,7 +17,9 @@ mod system;
 mod updater;
 mod util;
 mod gemini;
+mod link_preview;
 mod vibe;
+mod view_plugins;
 mod watcher;
 mod windows;
 
@@ -46,6 +50,14 @@ pub fn run() {
     gpu::apply_at_startup();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Serves installed agent view plugins to their sandboxed iframes (see
+        // view_plugins.rs). The app CSP's `frame-src` (tauri.conf.json, which
+        // can't carry comments) names this scheme and nothing else: it governs
+        // both where an iframe may load from and where it may navigate, which
+        // is what stops a view from sending itself off to exfiltrate data.
+        .register_uri_scheme_protocol("flowcode-plugin", |ctx, request| {
+            view_plugins::serve(ctx.app_handle(), &request)
+        })
         .setup(|app| {
             #[cfg(target_os = "windows")]
             {
@@ -79,6 +91,8 @@ pub fn run() {
                 // A closed window takes its terminals with it - nothing is
                 // left to show them in.
                 app.state::<PtyState>().kill_owned_by(label);
+                app.state::<chat::ChatState>().kill_owned_by(label);
+                app.state::<dictation::DictationState>().forget(label);
                 app.state::<session::SessionStore>().forget_window(app, label);
                 app.state::<windows::WindowInits>().forget(label);
                 app.state::<windows::WindowTabs>().forget(label);
@@ -88,6 +102,8 @@ pub fn run() {
             }
         })
         .manage(PtyState::default())
+        .manage(chat::ChatState::default())
+        .manage(dictation::DictationState::default())
         .manage(agents::ProbePids::default())
         .manage(session::SessionStore::default())
         .manage(windows::WindowInits::default())
@@ -104,6 +120,16 @@ pub fn run() {
             pty::pty_kill,
             pty::pty_detach,
             pty::pty_attach,
+            chat::chat_start,
+            chat::chat_prompt,
+            chat::chat_cancel,
+            chat::chat_permission,
+            chat::chat_set_mode,
+            chat::chat_close,
+            chat::chat_events,
+            dictation::dictation_supported,
+            dictation::dictation_start,
+            dictation::dictation_stop,
             session::session_put,
             windows::window_open,
             windows::window_take_init,
@@ -171,9 +197,13 @@ pub fn run() {
             spend::cli_spend,
             context::agent_context,
             plugins::cli_billing_mode,
+            view_plugins::view_plugins_list,
+            view_plugins::view_plugin_install,
+            view_plugins::view_plugin_delete,
             vibe::list_vibe_sessions,
             vibe::vibe_usage_stats,
             vibe::vibe_ensure_model,
+            link_preview::link_preview,
             system::system_info,
             system::open_with_default_app,
             system::wsl_default_distro,

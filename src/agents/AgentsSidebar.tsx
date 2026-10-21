@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { TermTab } from "../tabs/types";
+import type { ChatTab, TermTab } from "../tabs/types";
 import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
 import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
@@ -12,7 +12,7 @@ import { inProject, keepIfSame } from "./agentScope";
 import type { ClaudeAgentEntry, CodexSessionEntry, SavedSession, VibeSessionEntry } from "./entryTypes";
 import { formatElapsed } from "../lib/time";
 import { useSecondTick } from "../lib/useSecondTick";
-import { TerminalIcon } from "../app/icons";
+import { ChatIcon, TerminalIcon } from "../app/icons";
 import { NewAgentMenu } from "./NewAgentMenu";
 import { WorktreesSection } from "./WorktreesSection";
 import { CLI_INFO } from "./cliInfo";
@@ -41,6 +41,9 @@ interface AgentsSidebarProps {
    * separately, and double-clicking one brings that window forward. */
   windowLabel: string;
   tabs: TermTab[];
+  /** The chat tabs of this window: agents hosted as a conversation, listed
+   * with the running ones. */
+  chatTabs: ChatTab[];
   activeTabId: string;
   /** The active terminal tab's folder - the "This project" scope lists the
    * agents working in it or below it. */
@@ -71,8 +74,15 @@ interface AgentsSidebarProps {
   /** Starts an agent in a NEW tab opened in `cwd` (the "+" menu). `shell` is
    * the shell to open it in - absent for a fresh worktree, which is on the
    * host file system. `profileId` is the account profile to run it under
-   * (the default one when absent). */
-  onLaunchAgent: (cli: "claude" | "codex" | "vibe" | "gemini", cwd: string, shell?: string, profileId?: string) => void;
+   * (the default one when absent). `asChat`: open it as a chat tab rather
+   * than in a terminal. */
+  onLaunchAgent: (
+    cli: "claude" | "codex" | "vibe" | "gemini",
+    cwd: string,
+    shell?: string,
+    profileId?: string,
+    asChat?: boolean,
+  ) => void;
   /** Opens a plain terminal tab in a folder (a worktree). */
   onOpenFolder: (cwd: string) => void;
   onClose: () => void;
@@ -109,6 +119,7 @@ function focusOtherWindow(session: AgentSession) {
 export function AgentsSidebar({
   windowLabel,
   tabs,
+  chatTabs,
   activeTabId,
   projectCwd,
   newTabPage,
@@ -252,6 +263,9 @@ export function AgentsSidebar({
   const localRows = (sessions ?? [])
     .map((session) => ({ session, tab: tabs.find((t) => getPtyId(t.id) === session.pty_id) }))
     .filter((row): row is { session: AgentSession; tab: TermTab } => row.tab !== undefined);
+  // Chat tabs have no process to poll: the tab itself reports the status. A
+  // closed one (`exited`) has nothing running to list.
+  const chatRows = chatTabs.filter((tab) => tab.status !== "exited");
   // Agents in tabs of the other Flowcode windows.
   const otherWindowRows = (sessions ?? []).filter(
     (session) => session.window !== null && session.window !== windowLabel && session.tab_id !== null,
@@ -329,6 +343,7 @@ export function AgentsSidebar({
       if (wt) agentCounts.set(wt.path, (agentCounts.get(wt.path) ?? 0) + 1);
     };
     localRows.forEach(({ session, tab }) => countAgent(session.cwd ?? session.tab_cwd ?? tab.cwd));
+    chatRows.forEach((tab) => countAgent(tab.cwd));
     otherWindowRows.forEach((s) => countAgent(s.cwd ?? s.tab_cwd));
     backgroundClaudeAgents.forEach((a) => countAgent(a.cwd));
     liveCodexElsewhere.forEach((s) => countAgent(s.cwd));
@@ -338,6 +353,7 @@ export function AgentsSidebar({
     ({ session, tab }) =>
       inActiveProject(session.cwd, session.wsl_distro) || inActiveProject(session.tab_cwd ?? tab.cwd, session.wsl_distro),
   );
+  const projectChatRows = chatRows.filter((tab) => inActiveProject(tab.cwd, null));
   const projectOtherWindowRows = otherWindowRows.filter(
     (s) => inActiveProject(s.cwd, s.wsl_distro) || inActiveProject(s.tab_cwd, s.wsl_distro),
   );
@@ -345,12 +361,14 @@ export function AgentsSidebar({
   const projectLiveCodexElsewhere = liveCodexElsewhere.filter((s) => inActiveProject(s.cwd, s.wslDistro));
   const projectCount =
     projectLocalRows.length +
+    projectChatRows.length +
     projectOtherWindowRows.length +
     projectBackgroundClaudeAgents.length +
     projectLiveCodexElsewhere.length;
-  const allCount = localRows.length + otherWindowRows.length + backgroundClaudeAgents.length + liveCodexElsewhere.length;
+  const allCount = localRows.length + chatRows.length + otherWindowRows.length + backgroundClaudeAgents.length + liveCodexElsewhere.length;
 
   const shownLocalRows = projectScope ? projectLocalRows : localRows;
+  const shownChatRows = projectScope ? projectChatRows : chatRows;
   const shownOtherWindowRows = projectScope ? projectOtherWindowRows : otherWindowRows;
   const shownBackgroundClaudeAgents = projectScope ? projectBackgroundClaudeAgents : backgroundClaudeAgents;
   const shownLiveCodexElsewhere = projectScope ? projectLiveCodexElsewhere : liveCodexElsewhere;
@@ -364,6 +382,7 @@ export function AgentsSidebar({
   const isEmpty =
     !loading &&
     shownLocalRows.length === 0 &&
+    shownChatRows.length === 0 &&
     shownOtherWindowRows.length === 0 &&
     shownBackgroundClaudeAgents.length === 0 &&
     shownLiveCodexElsewhere.length === 0 &&
@@ -407,16 +426,16 @@ export function AgentsSidebar({
   );
 
   /** Starts `cli` in the project folder, or in a fresh worktree of its repo. */
-  async function launch(cli: "claude" | "codex" | "vibe" | "gemini", inWorktree: boolean, profileId?: string) {
+  async function launch(cli: "claude" | "codex" | "vibe" | "gemini", inWorktree: boolean, profileId?: string, asChat = false) {
     if (!projectCwd) return;
     if (!inWorktree || !repoRoot) {
-      onLaunchAgent(cli, projectCwd, projectShell, profileId);
+      onLaunchAgent(cli, projectCwd, projectShell, profileId, asChat);
       return;
     }
     setCreating(true);
     try {
       const wt = await gitWorktreeAdd(repoRoot, cli);
-      onLaunchAgent(cli, wt.path, undefined, profileId);
+      onLaunchAgent(cli, wt.path, undefined, profileId, asChat);
       void loadRepo();
     } catch (err) {
       setError(t("agents.worktree.addFailed", { message: String(err) }));
@@ -463,7 +482,7 @@ export function AgentsSidebar({
             projectCwd={projectCwd}
             repoRoot={repoRoot}
             worktreeCapable={worktreeCapable}
-            onLaunch={(cli, inWorktree, profileId) => void launch(cli, inWorktree, profileId)}
+            onLaunch={(cli, inWorktree, profileId, asChat) => void launch(cli, inWorktree, profileId, asChat)}
             onClose={() => setMenuOpen(false)}
           />
         )}
@@ -507,6 +526,25 @@ export function AgentsSidebar({
               hint={t("agents.hint.openTab")}
               onOpen={() => onOpenTab(tab.id)}
               action={stopButton(session.pty_id)}
+            />
+          );
+        })}
+        {shownChatRows.map((tab) => {
+          const status = tab.status ?? "starting";
+          return (
+            <AgentRow
+              key={tab.id}
+              cli={tab.agent}
+              name={tab.label}
+              cwd={tab.cwd}
+              terminal={CLI_INFO[tab.agent].label}
+              chat
+              meta={null}
+              profile={profileOf(tab.profileId)}
+              chip={{ kind: status === "busy" || status === "waiting" ? status : "idle", label: statusLabel(status === "starting" ? "idle" : status) }}
+              active={tab.id === activeTabId}
+              hint={t("agents.hint.openTab")}
+              onOpen={() => onOpenTab(tab.id)}
             />
           );
         })}
@@ -633,6 +671,8 @@ interface AgentRowProps {
   terminal?: string;
   /** That tab is in another Flowcode window. */
   otherWindow?: boolean;
+  /** The agent is a chat tab, not a terminal one. */
+  chat?: boolean;
   /** CLI, WSL, how long - the small print after the terminal. */
   meta: ReactNode;
   /** The account profile it runs under - absent for the default one. */
@@ -648,7 +688,7 @@ interface AgentRowProps {
 
 /** One agent: its session name, the folder it works in, and which terminal
  * it runs in. */
-function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, profile, chip, active, background, hint, onOpen, action }: AgentRowProps) {
+function AgentRow({ cli, name, cwd, terminal, otherWindow, chat, meta, profile, chip, active, background, hint, onOpen, action }: AgentRowProps) {
   const { t } = useI18n();
   return (
     <div
@@ -678,7 +718,7 @@ function AgentRow({ cli, name, cwd, terminal, otherWindow, meta, profile, chip, 
               className="agents-sidebar-terminal"
               title={otherWindow ? t("agents.tabOtherWindow") : t("agents.tabHere")}
             >
-              {otherWindow ? <WindowIcon /> : <TerminalIcon size={11} />}
+              {otherWindow ? <WindowIcon /> : chat ? <ChatIcon size={11} /> : <TerminalIcon size={11} />}
               <span className="agents-sidebar-terminal-label">{terminal}</span>
             </span>
           )}

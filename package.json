@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri",
+    "build:view-sdk": "vite build --config sdk/agent-view/vite.config.ts",
     "mobile:vite": "vite --config mobile/vite.config.ts",
     "mobile:vite:build": "vite build --config mobile/vite.config.ts",
     "mobile:dev": "cd mobile && tauri dev",

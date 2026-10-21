@@ -1,0 +1,14 @@
+{
+  "id": "timeline",
+  "kind": "agentView",
+  "apiVersion": 1,
+  "label": "Timeline",
+  "labels": { "it": "Timeline", "en": "Timeline" },
+  "description": "La conversazione come cronologia di attività: piano fissato in alto, un evento per riga con l'orario.",
+  "version": "1.0.0",
+  "author": "Flowcode",
+  "entry": "index.html",
+  "transport": "acp",
+  "devices": ["desktop", "tablet", "phone"],
+  "permissions": ["send", "cancel", "openFile"]
+}

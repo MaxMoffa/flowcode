@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { readBool, readJson, readNumber, readString, usePersistentState, writeBool, writeJson, writeString } from "../lib/storage";
+import type { LinkPreviewMode } from "../../shared/remote-types";
+import { readBool, readEnum, readJson, readNumber, readString, usePersistentState, writeBool, writeJson, writeString } from "../lib/storage";
 import { wslDistroOfShell } from "./wslPath";
 
 const STORAGE_KEY = "flowcode.terminalFontSize";
@@ -10,6 +11,7 @@ const SHELL_START_PATHS_KEY = "flowcode.terminalStartPathByShell";
 const RESTORE_SESSION_KEY = "flowcode.restoreSession";
 const NEW_TAB_PAGE_KEY = "flowcode.newTabPage";
 const CONFIRM_LINKS_KEY = "flowcode.confirmLinkOpen";
+const LINK_PREVIEWS_KEY = "flowcode.linkPreviews";
 const EXPLORER_DOUBLE_CLICK_KEY = "flowcode.explorerDoubleClick";
 const MIN_SIZE = 9;
 const MAX_SIZE = 28;
@@ -83,6 +85,10 @@ interface TerminalSettingsValue {
    * click) or opens it in the browser straight away. */
   confirmLinkOpen: boolean;
   setConfirmLinkOpen: (enabled: boolean) => void;
+  /** When a chat shows a preview card for the links in an agent's message:
+   * on its own, after a click on the link's chip, or never. */
+  linkPreviews: LinkPreviewMode;
+  setLinkPreviews: (mode: LinkPreviewMode) => void;
   /** Whether the file explorer enters a folder on double click (the default)
    * or on a single click. */
   explorerDoubleClick: boolean;
@@ -128,6 +134,7 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 const readShellStartPaths = (key: string) => readJson(key, isStringRecord, {});
 const readRestoreSession = (key: string) => readBool(key, true);
 const readConfirmLinks = (key: string) => readBool(key, true);
+const readLinkPreviews = (key: string) => readEnum<LinkPreviewMode>(key, ["always", "onClick", "never"], "onClick");
 const readExplorerDoubleClick = (key: string) => readBool(key, true);
 const readNewTabPage = (key: string) => readBool(key, true);
 
@@ -164,6 +171,7 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
   );
   const [restoreSession, setRestoreSession] = usePersistentState(RESTORE_SESSION_KEY, readRestoreSession, writeBool, true);
   const [confirmLinkOpen, setConfirmLinkOpen] = usePersistentState(CONFIRM_LINKS_KEY, readConfirmLinks, writeBool, true);
+  const [linkPreviews, setLinkPreviews] = usePersistentState(LINK_PREVIEWS_KEY, readLinkPreviews, writeString, true);
   const [explorerDoubleClick, setExplorerDoubleClick] = usePersistentState(
     EXPLORER_DOUBLE_CLICK_KEY,
     readExplorerDoubleClick,
@@ -212,6 +220,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setRestoreSession,
       confirmLinkOpen,
       setConfirmLinkOpen,
+      linkPreviews,
+      setLinkPreviews,
       explorerDoubleClick,
       setExplorerDoubleClick,
       newTabPage,
@@ -236,6 +246,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setRestoreSession,
       confirmLinkOpen,
       setConfirmLinkOpen,
+      linkPreviews,
+      setLinkPreviews,
       explorerDoubleClick,
       setExplorerDoubleClick,
       newTabPage,

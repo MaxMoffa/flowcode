@@ -3,6 +3,7 @@ import type { PluginDef, PluginManifest } from "../plugins/types";
 import { PLUGIN_ACTION_LABELS } from "../plugins/types";
 import { pluginIconNode } from "../plugins/icons";
 import { PluginCreateDialog } from "./PluginCreateDialog";
+import { AgentViewsSection } from "./AgentViewsSection";
 import { Switch } from "./SettingsControls";
 import "./settings-page.css";
 import { useI18n } from "../i18n";
@@ -122,6 +123,8 @@ export function FunzionalitaPage({ plugins, enabledIds, onToggleEnabled, onAdd, 
         <input ref={fileInputRef} type="file" accept="application/json,.json" hidden onChange={handleImportFile} />
       </div>
       {importError && <p className="funzionalita-import-error">{importError}</p>}
+
+      <AgentViewsSection />
 
       {creating && (
         <PluginCreateDialog

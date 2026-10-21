@@ -29,6 +29,45 @@ export interface Tab {
   context?: TabContext;
 }
 
+/** A desktop chat tab (an agent hosted over ACP, see src/chat) a phone can follow. */
+export interface ChatInfo {
+  chatId: string;
+  tabId: string;
+  /** Label of the desktop window showing the tab. */
+  window: string;
+  label: string;
+  /** `claude`, `codex`, `vibe` or `gemini`. */
+  agent: string;
+  cwd: string;
+  /** Account profile the agent runs under; absent for the default one. */
+  profile?: string;
+  /** Absent until the agent has started. */
+  sessionId?: string;
+  status?: "starting" | "idle" | "busy" | "waiting" | "exited";
+  /** The ACP `modes` object the agent announced (`{ currentModeId, availableModes }`). */
+  modes?: unknown;
+}
+
+/** An installed agent view plugin offered to phones (its manifest, see
+ * src-tauri/src/view_plugins.rs, plus what a phone needs to cache it). */
+export interface ViewPackage {
+  id: string;
+  kind: "agentView";
+  apiVersion: number;
+  label: string;
+  labels?: Record<string, string>;
+  description?: string;
+  version?: string;
+  author?: string;
+  entry: string;
+  transport: "acp";
+  devices: ("desktop" | "tablet" | "phone")[];
+  permissions: ("send" | "cancel" | "setMode" | "openFile")[];
+  /** SHA-256 (hex) over the package's files: a phone re-downloads only when it changes. */
+  hash: string;
+  files: { path: string; size: number }[];
+}
+
 /** Every field but `kind` is optional and a client ignores a `kind` it doesn't know. */
 export interface UsageMetric {
   kind: string;
@@ -94,6 +133,20 @@ interface MirroredPalette {
   accent2: string;
 }
 
+/** When a chat shows link previews: on its own, on a tap, or not at all. */
+export type LinkPreviewMode = "always" | "onClick" | "never";
+
+/** What the desktop read from a web page (Rust: `LinkPreview` in src/link_preview.rs). The pictures are `data:` URIs. */
+export interface LinkPreview {
+  url: string;
+  finalUrl: string;
+  title?: string;
+  description?: string;
+  siteName?: string;
+  image?: string;
+  favicon?: string;
+}
+
 export interface MirroredSettings {
   theme: "auto" | "light" | "dark";
   resolvedTheme: "light" | "dark";
@@ -110,6 +163,8 @@ export interface MirroredSettings {
   terminalFontSize: number;
   bannerEnabled: boolean;
   confirmLinkOpen: boolean;
+  /** Read-only: when the desktop fetches link previews; "never" makes it refuse `linkpreview`. */
+  linkPreviews: LinkPreviewMode;
   restoreSession: boolean;
   newTabPage: boolean;
   notify: { done: boolean; input: boolean; exited: boolean; limitReset: boolean };
@@ -136,7 +191,21 @@ export type SettingKey =
  * Features a desktop advertises in `ready.caps` (Rust: `CAPABILITIES` in
  * remote-proto/src/lib.rs). A desktop that sends no `caps` is an old one.
  */
-export type RemoteCap = "rename" | "profiles" | "profileLogin" | "profileAgents" | "newTabProfile" | "background" | "gemini" | "closeTab";
+export type RemoteCap =
+  | "rename"
+  | "profiles"
+  | "profileLogin"
+  | "profileAgents"
+  | "newTabProfile"
+  | "background"
+  | "gemini"
+  | "closeTab"
+  /** `chats`, `chatevents` and the `chat*` / `newchat` client messages. */
+  | "chat"
+  /** `views` / `viewfile`: agent view plugins installed on the desktop. */
+  | "agentViews"
+  /** `linkpreview`: link preview cards fetched by the desktop. */
+  | "linkPreview";
 
 export type ServerMsg =
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -152,6 +221,17 @@ export type ServerMsg =
   | { t: "settings"; settings: MirroredSettings }
   | { t: "profiles"; profiles: ProfileInfo[]; defaultLoggedIn?: Record<ProfileCli, boolean> | null }
   | { t: "notify"; title: string; body: string; tabId?: string }
+  /** Every chat tab of the desktop, sent on connect and whenever one changes. */
+  | { t: "chats"; chats: ChatInfo[] }
+  /** Events of a chat followed with `chatopen` (src/chat/chatTypes.ts ChatEvent):
+   * `replay` = the answer to `chatopen` (every event after its `afterSeq`), then live batches. */
+  | { t: "chatevents"; chatId: string; events: unknown[]; replay: boolean }
+  /** The agent view plugins a phone may show (only those listing "phone" or "tablet"). */
+  | { t: "views"; views: ViewPackage[] }
+  /** One chunk of a view plugin's file, base64; chunks of one file arrive in order. */
+  | { t: "viewfile"; viewId: string; hash: string; path: string; offset: number; total: number; data: string }
+  /** Reply to `linkpreview`; `preview` is null when there is none (or the desktop's setting is "never"). Needs the "linkPreview" cap, which is not in `RemoteCap`: an older desktop just lacks previews, nothing to warn about. */
+  | { t: "linkpreview"; url: string; preview: LinkPreview | null }
   | { t: "pong" };
 
 export type ClientMsg =
@@ -171,6 +251,23 @@ export type ClientMsg =
   | ({ t: "profile" } & ProfileAction)
   /** Opens a new desktop terminal tab, in `cwd` (else the start folder), starting `cli` in it if given. */
   | { t: "newtab"; cwd?: string; cli?: string; /** Account profile id; "" = the default one; absent = automatic. */ profile?: string }
+  /** Follows a chat: the desktop answers with its events after `afterSeq`, then streams new ones. */
+  | { t: "chatopen"; chatId: string; afterSeq: number }
+  | { t: "chatclose"; chatId: string }
+  | { t: "chatprompt"; chatId: string; text: string }
+  | { t: "chatcancel"; chatId: string }
+  /** Answers an agent's permission request; `optionId: null` cancels it. */
+  | { t: "chatpermission"; chatId: string; requestId: unknown; optionId: string | null }
+  | { t: "chatmode"; chatId: string; modeId: string }
+  /** Hands the chat's session over to a desktop terminal tab (as Ctrl+` does on the desktop). */
+  | { t: "chatterminal"; chatId: string }
+  /** Opens a new desktop chat tab for `cli` in `cwd` (else the start folder). */
+  | { t: "newchat"; cli: string; cwd?: string; /** "" = the default profile; absent = automatic. */ profile?: string }
+  | { t: "views" }
+  /** Asks for one file of a view plugin; answered with its `viewfile` chunks. */
+  | { t: "viewfile"; viewId: string; path: string }
   /** Sent by the core itself when the app goes out of sight; listed for completeness. */
+  /** The preview of a link in a chat (answered with `linkpreview`). */
+  | { t: "linkpreview"; url: string }
   | { t: "background"; on: boolean }
   | { t: "ping" };

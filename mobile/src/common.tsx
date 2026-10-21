@@ -6,6 +6,11 @@ export function shortCwd(cwd: string): string {
   return parts.length <= 2 ? cwd : `.../${parts.slice(-2).join("/")}`;
 }
 
+const AGENT_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", vibe: "Mistral Vibe", gemini: "Gemini CLI" };
+
+/** An agent CLI's name as the desktop shows it. */
+export const agentName = (cli: string): string => AGENT_NAMES[cli] ?? cli;
+
 export function formatSize(n?: number): string {
   if (n === undefined) return "";
   if (n < 1024) return `${n} B`;

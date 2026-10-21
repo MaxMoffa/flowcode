@@ -1,6 +1,6 @@
 // The settings the desktop mirrors to the phone: defaults, and the guards that
 // make a cached or incoming object safe to render whatever shape it arrives in.
-import type { MirroredSettings, ProfileInfo } from "../../shared/remote-types";
+import type { LinkPreviewMode, MirroredSettings, ProfileInfo } from "../../shared/remote-types";
 
 /** Used for any field a cached or incoming settings object lacks or gets wrong. */
 /** @internal exported for tests */
@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS: MirroredSettings = {
   terminalFontSize: 14,
   bannerEnabled: true,
   confirmLinkOpen: true,
+  linkPreviews: "onClick",
   restoreSession: true,
   newTabPage: false,
   notify: { done: true, input: true, exited: false, limitReset: true },
@@ -65,6 +66,7 @@ export function normalizeSettings(raw: unknown): MirroredSettings | null {
     terminalFontSize: num(raw.terminalFontSize, d.terminalFontSize, 9, 28),
     bannerEnabled: bool(raw.bannerEnabled, d.bannerEnabled),
     confirmLinkOpen: bool(raw.confirmLinkOpen, d.confirmLinkOpen),
+    linkPreviews: oneOf<LinkPreviewMode>(raw.linkPreviews, ["always", "onClick", "never"], d.linkPreviews),
     restoreSession: bool(raw.restoreSession, d.restoreSession),
     newTabPage: bool(raw.newTabPage, d.newTabPage),
     notify: {

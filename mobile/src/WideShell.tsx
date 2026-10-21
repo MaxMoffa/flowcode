@@ -3,13 +3,14 @@ import "./terminal.css";
 import "./wide.css";
 import { AgentsScreen } from "./Agents";
 import { useBackHandler } from "./back";
+import { requestOpenChat } from "./chats";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
-import { ActionIcon, AgentLogo, AgentsIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { ActionIcon, AgentLogo, AgentsIcon, ChatIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
-import { interrupt, send, useRemoteSelector, useSupports, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
+import { interrupt, send, useRemoteSelector, useSupports, type ChatInfo, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
-import { BusyArc, useOpenNewTab } from "./Terminals";
+import { BusyArc, useOpenNew } from "./Terminals";
 import { useUiZoom } from "./uiScale";
 import { useSheetDrag } from "./useSheetDrag";
 import { useSideWidth } from "./useSideWidth";
@@ -20,6 +21,7 @@ import { WideMenu } from "./WideMenu";
 
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
 const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
+const ChatScreen = lazy(() => import("./ChatScreen").then((m) => ({ default: m.ChatScreen })));
 const noop = () => {};
 
 /** A non-terminal tab: the settings page or a read-only file of a terminal's folder. */
@@ -32,11 +34,15 @@ interface Props {
   status: ConnStatus;
   activePty: string | null;
   onSelectPty: (ptyId: string) => void;
+  /** The chat session shown instead of a terminal. */
+  activeChat: string | null;
+  /** Turns a chat into a terminal tab on the desktop (see App). */
+  onTerminal: (chat: ChatInfo) => void;
   onAddComputer: () => void;
 }
 
 /** The desktop-like layout of large screens: a header (panel toggles, tab strip, quick actions), then cards: files, one terminal, agents. */
-export function WideShell({ hostName, tabs, settings, status, activePty, onSelectPty, onAddComputer }: Props) {
+export function WideShell({ hostName, tabs, settings, status, activePty, onSelectPty, activeChat, onTerminal, onAddComputer }: Props) {
   const docked = useDocked();
   const zoom = useUiZoom();
   const [agentsOpen, setAgentsOpen] = useState(docked);
@@ -59,6 +65,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   /** The key bar docked under the terminal. */
   const [keys, setKeys] = useState(true);
   const actions = useRemoteSelector((r) => r.actions);
+  const chats = useRemoteSelector((r) => r.chats);
   const canRename = useSupports("rename");
   const canClose = useSupports("closeTab");
   /** The terminal tab being renamed, with its draft label. */
@@ -74,7 +81,11 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     setDoc(null);
     onSelectPty(ptyId);
   };
-  const onCreate = useOpenNewTab(tabs, select);
+  const onCreate = useOpenNew(tabs, select);
+  // Opening a chat from the agents panel or a notification leaves a file or settings tab.
+  useEffect(() => {
+    if (activeChat) setDoc(null);
+  }, [activeChat]);
   const closeDrawers = () => {
     setAgentsOpen(false);
     setFilesOpen(false);
@@ -226,6 +237,22 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               </button>
             );
           })}
+          {(chats ?? []).map((c) => {
+            const on = doc === null && c.chatId === activeChat;
+            return (
+              <button key={c.chatId} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={c.label} onClick={() => requestOpenChat(c.chatId)}>
+                <span className="w-tab-ico">
+                  <AgentLogo cli={c.agent} size={16} />
+                  <i className="w-tab-bubble" aria-hidden="true">
+                    <ChatIcon size={9} />
+                  </i>
+                  {c.status === "busy" && <BusyArc />}
+                </span>
+                <span className="w-tab-label">{c.label}</span>
+                <i className={"dot " + (c.status === "waiting" ? "wait" : c.status === "busy" ? "busy" : "idle")} />
+              </button>
+            );
+          })}
           {docs.map((d) => {
             const on = doc === d.id;
             const label = d.kind === "settings" ? t("navSettings") : d.path.split("/").pop();
@@ -332,7 +359,13 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={noop} embedded keys={keys} />
               </Suspense>
             </div>
-          ) : !shown && tabs !== null && tabs.length === 0 ? (
+          ) : activeChat ? (
+            <div style={{ display: shown ? "none" : "contents" }}>
+              <Suspense fallback={<div className="screen" />}>
+                <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} embedded />
+              </Suspense>
+            </div>
+          ) : !shown && tabs !== null && tabs.length === 0 && !chats?.length ? (
             <div className="empty">{t("noTabs")}</div>
           ) : null}
         </main>
@@ -353,6 +386,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 hostName={hostName}
                 tabs={tabs}
                 activePty={doc === null ? activePty : null}
+                activeChat={doc === null ? activeChat : null}
                 onOpen={(id) => {
                   select(id);
                   if (!docked) setAgentsOpen(false);

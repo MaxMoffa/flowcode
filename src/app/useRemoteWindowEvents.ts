@@ -22,11 +22,13 @@ interface RemoteWindowEventRefs {
   remoteNewTabRef: MutableRefObject<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>;
   remoteRenameRef: MutableRefObject<(ptyId: string, label: string) => void>;
   remoteCloseRef: MutableRefObject<(ptyId: string) => void>;
+  remoteChatTerminalRef: MutableRefObject<(tabId: string) => void>;
+  remoteNewChatRef: MutableRefObject<(cwd: string | null, cli: string, profile: string | null | undefined) => void>;
 }
 
 export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
   useEffect(() => {
-    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef, remoteCloseRef } = refs;
+    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef, remoteCloseRef, remoteChatTerminalRef, remoteNewChatRef } = refs;
     const webview = getCurrentWebviewWindow();
     const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
       adoptTabRef.current(e.payload);
@@ -86,6 +88,12 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
     );
     // A phone closing one of our terminal tabs.
     const unlistenClose = webview.listen<{ ptyId: string }>("remote://close-tab", (e) => remoteCloseRef.current(e.payload.ptyId));
+    // A phone handing one of our chats over to a terminal tab.
+    const unlistenChatTerminal = webview.listen<{ tabId: string }>("remote://chat-terminal", (e) => remoteChatTerminalRef.current(e.payload.tabId));
+    // A phone asking for a new chat tab here.
+    const unlistenNewChat = webview.listen<{ cwd?: string | null; cli: string; profile?: string | null }>("remote://new-chat", (e) => {
+      remoteNewChatRef.current(e.payload.cwd ?? null, e.payload.cli, e.payload.profile ?? undefined);
+    });
     // A prompt sent from a phone: counts as a submit for the agent notifications.
     const unlistenSubmit = webview.listen<string>("remote://submit", (e) => noteRemoteSubmit(e.payload));
     return () => {
@@ -98,6 +106,8 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       unlistenNewTab.then((off) => off());
       unlistenRename.then((off) => off());
       unlistenClose.then((off) => off());
+      unlistenChatTerminal.then((off) => off());
+      unlistenNewChat.then((off) => off());
       unlistenSubmit.then((off) => off());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

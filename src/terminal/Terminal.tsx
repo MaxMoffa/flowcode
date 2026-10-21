@@ -3,7 +3,6 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { invoke } from "@tauri-apps/api/core";
@@ -12,6 +11,7 @@ import { attachPty, detachPty, forgetPty, killPty, resizePty, spawnPty, writePty
 import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
+import { useOpenLink } from "./useOpenLink";
 import {
   FROG_HEIGHT,
   FROG_WIDTH,
@@ -159,38 +159,13 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   const lineBufferRef = useRef("");
   const { theme, paletteId, terminalPaletteId, contrast } = useTheme();
   const terminalPalette = terminalPaletteId ? findPalette(terminalPaletteId) : undefined;
-  const { getTabFontSize, bannerEnabled, shellId, confirmLinkOpen, setConfirmLinkOpen } = useTerminalSettings();
+  const { getTabFontSize, bannerEnabled, shellId } = useTerminalSettings();
+  const openLink = useOpenLink();
   const { show: showMenu } = useContextMenu();
   // xterm's link callbacks are registered once at mount - read the live
   // setting/menu through a ref instead of the values captured back then.
   const linkClickRef = useRef<(event: MouseEvent, uri: string) => void>(() => {});
-  linkClickRef.current = (event, uri) => {
-    // Only web links: OSC 8 hyperlinks can carry any scheme (file:, custom
-    // app protocols...), which a click shouldn't hand to the OS.
-    if (!/^https?:\/\//i.test(uri)) return;
-    const open = () => {
-      openUrl(uri).catch(() => {});
-    };
-    if (!confirmLinkOpen) {
-      open();
-      return;
-    }
-    const shown = uri.length > 60 ? `${uri.slice(0, 57)}…` : uri;
-    showMenu(event.clientX, event.clientY, [
-      { label: shown, icon: MenuIcons.globe, disabled: true },
-      { label: "link-separator", separator: true },
-      { label: t("link.open"), icon: MenuIcons.openExternal, onSelect: open },
-      {
-        label: t("link.openAlways"),
-        icon: MenuIcons.checkCircle,
-        onSelect: () => {
-          setConfirmLinkOpen(false);
-          open();
-        },
-      },
-      { label: t("link.copy"), icon: MenuIcons.link, onSelect: () => navigator.clipboard.writeText(uri).catch(() => {}) },
-    ]);
-  };
+  linkClickRef.current = openLink;
   const fontSize = getTabFontSize(tabId);
   const bannerEnabledRef = useRef(bannerEnabled);
   bannerEnabledRef.current = bannerEnabled;

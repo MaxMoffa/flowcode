@@ -1322,6 +1322,25 @@ button.set-row.danger {
   color: var(--muted);
 }
 
+/* The speech bubble on a chat session's icon. */
+.tr-bubble {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--bg);
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.tr-ghead.is-wait b {
+  color: var(--wait);
+}
+
 /* Same constant-speed arc as the desktop's busy tabs (shared/busySweep.ts). */
 .tr-sweep {
   position: absolute;
@@ -1448,6 +1467,33 @@ button.set-row.danger {
 
 .nts-go {
   flex: none;
+}
+
+/* "Come chat": the agent opens in a chat instead of a terminal. */
+.nts-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--glass);
+}
+
+.nts-toggle-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-weight: 600;
+}
+
+.nts-toggle-text small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .nts-field {

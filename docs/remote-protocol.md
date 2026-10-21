@@ -106,6 +106,7 @@ Client messages:
 | `closetab {ptyId}` | Close the desktop tab owning `ptyId`, like closing it on the desktop. The window's last tab stays open (closing it would close the window). An unknown pty gets an `error`. No reply: the next `tabs` no longer lists it. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
+| `linkpreview {url}` | The preview of a web link in a chat, answered with `linkpreview`. Needs the `linkPreview` capability (not in `RemoteCap`: an older desktop just has no previews). |
 | `set {key, value}` | Change one mirrored desktop setting (see `settings`). `key` must be non-empty and at most 64 bytes and `value` at most 4 KiB as JSON, else `error`; an unknown key or a value of the wrong type is ignored by the desktop (it is not applied; an unknown palette id falls back to the default palette). |
 | `profile {op, ...}` | Manage the account profiles (see `profiles`). `op` is `create` (`name`, `color` as `#rrggbb`, optional `copySettings`, default true), `update` (`id`, `name`, `color`), `delete` (`id`, optional `deleteFiles`, default false) `login` (`id`, `cli`: `claude`, `codex`, `vibe` or `gemini`) or `logout` (`id`, `cli`). For `login` and `logout` an `id` of `""` is the default profile; `update`/`delete` need a real id. Strings are at most 64 bytes (`color`/`cli` 16); a malformed request gets an `error`. Only the desktop's remote leader window acts on it (the same window as `action`); `create`/`update`/`delete` apply the desktop's own rules (non-empty unique name, valid color) and a rejected one is simply not applied, the next `profiles` shows the truth. `login` opens the CLI's sign-in in a **new terminal tab on the desktop** (after checking the CLI is installed; otherwise the desktop offers to install it): the phone can then open that tab from its `tabs` list. `logout` signs the CLI out of the profile right away (no confirm on the desktop; the phone asks first). There is no reply; watch `profiles`. |
 | `newtab {cwd?, cli?, profile?}` | Open a new terminal tab on the desktop, in `cwd` (else the shell's start folder), starting the agent `cli` (`claude`, `codex`, `vibe` or `gemini`) in it if given, under the account profile `profile` (`""` = the default one, an unknown id falls back to it; absent = automatic, the folder's project default). A `cwd` that is not an existing folder on the computer, or an unknown `cli`, gets an `error`. There is no reply; the new tab shows in the next `tabs`. |
@@ -125,6 +126,7 @@ Server messages:
 | `profiles {profiles, defaultLoggedIn?}` | The account profiles besides the default one, as an array of `{id, name, color, loggedIn: {claude, codex, vibe, gemini}}` (booleans, read off the CLIs' files). `defaultLoggedIn` is the default profile's `{claude, codex, vibe, gemini}` in the same form; absent from older desktops (and until the desktop knows it). Pushed after `ready` once published, and on every change, including ones made on the desktop and sign-ins finishing. |
 | `ls {ptyId, path, entries}` | Reply to `ls`. |
 | `file {ptyId, path, text, truncated}` | Reply to `read`. |
+| `linkpreview {url, preview}` | Reply to `linkpreview`. `preview` is `{url, finalUrl, title?, description?, siteName?, image?, favicon?}` (the pictures are `data:` URIs, dropped if the frame would pass ~900 KiB), or `null` when the page has nothing to show or the desktop's `linkPreviews` setting is `never`. |
 | `pong` | Reply to `ping`. |
 | `error {message, ptyId?, fatal}` | A failed request (non-fatal) or the end of the connection (fatal). A message the desktop could not send because it exceeds one frame is dropped and reported with a non-fatal `error` (with its `ptyId` when it had one). |
 
@@ -148,6 +150,7 @@ the desktop and then applied as if changed in its own settings.
 | `palettes` | `[{id, name, bg, accent, accent2}]` | Read-only, in the current theme. |
 | `terminalFontSize` | number | Settable; clamped by the desktop. |
 | `bannerEnabled`, `confirmLinkOpen`, `restoreSession`, `newTabPage` | boolean | Settable. |
+| `linkPreviews` | `"always"` \| `"onClick"` \| `"never"` | Read-only: when the desktop fetches link previews for chats. |
 | `notify.done`, `notify.input`, `notify.exited`, `notify.limitReset` | boolean | Settable; `notify` is published as an object of the four. |
 | `autoResume.enabled` | boolean | Settable; published as `autoResume {enabled, message}`. |
 | `autoResume.message` | string, at most 500 chars | Settable. |

@@ -14,9 +14,11 @@ pub mod link;
 mod reconnect;
 mod secure;
 mod serve;
+mod speech;
 mod state;
 pub mod store;
 mod updater;
+mod view_cache;
 
 use background::Background;
 use connlog::ConnLog;
@@ -30,12 +32,15 @@ use tokio::sync::Notify;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(secure::init()).plugin(background::init()).plugin(updater::init());
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(secure::init()).plugin(background::init()).plugin(speech::init()).plugin(updater::init());
     #[cfg(mobile)]
     {
         builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init()).plugin(tauri_plugin_deep_link::init()).plugin(tauri_plugin_haptics::init());
     }
     builder
+        // Agent-view plugin files the desktop sent, served to the sandboxed iframe
+        // (tauri.conf.json's `frame-src` allows exactly this origin).
+        .register_uri_scheme_protocol("flowcode-plugin", |ctx, request| view_cache::serve(ctx.app_handle(), &request))
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -85,6 +90,14 @@ pub fn run() {
             commands::request_notification_permission,
             commands::take_pending_tab,
             commands::unpair,
+            speech::speech_available,
+            speech::speech_start,
+            speech::speech_stop,
+            speech::speech_cancel,
+            view_cache::view_cache_has,
+            view_cache::view_cache_write,
+            view_cache::view_cache_commit,
+            view_cache::view_cache_prune,
             updater::update_check,
             updater::update_install,
             computers::computers,

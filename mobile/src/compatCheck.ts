@@ -19,7 +19,13 @@ export const CAP_LABELS = {
   newTabProfile: "capNewTabProfile",
   background: "capBackground",
   gemini: "capGemini",
+  chat: "capChat",
+  agentViews: "capAgentViews",
+  linkPreview: "capLinkPreview",
 } as const satisfies Record<RemoteCap, string>;
+
+/** Features the UI simply hides when the desktop lacks them: not worth a compatibility notice. */
+const QUIET_CAPS: RemoteCap[] = ["chat", "agentViews", "linkPreview"];
 
 export interface HostInfo {
   appVersion?: string;
@@ -33,7 +39,7 @@ type CompatLevel = "ok" | "partial" | "blocked";
 
 interface Compat {
   level: CompatLevel;
-  /** Known features this desktop lacks, in `CAP_LABELS` order. */
+  /** Known features this desktop lacks (the quiet ones aside), in `CAP_LABELS` order. */
   missing: RemoteCap[];
 }
 
@@ -47,7 +53,7 @@ export function checkCompat(host: HostInfo | null): Compat {
   // Not known yet (not connected): nothing to say.
   if (!host) return { level: "ok", missing: [] };
   if (host.proto < MIN_DESKTOP_PROTO) return { level: "blocked", missing: [] };
-  const missing = (Object.keys(CAP_LABELS) as RemoteCap[]).filter((c) => !host.caps.includes(c));
+  const missing = (Object.keys(CAP_LABELS) as RemoteCap[]).filter((c) => !QUIET_CAPS.includes(c) && !host.caps.includes(c));
   return { level: missing.length ? "partial" : "ok", missing };
 }
 

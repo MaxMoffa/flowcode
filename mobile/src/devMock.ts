@@ -1,7 +1,8 @@
 // DEV ONLY: lets the UI render in a plain browser (open /?mock). Imported from
 // main.tsx behind `import.meta.env.DEV`, so it never reaches a production build.
 import { emit } from "@tauri-apps/api/event";
-import { mockIPC } from "@tauri-apps/api/mocks";
+import { mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
+import { chatMock, chatMockCaps, chatMockConnect, mockViews } from "./devMockChat";
 import { termMock } from "./devMockTerm";
 
 const tabs = [
@@ -53,11 +54,22 @@ const mockSettings = {
   terminalFontSize: 13,
   bannerEnabled: true,
   confirmLinkOpen: true,
+  linkPreviews: "onClick",
   restoreSession: true,
   newTabPage: false,
   notify: { done: true, input: true, exited: false, limitReset: true },
   autoResume: { enabled: true, message: "continua" },
 };
+
+// What the desktop sends once the link is up: its features, the chats and the view plugins.
+async function chatHello() {
+  await emit("remote://msg", { t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", ...chatMockCaps] });
+  await chatMockConnect();
+  await emit("remote://msg", { t: "views", views: mockViews });
+}
+
+// Plugin views load from the app's custom scheme; give the browser the URL shape the webview has.
+mockConvertFileSrc("windows");
 
 // ?mock=pairing starts unpaired (pairing never answers); ?mock=pairing-ok answers after 3 s.
 const unpaired = location.search.includes("mock=pairing");
@@ -78,6 +90,7 @@ mockIPC(
           setTimeout(() => {
             resolve(null);
             void emit("remote://state", { status: "online", hostName: "Il mio PC" });
+            void chatHello();
             void emit("remote://msg", { t: "tabs", tabs });
             void emit("remote://msg", { t: "usage", items: usage });
             void emit("remote://msg", { t: "settings", settings: mockSettings });
@@ -93,6 +106,7 @@ mockIPC(
       case "connect":
         setTimeout(async () => {
           await emit("remote://state", { status: "online", hostName: "Il mio PC" });
+          await chatHello();
           await emit("remote://msg", { t: "tabs", tabs });
           await emit("remote://msg", { t: "usage", items: usage });
           await emit("remote://msg", { t: "settings", settings: mockSettings });
@@ -112,7 +126,14 @@ mockIPC(
       case "request_notification_permission":
       case "notification_permission":
         return true;
+      case "view_cache_has":
+        return true;
+      case "view_cache_write":
+      case "view_cache_commit":
+      case "view_cache_prune":
+        return undefined;
       default:
+        if (cmd === "send") chatMock((args as { msg?: Parameters<typeof chatMock>[0] }).msg);
         return termMock(cmd, args);
     }
   },

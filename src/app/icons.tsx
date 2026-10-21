@@ -19,6 +19,15 @@ export function ChangelogIcon({ size, strokeWidth = 1.7 }: { size?: number; stro
   );
 }
 
+/** The chat tab's speech bubble (see src/chat). */
+export function ChatIcon({ size, strokeWidth = 1.7 }: { size?: number; strokeWidth?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" stroke="currentColor">
+      <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 8.7 8.7 0 0 1-3.6-.8L3.5 20.5l1.6-4.8A8.1 8.1 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3.2 8.4 8.4 0 0 1 21 11.5z" />
+    </svg>
+  );
+}
+
 export const Icons = {
   kebab: (
     <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none">

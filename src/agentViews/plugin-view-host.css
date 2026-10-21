@@ -1,0 +1,35 @@
+/* The classes of the chat's permission card, "agent closed" row and
+   centered state (chat/chat.css) are reused as they are. */
+.agent-plugin {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-plugin-permission {
+  flex: 0 0 auto;
+  margin: 0 16px 8px;
+}
+
+.agent-plugin-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.agent-plugin-frame.is-hidden {
+  display: none;
+}
+
+.agent-plugin-unresponsive {
+  flex: 1 1 auto;
+}
+
+.agent-plugin-exited {
+  flex: 0 0 auto;
+  width: 100%;
+  padding-bottom: 14px;
+}

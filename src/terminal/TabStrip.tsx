@@ -10,7 +10,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { wslDistroOfShell } from "./wslPath";
 import type { TabAgent } from "../agents/agentSessions";
 import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
-import { ChangelogIcon, GearIcon } from "../app/icons";
+import { ChangelogIcon, ChatIcon, GearIcon } from "../app/icons";
 import { SWEEP_DASHES } from "../../shared/busySweep";
 import "./tabstrip.css";
 
@@ -214,9 +214,16 @@ function agentTabIcon(agent: TabAgent, renamed: boolean, done: boolean) {
   );
 }
 
-/** The account profile a terminal tab runs under, if it still exists. */
+/** A chat tab's status as the strip's agent attention: it needs the user
+ * while it waits on a permission, it works while it is busy. */
+function chatAttention(tab: AppTab): "waiting" | "busy" | "idle" {
+  if (tab.kind !== "chat") return "idle";
+  return tab.status === "waiting" ? "waiting" : tab.status === "busy" ? "busy" : "idle";
+}
+
+/** The account profile a terminal or chat tab runs under, if it still exists. */
 function tabProfile(profiles: ReturnType<typeof useProfiles>, tab: AppTab): ProfileInfo | undefined {
-  return tab.kind === "terminal" ? profileById(profiles, tab.profileId) : undefined;
+  return tab.kind === "terminal" || tab.kind === "chat" ? profileById(profiles, tab.profileId) : undefined;
 }
 
 /** The busy tab's arc, run round the outline at a constant speed (see tabstrip.css). */
@@ -234,6 +241,22 @@ function BusySweep() {
  * corner of its icon. The dot sits on a wrapper of its own, not on the logo,
  * so it stays on the icon's corner whatever the agent is doing. */
 function tabIcon(tab: AppTab, agent?: TabAgent, done = false, profile?: ProfileInfo) {
+  if (tab.kind === "chat") {
+    const icon = (
+      <span className="term-tab-agent">
+        <span className={"term-tab-agent-logo is-" + chatAttention(tab)}>
+          <ChatIcon size={13} strokeWidth={1.8} />
+        </span>
+      </span>
+    );
+    if (!profile) return icon;
+    return (
+      <span className="term-tab-profiled">
+        {icon}
+        <span className="term-tab-profile-badge" style={{ background: profile.color }} />
+      </span>
+    );
+  }
   if (tab.kind === "terminal") {
     const icon = agent ? agentTabIcon(agent, !!tab.customLabel, done) : <span className={"term-tab-dot" + (done ? " is-done" : "")} />;
     if (!profile) return icon;
@@ -261,7 +284,7 @@ function tabDisplayLabel(tab: AppTab): string {
 }
 
 function tabTitle(tab: AppTab, profile?: ProfileInfo): string {
-  if (tab.kind === "terminal") return profile ? `${tab.cwd}\n${t("tabs.profile", { name: profile.name })}` : tab.cwd;
+  if (tab.kind === "terminal" || tab.kind === "chat") return profile ? `${tab.cwd}\n${t("tabs.profile", { name: profile.name })}` : tab.cwd;
   if (tab.kind === "editor" || tab.kind === "diff") return tab.path;
   return tabDisplayLabel(tab);
 }
@@ -408,7 +431,7 @@ export function TabStrip({
       // knowing that gesture exists.
       { label: t("tabs.rename"), icon: MenuIcons.rename, onSelect: () => startEditing(tab) },
     ];
-    if (tab.kind === "terminal" || tab.kind === "editor") {
+    if (tab.kind === "terminal" || tab.kind === "editor" || tab.kind === "chat") {
       items.push({ label: t("tabs.duplicate"), icon: MenuIcons.duplicate, onSelect: () => onDuplicate(tab.id) });
     }
     if (tab.kind === "terminal") {
@@ -526,7 +549,12 @@ export function TabStrip({
           data-tauri-drag-region
         >
           {tabs.map((tab) => {
-            const attention = tab.kind === "terminal" ? agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id)) : null;
+            const attention =
+              tab.kind === "terminal"
+                ? agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id))
+                : tab.kind === "chat"
+                  ? chatAttention(tab)
+                  : null;
             return (
               <div
                 key={tab.id}

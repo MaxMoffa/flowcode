@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Timeline</title>
+    <link rel="stylesheet" href="view.css" />
+  </head>
+  <body>
+    <header id="top">
+      <span id="state"></span>
+      <button id="thoughts" type="button" aria-pressed="false" hidden></button>
+    </header>
+    <section id="plan" hidden></section>
+    <main id="log" tabindex="-1"></main>
+    <footer id="compose">
+      <div id="queue" hidden></div>
+      <div id="field">
+        <textarea id="text" rows="1"></textarea>
+        <button id="stop" type="button" hidden></button>
+        <button id="send" type="button"></button>
+      </div>
+    </footer>
+    <script src="flowcode-view.iife.js"></script>
+    <script src="rows.js"></script>
+    <script src="view.js"></script>
+  </body>
+</html>

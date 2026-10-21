@@ -8,12 +8,15 @@ import { unlock, useLock } from "./applock";
 import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { CompatBanner, IncompatibleScreen } from "./Compat";
+import { clearOpenRequest, requestOpenChat, useChatHandoff, useOpenRequest } from "./chats";
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
 import { TerminalsScreen } from "./Terminals";
 import { UpdateSheet } from "./UpdatesUi";
 import { autoCheckForUpdates, updates } from "./updates";
+// Listens for the desktop's `views` from the start, long before a chat is opened.
+import "./viewCache";
 import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
 import { WideShell } from "./WideShell";
 import { useWide } from "./wide";
@@ -21,6 +24,7 @@ import { useWide } from "./wide";
 // xterm makes the terminal the bulk of the bundle; it loads when first opened.
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
 const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
+const ChatScreen = lazy(() => import("./ChatScreen").then((m) => ({ default: m.ChatScreen })));
 
 type Page = "agents" | "terminals" | "settings";
 
@@ -105,6 +109,7 @@ function AppContent() {
   const hostName = useRemoteSelector((s) => s.hostName);
   const settings = useRemoteSelector((s) => s.settings);
   const tabs = useRemoteSelector((s) => s.tabs);
+  const chats = useRemoteSelector((s) => s.chats);
   const openTab = useRemoteSelector((s) => s.openTab);
   const error = useRemoteSelector((s) => s.error);
   const host = useRemoteSelector((s) => s.host);
@@ -112,6 +117,9 @@ function AppContent() {
   const compat = checkCompat(host);
   const [page, setPage] = useState<Page>("agents");
   const [openPty, setOpenPty] = useState<string | null>(null);
+  /** The chat session shown instead of a terminal. */
+  const [openChat, setOpenChat] = useState<string | null>(null);
+  const openRequest = useOpenRequest();
   /** Adding another computer: the pairing screen over a paired phone, with the link that opened it if any. */
   const [adding, setAdding] = useState(false);
   const [link, setLink] = useState<string | null>(null);
@@ -159,6 +167,7 @@ function AppContent() {
     if (status === "unpaired") {
       setPage("agents");
       setOpenPty(null);
+      setOpenChat(null);
       closeAdding();
     }
   }, [status, closeAdding]);
@@ -182,32 +191,61 @@ function AppContent() {
     if (hostName) void setBackgroundTexts(t("bgNotifTitle"), t("bgNotifText", { host: hostName }));
   }, [hostName, settings?.resolvedLanguage]);
 
-  // A tapped agent notification opens that tab's terminal as soon as the list has it.
+  // A tapped agent notification opens that tab's terminal (or chat) as soon as the lists have it.
   useEffect(() => {
     if (!openTab || !tabs) return;
     const target = tabs.find((x) => x.tabId === openTab);
-    if (!target) return;
-    setLastOpened(target.ptyId);
-    setOpenPty(target.ptyId);
+    const chat = target ? undefined : chats?.find((c) => c.tabId === openTab);
+    if (target) open(target.ptyId);
+    else if (chat) openChatTab(chat.chatId);
+    else return;
     clearOpenTab();
-  }, [openTab, tabs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTab, tabs, chats]);
+
+  // A list far from here asked for a chat.
+  useEffect(() => {
+    if (!openRequest) return;
+    openChatTab(openRequest);
+    clearOpenRequest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest]);
 
   const tab = openPty ? tabs?.find((x) => x.ptyId === openPty) : undefined;
   // The open terminal was closed on the PC: forget it, or the screen would come back if the id ever reappears.
   useEffect(() => {
     if (openPty && tabs && !tab) setOpenPty(null);
   }, [openPty, tabs, tab]);
-  // Back from a terminal returns to the list; on the root it is left alone (the app exits).
-  useBackHandler(!!tab && !wide, () => setOpenPty(null));
+  // The open chat left the desktop (closed, or turned into a terminal): back to the list.
+  const chat = openChat ? chats?.find((c) => c.chatId === openChat) : undefined;
+  useEffect(() => {
+    if (openChat && chats && !chat) setOpenChat(null);
+  }, [openChat, chats, chat]);
+  // Back from a terminal or a chat returns to the list; on the root it is left alone (the app exits).
+  useBackHandler((!!tab || !!chat) && !wide, () => {
+    setOpenPty(null);
+    setOpenChat(null);
+  });
 
   function open(ptyId: string) {
     setLastOpened(ptyId);
+    setOpenChat(null);
     setOpenPty(ptyId);
   }
 
-  // The wide layout always shows a terminal: pick the first when none is open.
+  function openChatTab(chatId: string) {
+    setOpenPty(null);
+    setOpenChat(chatId);
+  }
+
+  /** "Terminale" in a chat: the desktop turns the session into a terminal tab, which opens once listed. */
+  const toTerminal = useChatHandoff(tabs, open);
+
+  // The wide layout always shows something: pick the first terminal (else chat) when nothing is open.
   useEffect(() => {
-    if (wide && tabs && tabs.length > 0 && !(openPty && tabs.some((x) => x.ptyId === openPty))) open(tabs[0].ptyId);
+    if (!wide || openChat) return;
+    if (tabs && tabs.length > 0 && !(openPty && tabs.some((x) => x.ptyId === openPty))) open(tabs[0].ptyId);
+    else if (tabs && tabs.length === 0 && chats && chats.length > 0) requestOpenChat(chats[0].chatId);
   });
 
   let content: ReactNode;
@@ -226,7 +264,13 @@ function AppContent() {
     content = <IncompatibleScreen host={host} hostName={hostName} />;
   } else if (wide) {
     content = (
-      <WideShell hostName={hostName} tabs={tabs} settings={settings} status={status} activePty={openPty} onSelectPty={open} onAddComputer={() => setAdding(true)} />
+      <WideShell hostName={hostName} tabs={tabs} settings={settings} status={status} activePty={openPty} onSelectPty={open} activeChat={openChat} onTerminal={toTerminal} onAddComputer={() => setAdding(true)} />
+    );
+  } else if (chat) {
+    content = (
+      <Suspense fallback={<div className="screen" />}>
+        <ChatScreen key={chat.chatId} chatId={chat.chatId} onBack={() => setOpenChat(null)} onTerminal={toTerminal} />
+      </Suspense>
     );
   } else if (tab) {
     content = (

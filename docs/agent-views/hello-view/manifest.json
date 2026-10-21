@@ -1,0 +1,14 @@
+{
+  "id": "hello-view",
+  "kind": "agentView",
+  "apiVersion": 1,
+  "label": "Hello",
+  "labels": { "it": "Ciao", "en": "Hello" },
+  "description": "Vista minimale: la conversazione come testo semplice.",
+  "version": "1.0.0",
+  "author": "Flowcode",
+  "entry": "index.html",
+  "transport": "acp",
+  "devices": ["desktop"],
+  "permissions": ["send", "cancel"]
+}

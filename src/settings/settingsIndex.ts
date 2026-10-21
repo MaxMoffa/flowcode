@@ -68,6 +68,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "banner", section: "terminal", label: "settings.banner.label", desc: "settings.banner.desc", keywords: "banner logo benvenuto welcome" },
   { id: "newTabPage", section: "terminal", label: "settings.newTabPage.label", desc: "settings.newTabPage.desc", keywords: "nuova tab new tab scheda pagina page preferiti favorites recenti recent comando command riga line iniziale home" },
   { id: "links", section: "terminal", label: "settings.links.label", desc: "settings.links.desc", keywords: "link url collegamenti browser conferma confirm" },
+  { id: "linkPreviews", section: "terminal", label: "settings.linkPreviews.label", desc: "settings.linkPreviews.desc", keywords: "anteprima anteprime preview previews link url chat agente agent privacy rete network" },
   { id: "startDir", section: "startup", label: "settings.startDir.label", desc: "settings.startDir.desc", keywords: "cartella folder directory home percorso path" },
   { id: "shellStartDir", section: "startup", label: "settings.shellStartDir.label", desc: "settings.shellStartDir.desc", keywords: "cartella folder directory shell wsl percorso path" },
   { id: "restore", section: "startup", label: "settings.restore.label", desc: "settings.restore.desc", keywords: "ripristina restore sessione session schede tabs riavvio" },

@@ -52,7 +52,7 @@ pub struct PluginManifest {
     pub icon: String,
 }
 
-fn plugins_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn plugins_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?.join("plugins");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)

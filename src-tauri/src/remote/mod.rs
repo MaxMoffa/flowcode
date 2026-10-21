@@ -11,11 +11,13 @@
 //! `flowcode-remote-proto` crate (docs/remote-protocol.md).
 
 mod auth;
+mod chat;
 mod connlog;
 mod fsbrowse;
 mod hex;
 mod keystore;
 mod stream;
+mod views;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use flowcode_remote_proto::{
-    self as proto, read_frame, write_frame, Action, ClientMsg, FrameError, PairingTicket, ServerMsg, Tab,
+    self as proto, read_frame, write_frame, Action, ChatInfo, ClientMsg, FrameError, PairingTicket, ServerMsg, Tab,
     TabContext, UsageItem,
 };
 use flowcode_shared::i18n::{is_italian, tr};
@@ -35,10 +37,12 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
+use crate::chat::{AlertKind, ChatAlert, ChatState};
 use crate::pty::PtyState;
 use crate::util::{lock, now_ms};
 
 use self::auth::{clean_name, AuthLimiter, Config, Device, PairError, Pairings};
+use self::chat::{agent_name, stream_chat};
 use self::stream::stream_pty;
 use self::connlog::{short_id, ConnLog};
 use self::fsbrowse::{list_dir, read_text};
@@ -87,6 +91,14 @@ const OUT_RESERVE: usize = 64;
 const IN_QUEUE: usize = 256;
 /// Terminals one connection may have open.
 const MAX_SUBS: usize = 64;
+/// Chats one connection may follow.
+const MAX_CHAT_SUBS: usize = 16;
+/// Longest chat, view, mode or option id a phone may name.
+const MAX_ID_BYTES: usize = 128;
+/// Longest URL a phone may ask a preview of.
+const LINK_URL_MAX_BYTES: usize = 2048;
+/// Largest `linkpreview` reply, JSON bytes: under a frame, with room for the envelope.
+const LINK_PREVIEW_MAX_BYTES: usize = 900 * 1024;
 /// How long a pty keeps the phone's size after the last phone stopped sizing
 /// it, so a reattach or reconnect doesn't resize it back and forth.
 const RELEASE_GRACE: Duration = Duration::from_secs(4);
@@ -119,6 +131,10 @@ const EVT_SUBMIT: &str = "remote://submit";
 const EVT_RENAME_TAB: &str = "remote://rename-tab";
 /// `{ptyId}`: a phone closed the tab showing that pty, to its owner window.
 const EVT_CLOSE_TAB: &str = "remote://close-tab";
+/// `{tabId}`: a phone handed a chat over to a terminal tab, to the window showing the chat.
+const EVT_CHAT_TERMINAL: &str = "remote://chat-terminal";
+/// A phone asked for a new chat tab (see `ClientMsg::NewChat`).
+const EVT_NEW_CHAT: &str = "remote://new-chat";
 /// How long the user has to confirm a new phone on the desktop. The phone
 /// waits longer for its reply (see mobile/src-tauri/src/link.rs).
 const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -204,6 +220,8 @@ struct Shared {
     profiles: watch::Sender<serde_json::Value>,
     /// Desktop notifications mirrored to every connected phone.
     notices: broadcast::Sender<ServerMsg>,
+    /// view id -> hash of its package, as the last listing worked it out.
+    view_hashes: Mutex<HashMap<String, String>>,
     /// pty id -> phones sizing it, oldest first (the last one wins).
     sizing: Mutex<HashMap<String, Vec<SizeClaim>>>,
     /// pty id -> (release id, size) for a pty whose last phone let go less
@@ -297,6 +315,7 @@ impl RemoteState {
             settings: watch::channel(serde_json::Value::Null).0,
             profiles: watch::channel(serde_json::Value::Null).0,
             notices: broadcast::channel(32).0,
+            view_hashes: Mutex::new(HashMap::new()),
             sizing: Mutex::new(HashMap::new()),
             pending_release: Mutex::new(HashMap::new()),
             release_seq: AtomicU64::new(0),
@@ -453,6 +472,7 @@ impl Shared {
         }
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         tauri::async_runtime::spawn(tabs_task(Arc::clone(self), shutdown_rx.clone()));
+        tauri::async_runtime::spawn(chat_alerts_task(Arc::clone(self), shutdown_rx.clone()));
         tauri::async_runtime::spawn(accept_loop(Arc::clone(self), endpoint.clone(), shutdown_rx));
         Ok(Running { endpoint, node_id, shutdown: shutdown_tx, _instance_lock: instance_lock })
     }
@@ -713,6 +733,53 @@ impl Shared {
             .collect()
     }
 
+    /// The running chats that have a tab (one reported by its window), in the
+    /// order the windows report them. A chat is matched to its tab by agent
+    /// session: the frontend knows the tab, the backend the chat, and both know
+    /// the session.
+    fn chat_infos(&self) -> Vec<ChatInfo> {
+        let chats = self.app.state::<ChatState>().list();
+        self.app
+            .state::<crate::windows::WindowTabs>()
+            .list_chats()
+            .into_iter()
+            .filter_map(|(window, tab)| {
+                let chat = chats.iter().find(|c| c.session_id.as_deref() == Some(tab.session_id.as_str()))?;
+                Some(ChatInfo {
+                    chat_id: chat.chat_id.clone(),
+                    tab_id: tab.tab_id,
+                    window,
+                    label: tab.label,
+                    agent: chat.agent.clone(),
+                    cwd: chat.cwd.clone(),
+                    profile: chat.profile.clone(),
+                    session_id: chat.session_id.clone(),
+                    status: Some(chat.status.as_str().to_string()),
+                    modes: chat.modes.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// Tells the phones a chat needs them: an agent waiting for a permission
+    /// answer, or one that finished its turn.
+    fn notify_chat(&self, alert: ChatAlert) {
+        let chat = self.chat_infos().into_iter().find(|c| c.session_id.as_deref() == Some(alert.session_id.as_str()));
+        let folder = chat
+            .as_ref()
+            .and_then(|c| Path::new(&c.cwd).file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let agent = agent_name(&alert.agent);
+        let (title, body) = match alert.kind {
+            AlertKind::Permission { tool } => {
+                (format!("{agent} {}", tr("chiede un permesso", "asks for permission")), if tool.is_empty() { folder } else { tool })
+            }
+            AlertKind::Done => (format!("{agent} {}", tr("ha finito", "is done")), folder),
+        };
+        let _ = self.notices.send(ServerMsg::Notify { title, body, tab_id: chat.map(|c| c.tab_id) });
+    }
+
     /// Context fill of the claude/codex tabs, each recomputed at most every
     /// `CONTEXT_CACHE`.
     async fn contexts_for(&self, sessions: &[crate::agents::AgentSession]) -> HashMap<String, Option<TabContext>> {
@@ -951,6 +1018,27 @@ async fn tabs_task(shared: Arc<Shared>, mut shutdown: watch::Receiver<bool>) {
         if shared.has_conns() {
             // A burst of reports can't scan more than a few times a second.
             shared.refresh_tabs(Duration::from_millis(250)).await;
+        }
+    }
+}
+
+/// Turns the chats' permission requests and finished turns into notifications
+/// for the phones, while one is connected.
+async fn chat_alerts_task(shared: Arc<Shared>, mut shutdown: watch::Receiver<bool>) {
+    let mut alerts = shared.app.state::<ChatState>().watch_alerts();
+    loop {
+        tokio::select! {
+            alert = alerts.recv() => match alert {
+                Ok(alert) => {
+                    if shared.has_conns() {
+                        shared.notify_chat(alert);
+                    }
+                }
+                // Lagging just drops the alerts missed.
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => break,
+            },
+            _ = shutdown.changed() => break,
         }
     }
 }
@@ -1334,13 +1422,17 @@ async fn run_connection(
     let mut settings_rx = shared.settings.subscribe();
     let mut profiles_rx = shared.profiles.subscribe();
     let mut notices_rx = shared.notices.subscribe();
+    let mut chats_rx = shared.app.state::<ChatState>().watch_changes();
     let mut conn = Conn {
         shared: Arc::clone(&shared),
         id: conn_id,
         out_tx,
         overflow: AtomicBool::new(false),
         subs: HashMap::new(),
+        chat_subs: HashMap::new(),
+        paused_chats: Vec::new(),
         last_tabs: Vec::new(),
+        last_chats: Vec::new(),
         background: false,
         input_error_at: None,
     };
@@ -1369,6 +1461,10 @@ async fn run_connection(
     conn.last_tabs = shared.refresh_tabs(TABS_CACHE).await;
     tabs_rx.mark_unchanged();
     conn.send(ServerMsg::Tabs { tabs: conn.last_tabs.clone() });
+    chats_rx.mark_unchanged();
+    conn.last_chats = shared.chat_infos();
+    conn.send(ServerMsg::Chats { chats: conn.last_chats.clone() });
+    conn.send_views();
 
     let mut tick = tokio::time::interval(TABS_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -1387,6 +1483,13 @@ async fn run_connection(
             Ok(()) = tabs_rx.changed() => {
                 if !conn.background {
                     conn.push_tabs_if_changed();
+                    // A window reporting its tabs may have given a chat its tab or its label.
+                    conn.push_chats_if_changed();
+                }
+            }
+            Ok(()) = chats_rx.changed() => {
+                if !conn.background {
+                    conn.push_chats_if_changed();
                 }
             }
             // While the phone is in the background the arms below still
@@ -1471,7 +1574,14 @@ struct Conn {
     overflow: AtomicBool,
     /// pty id -> the task streaming it to this client.
     subs: HashMap<String, tokio::task::JoinHandle<()>>,
+    /// chat id -> the task streaming it to this client, and the last event it sent.
+    chat_subs: HashMap<String, (tokio::task::JoinHandle<()>, Arc<AtomicU64>)>,
+    /// Chats followed when the phone went to the background, with the last
+    /// event sent: the phone still counts them as open, so they resume by
+    /// themselves when it comes back.
+    paused_chats: Vec<(String, u64)>,
     last_tabs: Vec<Tab>,
+    last_chats: Vec<ChatInfo>,
     /// The phone said it is in the background: only notifications go out.
     background: bool,
     /// The last input error reported (pty id, when): repeats for the same pty
@@ -1500,6 +1610,7 @@ impl Conn {
             self.subs.remove(&pty_id);
             self.shared.release_size(&pty_id, self.id);
         }
+        self.chat_subs.retain(|_, (task, _)| !task.is_finished());
     }
 
     /// Stops every task this connection started.
@@ -1507,6 +1618,33 @@ impl Conn {
         for (_, task) in self.subs.drain() {
             task.abort();
         }
+        for (_, (task, _)) in self.chat_subs.drain() {
+            task.abort();
+        }
+    }
+
+    /// Streams `chat_id` to this client from after `after_seq`, replacing any
+    /// stream of it already running. Errs (already reported) when it can't.
+    fn open_chat(&mut self, chat_id: String, after_seq: u64) {
+        let subscribed = self.shared.app.state::<ChatState>().subscribe(&chat_id, after_seq);
+        let Ok((replay, feed)) = subscribed else {
+            self.error(tr("Chat non trovata", "Chat not found"), None);
+            return;
+        };
+        if let Some((old, _)) = self.chat_subs.remove(&chat_id) {
+            old.abort();
+        }
+        let sent = Arc::new(AtomicU64::new(after_seq));
+        let task = tokio::spawn(stream_chat(
+            Arc::clone(&self.shared),
+            chat_id.clone(),
+            after_seq,
+            replay,
+            feed,
+            self.out_tx.clone(),
+            Arc::clone(&sent),
+        ));
+        self.chat_subs.insert(chat_id, (task, sent));
     }
 
     /// Enters or leaves background mode. Entering stops every stream (the
@@ -1522,10 +1660,23 @@ impl Conn {
                 task.abort();
                 self.shared.release_size(&pty_id, self.id);
             }
+            for (chat_id, (task, sent)) in self.chat_subs.drain() {
+                task.abort();
+                self.paused_chats.push((chat_id, sent.load(Ordering::Relaxed)));
+            }
             return;
+        }
+        // A chat closed meanwhile is just gone from the `chats` sent below.
+        let live = self.shared.chat_infos();
+        for (chat_id, after_seq) in std::mem::take(&mut self.paused_chats) {
+            if live.iter().any(|c| c.chat_id == chat_id) {
+                self.open_chat(chat_id, after_seq);
+            }
         }
         self.last_tabs = self.shared.latest_tabs();
         self.send(ServerMsg::Tabs { tabs: self.last_tabs.clone() });
+        self.last_chats = self.shared.chat_infos();
+        self.send(ServerMsg::Chats { chats: self.last_chats.clone() });
         self.send(ServerMsg::Usage { items: self.shared.usage.borrow().clone() });
         self.send(ServerMsg::Actions { actions: self.shared.actions.borrow().clone() });
         let settings = self.shared.settings.borrow().clone();
@@ -1543,6 +1694,106 @@ impl Conn {
             self.last_tabs = tabs.clone();
             self.send(ServerMsg::Tabs { tabs });
         }
+    }
+
+    fn push_chats_if_changed(&mut self) {
+        let chats = self.shared.chat_infos();
+        if chats != self.last_chats {
+            self.last_chats = chats.clone();
+            self.send(ServerMsg::Chats { chats });
+        }
+    }
+
+    /// Lists the agent view plugins for the phone. Reading and hashing the
+    /// packages happens on the blocking pool, and `viewfile` chunks reuse the hashes.
+    fn send_views(&self) {
+        let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let app = shared.app.clone();
+            match crate::blocking(move || views::list(&app)).await {
+                Ok(views) => {
+                    *lock(&shared.view_hashes) = views.iter().map(|v| (v.id.clone(), v.hash.clone())).collect();
+                    let _ = out.try_send(ServerMsg::Views { views });
+                }
+                Err(message) => {
+                    let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                }
+            }
+        });
+    }
+
+    /// Sends one file of a view plugin, in chunks.
+    fn send_view_file(&self, view_id: String, path: String) {
+        let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let app = shared.app.clone();
+            let known = lock(&shared.view_hashes).get(&view_id).cloned();
+            let (id, file) = (view_id.clone(), path.clone());
+            match crate::blocking(move || views::read_file(&app, &id, &file, known)).await {
+                Ok((hash, bytes)) => {
+                    lock(&shared.view_hashes).insert(view_id.clone(), hash.clone());
+                    views::send_file(&out, &view_id, &hash, &path, &bytes).await;
+                }
+                Err(message) => {
+                    let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                }
+            }
+        });
+    }
+
+    /// Answers a `linkpreview`: the page's preview, or none if the desktop's
+    /// link preview setting is "never" or the page has nothing to show.
+    fn send_link_preview(&self, url: String) {
+        let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let never = shared.settings.borrow().get("linkPreviews").and_then(|v| v.as_str()) == Some("never");
+            let preview = if never { None } else { crate::link_preview::link_preview(url.clone()).await.ok() };
+            // A reply is one frame: the pictures go first if it would not fit.
+            let preview = preview.and_then(|p| serde_json::to_value(p.fit(LINK_PREVIEW_MAX_BYTES)).ok());
+            let _ = out.send(ServerMsg::LinkPreview { url, preview }).await;
+        });
+    }
+
+    /// Runs a call on a chat on the blocking pool (it writes to the agent) and
+    /// reports a failure to the phone.
+    fn spawn_chat<F>(&self, work: F)
+    where
+        F: FnOnce(&ChatState) -> Result<(), String> + Send + 'static,
+    {
+        let (app, out) = (self.shared.app.clone(), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let result = crate::blocking(move || work(&app.state::<ChatState>())).await;
+            if let Err(message) = result {
+                let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+            }
+        });
+    }
+
+    /// The chat with that id, as the phone lists it; reports an unknown one.
+    fn chat(&self, chat_id: &str) -> Option<ChatInfo> {
+        let chat = self.shared.chat_infos().into_iter().find(|c| c.chat_id == chat_id);
+        if chat.is_none() {
+            self.error(tr("Chat non trovata", "Chat not found"), None);
+        }
+        chat
+    }
+
+    /// Whether the folder, agent and profile of a `newtab` / `newchat` make
+    /// sense; tells the phone what doesn't.
+    fn new_target_ok(&self, cwd: &Option<String>, cli: Option<&str>, profile: &Option<String>) -> bool {
+        if cli.is_some_and(|c| !matches!(c, "claude" | "codex" | "vibe" | "gemini")) {
+            self.error(tr("Agente sconosciuto", "Unknown agent"), None);
+            return false;
+        }
+        if cwd.as_deref().is_some_and(|c| c.len() > 4096 || !std::path::Path::new(c).is_dir()) {
+            self.error(tr("Cartella non trovata sul computer", "Folder not found on the computer"), None);
+            return false;
+        }
+        if profile.as_deref().is_some_and(|p| p.len() > 128) {
+            self.error(tr("Profilo non valido", "Invalid profile"), None);
+            return false;
+        }
+        true
     }
 
     /// Queues keystrokes for `pty_id`, in order. `PtyState::write` only
@@ -1656,16 +1907,7 @@ impl Conn {
             }
             ClientMsg::NewTab { cwd, cli, profile } => {
                 let cwd = cwd.filter(|c| !c.trim().is_empty());
-                if cli.as_deref().is_some_and(|c| !matches!(c, "claude" | "codex" | "vibe" | "gemini")) {
-                    self.error(tr("Agente sconosciuto", "Unknown agent"), None);
-                    return;
-                }
-                if cwd.as_deref().is_some_and(|c| c.len() > 4096 || !std::path::Path::new(c).is_dir()) {
-                    self.error(tr("Cartella non trovata sul computer", "Folder not found on the computer"), None);
-                    return;
-                }
-                if profile.as_deref().is_some_and(|p| p.len() > 128) {
-                    self.error(tr("Profilo non valido", "Invalid profile"), None);
+                if !self.new_target_ok(&cwd, cli.as_deref(), &profile) {
                     return;
                 }
                 let Some(window) = self.shared.default_window() else {
@@ -1674,6 +1916,95 @@ impl Conn {
                 };
                 let payload = serde_json::json!({ "cwd": cwd, "cli": cli, "profile": profile });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_NEW_TAB, payload);
+            }
+            ClientMsg::NewChat { cli, cwd, profile } => {
+                let cwd = cwd.filter(|c| !c.trim().is_empty());
+                if !self.new_target_ok(&cwd, Some(&cli), &profile) {
+                    return;
+                }
+                let Some(window) = self.shared.default_window() else {
+                    self.error(tr("Nessuna finestra aperta", "No window is open"), None);
+                    return;
+                };
+                let payload = serde_json::json!({ "cwd": cwd, "cli": cli, "profile": profile });
+                let _ = self.shared.app.emit_to(window.as_str(), EVT_NEW_CHAT, payload);
+            }
+            ClientMsg::ChatOpen { chat_id, after_seq } => {
+                self.prune_subs();
+                if chat_id.len() > MAX_ID_BYTES {
+                    self.error(tr("Chat non trovata", "Chat not found"), None);
+                    return;
+                }
+                if self.chat_subs.len() >= MAX_CHAT_SUBS && !self.chat_subs.contains_key(&chat_id) {
+                    self.error(tr("Troppe chat aperte", "Too many open chats"), None);
+                    return;
+                }
+                self.paused_chats.retain(|(id, _)| *id != chat_id);
+                self.open_chat(chat_id, after_seq);
+            }
+            ClientMsg::ChatClose { chat_id } => {
+                self.paused_chats.retain(|(id, _)| *id != chat_id);
+                if let Some((task, _)) = self.chat_subs.remove(&chat_id) {
+                    task.abort();
+                }
+            }
+            ClientMsg::ChatPrompt { chat_id, text } => {
+                if text.len() > proto::MAX_INPUT_BYTES {
+                    self.error(tr("Messaggio troppo lungo", "Message too large"), None);
+                } else if chat_id.len() > MAX_ID_BYTES {
+                    self.error(tr("Chat non trovata", "Chat not found"), None);
+                } else if !text.trim().is_empty() {
+                    self.spawn_chat(move |chats| chats.prompt(&chat_id, text));
+                }
+            }
+            ClientMsg::ChatCancel { chat_id } => {
+                if chat_id.len() > MAX_ID_BYTES {
+                    self.error(tr("Chat non trovata", "Chat not found"), None);
+                } else {
+                    self.spawn_chat(move |chats| chats.cancel(&chat_id));
+                }
+            }
+            ClientMsg::ChatPermission { chat_id, request_id, option_id } => {
+                let short = chat_id.len() <= MAX_ID_BYTES
+                    && option_id.as_ref().is_none_or(|o| o.len() <= MAX_ID_BYTES)
+                    && request_id.to_string().len() <= MAX_ID_BYTES;
+                if short {
+                    self.spawn_chat(move |chats| chats.permission(&chat_id, &request_id, option_id.as_deref()));
+                } else {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                }
+            }
+            ClientMsg::ChatMode { chat_id, mode_id } => {
+                if chat_id.len() > MAX_ID_BYTES || mode_id.is_empty() || mode_id.len() > MAX_ID_BYTES {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                    return;
+                }
+                let (app, out) = (self.shared.app.clone(), self.out_tx.clone());
+                tauri::async_runtime::spawn(async move {
+                    let result = app.state::<ChatState>().set_mode(&chat_id, mode_id).await;
+                    if let Err(message) = result {
+                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                    }
+                });
+            }
+            ClientMsg::ChatTerminal { chat_id } => {
+                let Some(chat) = self.chat(&chat_id) else { return };
+                let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_TERMINAL, serde_json::json!({ "tabId": chat.tab_id }));
+            }
+            ClientMsg::Views => self.send_views(),
+            ClientMsg::ViewFile { view_id, path } => {
+                if view_id.len() > MAX_ID_BYTES || path.len() > 1024 {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                } else {
+                    self.send_view_file(view_id, path);
+                }
+            }
+            ClientMsg::LinkPreview { url } => {
+                if url.len() > LINK_URL_MAX_BYTES {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                } else {
+                    self.send_link_preview(url);
+                }
             }
             ClientMsg::Set { key, value } => {
                 if key.is_empty() || key.len() > 64 {

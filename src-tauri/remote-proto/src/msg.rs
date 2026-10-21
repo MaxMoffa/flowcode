@@ -79,6 +79,33 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         profile: Option<String>,
     },
+    /// Follow a chat: the desktop answers with its events after `after_seq`
+    /// (`ServerMsg::ChatEvents` with `replay`), then streams the new ones.
+    ChatOpen { chat_id: String, after_seq: u64 },
+    ChatClose { chat_id: String },
+    /// A prompt for the chat's agent, at most `MAX_INPUT_BYTES`.
+    ChatPrompt { chat_id: String, text: String },
+    ChatCancel { chat_id: String },
+    /// Answer an agent's permission request; `option_id: None` cancels it.
+    ChatPermission { chat_id: String, request_id: serde_json::Value, option_id: Option<String> },
+    ChatMode { chat_id: String, mode_id: String },
+    /// Hand the chat's session over to a desktop terminal tab, as Ctrl+` does there.
+    ChatTerminal { chat_id: String },
+    /// Open a new desktop chat tab for `cli`, in `cwd` (else the shell's start folder).
+    NewChat {
+        cli: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        /// Account profile id; `""` = the default profile; absent = automatic.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile: Option<String>,
+    },
+    /// List the agent view plugins a phone may show (answered with `ServerMsg::Views`).
+    Views,
+    /// One file of a view plugin, answered with its `ServerMsg::ViewFile` chunks.
+    ViewFile { view_id: String, path: String },
+    /// The preview of a link in a chat (answered with `ServerMsg::LinkPreview`).
+    LinkPreview { url: String },
     /// The phone is in the background: send only notifications until it says
     /// otherwise (`on: false`).
     Background { on: bool },
@@ -141,6 +168,20 @@ pub enum ServerMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tab_id: Option<String>,
     },
+    /// Every chat tab of the desktop, sent after `ready` and on every change.
+    Chats { chats: Vec<ChatInfo> },
+    /// Events of a chat followed with `chatopen`, in `seq` order. `replay`
+    /// marks the answer to `chatopen` (possibly split over several messages),
+    /// `false` the live ones after it. Each event is a `ChatEvent` of src/chat.
+    ChatEvents { chat_id: String, events: Vec<serde_json::Value>, replay: bool },
+    /// The agent view plugins a phone may show.
+    Views { views: Vec<ViewPackage> },
+    /// One chunk of a view plugin file (base64), `offset` and `total` in raw
+    /// bytes; the chunks of a file arrive in order.
+    ViewFile { view_id: String, hash: String, path: String, offset: u64, total: u64, data: String },
+    /// Reply to `linkpreview`: what the desktop read from the page (the JSON
+    /// shape of the shared `LinkPreview`), or null if there is none.
+    LinkPreview { url: String, preview: Option<serde_json::Value> },
     Pong,
 }
 
@@ -166,6 +207,64 @@ pub struct Tab {
     pub rows: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<TabContext>,
+}
+
+/// A desktop chat tab (an agent hosted over ACP) a phone can follow.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatInfo {
+    pub chat_id: String,
+    pub tab_id: String,
+    /// Label of the desktop window showing the tab.
+    pub window: String,
+    pub label: String,
+    /// `claude`, `codex`, `vibe` or `gemini`.
+    pub agent: String,
+    pub cwd: String,
+    /// Account profile the agent runs under (absent: the default one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// `starting` / `idle` / `busy` / `waiting` / `exited`, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// The ACP `modes` object the agent announced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modes: Option<serde_json::Value>,
+}
+
+/// An installed agent view plugin: its manifest plus what a phone needs to
+/// cache it.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewPackage {
+    pub id: String,
+    pub kind: String,
+    pub api_version: u32,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    pub entry: String,
+    pub transport: String,
+    pub devices: Vec<String>,
+    pub permissions: Vec<String>,
+    /// SHA-256 (hex) over the package's files: a phone re-downloads only when it changes.
+    pub hash: String,
+    pub files: Vec<ViewFileInfo>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewFileInfo {
+    pub path: String,
+    pub size: u64,
 }
 
 /// How full an agent's context window is (tokens).
@@ -328,6 +427,94 @@ mod tests {
         assert_eq!(msg, ClientMsg::Action { id: "git".into(), pty_id: None });
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"rename","ptyId":"p","label":"x"}"#).unwrap();
         assert_eq!(msg, ClientMsg::Rename { pty_id: "p".into(), label: "x".into() });
+    }
+
+    #[test]
+    fn chat_messages_round_trip() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatopen","chatId":"c1","afterSeq":12}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatOpen { chat_id: "c1".into(), after_seq: 12 });
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatpermission","chatId":"c1","requestId":"a1","optionId":null}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatPermission { chat_id: "c1".into(), request_id: serde_json::json!("a1"), option_id: None });
+        let json = serde_json::to_value(ClientMsg::ChatMode { chat_id: "c1".into(), mode_id: "plan".into() }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "chatmode", "chatId": "c1", "modeId": "plan" }));
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"newchat","cli":"claude"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::NewChat { cli: "claude".into(), cwd: None, profile: None });
+        let events = vec![serde_json::json!({ "seq": 1 })];
+        let json = serde_json::to_value(ServerMsg::ChatEvents { chat_id: "c1".into(), events, replay: true }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "chatevents", "chatId": "c1", "events": [{ "seq": 1 }], "replay": true }));
+        let info = ChatInfo {
+            chat_id: "c1".into(),
+            tab_id: "chat-1".into(),
+            window: "main".into(),
+            label: "Claude".into(),
+            agent: "claude".into(),
+            cwd: "/work".into(),
+            profile: None,
+            session_id: Some("s1".into()),
+            status: Some("idle".into()),
+            modes: None,
+        };
+        let json = serde_json::to_value(ServerMsg::Chats { chats: vec![info] }).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "t": "chats", "chats": [{
+                "chatId": "c1", "tabId": "chat-1", "window": "main", "label": "Claude", "agent": "claude",
+                "cwd": "/work", "sessionId": "s1", "status": "idle"
+            }] })
+        );
+    }
+
+    #[test]
+    fn view_messages_round_trip() {
+        assert_eq!(serde_json::to_string(&ClientMsg::Views).unwrap(), r#"{"t":"views"}"#);
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"viewfile","viewId":"timeline","path":"index.html"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ViewFile { view_id: "timeline".into(), path: "index.html".into() });
+        let chunk = ServerMsg::ViewFile {
+            view_id: "timeline".into(),
+            hash: "ab".into(),
+            path: "index.html".into(),
+            offset: 0,
+            total: 5,
+            data: "aGVsbG8=".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(chunk).unwrap(),
+            serde_json::json!({ "t": "viewfile", "viewId": "timeline", "hash": "ab", "path": "index.html", "offset": 0, "total": 5, "data": "aGVsbG8=" })
+        );
+        let package = ViewPackage {
+            id: "timeline".into(),
+            kind: "agentView".into(),
+            api_version: 1,
+            label: "Timeline".into(),
+            labels: None,
+            description: None,
+            version: None,
+            author: None,
+            entry: "index.html".into(),
+            transport: "acp".into(),
+            devices: vec!["phone".into()],
+            permissions: vec![],
+            hash: "ab".into(),
+            files: vec![ViewFileInfo { path: "index.html".into(), size: 5 }],
+        };
+        let json = serde_json::to_value(&package).unwrap();
+        assert_eq!(json["apiVersion"], 1);
+        assert_eq!(json["files"], serde_json::json!([{ "path": "index.html", "size": 5 }]));
+        assert!(json.get("labels").is_none());
+        assert_eq!(serde_json::from_value::<ViewPackage>(json).unwrap(), package);
+    }
+
+    #[test]
+    fn link_preview_messages_round_trip() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"linkpreview","url":"https://a.b"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::LinkPreview { url: "https://a.b".into() });
+        let reply = ServerMsg::LinkPreview { url: "https://a.b".into(), preview: Some(serde_json::json!({ "url": "https://a.b", "title": "T" })) };
+        assert_eq!(
+            serde_json::to_value(reply).unwrap(),
+            serde_json::json!({ "t": "linkpreview", "url": "https://a.b", "preview": { "url": "https://a.b", "title": "T" } })
+        );
+        let none = ServerMsg::LinkPreview { url: "https://a.b".into(), preview: None };
+        assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "linkpreview", "url": "https://a.b", "preview": null }));
     }
 
     #[test]

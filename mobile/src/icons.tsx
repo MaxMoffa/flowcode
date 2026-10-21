@@ -187,3 +187,15 @@ export const CheckIcon = () => (
     <path d="m5 12.5 4.5 4.5L19 7.5" />
   </Svg>
 );
+
+export const ChatIcon = ({ size = 20 }: { size?: number }) => (
+  <Svg size={size}>
+    <path d="M5 5.500h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4.500 3.500V17.500H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z" />
+  </Svg>
+);
+
+export const SendIcon = () => (
+  <Svg strokeWidth={2.2}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Svg>
+);

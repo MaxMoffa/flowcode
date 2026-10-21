@@ -105,6 +105,8 @@ export function SettingsPage({
     setRestoreSession,
     confirmLinkOpen,
     setConfirmLinkOpen,
+    linkPreviews,
+    setLinkPreviews,
     explorerDoubleClick,
     setExplorerDoubleClick,
     newTabPage,
@@ -439,6 +441,18 @@ export function SettingsPage({
                     { value: "open", label: t("settings.links.open") },
                   ]}
                   onChange={(v) => setConfirmLinkOpen(v === "ask")}
+                />
+              </SettingRow>
+              <SettingRow id="linkPreviews" label={t("settings.linkPreviews.label")} desc={t("settings.linkPreviews.desc")}>
+                <Segmented
+                  ariaLabel={t("settings.linkPreviews.label")}
+                  value={linkPreviews}
+                  options={[
+                    { value: "always", label: t("settings.linkPreviews.always") },
+                    { value: "onClick", label: t("settings.linkPreviews.onClick") },
+                    { value: "never", label: t("settings.linkPreviews.never") },
+                  ]}
+                  onChange={setLinkPreviews}
                 />
               </SettingRow>
             </SettingsGroup>

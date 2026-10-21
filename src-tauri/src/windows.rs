@@ -197,20 +197,45 @@ pub struct TabInfo {
     pub cwd: String,
 }
 
+/// One chat tab as its window reports it: the remote access server joins it
+/// with the running chat that has the same agent session (see chat.rs).
+#[derive(Deserialize, Serialize, Clone)]
+pub struct ChatTabInfo {
+    pub tab_id: String,
+    pub label: String,
+    pub session_id: String,
+}
+
 /// Window label -> its terminal tabs, as last reported.
 #[derive(Default)]
-pub struct WindowTabs(Mutex<HashMap<String, Vec<TabInfo>>>);
+pub struct WindowTabs {
+    terminals: Mutex<HashMap<String, Vec<TabInfo>>>,
+    chats: Mutex<HashMap<String, Vec<ChatTabInfo>>>,
+}
 
 impl WindowTabs {
     pub fn forget(&self, label: &str) {
-        lock(&self.0).remove(label);
+        lock(&self.terminals).remove(label);
+        lock(&self.chats).remove(label);
+    }
+
+    /// Every reported chat tab (that has a session) as (window label, tab),
+    /// ordered like `list`.
+    pub fn list_chats(&self) -> Vec<(String, ChatTabInfo)> {
+        let windows = lock(&self.chats);
+        let mut labels: Vec<&String> = windows.keys().collect();
+        labels.sort();
+        labels
+            .into_iter()
+            .flat_map(|label| windows[label].iter().map(move |t| (label.clone(), t.clone())))
+            .collect()
     }
 
     /// Every reported tab as (window label, tab), windows in label order and
     /// tabs in the order their window reported them - a stable listing for
     /// the remote client (see remote.rs).
     pub fn list(&self) -> Vec<(String, TabInfo)> {
-        let windows = lock(&self.0);
+        let windows = lock(&self.terminals);
         let mut labels: Vec<&String> = windows.keys().collect();
         labels.sort();
         labels
@@ -221,7 +246,7 @@ impl WindowTabs {
 
     /// Pty session id -> (window label, tab).
     pub fn by_pty(&self) -> HashMap<String, (String, TabInfo)> {
-        let windows = lock(&self.0);
+        let windows = lock(&self.terminals);
         windows
             .iter()
             .flat_map(|(label, tabs)| {
@@ -233,7 +258,7 @@ impl WindowTabs {
 
     /// The working folder of the tab showing a pty session, if any.
     pub fn cwd_of(&self, pty_id: &str) -> Option<String> {
-        let windows = lock(&self.0);
+        let windows = lock(&self.terminals);
         windows.values().flatten().find(|t| t.pty_id.as_deref() == Some(pty_id)).map(|t| t.cwd.clone())
     }
 }
@@ -244,8 +269,10 @@ pub fn window_report_tabs(
     state: State<'_, WindowTabs>,
     remote: State<'_, crate::remote::RemoteState>,
     tabs: Vec<TabInfo>,
+    chats: Option<Vec<ChatTabInfo>>,
 ) {
-    lock(&state.0).insert(window.label().to_string(), tabs);
+    lock(&state.terminals).insert(window.label().to_string(), tabs);
+    lock(&state.chats).insert(window.label().to_string(), chats.unwrap_or_default());
     // Phones see a tab opened or closed without waiting for the next refresh.
     remote.tabs_reported();
 }

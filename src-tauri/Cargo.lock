@@ -1504,6 +1504,7 @@ dependencies = [
 name = "flowcode"
 version = "0.13.0"
 dependencies = [
+ "base64 0.22.1",
  "ed25519-dalek 2.2.0",
  "flowcode-remote-proto",
  "flowcode-shared",
@@ -1526,6 +1527,7 @@ dependencies = [
  "toml_edit 0.25.15+spec-1.1.0",
  "ureq",
  "uuid",
+ "windows 0.61.3",
  "windows-sys 0.59.0",
 ]
 

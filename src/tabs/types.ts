@@ -1,3 +1,6 @@
+import type { AgentCli } from "../agents/cliInfo";
+import type { ChatStatus } from "../chat/chatTypes";
+
 export interface TermTab {
   kind: "terminal";
   id: string;
@@ -46,6 +49,27 @@ export interface TermTab {
   profileId?: string;
 }
 
+/** An agent hosted as a conversation view (see src/chat) rather than inside a
+ * terminal. Host-only: there is no shell under it. */
+export interface ChatTab {
+  kind: "chat";
+  id: string;
+  agent: AgentCli;
+  /** The folder the agent works in. */
+  cwd: string;
+  label: string;
+  /** The account profile (see src/profiles) the agent runs under - fixed at
+   * start, like a terminal's. */
+  profileId?: string;
+  /** The agent's session, reported once it exists; saved so a restart
+   * resumes the conversation. */
+  sessionId?: string;
+  /** The agent view the chat is shown with (see src/agentViews); absent = the
+   * default. */
+  viewId?: string;
+  status?: ChatStatus;
+}
+
 export interface EditorTab {
   kind: "editor";
   id: string;
@@ -88,4 +112,4 @@ interface WhatsNewTab {
   version: string;
 }
 
-export type AppTab = TermTab | EditorTab | DiffTab | SettingsTab | ChangelogTab | WhatsNewTab;
+export type AppTab = TermTab | ChatTab | EditorTab | DiffTab | SettingsTab | ChangelogTab | WhatsNewTab;

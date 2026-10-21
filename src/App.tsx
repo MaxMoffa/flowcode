@@ -11,8 +11,9 @@ import { TabStrip } from "./terminal/TabStrip";
 import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
-import type { AppTab, TermTab, EditorTab } from "./tabs/types";
+import type { AppTab, ChatTab, TermTab, EditorTab } from "./tabs/types";
 import type { GitChange } from "./git/gitStatus";
+import { loadPluginViews } from "./agentViews/pluginViews";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { shellStartKey, TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
 import { loadSession, saveWindowSession, type SavedTab, type SavedWindow } from "./session/session";
@@ -114,6 +115,7 @@ interface Handoff {
 // onboarding flow are the bulk of the bundle, and plenty of sessions never
 // open a file - the welcome flow only ever shows on first launch.
 const DiffView = lazy(() => import("./git/DiffView").then((m) => ({ default: m.DiffView })));
+const AgentSessionView = lazy(() => import("./agentViews/AgentSessionView").then((m) => ({ default: m.AgentSessionView })));
 const EditorView = lazy(() => import("./editor/EditorView").then((m) => ({ default: m.EditorView })));
 const WelcomeFlow = lazy(() => import("./welcome/WelcomeFlow").then((m) => ({ default: m.WelcomeFlow })));
 
@@ -424,6 +426,20 @@ function Shell() {
             wslDistro: wslDistro ?? undefined,
             profileId: t.profileId,
           });
+        } else if (t.kind === "chat") {
+          // A folder deleted since can't host the agent: the tab is dropped.
+          if (await firstExistingDir([t.cwd])) {
+            restored.push({
+              kind: "chat",
+              id: newTabId("chat"),
+              agent: t.agent as AgentCli,
+              cwd: t.cwd,
+              label: t.label,
+              profileId: t.profileId,
+              sessionId: t.sessionId,
+              viewId: t.viewId,
+            });
+          }
         } else if (t.kind === "editor") {
           restored.push({ kind: "editor", id: newTabId("editor"), path: t.path, label: t.label });
         } else if (t.kind === "whatsNew") {
@@ -514,6 +530,9 @@ function Shell() {
               content: term?.wasUsed() ? term.serialize() : restoredContentRef.current.get(t.id),
             };
           }
+          if (t.kind === "chat") {
+            return { kind: "chat", agent: t.agent, cwd: t.cwd, label: t.label, profileId: t.profileId, sessionId: t.sessionId, viewId: t.viewId };
+          }
           if (t.kind === "editor") return { kind: "editor", path: t.path, label: t.label };
           if (t.kind === "changelog") return { kind: "changelog" };
           if (t.kind === "whatsNew") return { kind: "whatsNew", version: t.version };
@@ -577,6 +596,7 @@ function Shell() {
 
   useEffect(() => {
     seedExamplePlugins().then(reloadCustomPlugins);
+    loadPluginViews().catch(() => {});
     // Per-plugin usage profiles used to be remembered here; now they follow
     // the active tab's profile, so the old keys are dead weight.
     try {
@@ -677,6 +697,9 @@ function Shell() {
   const remoteNewTabRef = useRef<(cwd: string | null, cli: string | null, profile: string | null | undefined) => void>(() => {});
   const remoteRenameRef = useRef<(ptyId: string, label: string) => void>(() => {});
   const remoteCloseRef = useRef<(ptyId: string) => void>(() => {});
+  /** The phone asked to hand a chat tab over to a terminal / for a new chat tab. */
+  const remoteChatTerminalRef = useRef<(tabId: string) => void>(() => {});
+  const remoteNewChatRef = useRef<(cwd: string | null, cli: string, profile: string | null | undefined) => void>(() => {});
   const remoteLoginTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
@@ -987,6 +1010,10 @@ function Shell() {
       addTab(tab.cwd, tabShell(tab), false, tab.profileId ?? null);
       return;
     }
+    if (tab.kind === "chat") {
+      void openChatTab(tab.agent, tab.cwd, tab.profileId, tab.viewId);
+      return;
+    }
     if (tab.kind === "editor") {
       const newId = newTabId("editor");
       setTabs((prev) => [...prev, { kind: "editor", id: newId, path: tab.path, label: tab.label }]);
@@ -1163,7 +1190,12 @@ function Shell() {
   const reportedTabsKey = tabs
     .filter((t): t is TermTab => t.kind === "terminal")
     .map((t) => `${t.id}\u0000${t.label}\u0000${t.cwd}`)
-    .join("\u0001");
+    .join("\u0001") +
+    "\u0002" +
+    tabs
+      .filter((t): t is ChatTab => t.kind === "chat")
+      .map((t) => `${t.id}\u0000${t.label}\u0000${t.sessionId ?? ""}`)
+      .join("\u0001");
   useReportTabs(reportedTabsKey, ptyVersion, latestRef, termRefs);
 
   const adoptTabRef = useRef(adoptTab);
@@ -1228,6 +1260,8 @@ function Shell() {
     remoteNewTabRef,
     remoteRenameRef,
     remoteCloseRef,
+    remoteChatTerminalRef,
+    remoteNewChatRef,
   });
 
   /** Everything the receiving window needs to rebuild `tab` - for a terminal
@@ -1279,7 +1313,8 @@ function Shell() {
    * dropped on. */
   async function handleTabDragOut(id: string) {
     const tab = latestRef.current.tabs.find((t) => t.id === id);
-    if (!tab) return;
+    // A chat can't change window: its agent lives in this one.
+    if (!tab || tab.kind === "chat") return;
     const target = await invoke<CursorTarget>("window_at_cursor").catch(() => null);
     if (!target) return;
     const alone = latestRef.current.tabs.length === 1;
@@ -1741,6 +1776,7 @@ function Shell() {
     [customPlugins, language],
   );
   const terminalTabs = useMemo(() => tabs.filter((t): t is TermTab => t.kind === "terminal"), [tabs]);
+  const chatTabs = useMemo(() => tabs.filter((t): t is ChatTab => t.kind === "chat"), [tabs]);
 
   // The quick actions a paired phone may trigger.
   const remoteActionsKey = useMemo(
@@ -1884,15 +1920,32 @@ function Shell() {
     }, 5000);
   };
 
+  /** A profile id from the phone: "" = the default profile, an unknown id falls back to it, absent = automatic. */
+  function remoteProfileId(profile: string | null | undefined): string | null | undefined {
+    return profile == null ? undefined : profiles.some((p) => p.id === profile) ? profile : null;
+  }
+
   remoteNewTabRef.current = (cwd, cli, profile) => {
-    // From the phone: "" = the default profile, an unknown id falls back to it, absent = automatic.
-    const profileId = profile == null ? undefined : profiles.some((p) => p.id === profile) ? profile : null;
+    const profileId = remoteProfileId(profile);
     if (cli && (AGENT_CLIS as readonly string[]).includes(cli)) {
       const dir = cwd ?? homeDir;
       // Automatic for an agent: the folder's project default, like a shell tab gets.
       const pick = profileId !== undefined ? Promise.resolve(profileId) : profileForPath(dir);
       void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, undefined, id ?? undefined));
     } else addTab(cwd ?? undefined, undefined, false, profileId);
+  };
+
+  remoteNewChatRef.current = (cwd, cli, profile) => {
+    if (!(AGENT_CLIS as readonly string[]).includes(cli)) return;
+    const profileId = remoteProfileId(profile);
+    const dir = cwd ?? homeDir;
+    const pick = profileId !== undefined ? Promise.resolve(profileId) : profileForPath(dir);
+    void pick.then((id) => openChatTab(cli as AgentCli, dir, id ?? undefined));
+  };
+
+  remoteChatTerminalRef.current = (tabId) => {
+    const tab = latestRef.current.tabs.find((t): t is ChatTab => t.id === tabId && t.kind === "chat");
+    if (tab?.sessionId) switchChatToTerminal(tab, tab.sessionId);
   };
 
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the
@@ -1902,11 +1955,16 @@ function Shell() {
    * install check and the host-only flags, like `openAgentSession`. The new
    * tab runs under account profile `profileId` (default profile when
    * omitted) - ignored for WSL, where the env vars don't reach. */
-  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string, profileId?: string) {
+  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string, profileId?: string, asChat = false) {
     let command = allPlugins.find((p) => cliOfPlugin(p.id) === cli)?.command ?? cli;
     if (wslDistroOfShell(shell) !== undefined) {
       const id = addTab(cwd, shell);
       pendingCommandsRef.current.set(id, command);
+      return;
+    }
+    // Chat is host-only, so a WSL shell (above) never gets it.
+    if (asChat) {
+      await openChatTab(cli, cwd, profileId);
       return;
     }
     if (!(await ensureCliReady(cli, profileId))) return;
@@ -1923,6 +1981,29 @@ function Shell() {
     setTabs((prev) => [...prev, makeTermTab(id, cwd, { profileId })]);
     setActiveTabId(id);
     setActiveTerminalId(id);
+  }
+
+  /** Opens `cli` as a chat tab in `cwd` (the host file system), after the same
+   * install/login check a terminal launch does. */
+  async function openChatTab(cli: AgentCli, cwd: string, profileId?: string, viewId?: string) {
+    if (!(await ensureCliReady(cli, profileId))) return;
+    if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
+    const id = newTabId("chat");
+    setTabs((prev) => [...prev, { kind: "chat", id, agent: cli, cwd, label: CLI_INFO[cli].name, profileId, viewId }]);
+    setActiveTabId(id);
+  }
+
+  /** Patches a chat tab's fields as its view reports them. */
+  function patchChatTab(id: string, patch: Partial<ChatTab>) {
+    setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "chat" ? { ...t, ...patch } : t)));
+  }
+
+  /** Ctrl+` in a chat: closes the chat (its view's unmount kills the agent, so
+   * the session is free) and resumes that session in a terminal tab. */
+  function switchChatToTerminal(tab: ChatTab, sessionId: string) {
+    setTabs((prev) => prev.filter((t) => t.id !== tab.id));
+    forgetTab(tab.id);
+    void openAgentSession(tab.cwd, sessionId, tab.agent, undefined, tab.profileId);
   }
 
   /** Opens a plain terminal tab in `cwd` - a worktree from the Agents panel. */
@@ -2454,6 +2535,27 @@ function Shell() {
                   </Fragment>
                 );
               }
+              if (tab.kind === "chat") {
+                return (
+                  <Suspense key={tab.id} fallback={null}>
+                    <AgentSessionView
+                      agent={tab.agent}
+                      cwd={tab.cwd}
+                      profileId={tab.profileId}
+                      resumeSessionId={tab.sessionId}
+                      viewId={tab.viewId}
+                      hidden={tab.id !== activeTabId}
+                      title={tab.label}
+                      onSessionId={(sessionId) => patchChatTab(tab.id, { sessionId })}
+                      onStatus={(status) => patchChatTab(tab.id, { status })}
+                      onViewChange={(viewId) => patchChatTab(tab.id, { viewId })}
+                      onSwitchToTerminal={(sessionId) => switchChatToTerminal(tab, sessionId)}
+                      onOpenFile={openFile}
+                      onOpenLogin={(command) => openTerminalWithCommand(command, tab.profileId)}
+                    />
+                  </Suspense>
+                );
+              }
               if (tab.kind === "editor") {
                 return (
                   <Suspense key={tab.id} fallback={null}>
@@ -2533,6 +2635,7 @@ function Shell() {
                 <AgentsSidebar
                   windowLabel={appWindow.label}
                   tabs={terminalTabs}
+                  chatTabs={chatTabs}
                   activeTabId={activeTabId}
                   projectCwd={
                     agentsTerminal
@@ -2547,7 +2650,7 @@ function Shell() {
                   onOpenTab={selectTab}
                   onOpenSession={openAgentSession}
                   projectShell={agentsTerminal ? tabShell(agentsTerminal) : undefined}
-                  onLaunchAgent={(cli, cwd, shell, profileId) => void launchAgentInNewTab(cli, cwd, shell, profileId)}
+                  onLaunchAgent={(cli, cwd, shell, profileId, asChat) => void launchAgentInNewTab(cli, cwd, shell, profileId, asChat)}
                   onOpenFolder={openFolderTab}
                   onClose={() => setAgentsSidebarOpen(false)}
                 />

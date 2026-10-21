@@ -15,7 +15,7 @@ describe("desktop compatibility", () => {
   });
 
   it("is fine with a desktop that has every capability", () => {
-    const host = hostInfoFrom({ appVersion: "0.11.0", proto: 2, caps: ["rename", "closeTab", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "future"] });
+    const host = hostInfoFrom({ appVersion: "0.11.0", proto: 2, caps: ["rename", "closeTab", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "chat", "agentViews", "future"] });
     expect(checkCompat(host)).toEqual({ level: "ok", missing: [] });
   });
 
@@ -23,6 +23,12 @@ describe("desktop compatibility", () => {
     const host = hostInfoFrom({ appVersion: "0.10.5", proto: 2, caps: ["rename", "profiles"] });
     expect(checkCompat(host).missing).toEqual(["closeTab", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini"]);
     expect(supports(host, "profiles")).toBe(true);
+  });
+
+  it("does not complain about a desktop without chat or agent views", () => {
+    const host = hostInfoFrom({ appVersion: "0.13.0", proto: 2, caps: ["rename", "closeTab", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini"] });
+    expect(checkCompat(host)).toEqual({ level: "ok", missing: [] });
+    expect(supports(host, "chat")).toBe(false);
   });
 
   it("blocks a protocol below the minimum and says nothing before connecting", () => {

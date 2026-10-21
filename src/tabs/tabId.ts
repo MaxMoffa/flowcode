@@ -7,7 +7,7 @@ import.meta.hot?.dispose((data) => {
   data.nextTabId = nextTabId;
 });
 
-/** A fresh, never-reused tab id: `tab-N`, `editor-N` or `diff-N`. */
-export function newTabId(kind: "tab" | "editor" | "diff" = "tab"): string {
+/** A fresh, never-reused tab id: `tab-N`, `editor-N`, `diff-N` or `chat-N`. */
+export function newTabId(kind: "tab" | "editor" | "diff" | "chat" = "tab"): string {
   return `${kind}-${nextTabId++}`;
 }

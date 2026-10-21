@@ -220,3 +220,162 @@ cartelle di installazione standard; se non lo trova, mostra un avviso invece
 di non fare nulla. Una cartella dentro WSL si apre tramite il remote WSL di
 VS Code (`--remote wsl+<distro>`), come `code .` digitato nella shell WSL.
 Le sessioni remote (ssh) non sono supportate.
+
+## Viste agente (plugin di tipo agentView)
+
+Una **vista agente** è un modo alternativo di mostrare la conversazione con un
+agente: compare nel menu della sessione ("Visualizza come") accanto a Chat e
+Terminale. A differenza dei plugin descritti sopra, che sono JSON dichiarativi,
+una vista **è codice** (HTML + JavaScript) e gira dentro Flowcode, ma isolata:
+in un iframe con `sandbox="allow-scripts"`, senza accesso alla pagina
+dell'app, a internet o ai file dell'utente. Parla con la sessione solo
+attraverso il protocollo qui sotto, e solo per le azioni che il manifest
+dichiara e che l'utente ha accettato installandola.
+
+Un punto fermo: **le richieste di permesso degli agenti le gestisce sempre
+Flowcode**, con i propri pulsanti disegnati fuori dall'iframe (sopra la vista).
+Il protocollo non ha nessun messaggio per rispondere a un permesso: una vista
+non può né approvarlo né rifiutarlo.
+
+### Cartella e installazione
+
+Una vista è una cartella:
+
+```
+hello-view/
+  manifest.json
+  index.html       (l'`entry`)
+  view.js, ...     (script, stili, immagini: tutto dentro la cartella)
+```
+
+Si installa da **Impostazioni → Funzionalità → Viste agente → "Installa
+vista…"**, scegliendo la cartella. Prima dell'installazione Flowcode mostra
+nome, autore, versione e permessi richiesti; se esiste già una vista con lo
+stesso `id` chiede se sovrascriverla. Le viste installate vivono in
+`<cartella plugin>/views/<id>/` (la cartella dei plugin è quella indicata in
+"Dove va il file"); si eliminano dalla stessa pagina. Il menu della sessione si
+aggiorna subito, senza riavviare. Un punto di partenza pronto è in
+`docs/agent-views/hello-view` (protocollo a mano, nessuna libreria); la vista
+completa di riferimento è `docs/agent-views/timeline`.
+
+### SDK
+
+Per non riscrivere handshake e ricostruzione della conversazione,
+`docs/agent-views/sdk/` contiene una piccola libreria senza dipendenze
+(`flowcode-view.iife.js`, oppure il modulo ES `flowcode-view.js`, più i tipi):
+`connect()` fa l'handshake e tiene il modello della chat aggiornato dagli
+eventi, `client.send/cancel/openFile/can` fanno le richieste. Una vista ne porta
+con sé una copia. Uso e API in `docs/agent-views/sdk/README.md`; si rigenera con
+`npm run build:view-sdk`. La vista **Timeline** (`docs/agent-views/timeline`) la
+usa ed è l'esempio completo: piano fissato, eventi con orario, diff, file
+cliccabili, coda dei messaggi.
+
+### Manifest
+
+```ts
+interface ViewPluginManifest {
+  id: string;            // identificativo univoco (lettere/numeri/-/_), uguale al nome della cartella
+  kind: "agentView";
+  apiVersion: 1;         // versione del protocollo bridge
+  label: string;         // nome nel menu della sessione
+  labels?: Record<string, string>; // traduzioni di label per lingua dell'interfaccia ("it", "en")
+  description?: string;
+  version?: string;
+  author?: string;
+  entry: string;         // file HTML di partenza, relativo alla cartella
+  transport: "acp";      // la vista mostra una chat ospitata dall'app
+  devices: ("desktop" | "tablet" | "phone")[]; // dove viene offerta
+  permissions: ("send" | "cancel" | "setMode" | "openFile")[];
+}
+```
+
+### Permessi
+
+| Permesso   | Cosa consente | Come lo vede l'utente |
+|------------|---------------|-----------------------|
+| `send`     | `send`: invia un messaggio all'agente (passa dalla coda dei messaggi, come dalla chat) | "Invia messaggi all'agente" |
+| `cancel`   | `cancel`: interrompe il turno in corso | "Interrompe l'agente" |
+| `setMode`  | `setMode`: cambia la modalità della sessione | "Cambia modalità" |
+| `openFile` | `openFile`: apre un file del progetto in un editor | "Apre file del progetto" |
+
+`switchView` non richiede nessun permesso. Una richiesta senza il permesso
+corrispondente riceve un messaggio `error` con `code: "permission_denied"`.
+
+### Limiti dell'iframe
+
+I file della vista sono serviti da uno schema dedicato con una
+Content-Security-Policy rigida: **niente rete** (`fetch`, `XMLHttpRequest`,
+WebSocket non escono), **niente risorse esterne** (script, stili, font, immagini
+devono stare nella cartella o essere `data:`), **niente frame**. L'origine della
+pagina è opaca (sandbox senza `allow-same-origin`): niente `localStorage` né
+cookie condivisi con l'app. Niente popup, form, navigazione della pagina
+principale. Lo sfondo dell'iframe è trasparente: sotto c'è quello dell'app.
+
+### Protocollo bridge v1
+
+**Handshake.** La vista manda alla finestra padre
+
+```js
+window.parent.postMessage({ type: "flowcode:hello", apiVersion: 1 }, "*");
+```
+
+Flowcode accetta il messaggio solo se arriva dall'iframe della vista, crea un
+`MessageChannel` e risponde (a `window`) con `{ type: "flowcode:connect",
+apiVersion: 1 }` allegando la porta: la vista la prende da `event.ports[0]` e da
+quel momento **tutto passa dalla porta**. Un secondo `hello` (la vista si è
+ricaricata) sostituisce il canale precedente. Se entro 10 secondi la vista non
+si presenta, Flowcode mostra "La vista non risponde" con un pulsante per tornare
+alla chat. La vista deve mettere `onmessage` sulla porta subito: i messaggi
+inviati prima restano in coda.
+
+**Host → vista**
+
+| Messaggio | Contenuto |
+|-----------|-----------|
+| `init` | `apiVersion`, `viewId`, `session` (`agent`, `agentLabel`, `cwd`, `sessionId`, `title`), `modes` (`{ currentModeId, availableModes[] }` o `null`), `permissions` (quelli concessi), `locale` (`it`/`en`), `device` (`desktop`, `tablet` o `phone`), `insets` (facoltativo, `{ top, right, bottom, left }` in px: aree non sicure dello schermo), `theme`. Un nuovo `init` significa una nuova conversazione: la vista scarta quello che sapeva. |
+| `events` | `events`: array di eventi grezzi del backend (`kind`: `update`, `user`, `permission`, `permissionResolved`, `turnEnd`, `error`, `exit`; vedi `src/chat/chatTypes.ts`), ognuno con `seq` e `at`. Prima arriva l'intera cronologia, poi i lotti dal vivo; ogni `seq` arriva una volta sola. `at` (epoch ms) è il momento in cui Flowcode ha *ricevuto* l'evento, non quello in cui è avvenuto: in una sessione ripresa la cronologia riprodotta porta tutta l'ora della ripresa. `update.update` è l'oggetto ACP `session/update` (es. `sessionUpdate: "agent_message_chunk"` con `content.text`). |
+| `status` | `status` (`starting`, `idle`, `busy`, `waiting`, `exited`), `queued` (messaggi in coda), `currentModeId`. Inviato a ogni cambiamento. |
+| `theme` | `theme`: inviato quando cambia il tema dell'app. |
+| `error` | `code` (`permission_denied` o `bad_request`) e `request` (il `type` della richiesta rifiutata). |
+
+`theme` è `{ scheme: "dark" | "light", tokens: Record<string, string> }`. I
+token sono proprietà CSS già risolte: la vista le applica a `:root`
+(`document.documentElement.style.setProperty(nome, valore)`) e usa `var(--fg)`
+ecc. Elenco fisso:
+
+| Token | Significato |
+|-------|-------------|
+| `--fg` | testo |
+| `--fg-muted` | testo secondario |
+| `--bg-elevated` | superficie (può essere semitrasparente) |
+| `--sidebar-hover` | superficie leggera, per hover e chip |
+| `--border` | bordi |
+| `--accent` | colore di accento |
+| `--accent-2` | accento secondario |
+| `--danger` | errori, azioni distruttive |
+| `--warning` | avvisi |
+| `--info` | informazioni |
+| `--font-ui` | font dell'interfaccia |
+| `--font-mono` | font a spaziatura fissa |
+
+**Vista → host** (sulla porta; ogni messaggio è validato, quelli di tipo
+sconosciuto sono ignorati)
+
+| Messaggio | Permesso | Effetto |
+|-----------|----------|---------|
+| `{ type: "send", text }` | `send` | invia `text` all'agente (in coda se un turno è in corso) |
+| `{ type: "cancel" }` | `cancel` | interrompe l'agente |
+| `{ type: "setMode", modeId }` | `setMode` | cambia modalità |
+| `{ type: "openFile", path }` | `openFile` | apre il file in un editor; `path` è relativo a `session.cwd` o assoluto, e deve stare dentro la cartella del progetto (altrimenti `permission_denied`) |
+| `{ type: "switchView", viewId }` | nessuno | mostra la sessione con un'altra vista (es. `chat`) |
+
+Una richiesta con forma sbagliata riceve `error` con `code: "bad_request"`.
+
+### Cosa resta a Flowcode
+
+Fuori dall'iframe, dove la vista non arriva né può cliccare, Flowcode disegna:
+la barra della **richiesta di permesso** dell'agente (titolo dello strumento e
+un pulsante per opzione), lo stato **"L'agente si è chiuso"** con il pulsante
+Riavvia, e la schermata di errore se la vista non si presenta. La vista riceve
+comunque gli eventi `permission` e `permissionResolved` e può mostrarli, ma non
+può rispondere.

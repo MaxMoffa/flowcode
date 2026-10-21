@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SWEEP_DASHES } from "../../shared/busySweep";
+import { pendingPermissionTitle, requestOpenChat, useChatSession, useOpenNewChat } from "./chats";
 import { contextPercent, shortCwd } from "./common";
 import { t } from "./i18n";
-import { AgentLogo, ChevronIcon, PlusIcon, TerminalIcon } from "./icons";
+import { AgentLogo, ChatIcon, ChevronIcon, PlusIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
-import type { Tab } from "./remote";
+import { useRemoteSelector, type ChatInfo, type Tab } from "./remote";
 
 /** How long a requested terminal is waited for before giving up on opening it. */
 const NEW_TAB_WAIT_MS = 15_000;
@@ -22,6 +23,33 @@ export function BusyArc() {
 
 function stateLabel(st: string): string {
   return st === "waiting" ? t("statusWaiting") : st === "busy" ? t("statusBusy") : t("statusIdle");
+}
+
+/** A chat session: the agent's logo with a speech bubble on it, its state, and what it asks while it waits. Opened through the chat store, which App listens to. */
+export function ChatRow({ chat }: { chat: ChatInfo }) {
+  const session = useChatSession(chat.chatId);
+  const st = chat.status === "waiting" ? "waiting" : chat.status === "busy" ? "busy" : "idle";
+  const asks = st === "waiting" ? pendingPermissionTitle(session) : undefined;
+  const label = chat.status === "starting" ? t("chatStateStarting") : chat.status === "exited" ? t("chatStateExited") : stateLabel(st);
+  return (
+    <button type="button" className="tr-row" onClick={() => requestOpenChat(chat.chatId)}>
+      <span className={"tr-ico is-" + st}>
+        <AgentLogo cli={chat.agent} size={17} />
+        <i className="tr-bubble" aria-hidden="true">
+          <ChatIcon size={11} />
+        </i>
+        {st === "busy" && <BusyArc />}
+      </span>
+      <span className="tr-body">
+        <b className="tr-title">{chat.label}</b>
+        <span className="tr-line">
+          <span className={"tr-state is-" + st}>{label[0].toUpperCase() + label.slice(1)}</span>
+          <span className="tr-sub mono">· {asks ? t("chatAsks", { title: asks }) : shortCwd(chat.cwd)}</span>
+        </span>
+      </span>
+      <ChevronIcon />
+    </button>
+  );
 }
 
 function TermRow({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void }) {
@@ -49,17 +77,21 @@ function TermRow({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void })
   );
 }
 
-/** The tabs by desktop window, the main one first; the others are numbered in the order the desktop lists them. */
-function byWindow(tabs: Tab[]): { key: string; title: string; tabs: Tab[] }[] {
-  const groups = new Map<string, Tab[]>();
-  for (const tab of tabs) {
-    const list = groups.get(tab.window);
-    if (list) list.push(tab);
-    else groups.set(tab.window, [tab]);
+/** A row of the list: a terminal or a chat session. */
+type Entry = { kind: "tab"; tab: Tab } | { kind: "chat"; chat: ChatInfo };
+
+/** The entries by desktop window, the main one first; the others are numbered in the order the desktop lists them. */
+function byWindow(entries: Entry[]): { key: string; title: string; entries: Entry[] }[] {
+  const groups = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    const window = entry.kind === "tab" ? entry.tab.window : entry.chat.window;
+    const list = groups.get(window);
+    if (list) list.push(entry);
+    else groups.set(window, [entry]);
   }
-  const entries = [...groups.entries()].sort(([a], [b]) => (a === "main" ? -1 : b === "main" ? 1 : 0));
+  const sorted = [...groups.entries()].sort(([a], [b]) => (a === "main" ? -1 : b === "main" ? 1 : 0));
   let n = 1;
-  return entries.map(([key, list]) => ({ key, title: key === "main" ? t("windowMain") : t("windowN", { n: ++n }), tabs: list }));
+  return sorted.map(([key, list]) => ({ key, title: key === "main" ? t("windowMain") : t("windowN", { n: ++n }), entries: list }));
 }
 
 /** A requested terminal opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. */
@@ -88,12 +120,28 @@ export function useOpenNewTab(tabs: Tab[] | null, onOpen: (ptyId: string) => voi
   }, []);
 }
 
+/** A requested terminal or chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. */
+export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void): (asChat: boolean) => void {
+  const chats = useRemoteSelector((r) => r.chats);
+  const onTab = useOpenNewTab(tabs, onOpen);
+  const onChat = useOpenNewChat(chats, requestOpenChat);
+  return useCallback((asChat) => (asChat ? onChat() : onTab()), [onTab, onChat]);
+}
+
 export function TerminalsScreen({ hostName, tabs, onOpen }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void }) {
+  const chats = useRemoteSelector((r) => r.chats);
   const all = useMemo(() => tabs ?? [], [tabs]);
-  const groups = useMemo(() => byWindow(all), [all]);
-  const folders = useMemo(() => [...new Set(all.map((x) => x.cwd).filter(Boolean))], [all]);
+  // Chats waiting for an answer lead the page; the rest sit in their window with the terminals.
+  const needYou = useMemo(() => (chats ?? []).filter((c) => c.status === "waiting"), [chats]);
+  const entries = useMemo<Entry[]>(
+    () => [...all.map((tab): Entry => ({ kind: "tab", tab })), ...(chats ?? []).filter((c) => c.status !== "waiting").map((chat): Entry => ({ kind: "chat", chat }))],
+    [all, chats],
+  );
+  const groups = useMemo(() => byWindow(entries), [entries]);
+  const total = all.length + (chats?.length ?? 0);
+  const folders = useMemo(() => [...new Set([...all.map((x) => x.cwd), ...(chats ?? []).map((c) => c.cwd)].filter(Boolean))], [all, chats]);
   const [sheet, setSheet] = useState(false);
-  const onCreate = useOpenNewTab(tabs, onOpen);
+  const onCreate = useOpenNew(tabs, onOpen);
 
   return (
     <>
@@ -103,7 +151,7 @@ export function TerminalsScreen({ hostName, tabs, onOpen }: { hostName?: string;
           {tabs !== null && (
             <span className="th-sub">
               {hostName ? `${hostName} · ` : ""}
-              {all.length === 1 ? t("openCountOne") : t("openCount", { n: all.length })}
+              {total === 1 ? t("openCountOne") : t("openCount", { n: total })}
             </span>
           )}
         </span>
@@ -112,17 +160,28 @@ export function TerminalsScreen({ hostName, tabs, onOpen }: { hostName?: string;
           {t("newTerminalShort")}
         </button>
       </header>
-      {tabs !== null && all.length === 0 && <div className="empty">{t("noTabs")}</div>}
+      {tabs !== null && total === 0 && <div className="empty">{t("noTabs")}</div>}
+      {needYou.length > 0 && (
+        <section className="tr-group">
+          <div className="tr-ghead is-wait">
+            <b>{t("needYou")}</b>
+            <span>{needYou.length}</span>
+          </div>
+          <div className="card tr-list">
+            {needYou.map((c) => (
+              <ChatRow key={c.chatId} chat={c} />
+            ))}
+          </div>
+        </section>
+      )}
       {groups.map((g) => (
         <section className="tr-group" key={g.key}>
           <div className="tr-ghead">
             <b>{g.title}</b>
-            <span>{g.tabs.length === 1 ? t("tabCountOne") : t("tabCount", { n: g.tabs.length })}</span>
+            <span>{g.entries.length === 1 ? t("tabCountOne") : t("tabCount", { n: g.entries.length })}</span>
           </div>
           <div className="card tr-list">
-            {g.tabs.map((x) => (
-              <TermRow key={x.ptyId} tab={x} onOpen={onOpen} />
-            ))}
+            {g.entries.map((e) => (e.kind === "tab" ? <TermRow key={e.tab.ptyId} tab={e.tab} onOpen={onOpen} /> : <ChatRow key={e.chat.chatId} chat={e.chat} />))}
           </div>
         </section>
       ))}

@@ -25,6 +25,8 @@ interface Recent {
 }
 
 const MAX_RECENTS = 4;
+/** Whether agents open as a chat instead of a terminal; one choice for every desktop. */
+const AS_CHAT_KEY = "nts.asChat";
 const recentsKey = (host: string | undefined) => "nts.recent." + (host ?? "");
 const sameRecent = (a: Recent, b: Recent) => a.cwd === b.cwd && a.cli === b.cli && a.profile === b.profile;
 
@@ -126,7 +128,7 @@ const agentName = (cli: Cli | null) => AGENTS.find((a) => a.id === cli)?.name ??
  * straight away). The desktop opens it as a new tab; `onCreate` runs once the
  * request is sent. With an `anchor` (wide layout) it is a popover under that
  * rect instead of a bottom sheet. */
-export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: { open: boolean; folders: string[]; anchor?: DOMRect | null; onClose: () => void; onCreate: () => void }) {
+export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: { open: boolean; folders: string[]; anchor?: DOMRect | null; onClose: () => void; onCreate: (asChat: boolean) => void }) {
   /** null = the desktop's start folder. */
   const [cwd, setCwd] = useState<string | null>(null);
   const [cli, setCli] = useState<Cli | null>(null);
@@ -136,6 +138,8 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
   const [menu, setMenu] = useState<"cwd" | "profile" | "agent" | null>(null);
   const canPickProfile = useSupports("newTabProfile");
   const canGemini = useSupports("gemini");
+  const canChat = useSupports("chat");
+  const [asChat, setAsChat] = useState(() => safeStorage.get(AS_CHAT_KEY) === "1");
   const profiles = useRemoteSelector((r) => r.profiles);
   const defaultLoggedIn = useRemoteSelector((r) => r.defaultLoggedIn);
   const hostName = useRemoteSelector((r) => r.hostName);
@@ -164,8 +168,10 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
     const list = [entry, ...saved.list.filter((r) => !sameRecent(r, entry))].slice(0, MAX_RECENTS);
     safeStorage.set(key, JSON.stringify(list));
     setSaved({ key, list });
-    send({ t: "newtab", ...(v.cwd ? { cwd: v.cwd } : {}), ...(v.cli ? { cli: v.cli } : {}), ...(p !== null ? { profile: p } : {}) });
-    onCreate();
+    const chat = canChat && asChat && v.cli !== null;
+    if (chat) send({ t: "newchat", cli: v.cli!, ...(v.cwd ? { cwd: v.cwd } : {}), ...(p !== null ? { profile: p } : {}) });
+    else send({ t: "newtab", ...(v.cwd ? { cwd: v.cwd } : {}), ...(v.cli ? { cli: v.cli } : {}), ...(p !== null ? { profile: p } : {}) });
+    onCreate(chat);
     onClose();
   };
 
@@ -199,6 +205,10 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
   // The anchor rect is in screen px; `zoom` multiplies this card's own lengths (and its 360px width), so they are divided by it.
   const style = anchor ? { zoom, top: (anchor.bottom + 6) / zoom, left: Math.max(8, Math.min(anchor.left, innerWidth - 360 * zoom - 8)) / zoom, maxHeight: (innerHeight - anchor.bottom - 14) / zoom } : undefined;
   const toggle = (m: NonNullable<typeof menu>) => (o: boolean) => setMenu(o ? m : null);
+  const toggleChat = () => {
+    safeStorage.set(AS_CHAT_KEY, asChat ? "0" : "1");
+    setAsChat(!asChat);
+  };
   const choose =
     <V,>(set: (v: V) => void) =>
     (v: V) => {
@@ -268,6 +278,18 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
             onToggle={toggle("agent")}
             onSelect={choose(setCli)}
           />
+          {canChat && cli && (
+            // The whole row toggles; the switch inside is the focusable control and its click bubbles up here once.
+            <div className="nts-toggle" onClick={toggleChat}>
+              <span className="nts-toggle-text">
+                {t("newChatToggle")}
+                <small>{t("newChatHint")}</small>
+              </span>
+              <button type="button" role="switch" aria-checked={asChat} aria-label={t("newChatToggle")} className={"switch" + (asChat ? " on" : "")}>
+                <i />
+              </button>
+            </div>
+          )}
         </div>
         <button type="button" className="btn primary big nts-go" onClick={() => create()}>
           {cli ? t("newTermOpenWith", { name: agentName(cli) }) : t("newTermOpenShell")}
