@@ -118,18 +118,15 @@
 
 /* ---- terminal ------------------------------------------------------------ */
 
-/* Dark rounded card, like the desktop's terminal panel. */
+/* Edge to edge under the header, a hairline between the two. */
 .term-card {
   position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  margin: 0 10px 10px;
-  border-radius: 18px;
-  border: 1px solid var(--term-border, var(--border-strong));
+  border-top: 1px solid var(--border);
   background: var(--term-bg, #050302);
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.18), 0 18px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   overflow: hidden;
 }
 
