@@ -1408,6 +1408,7 @@ dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
  "flowcode-remote-proto",
+ "futures-lite",
  "iroh",
  "iroh-tickets",
  "serde",

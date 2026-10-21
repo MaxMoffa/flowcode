@@ -61,9 +61,10 @@ const MAX_HANDSHAKING: usize = 64;
 /// aren't limited by it, so strangers can't lock them out.
 const MAX_UNKNOWN_HANDSHAKING: usize = 4;
 const TABS_INTERVAL: Duration = Duration::from_secs(2);
-/// Agent detection walks the process table: connections share one result this
-/// old rather than each triggering a scan. Longer than `TABS_INTERVAL`, so
-/// a connection's tick never forces a scan of its own.
+/// Agent detection walks the process table, so one background task refreshes
+/// the tab list (every `TABS_INTERVAL`, while a phone is connected) and the
+/// connections only read the latest result. A result this old is too stale to
+/// hand a phone that just connected: it is refreshed first.
 const TABS_CACHE: Duration = Duration::from_millis(2500);
 /// QUIC drops a link after this much silence. The phone pings every 20 s and
 /// gives up after 60-90 s, so this stays comfortably above that (the actual
@@ -182,7 +183,13 @@ struct Shared {
     pair_waiters: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     /// device id -> when it last disconnected, to notify only on a "fresh" connect.
     last_active: Mutex<HashMap<String, Instant>>,
-    tabs_cache: tokio::sync::Mutex<Option<(Instant, Vec<Tab>)>>,
+    /// The latest tab list and when it was built (`None` until the first
+    /// build); connections only read it, `refresh_tabs` is the one writer.
+    tabs: watch::Sender<Option<(Instant, Vec<Tab>)>>,
+    /// Serializes `refresh_tabs`, so concurrent callers share one scan.
+    tabs_build: tokio::sync::Mutex<()>,
+    /// Asks the refresh task for a build now (the window reported its tabs).
+    tabs_wake: tokio::sync::Notify,
     /// pty id -> (when read, the figure) for the tab's agent.
     context_cache: Mutex<HashMap<String, (Instant, Option<TabContext>)>>,
     last_persisted_seen: Mutex<u64>,
@@ -280,7 +287,9 @@ impl RemoteState {
             waiters: Mutex::new(HashMap::new()),
             pair_waiters: Mutex::new(HashMap::new()),
             last_active: Mutex::new(HashMap::new()),
-            tabs_cache: tokio::sync::Mutex::new(None),
+            tabs: watch::channel(None).0,
+            tabs_build: tokio::sync::Mutex::new(()),
+            tabs_wake: tokio::sync::Notify::new(),
             context_cache: Mutex::new(HashMap::new()),
             last_persisted_seen: Mutex::new(0),
             usage: watch::channel(Vec::new()).0,
@@ -293,6 +302,12 @@ impl RemoteState {
             release_seq: AtomicU64::new(0),
             size_owners: Mutex::new(HashMap::new()),
         }))
+    }
+
+    /// A window reported its tabs: refresh the list now rather than at the
+    /// next tick, so a tab opened or closed reaches the phones quickly.
+    pub fn tabs_reported(&self) {
+        self.0.tabs_wake.notify_one();
     }
 
     /// Mirrors a desktop notification to the connected phones (a no-op while
@@ -437,6 +452,7 @@ impl Shared {
             });
         }
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        tauri::async_runtime::spawn(tabs_task(Arc::clone(self), shutdown_rx.clone()));
         tauri::async_runtime::spawn(accept_loop(Arc::clone(self), endpoint.clone(), shutdown_rx));
         Ok(Running { endpoint, node_id, shutdown: shutdown_tx, _instance_lock: instance_lock })
     }
@@ -647,18 +663,29 @@ impl Shared {
 
     // ---- tabs --------------------------------------------------------------
 
-    /// The tab list, shared between connections for `TABS_CACHE`.
-    async fn tabs(&self) -> Vec<Tab> {
-        let mut cache = self.tabs_cache.lock().await;
-        if let Some((at, tabs)) = &*cache {
-            if at.elapsed() < TABS_CACHE {
-                return tabs.clone();
-            }
+    /// The latest tab list, never scanning: empty until the first build.
+    fn latest_tabs(&self) -> Vec<Tab> {
+        self.tabs.borrow().as_ref().map(|(_, tabs)| tabs.clone()).unwrap_or_default()
+    }
+
+    /// Rebuilds the tab list unless one younger than `max_age` exists (a
+    /// concurrent caller's counts), and returns the latest. This is where the
+    /// process scan happens; only `tabs_task` and a new connection call it,
+    /// never the loop that serves a phone's input.
+    async fn refresh_tabs(&self, max_age: Duration) -> Vec<Tab> {
+        let _building = self.tabs_build.lock().await;
+        let fresh = self.tabs.borrow().as_ref().is_some_and(|(at, _)| at.elapsed() < max_age);
+        if !fresh {
+            let tabs = self.build_tabs().await;
+            self.sync_size_owners(&tabs);
+            self.tabs.send_replace(Some((Instant::now(), tabs)));
         }
-        let tabs = self.build_tabs().await;
-        self.sync_size_owners(&tabs);
-        *cache = Some((Instant::now(), tabs.clone()));
-        tabs
+        self.latest_tabs()
+    }
+
+    /// Whether a phone is connected (admitted, past its handshake).
+    fn has_conns(&self) -> bool {
+        !lock(&self.conns).is_empty()
     }
 
     /// `WindowTabs` entries that have a live pty, joined with the agent running
@@ -912,6 +939,22 @@ async fn accept_loop(shared: Arc<Shared>, endpoint: Endpoint, mut shutdown: watc
     }
 }
 
+/// Keeps `Shared::tabs` current while a phone is connected, on the
+/// `TABS_INTERVAL` cadence or as soon as a window reports its tabs.
+async fn tabs_task(shared: Arc<Shared>, mut shutdown: watch::Receiver<bool>) {
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(TABS_INTERVAL) => {}
+            _ = shared.tabs_wake.notified() => {}
+            _ = shutdown.changed() => break,
+        }
+        if shared.has_conns() {
+            // A burst of reports can't scan more than a few times a second.
+            shared.refresh_tabs(Duration::from_millis(250)).await;
+        }
+    }
+}
+
 /// Releases the handshake counters exactly once, whichever way `serve`
 /// leaves its handshake.
 struct HandshakeGuard {
@@ -1156,6 +1199,30 @@ async fn handshake(
     }
 }
 
+/// The selected path of a connection snapshot: direct (IP) or
+/// through the relay, with its round trip. `None` when no path is selected.
+fn selected_path(paths: &iroh::endpoint::PathList<'_>) -> Option<(String, String)> {
+    let path = paths.iter().find(|p| p.is_selected())?;
+    let kind = if path.is_relay() { "relay" } else { "direct" };
+    let addr = path.remote_addr();
+    Some((format!("{kind} {addr}"), format!("{kind} {addr} (rtt {} ms, {} paths open)", path.rtt().as_millis(), paths.len())))
+}
+
+/// Logs which path `connection` uses (direct or relay, and its round trip)
+/// each time the selection changes; ends when the connection closes.
+async fn watch_paths(shared: Arc<Shared>, connection: Connection, peer: String) {
+    use futures_lite::StreamExt;
+    let mut last = String::new();
+    let mut paths = connection.paths_stream();
+    while let Some(list) = paths.next().await {
+        let Some((key, line)) = selected_path(&list) else { continue };
+        if key != last {
+            shared.log.line(&format!("peer {peer}: path {line}"));
+            last = key;
+        }
+    }
+}
+
 async fn serve(mut guard: HandshakeGuard, connection: Connection, mut shutdown: watch::Receiver<bool>) {
     let shared = Arc::clone(&guard.shared);
     let Some(mut admitted) = handshake(&shared, &mut guard, &connection, &mut shutdown).await else { return };
@@ -1170,7 +1237,9 @@ async fn serve(mut guard: HandshakeGuard, connection: Connection, mut shutdown: 
     }
     let (peer, device_name) = (short_id(&connection.remote_id().to_string()).to_string(), admitted.device.name.clone());
     let started = Instant::now();
+    let watcher = tokio::spawn(watch_paths(Arc::clone(&shared), connection.clone(), peer.clone()));
     let why = run_connection(Arc::clone(&shared), &connection, shutdown, admitted).await;
+    watcher.abort();
     shared.log.line(&format!(
         "peer {peer}: closed \"{device_name}\" after {} s: {why}",
         started.elapsed().as_secs()
@@ -1259,6 +1328,7 @@ async fn run_connection(
     let (in_tx, mut in_rx) = mpsc::channel::<ClientMsg>(IN_QUEUE);
     let reader = tokio::spawn(read_task(recv, in_tx, out_tx.clone()));
 
+    let mut tabs_rx = shared.tabs.subscribe();
     let mut usage_rx = shared.usage.subscribe();
     let mut actions_rx = shared.actions.subscribe();
     let mut settings_rx = shared.settings.subscribe();
@@ -1293,6 +1363,12 @@ async fn run_connection(
     if let Some(msg) = profiles_msg(&profiles_rx.borrow_and_update()) {
         conn.send(msg);
     }
+    // Tabs right behind `Ready`, so the phone needn't wait for a `list` round
+    // trip (an older phone asks anyway and gets the same list again). A list
+    // older than `TABS_CACHE` (none was connected for a while) is rebuilt.
+    conn.last_tabs = shared.refresh_tabs(TABS_CACHE).await;
+    tabs_rx.mark_unchanged();
+    conn.send(ServerMsg::Tabs { tabs: conn.last_tabs.clone() });
 
     let mut tick = tokio::time::interval(TABS_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -1306,10 +1382,11 @@ async fn run_connection(
                 Some(msg) => conn.handle(msg).await,
                 None => break,
             },
-            _ = tick.tick() => {
-                conn.prune_subs();
+            _ = tick.tick() => conn.prune_subs(),
+            // The refresh task published a list; only a different one goes out.
+            Ok(()) = tabs_rx.changed() => {
                 if !conn.background {
-                    conn.push_tabs_if_changed().await;
+                    conn.push_tabs_if_changed();
                 }
             }
             // While the phone is in the background the arms below still
@@ -1435,7 +1512,7 @@ impl Conn {
     /// Enters or leaves background mode. Entering stops every stream (the
     /// phone closes them too); leaving sends the current state again, like
     /// right after the connection was admitted.
-    async fn set_background(&mut self, on: bool) {
+    fn set_background(&mut self, on: bool) {
         if self.background == on {
             return;
         }
@@ -1447,7 +1524,7 @@ impl Conn {
             }
             return;
         }
-        self.last_tabs = self.shared.tabs().await;
+        self.last_tabs = self.shared.latest_tabs();
         self.send(ServerMsg::Tabs { tabs: self.last_tabs.clone() });
         self.send(ServerMsg::Usage { items: self.shared.usage.borrow().clone() });
         self.send(ServerMsg::Actions { actions: self.shared.actions.borrow().clone() });
@@ -1460,8 +1537,8 @@ impl Conn {
         }
     }
 
-    async fn push_tabs_if_changed(&mut self) {
-        let tabs = self.shared.tabs().await;
+    fn push_tabs_if_changed(&mut self) {
+        let tabs = self.shared.latest_tabs();
         if tabs != self.last_tabs {
             self.last_tabs = tabs.clone();
             self.send(ServerMsg::Tabs { tabs });
@@ -1490,11 +1567,11 @@ impl Conn {
             ClientMsg::Auth { .. } | ClientMsg::Pair { .. } => {}
             ClientMsg::Ping => self.send(ServerMsg::Pong),
             ClientMsg::List => {
-                let tabs = self.shared.tabs().await;
+                let tabs = self.shared.latest_tabs();
                 self.last_tabs = tabs.clone();
                 self.send(ServerMsg::Tabs { tabs });
             }
-            ClientMsg::Background { on } => self.set_background(on).await,
+            ClientMsg::Background { on } => self.set_background(on),
             ClientMsg::Open { pty_id, cols, rows } => {
                 self.prune_subs();
                 if self.subs.len() >= MAX_SUBS && !self.subs.contains_key(&pty_id) {

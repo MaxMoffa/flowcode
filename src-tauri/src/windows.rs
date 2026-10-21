@@ -239,8 +239,15 @@ impl WindowTabs {
 }
 
 #[tauri::command]
-pub fn window_report_tabs(window: WebviewWindow, state: State<'_, WindowTabs>, tabs: Vec<TabInfo>) {
+pub fn window_report_tabs(
+    window: WebviewWindow,
+    state: State<'_, WindowTabs>,
+    remote: State<'_, crate::remote::RemoteState>,
+    tabs: Vec<TabInfo>,
+) {
     lock(&state.0).insert(window.label().to_string(), tabs);
+    // Phones see a tab opened or closed without waiting for the next refresh.
+    remote.tabs_reported();
 }
 
 /// Brings window `label` to the front with tab `tab_id` selected - a

@@ -36,6 +36,7 @@ flowcode-remote-proto = { path = "../../src-tauri/remote-proto" }
 # Same versions as the desktop server (src-tauri/Cargo.lock).
 iroh = "1.3"
 iroh-tickets = "1"
+futures-lite = "2"
 # Self-update (updater.rs): same stack as the desktop updater (src-tauri/src/updater.rs).
 ureq = "2"
 sha2 = "0.10"

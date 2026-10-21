@@ -1507,6 +1507,7 @@ dependencies = [
  "ed25519-dalek 2.2.0",
  "flowcode-remote-proto",
  "flowcode-shared",
+ "futures-lite",
  "getrandom 0.3.4",
  "iroh",
  "iroh-tickets",

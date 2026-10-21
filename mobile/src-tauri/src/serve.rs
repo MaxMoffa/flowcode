@@ -5,6 +5,7 @@ use crate::backoff::{DEAD_AFTER, PING_EVERY, PROBE_TIMEOUT};
 use crate::link::Session;
 use crate::state::{Remote, OUT_QUEUE};
 use flowcode_remote_proto::{ClientMsg, FrameError, ServerMsg};
+use futures_lite::StreamExt;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -66,6 +67,15 @@ pub(crate) enum Exit {
     Lost(String),
 }
 
+/// One line about the selected path of a connection snapshot: direct (IP) or
+/// through the relay, with its round trip. `None` when no path is selected.
+fn selected_path(paths: &iroh::endpoint::PathList<'_>) -> Option<(String, String)> {
+    let path = paths.iter().find(|p| p.is_selected())?;
+    let kind = if path.is_relay() { "relay" } else { "direct" };
+    let addr = path.remote_addr();
+    Some((format!("{kind} {addr}"), format!("{kind} {addr} (rtt {} ms, {} paths open)", path.rtt().as_millis(), paths.len())))
+}
+
 pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
     let (out_tx, mut out_rx) = mpsc::channel::<ClientMsg>(OUT_QUEUE);
     remote.lock().out = Some(out_tx.clone());
@@ -102,6 +112,10 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
             }
         }
         let mut warned_unknown = false;
+        // Which path the link uses (direct or relay), logged when it changes;
+        // the stream ends with the connection.
+        let mut paths = session.conn.paths_stream();
+        let mut last_path = String::new();
         loop {
             let probe = async {
                 match probe_until {
@@ -154,6 +168,14 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                         return Exit::Lost(e);
                     }
                     probe_until.get_or_insert_with(|| tokio::time::Instant::now() + PROBE_TIMEOUT);
+                }
+                Some(list) = paths.next() => {
+                    if let Some((key, line)) = selected_path(&list) {
+                        if key != last_path {
+                            remote.log.push(format!("path: {line}"));
+                            last_path = key;
+                        }
+                    }
                 }
                 _ = probe => return Exit::Lost("the desktop did not answer after resuming".into()),
             }

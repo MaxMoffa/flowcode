@@ -24,10 +24,14 @@ the code or this file, not just one.
   a new key is a new device and must pair again.
 - One connection = one **bidirectional QUIC stream**, opened by the phone
   (`open_bi`) right after connecting. The desktop never opens streams.
-- Liveness: iroh sends QUIC keep-alives every 5 s, and the desktop's idle
-  timeout is 90 s (the effective one is the smaller of the two peers'). The
-  phone should still `ping` every ~20 s and treat 60 s of silence as a dead
-  link.
+- Liveness: the phone drives it. At the QUIC level the phone sends iroh's
+  default keep-alives (5 s) and has a 90 s idle timeout; the desktop's keep-alive
+  is 25 s (so a backgrounded phone's radio can idle) and its idle timeout 120 s.
+  The effective idle timeout is the smaller of the two peers', i.e. 90 s. On top
+  of that the phone `ping`s every 20 s and treats 60 s without any frame from the
+  desktop as a dead link (always before QUIC's own timeout). When the app comes
+  back to the foreground it pings at once and drops and redials the link if no
+  frame arrives within 8 s.
 
 ## Framing
 
@@ -60,7 +64,7 @@ are not limited by that.
 | C to S | `pair {code, deviceName}` | New device: redeems the one-time code from the QR. |
 | C to S | `auth {token}` | Known device. The token must match **and** the connection's node id must be the one that paired. |
 | S to C | `paired {token, deviceName}` | Reply to `pair`. Store the token; it is never shown again. Followed by `ready`. |
-| S to C | `ready {deviceName, hostName, appVersion?, proto?, caps?}` | Handshake done. `appVersion` is the desktop's app version, `proto` its protocol revision (`proto::PROTOCOL_VERSION`, 2 today; absent = 1) and `caps` the optional features it supports (`proto::CAPABILITIES`: `rename`, `closeTab`, `profiles`, `profileLogin`, `profileAgents`, `newTabProfile`, `background`, `gemini`; `profileLogin` is signing a non-default profile in, `profileAgents` signing out and the default profile's agents). A desktop that sends none of them is an old one (0.9 / 0.10): the phone assumes proto 1 and what those releases had (`LEGACY_CAPS`: `profiles`, `profileLogin`, `background`), hides the matching UI and shows a dismissable banner; below its minimum proto (`MIN_DESKTOP_PROTO`) it shows a blocking "update Flowcode" screen. A new feature adds a capability here, in `RemoteCap` and in the phone's `CAP_LABELS`. Followed by `usage` and `actions` with the current values, and by `settings` once the desktop has published them. |
+| S to C | `ready {deviceName, hostName, appVersion?, proto?, caps?}` | Handshake done. `appVersion` is the desktop's app version, `proto` its protocol revision (`proto::PROTOCOL_VERSION`, 2 today; absent = 1) and `caps` the optional features it supports (`proto::CAPABILITIES`: `rename`, `closeTab`, `profiles`, `profileLogin`, `profileAgents`, `newTabProfile`, `background`, `gemini`; `profileLogin` is signing a non-default profile in, `profileAgents` signing out and the default profile's agents). A desktop that sends none of them is an old one (0.9 / 0.10): the phone assumes proto 1 and what those releases had (`LEGACY_CAPS`: `profiles`, `profileLogin`, `background`), hides the matching UI and shows a dismissable banner; below its minimum proto (`MIN_DESKTOP_PROTO`) it shows a blocking "update Flowcode" screen. A new feature adds a capability here, in `RemoteCap` and in the phone's `CAP_LABELS`. Followed by `usage` and `actions` with the current values, by `settings` once the desktop has published them, and by an unsolicited `tabs` with the current list (so the phone need not wait for the reply to its `list`; a phone should still send `list` after `ready`, which an older desktop answers and a newer one answers again with the same list). |
 | S to C | `error {message, ptyId?, fatal}` | `fatal: true` means the server is closing the connection (bad code, bad token, too many attempts, device revoked). `message` is localized text for the user. |
 
 After a valid `pair` the desktop asks its user to confirm the new phone and
@@ -111,7 +115,7 @@ Server messages:
 
 | Message | Meaning |
 |---|---|
-| `tabs {tabs}` | The desktop's terminal tabs. Sent on `list` and pushed (at most every 2 s) whenever they change. |
+| `tabs {tabs}` | The desktop's terminal tabs. Sent right after `ready`, on `list`, and pushed (at most every 2 s, or sooner when a window reports its tabs) whenever they change. |
 | `snapshot {ptyId, data, cols, rows}` | The desktop terminal's current screen as escape sequences (scrollback, alternate screen, modes), at the given grid. Write it into a terminal of that size. Its JSON-encoded size is kept under 512 KiB by dropping the oldest lines (a non-fatal `error` says so). A snapshot can also arrive **later in a stream**: if the phone fell behind and output was dropped, the desktop sends a fresh `snapshot` instead of the lost bytes; clear the terminal and write it as for the first one. |
 | `output {ptyId, data}` | Live output after the snapshot, as UTF-8 text. |
 | `exit {ptyId}` | The program in that pty ended (or the pty vanished). The stream is over. |
