@@ -48,7 +48,7 @@ export function termMock(cmd: string, args: unknown): null {
   const msg = (args as { msg?: { t?: string; ptyId?: string; cols?: number; rows?: number; path?: string } } | undefined)?.msg;
   if (cmd === "send" && msg?.t === "open" && msg.ptyId) {
     const { ptyId, cols = 80, rows = 24 } = msg;
-    setTimeout(() => void emit("remote://msg", { t: "snapshot", ptyId, cols, rows, data: SAMPLE }), 50);
+    setTimeout(() => void emit("remote://msgs", [{ t: "snapshot", ptyId, cols, rows, data: SAMPLE }]), 50);
   }
   if (cmd === "send" && msg?.ptyId && (msg.t === "ls" || msg.t === "read")) {
     const { ptyId, path = "" } = msg;
@@ -60,7 +60,7 @@ export function termMock(cmd: string, args: unknown): null {
         : path in FILES
           ? { t: "file", ptyId, path, text: FILES[path], truncated: false }
           : null;
-    setTimeout(() => void emit("remote://msg", reply ?? { t: "error", ptyId, message: "not found", fatal: false }), 80);
+    setTimeout(() => void emit("remote://msgs", [reply ?? { t: "error", ptyId, message: "not found", fatal: false }]), 80);
   }
   return null;
 }

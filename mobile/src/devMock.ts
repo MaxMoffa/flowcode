@@ -67,9 +67,9 @@ const mockSettings = {
 
 // What the desktop sends once the link is up: its features, the chats and the view plugins.
 async function chatHello() {
-  await emit("remote://msg", { t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", ...chatMockCaps] });
+  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", ...chatMockCaps] }]);
   await chatMockConnect();
-  await emit("remote://msg", { t: "views", views: mockViews });
+  await emit("remote://msgs", [{ t: "views", views: mockViews }]);
 }
 
 // Plugin views load from the app's custom scheme; give the browser the URL shape the webview has.
@@ -95,11 +95,11 @@ mockIPC(
             resolve(null);
             void emit("remote://state", { status: "online", hostName: "Il mio PC" });
             void chatHello();
-            void emit("remote://msg", { t: "tabs", tabs });
-            void emit("remote://msg", { t: "usage", items: usage });
-            void emit("remote://msg", { t: "settings", settings: mockSettings });
-            void emit("remote://msg", { t: "profiles", profiles: mockProfiles });
-            void emit("remote://msg", { t: "actions", actions: mockActions });
+            void emit("remote://msgs", [{ t: "tabs", tabs }]);
+            void emit("remote://msgs", [{ t: "usage", items: usage }]);
+            void emit("remote://msgs", [{ t: "settings", settings: mockSettings }]);
+            void emit("remote://msgs", [{ t: "profiles", profiles: mockProfiles }]);
+            void emit("remote://msgs", [{ t: "actions", actions: mockActions }]);
           }, 3000);
         });
       case "plugin:barcode-scanner|check_permissions":
@@ -111,11 +111,11 @@ mockIPC(
         setTimeout(async () => {
           await emit("remote://state", { status: "online", hostName: "Il mio PC" });
           await chatHello();
-          await emit("remote://msg", { t: "tabs", tabs });
-          await emit("remote://msg", { t: "usage", items: usage });
-          await emit("remote://msg", { t: "settings", settings: mockSettings });
-          await emit("remote://msg", { t: "profiles", profiles: mockProfiles });
-          await emit("remote://msg", { t: "actions", actions: mockActions });
+          await emit("remote://msgs", [{ t: "tabs", tabs }]);
+          await emit("remote://msgs", [{ t: "usage", items: usage }]);
+          await emit("remote://msgs", [{ t: "settings", settings: mockSettings }]);
+          await emit("remote://msgs", [{ t: "profiles", profiles: mockProfiles }]);
+          await emit("remote://msgs", [{ t: "actions", actions: mockActions }]);
         }, 50);
         return null;
       case "computers":

@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use flowcode_remote_proto::{
-    self as proto, read_frame, write_frame, write_frame_with, Action, ChatInfo, ClientMsg, FrameError, PairingTicket, ServerMsg, Tab,
+    self as proto, encode_frame, read_frame, write_frame, Action, ChatInfo, ClientMsg, FrameError, PairingTicket, ServerMsg, Tab,
     TabContext, UsageItem,
 };
 use flowcode_shared::i18n::{is_italian, tr};
@@ -90,6 +90,8 @@ const OUT_RESERVE: usize = 64;
 /// past this many the writer sends one before taking more from the queue, so
 /// the held ones can't grow without limit.
 const BULK_HELD: usize = 64;
+/// Frames already queued are written together, up to about this many bytes per write.
+const WRITE_BATCH: usize = 64 * 1024;
 /// How often a connection's measured link quality (path, round trip, rate,
 /// loss) is logged.
 const METRICS_EVERY: Duration = Duration::from_secs(60);
@@ -1437,29 +1439,53 @@ async fn next_to_write(out_rx: &mut mpsc::Receiver<ServerMsg>, bulk: &mut VecDeq
     }
 }
 
+/// Encodes `msg` onto the end of `buf`. A message too large for a frame is
+/// replaced by a note saying so, rather than leaving the phone waiting for it;
+/// any other encoding error is dropped silently (serialising our own types
+/// cannot fail).
+fn append_frame(buf: &mut Vec<u8>, msg: &ServerMsg, compress: bool) {
+    match encode_frame(msg, compress) {
+        Ok(bytes) => buf.extend_from_slice(&bytes),
+        Err(FrameError::TooLarge(bytes)) => {
+            let message = format!(
+                "{} ({} KB)",
+                tr("Messaggio troppo grande, scartato", "Message too large, dropped"),
+                bytes / 1024
+            );
+            let note = ServerMsg::Error { message, pty_id: msg_pty_id(msg), fatal: false };
+            if let Ok(bytes) = encode_frame(&note, false) {
+                buf.extend_from_slice(&bytes);
+            }
+        }
+        Err(_) => {}
+    }
+}
+
 /// The single writer: it owns the send half, every producer queues into the
-/// channel. Ends when the channel closes (after flushing what is queued) or
-/// the link breaks. Large frames are deflated once the phone has said it
-/// reads them (`compress`).
+/// channel. Frames already queued are written together in one go. Ends when
+/// the channel closes (after flushing what is queued) or the link breaks.
+/// Large frames are deflated once the phone has said it reads them
+/// (`compress`).
 async fn write_task(mut send: SendStream, mut out_rx: mpsc::Receiver<ServerMsg>, compress: Arc<AtomicBool>) {
     let mut bulk = VecDeque::new();
+    let mut buf = Vec::with_capacity(WRITE_BATCH);
     while let Some(msg) = next_to_write(&mut out_rx, &mut bulk).await {
-        match write_frame_with(&mut send, &msg, compress.load(Ordering::Relaxed)).await {
-            Ok(()) => {}
-            // Nothing was written, so the link is fine: drop the message but
-            // say so, rather than leaving the phone waiting for it.
-            Err(FrameError::TooLarge(bytes)) => {
-                let message = format!(
-                    "{} ({} KB)",
-                    tr("Messaggio troppo grande, scartato", "Message too large, dropped"),
-                    bytes / 1024
-                );
-                let note = ServerMsg::Error { message, pty_id: msg_pty_id(&msg), fatal: false };
-                if write_frame_with(&mut send, &note, false).await.is_err() {
-                    break;
-                }
+        let compress = compress.load(Ordering::Relaxed);
+        buf.clear();
+        append_frame(&mut buf, &msg, compress);
+        // Interactive frames that queued up meanwhile ride along; bulk ones keep waiting their turn.
+        while buf.len() < WRITE_BATCH {
+            match out_rx.try_recv() {
+                Ok(msg) if is_bulk(&msg) => bulk.push_back(msg),
+                Ok(msg) => append_frame(&mut buf, &msg, compress),
+                Err(_) => break,
             }
-            Err(_) => break,
+        }
+        if buf.is_empty() {
+            continue;
+        }
+        if send.write_all(&buf).await.is_err() {
+            break;
         }
     }
     let _ = send.finish();

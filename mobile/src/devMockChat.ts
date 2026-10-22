@@ -90,13 +90,13 @@ function init() {
 const setStatus = (chatId: string, status: string) => {
   const info = infos.find((i) => i.chatId === chatId);
   if (info) info.status = status;
-  void emit("remote://msg", { t: "chats", chats: infos });
+  void emit("remote://msgs", [{ t: "chats", chats: infos }]);
 };
 
 /** Appends events to a chat and streams them as the desktop would to a follower. */
 function push(chatId: string, evs: Ev[]) {
   const full = evs.map((e) => append(chatId, e));
-  void emit("remote://msg", { t: "chatevents", chatId, events: full, replay: false });
+  void emit("remote://msgs", [{ t: "chatevents", chatId, events: full, replay: false }]);
 }
 
 const later = (ms: number, fn: () => void) => setTimeout(fn, ms);
@@ -104,7 +104,7 @@ const later = (ms: number, fn: () => void) => setTimeout(fn, ms);
 /** Sends what the dev server pretends the desktop sends on connect. */
 export async function chatMockConnect() {
   init();
-  await emit("remote://msg", { t: "chats", chats: infos });
+  await emit("remote://msgs", [{ t: "chats", chats: infos }]);
 }
 
 export const chatMockCaps = ["chat", "agentViews"];
@@ -132,7 +132,7 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
   switch (msg.t) {
     case "chatopen": {
       const past = (logs.get(chatId) ?? []).filter((e) => (e.seq as number) > (msg.afterSeq ?? 0));
-      later(60, () => void emit("remote://msg", { t: "chatevents", chatId, events: past, replay: true }));
+      later(60, () => void emit("remote://msgs", [{ t: "chatevents", chatId, events: past, replay: true }]));
       break;
     }
     case "chatprompt":
@@ -163,7 +163,7 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
       const id = `c${infos.length + 1}`;
       infos.push({ chatId: id, tabId: `t${id}`, window: WINDOW, label: "Nuova chat", agent: msg.cli ?? "claude", cwd: "C:/Users/massi", status: "idle" });
       logs.set(id, []);
-      later(200, () => void emit("remote://msg", { t: "chats", chats: infos }));
+      later(200, () => void emit("remote://msgs", [{ t: "chats", chats: infos }]));
       break;
     }
   }

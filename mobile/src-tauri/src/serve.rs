@@ -52,13 +52,25 @@ const IN_QUEUE: usize = 1024;
 /// until the QUIC idle timeout.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// `write_frame` with a deadline. A cancelled write may leave half a frame on
-/// the stream, so an error here (timeout included) must end the link.
-async fn send_frame(send: &mut iroh::endpoint::SendStream, msg: &ClientMsg) -> Result<(), String> {
-    match tokio::time::timeout(WRITE_TIMEOUT, flowcode_remote_proto::write_frame(send, msg)).await {
+/// Messages already waiting are handed to the webview in one event, up to this many.
+const EMIT_BATCH: usize = 64;
+/// Queued outgoing messages are written together, up to about this many encoded bytes.
+const WRITE_BATCH_BYTES: usize = 64 * 1024;
+
+/// Write `bytes` (whole frames) with a deadline. A cancelled write may leave
+/// half a frame on the stream, so an error here (timeout included) must end
+/// the link.
+async fn send_bytes(send: &mut iroh::endpoint::SendStream, bytes: &[u8]) -> Result<(), String> {
+    match tokio::time::timeout(WRITE_TIMEOUT, send.write_all(bytes)).await {
         Ok(r) => r.map_err(|e| e.to_string()),
         Err(_) => Err("write stalled".into()),
     }
+}
+
+/// One message as a frame, with a deadline (see `send_bytes`).
+async fn send_frame(send: &mut iroh::endpoint::SendStream, msg: &ClientMsg) -> Result<(), String> {
+    let bytes = flowcode_remote_proto::encode_frame(msg, false).map_err(|e| e.to_string())?;
+    send_bytes(send, &bytes).await
 }
 
 pub(crate) enum Exit {
@@ -178,34 +190,70 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                 }
             };
             tokio::select! {
-                incoming = in_rx.recv() => match incoming {
-                    Some(Inbound::Msg(msg)) => {
-                        last_rx = Instant::now();
-                        probe_until = None;
-                        let _ = app.emit("remote://msg", &msg);
-                        if let ServerMsg::Notify { title, body, tab_id } = &msg {
-                            remote.on_notify(title, body, tab_id.as_deref());
+                incoming = in_rx.recv() => {
+                    // One webview event for the whole burst already waiting.
+                    let mut batch: Vec<ServerMsg> = Vec::new();
+                    let mut end: Option<Exit> = None;
+                    let mut item = incoming;
+                    loop {
+                        match item {
+                            Some(Inbound::Msg(msg)) => {
+                                last_rx = Instant::now();
+                                probe_until = None;
+                                if let ServerMsg::Notify { title, body, tab_id } = &msg {
+                                    remote.on_notify(title, body, tab_id.as_deref());
+                                }
+                                if let ServerMsg::Error { message, fatal: true, .. } = &msg {
+                                    end = Some(Exit::Fatal(message.clone()));
+                                }
+                                batch.push(msg);
+                            }
+                            Some(Inbound::Skipped(e)) => {
+                                // Still proof that the link is alive.
+                                last_rx = Instant::now();
+                                probe_until = None;
+                                if !warned_unknown {
+                                    warned_unknown = true;
+                                    remote.log.push(format!("skipped a message this version does not understand: {e}"));
+                                }
+                            }
+                            Some(Inbound::Failed(e)) => end = Some(Exit::Lost(e)),
+                            None => end = Some(Exit::Lost("connection closed".into())),
                         }
-                        if let ServerMsg::Error { message, fatal: true, .. } = msg {
-                            return Exit::Fatal(message);
+                        if end.is_some() || batch.len() >= EMIT_BATCH {
+                            break;
+                        }
+                        match in_rx.try_recv() {
+                            Ok(next) => item = Some(next),
+                            Err(mpsc::error::TryRecvError::Empty) => break,
+                            Err(mpsc::error::TryRecvError::Disconnected) => item = None,
                         }
                     }
-                    Some(Inbound::Skipped(e)) => {
-                        // Still proof that the link is alive.
-                        last_rx = Instant::now();
-                        probe_until = None;
-                        if !warned_unknown {
-                            warned_unknown = true;
-                            remote.log.push(format!("skipped a message this version does not understand: {e}"));
-                        }
+                    if !batch.is_empty() {
+                        let _ = app.emit("remote://msgs", &batch);
                     }
-                    Some(Inbound::Failed(e)) => return Exit::Lost(e),
-                    None => return Exit::Lost("connection closed".into()),
-                },
+                    if let Some(exit) = end {
+                        return exit;
+                    }
+                }
                 outgoing = out_rx.recv() => {
-                    let Some(msg) = outgoing else { return Exit::Lost("stopped".into()) };
-                    if let Err(e) = send_frame(&mut session.send, &msg).await {
-                        return Exit::Lost(e);
+                    let Some(first) = outgoing else { return Exit::Lost("stopped".into()) };
+                    // Everything already queued goes out in one write.
+                    let mut buf: Vec<u8> = Vec::new();
+                    let mut next = Some(first);
+                    while let Some(msg) = next.take() {
+                        match flowcode_remote_proto::encode_frame(&msg, false) {
+                            Ok(bytes) => buf.extend_from_slice(&bytes),
+                            Err(e) => remote.log.push(format!("dropped an outgoing message: {e}")),
+                        }
+                        if buf.len() < WRITE_BATCH_BYTES {
+                            next = out_rx.try_recv().ok();
+                        }
+                    }
+                    if !buf.is_empty() {
+                        if let Err(e) = send_bytes(&mut session.send, &buf).await {
+                            return Exit::Lost(e);
+                        }
                     }
                 }
                 _ = ping.tick() => {

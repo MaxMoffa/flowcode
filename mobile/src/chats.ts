@@ -179,7 +179,7 @@ export const cancelChat = (chatId: string) => send({ t: "chatcancel", chatId });
 export const answerChatPermission = (chatId: string, requestId: string, optionId: string | null) => send({ t: "chatpermission", chatId, requestId, optionId });
 export const setChatMode = (chatId: string, modeId: string) => send({ t: "chatmode", chatId, modeId });
 /** Asks the desktop to turn the chat's session into a terminal tab. */
-export const chatToTerminal = (chatId: string) => send({ t: "chatterminal", chatId });
+const chatToTerminal = (chatId: string) => send({ t: "chatterminal", chatId });
 
 /** The first permission the agent is waiting on in a followed chat, if any: what a list row can say about it. */
 export const pendingPermissionTitle = (session: ChatSession | undefined): string | undefined => {

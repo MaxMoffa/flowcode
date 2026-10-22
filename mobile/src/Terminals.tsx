@@ -26,7 +26,7 @@ function stateLabel(st: string): string {
 }
 
 /** A chat session: the agent's logo with a speech bubble on it, its state, and what it asks while it waits. Opened through the chat store, which App listens to. */
-export function ChatRow({ chat }: { chat: ChatInfo }) {
+function ChatRow({ chat }: { chat: ChatInfo }) {
   const session = useChatSession(chat.chatId);
   const st = chat.status === "waiting" ? "waiting" : chat.status === "busy" ? "busy" : "idle";
   const asks = st === "waiting" ? pendingPermissionTitle(session) : undefined;
@@ -95,7 +95,7 @@ function byWindow(entries: Entry[]): { key: string; title: string; entries: Entr
 }
 
 /** A requested terminal opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. */
-export function useOpenNewTab(tabs: Tab[] | null, onOpen: (ptyId: string) => void): () => void {
+function useOpenNewTab(tabs: Tab[] | null, onOpen: (ptyId: string) => void): () => void {
   /** The tabs known when asking, and until when to wait. */
   const pendingRef = useRef<{ known: Set<string>; until: number } | null>(null);
 

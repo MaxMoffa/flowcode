@@ -221,7 +221,7 @@ export async function start(): Promise<void> {
 let unlisteners: (() => void)[] = [];
 
 async function wire(): Promise<void> {
-  unlisteners.push(await listen<ServerMsg>("remote://msg", (e) => handleMsg(e.payload)));
+  unlisteners.push(await listen<ServerMsg[]>("remote://msgs", (e) => { for (const m of e.payload) handleMsg(m); }));
   unlisteners.push(await listen<StateEvent>("remote://state", (e) => {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
