@@ -6,6 +6,7 @@ mod attention;
 mod chat;
 mod context;
 mod dictation;
+mod newtab_background;
 mod notify;
 mod plugins;
 mod profiles;
@@ -200,6 +201,9 @@ pub fn run() {
             view_plugins::view_plugins_list,
             view_plugins::view_plugin_install,
             view_plugins::view_plugin_delete,
+            newtab_background::newtab_background_set,
+            newtab_background::newtab_background_get,
+            newtab_background::newtab_background_clear,
             vibe::list_vibe_sessions,
             vibe::vibe_usage_stats,
             vibe::vibe_ensure_model,

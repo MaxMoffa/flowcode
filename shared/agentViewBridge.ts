@@ -4,7 +4,7 @@
 // the phone app share it. The protocol is documented for plugin authors in
 // PLUGINS.md; the manifest is validated by the Rust side (view_plugins_list).
 
-const BRIDGE_API_VERSION = 1;
+export const BRIDGE_API_VERSION = 1;
 
 export type ViewPluginDevice = "desktop" | "tablet" | "phone";
 
@@ -146,7 +146,7 @@ export function parseViewMessage(data: unknown): ParsedViewMessage | null {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 

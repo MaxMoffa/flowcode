@@ -19,14 +19,14 @@ mod keystore;
 mod stream;
 mod views;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use flowcode_remote_proto::{
-    self as proto, read_frame, write_frame, Action, ChatInfo, ClientMsg, FrameError, PairingTicket, ServerMsg, Tab,
+    self as proto, read_frame, write_frame, write_frame_with, Action, ChatInfo, ClientMsg, FrameError, PairingTicket, ServerMsg, Tab,
     TabContext, UsageItem,
 };
 use flowcode_shared::i18n::{is_italian, tr};
@@ -86,6 +86,13 @@ const OUT_QUEUE: usize = 1024;
 /// Slots of `OUT_QUEUE` kept for replies and pushes: terminal output stops
 /// (and resyncs later) when only this many are free.
 const OUT_RESERVE: usize = 64;
+/// Bulk replies (see `is_bulk`) held back while interactive frames go first;
+/// past this many the writer sends one before taking more from the queue, so
+/// the held ones can't grow without limit.
+const BULK_HELD: usize = 64;
+/// How often a connection's measured link quality (path, round trip, rate,
+/// loss) is logged.
+const METRICS_EVERY: Duration = Duration::from_secs(60);
 /// Frames from the phone queued before the connection loop gets to them. A
 /// phone that outruns this is hung up on.
 const IN_QUEUE: usize = 256;
@@ -458,6 +465,9 @@ impl Shared {
             })?;
         let node_id = endpoint.id().to_string();
         self.log.line(&format!("endpoint started, node {}", short_id(&node_id)));
+        // The addresses a phone can reach us on directly: every interface iroh
+        // found, a VPN's (Tailscale 100.x) and the LAN's included.
+        self.log.line(&format!("local addresses: {}", describe_addrs(&endpoint.addr())));
         // Phones that dial before the relay is reachable can only use direct
         // addresses; the log says when that window ended.
         {
@@ -465,7 +475,10 @@ impl Shared {
             tauri::async_runtime::spawn(async move {
                 let started = Instant::now();
                 match tokio::time::timeout(Duration::from_secs(120), endpoint.online()).await {
-                    Ok(()) => shared.log.line(&format!("endpoint online (relay reachable) after {} ms", started.elapsed().as_millis())),
+                    Ok(()) => {
+                        shared.log.line(&format!("endpoint online (relay reachable) after {} ms", started.elapsed().as_millis()));
+                        shared.log.line(&format!("addresses once online: {}", describe_addrs(&endpoint.addr())));
+                    }
                     Err(_) => shared.log.line("endpoint still not online (no relay) after 120 s"),
                 }
             });
@@ -1287,6 +1300,13 @@ async fn handshake(
     }
 }
 
+/// The addresses of `addr` for a log line: IP addresses, then relay URLs.
+fn describe_addrs(addr: &iroh::EndpointAddr) -> String {
+    let ips: Vec<String> = addr.ip_addrs().map(|a| a.to_string()).collect();
+    let relays: Vec<String> = addr.relay_urls().map(|u| u.to_string()).collect();
+    format!("{} direct [{}], {} relay [{}]", ips.len(), ips.join(", "), relays.len(), relays.join(", "))
+}
+
 /// The selected path of a connection snapshot: direct (IP) or
 /// through the relay, with its round trip. `None` when no path is selected.
 fn selected_path(paths: &iroh::endpoint::PathList<'_>) -> Option<(String, String)> {
@@ -1296,17 +1316,68 @@ fn selected_path(paths: &iroh::endpoint::PathList<'_>) -> Option<(String, String
     Some((format!("{kind} {addr}"), format!("{kind} {addr} (rtt {} ms, {} paths open)", path.rtt().as_millis(), paths.len())))
 }
 
+/// UDP bytes sent and received so far, to rate between two looks.
+struct LinkCounters {
+    at: Instant,
+    tx: u64,
+    rx: u64,
+}
+
+impl LinkCounters {
+    fn of(connection: &Connection) -> LinkCounters {
+        let stats = connection.stats();
+        LinkCounters { at: Instant::now(), tx: stats.udp_tx.bytes, rx: stats.udp_rx.bytes }
+    }
+}
+
+/// `1.5 KB/s` for `bytes` over `secs` seconds.
+fn rate(bytes: u64, secs: f64) -> String {
+    format!("{:.1} KB/s", bytes as f64 / 1024.0 / secs.max(0.001))
+}
+
+/// One line of link quality: the selected path, its round trip, the traffic
+/// since `last` and the packets lost in all. Moves `last` forward.
+fn link_metrics(connection: &Connection, last: &mut LinkCounters) -> Option<String> {
+    let paths = connection.paths();
+    let path = paths.iter().find(|p| p.is_selected())?;
+    let kind = if path.is_relay() { "relay" } else { "direct" };
+    let now = LinkCounters::of(connection);
+    let secs = now.at.duration_since(last.at).as_secs_f64();
+    let line = format!(
+        "link {kind} {} ms, tx {}, rx {}, {} packets lost",
+        path.rtt().as_millis(),
+        rate(now.tx.saturating_sub(last.tx), secs),
+        rate(now.rx.saturating_sub(last.rx), secs),
+        connection.stats().lost_packets
+    );
+    *last = now;
+    Some(line)
+}
+
 /// Logs which path `connection` uses (direct or relay, and its round trip)
-/// each time the selection changes; ends when the connection closes.
+/// each time the selection changes, and its quality every `METRICS_EVERY`;
+/// ends when the connection closes.
 async fn watch_paths(shared: Arc<Shared>, connection: Connection, peer: String) {
     use futures_lite::StreamExt;
     let mut last = String::new();
+    let mut counters = LinkCounters::of(&connection);
+    let mut metrics = tokio::time::interval_at(tokio::time::Instant::now() + METRICS_EVERY, METRICS_EVERY);
     let mut paths = connection.paths_stream();
-    while let Some(list) = paths.next().await {
-        let Some((key, line)) = selected_path(&list) else { continue };
-        if key != last {
-            shared.log.line(&format!("peer {peer}: path {line}"));
-            last = key;
+    loop {
+        tokio::select! {
+            list = paths.next() => {
+                let Some(list) = list else { break };
+                let Some((key, line)) = selected_path(&list) else { continue };
+                if key != last {
+                    shared.log.line(&format!("peer {peer}: path {line}"));
+                    last = key;
+                }
+            }
+            _ = metrics.tick() => {
+                if let Some(line) = link_metrics(&connection, &mut counters) {
+                    shared.log.line(&format!("peer {peer}: {line}"));
+                }
+            }
         }
     }
 }
@@ -1334,12 +1405,46 @@ async fn serve(mut guard: HandshakeGuard, connection: Connection, mut shutdown: 
     ));
 }
 
+/// Replies that don't depend on the order of anything else and can be big:
+/// they wait for interactive frames (terminal output, echoes, replies to a
+/// tap) instead of delaying them. Their own order is kept.
+fn is_bulk(msg: &ServerMsg) -> bool {
+    matches!(msg, ServerMsg::ViewFile { .. } | ServerMsg::LinkPreview { .. })
+}
+
+/// The next message to write: anything interactive in the queue first, then a
+/// held bulk one, and only then a wait for more. `None` once the queue is
+/// closed and nothing is held.
+async fn next_to_write(out_rx: &mut mpsc::Receiver<ServerMsg>, bulk: &mut VecDeque<ServerMsg>) -> Option<ServerMsg> {
+    loop {
+        if bulk.len() >= BULK_HELD {
+            return bulk.pop_front();
+        }
+        match out_rx.try_recv() {
+            Ok(msg) if is_bulk(&msg) => bulk.push_back(msg),
+            Ok(msg) => return Some(msg),
+            Err(mpsc::error::TryRecvError::Empty) => {
+                if let Some(msg) = bulk.pop_front() {
+                    return Some(msg);
+                }
+                match out_rx.recv().await {
+                    Some(msg) if is_bulk(&msg) => bulk.push_back(msg),
+                    other => return other,
+                }
+            }
+            Err(mpsc::error::TryRecvError::Disconnected) => return bulk.pop_front(),
+        }
+    }
+}
+
 /// The single writer: it owns the send half, every producer queues into the
 /// channel. Ends when the channel closes (after flushing what is queued) or
-/// the link breaks.
-async fn write_task(mut send: SendStream, mut out_rx: mpsc::Receiver<ServerMsg>) {
-    while let Some(msg) = out_rx.recv().await {
-        match write_frame(&mut send, &msg).await {
+/// the link breaks. Large frames are deflated once the phone has said it
+/// reads them (`compress`).
+async fn write_task(mut send: SendStream, mut out_rx: mpsc::Receiver<ServerMsg>, compress: Arc<AtomicBool>) {
+    let mut bulk = VecDeque::new();
+    while let Some(msg) = next_to_write(&mut out_rx, &mut bulk).await {
+        match write_frame_with(&mut send, &msg, compress.load(Ordering::Relaxed)).await {
             Ok(()) => {}
             // Nothing was written, so the link is fine: drop the message but
             // say so, rather than leaving the phone waiting for it.
@@ -1350,7 +1455,7 @@ async fn write_task(mut send: SendStream, mut out_rx: mpsc::Receiver<ServerMsg>)
                     bytes / 1024
                 );
                 let note = ServerMsg::Error { message, pty_id: msg_pty_id(&msg), fatal: false };
-                if write_frame(&mut send, &note).await.is_err() {
+                if write_frame_with(&mut send, &note, false).await.is_err() {
                     break;
                 }
             }
@@ -1376,9 +1481,13 @@ fn msg_pty_id(msg: &ServerMsg) -> Option<String> {
 /// Reading in its own task: `read_frame` isn't cancel-safe, so it can't sit
 /// directly in the connection's `select!`. A phone that sends faster than the
 /// queue drains is hung up on.
-async fn read_task(mut recv: RecvStream, in_tx: mpsc::Sender<ClientMsg>, out: mpsc::Sender<ServerMsg>) {
+async fn read_task(mut recv: RecvStream, in_tx: mpsc::Sender<ClientMsg>, out: mpsc::Sender<ServerMsg>, compress: Arc<AtomicBool>) {
     loop {
         match read_frame::<_, ClientMsg>(&mut recv).await {
+            // Meant for the transport, not the connection loop.
+            Ok(ClientMsg::Hello { caps }) => {
+                compress.store(caps.iter().any(|c| c == "compress"), Ordering::Relaxed);
+            }
             Ok(msg) => {
                 if in_tx.try_send(msg).is_err() {
                     break;
@@ -1412,9 +1521,10 @@ async fn run_connection(
     let conn_id = shared.register_conn(&device.id, kick_tx);
 
     let (out_tx, out_rx) = mpsc::channel::<ServerMsg>(OUT_QUEUE);
-    let mut writer = tokio::spawn(write_task(send, out_rx));
+    let compress = Arc::new(AtomicBool::new(false));
+    let mut writer = tokio::spawn(write_task(send, out_rx, Arc::clone(&compress)));
     let (in_tx, mut in_rx) = mpsc::channel::<ClientMsg>(IN_QUEUE);
-    let reader = tokio::spawn(read_task(recv, in_tx, out_tx.clone()));
+    let reader = tokio::spawn(read_task(recv, in_tx, out_tx.clone(), compress));
 
     let mut tabs_rx = shared.tabs.subscribe();
     let mut usage_rx = shared.usage.subscribe();
@@ -1431,6 +1541,7 @@ async fn run_connection(
         subs: HashMap::new(),
         chat_subs: HashMap::new(),
         paused_chats: Vec::new(),
+        paused_ptys: Vec::new(),
         last_tabs: Vec::new(),
         last_chats: Vec::new(),
         background: false,
@@ -1580,6 +1691,10 @@ struct Conn {
     /// event sent: the phone still counts them as open, so they resume by
     /// themselves when it comes back.
     paused_chats: Vec<(String, u64)>,
+    /// Terminals streamed when the phone went to the background. They are
+    /// streamed again (fresh snapshot first) when it comes back, so a phone
+    /// whose page never saw itself hidden doesn't stay on a frozen screen.
+    paused_ptys: Vec<String>,
     last_tabs: Vec<Tab>,
     last_chats: Vec<ChatInfo>,
     /// The phone said it is in the background: only notifications go out.
@@ -1659,12 +1774,21 @@ impl Conn {
             for (pty_id, task) in self.subs.drain() {
                 task.abort();
                 self.shared.release_size(&pty_id, self.id);
+                self.paused_ptys.push(pty_id);
             }
             for (chat_id, (task, sent)) in self.chat_subs.drain() {
                 task.abort();
                 self.paused_chats.push((chat_id, sent.load(Ordering::Relaxed)));
             }
             return;
+        }
+        // The phone may `open` them again too: that just replaces the stream.
+        let ptys = self.shared.app.state::<PtyState>();
+        for pty_id in std::mem::take(&mut self.paused_ptys) {
+            if ptys.exists(&pty_id) && !self.subs.contains_key(&pty_id) {
+                let task = tokio::spawn(stream_pty(Arc::clone(&self.shared), pty_id.clone(), self.out_tx.clone()));
+                self.subs.insert(pty_id, task);
+            }
         }
         // A chat closed meanwhile is just gone from the `chats` sent below.
         let live = self.shared.chat_infos();
@@ -1815,7 +1939,8 @@ impl Conn {
 
     async fn handle(&mut self, msg: ClientMsg) {
         match msg {
-            ClientMsg::Auth { .. } | ClientMsg::Pair { .. } => {}
+            // `Hello` is consumed by `read_task`.
+            ClientMsg::Auth { .. } | ClientMsg::Pair { .. } | ClientMsg::Hello { .. } => {}
             ClientMsg::Ping => self.send(ServerMsg::Pong),
             ClientMsg::List => {
                 let tabs = self.shared.latest_tabs();
@@ -1847,6 +1972,7 @@ impl Conn {
                 }
             }
             ClientMsg::Close { pty_id } => {
+                self.paused_ptys.retain(|id| *id != pty_id);
                 if let Some(task) = self.subs.remove(&pty_id) {
                     task.abort();
                 }
@@ -2105,5 +2231,45 @@ mod tests {
         let parsed = PairingTicket::parse(&url).unwrap();
         assert_eq!(EndpointTicket::from_str(&parsed.node).unwrap().endpoint_addr(), &addr);
         assert_eq!(parsed.code, "abc");
+    }
+
+    fn view_file(path: &str) -> ServerMsg {
+        ServerMsg::ViewFile { view_id: "v".into(), hash: "h".into(), path: path.into(), offset: 0, total: 0, data: String::new() }
+    }
+
+    #[tokio::test]
+    async fn bulk_replies_wait_for_interactive_frames_but_keep_their_order() {
+        let (tx, mut rx) = mpsc::channel(16);
+        for msg in [view_file("a"), ServerMsg::Output { pty_id: "p".into(), data: "$".into() }, view_file("b"), ServerMsg::Pong] {
+            tx.send(msg).await.unwrap();
+        }
+        drop(tx);
+        let mut bulk = VecDeque::new();
+        let mut order = Vec::new();
+        while let Some(msg) = next_to_write(&mut rx, &mut bulk).await {
+            order.push(match msg {
+                ServerMsg::Output { .. } => "output".to_string(),
+                ServerMsg::Pong => "pong".to_string(),
+                ServerMsg::ViewFile { path, .. } => path,
+                _ => unreachable!(),
+            });
+        }
+        assert_eq!(order, ["output", "pong", "a", "b"]);
+    }
+
+    #[tokio::test]
+    async fn held_bulk_replies_are_capped_and_stay_in_order() {
+        let (tx, mut rx) = mpsc::channel(256);
+        let mut bulk = VecDeque::new();
+        for i in 0..BULK_HELD + 3 {
+            tx.send(view_file(&i.to_string())).await.unwrap();
+        }
+        drop(tx);
+        let mut paths = Vec::new();
+        while let Some(ServerMsg::ViewFile { path, .. }) = next_to_write(&mut rx, &mut bulk).await {
+            assert!(bulk.len() <= BULK_HELD);
+            paths.push(path);
+        }
+        assert_eq!(paths, (0..BULK_HELD + 3).map(|i| i.to_string()).collect::<Vec<_>>());
     }
 }

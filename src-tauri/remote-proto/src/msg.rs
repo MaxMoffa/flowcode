@@ -11,6 +11,10 @@ pub enum ClientMsg {
     /// First message of a known device.
     Auth { token: String },
     List,
+    /// What this phone can do beyond the base protocol, sent once after `ready`
+    /// to a desktop that listed the matching capability. `compress`: it reads
+    /// deflated frames (see `write_frame_with`), so the desktop may send them.
+    Hello { caps: Vec<String> },
     /// Start streaming a pty (snapshot first). With `cols`/`rows` the pty is
     /// resized to the phone's screen while it stays open.
     Open {

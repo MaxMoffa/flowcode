@@ -25,6 +25,7 @@ import { Diagnostics } from "./SettingsDiagnostics";
 import { Group, MessageField, PaletteGrid, Segmented, Slider, Stepper, Toggle } from "./SettingsControls";
 import { ICONS, type SectionId } from "./settingsIcons";
 import { UpdatesPage } from "./UpdatesUi";
+import { setPanelMode, usePanelMode } from "./panelMode";
 import { setUiScale, useUiScale } from "./uiScale";
 import { updates } from "./updates";
 
@@ -73,6 +74,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
   const shots = useScreenshots();
   const wide = useWide();
   const uiScale = useUiScale();
+  const panelMode = usePanelMode();
   const [section, setSection] = useState<SectionId | null>(null);
   useBackHandler(section !== null, () => setSection(null));
 
@@ -204,6 +206,18 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
                 { id: "large", name: t("uiSizeLarge") },
               ]}
               onChange={setUiScale}
+            />
+          )}
+          {wide && (
+            <Segmented
+              label={t("sidePanels")}
+              value={panelMode}
+              options={[
+                { id: "auto", name: t("sidePanelsAuto") },
+                { id: "fixed", name: t("sidePanelsFixed") },
+                { id: "floating", name: t("sidePanelsFloating") },
+              ]}
+              onChange={setPanelMode}
             />
           )}
         </Group>

@@ -68,7 +68,9 @@ import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatf
 import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
 import { useI18n } from "./i18n";
-import { NewTabPage, type NewTabLaunch } from "./newtab/NewTabPage";
+import { NewTabHost } from "./newtab/NewTabHost";
+import { loadPluginNewTabs } from "./newtab/pluginLayouts";
+import type { NewTabLaunch } from "./newtab/types";
 import { recordRecentTerminal } from "./newtab/recentTerminals";
 import { recordCommand } from "./newtab/commandHistory";
 import { profileForPath, refreshProfiles, useProfiles } from "./profiles/profiles";
@@ -597,6 +599,7 @@ function Shell() {
   useEffect(() => {
     seedExamplePlugins().then(reloadCustomPlugins);
     loadPluginViews().catch(() => {});
+    loadPluginNewTabs().catch(() => {});
     // Per-plugin usage profiles used to be remembered here; now they follow
     // the active tab's profile, so the old keys are dead weight.
     try {
@@ -1954,43 +1957,55 @@ function Shell() {
    * user's flags. A WSL shell runs the distro's own CLI, so it skips the host
    * install check and the host-only flags, like `openAgentSession`. The new
    * tab runs under account profile `profileId` (default profile when
-   * omitted) - ignored for WSL, where the env vars don't reach. */
-  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string, profileId?: string, asChat = false) {
+   * omitted) - ignored for WSL, where the env vars don't reach. Resolves to
+   * whether the tab was opened (the CLI may be missing or signed out). */
+  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string, profileId?: string, asChat = false): Promise<boolean> {
     let command = allPlugins.find((p) => cliOfPlugin(p.id) === cli)?.command ?? cli;
     if (wslDistroOfShell(shell) !== undefined) {
       const id = addTab(cwd, shell);
       pendingCommandsRef.current.set(id, command);
-      return;
+      return true;
     }
     // Chat is host-only, so a WSL shell (above) never gets it.
-    if (asChat) {
-      await openChatTab(cli, cwd, profileId);
-      return;
-    }
-    if (!(await ensureCliReady(cli, profileId))) return;
+    if (asChat) return openChatTab(cli, cwd, profileId);
+    if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     if (cli === "codex") command = await withCodexLaunchFlags(command);
     if (shell) {
       // addTab also activates the new tab.
       const id = addTab(cwd, shell, false, profileId ?? null);
       pendingCommandsRef.current.set(id, command);
-      return;
+      return true;
     }
     const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
     setTabs((prev) => [...prev, makeTermTab(id, cwd, { profileId })]);
     setActiveTabId(id);
     setActiveTerminalId(id);
+    return true;
+  }
+
+  /** An agent picked on the new tab page: it starts in a new tab (see
+   * `launchAgentInNewTab`) that takes the page's place, in its folder and
+   * under its account profile. The page stays if the agent can't start. */
+  async function launchAgentFromNewTab(tabId: string, cli: AgentCli) {
+    const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    if (!tab?.newTab) return;
+    if (!(await launchAgentInNewTab(cli, tab.cwd || homeDir, undefined, tab.profileId))) return;
+    setTabs((prev) => prev.filter((t) => t.id !== tabId));
+    forgetTab(tabId);
+    setActiveTerminalId((active) => (active === tabId ? (latestRef.current.tabs.find((t) => t.kind === "terminal" && t.id !== tabId)?.id ?? "") : active));
   }
 
   /** Opens `cli` as a chat tab in `cwd` (the host file system), after the same
    * install/login check a terminal launch does. */
-  async function openChatTab(cli: AgentCli, cwd: string, profileId?: string, viewId?: string) {
-    if (!(await ensureCliReady(cli, profileId))) return;
+  async function openChatTab(cli: AgentCli, cwd: string, profileId?: string, viewId?: string): Promise<boolean> {
+    if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
     setTabs((prev) => [...prev, { kind: "chat", id, agent: cli, cwd, label: CLI_INFO[cli].name, profileId, viewId }]);
     setActiveTabId(id);
+    return true;
   }
 
   /** Patches a chat tab's fields as its view reports them. */
@@ -2164,6 +2179,7 @@ function Shell() {
     return allPlugins.map((p) => ({
       id: p.id,
       label: p.label,
+      agent: cliOfPlugin(p.id) !== undefined,
       icon: pluginIconNode(p),
       pinned: quickActionIds.includes(p.id),
       run: () => runPlugin(p),
@@ -2506,7 +2522,7 @@ function Shell() {
                       />
                     )}
                     {showPage && (
-                      <NewTabPage
+                      <NewTabHost
                         hidden={tab.id !== activeTabId}
                         defaultShell={shellId}
                         startDir={tab.cwd}
@@ -2515,6 +2531,7 @@ function Shell() {
                           setHandoffs((prev) => new Map(prev).set(tab.id, {}));
                           launchFromNewTab(tab.id, launch);
                         }}
+                        onLaunchAgent={(cli) => void launchAgentFromNewTab(tab.id, cli)}
                         onShellChange={(shell) => previewNewTabShell(tab.id, shell)}
                         profileId={tab.profileId}
                         onProfileChange={(id) => {

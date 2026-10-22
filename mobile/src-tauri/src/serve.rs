@@ -76,6 +76,51 @@ fn selected_path(paths: &iroh::endpoint::PathList<'_>) -> Option<(String, String
     Some((format!("{kind} {addr}"), format!("{kind} {addr} (rtt {} ms, {} paths open)", path.rtt().as_millis(), paths.len())))
 }
 
+/// How often the link's quality is refreshed in the diagnostics (the first
+/// look comes sooner, once the path has settled).
+const METRICS_EVERY: Duration = Duration::from_secs(10);
+const METRICS_FIRST: Duration = Duration::from_secs(3);
+
+/// UDP bytes sent and received so far, to rate between two looks.
+struct LinkCounters {
+    at: Instant,
+    tx: u64,
+    rx: u64,
+}
+
+impl LinkCounters {
+    fn of(conn: &iroh::endpoint::Connection) -> LinkCounters {
+        let stats = conn.stats();
+        LinkCounters { at: Instant::now(), tx: stats.udp_tx.bytes, rx: stats.udp_rx.bytes }
+    }
+}
+
+/// `1.5 KB/s` for `bytes` over `secs` seconds.
+fn rate(bytes: u64, secs: f64) -> String {
+    format!("{:.1} KB/s", bytes as f64 / 1024.0 / secs.max(0.001))
+}
+
+/// The link's quality as `direct 18 ms, tx .., rx .., N packets lost` (the
+/// diagnostics screen reads the first two words and the number), from the
+/// selected path and the traffic since `last`, which moves forward. `None`
+/// when no path is selected.
+fn link_metrics(conn: &iroh::endpoint::Connection, last: &mut LinkCounters) -> Option<String> {
+    let paths = conn.paths();
+    let path = paths.iter().find(|p| p.is_selected())?;
+    let kind = if path.is_relay() { "relay" } else { "direct" };
+    let now = LinkCounters::of(conn);
+    let secs = now.at.duration_since(last.at).as_secs_f64();
+    let line = format!(
+        "{kind} {} ms, tx {}, rx {}, {} packets lost",
+        path.rtt().as_millis(),
+        rate(now.tx.saturating_sub(last.tx), secs),
+        rate(now.rx.saturating_sub(last.rx), secs),
+        conn.stats().lost_packets
+    );
+    *last = now;
+    Some(line)
+}
+
 pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
     let (out_tx, mut out_rx) = mpsc::channel::<ClientMsg>(OUT_QUEUE);
     remote.lock().out = Some(out_tx.clone());
@@ -100,6 +145,13 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
         let mut ping = tokio::time::interval(PING_EVERY);
         ping.tick().await;
         let mut last_rx = Instant::now();
+        // Large frames from a desktop that can deflate them come smaller; it
+        // switches when it reads this, ahead of anything else we ask for.
+        if session.caps.iter().any(|c| c == "compress") {
+            if let Err(e) = send_frame(&mut session.send, &ClientMsg::Hello { caps: vec!["compress".into()] }).await {
+                return Exit::Lost(e);
+            }
+        }
         // Set when the app resumes: the link must prove itself by then.
         let mut probe_until: Option<tokio::time::Instant> = None;
         if let Err(e) = send_frame(&mut session.send, &ClientMsg::List).await {
@@ -116,6 +168,8 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
         // the stream ends with the connection.
         let mut paths = session.conn.paths_stream();
         let mut last_path = String::new();
+        let mut counters = LinkCounters::of(&session.conn);
+        let mut metrics = tokio::time::interval_at(tokio::time::Instant::now() + METRICS_FIRST, METRICS_EVERY);
         loop {
             let probe = async {
                 match probe_until {
@@ -175,6 +229,11 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                             remote.log.push(format!("path: {line}"));
                             last_path = key;
                         }
+                    }
+                }
+                _ = metrics.tick() => {
+                    if let Some(line) = link_metrics(&session.conn, &mut counters) {
+                        remote.log.push_metrics(&line);
                     }
                 }
                 _ = probe => return Exit::Lost("the desktop did not answer after resuming".into()),

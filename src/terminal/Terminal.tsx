@@ -27,6 +27,7 @@ import {
 import { unrecorded } from "./shellDialect";
 import { t } from "../i18n";
 import { isLayoutDragging, onLayoutDragEnd } from "../lib/layoutDrag";
+import { onResume } from "../lib/resume";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { readTermColors } from "./termColors";
@@ -1008,11 +1009,19 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       pendingRefit = false;
       refit();
     });
+    // Back from sleep or from behind another window: frames and timers were
+    // paused, so the grid may be stale (the layout moved meanwhile) and rows
+    // may not have been painted - fit again and repaint everything.
+    const unsubscribeResume = onResume(() => {
+      refit();
+      term.refresh(0, term.rows - 1);
+    });
 
     return () => {
       disposed = true;
       resizeObserver.disconnect();
       unsubscribeDragEnd();
+      unsubscribeResume();
       if (refitTimer !== null) window.clearTimeout(refitTimer);
       titleDisposable.dispose();
       bufferDisposable.dispose();

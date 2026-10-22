@@ -96,6 +96,12 @@ export const KeyboardIcon = ({ size = 20 }: { size?: number }) => (
   </Svg>
 );
 
+export const PinIcon = () => (
+  <Svg>
+    <path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6zM12 15v5" />
+  </Svg>
+);
+
 export const PlusIcon = () => (
   <Svg size={18} strokeWidth={2.2}>
     <path d="M12 5v14M5 12h14" />

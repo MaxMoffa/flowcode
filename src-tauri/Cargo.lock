@@ -1552,6 +1552,7 @@ name = "flowcode-remote-proto"
 version = "0.13.0"
 dependencies = [
  "data-encoding",
+ "flate2",
  "serde",
  "serde_json",
  "sha2 0.10.9",

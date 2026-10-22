@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { resolveDocked, usePanelMode } from "./panelMode";
 
 /** Tracks a CSS media query; false where matchMedia doesn't exist. */
 function useMediaQuery(query: string): boolean {
@@ -17,5 +18,10 @@ function useMediaQuery(query: string): boolean {
 
 /** Tablets and desktop-mode phones: the desktop-like layout. */
 export const useWide = () => useMediaQuery("(min-width: 760px)");
-/** Wide enough to keep the agents panel docked beside the terminal. */
-export const useDocked = () => useMediaQuery("(min-width: 1100px)");
+/** From 1100 px: wide enough for the panels to dock on their own. */
+export const useBigScreen = () => useMediaQuery("(min-width: 1100px)");
+/** The side panels sit beside the terminal: the panel preference combined with the width. */
+export function useDocked(): boolean {
+  const mode = usePanelMode();
+  return resolveDocked(mode, useWide(), useBigScreen());
+}

@@ -67,6 +67,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "shell", section: "terminal", label: "settings.shell.label", desc: "settings.shell.desc", keywords: "shell powershell cmd bash wsl zsh" },
   { id: "banner", section: "terminal", label: "settings.banner.label", desc: "settings.banner.desc", keywords: "banner logo benvenuto welcome" },
   { id: "newTabPage", section: "terminal", label: "settings.newTabPage.label", desc: "settings.newTabPage.desc", keywords: "nuova tab new tab scheda pagina page preferiti favorites recenti recent comando command riga line iniziale home" },
+  { id: "newTabLayout", section: "terminal", label: "settings.newTabLayout.label", desc: "settings.newTabLayout.desc", keywords: "nuova tab new tab layout vetro glass terminale terminal sfondo background immagine image grana grain personalizza customize pagina page" },
   { id: "links", section: "terminal", label: "settings.links.label", desc: "settings.links.desc", keywords: "link url collegamenti browser conferma confirm" },
   { id: "linkPreviews", section: "terminal", label: "settings.linkPreviews.label", desc: "settings.linkPreviews.desc", keywords: "anteprima anteprime preview previews link url chat agente agent privacy rete network" },
   { id: "startDir", section: "startup", label: "settings.startDir.label", desc: "settings.startDir.desc", keywords: "cartella folder directory home percorso path" },

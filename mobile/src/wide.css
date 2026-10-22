@@ -9,14 +9,12 @@
   --w-selected: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
-/* UI size (--w-zoom, set on .wide): CSS `zoom` goes on the chrome only. Never on the terminal card (xterm measures its cells and maps pointer coordinates in unzoomed px). The new-terminal popover and its menu are zoomed in NewTerminalSheet, which also divides their positions. */
+/* UI size (--w-zoom, set on .wide): CSS `zoom` goes on the chrome only. Never on the terminal card (xterm measures its cells and maps pointer coordinates in unzoomed px). The new-terminal dialog and its menu are zoomed by AdaptiveSheet / NewTerminalSheet, which divide the menu positions. */
 .w-top,
 .w-side,
 .w-main > .w-page,
 .wfv,
-.wide .tm-keys,
-.wide .tm-sheet,
-.wide .tm-drawer {
+.wide .tm-keys {
   zoom: var(--w-zoom, 1);
 }
 
@@ -184,14 +182,31 @@
   max-height: 100%;
 }
 
-/* Same arc as .tr-sweep in ui.css, round the tab's icon. */
-.w-tab-ico .tr-sweep {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  pointer-events: none;
+/* The desktop's .term-tab.attn-*: the outline takes the state's colour (declared after .on so it shows on the open tab too), a busy agent's arc runs round it (.tr-sweep in ui.css), and a waiting one's logo turns amber. The stroke covers the outer 1.5px of the tab's border box. */
+.w-tab.attn-wait {
+  border-color: color-mix(in srgb, var(--wait) 65%, transparent);
+}
+
+.w-tab.attn-wait .w-tab-ico {
+  color: var(--wait);
+}
+
+.w-tab.attn-busy {
+  border-color: color-mix(in srgb, var(--busy) 25%, transparent);
+}
+
+.w-tab .w-tab-sweep {
+  inset: auto;
+  top: -0.25px;
+  left: -0.25px;
+  width: calc(100% + 0.5px);
+  height: calc(100% + 0.5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-tab.attn-busy {
+    border-color: color-mix(in srgb, var(--busy) 65%, transparent);
+  }
 }
 
 /* The computer switcher where the desktop has its window controls: a bordered chip; below the docked width just the dot and a monitor. */
@@ -234,18 +249,18 @@
   white-space: nowrap;
 }
 
-.wide:not(.docked) .cs-pill {
+.wide.narrow .cs-pill {
   padding: 0 8px;
   gap: 6px;
 }
 
-.wide:not(.docked) .cs-pill svg:nth-of-type(1) {
+.wide.narrow .cs-pill svg:nth-of-type(1) {
   display: block;
   color: var(--fg);
 }
 
-.wide:not(.docked) .cs-pill svg:nth-of-type(2),
-.wide:not(.docked) .cs-host {
+.wide.narrow .cs-pill svg:nth-of-type(2),
+.wide.narrow .cs-host {
   display: none;
 }
 
@@ -283,6 +298,10 @@
   border: 1px solid var(--w-line);
   background: var(--w-float);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+}
+
+.w-menu-entry {
+  display: contents;
 }
 
 .w-menu button {
@@ -327,11 +346,6 @@
   height: 1px;
   margin: 4px 6px;
   background: var(--border);
-}
-
-/* The quick actions sheet opens over the floating panels too. */
-.wide .tm-layer {
-  z-index: 70;
 }
 
 .w-body {
@@ -540,6 +554,16 @@
   width: min(300px, calc(100% - 16px));
 }
 
+/* Docked below 1100 px (fixed panels): the terminal keeps room, the panels give way. */
+.wide.docked.narrow .w-main {
+  min-width: min(360px, 100%);
+}
+
+.wide.docked.narrow .w-side {
+  flex: 0 1 auto;
+  min-width: 160px;
+}
+
 .w-scrim {
   position: absolute;
   inset: calc(52px * var(--w-zoom, 1)) 0 0 0;
@@ -740,20 +764,4 @@
 .wfv-text {
   white-space: pre;
   padding-right: 14px;
-}
-
-/* "Nuovo terminale" as a popover card under the tab strip's "+" (NewTerminalSheet with an anchor). */
-.nts-layer.nts-pop .nts-scrim {
-  background: rgba(0, 0, 0, 0.12);
-}
-
-.nts-layer.nts-pop .nts {
-  position: fixed;
-  right: auto;
-  bottom: auto;
-  width: 360px;
-  padding: 14px 14px 14px;
-  border: 1px solid var(--w-line);
-  border-radius: 14px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
 }

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ViewPluginManifest } from "../../shared/agentViewBridge";
+import type { NewTabPluginManifest } from "../../shared/newTabBridge";
 import { loadPluginViews } from "../agentViews/pluginViews";
+import { loadPluginNewTabs } from "../newtab/pluginLayouts";
 import { useI18n, type MessageKey } from "../i18n";
 import "./funzionalita-page.css";
 
@@ -17,26 +19,29 @@ async function toBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
+/** An installed plugin of either kind, as `view_plugins_list` answers. */
+type InstalledPlugin = ViewPluginManifest | NewTabPluginManifest;
+
 /** The fields of a picked folder's manifest the confirmation shows; the
  * backend validates the rest. */
-function readManifest(text: string): Partial<ViewPluginManifest> | null {
+function readManifest(text: string): Partial<InstalledPlugin> | null {
   const parsed: unknown = JSON.parse(text);
   if (!parsed || typeof parsed !== "object") return null;
-  const m = parsed as Partial<ViewPluginManifest>;
+  const m = parsed as Partial<InstalledPlugin>;
   return typeof m.id === "string" && typeof m.label === "string" ? m : null;
 }
 
-/** "Viste agente" in Settings > Funzionalita: the installed agent view
- * plugins, and installing one from a folder (see PLUGINS.md). */
+/** "Viste e pagine" in Settings > Funzionalita: the installed agent view and
+ * new tab page plugins, and installing one from a folder (see PLUGINS.md). */
 export function AgentViewsSection() {
   const { t, language } = useI18n();
-  const [views, setViews] = useState<ViewPluginManifest[]>([]);
+  const [views, setViews] = useState<InstalledPlugin[]>([]);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setViews(await invoke<ViewPluginManifest[]>("view_plugins_list"));
+      setViews(await invoke<InstalledPlugin[]>("view_plugins_list"));
     } catch (err) {
       setError(t("features.views.readFailed", { error: String(err) }));
     }
@@ -46,9 +51,9 @@ export function AgentViewsSection() {
     void refresh();
   }, [refresh]);
 
-  /** The registry follows the folder: views are (un)registered right away. */
+  /** The registries follow the folder: views and layouts are (un)registered right away. */
   async function reload(reinstalled?: string) {
-    await loadPluginViews(reinstalled).catch(() => {});
+    await Promise.all([loadPluginViews(reinstalled), loadPluginNewTabs(reinstalled)]).catch(() => {});
     await refresh();
   }
 
@@ -68,13 +73,14 @@ export function AgentViewsSection() {
         return;
       }
       const permissions = (manifest.permissions ?? []).map((p) => t(`features.views.perm.${p}` as MessageKey)).join(", ");
+      const newTab = manifest.kind === "newTab";
       const accepted = window.confirm(
-        t("features.views.confirm", {
+        t(newTab ? "features.views.confirmNewTab" : "features.views.confirm", {
           name: manifest.label ?? "",
           author: manifest.author ?? t("features.views.unknown"),
           version: manifest.version ?? t("features.views.unknown"),
           permissions: permissions || t("features.views.none"),
-          warning: t("features.views.warning"),
+          warning: t(newTab ? "features.views.warningNewTab" : "features.views.warning"),
         }),
       );
       if (!accepted) return;
@@ -93,7 +99,7 @@ export function AgentViewsSection() {
     }
   }
 
-  async function handleDelete(view: ViewPluginManifest) {
+  async function handleDelete(view: InstalledPlugin) {
     const name = view.labels?.[language] ?? view.label;
     if (!window.confirm(t("features.views.deleteConfirm", { name }))) return;
     try {
@@ -126,6 +132,7 @@ export function AgentViewsSection() {
                 <div className="funzionalita-view-main">
                   <div className="funzionalita-name">
                     {name}
+                    <span className="funzionalita-chip">{t(`features.views.kind.${view.kind}` as MessageKey)}</span>
                     <span className="funzionalita-view-meta">
                       {[view.version && `v${view.version}`, view.author && t("features.views.by", { author: view.author })].filter(Boolean).join(" · ")}
                     </span>

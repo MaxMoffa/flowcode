@@ -10,12 +10,12 @@ import { useRemoteSelector, type ChatInfo, type Tab } from "./remote";
 /** How long a requested terminal is waited for before giving up on opening it. */
 const NEW_TAB_WAIT_MS = 15_000;
 
-/** The arc running round a busy agent's icon, as on the desktop's tabs. */
-export function BusyArc() {
+/** The arc running round a busy agent's icon, as on the desktop's tabs; `rx` and `className` for one running round a whole tab (WideShell). */
+export function BusyArc({ rx = 9, className = "tr-sweep" }: { rx?: number; className?: string }) {
   return (
-    <svg className="tr-sweep" aria-hidden="true">
+    <svg className={className} aria-hidden="true">
       {SWEEP_DASHES.map((d, i) => (
-        <rect key={i} width="100%" height="100%" rx="9" pathLength="100" style={{ strokeDasharray: d.dasharray, opacity: d.opacity }} />
+        <rect key={i} width="100%" height="100%" rx={rx} pathLength="100" style={{ strokeDasharray: d.dasharray, opacity: d.opacity }} />
       ))}
     </svg>
   );

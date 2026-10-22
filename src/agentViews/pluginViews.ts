@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ViewPluginManifest } from "../../shared/agentViewBridge";
+import type { NewTabPluginManifest } from "../../shared/newTabBridge";
 import "./builtins";
 import { PluginViewHost } from "./PluginViewHost";
 import { agentView, agentViews, registerAgentView, unregisterAgentView } from "./registry";
@@ -13,7 +14,7 @@ const registered = new Map<string, string>();
  * a reinstall with an unchanged manifest still loads the new files. */
 const revisions = new Map<string, number>();
 
-/** Reads the installed view plugins and brings the registry in line: views
+/** Reads the installed agent view plugins and brings the registry in line: views
  * gone are unregistered, the others (re)registered. Called at startup and
  * after an install or a delete. `reinstalled` is the id of a view whose files
  * were just replaced: its open instances are remounted even if its manifest is
@@ -23,9 +24,11 @@ export async function loadPluginViews(reinstalled?: string) {
     revisions.set(reinstalled, (revisions.get(reinstalled) ?? 0) + 1);
     registered.delete(reinstalled);
   }
-  const manifests = await invoke<ViewPluginManifest[]>("view_plugins_list");
+  const manifests = await invoke<(ViewPluginManifest | NewTabPluginManifest)[]>("view_plugins_list");
   // Offered here, and not shadowing a built-in view.
-  const usable = manifests.filter((m) => m.devices.includes("desktop") && agentView(m.id)?.source !== "builtin");
+  const usable = manifests.filter(
+    (m): m is ViewPluginManifest => m.kind === "agentView" && m.devices.includes("desktop") && agentView(m.id)?.source !== "builtin",
+  );
   const keep = new Set(usable.map((m) => m.id));
   for (const view of agentViews()) {
     if (view.source === "plugin" && !keep.has(view.id)) {

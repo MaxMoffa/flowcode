@@ -38,6 +38,13 @@ the code or this file, not just one.
 Each message is a **frame**: `u32` big-endian length, then that many bytes of
 UTF-8 JSON. The maximum frame is **1 MiB** (`proto::MAX_FRAME`); a larger
 length is a protocol error and the reader gives up on the stream.
+A length with its **top bit set** marks a deflated frame: the body is raw
+deflate of the JSON (the 1 MiB limit applies to the inflated size, which the
+reader enforces). It is only ever sent to a peer that asked for it with
+`hello {caps: ["compress"]}`, after seeing `compress` in the other side's
+`caps` (so old peers never meet one); frames under `proto::COMPRESS_MIN`
+(1 KiB) or that deflate by less than 10% go out plain. `read_frame` accepts
+both forms, `write_frame_with(.., true)` produces them.
 `proto::read_frame` / `write_frame` do this over any tokio
 `AsyncRead` / `AsyncWrite` (iroh's `RecvStream` / `SendStream` qualify).
 
@@ -110,6 +117,7 @@ Client messages:
 | `set {key, value}` | Change one mirrored desktop setting (see `settings`). `key` must be non-empty and at most 64 bytes and `value` at most 4 KiB as JSON, else `error`; an unknown key or a value of the wrong type is ignored by the desktop (it is not applied; an unknown palette id falls back to the default palette). |
 | `profile {op, ...}` | Manage the account profiles (see `profiles`). `op` is `create` (`name`, `color` as `#rrggbb`, optional `copySettings`, default true), `update` (`id`, `name`, `color`), `delete` (`id`, optional `deleteFiles`, default false) `login` (`id`, `cli`: `claude`, `codex`, `vibe` or `gemini`) or `logout` (`id`, `cli`). For `login` and `logout` an `id` of `""` is the default profile; `update`/`delete` need a real id. Strings are at most 64 bytes (`color`/`cli` 16); a malformed request gets an `error`. Only the desktop's remote leader window acts on it (the same window as `action`); `create`/`update`/`delete` apply the desktop's own rules (non-empty unique name, valid color) and a rejected one is simply not applied, the next `profiles` shows the truth. `login` opens the CLI's sign-in in a **new terminal tab on the desktop** (after checking the CLI is installed; otherwise the desktop offers to install it): the phone can then open that tab from its `tabs` list. `logout` signs the CLI out of the profile right away (no confirm on the desktop; the phone asks first). There is no reply; watch `profiles`. |
 | `newtab {cwd?, cli?, profile?}` | Open a new terminal tab on the desktop, in `cwd` (else the shell's start folder), starting the agent `cli` (`claude`, `codex`, `vibe` or `gemini`) in it if given, under the account profile `profile` (`""` = the default one, an unknown id falls back to it; absent = automatic, the folder's project default). A `cwd` that is not an existing folder on the computer, or an unknown `cli`, gets an `error`. There is no reply; the new tab shows in the next `tabs`. |
+| `hello {caps}` | Optional, sent once right after `ready` to a desktop that listed the matching capability. `compress`: this phone reads deflated frames, so the desktop may send them. Never sent to an older desktop, which would answer `error` for an unknown message. |
 | `ping` | Answered with `pong`. Send one now and then to detect a dead link. |
 
 Server messages:
@@ -249,6 +257,11 @@ up), but keeping the ticket's `node` string is more robust offline.
 - Revoking a device on the desktop drops its connections at once, after a
   fatal `error` ("Device revoked"); a revoked device that connects gets the
   same fatal `error`.
+- Latency: the desktop sends one `output` frame per terminal at most every
+  8 ms (a quiet terminal's first chunk goes out at once, a burst is folded into
+  few larger frames), and writes `viewfile` / `linkpreview` replies only when
+  no other frame is waiting, so keystroke echoes never sit behind a download.
+  A `snapshot` is capped at 256 KiB of JSON (oldest lines dropped first).
 - Queues are bounded. Terminal output for a phone that is not keeping up is
   dropped and replaced by a fresh `snapshot` once it catches up; a phone that
   stops reading altogether, or floods the desktop with frames or input faster

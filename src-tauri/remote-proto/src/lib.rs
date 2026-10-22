@@ -6,7 +6,7 @@ mod frame;
 mod msg;
 mod ticket;
 
-pub use frame::{read_frame, write_frame, FrameError, MAX_FRAME};
+pub use frame::{encode_frame, read_frame, write_frame, write_frame_with, FrameError, COMPRESS_MIN, MAX_FRAME};
 pub use msg::*;
 pub use ticket::{PairingTicket, TicketError};
 
@@ -34,7 +34,7 @@ pub const PROTOCOL_VERSION: u32 = 2;
 /// Features this desktop supports, sent in `ready` as `caps`, so the phone
 /// can hide what an older desktop lacks. Keep in step with `RemoteCap` in
 /// shared/remote-types.ts and docs/remote-protocol.md.
-pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", "chat", "agentViews", "linkPreview"];
+pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", "chat", "agentViews", "linkPreview", "compress"];
 
 /// Largest `input` payload (bytes of UTF-8) a client may send in one frame.
 pub const MAX_INPUT_BYTES: usize = 64 * 1024;

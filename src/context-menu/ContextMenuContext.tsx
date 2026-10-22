@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { needsSearch, matchesQuery, searchKeyAction } from "../../shared/menuFilter";
 import { useI18n } from "../i18n";
 import { MenuIcons } from "./menuIcons";
 import "./context-menu.css";
@@ -19,6 +20,9 @@ export interface ContextMenuItem {
    * these items in a second panel next to it instead of running `onSelect`. */
   submenu?: ContextMenuItem[];
 }
+
+/** The rows a search can land on (not separators or compound rows). */
+const isSelectable = (item: ContextMenuItem) => !item.separator && !item.custom;
 
 interface MenuState {
   x: number;
@@ -130,18 +134,28 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  /** What had focus when the menu opened: it gets it back, as the search bar takes it while open. */
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   // The flyout is one level deep and always spawned from the top-level menu
   // that's currently open - index into `menu.items`, not a separate menu
   // stack, so it's automatically torn down whenever `menu` itself closes.
   const [submenuOpenAt, setSubmenuOpenAt] = useState<{ index: number; x: number; y: number; parentLeft: number } | null>(null);
 
   const hide = useCallback(() => {
+    returnFocusRef.current?.focus();
+    returnFocusRef.current = null;
     setMenu(null);
     setSubmenuOpenAt(null);
   }, []);
 
   const show = useCallback((x: number, y: number, items: ContextMenuItem[]) => {
+    if (!returnFocusRef.current && document.activeElement instanceof HTMLElement) returnFocusRef.current = document.activeElement;
     setMenu({ x, y, items });
+    setQuery("");
     setSubmenuOpenAt(null);
   }, []);
 
@@ -180,7 +194,9 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
-      hide();
+      // Escape first empties the search, then closes the menu.
+      if (searchKeyAction(e.key, queryRef.current) === "clear") setQuery("");
+      else hide();
     };
     window.addEventListener("mousedown", onPointerDown, true);
     window.addEventListener("blur", hide);
@@ -194,11 +210,23 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     };
   }, [menu, hide]);
 
+  const searchable = !!menu && needsSearch(menu.items.filter(isSelectable).length);
+  // A ref and an effect rather than autoFocus: the menu mounts mid-click, where the attribute's focus doesn't always stick.
+  useEffect(() => {
+    if (searchable) searchRef.current?.focus();
+  }, [searchable, menu]);
+
+  // Filtering leaves the separators and compound rows out; each row keeps its place in `menu.items` for the flyout.
+  const rows =
+    menu?.items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => !searchable || query.trim() === "" || (isSelectable(item) && matchesQuery(item.label, query))) ?? [];
+
   let style: { left: number; top: number } | undefined;
   if (menu) {
     const menuWidth = 210;
     const rowHeight = 30;
-    const estHeight = menu.items.length * rowHeight + 8;
+    const estHeight = menu.items.length * rowHeight + 8 + (searchable ? 34 : 0);
     const left = Math.min(menu.x, window.innerWidth - menuWidth - 8);
     const top = Math.min(menu.y, window.innerHeight - estHeight - 8);
     style = { left: Math.max(8, left), top: Math.max(8, top) };
@@ -220,8 +248,8 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     submenuStyle = { left: Math.max(8, left), top: Math.max(8, top) };
   }
 
-  function renderItems(items: ContextMenuItem[], onOpenSubmenu?: (index: number, rect: DOMRect) => void) {
-    return items.map((item, i) =>
+  function renderItems(entries: { item: ContextMenuItem; index: number }[], onOpenSubmenu?: (index: number, rect: DOMRect) => void) {
+    return entries.map(({ item, index: i }) =>
       item.separator ? (
         <div className="context-menu-separator" key={`sep-${i}`} />
       ) : item.custom ? (
@@ -263,12 +291,46 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  const enabledRows = () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>(".context-menu-item:not(:disabled)") ?? []);
+  const onSearchKeyDown = (e: React.KeyboardEvent) => {
+    const action = searchKeyAction(e.key, query);
+    if (action === "down") {
+      e.preventDefault();
+      enabledRows()[0]?.focus();
+    } else if (action === "run") {
+      e.preventDefault();
+      enabledRows()[0]?.click();
+    }
+  };
+  // Arrow keys walk the rows; up from the first goes back to the search.
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if ((e.target as HTMLElement).closest("input")) return;
+    e.preventDefault();
+    const list = enabledRows();
+    const at = list.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "ArrowUp" && at <= 0) searchRef.current?.focus();
+    else list[e.key === "ArrowDown" ? Math.min(at + 1, list.length - 1) : at - 1]?.focus();
+  };
+
   return (
     <ContextMenuCtx.Provider value={value}>
       {children}
       {menu && (
-        <div className="context-menu" ref={menuRef} style={style} role="menu" onMouseDown={keepFocus}>
-          {renderItems(menu.items, (index, rect) =>
+        <div className="context-menu" ref={menuRef} style={style} role="menu" onMouseDown={keepFocus} onKeyDown={onMenuKeyDown}>
+          {searchable && (
+            <input
+              ref={searchRef}
+              className="context-menu-search"
+              placeholder={t("common.search")}
+              aria-label={t("common.search")}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKeyDown}
+            />
+          )}
+          {rows.length === 0 && <div className="context-menu-empty">{t("common.noResults")}</div>}
+          {renderItems(rows, (index, rect) =>
             setSubmenuOpenAt((prev) =>
               prev?.index === index ? null : { index, x: rect.right + 2, y: rect.top, parentLeft: rect.left },
             ),
@@ -277,7 +339,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
       )}
       {menu && submenuOpenAt && activeSubmenu && (
         <div className="context-menu" ref={submenuRef} style={submenuStyle} role="menu" onMouseDown={keepFocus}>
-          {renderItems(activeSubmenu)}
+          {renderItems(activeSubmenu.map((item, index) => ({ item, index })))}
         </div>
       )}
     </ContextMenuCtx.Provider>

@@ -248,8 +248,8 @@ hello-view/
   view.js, ...     (script, stili, immagini: tutto dentro la cartella)
 ```
 
-Si installa da **Impostazioni → Funzionalità → Viste agente → "Installa
-vista…"**, scegliendo la cartella. Prima dell'installazione Flowcode mostra
+Si installa da **Impostazioni → Funzionalità → Viste e pagine → "Installa
+vista o pagina…"**, scegliendo la cartella. Prima dell'installazione Flowcode mostra
 nome, autore, versione e permessi richiesti; se esiste già una vista con lo
 stesso `id` chiede se sovrascriverla. Le viste installate vivono in
 `<cartella plugin>/views/<id>/` (la cartella dei plugin è quella indicata in
@@ -379,3 +379,104 @@ un pulsante per opzione), lo stato **"L'agente si è chiuso"** con il pulsante
 Riavvia, e la schermata di errore se la vista non si presenta. La vista riceve
 comunque gli eventi `permission` e `permissionResolved` e può mostrarli, ma non
 può rispondere.
+
+## Pagine nuova tab (plugin di tipo newTab)
+
+Una **pagina nuova tab** è un layout alternativo per la pagina su cui si aprono
+le nuove tab. Compare nel pannello **Personalizza** (il pulsante a matita in
+basso a destra della pagina) e in Impostazioni → Terminale → "Layout della
+nuova tab", accanto ai due layout di serie, **Terminale** e **Vetro**. Come una
+vista agente, **è codice** (HTML + JavaScript) e gira isolato: in un iframe con
+`sandbox="allow-scripts"`, senza accesso alla pagina dell'app, a internet o ai
+file dell'utente. La pagina vede le liste che Flowcode le passa (recenti,
+preferiti, shell, agenti) e può chiedere di avviarne una voce; il pulsante
+"Personalizza" lo disegna Flowcode sopra l'iframe.
+
+La cartella, l'installazione, la rimozione e i limiti dell'iframe sono quelli
+delle viste agente (vedi sopra): stessa cartella `<cartella plugin>/views/<id>/`,
+stesso schema di servizio dei file, stessa Content-Security-Policy. Si installa
+dalla stessa pagina, **Viste e pagine → "Installa vista o pagina…"**; per una
+pagina nuova tab la conferma ricorda che è codice. Un esempio pronto, senza
+librerie, è in `docs/new-tab/minimal`.
+
+### Manifest
+
+```ts
+interface NewTabPluginManifest {
+  id: string;            // come per le viste; "terminal" e "glass" sono riservati
+  kind: "newTab";
+  apiVersion: 1;         // versione del protocollo bridge
+  label: string;         // nome nel selettore dei layout
+  labels?: Record<string, string>; // traduzioni di label per lingua dell'interfaccia ("it", "en")
+  description?: string;
+  version?: string;
+  author?: string;
+  entry: string;         // file HTML di partenza, relativo alla cartella
+  devices: ["desktop"];  // solo computer: le nuove tab del telefono non usano pagine
+  permissions: "launch"[];
+}
+```
+
+Non c'è `transport`. `devices` deve essere esattamente `["desktop"]`, e
+`permissions` può contenere solo `launch`; il resto viene rifiutato
+all'installazione. Un id uguale a quello di un layout di serie non è valido. Se
+il plugin viene rimosso mentre è il layout scelto, le nuove tab tornano al
+layout **Terminale**.
+
+### Permessi
+
+| Permesso | Cosa consente | Come lo vede l'utente |
+|----------|---------------|-----------------------|
+| `launch` | `launch`: avvia una voce delle liste della pagina (un terminale, una cartella, un agente) | "Avvia terminali e agenti dalle tue liste" |
+
+`customize` non richiede nessun permesso. Una richiesta senza il permesso
+corrispondente riceve un messaggio `error` con `code: "permission_denied"`.
+
+### Protocollo bridge v1
+
+L'**handshake** è quello delle viste agente: la pagina manda `{ type:
+"flowcode:hello", apiVersion: 1 }` alla finestra padre, Flowcode risponde con
+`{ type: "flowcode:connect", apiVersion: 1 }` allegando una `MessagePort`
+(`event.ports[0]`), e da lì **tutto passa dalla porta**. Se entro 10 secondi la
+pagina non si presenta, Flowcode mostra "La pagina non risponde" con un
+pulsante per tornare al layout Terminale.
+
+**Host → pagina**
+
+| Messaggio | Contenuto |
+|-----------|-----------|
+| `init` | `apiVersion`, `viewId`, `permissions` (quelli concessi), `locale` (`it`/`en`), `theme`, `data`. |
+| `data` | `data`: le liste aggiornate, inviate a ogni cambiamento (un recente in più, un preferito tolto...). |
+| `theme` | `theme`: inviato quando cambia il tema dell'app. |
+| `error` | `code` (`permission_denied` o `bad_request`) e `request` (il `type` della richiesta rifiutata). |
+
+`theme` è lo stesso oggetto delle viste agente (`{ scheme, tokens }`, token CSS
+da applicare a `:root`; elenco nella sezione precedente). `data` è:
+
+```ts
+interface NewTabData {
+  recents: { id: string; label: string; path: string; shell?: string }[]; // terminali recenti: cartella e shell
+  favorites: { id: string; label: string; path: string }[];               // cartelle preferite
+  shells: { id: string; label: string }[];                                 // le shell offerte, la predefinita per prima
+  agents: { id: string; label: string }[];                                 // gli agenti installati e con l'accesso fatto
+  profile?: { id: string; label: string };                                 // il profilo account della tab; assente: quello predefinito
+}
+```
+
+**Pagina → host** (sulla porta; ogni messaggio è validato, quelli di tipo
+sconosciuto sono ignorati)
+
+| Messaggio | Permesso | Effetto |
+|-----------|----------|---------|
+| `{ type: "launch", kind, id }` | `launch` | `kind` è `recent`, `favorite`, `shell` o `agent`; `id` è l'`id` di una voce di `data`. La tab diventa un terminale come se l'utente avesse scelto quella voce nel layout Terminale (un recente riapre cartella e shell e lascia il comando scritto sul prompt), oppure parte l'agente. |
+| `{ type: "customize" }` | nessuno | apre il pannello Personalizza di Flowcode |
+
+La pagina **non può mandare un percorso o un comando**: `launch` nomina una voce
+e l'app la cerca nelle *sue* liste. Un `id` che non c'è (vecchio, o inventato)
+non fa niente; una forma sbagliata riceve `error` con `code: "bad_request"`.
+
+### Cosa resta a Flowcode
+
+Il pulsante **Personalizza** e il suo pannello sono disegnati da Flowcode sopra
+l'iframe, e il passaggio al terminale è suo: la pagina non ha modo di nasconderli
+né di avviare altro che una voce delle liste.

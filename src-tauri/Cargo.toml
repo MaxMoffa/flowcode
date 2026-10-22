@@ -76,6 +76,10 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 notify-rust = "4.18.1"
 
 
+[dev-dependencies]
+# Paused clocks for the output batching tests (remote/stream.rs).
+tokio = { version = "1", features = ["test-util"] }
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

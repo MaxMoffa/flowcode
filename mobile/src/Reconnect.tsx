@@ -1,8 +1,9 @@
 // "Connection lost" bottom sheet (and its dismissed pill), shown over every
 // screen while the link to the desktop is down for longer than a blip.
 import { useEffect, useRef, useState } from "react";
+import { AdaptiveSheet } from "./AdaptiveSheet";
+import { useEscape } from "./back";
 import { t } from "./i18n";
-import { useSheetDrag } from "./useSheetDrag";
 import { Svg } from "./icons";
 import { appResumed, retryNow, useRemoteSelector } from "./remote";
 import "./reconnect.css";
@@ -94,7 +95,7 @@ export function Reconnect() {
   const [details, setDetails] = useState(loadDetails);
   const [now, setNow] = useState(() => Date.now());
   const primary = useRef<HTMLButtonElement>(null);
-  const sheet = useRef<HTMLDivElement>(null);
+  const sheet = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!down) {
@@ -124,7 +125,7 @@ export function Reconnect() {
   }, [armed, phase]);
 
   const open = armed && !dismissed;
-  useSheetDrag(sheet, () => setDismissed(true), open && mounted);
+  useEscape(open && mounted, () => setDismissed(true));
   useEffect(() => {
     if (open) (primary.current && !primary.current.disabled ? primary.current : sheet.current)?.focus();
   }, [open]);
@@ -167,56 +168,53 @@ export function Reconnect() {
   }
 
   return (
-    <>
-      <div className={`rc-scrim${leaving}`} />
-      <div ref={sheet} className={`rc-sheet${leaving}`} role="dialog" aria-modal="true" aria-labelledby="rc-title" tabIndex={-1}>
-        <div className="rc-handle" aria-hidden="true" />
-        <div className="rc-art" aria-hidden="true">
-          <div className="rc-tile">
-            <PhoneIcon />
-          </div>
-          <svg className="rc-line is-live" width="44" height="4" viewBox="0 0 44 4">
-            <line x1="1" y1="2" x2="43" y2="2" />
-          </svg>
-          <span className="rc-x">×</span>
-          <svg className="rc-line is-faint" width="44" height="4" viewBox="0 0 44 4">
-            <line x1="1" y1="2" x2="43" y2="2" />
-          </svg>
-          <div className="rc-tile">
-            <MonitorIcon />
-          </div>
+    <AdaptiveSheet open={open} onClose={() => setDismissed(true)} family="rc" variant="dialog" dragEnabled={mounted} labelledBy="rc-title" scrimClass={leaving.trim()} panelClass={leaving.trim()} panelRef={sheet}>
+      <div className="rc-handle" aria-hidden="true" />
+      <div className="rc-art" aria-hidden="true">
+        <div className="rc-tile">
+          <PhoneIcon />
         </div>
-        <h2 id="rc-title" className="rc-title">
-          {t("reconLost")}
-        </h2>
-        <p className="rc-sub" aria-live="polite">
-          {subtitle}
-        </p>
-
-        {details && (
-          <div className="rc-details">
-            <ul>
-              <Step state={net} label={t("reconPhoneNet")} />
-              <Step state={find} label={t("reconFinding")} />
-              <Step state={auth} label={t("reconAuth")} />
-            </ul>
-            <p className="rc-hint">{t("reconHint")}</p>
-            {error && <p className="rc-error">{error}</p>}
-          </div>
-        )}
-
-        <button ref={primary} type="button" className="btn big primary rc-primary" disabled={dialing} onClick={retry}>
-          {dialing ? t("reconRetrying") : t("reconRetry")}
-        </button>
-        <div className="rc-row">
-          <button type="button" className="btn ghost" aria-expanded={details} onClick={toggleDetails}>
-            {details ? t("reconHideDetails") : t("reconDetails")}
-          </button>
-          <button type="button" className="btn ghost" onClick={() => setDismissed(true)}>
-            {t("reconLastData")}
-          </button>
+        <svg className="rc-line is-live" width="44" height="4" viewBox="0 0 44 4">
+          <line x1="1" y1="2" x2="43" y2="2" />
+        </svg>
+        <span className="rc-x">×</span>
+        <svg className="rc-line is-faint" width="44" height="4" viewBox="0 0 44 4">
+          <line x1="1" y1="2" x2="43" y2="2" />
+        </svg>
+        <div className="rc-tile">
+          <MonitorIcon />
         </div>
       </div>
-    </>
+      <h2 id="rc-title" className="rc-title">
+        {t("reconLost")}
+      </h2>
+      <p className="rc-sub" aria-live="polite">
+        {subtitle}
+      </p>
+
+      {details && (
+        <div className="rc-details">
+          <ul>
+            <Step state={net} label={t("reconPhoneNet")} />
+            <Step state={find} label={t("reconFinding")} />
+            <Step state={auth} label={t("reconAuth")} />
+          </ul>
+          <p className="rc-hint">{t("reconHint")}</p>
+          {error && <p className="rc-error">{error}</p>}
+        </div>
+      )}
+
+      <button ref={primary} type="button" className="btn big primary rc-primary" disabled={dialing} onClick={retry}>
+        {dialing ? t("reconRetrying") : t("reconRetry")}
+      </button>
+      <div className="rc-row">
+        <button type="button" className="btn ghost" aria-expanded={details} onClick={toggleDetails}>
+          {details ? t("reconHideDetails") : t("reconDetails")}
+        </button>
+        <button type="button" className="btn ghost" onClick={() => setDismissed(true)}>
+          {t("reconLastData")}
+        </button>
+      </div>
+    </AdaptiveSheet>
   );
 }

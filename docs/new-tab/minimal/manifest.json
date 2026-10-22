@@ -1,0 +1,13 @@
+{
+  "id": "minimal-new-tab",
+  "kind": "newTab",
+  "apiVersion": 1,
+  "label": "Minimal",
+  "labels": { "it": "Essenziale", "en": "Minimal" },
+  "description": "Una nuova tab essenziale: un titolo, le cartelle preferite e i terminali recenti.",
+  "version": "1.0.0",
+  "author": "Flowcode",
+  "entry": "index.html",
+  "devices": ["desktop"],
+  "permissions": ["launch"]
+}

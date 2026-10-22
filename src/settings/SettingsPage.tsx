@@ -24,6 +24,8 @@ import { LANGUAGES, t, useI18n, type LanguagePreference, type MessageKey } from 
 import { SECTION_DESCRIPTION_KEYS, SECTION_TITLE_KEYS } from "./settingsIndex";
 import { Segmented, SettingRow, SettingsGroup, Switch, settingDomId } from "./SettingsControls";
 import { ShortcutsSettings } from "../shortcuts/ShortcutsSettings";
+import { layoutLabel, resolveNewTabLayout, useNewTabLayouts } from "../newtab/layouts";
+import { useNewTabSettings } from "../newtab/newTabSettings";
 import { isWindowsPlatform } from "../lib/path";
 import "./settings-page.css";
 
@@ -86,7 +88,9 @@ export function SettingsPage({
   onOpenShortcutsGuide,
   onProfileLogin,
 }: SettingsPageProps) {
-  const { t, preference: languagePreference, setPreference: setLanguagePreference } = useI18n();
+  const { t, language, preference: languagePreference, setPreference: setLanguagePreference } = useI18n();
+  const [newTabSettings, setNewTabSettings] = useNewTabSettings();
+  const newTabLayouts = useNewTabLayouts();
   const { mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity, resetGlassOpacity } =
     useTheme();
   const {
@@ -427,6 +431,14 @@ export function SettingsPage({
                   onChange={setNewTabPage}
                   label={t("settings.newTabPage.label")}
                   stateLabels={onOff}
+                />
+              </SettingRow>
+              <SettingRow id="newTabLayout" label={t("settings.newTabLayout.label")} desc={t("settings.newTabLayout.desc")}>
+                <Segmented
+                  ariaLabel={t("settings.newTabLayout.label")}
+                  value={resolveNewTabLayout(newTabSettings.layout).id}
+                  options={newTabLayouts.map((layout) => ({ value: layout.id, label: layoutLabel(layout, t, language) }))}
+                  onChange={(layout) => setNewTabSettings({ layout })}
                 />
               </SettingRow>
             </SettingsGroup>

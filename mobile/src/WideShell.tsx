@@ -14,7 +14,8 @@ import { BusyArc, useOpenNew } from "./Terminals";
 import { useUiZoom } from "./uiScale";
 import { useSheetDrag } from "./useSheetDrag";
 import { useSideWidth } from "./useSideWidth";
-import { useDocked } from "./wide";
+import { panelsFit, setPanelMode, usePanelMode } from "./panelMode";
+import { useBigScreen, useDocked } from "./wide";
 import { WideFileView } from "./WideFileView";
 import { WideFiles } from "./WideFiles";
 import { WideMenu } from "./WideMenu";
@@ -23,6 +24,12 @@ const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ defa
 const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
 const ChatScreen = lazy(() => import("./ChatScreen").then((m) => ({ default: m.ChatScreen })));
 const noop = () => {};
+
+/** The tab's agent state as the desktop's .attn-* classes (see wide.css). */
+const attnClass = (status?: string) => (status === "busy" ? " attn-busy" : status === "waiting" ? " attn-wait" : "");
+
+/** The busy tab's arc, run round its outline as on the desktop (shared/busySweep.ts). */
+const TabSweep = () => <BusyArc className="tr-sweep w-tab-sweep" rx={9.25} />;
 
 /** A non-terminal tab: the settings page or a read-only file of a terminal's folder. */
 type Doc = { id: "settings"; kind: "settings" } | { id: string; kind: "file"; ptyId: string; path: string };
@@ -44,21 +51,17 @@ interface Props {
 /** The desktop-like layout of large screens: a header (panel toggles, tab strip, quick actions), then cards: files, one terminal, agents. */
 export function WideShell({ hostName, tabs, settings, status, activePty, onSelectPty, activeChat, onTerminal, onAddComputer }: Props) {
   const docked = useDocked();
+  const big = useBigScreen();
+  const panelMode = usePanelMode();
   const zoom = useUiZoom();
   const [agentsOpen, setAgentsOpen] = useState(docked);
-  const [filesOpen, setFilesOpen] = useState(docked);
+  const [filesOpen, setFilesOpen] = useState(docked && big);
   /** The open non-terminal tabs, in opening order. */
   const [docs, setDocs] = useState<Doc[]>([]);
   /** The id of the shown doc; null = the terminal is shown. */
   const [doc, setDoc] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
-  /** The "+" the new-terminal popover hangs from. */
-  const [sheetAnchor, setSheetAnchor] = useState<DOMRect | null>(null);
-  const plusBtn = useRef<HTMLButtonElement>(null);
-  const openSheet = (from: Element | null) => {
-    setSheetAnchor(from?.getBoundingClientRect() ?? null);
-    setSheet(true);
-  };
+  const openSheet = () => setSheet(true);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [computersOpen, setComputersOpen] = useState(false);
@@ -72,8 +75,6 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const cancelRename = useRef(false);
-  useEffect(() => setAgentsOpen(docked), [docked]);
-  useEffect(() => setFilesOpen(docked), [docked]);
 
   const all = useMemo(() => tabs ?? [], [tabs]);
   const folders = useMemo(() => [...new Set(all.map((x) => x.cwd).filter(Boolean))], [all]);
@@ -86,6 +87,15 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   useEffect(() => {
     if (activeChat) setDoc(null);
   }, [activeChat]);
+  const files = useSideWidth({ key: "wide.filesWidth", defaultWidth: 260, min: 200, max: 520, edge: "right" });
+  const agents = useSideWidth({ key: "wide.agentsWidth", defaultWidth: 290, min: 220, max: 520, edge: "left" });
+  // Docking opens the panels, floating closes them. Where both would squeeze the terminal, only the agents open (the files toggle opens them).
+  useEffect(() => {
+    setAgentsOpen(docked);
+    setFilesOpen(docked && panelsFit(window.innerWidth, zoom, files.width ?? 260, agents.width ?? 290));
+    // Only when the docked state flips, not on every resize or drag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docked]);
   const closeDrawers = () => {
     setAgentsOpen(false);
     setFilesOpen(false);
@@ -96,8 +106,6 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const agentsPanel = useRef<HTMLElement>(null);
   useSheetDrag(filesPanel, () => setFilesOpen(false), !docked && filesOpen, "left");
   useSheetDrag(agentsPanel, () => setAgentsOpen(false), !docked && agentsOpen, "right");
-  const files = useSideWidth({ key: "wide.filesWidth", defaultWidth: 260, min: 200, max: 520, edge: "right" });
-  const agents = useSideWidth({ key: "wide.agentsWidth", defaultWidth: 290, min: 220, max: 520, edge: "left" });
   useBackHandler(doc !== null, () => setDoc(null));
 
   // A closed terminal takes its files with it.
@@ -169,7 +177,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const fileTab = shown?.kind === "file" ? all.find((x) => x.ptyId === shown.ptyId) : undefined;
 
   return (
-    <div className={"screen wide" + (docked ? " docked" : "")} style={{ "--w-zoom": zoom } as CSSProperties}>
+    <div className={"screen wide" + (docked ? " docked" : "") + (big ? "" : " narrow")} style={{ "--w-zoom": zoom } as CSSProperties}>
       <header className="w-top">
         <button type="button" className="w-ib" aria-label={t("showFiles")} aria-pressed={filesOpen} onClick={toggleFiles}>
           <FolderIcon />
@@ -180,12 +188,12 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             const ico = (
               <span className="w-tab-ico">
                 {(x.cli && <AgentLogo cli={x.cli} size={16} />) || <TerminalIcon />}
-                {x.cli && x.status === "busy" && <BusyArc />}
               </span>
             );
             if (renaming === x.ptyId)
               return (
-                <div key={x.ptyId} role="tab" aria-selected={on} className="w-tab on">
+                <div key={x.ptyId} role="tab" aria-selected={on} className={"w-tab on" + attnClass(x.cli ? x.status : undefined)}>
+                  {x.cli && x.status === "busy" && <TabSweep />}
                   {ico}
                   <input
                     className="w-tab-input"
@@ -213,14 +221,14 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 type="button"
                 role="tab"
                 aria-selected={on}
-                className={"w-tab" + (on ? " on" : "")}
+                className={"w-tab" + (on ? " on" : "") + attnClass(x.cli ? x.status : undefined)}
                 title={x.label}
                 onClick={() => (on && canRename ? startRename(x) : select(x.ptyId))}
                 onDoubleClick={() => canRename && startRename(x)}
               >
+                {x.cli && x.status === "busy" && <TabSweep />}
                 {ico}
                 <span className="w-tab-label">{x.label}</span>
-                {x.cli && <i className={"dot " + (x.status === "waiting" ? "wait" : x.status === "busy" ? "busy" : "idle")} />}
                 {canClose && all.filter((y) => y.window === x.window).length > 1 && (
                   <span
                     role="button"
@@ -240,16 +248,15 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           {(chats ?? []).map((c) => {
             const on = doc === null && c.chatId === activeChat;
             return (
-              <button key={c.chatId} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={c.label} onClick={() => requestOpenChat(c.chatId)}>
+              <button key={c.chatId} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "") + attnClass(c.status)} title={c.label} onClick={() => requestOpenChat(c.chatId)}>
+                {c.status === "busy" && <TabSweep />}
                 <span className="w-tab-ico">
                   <AgentLogo cli={c.agent} size={16} />
                   <i className="w-tab-bubble" aria-hidden="true">
                     <ChatIcon size={9} />
                   </i>
-                  {c.status === "busy" && <BusyArc />}
                 </span>
                 <span className="w-tab-label">{c.label}</span>
-                <i className={"dot " + (c.status === "waiting" ? "wait" : c.status === "busy" ? "busy" : "idle")} />
               </button>
             );
           })}
@@ -274,7 +281,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               </button>
             );
           })}
-          <button ref={plusBtn} type="button" className="w-ib" aria-label={t("newTerminal")} onClick={(e) => openSheet(e.currentTarget)}>
+          <button type="button" className="w-ib" aria-label={t("newTerminal")} onClick={openSheet}>
             <PlusIcon />
           </button>
         </div>
@@ -299,14 +306,19 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               open={menuOpen}
               keys={keys}
               noTerminal={!active}
+              pinned={panelMode === "fixed"}
               onClose={closeMenu}
               onNewTerminal={() => {
                 setMenuOpen(false);
-                openSheet(plusBtn.current);
+                openSheet();
               }}
               onKeys={() => {
                 setMenuOpen(false);
                 setKeys((v) => !v);
+              }}
+              onPanels={() => {
+                setMenuOpen(false);
+                setPanelMode(panelMode === "fixed" ? "auto" : "fixed");
               }}
               onInterrupt={() => {
                 setMenuOpen(false);
@@ -373,7 +385,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           <aside ref={agentsPanel} className="w-side w-right" style={agents.width !== null ? { width: agents.width } : undefined}>
             <div className="w-ph">
               <span className="w-ph-title">{t("activeAgents")}</span>
-              <button type="button" className="w-ib sm" aria-label={t("newTerminal")} onClick={(e) => openSheet(e.currentTarget)}>
+              <button type="button" className="w-ib sm" aria-label={t("newTerminal")} onClick={openSheet}>
                 <PlusIcon />
               </button>
               <button type="button" className="w-ib sm" aria-label={t("closePanel")} onClick={() => setAgentsOpen(false)}>
@@ -400,7 +412,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
       </div>
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
-      <NewTerminalSheet open={sheet} anchor={sheetAnchor} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
+      <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
     </div>
   );
 }

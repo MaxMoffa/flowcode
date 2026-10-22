@@ -9,13 +9,30 @@ function formatEvent(e: { at: number; text: string }): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)} ${e.text}`;
 }
 
+/** The link-quality line the core keeps up to date ("link: direct 18 ms, tx ..."), as "Diretto · 18 ms" / "Via relay · 140 ms". */
+function linkSummary(events: { text: string }[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const m = /^link: (direct|relay) (\d+) ms/.exec(events[i].text);
+    if (m) return `${m[1] === "direct" ? t("connPathDirect") : t("connPathRelay")} · ${m[2]} ms`;
+  }
+  return null;
+}
+
 /** Collapsible list of the core's recent connection events, with a copy button to paste into a bug report. */
 export function Diagnostics() {
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
+  const [summary, setSummary] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const refresh = () => void connectionLog().then((events) => setLines(events.map(formatEvent)));
+  const refresh = () =>
+    void connectionLog().then((events) => {
+      setLines(events.map(formatEvent));
+      setSummary(linkSummary(events));
+    });
+
+  // Once on mount, so the closed row can show the path too.
+  useEffect(refresh, []);
 
   useEffect(() => {
     if (!open) return;
@@ -38,7 +55,7 @@ export function Diagnostics() {
     <>
       <button type="button" className="set-row" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="set-label">{t("connDiag")}</span>
-        <span className="set-value">{open ? "−" : "+"}</span>
+        <span className="set-value">{summary ? `${summary} ${open ? "−" : "+"}` : open ? "−" : "+"}</span>
       </button>
       {open && (
         <div className="set-block">

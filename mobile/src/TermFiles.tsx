@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { BackIcon, ChevronIcon, CloseIcon, FileIcon, FolderIcon } from "./icons";
@@ -6,7 +7,6 @@ import { formatSize } from "./common";
 import { joinPath, useListing } from "./fileListing";
 import { onMessage, send, showToast, type Tab } from "./remote";
 import { cdCommand, dialectFor, shellQuote } from "./termShell";
-import { useSheetDrag } from "./useSheetDrag";
 
 /** The file explorer drawer of one terminal; paths are relative to the tab's cwd. */
 export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: boolean; onClose: () => void; onType: (text: string) => void }) {
@@ -30,8 +30,6 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
   // Android Back closes the preview first, then the drawer.
   useBackHandler(open, onClose);
   useBackHandler(file !== null, () => setFile(null));
-  const drawer = useRef<HTMLElement>(null);
-  useSheetDrag(drawer, onClose, open && file === null, "left");
 
   /** Types the quoted path (never Enter: the user confirms). */
   const type = (text: string | null) => (text === null ? showToast(t("unsafeName")) : onType(text));
@@ -51,9 +49,7 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
 
   return (
     <>
-      <div className={"tm-layer" + (open ? " open" : "")}>
-        <div className="tm-scrim" onClick={onClose} />
-        <aside ref={drawer} className="tm-drawer" role="dialog" aria-modal="true" aria-label={t("files")} aria-hidden={!open}>
+      <AdaptiveSheet open={open} onClose={onClose} variant="drawer" side="left" phoneDrawer dragEnabled={file === null} label={t("files")}>
           <header className="tm-sheet-head">
             <h2>{t("files")}</h2>
             <button type="button" className="tm-btn" aria-label={t("closeViewer")} onClick={onClose}>
@@ -110,8 +106,7 @@ export function TermFiles({ tab, open, onClose, onType }: { tab: Tab; open: bool
               {t("pasteFolder")}
             </button>
           </footer>
-        </aside>
-      </div>
+      </AdaptiveSheet>
       {file && (
         <div className="tm-viewer" role="dialog" aria-modal="true">
           <header className="tm-viewer-head">

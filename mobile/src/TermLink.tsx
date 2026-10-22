@@ -1,10 +1,10 @@
 import { useRef } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { CheckIcon, CloseIcon, CopyIcon, GlobeIcon } from "./icons";
 import { setSetting, showToast } from "./remote";
-import { useSheetDrag } from "./useSheetDrag";
 
 /** Opens a web link in the phone's browser; outside Tauri (browser dev) a new tab does it. */
 export async function openLink(url: string) {
@@ -16,7 +16,7 @@ export async function openLink(url: string) {
   }
 }
 
-/** Bottom sheet for a link tapped in the terminal; open while `url` is set. */
+/** Bottom sheet (a dialog on the tablet layout) for a link tapped in the terminal; open while `url` is set. */
 export function TermLink({ url, onClose }: { url: string | null; onClose: () => void }) {
   const open = url !== null;
   // Keep the text while the sheet slides out.
@@ -27,8 +27,6 @@ export function TermLink({ url, onClose }: { url: string | null; onClose: () => 
   useEscape(open, onClose);
 
   useBackHandler(open, onClose);
-  const sheet = useRef<HTMLElement>(null);
-  useSheetDrag(sheet, onClose, open);
 
   function openIt(always: boolean) {
     if (always) setSetting("confirmLinkOpen", false);
@@ -45,34 +43,31 @@ export function TermLink({ url, onClose }: { url: string | null; onClose: () => 
   }
 
   return (
-    <div className={"tm-layer" + (open ? " open" : "")}>
-      <div className="tm-scrim" onClick={onClose} />
-      <section ref={sheet} className="tm-sheet" role="dialog" aria-modal="true" aria-label={t("linkTitle")} aria-hidden={!open}>
-        <div className="tm-grabber" />
-        <header className="tm-sheet-head">
-          <div className="tm-sheet-titles">
-            <h2>{t("linkTitle")}</h2>
-            <p className="tm-link-url">{shown}</p>
-          </div>
-          <button type="button" className="tm-btn" aria-label={t("closeViewer")} onClick={onClose}>
-            <CloseIcon />
-          </button>
-        </header>
-        <div className="tm-link-rows">
-          <button type="button" className="tm-link-row" onClick={() => openIt(false)}>
-            <GlobeIcon />
-            <span>{t("linkOpen")}</span>
-          </button>
-          <button type="button" className="tm-link-row" onClick={() => openIt(true)}>
-            <CheckIcon />
-            <span>{t("linkOpenAlways")}</span>
-          </button>
-          <button type="button" className="tm-link-row" onClick={copy}>
-            <CopyIcon />
-            <span>{t("linkCopy")}</span>
-          </button>
+    <AdaptiveSheet open={open} onClose={onClose} variant="dialog" label={t("linkTitle")}>
+      <div className="tm-grabber" />
+      <header className="tm-sheet-head">
+        <div className="tm-sheet-titles">
+          <h2>{t("linkTitle")}</h2>
+          <p className="tm-link-url">{shown}</p>
         </div>
-      </section>
-    </div>
+        <button type="button" className="tm-btn" aria-label={t("closeViewer")} onClick={onClose}>
+          <CloseIcon />
+        </button>
+      </header>
+      <div className="tm-link-rows">
+        <button type="button" data-autofocus className="tm-link-row" onClick={() => openIt(false)}>
+          <GlobeIcon />
+          <span>{t("linkOpen")}</span>
+        </button>
+        <button type="button" className="tm-link-row" onClick={() => openIt(true)}>
+          <CheckIcon />
+          <span>{t("linkOpenAlways")}</span>
+        </button>
+        <button type="button" className="tm-link-row" onClick={copy}>
+          <CopyIcon />
+          <span>{t("linkCopy")}</span>
+        </button>
+      </div>
+    </AdaptiveSheet>
   );
 }

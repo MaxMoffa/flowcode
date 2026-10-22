@@ -1,10 +1,10 @@
-import { useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useState, type ReactNode } from "react";
+import { AdaptiveSheet } from "./AdaptiveSheet";
+import type { SheetVariant } from "./sheetLayout";
 import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { CloseIcon, Svg } from "./icons";
 import { profileAction, showToast, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
-import { useSheetDrag } from "./useSheetDrag";
 
 /** Preset badge colors, same as the desktop's profile editor. */
 const COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6", "#ec4899", "#64748b"];
@@ -48,32 +48,26 @@ function Check({ label, hint, on, onChange }: { label: string; hint: string; on:
   );
 }
 
-/** Bottom sheet, same look as the terminal's. Always mounted so it can slide; closes on Escape, Back, the scrim or a swipe down. */
-function Sheet({ open, onClose, title, subtitle, children }: { open: boolean; onClose: () => void; title: string; subtitle?: string; children: ReactNode }) {
-  const ref = useRef<HTMLElement>(null);
+/** Bottom sheet, same look as the terminal's (a dialog, or a side drawer for a picker, on the tablet layout). Always mounted so it can slide; closes on Escape, Back, the scrim or a swipe down. */
+function Sheet({ open, onClose, title, subtitle, variant = "dialog", children }: { open: boolean; onClose: () => void; title: string; subtitle?: string; variant?: SheetVariant; children: ReactNode }) {
   useEscape(open, onClose);
   useBackHandler(open, onClose);
-  useSheetDrag(ref, onClose, open);
 
-  // In the body, not the page: the page slides in with a transform, which would pin the fixed layer to it.
-  return createPortal(
-    <div className={"ps-layer" + (open ? " open" : "")}>
-      <div className="ps-scrim" data-sheet-scrim onClick={onClose} />
-      <section ref={ref} className="ps-sheet" role="dialog" aria-modal="true" aria-label={title} aria-hidden={!open}>
-        <div className="ps-grabber" />
-        <header className="ps-head">
-          <div className="ps-titles">
-            <h2>{title}</h2>
-            {subtitle && <p>{subtitle}</p>}
-          </div>
-          <button type="button" className="ps-close" aria-label={t("closeViewer")} onClick={onClose}>
-            <CloseIcon />
-          </button>
-        </header>
-        <div className="ps-body">{children}</div>
-      </section>
-    </div>,
-    document.body,
+  // Under <body>, not the page: the page slides in with a transform, which would pin the fixed layer to it.
+  return (
+    <AdaptiveSheet open={open} onClose={onClose} family="ps" variant={variant} side="right" portal label={title}>
+      <div className="ps-grabber" />
+      <header className="ps-head">
+        <div className="ps-titles">
+          <h2>{title}</h2>
+          {subtitle && <p>{subtitle}</p>}
+        </div>
+        <button type="button" className="ps-close" aria-label={t("closeViewer")} onClick={onClose}>
+          <CloseIcon />
+        </button>
+      </header>
+      <div className="ps-body">{children}</div>
+    </AdaptiveSheet>
   );
 }
 
@@ -278,7 +272,7 @@ export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileI
       ))}
 
       <NewProfileSheet open={open && sheet?.kind === "new"} onClose={close} />
-      <Sheet open={open && sheet?.kind === "add"} onClose={close} title={t("profileAddAgent")} subtitle={add?.name}>
+      <Sheet open={open && sheet?.kind === "add"} onClose={close} variant="drawer" title={t("profileAddAgent")} subtitle={add?.name}>
         {CLIS.filter((c) => add?.off.includes(c.id) && (c.id !== "gemini" || canGemini)).map((c) => (
           <button
             key={c.id}

@@ -197,12 +197,17 @@ export function useTerminal(opts: {
     schedule();
 
     // Out of sight nobody reads the stream: stop it (saves data and battery,
-    // and the PC stops sending), and open it again on return.
+    // and the PC stops sending), and open it again on return. Even when the
+    // hide was never seen (the page was frozen) the stream may have lost
+    // output meanwhile: always ask for a fresh snapshot.
     const onVisibility = () => {
       if (document.hidden) {
         if (openedRef.current) send({ t: "close", ptyId });
         openedRef.current = false;
-      } else openIfReady();
+      } else {
+        openedRef.current = false;
+        openIfReady();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
 

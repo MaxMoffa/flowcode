@@ -6,16 +6,18 @@ use std::path::{Path, PathBuf};
 use tauri::http::{Method, Request, Response, StatusCode};
 use tauri::AppHandle;
 
-/// An "agent view" plugin, unlike the declarative JSON ones in plugins.rs, IS
-/// code: an HTML/JS/CSS package the frontend renders in a sandboxed iframe,
-/// talking to the app only through postMessage. This module stores, validates
-/// and serves those files; it never runs any of them. One folder per view,
-/// `<plugins dir>/views/<id>/`, with `manifest.json` at its root.
+/// A view plugin - an "agent view" or a "new tab" page - unlike the
+/// declarative JSON ones in plugins.rs, IS code: an HTML/JS/CSS package the
+/// frontend renders in a sandboxed iframe, talking to the app only through
+/// postMessage. This module stores, validates and serves those files; it never
+/// runs any of them. One folder per plugin, `<plugins dir>/views/<id>/`, with
+/// `manifest.json` at its root.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewPluginManifest {
     pub id: String,
-    /// Always "agentView" - room for other kinds of view plugin later.
+    /// "agentView" (a way to show an agent session) or "newTab" (the page a
+    /// new tab opens on).
     pub kind: String,
     pub api_version: u32,
     pub label: String,
@@ -30,12 +32,15 @@ pub struct ViewPluginManifest {
     pub author: String,
     /// The HTML page loaded in the iframe, relative to the package root.
     pub entry: String,
-    /// Always "acp" (the Agent Client Protocol stream the view is fed).
+    /// An agent view's feed: always "acp" (the Agent Client Protocol stream).
+    /// A new tab page has none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub transport: String,
-    /// Subset of "desktop" | "tablet" | "phone".
+    /// Subset of "desktop" | "tablet" | "phone"; a new tab page is "desktop" only.
     pub devices: Vec<String>,
-    /// Subset of "send" | "cancel" | "setMode" | "openFile": what the view may
-    /// ask the app to do on its behalf.
+    /// What the view may ask the app to do on its behalf: a subset of "send" |
+    /// "cancel" | "setMode" | "openFile" for an agent view, of "launch" for a
+    /// new tab page.
     #[serde(default)]
     pub permissions: Vec<String>,
 }
@@ -52,10 +57,11 @@ pub struct PackageFile {
 const MANIFEST_FILE: &str = "manifest.json";
 /// The only manifest `apiVersion` this build understands.
 const API_VERSION: u32 = 1;
-/// View ids the app itself already uses.
-const RESERVED_IDS: [&str; 2] = ["chat", "terminal"];
+/// Ids the app itself already uses, for views and new tab layouts.
+const RESERVED_IDS: [&str; 3] = ["chat", "terminal", "glass"];
 const DEVICES: [&str; 3] = ["desktop", "tablet", "phone"];
-const PERMISSIONS: [&str; 4] = ["send", "cancel", "setMode", "openFile"];
+const AGENT_VIEW_PERMISSIONS: [&str; 4] = ["send", "cancel", "setMode", "openFile"];
+const NEW_TAB_PERMISSIONS: [&str; 1] = ["launch"];
 const MAX_FILES: usize = 500;
 pub(crate) const MAX_FILE_BYTES: usize = 5 * 1024 * 1024;
 const MAX_TOTAL_BYTES: usize = 20 * 1024 * 1024;
@@ -126,22 +132,28 @@ fn validate_manifest(m: &ViewPluginManifest, has_file: impl Fn(&str) -> bool) ->
     if !valid_id(&m.id) || RESERVED_IDS.contains(&m.id.as_str()) {
         return Err(tr("Id della vista non valido", "Invalid view id").to_string());
     }
-    if m.kind != "agentView" {
-        return Err(tr("Tipo di plugin non supportato", "Unsupported plugin kind").to_string());
-    }
     if m.api_version != API_VERSION {
         return Err(tr("Versione API non supportata", "Unsupported API version").to_string());
     }
-    if m.transport != "acp" {
+    let (transport_ok, devices_ok, permissions): (bool, bool, &[&str]) = match m.kind.as_str() {
+        "agentView" => (
+            m.transport == "acp",
+            !m.devices.is_empty() && m.devices.iter().all(|d| DEVICES.contains(&d.as_str())),
+            &AGENT_VIEW_PERMISSIONS,
+        ),
+        "newTab" => (m.transport.is_empty(), m.devices == ["desktop"], &NEW_TAB_PERMISSIONS),
+        _ => return Err(tr("Tipo di plugin non supportato", "Unsupported plugin kind").to_string()),
+    };
+    if !transport_ok {
         return Err(tr("Trasporto non supportato", "Unsupported transport").to_string());
     }
     if m.label.trim().is_empty() || m.label.chars().count() > 60 {
         return Err(tr("Nome della vista non valido (1-60 caratteri)", "Invalid view name (1-60 characters)").to_string());
     }
-    if m.devices.is_empty() || !m.devices.iter().all(|d| DEVICES.contains(&d.as_str())) {
+    if !devices_ok {
         return Err(tr("Dispositivi non validi", "Invalid devices").to_string());
     }
-    if !m.permissions.iter().all(|p| PERMISSIONS.contains(&p.as_str())) {
+    if !m.permissions.iter().all(|p| permissions.contains(&p.as_str())) {
         return Err(tr("Permessi non validi", "Invalid permissions").to_string());
     }
     let entry_ok = sanitize_path(&m.entry).is_some_and(|e| extension_of(&e) == "html" && has_file(&e));
@@ -369,6 +381,14 @@ mod tests {
         .unwrap()
     }
 
+    fn new_tab_manifest() -> ViewPluginManifest {
+        serde_json::from_str(
+            r#"{ "id": "minimal", "kind": "newTab", "apiVersion": 1, "label": "Minimal",
+                 "entry": "index.html", "devices": ["desktop"], "permissions": ["launch"] }"#,
+        )
+        .unwrap()
+    }
+
     fn has_index(path: &str) -> bool {
         path == "index.html"
     }
@@ -418,6 +438,35 @@ mod tests {
         bad(&|m| m.entry = "main.html".into());
         bad(&|m| m.entry = "index.js".into());
         bad(&|m| m.entry = "../index.html".into());
+    }
+
+    #[test]
+    fn validates_new_tab_manifests() {
+        assert!(validate_manifest(&new_tab_manifest(), has_index).is_ok());
+        let mut no_permissions = new_tab_manifest();
+        no_permissions.permissions.clear();
+        assert!(validate_manifest(&no_permissions, has_index).is_ok());
+        let bad = |edit: &dyn Fn(&mut ViewPluginManifest)| {
+            let mut m = new_tab_manifest();
+            edit(&mut m);
+            assert!(validate_manifest(&m, has_index).is_err());
+        };
+        bad(&|m| m.id = "glass".into());
+        bad(&|m| m.id = "terminal".into());
+        bad(&|m| m.transport = "acp".into());
+        bad(&|m| m.devices = vec![]);
+        bad(&|m| m.devices = vec!["desktop".into(), "phone".into()]);
+        bad(&|m| m.devices = vec!["phone".into()]);
+        bad(&|m| m.permissions = vec!["send".into()]);
+        bad(&|m| m.permissions = vec!["launch".into(), "openFile".into()]);
+        bad(&|m| m.entry = "main.html".into());
+    }
+
+    #[test]
+    fn agent_view_keeps_its_own_permissions() {
+        let mut m = manifest();
+        m.permissions = vec!["launch".into()];
+        assert!(validate_manifest(&m, has_index).is_err());
     }
 
     #[test]

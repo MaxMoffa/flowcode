@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { AGENT_CLIS, CLI_INFO, defaultCliStatus, type AgentCli } from "./cliInfo";
+import { CLI_INFO, type AgentCli } from "./cliInfo";
+import { useAvailableClis } from "./useAvailableClis";
 import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
@@ -11,11 +12,6 @@ import { useOutsideClose } from "../hooks/useOutsideClose";
 
 const NEW_IN_WORKTREE_KEY = "flowcode.agentsNewInWorktree";
 const NEW_AS_CHAT_KEY = "flowcode.agentsNewAsChat";
-
-/** Whether a CLI is installed and signed in under the default profile. A
- * failed check counts as available. */
-const defaultProfileCliOk = (cli: AgentCli): Promise<boolean> =>
-  defaultCliStatus(cli).then((st) => (st ? st.installed && st.logged_in : true));
 
 interface NewAgentMenuProps {
   /** The active tab's folder. */
@@ -46,9 +42,6 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
   // one picked here - starts on the active tab's profile.
   const [projectDefault, setProjectDefault] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(() => activeTabProfile.get().profileId ?? null);
-  // Which CLIs are signed in under the default profile; empty until checked
-  // (then every CLI is shown).
-  const [defaultOk, setDefaultOk] = useState<Partial<Record<AgentCli, boolean>>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -66,19 +59,7 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
   // default profile, so it is filtered like the default one.
   const account = selected ? profiles.find((p) => p.id === selected) : undefined;
 
-  const useDefaultAccount = !account;
-  useEffect(() => {
-    if (!useDefaultAccount) return;
-    let cancelled = false;
-    void Promise.all(AGENT_CLIS.map((cli) => defaultProfileCliOk(cli).then((ok) => [cli, ok] as const))).then((entries) => {
-      if (!cancelled) setDefaultOk(Object.fromEntries(entries) as Partial<Record<AgentCli, boolean>>);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [useDefaultAccount]);
-
-  const visibleClis = AGENT_CLIS.filter((cli) => (account ? account.logged_in[cli] === true : (defaultOk[cli] ?? true)));
+  const visibleClis = useAvailableClis(account);
 
   useOutsideClose(true, [ref], onClose, {
     escape: true,

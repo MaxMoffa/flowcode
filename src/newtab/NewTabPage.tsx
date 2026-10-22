@@ -30,49 +30,11 @@ import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPagePalette } from "../themes/palettes";
 import { FLY_WORDS, FLY_WORD_IDLE_MS, UNIT_X, UNIT_Y, bannerLines, drawRealCatch, flyArea, flyWordIn, useTermGrid, type CatchGrid } from "./catchGrid";
 import { isPowerShell, promptFor, shownPath } from "./promptText";
+import { shellChips } from "./shellChips";
+import { useRelativeTime } from "./useRelativeTime";
+import { useNewTabSettings } from "./newTabSettings";
+import type { NewTabLaunch, NewTabLayoutProps } from "./types";
 import "./newtab.css";
-
-/** What the page hands back once the user picks something: the shell to
- * start (`undefined` = the configured default), where (`undefined` = that
- * shell's start folder), and a command to run - or, with `typeOnly`, to
- * leave typed on the prompt. */
-export interface NewTabLaunch {
-  shell?: string;
-  cwd?: string;
-  command?: string;
-  typeOnly?: boolean;
-}
-
-interface NewTabPageProps {
-  hidden: boolean;
-  /** The configured default shell id (Impostazioni > Shell predefinita). */
-  defaultShell: string;
-  /** The folder a default-shell terminal would start in - shown on the
-   * prompt; empty while it's still being looked up. */
-  startDir: string;
-  /** Font size of the terminal this page turns into: the page draws its
-   * banner and prompt on that terminal's cell grid. */
-  termFontSize: number;
-  /** Fired on launch: mount the terminal now, so its shell spins up
-   * underneath while the page is still on top (see `is-overlay`) - it stays
-   * until it has faded out and calls `onDone`. */
-  onLaunch: (launch: NewTabLaunch) => void;
-  /** Where the terminal underneath will draw its first prompt, once its
-   * banner (if any) is on screen. */
-  anchor?: PromptAnchor;
-  /** The terminal's shell has drawn its first prompt (`null`: it never
-   * will - the shell failed to start). */
-  promptShown?: PromptAnchor | null;
-  /** The chosen shell changed (`undefined` = the configured default) - the
-   * tab's folder follows to that shell's start folder. */
-  onShellChange: (shell: string | undefined) => void;
-  /** The tab's current account profile - the automatic pick until the user
-   * chooses one (`undefined` = the default profile). */
-  profileId?: string;
-  /** A profile chip was picked (`null` = the default profile). */
-  onProfileChange: (profileId: string | null) => void;
-  onDone: () => void;
-}
 
 /** The page draws the terminal's banner and prompt on the cells the terminal
  * will, so on launch the prompt barely moves: it settles onto the real row
@@ -98,19 +60,8 @@ const FROG_AWAKE_MS = 3000;
 const TERM_PADDING_TOP = 14;
 const TERM_PADDING_LEFT = 14;
 
-function useRelativeTime() {
-  const { language } = useI18n();
-  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
-  return (at: number) => {
-    const minutes = Math.round((at - Date.now()) / 60000);
-    if (Math.abs(minutes) < 60) return format.format(minutes, "minute");
-    const hours = Math.round(minutes / 60);
-    if (Math.abs(hours) < 24) return format.format(hours, "hour");
-    return format.format(Math.round(hours / 24), "day");
-  };
-}
-
-export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLaunch, anchor, promptShown, onShellChange, profileId, onProfileChange, onDone }: NewTabPageProps) {
+/** The "terminal" layout: the page looks like the terminal it turns into. */
+export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLaunch, anchor, promptShown, onShellChange, profileId, onProfileChange, onDone }: NewTabLayoutProps) {
   const { t } = useI18n();
   const { profiles } = useProfiles();
   const { bannerEnabled } = useTerminalSettings();
@@ -135,11 +86,12 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
   const [historyIndex, setHistoryIndex] = useState(-1);
   const draftRef = useRef("");
   const [width, setWidth] = useState(0);
-  const favorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
-  const recents = useSyncExternalStore(subscribeRecentTerminals, listRecentTerminals, listRecentTerminals).slice(
-    0,
-    RECENTS_SHOWN,
-  );
+  const [{ sections }] = useNewTabSettings();
+  const allFavorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
+  const allRecents = useSyncExternalStore(subscribeRecentTerminals, listRecentTerminals, listRecentTerminals);
+  // A section the user hid is no list at all: its rows aren't numbered or walked either.
+  const favorites = sections.favorites ? allFavorites : [];
+  const recents = sections.recents ? allRecents.slice(0, RECENTS_SHOWN) : [];
   const rootRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLLabelElement>(null);
   const psRef = useRef<HTMLSpanElement>(null);
@@ -222,16 +174,7 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
     return () => observer.disconnect();
   }, []);
 
-  // "Default (X)" is just X: drop it when a chip for X exists and let that
-  // chip stand for the default instead of listing the shell twice.
-  const systemLabel = options.find((o) => o.id === "system")?.label;
-  const twin = systemLabel ? options.find((o) => o.id !== "system" && o.label === systemLabel) : undefined;
-  const chipShell = (opt: ShellOption) => (opt === twin && sameShell(defaultShell, "system") ? "system" : opt.id);
-  // The configured default always comes first.
-  const shown = twin ? options.filter((o) => o.id !== "system") : options;
-  const isDefaultChip = (opt: ShellOption) => sameShell(chipShell(opt), defaultShell);
-  const chips = [...shown.filter(isDefaultChip), ...shown.filter((o) => !isDefaultChip(o))];
-  const defaultLabel = options.find((o) => o.id === "system")?.label ?? "";
+  const { chips, chipShell, defaultLabel } = shellChips(options, defaultShell);
   const labelOf = (id: string | undefined) => {
     const opt = options.find((o) => sameShell(o.id, id ?? defaultShell));
     // "Predefinita (PowerShell)" is just PowerShell to the reader: name the shell.
@@ -675,30 +618,34 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
       <div className="newtab-below">
 
         <div id="newtab-list" className="newtab-list">
-          <section className="newtab-section">
-            <h2 className="newtab-heading">
-              <span>#</span> {t("newTab.recents")}
-            </h2>
-            {recents.length === 0 ? (
-              <p className="newtab-empty">{t("newTab.recentsEmpty")}</p>
-            ) : (
-              recents.map((r, i) =>
-                row(i, r.name, r.command, false, r.shell, relativeTime(r.at), r.cwd, () => launchRecent(r)),
-              )
-            )}
-          </section>
-          <section className="newtab-section">
-            <h2 className="newtab-heading">
-              <span>#</span> {t("favorites.title")}
-            </h2>
-            {favorites.length === 0 ? (
-              <p className="newtab-empty">{t("newTab.favoritesEmpty")}</p>
-            ) : (
-              favorites.map((f, i) =>
-                row(recents.length + i, f.name, shownPath(f.path), true, f.shell, "", f.path, () => launchFavorite(f)),
-              )
-            )}
-          </section>
+          {sections.recents && (
+            <section className="newtab-section">
+              <h2 className="newtab-heading">
+                <span>#</span> {t("newTab.recents")}
+              </h2>
+              {recents.length === 0 ? (
+                <p className="newtab-empty">{t("newTab.recentsEmpty")}</p>
+              ) : (
+                recents.map((r, i) =>
+                  row(i, r.name, r.command, false, r.shell, relativeTime(r.at), r.cwd, () => launchRecent(r)),
+                )
+              )}
+            </section>
+          )}
+          {sections.favorites && (
+            <section className="newtab-section">
+              <h2 className="newtab-heading">
+                <span>#</span> {t("favorites.title")}
+              </h2>
+              {favorites.length === 0 ? (
+                <p className="newtab-empty">{t("newTab.favoritesEmpty")}</p>
+              ) : (
+                favorites.map((f, i) =>
+                  row(recents.length + i, f.name, shownPath(f.path), true, f.shell, "", f.path, () => launchFavorite(f)),
+                )
+              )}
+            </section>
+          )}
         </div>
 
         <div className="newtab-foot">

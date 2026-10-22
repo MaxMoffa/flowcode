@@ -1,0 +1,407 @@
+/* The "Vetro" new tab layout: a backdrop (the theme's accents, a flat
+   surface or the user's picture), a soft grain over it, and frosted-glass
+   cards above - a translucent fill that follows the app's glass opacity
+   setting, a blur, and a hairline light edge. Colors come from the theme's
+   tokens, so both light and dark themes read. */
+
+.glass-newtab {
+  /* Cards fold their contents on the page's own width (a docked sidebar
+     narrows it), not the window's - see the @container below. */
+  container-type: size;
+  position: relative;
+  isolation: isolate;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--fg);
+  --glass-fill: rgb(var(--surface-rgb) / calc(var(--surface-alpha) * 0.7));
+  --glass-edge: color-mix(in srgb, var(--fg) 14%, transparent);
+  --glass-hover: color-mix(in srgb, var(--fg) 8%, transparent);
+  --glass-selected: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.glass-newtab[hidden] {
+  display: none;
+}
+
+/* ---------- backdrop ---------- */
+
+.glass-newtab-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(ellipse 75% 65% at 10% 0%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%),
+    radial-gradient(ellipse 65% 60% at 100% 100%, color-mix(in srgb, var(--accent-2, var(--accent)) 24%, transparent), transparent 70%),
+    rgb(var(--surface-rgb));
+}
+
+.glass-newtab.is-solid .glass-newtab-backdrop {
+  background: rgb(var(--surface-rgb));
+}
+
+.glass-newtab.has-image .glass-newtab-backdrop {
+  background: var(--glass-newtab-image) center / cover no-repeat;
+}
+
+/* A veil over the picture, so text and cards stay legible on a bright one. */
+.glass-newtab.has-image .glass-newtab-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--surface-rgb) / 0.28);
+}
+
+/* The window's own film grain (see --app-grain in App.css), at the strength
+   the user picked. Under the cards, so text is never dusted with it. */
+.glass-newtab-grain {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--app-grain);
+  background-size: 200px 200px;
+  opacity: var(--glass-newtab-grain);
+  /* The texture is very faint at rest: lift it so the slider's top end shows. */
+  filter: contrast(2.2) brightness(1.5);
+}
+
+/* ---------- layout ---------- */
+
+.glass-newtab-scroll {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.glass-newtab-inner {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 880px;
+  min-height: 100%;
+  margin: 0 auto;
+  /* Clear of the "Personalizza" button at the bottom right. */
+  padding: clamp(24px, 12cqh, 120px) 24px 64px;
+}
+
+.glass-card {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  backdrop-filter: blur(var(--glass-newtab-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-newtab-blur)) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent),
+    0 14px 34px -18px rgb(0 0 0 / 0.4);
+}
+
+/* ---------- search ---------- */
+
+.glass-search {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 22px;
+  height: 60px;
+  border-radius: 20px;
+  color: var(--fg-muted);
+  cursor: text;
+}
+
+.glass-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--fg);
+}
+
+.glass-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 19px;
+}
+
+.glass-search-input::placeholder {
+  color: var(--fg-muted);
+}
+
+.glass-hint,
+.glass-keys {
+  margin: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.glass-hint {
+  margin-top: -6px;
+  min-height: 1em;
+}
+
+.glass-keys {
+  margin-top: auto;
+}
+
+/* On a picture the muted tone can sink into it. */
+.glass-newtab.has-image .glass-hint,
+.glass-newtab.has-image .glass-keys {
+  color: var(--fg);
+  text-shadow: 0 1px 8px rgb(var(--surface-rgb) / 0.9);
+}
+
+.glass-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---------- sections ---------- */
+
+.glass-section {
+  padding: 14px 14px 10px;
+}
+
+.glass-heading {
+  margin: 0 6px 10px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.glass-empty {
+  margin: 0 6px 6px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+/* Favorite folders, like a browser's shortcuts. */
+.glass-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.glass-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.glass-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.glass-tile-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.glass-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.glass-icon {
+  display: inline-flex;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+.glass-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.glass-result-name {
+  flex: none;
+  max-width: 28%;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.glass-result-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Long paths are trimmed from the left, where the folder name is not. */
+.glass-result-detail.is-path {
+  direction: rtl;
+  text-align: left;
+}
+
+.glass-result-kind {
+  flex: none;
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.glass-tile:hover,
+.glass-result:hover {
+  background: var(--glass-hover);
+}
+
+.glass-tile.is-selected,
+.glass-result.is-selected,
+.glass-chip.is-selected {
+  background: var(--glass-selected);
+}
+
+/* ---------- chips and foot ---------- */
+
+.glass-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.glass-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.glass-chip:hover {
+  background: var(--glass-hover);
+  color: var(--fg);
+}
+
+.glass-chip[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--fg);
+}
+
+.glass-agent {
+  color: var(--fg);
+}
+
+.glass-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+}
+
+.glass-profile-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  margin: 2.5px;
+  border-radius: 999px;
+}
+
+.glass-profile-dot.is-default {
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.glass-newtab :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The search field is always focused - the card shows it instead. */
+.glass-newtab .glass-search-input:focus-visible {
+  outline: none;
+}
+
+/* ---------- narrow pages ---------- */
+
+@container (max-width: 560px) {
+  .glass-newtab-inner {
+    padding-inline: 14px;
+  }
+
+  .glass-search {
+    height: 52px;
+    padding: 0 16px;
+  }
+
+  .glass-search-input {
+    font-size: 16px;
+  }
+
+  .glass-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  }
+
+  .glass-result-kind,
+  .glass-result-name {
+    max-width: 40%;
+  }
+
+  .glass-result-kind {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-newtab * {
+    transition-duration: 0s !important;
+    animation: none !important;
+  }
+}

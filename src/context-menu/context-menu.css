@@ -186,3 +186,29 @@
 .context-menu-profile-dot.is-default {
   box-shadow: inset 0 0 0 1.5px currentColor;
 }
+
+.context-menu-search {
+  display: block;
+  width: calc(100% + 10px);
+  height: 30px;
+  margin: -5px -5px 5px;
+  padding: 0 14px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12.5px;
+}
+
+.context-menu-item:focus-visible:not(:disabled) {
+  outline: none;
+  background: var(--sidebar-selected-bg);
+}
+
+.context-menu-empty {
+  padding: 8px 9px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}

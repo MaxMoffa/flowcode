@@ -177,7 +177,15 @@ pub fn connect(app: AppHandle, remote: State<'_, Arc<Remote>>) {
         (inner.task.is_some(), inner.state.clone())
     };
     if running {
-        let _ = app.emit("remote://state", state);
+        // A page that loads while the link is online (reloaded, or recreated
+        // by Android while the service kept the core alive) missed `ready` and
+        // the first `tabs`: only a new connection replays them.
+        if state.status == Status::Online {
+            remote.log.push("page loaded on a live link: reconnecting to replay the state");
+            remote.start_task(&app, None);
+        } else {
+            let _ = app.emit("remote://state", state);
+        }
         return;
     }
     remote.ensure_task(&app);

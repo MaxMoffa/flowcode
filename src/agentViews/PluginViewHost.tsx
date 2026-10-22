@@ -6,7 +6,6 @@ import { useTheme } from "../themes/ThemeContext";
 import { CLI_INFO } from "../agents/cliInfo";
 import type { ChatEvent } from "../chat/chatTypes";
 import {
-  THEME_TOKENS,
   createBridgeHost,
   pluginFileUrl,
   type BridgeSource,
@@ -14,31 +13,17 @@ import {
   type ViewStatus,
   type ViewTheme,
 } from "../../shared/agentViewBridge";
+import { readTheme } from "./readTheme";
 import type { AgentViewProps } from "./types";
 import "./plugin-view-host.css";
 
 /** How long a view has to say hello before it's declared unresponsive. */
 const HELLO_TIMEOUT_MS = 10_000;
-const MONO_FONT = "ui-monospace, Consolas, monospace";
-/** Tokens that are another app variable under a name of their own. */
-const TOKEN_ALIASES: Record<string, string> = { "--warning": "--ansi-bright-yellow", "--info": "--ansi-blue" };
 
 interface PluginViewHostProps extends AgentViewProps {
   manifest: ViewPluginManifest;
   /** Reinstall count of this view: a new value loads the page again. */
   rev?: number;
-}
-
-/** The app's resolved colors and fonts, as the view gets them. */
-function readTheme(scheme: ViewTheme["scheme"]): ViewTheme {
-  const root = getComputedStyle(document.documentElement);
-  const tokens: Record<string, string> = {};
-  for (const name of THEME_TOKENS) {
-    if (name === "--font-ui") tokens[name] = getComputedStyle(document.body).fontFamily;
-    else if (name === "--font-mono") tokens[name] = root.getPropertyValue(name).trim() || MONO_FONT;
-    else tokens[name] = root.getPropertyValue(TOKEN_ALIASES[name] ?? name).trim();
-  }
-  return { scheme, tokens };
 }
 
 /** Hosts an installed agent view: the plugin's page in a sandboxed iframe

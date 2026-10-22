@@ -1,0 +1,57 @@
+.newtab-plugin {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.newtab-plugin[hidden] {
+  display: none;
+}
+
+.newtab-plugin-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.newtab-plugin-frame.is-hidden {
+  display: none;
+}
+
+/* A page that never said hello: say so, and offer the way back. */
+.newtab-plugin-unresponsive {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.newtab-plugin-unresponsive-title {
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.newtab-plugin-button {
+  margin-top: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.newtab-plugin-button:hover {
+  background: var(--ctrl-hover-bg);
+}

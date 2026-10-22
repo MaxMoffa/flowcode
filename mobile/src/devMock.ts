@@ -12,7 +12,11 @@ const tabs = [
   { ptyId: "p4", tabId: "t4", window: "w2", label: "PowerShell", cwd: "C:/Users/massi", cols: 80, rows: 24 },
 ];
 
-const mockActions = [{ id: "commit", label: "Commit" }, { id: "usage", label: "Utilizzo Claude", icon: "M4 18a8 8 0 1 1 16 0M12 18l4-7" }];
+const mockActions = [{ id: "commit", label: "Commit" }, { id: "usage", label: "Utilizzo Claude", icon: "M4 18a8 8 0 1 1 16 0M12 18l4-7" },
+  { id: "pull", label: "Pull" },
+  { id: "claude-code", label: "Claude Code", cli: "claude" },
+  { id: "codex-cli", label: "Codex CLI", cli: "codex" },
+];
 
 const gauges = (a: number, b: number) => [
   { kind: "gauge", label: "5 ore", percent: a },

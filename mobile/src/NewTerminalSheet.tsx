@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
@@ -7,7 +8,7 @@ import { AgentLogo, CheckIcon, ChevronIcon, FolderIcon, TerminalIcon } from "./i
 import { send, useRemoteSelector, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
 import { safeStorage } from "./store";
 import { useUiZoom } from "./uiScale";
-import { useSheetDrag } from "./useSheetDrag";
+import { useWide } from "./wide";
 
 type Cli = ProfileCli;
 const AGENTS: { id: Cli; name: string }[] = [
@@ -64,7 +65,7 @@ interface NtsOption<V> {
 }
 
 /** One "select row" (icon, value, chevron) and the context menu it opens under (or above) itself. The menu is portalled to <body>: the sheet's backdrop-filter would otherwise trap `position: fixed` inside it. */
-function NtsMenu<V extends string | null>({ label, icon, valueLabel, mono, options, value, hint, zoom, open, onToggle, onSelect }: { label: string; icon: ReactNode; valueLabel: string; mono?: boolean; options: NtsOption<V>[]; value: V; hint?: string; zoom: number; open: boolean; onToggle: (open: boolean) => void; onSelect: (v: V) => void }) {
+function NtsMenu<V extends string | null>({ label, icon, valueLabel, mono, options, value, hint, zoom, open, onToggle, onSelect, autoFocus }: { autoFocus?: boolean; label: string; icon: ReactNode; valueLabel: string; mono?: boolean; options: NtsOption<V>[]; value: V; hint?: string; zoom: number; open: boolean; onToggle: (open: boolean) => void; onSelect: (v: V) => void }) {
   const row = useRef<HTMLButtonElement>(null);
   /** Where the menu sits, measured when it opens. Rects are in screen px while the menu's own lengths are multiplied by `zoom` (it lives under <body>, outside the zoomed sheet), so they are divided by it. */
   const [pos, setPos] = useState<{ zoom: number; left: number; width: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
@@ -90,7 +91,7 @@ function NtsMenu<V extends string | null>({ label, icon, valueLabel, mono, optio
   return (
     <div className="nts-field">
       <span className="nts-label">{label}</span>
-      <button ref={row} type="button" className={"nts-sel" + (open ? " open" : "")} aria-haspopup="menu" aria-expanded={open} onClick={() => onToggle(!open)}>
+      <button ref={row} type="button" data-autofocus={autoFocus || undefined} className={"nts-sel" + (open ? " open" : "")} aria-haspopup="menu" aria-expanded={open} onClick={() => onToggle(!open)}>
         {icon}
         <span className={"nts-sel-value" + (mono ? " mono" : "")}>{valueLabel}</span>
         <span className="nts-sel-chev" aria-hidden="true">
@@ -126,9 +127,9 @@ const agentName = (cli: Cli | null) => AGENTS.find((a) => a.id === cli)?.name ??
 /** "Nuovo terminale": where (a folder of the open tabs, or the desktop's start
  * folder), under which account profile and what to run (a shell, or an agent
  * straight away). The desktop opens it as a new tab; `onCreate` runs once the
- * request is sent. With an `anchor` (wide layout) it is a popover under that
- * rect instead of a bottom sheet. */
-export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: { open: boolean; folders: string[]; anchor?: DOMRect | null; onClose: () => void; onCreate: (asChat: boolean) => void }) {
+ * request is sent. A bottom sheet on the phone, a centered dialog on the
+ * tablet layout (Enter opens, on a hardware keyboard). */
+export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: boolean; folders: string[]; onClose: () => void; onCreate: (asChat: boolean) => void }) {
   /** null = the desktop's start folder. */
   const [cwd, setCwd] = useState<string | null>(null);
   const [cli, setCli] = useState<Cli | null>(null);
@@ -146,18 +147,16 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
   const key = recentsKey(hostName);
   const [saved, setSaved] = useState(() => ({ key, list: loadRecents(key) }));
   if (saved.key !== key) setSaved({ key, list: loadRecents(key) });
-  const popover = !!anchor;
+  const wide = useWide();
   const uiZoom = useUiZoom();
-  /** Only the wide popover is scaled; the phone sheet keeps its size. */
-  const zoom = popover ? uiZoom : 1;
-  const sheet = useRef<HTMLDivElement>(null);
+  /** Only the wide dialog is scaled; the phone sheet keeps its size. */
+  const zoom = wide ? uiZoom : 1;
   const closeMenu = () => setMenu(null);
   // The menu registers last, so Back and Escape close just it before the sheet.
   useBackHandler(open, onClose);
   useBackHandler(menu !== null, closeMenu);
   useEscape(open && menu === null, onClose);
   useEscape(menu !== null, closeMenu);
-  useSheetDrag(sheet, onClose, open && !popover);
 
   const showProfiles = canPickProfile && !!profiles && profiles.length > 0;
   const usable = (c: Cli, p: string | null) => (c !== "gemini" || canGemini) && agentAvailable(c, p, canPickProfile ? profiles : null, defaultLoggedIn);
@@ -179,7 +178,7 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
   const enter = useRef<() => void>(create);
   enter.current = create;
   useEffect(() => {
-    if (!open || !popover || menu !== null) return;
+    if (!open || !wide || menu !== null) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Enter" || (e.target as Element | null)?.closest?.("button")) return;
       e.preventDefault();
@@ -187,7 +186,7 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, popover, menu]);
+  }, [open, wide, menu]);
 
   if (!open) return null;
 
@@ -202,8 +201,6 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
 
   const recents = saved.list.filter((r) => (r.cli === null || usable(r.cli, r.profile)) && (r.profile === null || (canPickProfile && (r.profile === "" || !!profileInfo(r.profile)))));
   const agents = AGENTS.filter((a) => usable(a.id, profile));
-  // The anchor rect is in screen px; `zoom` multiplies this card's own lengths (and its 360px width), so they are divided by it.
-  const style = anchor ? { zoom, top: (anchor.bottom + 6) / zoom, left: Math.max(8, Math.min(anchor.left, innerWidth - 360 * zoom - 8)) / zoom, maxHeight: (innerHeight - anchor.bottom - 14) / zoom } : undefined;
   const toggle = (m: NonNullable<typeof menu>) => (o: boolean) => setMenu(o ? m : null);
   const toggleChat = () => {
     safeStorage.set(AS_CHAT_KEY, asChat ? "0" : "1");
@@ -217,84 +214,82 @@ export function NewTerminalSheet({ open, folders, anchor, onClose, onCreate }: {
     };
 
   return (
-    <div className={"nts-layer" + (popover ? " nts-pop" : "")}>
-      <div className="nts-scrim" onClick={onClose} />
-      <div ref={sheet} className="nts" role="dialog" aria-modal="true" aria-label={t("newTerminal")} style={style}>
-        {!popover && <div className="nts-grab" aria-hidden="true" />}
-        <h2>{t("newTerminal")}</h2>
-        <div className="nts-body">
-          {recents.length > 0 && (
-            <div className="nts-field">
-              <span className="nts-label">{t("newTermRecent")}</span>
-              <div className="nts-recents">
-                {recents.map((r) => (
-                  <button key={`${r.cwd}|${r.cli}|${r.profile}`} type="button" className="nts-chip" onClick={() => create(r)}>
-                    {agentIcon(r.cli)}
-                    <span>{r.cwd ? shortCwd(r.cwd) : t("newTermStartFolder")}</span>
-                    {r.profile !== null && <Dot color={profileColor(r.profile)} />}
-                  </button>
-                ))}
-              </div>
+    <AdaptiveSheet open family="nts" variant="dialog" onClose={onClose} label={t("newTerminal")}>
+      <div className="nts-grab" aria-hidden="true" />
+      <h2>{t("newTerminal")}</h2>
+      <div className="nts-body">
+        {recents.length > 0 && (
+          <div className="nts-field">
+            <span className="nts-label">{t("newTermRecent")}</span>
+            <div className="nts-recents">
+              {recents.map((r) => (
+                <button key={`${r.cwd}|${r.cli}|${r.profile}`} type="button" className="nts-chip" onClick={() => create(r)}>
+                  {agentIcon(r.cli)}
+                  <span>{r.cwd ? shortCwd(r.cwd) : t("newTermStartFolder")}</span>
+                  {r.profile !== null && <Dot color={profileColor(r.profile)} />}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
+        )}
+        <NtsMenu
+          autoFocus
+          label={t("newTermFolder")}
+          icon={<FolderIcon />}
+          valueLabel={cwd ? shortCwd(cwd) : t("newTermStartFolder")}
+          mono={!!cwd}
+          value={cwd}
+          options={[{ value: null, label: t("newTermStartFolder"), icon: <FolderIcon /> }, ...folders.map((f) => ({ value: f as string | null, label: shortCwd(f), icon: <FolderIcon />, mono: true }))]}
+          zoom={zoom}
+          open={menu === "cwd"}
+          onToggle={toggle("cwd")}
+          onSelect={choose(setCwd)}
+        />
+        {showProfiles && (
           <NtsMenu
-            label={t("newTermFolder")}
-            icon={<FolderIcon />}
-            valueLabel={cwd ? shortCwd(cwd) : t("newTermStartFolder")}
-            mono={!!cwd}
-            value={cwd}
-            options={[{ value: null, label: t("newTermStartFolder"), icon: <FolderIcon /> }, ...folders.map((f) => ({ value: f as string | null, label: shortCwd(f), icon: <FolderIcon />, mono: true }))]}
+            label={t("newTermProfile")}
+            icon={profile === null ? <i className="dot" /> : <Dot color={profileColor(profile)} />}
+            valueLabel={profile === null ? t("newTermProfileAuto") : profileName(profile)}
+            value={profile}
+            options={[
+              { value: null, label: t("newTermProfileAuto"), icon: <i className="dot" /> },
+              { value: "", label: t("defaultProfile"), icon: <Dot color="var(--muted)" /> },
+              ...profiles.map((p) => ({ value: p.id as string | null, label: p.name, icon: <Dot color={p.color} /> })),
+            ]}
             zoom={zoom}
-            open={menu === "cwd"}
-            onToggle={toggle("cwd")}
-            onSelect={choose(setCwd)}
+            open={menu === "profile"}
+            onToggle={toggle("profile")}
+            onSelect={choose(pickProfile)}
           />
-          {showProfiles && (
-            <NtsMenu
-              label={t("newTermProfile")}
-              icon={profile === null ? <i className="dot" /> : <Dot color={profileColor(profile)} />}
-              valueLabel={profile === null ? t("newTermProfileAuto") : profileName(profile)}
-              value={profile}
-              options={[
-                { value: null, label: t("newTermProfileAuto"), icon: <i className="dot" /> },
-                { value: "", label: t("defaultProfile"), icon: <Dot color="var(--muted)" /> },
-                ...profiles.map((p) => ({ value: p.id as string | null, label: p.name, icon: <Dot color={p.color} /> })),
-              ]}
-              zoom={zoom}
-              open={menu === "profile"}
-              onToggle={toggle("profile")}
-              onSelect={choose(pickProfile)}
-            />
-          )}
-          <NtsMenu
-            label={t("newTermAgent")}
-            icon={agentIcon(cli)}
-            valueLabel={agentName(cli)}
-            value={cli}
-            options={[{ value: null, label: t("newTermShell"), icon: <TerminalIcon /> }, ...agents.map((a) => ({ value: a.id as Cli | null, label: a.name, icon: <AgentLogo cli={a.id} size={18} /> }))]}
-            zoom={zoom}
-            hint={agents.length === 0 && profile !== null ? t("newTermNoAgent", { profile: profileName(profile) }) : undefined}
-            open={menu === "agent"}
-            onToggle={toggle("agent")}
-            onSelect={choose(setCli)}
-          />
-          {canChat && cli && (
-            // The whole row toggles; the switch inside is the focusable control and its click bubbles up here once.
-            <div className="nts-toggle" onClick={toggleChat}>
-              <span className="nts-toggle-text">
-                {t("newChatToggle")}
-                <small>{t("newChatHint")}</small>
-              </span>
-              <button type="button" role="switch" aria-checked={asChat} aria-label={t("newChatToggle")} className={"switch" + (asChat ? " on" : "")}>
-                <i />
-              </button>
-            </div>
-          )}
-        </div>
-        <button type="button" className="btn primary big nts-go" onClick={() => create()}>
-          {cli ? t("newTermOpenWith", { name: agentName(cli) }) : t("newTermOpenShell")}
-        </button>
+        )}
+        <NtsMenu
+          label={t("newTermAgent")}
+          icon={agentIcon(cli)}
+          valueLabel={agentName(cli)}
+          value={cli}
+          options={[{ value: null, label: t("newTermShell"), icon: <TerminalIcon /> }, ...agents.map((a) => ({ value: a.id as Cli | null, label: a.name, icon: <AgentLogo cli={a.id} size={18} /> }))]}
+          zoom={zoom}
+          hint={agents.length === 0 && profile !== null ? t("newTermNoAgent", { profile: profileName(profile) }) : undefined}
+          open={menu === "agent"}
+          onToggle={toggle("agent")}
+          onSelect={choose(setCli)}
+        />
+        {canChat && cli && (
+          // The whole row toggles; the switch inside is the focusable control and its click bubbles up here once.
+          <div className="nts-toggle" onClick={toggleChat}>
+            <span className="nts-toggle-text">
+              {t("newChatToggle")}
+              <small>{t("newChatHint")}</small>
+            </span>
+            <button type="button" role="switch" aria-checked={asChat} aria-label={t("newChatToggle")} className={"switch" + (asChat ? " on" : "")}>
+              <i />
+            </button>
+          </div>
+        )}
       </div>
-    </div>
+      <button type="button" className="btn primary big nts-go" onClick={() => create()}>
+        {cli ? t("newTermOpenWith", { name: agentName(cli) }) : t("newTermOpenShell")}
+      </button>
+    </AdaptiveSheet>
   );
 }

@@ -20,7 +20,8 @@ const CHUNK_BYTES: usize = 192 * 1024;
 
 /// Whether the view lists a device a phone app counts as.
 fn for_phones(manifest: &ViewPluginManifest) -> bool {
-    manifest.devices.iter().any(|d| d == "phone" || d == "tablet")
+    // Only chat views exist on a phone (new-tab pages are desktop-only anyway).
+    manifest.kind == "agentView" && manifest.devices.iter().any(|d| d == "phone" || d == "tablet")
 }
 
 /// Every file under `root` as (path with forward slashes, location), sorted

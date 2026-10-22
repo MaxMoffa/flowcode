@@ -1,10 +1,9 @@
-import { useRef } from "react";
 import { Markdown } from "../../src/changelog/markdown";
-import { useBackHandler } from "./back";
+import { AdaptiveSheet } from "./AdaptiveSheet";
+import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { Group } from "./SettingsControls";
 import { checkForUpdates, dismissUpdateSheet, errorText, formatBytes, installUpdate, updates, type UpdateInfo, type UpdateProgress } from "./updates";
-import { useSheetDrag } from "./useSheetDrag";
 
 function progressLabel(progress: UpdateProgress | null, size: number): { label: string; fraction: number | null } {
   if (progress?.stage === "download") {
@@ -102,29 +101,25 @@ export function UpdatesPage() {
 /** The bottom sheet that offers a found update once per app start. */
 export function UpdateSheet() {
   const { info, busy } = updates.use();
-  const sheet = useRef<HTMLDivElement>(null);
   const installing = busy === "installing";
   // No dismissing mid-download: the sheet is where the progress shows.
   const close = () => {
     if (!installing) dismissUpdateSheet();
   };
   useBackHandler(true, close);
-  useSheetDrag(sheet, close, !installing);
+  useEscape(true, close);
   if (!info) return null;
   return (
-    <div className="nts-layer">
-      <div className="nts-scrim" onClick={close} />
-      <div ref={sheet} className="nts" role="dialog" aria-modal="true" aria-label={t("updSheetTitle")}>
-        <div className="nts-grab" aria-hidden="true" />
-        <h2>{t("updSheetTitle")}</h2>
-        <p className="prof-note">{t("updSheetBody", { version: info.version, current: info.currentVersion })}</p>
-        <InstallArea info={info} />
-        {!installing && (
-          <button type="button" className="btn ghost" onClick={close}>
-            {t("updLater")}
-          </button>
-        )}
-      </div>
-    </div>
+    <AdaptiveSheet open family="nts" variant="dialog" onClose={close} dragEnabled={!installing} label={t("updSheetTitle")}>
+      <div className="nts-grab" aria-hidden="true" />
+      <h2>{t("updSheetTitle")}</h2>
+      <p className="prof-note">{t("updSheetBody", { version: info.version, current: info.currentVersion })}</p>
+      <InstallArea info={info} />
+      {!installing && (
+        <button type="button" className="btn ghost" onClick={close}>
+          {t("updLater")}
+        </button>
+      )}
+    </AdaptiveSheet>
   );
 }

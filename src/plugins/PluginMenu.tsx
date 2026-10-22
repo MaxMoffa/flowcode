@@ -4,12 +4,15 @@ import { useHoverPopover, useUsageProfile, useUsageState } from "./useUsageState
 import { usagePopoverPositionBeside } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
 import { useI18n } from "../i18n";
+import { searchKeyAction, sectionMenu } from "../../shared/menuFilter";
 import "./plugin-menu.css";
 import "./plugin-usage.css";
 
 interface PluginMenuEntry {
   id: string;
   label: string;
+  /** Launches an agent CLI: listed under "Agents". */
+  agent: boolean;
   icon: ReactNode;
   pinned: boolean;
   run: () => void;
@@ -103,9 +106,13 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
 export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const queryRef = useRef(query);
+  queryRef.current = query;
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // A ref and an effect rather than autoFocus: the menu is a portal that
+  // mounts mid-click, where the attribute's focus doesn't always stick.
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -114,8 +121,13 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
     const onMouseDown = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
     };
+    // Escape first empties the search, then closes the menu.
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (searchKeyAction(e.key, queryRef.current) === "clear") {
+        setQuery("");
+        inputRef.current?.focus();
+      } else onClose();
     };
     window.addEventListener("mousedown", onMouseDown, true);
     window.addEventListener("keydown", onKeyDown);
@@ -125,7 +137,31 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
     };
   }, [onClose]);
 
-  const filtered = items.filter((i) => i.label.toLowerCase().includes(query.trim().toLowerCase()));
+  const sections = sectionMenu(items, query, (i) => i.label, (i) => i.agent);
+
+  const bodies = () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>(".plugin-menu-item-body") ?? []);
+  const onSearchKeyDown = (e: React.KeyboardEvent) => {
+    const action = searchKeyAction(e.key, query);
+    if (action === "down") {
+      e.preventDefault();
+      bodies()[0]?.focus();
+    } else if (action === "run") {
+      e.preventDefault();
+      const first = sections[0]?.items[0];
+      if (!first) return;
+      first.run();
+      onClose();
+    }
+  };
+  // Arrow keys walk the rows; up from the first goes back to the search.
+  const onListKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const rows = bodies();
+    const at = rows.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "ArrowUp" && at <= 0) inputRef.current?.focus();
+    else rows[e.key === "ArrowDown" ? Math.min(at + 1, rows.length - 1) : at - 1]?.focus();
+  };
 
   const menuWidth = 250;
   // Opened from the narrow layout's bottom bar, the list has to grow upward.
@@ -143,11 +179,17 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
         placeholder={t("plugins.search")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={onSearchKeyDown}
       />
-      <div className="plugin-menu-list">
-        {filtered.length === 0 && <div className="plugin-menu-empty">{t("common.noResults")}</div>}
-        {filtered.map((item) => (
-          <PluginMenuRow key={item.id} item={item} onClose={onClose} />
+      <div className="plugin-menu-list" onKeyDown={onListKeyDown}>
+        {sections.length === 0 && <div className="plugin-menu-empty">{t("common.noResults")}</div>}
+        {sections.map((section) => (
+          <section key={section.id} className="plugin-menu-section">
+            <h3 className="plugin-menu-heading">{section.id === "agents" ? t("plugins.sectionAgents") : t("plugins.sectionTools")}</h3>
+            {section.items.map((item) => (
+              <PluginMenuRow key={item.id} item={item} onClose={onClose} />
+            ))}
+          </section>
         ))}
       </div>
     </div>,
