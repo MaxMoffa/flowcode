@@ -288,6 +288,7 @@ export const it = {
   "agents.hint.otherWindow": "in un'altra finestra · doppio click per andarci",
   "agents.hint.runningElsewhere": "in esecuzione in un altro terminale",
   "agents.hint.outsideFlowcode": "fuori da Flowcode · doppio click per riprendere la chat",
+  "agents.handoff.failed": "Impossibile aprire come chat: l'agente non riesce a riprendere la sessione.",
   "agents.hint.resume": "doppio click per riprendere la chat",
   "agents.otherFlowcode": "altra istanza di Flowcode",
   "agents.otherTerminal": "altro terminale",

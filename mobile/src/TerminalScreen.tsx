@@ -1,9 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
+import "./chat.css";
+import { ChatMenu, TERMINAL_VIEW } from "./ChatMenu";
+import { agentName } from "./common";
 import { t } from "./i18n";
-import { AgentsIcon, BackIcon, CopyIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
-import { interrupt, send, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
+import { AgentLogo, AgentsIcon, BackIcon, ChevronDownIcon, CopyIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
+import { interrupt, send, showToast, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
 import { TermActions } from "./TermActions";
 import { TermAgents } from "./TermAgents";
 import { TermFiles } from "./TermFiles";
@@ -17,6 +20,8 @@ import { phoneTheme } from "./theme";
 import { linkAtCell } from "./termLinks";
 import { useTouchScroll } from "./termTouch";
 import { useKeybarHeight, useTerminalViewport } from "./termViewport";
+import { useReadyViews, viewFits, viewLabel } from "./viewCache";
+import { useWide } from "./wide";
 import { focusTerminal, useTerminal } from "./useTerminal";
 
 /** Keeps the keyboard where it is while a button is tapped. */
@@ -25,8 +30,10 @@ const keepFocus = {
   onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
 };
 
-/** `embedded`: the wide layout's main card; its header owns the files, quick actions and menu, so only the terminal and its docked key bar (shown while `keys`) remain. */
-export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; embedded?: boolean; keys?: boolean }) {
+const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ?? cwd;
+
+/** `embedded`: the wide layout's main card; its header owns the files, quick actions and menu, so only the terminal and its docked key bar (shown while `keys`) remain. `onChat` turns an agent's terminal into a chat shown with the given view (App opens it once it appears). */
+export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded, keys }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; onChat?: (ptyId: string, view: string) => void; embedded?: boolean; keys?: boolean }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -37,6 +44,11 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
   const [editing, setEditing] = useState(false);
   const canRename = useSupports("rename");
   const canClose = useSupports("closeTab");
+  const canChat = useSupports("terminalChat") && !!onChat;
+  const [titleMenuOpen, setTitleMenuOpen] = useState(false);
+  const wide = useWide();
+  const language = useRemoteSelector((s) => s.settings?.resolvedLanguage);
+  const views = useReadyViews().filter((v) => viewFits(v, wide));
   const [draft, setDraft] = useState("");
   const cancelRename = useRef(false);
   const lastLink = useRef({ url: "", at: 0 });
@@ -180,6 +192,13 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
   const cliName = tab.cli ? tab.cli[0].toUpperCase() + tab.cli.slice(1) : "";
   const showWait = tab.status === "waiting" && !!tab.cli;
 
+  /** A non-terminal view was picked: the desktop turns the agent into a chat, which App opens once listed. */
+  const pickView = (id: string) => {
+    if (id === TERMINAL_VIEW || !onChat || tab.status === "busy") return;
+    showToast(t("termChatWaiting"));
+    onChat(ptyId, id);
+  };
+
   const more = !embedded && (
     <>
       <button type="button" className="tm-back" aria-label={t("termMore")} aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
@@ -237,6 +256,27 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
     />
   );
 
+  const renameInput = (
+    <input
+      className="term-title-input"
+      value={draft}
+      autoFocus
+      maxLength={128}
+      enterKeyHint="done"
+      aria-label={t("renameTerminal")}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        else if (e.key === "Escape") {
+          cancelRename.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+      onBlur={commitRename}
+    />
+  );
+
   return (
     <div className={"screen term-screen" + (embedded ? " is-embedded" : "")} ref={screenRef}>
       {!embedded && (
@@ -244,44 +284,56 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
           <button type="button" className="tm-back" aria-label={t("back")} onClick={onBack}>
             <BackIcon />
           </button>
-          <div className="term-titles">
-            <i className={"term-dot is-" + state} />
-            {editing ? (
-              <input
-                className="term-title-input"
-                value={draft}
-                autoFocus
-                maxLength={128}
-                enterKeyHint="done"
-                aria-label={t("renameTerminal")}
-                onFocus={(e) => e.currentTarget.select()}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") e.currentTarget.blur();
-                  else if (e.key === "Escape") {
-                    cancelRename.current = true;
-                    e.currentTarget.blur();
-                  }
-                }}
-                onBlur={commitRename}
-              />
-            ) : !canRename ? (
-              <span className="term-title">{tab.label}</span>
-            ) : (
-              <button
-                type="button"
-                className="term-title"
-                aria-label={t("renameTerminal")}
-                onClick={() => {
-                  setDraft(tab.label);
-                  setEditing(true);
-                }}
-              >
-                {tab.label}
-              </button>
-            )}
-            {!editing && <span className="term-state">{stateText}</span>}
-          </div>
+          {tab.cli ? (
+            <>
+              {editing ? (
+                <div className="chat-title">
+                  <span className="chat-title-logo">
+                    <AgentLogo cli={tab.cli} size={18} />
+                  </span>
+                  {renameInput}
+                </div>
+              ) : (
+                <button type="button" className="chat-title" aria-haspopup="dialog" aria-expanded={titleMenuOpen} onClick={() => setTitleMenuOpen(true)}>
+                  <span className="chat-title-logo">
+                    <AgentLogo cli={tab.cli} size={18} />
+                  </span>
+                  <span className="chat-title-text">
+                    <span className="chat-title-line">
+                      <b>{tab.label}</b>
+                      <ChevronDownIcon />
+                    </span>
+                    <span className="chat-title-sub">
+                      {agentName(tab.cli)} · {folderName(tab.cwd)}
+                    </span>
+                  </span>
+                </button>
+              )}
+              <i className={"term-dot is-" + state} role="img" aria-label={stateText} title={stateText} />
+            </>
+          ) : (
+            <div className="term-titles">
+              <i className={"term-dot is-" + state} />
+              {editing ? (
+                renameInput
+              ) : !canRename ? (
+                <span className="term-title">{tab.label}</span>
+              ) : (
+                <button
+                  type="button"
+                  className="term-title"
+                  aria-label={t("renameTerminal")}
+                  onClick={() => {
+                    setDraft(tab.label);
+                    setEditing(true);
+                  }}
+                >
+                  {tab.label}
+                </button>
+              )}
+              {!editing && <span className="term-state">{stateText}</span>}
+            </div>
+          )}
           {more}
         </header>
       )}
@@ -363,6 +415,31 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, embedded, keys }
       {!embedded && keyBar}
       {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
       {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} onOpen={onSwitch} />}
+      {!embedded && tab.cli && (
+        <ChatMenu
+          open={titleMenuOpen}
+          onClose={() => setTitleMenuOpen(false)}
+          agent={tab.cli}
+          agentName={agentName(tab.cli)}
+          title={tab.label}
+          cwd={tab.cwd}
+          views={canChat ? views.map((v) => ({ id: v.id, label: viewLabel(v, language) })) : []}
+          viewsDisabled={!canChat || tab.status === "busy"}
+          view={TERMINAL_VIEW}
+          onView={pickView}
+          onRename={
+            canRename
+              ? () => {
+                  setDraft(tab.label);
+                  setEditing(true);
+                }
+              : undefined
+          }
+          onStop={tab.status === "busy" ? () => interrupt(ptyId) : undefined}
+          stopLabel={t("termMenuInterrupt")}
+          swipeHint={false}
+        />
+      )}
       {!embedded && <TermActions tab={tab} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>

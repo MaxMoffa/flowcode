@@ -288,6 +288,7 @@ export const en: Record<MessageKey, string> = {
   "agents.hint.otherWindow": "in another window · double-click to go there",
   "agents.hint.runningElsewhere": "running in another terminal",
   "agents.hint.outsideFlowcode": "outside Flowcode · double-click to resume the chat",
+  "agents.handoff.failed": "Couldn't open as a chat: the agent can't resume the session.",
   "agents.hint.resume": "double-click to resume the chat",
   "agents.otherFlowcode": "another Flowcode instance",
   "agents.otherTerminal": "another terminal",

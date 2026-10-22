@@ -9,26 +9,25 @@ import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
 import { chatModes, chatStatus, emptySession, pendingPermissions } from "./chatSession";
 import { useTwoFingerSwipe } from "./chatSwipe";
-import { answerChatPermission, cancelChat, sendChatPrompt, setChatMode, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatPermission, cancelChat, lastChatViews, renameChat, sendChatPrompt, setChatMode, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { t } from "./i18n";
-import { AgentLogo, BackIcon, ChevronDownIcon } from "./icons";
-import { setChatTabShown, showToast, useRemoteSelector } from "./remote";
+import { AgentLogo, AgentsIcon, BackIcon, ChevronDownIcon } from "./icons";
+import { setChatTabShown, showToast, useRemoteSelector, useSupports } from "./remote";
+import { TermAgents } from "./TermAgents";
 import { openLink, TermLink } from "./TermLink";
 import { useTerminalViewport } from "./termViewport";
 import { useReadyViews, viewFits, viewLabel } from "./viewCache";
 import { useWide } from "./wide";
 
-/** The view each chat was last shown with, so leaving a chat and coming back keeps a plugin view. */
-const lastViews = new Map<string, string>();
 /** Distance from the end of the thread that still counts as "at the bottom". */
 const BOTTOM_SLACK = 80;
 
 const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ?? cwd;
 
-/** `embedded`: the wide layout's main card, whose tab strip already says which chat this is, so there is no back button. `onTerminal` hands the session to a desktop terminal tab (App opens it once it appears). */
-export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; embedded?: boolean }) {
+/** `embedded`: the wide layout's main card, whose tab strip already says which chat this is, so there is no back button. `onTerminal` hands the session to a desktop terminal tab (App opens it once it appears). `onSwitch` opens another terminal from the agents drawer. */
+export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -36,6 +35,11 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
   const stick = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const cancelRename = useRef(false);
+  const canRename = useSupports("chatRename");
   const info = useChatInfo(chatId);
   const tabId = info?.tabId;
   // While this screen is up the chat is on the user's screen, so its notifications skip the toast.
@@ -44,6 +48,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
     setChatTabShown(tabId, true);
     return () => setChatTabShown(tabId, false);
   }, [tabId]);
+  // Counts, not the lists: a message that changes neither re-renders nothing here.
+  const othersWaiting = useRemoteSelector((s) => (s.tabs ?? []).filter((x) => x.cli && x.status === "waiting").length + (s.chats ?? []).filter((c) => c.status === "waiting" && c.chatId !== chatId).length);
   const chatsKnown = useRemoteSelector((s) => s.chats !== null);
   const language = useRemoteSelector((s) => s.settings?.resolvedLanguage);
   const stored = useChatSession(chatId);
@@ -60,7 +66,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
   );
 
   const views = useReadyViews().filter((v) => viewFits(v, wide));
-  const [view, setView] = useState(() => lastViews.get(chatId) ?? defaultViewFor(wide));
+  const [view, setView] = useState(() => lastChatViews.get(chatId) ?? defaultViewFor(wide));
   const pkg = views.find((v) => v.id === view);
   const shown = pkg ? pkg.id : CHAT_VIEW;
   const choices: ViewChoice[] = views.map((v) => ({ id: v.id, label: viewLabel(v, language) }));
@@ -93,7 +99,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
         return;
       }
       if (id !== CHAT_VIEW && !views.some((v) => v.id === id)) return;
-      lastViews.set(chatId, id);
+      lastChatViews.set(chatId, id);
       setView(id);
     },
     [chatId, info, onTerminal, views],
@@ -136,6 +142,20 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
     if (info?.sessionId) void navigator.clipboard.writeText(info.sessionId).then(() => showToast(t("chatIdCopied")), () => {});
   };
 
+  /** Ends the title edit: Escape sets `cancelRename` before blurring, so it is dropped here. */
+  function commitRename() {
+    if (cancelRename.current) {
+      cancelRename.current = false;
+      setEditing(false);
+      return;
+    }
+    const label = draft.trim();
+    setEditing(false);
+    if (label && label !== info?.label) renameChat(chatId, label);
+  }
+
+  const closeAgents = useCallback(() => setAgentsOpen(false), []);
+
   const stateText = status === "waiting" ? t("termStateWaiting") : status === "busy" ? t("termStateBusy") : status === "starting" ? t("chatStateStarting") : status === "exited" ? t("chatStateExited") : t("termStateIdle");
 
   const back = !embedded && (
@@ -157,21 +177,53 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
     <div className={"screen term-screen chat-screen" + (embedded ? " is-embedded" : "") + (kbOpen ? " kb" : "")} ref={screenRef}>
       <header className="term-head chat-head">
         {back}
-        <button type="button" className="chat-title" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
-          <span className="chat-title-logo">
-            <AgentLogo cli={info.agent} size={18} />
-          </span>
-          <span className="chat-title-text">
-            <span className="chat-title-line">
-              <b>{info.label}</b>
-              <ChevronDownIcon />
+        {editing ? (
+          <div className="chat-title">
+            <span className="chat-title-logo">
+              <AgentLogo cli={info.agent} size={18} />
             </span>
-            <span className="chat-title-sub">
-              {agentName(info.agent)} · {folderName(info.cwd)}
+            <input
+              className="term-title-input"
+              value={draft}
+              autoFocus
+              maxLength={128}
+              enterKeyHint="done"
+              aria-label={t("rename")}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                else if (e.key === "Escape") {
+                  cancelRename.current = true;
+                  e.currentTarget.blur();
+                }
+              }}
+              onBlur={commitRename}
+            />
+          </div>
+        ) : (
+          <button type="button" className="chat-title" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
+            <span className="chat-title-logo">
+              <AgentLogo cli={info.agent} size={18} />
             </span>
-          </span>
-        </button>
+            <span className="chat-title-text">
+              <span className="chat-title-line">
+                <b>{info.label}</b>
+                <ChevronDownIcon />
+              </span>
+              <span className="chat-title-sub">
+                {agentName(info.agent)} · {folderName(info.cwd)}
+              </span>
+            </span>
+          </button>
+        )}
         <i className={"term-dot chat-dot is-" + status} role="img" aria-label={stateText} title={stateText} />
+        {!embedded && onSwitch && (
+          <button type="button" className="tm-back chat-agents-btn" aria-label={othersWaiting ? t("agentsWaitingAria", { n: othersWaiting }) : t("agents")} onClick={() => setAgentsOpen(true)}>
+            <AgentsIcon />
+            {othersWaiting > 0 && <b className="term-pill-badge">{othersWaiting}</b>}
+          </button>
+        )}
       </header>
 
       {shown === CHAT_VIEW || !pkg ? (
@@ -180,7 +232,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
                 {model.items.length === 0 && <div className="chat-empty">{session.loaded ? t("chatEmpty") : t("loading")}</div>}
-                <ChatBody items={model.items} plan={model.plan} onLink={onLink} />
+                <ChatBody items={model.items} plan={model.plan} agent={info.agent} onLink={onLink} />
               </div>
             </div>
             {!atBottom && (
@@ -231,8 +283,17 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
         modes={modes}
         onMode={(modeId) => setChatMode(chatId, modeId)}
         onCopyId={info.sessionId ? copyId : undefined}
+        onRename={
+          canRename
+            ? () => {
+                setDraft(info.label);
+                setEditing(true);
+              }
+            : undefined
+        }
         onStop={working ? () => cancelChat(chatId) : undefined}
       />
+      {!embedded && onSwitch && <TermAgents activePty="" open={agentsOpen} onClose={closeAgents} onOpen={onSwitch} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>
   );

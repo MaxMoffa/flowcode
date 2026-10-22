@@ -18,6 +18,8 @@ interface AgentSessionViewProps {
   profileId?: string;
   /** Resumes this session instead of starting a new one. */
   resumeSessionId?: string;
+  /** The resumed session must load: fail rather than start a fresh one (a terminal handing its agent over). */
+  strictResume?: boolean;
   /** The registered view the session is shown with (absent: the default). */
   viewId?: string;
   /** Another tab is in front: the view stays mounted (the agent keeps running). */
@@ -43,6 +45,7 @@ export function AgentSessionView({
   cwd,
   profileId,
   resumeSessionId,
+  strictResume,
   viewId,
   hidden,
   title,
@@ -55,7 +58,7 @@ export function AgentSessionView({
 }: AgentSessionViewProps) {
   const { t, language } = useI18n();
   const views = useAgentViews();
-  const chat = useChat({ agent, cwd, profileId, resumeSessionId, onSessionId, onStatus });
+  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, onSessionId, onStatus });
   const { model, phase, error, modes, sessionId } = chat;
   const label = CLI_INFO[agent].label;
   const folder = basename(cwd);

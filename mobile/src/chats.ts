@@ -178,6 +178,7 @@ export const unqueueChatPrompt = (chatId: string, index: number) => patchSession
 export const cancelChat = (chatId: string) => send({ t: "chatcancel", chatId });
 export const answerChatPermission = (chatId: string, requestId: string, optionId: string | null) => send({ t: "chatpermission", chatId, requestId, optionId });
 export const setChatMode = (chatId: string, modeId: string) => send({ t: "chatmode", chatId, modeId });
+export const renameChat = (chatId: string, label: string) => send({ t: "chatrename", chatId, label });
 /** Asks the desktop to turn the chat's session into a terminal tab. */
 const chatToTerminal = (chatId: string) => send({ t: "chatterminal", chatId });
 
@@ -186,6 +187,9 @@ export const pendingPermissionTitle = (session: ChatSession | undefined): string
   const first = session ? pendingPermissions(session.model)[0] : undefined;
   return first ? (first.toolCall.title ?? first.toolCall.kind) : undefined;
 };
+
+/** The view each chat was last shown with, so leaving a chat and coming back keeps a plugin view. */
+export const lastChatViews = new Map<string, string>();
 
 /** A list far from App (a drawer, a row) asks for a chat; App opens it. */
 export const requestOpenChat = (chatId: string) => store.set({ openRequest: chatId });
@@ -245,5 +249,36 @@ export function useChatHandoff(tabs: Tab[] | null, onOpen: (ptyId: string) => vo
   return useCallback((chat: ChatInfo) => {
     pendingRef.current = { tabId: chat.tabId, known: new Set((tabsRef.current ?? []).map((x) => x.ptyId)), until: Date.now() + WAIT_MS };
     chatToTerminal(chat.chatId);
+  }, []);
+}
+
+/**
+ * After asking the desktop to turn a terminal's agent into a chat: the desktop
+ * closes the terminal tab and opens a chat resuming its session. Opens that
+ * chat, shown with `view`, once the chat list has it.
+ */
+export function useTerminalHandoff(chats: ChatInfo[] | null, onOpen: (chatId: string) => void): (ptyId: string, view: string) => void {
+  const pendingRef = useRef<{ known: Set<string>; view: string; until: number } | null>(null);
+
+  useEffect(() => {
+    const p = pendingRef.current;
+    if (!p || !chats) return;
+    if (Date.now() > p.until) {
+      pendingRef.current = null;
+      return;
+    }
+    const fresh = chats.find((c) => !p.known.has(c.chatId));
+    if (fresh) {
+      pendingRef.current = null;
+      lastChatViews.set(fresh.chatId, p.view);
+      onOpen(fresh.chatId);
+    }
+  }, [chats, onOpen]);
+
+  const chatsRef = useRef(chats);
+  chatsRef.current = chats;
+  return useCallback((ptyId: string, view: string) => {
+    pendingRef.current = { known: new Set((chatsRef.current ?? []).map((c) => c.chatId)), view, until: Date.now() + WAIT_MS };
+    send({ t: "terminalchat", ptyId });
   }, []);
 }

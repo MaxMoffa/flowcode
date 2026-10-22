@@ -142,6 +142,10 @@ const EVT_RENAME_TAB: &str = "remote://rename-tab";
 const EVT_CLOSE_TAB: &str = "remote://close-tab";
 /// `{tabId}`: a phone handed a chat over to a terminal tab, to the window showing the chat.
 const EVT_CHAT_TERMINAL: &str = "remote://chat-terminal";
+/// `{ptyId}`: a phone asked to reopen a terminal tab's agent as a chat, to its owner window.
+const EVT_TERMINAL_CHAT: &str = "remote://terminal-chat";
+/// `{tabId, label}`: a phone renamed a chat tab, to the window showing it.
+const EVT_CHAT_RENAME: &str = "remote://chat-rename";
 /// A phone asked for a new chat tab (see `ClientMsg::NewChat`).
 const EVT_NEW_CHAT: &str = "remote://new-chat";
 /// How long the user has to confirm a new phone on the desktop. The phone
@@ -2142,6 +2146,27 @@ impl Conn {
             ClientMsg::ChatTerminal { chat_id } => {
                 let Some(chat) = self.chat(&chat_id) else { return };
                 let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_TERMINAL, serde_json::json!({ "tabId": chat.tab_id }));
+            }
+            ClientMsg::TerminalChat { pty_id } => {
+                let Some(window) = self.shared.app.state::<PtyState>().owner_of(&pty_id) else {
+                    self.error(tr("Terminale non trovato", "Terminal not found"), Some(pty_id));
+                    return;
+                };
+                let payload = serde_json::json!({ "ptyId": pty_id });
+                let _ = self.shared.app.emit_to(window.as_str(), EVT_TERMINAL_CHAT, payload);
+            }
+            ClientMsg::ChatRename { chat_id, label } => {
+                let label = label.trim();
+                if label.is_empty() {
+                    return;
+                }
+                if label.chars().count() > 128 {
+                    self.error(tr("Nome troppo lungo", "Name too long"), None);
+                    return;
+                }
+                let Some(chat) = self.chat(&chat_id) else { return };
+                let payload = serde_json::json!({ "tabId": chat.tab_id, "label": label });
+                let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_RENAME, payload);
             }
             ClientMsg::Views => self.send_views(),
             ClientMsg::ViewFile { view_id, path } => {

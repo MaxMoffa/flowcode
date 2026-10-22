@@ -28,9 +28,8 @@ const MicIcon = () => (
 
 /**
  * The message box: it grows with the text, sends, stops a running turn,
- * dictates by voice (the mic sits in the slot between the box and the send
- * button, and takes the send button's place while the box is empty), and lists
- * the messages waiting for the agent.
+ * dictates by voice (the mic sits inside the pill, right of the text), and lists
+ * the messages waiting for the agent. The round button sends, or stops the turn while one runs and the box is empty.
  */
 export function ChatComposer({ chatId, busy, queued, onSend, onStop, onUnqueue }: { chatId: string; busy: boolean; queued: string[]; onSend: (text: string) => void; onStop: () => void; onUnqueue: (index: number) => void }) {
   const box = useRef<HTMLTextAreaElement>(null);
@@ -94,35 +93,34 @@ export function ChatComposer({ chatId, busy, queued, onSend, onStop, onUnqueue }
         </div>
       )}
       <div className="chat-compose-row">
-        <textarea
-          ref={box}
-          className="chat-input"
-          rows={1}
-          value={text}
-          placeholder={t("chatPlaceholder")}
-          aria-label={t("chatPlaceholder")}
-          autoCapitalize="sentences"
-          onChange={(e) => change(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && hasKeyboard()) {
-              e.preventDefault();
-              send();
-            }
-          }}
-        />
-        <div className="chat-compose-slot">
+        <div className="chat-input-pill">
+          <textarea
+            ref={box}
+            className="chat-input"
+            rows={1}
+            value={text}
+            placeholder={t("chatPlaceholder")}
+            aria-label={t("chatPlaceholder")}
+            autoCapitalize="sentences"
+            onChange={(e) => change(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && hasKeyboard()) {
+                e.preventDefault();
+                send();
+              }
+            }}
+          />
           {dictation.supported && (
-            <button type="button" {...keepFocus} className={"chat-round is-mic" + (text.trim() ? "" : " is-prominent") + (listening ? " is-listening" : "")} aria-label={t("dictate")} aria-pressed={listening} onClick={dictate}>
+            <button type="button" {...keepFocus} className={"chat-mic" + (listening ? " is-listening" : "")} aria-label={t("dictate")} aria-pressed={listening} onClick={dictate}>
               <MicIcon />
             </button>
           )}
         </div>
-        {busy && (
+        {busy && !text.trim() ? (
           <button type="button" {...keepFocus} className="chat-round is-stop" aria-label={t("chatStopTurn")} onClick={onStop}>
             <StopIcon />
           </button>
-        )}
-        {(text.trim() || !dictation.supported) && (
+        ) : (
           <button type="button" {...keepFocus} className="chat-round is-send" aria-label={t("chatSend")} disabled={!text.trim()} onClick={send}>
             <SendIcon />
           </button>

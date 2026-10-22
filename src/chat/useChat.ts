@@ -13,6 +13,8 @@ interface UseChatOptions {
   profileId?: string;
   /** Resumes this agent session instead of starting a fresh one. */
   resumeSessionId?: string;
+  /** The resumed session must load: fail rather than start a fresh one (a terminal handing its agent over). */
+  strictResume?: boolean;
   /** The agent's session id, once it is up (the terminal can resume it). */
   onSessionId: (sessionId: string) => void;
   onStatus: (status: ChatStatus) => void;
@@ -25,7 +27,7 @@ interface ChatEventPayload {
 
 /** Runs one agent behind a chat: starts it on mount, keeps the conversation
  * model fed from the backend's events, closes it on unmount. */
-export function useChat({ agent, cwd, profileId, resumeSessionId, onSessionId, onStatus }: UseChatOptions) {
+export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, onSessionId, onStatus }: UseChatOptions) {
   const [model, setModel] = useState<ChatModelState>(initialChat);
   const [phase, setPhase] = useState<ChatPhase>("starting");
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +69,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, onSessionId, o
             cwd,
             profile: profileId ?? null,
             resumeSessionId: sessionIdRef.current ?? null,
+            strictResume: strictResume ?? false,
           });
           startedId = started.chatId;
           if (cancelled) {

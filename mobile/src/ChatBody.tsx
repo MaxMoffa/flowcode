@@ -4,6 +4,7 @@ import type { ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/cha
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { t } from "./i18n";
+import { AgentLogo } from "./icons";
 
 type DiffContent = Extract<ChatToolContent, { type: "diff" }>;
 
@@ -70,6 +71,7 @@ function ToolRow({ call }: { call: ChatToolCall }) {
     .map((c) => (c.type === "content" && c.content.type === "text" ? (c.content.text ?? "") : ""))
     .filter(Boolean)
     .join("\n");
+  const rowClass = "chat-tool-row" + (call.status === "completed" || call.status === "failed" ? "" : " is-running");
   const head = (
     <>
       <ToolStatus status={call.status} />
@@ -81,11 +83,11 @@ function ToolRow({ call }: { call: ChatToolCall }) {
     <div className="chat-tool">
       {text ? (
         <details>
-          <summary className="chat-tool-row">{head}</summary>
+          <summary className={rowClass}>{head}</summary>
           <pre className="chat-tool-out mono">{text.length > TOOL_TEXT_MAX ? `${text.slice(0, TOOL_TEXT_MAX)}…` : text}</pre>
         </details>
       ) : (
-        <div className="chat-tool-row">{head}</div>
+        <div className={rowClass}>{head}</div>
       )}
       {diffs.map((d, i) => (
         <DiffCard key={i} diff={d} />
@@ -161,13 +163,32 @@ function Item({ item, onLink }: { item: ChatItem; onLink: (url: string) => void 
   }
 }
 
-/** The conversation: bubbles, tool rows, edit cards, the plan. `onLink` gets a tapped link. */
-export const ChatBody = memo(function ChatBody({ items, plan, onLink }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; onLink: (url: string) => void }) {
+/** The conversation: the user's bubbles, and each run of agent output (text, tools, edits) as one turn under the agent's avatar, then the plan. `onLink` gets a tapped link. */
+export const ChatBody = memo(function ChatBody({ items, plan, agent, onLink }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; agent: string; onLink: (url: string) => void }) {
+  const groups: ChatItem[][] = [];
+  for (const item of items) {
+    const last = groups[groups.length - 1];
+    if (last && item.type !== "user" && last[0].type !== "user") last.push(item);
+    else groups.push([item]);
+  }
   return (
     <>
-      {items.map((item) => (
-        <Item key={item.id} item={item} onLink={onLink} />
-      ))}
+      {groups.map((group) =>
+        group[0].type === "user" ? (
+          <Item key={group[0].id} item={group[0]} onLink={onLink} />
+        ) : (
+          <div key={group[0].id} className="chat-turn">
+            <span className="chat-turn-avatar">
+              <AgentLogo cli={agent} size={15} />
+            </span>
+            <div className="chat-turn-body">
+              {group.map((item) => (
+                <Item key={item.id} item={item} onLink={onLink} />
+              ))}
+            </div>
+          </div>
+        ),
+      )}
       {plan && plan.length > 0 && <PlanCard plan={plan} />}
     </>
   );

@@ -44,10 +44,10 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--accent-2) 20%, transparent);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--surface);
   color: var(--accent-2);
 }
 
@@ -72,7 +72,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .chat-title-line svg {
@@ -85,7 +85,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
+}
+
+/* The agents button in the header: a waiting count sits on its corner. */
+.chat-agents-btn {
+  position: relative;
+}
+
+.chat-agents-btn .term-pill-badge {
+  top: 2px;
+  right: 0;
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 .chat-dot.is-exited {
@@ -117,8 +128,8 @@
 .chat-thread-inner {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 14px 12px;
+  gap: 12px;
+  padding: 16px 14px 12px;
 }
 
 .chat-empty,
@@ -147,8 +158,9 @@
 
 .chat-user {
   align-self: flex-end;
-  max-width: 86%;
-  padding: 9px 14px;
+  max-width: 84%;
+  padding: 10px 14px;
+  line-height: 1.45;
   border-radius: 18px 18px 5px 18px;
   background: var(--accent);
   color: var(--on-accent);
@@ -156,8 +168,38 @@
   overflow-wrap: anywhere;
 }
 
+/* An agent turn: avatar on the left, the turn's items stacked beside it. */
+.chat-turn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.chat-turn-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.chat-turn-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .chat-agent {
+  align-self: flex-start;
   max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border-radius: 5px 18px 18px 18px;
+  background: var(--surface);
   font-size: 15px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -364,12 +406,17 @@
   align-items: center;
   gap: 8px;
   min-height: 34px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: var(--surface);
+  background: transparent;
   font-size: 13px;
   list-style: none;
+}
+
+.chat-tool-row.is-running {
+  border-color: color-mix(in srgb, var(--busy) 35%, transparent);
+  background: var(--busy-bg);
 }
 
 .chat-tool-row::-webkit-details-marker {
@@ -386,6 +433,7 @@ summary.chat-tool-row {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font: 12px var(--mono);
 }
 
 .chat-tool-kind {
@@ -531,10 +579,11 @@ summary.chat-tool-row {
 }
 
 .chat-plan {
+  margin-left: 36px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
 }
 
 .chat-plan-head {
@@ -635,10 +684,10 @@ summary.chat-tool-row {
   flex-direction: column;
   gap: 8px;
   margin: 0 10px 8px;
-  padding: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--wait-border);
-  border-radius: 20px;
-  background: linear-gradient(160deg, var(--wait-bg), transparent 70%), var(--glass-strong);
+  border-radius: 14px;
+  background: var(--wait-bg);
 }
 
 .chat-perm-head {
@@ -661,8 +710,8 @@ summary.chat-tool-row {
 }
 
 .chat-perm-title {
-  font-size: 15px;
-  font-weight: 650;
+  font-size: 13.5px;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
@@ -673,26 +722,36 @@ summary.chat-tool-row {
 }
 
 .chat-perm-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: 8px;
+  display: flex;
+  gap: 6px;
 }
 
-.chat-perm-btn {
-  padding: 0 12px;
+.chat-perm-btn.btn {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  min-height: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13.5px;
+  font-weight: 500;
 }
 
-.chat-perm-btn.deny {
-  border-color: color-mix(in srgb, var(--danger) 38%, transparent);
-  color: var(--danger);
+.chat-perm-btn.btn.accent {
+  border-color: transparent;
+  background: var(--wait);
+  color: var(--on-accent);
+  font-weight: 600;
 }
 
 /* ---- composer -------------------------------------------------------------- */
 
 .chat-composer {
   flex: none;
-  padding: 8px 10px 10px;
-  border-top: 1px solid var(--border);
+  padding: 8px 10px 14px;
 }
 
 .chat-queue {
@@ -744,15 +803,31 @@ summary.chat-tool-row {
   gap: 8px;
 }
 
+/* The text box and the mic share one pill. */
+.chat-input-pill {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  min-height: 46px;
+  box-sizing: border-box;
+  padding: 0 6px 0 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 23px;
+  background: var(--surface);
+}
+
+.chat-input-pill:focus-within {
+  border-color: var(--accent-border);
+}
+
 .chat-input {
   flex: 1;
   min-width: 0;
-  min-height: 44px;
   max-height: 140px;
-  padding: 11px 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 22px;
-  background: var(--surface);
+  padding: 11px 0;
+  border: 0;
+  background: transparent;
   color: var(--fg);
   font-size: 16px;
   line-height: 1.35;
@@ -760,32 +835,35 @@ summary.chat-tool-row {
   outline: none;
 }
 
-.chat-input:focus {
-  border-color: var(--accent-border);
-}
-
 .chat-input::placeholder {
   color: var(--muted);
 }
 
-/* The dictation button, between the box and the send button; empty, it takes no room. */
-.chat-compose-slot {
+.chat-mic {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
 }
 
-.chat-compose-slot:empty {
-  display: none;
+.chat-mic.is-listening {
+  color: var(--accent);
+  animation: chat-mic-pulse 1.6s ease-out infinite;
 }
 
 .chat-round {
   flex: none;
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -800,28 +878,6 @@ summary.chat-tool-row {
   opacity: 0.35;
 }
 
-.chat-round.is-mic {
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  color: var(--muted);
-}
-
-.chat-round.is-mic.is-prominent {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.chat-round.is-mic.is-listening {
-  border-color: var(--accent-border);
-  color: var(--accent);
-  animation: chat-mic-pulse 1.6s ease-out infinite;
-}
-
-.chat-round.is-mic.is-prominent.is-listening {
-  color: var(--on-accent);
-}
-
 @keyframes chat-mic-pulse {
   from {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent);
@@ -832,7 +888,7 @@ summary.chat-tool-row {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-round.is-mic.is-listening {
+  .chat-mic.is-listening {
     animation: none;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
   }
@@ -894,8 +950,8 @@ summary.chat-tool-row {
 }
 
 .chat-round.is-stop {
-  background: color-mix(in srgb, var(--danger) 18%, transparent);
-  color: var(--danger);
+  background: var(--fg);
+  color: var(--bg);
 }
 
 .chat-ended {

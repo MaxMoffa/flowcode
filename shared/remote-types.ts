@@ -205,7 +205,11 @@ export type RemoteCap =
   /** `views` / `viewfile`: agent view plugins installed on the desktop. */
   | "agentViews"
   /** `linkpreview`: link preview cards fetched by the desktop. */
-  | "linkPreview";
+  | "linkPreview"
+  /** `terminalchat`: an agent's terminal tab reopened as a chat. */
+  | "terminalChat"
+  /** `chatrename`: renaming a chat tab. */
+  | "chatRename";
 
 export type ServerMsg =
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -261,6 +265,10 @@ export type ClientMsg =
   | { t: "chatmode"; chatId: string; modeId: string }
   /** Hands the chat's session over to a desktop terminal tab (as Ctrl+` does on the desktop). */
   | { t: "chatterminal"; chatId: string }
+  /** Reopens the agent running in the terminal tab of `ptyId` as a chat tab on the same session (the reverse of `chatterminal`). */
+  | { t: "terminalchat"; ptyId: string }
+  /** Renames the desktop chat tab. */
+  | { t: "chatrename"; chatId: string; label: string }
   /** Opens a new desktop chat tab for `cli` in `cwd` (else the start folder). */
   | { t: "newchat"; cli: string; cwd?: string; /** "" = the default profile; absent = automatic. */ profile?: string }
   | { t: "views" }

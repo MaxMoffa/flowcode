@@ -3,7 +3,7 @@ import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
-import { AgentLogo, ChatIcon, CheckIcon, CloseIcon, CopyIcon, StopIcon, TerminalIcon } from "./icons";
+import { AgentLogo, ChatIcon, CheckIcon, CloseIcon, CopyIcon, PencilIcon, StopIcon, TerminalIcon } from "./icons";
 
 /** A way to look at the session: the built-in chat, a plugin's view or the terminal. */
 export interface ViewChoice {
@@ -26,10 +26,17 @@ export function ChatMenu(props: {
   views: ViewChoice[];
   view: string;
   onView: (id: string) => void;
-  modes: ChatModes | null;
-  onMode: (modeId: string) => void;
+  /** Greys out the choices other than the current view (the desktop can't switch this session). */
+  viewsDisabled?: boolean;
+  modes?: ChatModes | null;
+  onMode?: (modeId: string) => void;
+  onRename?: () => void;
   onCopyId?: () => void;
   onStop?: () => void;
+  /** The stop button's label, when "Stop the agent" doesn't fit (a terminal interrupts). */
+  stopLabel?: string;
+  /** Whether to mention the two-finger swipe (a terminal has none). */
+  swipeHint?: boolean;
 }) {
   const { open, onClose } = props;
   useEscape(open, onClose);
@@ -66,19 +73,34 @@ export function ChatMenu(props: {
         <div className="chat-menu-label">{t("chatViewAs")}</div>
         <div className="chat-menu-group" role="radiogroup" aria-label={t("chatViewAs")}>
           {choices.map((c) => (
-            <button key={c.id} type="button" role="radio" aria-checked={c.id === props.view} className={c.id === props.view ? "on" : ""} onClick={close(() => c.id !== props.view && props.onView(c.id))}>
+            <button
+              key={c.id}
+              type="button"
+              role="radio"
+              aria-checked={c.id === props.view}
+              className={c.id === props.view ? "on" : ""}
+              disabled={props.viewsDisabled && c.id !== props.view}
+              onClick={close(() => c.id !== props.view && props.onView(c.id))}
+            >
               {c.icon}
               <span>{c.label}</span>
               {c.id === props.view && <CheckIcon />}
             </button>
           ))}
         </div>
-        {props.modes && (
+        {props.modes && props.onMode && (
           <>
             <div className="chat-menu-label">{t("chatModes")}</div>
             <div className="chat-menu-group" role="radiogroup" aria-label={t("chatModes")}>
               {props.modes.availableModes.map((m) => (
-                <button key={m.id} type="button" role="radio" aria-checked={m.id === props.modes?.currentModeId} className={m.id === props.modes?.currentModeId ? "on" : ""} onClick={close(() => m.id !== props.modes?.currentModeId && props.onMode(m.id))}>
+                <button
+                  key={m.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={m.id === props.modes?.currentModeId}
+                  className={m.id === props.modes?.currentModeId ? "on" : ""}
+                  onClick={close(() => m.id !== props.modes?.currentModeId && props.onMode?.(m.id))}
+                >
                   <span>{m.name}</span>
                   {m.id === props.modes?.currentModeId && <CheckIcon />}
                 </button>
@@ -87,6 +109,12 @@ export function ChatMenu(props: {
           </>
         )}
         <div className="chat-menu-group">
+          {props.onRename && (
+            <button type="button" onClick={close(props.onRename)}>
+              <PencilIcon />
+              <span>{t("rename")}</span>
+            </button>
+          )}
           {props.onCopyId && (
             <button type="button" onClick={close(props.onCopyId)}>
               <CopyIcon />
@@ -95,10 +123,10 @@ export function ChatMenu(props: {
           )}
           <button type="button" className="danger" disabled={!props.onStop} onClick={close(props.onStop)}>
             <StopIcon />
-            <span>{t("chatStopAgent")}</span>
+            <span>{props.stopLabel ?? t("chatStopAgent")}</span>
           </button>
         </div>
-        <p className="chat-menu-hint">{t("chatSwipeHint")}</p>
+        {props.swipeHint !== false && <p className="chat-menu-hint">{t("chatSwipeHint")}</p>}
       </div>
     </AdaptiveSheet>
   );

@@ -718,8 +718,8 @@ fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>) -
     Ok((child, line))
 }
 
-/// `initialize`, then `session/load` or `session/new`.
-fn handshake(chat: &Chat, cwd: &str, resume: Option<String>) -> Result<(Value, String, bool), String> {
+/// `initialize`, then `session/load` or `session/new`; `strict` refuses a fresh session when the resume can't load.
+fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Result<(Value, String, bool), String> {
     let init = chat.request(
         "initialize",
         json!({
@@ -730,6 +730,9 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>) -> Result<(Value, S
         SETUP_TIMEOUT,
     )?;
     let can_load = init.pointer("/agentCapabilities/loadSession").and_then(Value::as_bool).unwrap_or(false);
+    if strict && !can_load && resume.as_deref().is_some_and(|id| !id.is_empty()) {
+        return Err("resume_unsupported: the agent can't resume a session".into());
+    }
     match resume.filter(|id| can_load && !id.is_empty()) {
         Some(session_id) => {
             let result = chat.request(
@@ -758,6 +761,7 @@ fn start_blocking(
     cwd: String,
     profile: Option<String>,
     resume: Option<String>,
+    strict: bool,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
     let (mut child, line) = spawn_agent(&app, &agent, &cwd, profile.as_deref())?;
     let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take())
@@ -798,7 +802,7 @@ fn start_blocking(
         let chat = Arc::clone(&chat);
         std::thread::spawn(move || read_stderr(chat, stderr));
     }
-    match handshake(&chat, &cwd, resume) {
+    match handshake(&chat, &cwd, resume, strict) {
         Ok((result, session_id, loaded)) => {
             let _ = chat.session_id.set(session_id.clone());
             if let Some(modes) = result.get("modes") {
@@ -817,7 +821,7 @@ fn start_blocking(
         }
         Err(e) => {
             chat.kill();
-            Err(if e.starts_with("auth_required") { e } else { format!("`{line}`: {e}") })
+            Err(if e.starts_with("auth_required") || e.starts_with("resume_unsupported") { e } else { format!("`{line}`: {e}") })
         }
     }
 }
@@ -831,10 +835,11 @@ pub async fn chat_start(
     cwd: String,
     profile: Option<String>,
     resume_session_id: Option<String>,
+    strict_resume: Option<bool>,
 ) -> Result<ChatStarted, String> {
     let owner = window.label().to_string();
     let (chat, started) =
-        crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id)).await?;
+        crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id, strict_resume.unwrap_or(false))).await?;
     lock(&state.sessions).insert(started.chat_id.clone(), ChatSession { chat });
     state.changed();
     Ok(started)

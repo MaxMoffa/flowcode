@@ -68,6 +68,8 @@ export interface ChatTab {
    * default. */
   viewId?: string;
   status?: ChatStatus;
+  /** The terminal tab whose agent this chat takes over; closed once the session has loaded, kept if it fails. Not saved. */
+  handoffFrom?: string;
 }
 
 export interface EditorTab {

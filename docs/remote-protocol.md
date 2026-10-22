@@ -111,6 +111,8 @@ Client messages:
 | `action {id, ptyId?}` | Run a published action (see `actions`) in the tab owning `ptyId`, or in the main window. Unknown ids get an `error`. |
 | `rename {ptyId, label}` | Rename the desktop tab owning `ptyId`, like a desktop rename: the label is trimmed (max 128 characters) and a blank one is ignored. An unknown pty gets an `error`. No reply: the next `tabs` shows the new label. |
 | `closetab {ptyId}` | Close the desktop tab owning `ptyId`, like closing it on the desktop. The window's last tab stays open (closing it would close the window). An unknown pty gets an `error`. No reply: the next `tabs` no longer lists it. |
+| `terminalchat {ptyId}` | Reopen the agent running in the tab owning `ptyId` as a chat tab on the same session (the reverse of `chatterminal`). The desktop starts the chat with a strict `session/load` and closes the terminal only once the session has loaded; if the agent is busy, can't resume or fails to start, the terminal stays. An unknown pty gets an `error`. No reply: the new chat shows in the next `chats`, the terminal leaves the next `tabs`. Needs the `terminalChat` capability. |
+| `chatrename {chatId, label}` | Rename a desktop chat tab, like `rename` (trimmed, max 128 characters, blank ignored). No reply: the next `chats` shows the new label. Needs the `chatRename` capability. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
 | `linkpreview {url}` | The preview of a web link in a chat, answered with `linkpreview`. Needs the `linkPreview` capability (not in `RemoteCap`: an older desktop just has no previews). |

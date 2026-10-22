@@ -703,6 +703,8 @@ function Shell() {
   const remoteCloseRef = useRef<(ptyId: string) => void>(() => {});
   /** The phone asked to hand a chat tab over to a terminal / for a new chat tab. */
   const remoteChatTerminalRef = useRef<(tabId: string) => void>(() => {});
+  const remoteTerminalChatRef = useRef<(ptyId: string) => void>(() => {});
+  const remoteChatRenameRef = useRef<(tabId: string, label: string) => void>(() => {});
   const remoteNewChatRef = useRef<(cwd: string | null, cli: string, profile: string | null | undefined) => void>(() => {});
   const remoteLoginTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
@@ -1265,6 +1267,8 @@ function Shell() {
     remoteRenameRef,
     remoteCloseRef,
     remoteChatTerminalRef,
+    remoteTerminalChatRef,
+    remoteChatRenameRef,
     remoteNewChatRef,
   });
 
@@ -1952,6 +1956,17 @@ function Shell() {
     if (tab?.sessionId) switchChatToTerminal(tab, tab.sessionId);
   };
 
+  remoteTerminalChatRef.current = (ptyId) => {
+    let tabId: string | undefined;
+    for (const [id, h] of termRefs.current) {
+      if (h.getPtyId() === ptyId) tabId = id;
+    }
+    if (tabId) switchTerminalToChat(tabId);
+  };
+  remoteChatRenameRef.current = (tabId, label) => {
+    if (latestRef.current.tabs.some((t) => t.id === tabId && t.kind === "chat")) renameTab(tabId, label);
+  };
+
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the
    * project folder, or a fresh git worktree of it). `shell` is the shell the
    * project's own tab runs. Uses the CLI plugin's command, which may carry the
@@ -1999,12 +2014,13 @@ function Shell() {
   }
 
   /** Opens `cli` as a chat tab in `cwd` (the host file system), after the same
-   * install/login check a terminal launch does. */
-  async function openChatTab(cli: AgentCli, cwd: string, profileId?: string, viewId?: string): Promise<boolean> {
+   * install/login check a terminal launch does. With `resume`, the tab resumes
+   * that session (and takes its label) instead of starting a new one. */
+  async function openChatTab(cli: AgentCli, cwd: string, profileId?: string, viewId?: string, resume?: { sessionId: string; label?: string; handoffFrom?: string }): Promise<boolean> {
     if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
-    setTabs((prev) => [...prev, { kind: "chat", id, agent: cli, cwd, label: CLI_INFO[cli].name, profileId, viewId: viewId ?? defaultAgentView() }]);
+    setTabs((prev) => [...prev, { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? CLI_INFO[cli].name, profileId, viewId: viewId ?? defaultAgentView(), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom }]);
     setActiveTabId(id);
     return true;
   }
@@ -2020,6 +2036,36 @@ function Shell() {
     setTabs((prev) => prev.filter((t) => t.id !== tab.id));
     forgetTab(tab.id);
     void openAgentSession(tab.cwd, sessionId, tab.agent, undefined, tab.profileId);
+  }
+
+  /** The reverse of `switchChatToTerminal`: resumes the session in a chat tab;
+   * the chat closes the terminal tab (its agent ends with the pty) once its
+   * session has loaded (`finishHandoff`), or goes away itself if it can't
+   * (`failHandoff`). Only host agents whose session id is known, and not while
+   * the agent is busy. */
+  function switchTerminalToChat(tabId: string) {
+    const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    const session = sessionByTab.get(tabId);
+    if (!tab || !session?.session_id || session.status === "busy" || session.wsl_distro || !(AGENT_CLIS as readonly string[]).includes(session.cli)) return;
+    const resume = { sessionId: session.session_id, label: tab.label, handoffFrom: tabId };
+    void openChatTab(session.cli as AgentCli, session.cwd ?? tab.cwd, tab.profileId ?? session.profile ?? undefined, undefined, resume);
+  }
+
+  /** The chat resumed the session: the terminal it took over closes. */
+  function finishHandoff(chatId: string, terminalId: string) {
+    patchChatTab(chatId, { handoffFrom: undefined });
+    setTabs((prev) => prev.filter((t) => t.id !== terminalId));
+    forgetTab(terminalId);
+    setActiveTerminalId((active) => (active === terminalId ? (latestRef.current.tabs.find((t) => t.kind === "terminal" && t.id !== terminalId)?.id ?? "") : active));
+  }
+
+  /** The chat couldn't resume the session: it goes away and the terminal stays. */
+  function failHandoff(chatId: string) {
+    const terminalId = latestRef.current.tabs.find((t): t is ChatTab => t.id === chatId && t.kind === "chat")?.handoffFrom;
+    setTabs((prev) => prev.filter((t) => t.id !== chatId));
+    forgetTab(chatId);
+    if (terminalId && latestRef.current.tabs.some((t) => t.id === terminalId)) setActiveTabId(terminalId);
+    showPluginToast(t("agents.handoff.failed"));
   }
 
   /** Opens a plain terminal tab in `cwd` - a worktree from the Agents panel. */
@@ -2561,11 +2607,18 @@ function Shell() {
                       cwd={tab.cwd}
                       profileId={tab.profileId}
                       resumeSessionId={tab.sessionId}
+                      strictResume={!!tab.handoffFrom}
                       viewId={tab.viewId}
                       hidden={tab.id !== activeTabId}
                       title={tab.label}
-                      onSessionId={(sessionId) => patchChatTab(tab.id, { sessionId })}
-                      onStatus={(status) => patchChatTab(tab.id, { status })}
+                      onSessionId={(sessionId) => {
+                        patchChatTab(tab.id, { sessionId });
+                        if (tab.handoffFrom) finishHandoff(tab.id, tab.handoffFrom);
+                      }}
+                      onStatus={(status) => {
+                        if (status === "exited" && tab.handoffFrom) failHandoff(tab.id);
+                        else patchChatTab(tab.id, { status });
+                      }}
                       onViewChange={(viewId) => patchChatTab(tab.id, { viewId })}
                       onSwitchToTerminal={(sessionId) => switchChatToTerminal(tab, sessionId)}
                       onOpenFile={openFile}

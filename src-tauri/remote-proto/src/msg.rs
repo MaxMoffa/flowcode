@@ -95,6 +95,10 @@ pub enum ClientMsg {
     ChatMode { chat_id: String, mode_id: String },
     /// Hand the chat's session over to a desktop terminal tab, as Ctrl+` does there.
     ChatTerminal { chat_id: String },
+    /// Reopen the agent running in the terminal tab of `pty_id` as a chat tab on the same session (the reverse of `ChatTerminal`).
+    TerminalChat { pty_id: String },
+    /// Rename the chat tab, at most 128 characters.
+    ChatRename { chat_id: String, label: String },
     /// Open a new desktop chat tab for `cli`, in `cwd` (else the shell's start folder).
     NewChat {
         cli: String,
@@ -519,6 +523,14 @@ mod tests {
         );
         let none = ServerMsg::LinkPreview { url: "https://a.b".into(), preview: None };
         assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "linkpreview", "url": "https://a.b", "preview": null }));
+    }
+
+    #[test]
+    fn chat_tab_messages_round_trip() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"terminalchat","ptyId":"p"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::TerminalChat { pty_id: "p".into() });
+        let json = serde_json::to_value(ClientMsg::ChatRename { chat_id: "c1".into(), label: "Notes".into() }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "chatrename", "chatId": "c1", "label": "Notes" }));
     }
 
     #[test]

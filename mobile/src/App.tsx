@@ -8,7 +8,7 @@ import { unlock, useLock } from "./applock";
 import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { CompatBanner, IncompatibleScreen } from "./Compat";
-import { clearOpenRequest, requestOpenChat, useChatHandoff, useOpenRequest } from "./chats";
+import { clearOpenRequest, requestOpenChat, useChatHandoff, useOpenRequest, useTerminalHandoff } from "./chats";
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
@@ -240,6 +240,8 @@ function AppContent() {
 
   /** "Terminale" in a chat: the desktop turns the session into a terminal tab, which opens once listed. */
   const toTerminal = useChatHandoff(tabs, open);
+  /** A plugin view picked in a terminal: the desktop turns the agent into a chat, which opens once listed. */
+  const toChat = useTerminalHandoff(chats, openChatTab);
 
   // The wide layout always shows something: pick the first terminal (else chat) when nothing is open.
   useEffect(() => {
@@ -269,13 +271,13 @@ function AppContent() {
   } else if (chat) {
     content = (
       <Suspense fallback={<div className="screen" />}>
-        <ChatScreen key={chat.chatId} chatId={chat.chatId} onBack={() => setOpenChat(null)} onTerminal={toTerminal} />
+        <ChatScreen key={chat.chatId} chatId={chat.chatId} onBack={() => setOpenChat(null)} onTerminal={toTerminal} onSwitch={open} />
       </Suspense>
     );
   } else if (tab) {
     content = (
       <Suspense fallback={<div className="screen" />}>
-        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} onSwitch={open} />
+        <TerminalScreen key={tab.ptyId} tab={tab} status={status} onBack={() => setOpenPty(null)} onSwitch={open} onChat={toChat} />
       </Suspense>
     );
   } else {
