@@ -14,6 +14,7 @@ import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, ChatTab, TermTab, EditorTab } from "./tabs/types";
 import type { GitChange } from "./git/gitStatus";
 import { loadPluginViews } from "./agentViews/pluginViews";
+import { defaultAgentView } from "./agentViews/defaultView";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { shellStartKey, TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
 import { loadSession, saveWindowSession, type SavedTab, type SavedWindow } from "./session/session";
@@ -2003,7 +2004,7 @@ function Shell() {
     if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
-    setTabs((prev) => [...prev, { kind: "chat", id, agent: cli, cwd, label: CLI_INFO[cli].name, profileId, viewId }]);
+    setTabs((prev) => [...prev, { kind: "chat", id, agent: cli, cwd, label: CLI_INFO[cli].name, profileId, viewId: viewId ?? defaultAgentView() }]);
     setActiveTabId(id);
     return true;
   }

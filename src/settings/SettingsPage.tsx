@@ -25,6 +25,9 @@ import { SECTION_DESCRIPTION_KEYS, SECTION_TITLE_KEYS } from "./settingsIndex";
 import { Segmented, SettingRow, SettingsGroup, Switch, settingDomId } from "./SettingsControls";
 import { ShortcutsSettings } from "../shortcuts/ShortcutsSettings";
 import { layoutLabel, resolveNewTabLayout, useNewTabLayouts } from "../newtab/layouts";
+import { resolveAcpView, useAgentViews, viewLabel as agentViewLabel } from "../agentViews/registry";
+import { setDefaultAgentView, useDefaultAgentView } from "../agentViews/defaultView";
+import "../agentViews/builtins";
 import { useNewTabSettings } from "../newtab/newTabSettings";
 import { isWindowsPlatform } from "../lib/path";
 import "./settings-page.css";
@@ -91,6 +94,8 @@ export function SettingsPage({
   const { t, language, preference: languagePreference, setPreference: setLanguagePreference } = useI18n();
   const [newTabSettings, setNewTabSettings] = useNewTabSettings();
   const newTabLayouts = useNewTabLayouts();
+  const agentViewsList = useAgentViews();
+  const defaultView = useDefaultAgentView();
   const { mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity, resetGlassOpacity } =
     useTheme();
   const {
@@ -551,6 +556,17 @@ export function SettingsPage({
 
         {section === "agents" && (
           <>
+            <SettingsGroup title={t("settings.group.agentView")}>
+              <SettingRow id="agentView" label={t("settings.agentView.label")} desc={t("settings.agentView.desc")}>
+                <Segmented
+                  ariaLabel={t("settings.agentView.label")}
+                  value={resolveAcpView(defaultView).id}
+                  options={agentViewsList.filter((v) => v.transport === "acp").map((v) => ({ value: v.id, label: agentViewLabel(v, t, language) }))}
+                  onChange={setDefaultAgentView}
+                />
+              </SettingRow>
+            </SettingsGroup>
+
             <SettingsGroup title={t("settings.group.notifications")}>
               {NOTIFICATION_KINDS.map((kind) => (
                 <SettingRow

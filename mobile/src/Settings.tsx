@@ -26,6 +26,9 @@ import { Group, MessageField, PaletteGrid, Segmented, Slider, Stepper, Toggle } 
 import { ICONS, type SectionId } from "./settingsIcons";
 import { UpdatesPage } from "./UpdatesUi";
 import { setPanelMode, usePanelMode } from "./panelMode";
+import { CHAT_VIEW } from "./ChatMenu";
+import { setDefaultView, useDefaultView } from "./defaultView";
+import { useReadyViews, viewFits, viewLabel } from "./viewCache";
 import { setUiScale, useUiScale } from "./uiScale";
 import { updates } from "./updates";
 
@@ -73,6 +76,8 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
   const lock = useLock();
   const shots = useScreenshots();
   const wide = useWide();
+  const fittingViews = useReadyViews().filter((v) => viewFits(v, wide));
+  const defaultView = useDefaultView(wide);
   const uiScale = useUiScale();
   const panelMode = usePanelMode();
   const [section, setSection] = useState<SectionId | null>(null);
@@ -218,6 +223,14 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
                 { id: "floating", name: t("sidePanelsFloating") },
               ]}
               onChange={setPanelMode}
+            />
+          )}
+          {fittingViews.length > 0 && (
+            <Segmented
+              label={t("defaultView")}
+              value={fittingViews.some((v) => v.id === defaultView) ? defaultView : CHAT_VIEW}
+              options={[{ id: CHAT_VIEW, name: t("chat") }, ...fittingViews.map((v) => ({ id: v.id, name: viewLabel(v, s?.resolvedLanguage) }))]}
+              onChange={(id) => setDefaultView(wide, id)}
             />
           )}
         </Group>

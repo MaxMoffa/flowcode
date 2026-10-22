@@ -11,6 +11,7 @@ import { chatModes, chatStatus, emptySession, pendingPermissions } from "./chatS
 import { useTwoFingerSwipe } from "./chatSwipe";
 import { answerChatPermission, cancelChat, sendChatPrompt, setChatMode, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
+import { defaultViewFor } from "./defaultView";
 import { t } from "./i18n";
 import { AgentLogo, BackIcon, ChevronDownIcon } from "./icons";
 import { setChatTabShown, showToast, useRemoteSelector } from "./remote";
@@ -59,7 +60,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, embedded }: { chatId: s
   );
 
   const views = useReadyViews().filter((v) => viewFits(v, wide));
-  const [view, setView] = useState(() => lastViews.get(chatId) ?? CHAT_VIEW);
+  const [view, setView] = useState(() => lastViews.get(chatId) ?? defaultViewFor(wide));
   const pkg = views.find((v) => v.id === view);
   const shown = pkg ? pkg.id : CHAT_VIEW;
   const choices: ViewChoice[] = views.map((v) => ({ id: v.id, label: viewLabel(v, language) }));

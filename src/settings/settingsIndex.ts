@@ -75,6 +75,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "restore", section: "startup", label: "settings.restore.label", desc: "settings.restore.desc", keywords: "ripristina restore sessione session schede tabs riavvio" },
   { id: "sidebarMode", section: "explorer", label: "settings.explorer.label", desc: "settings.explorer.fieldDesc", keywords: "sidebar pannello panel fissato flottante docked floating" },
   { id: "explorerOpen", section: "explorer", label: "settings.explorerOpen.label", desc: "settings.explorerOpen.desc", keywords: "click doppio singolo double single cartelle folders" },
+  { id: "agentView", section: "agents", label: "settings.agentView.label", desc: "settings.agentView.desc", keywords: "vista view agente agent chat predefinita default plugin" },
   { id: "notify-done", section: "agents", label: "settings.notifications.done.label", desc: "settings.notifications.done.desc", keywords: "notifiche notifications agente agent claude codex vibe mistral avvisi" },
   { id: "notify-input", section: "agents", label: "settings.notifications.input.label", desc: "settings.notifications.input.desc", keywords: "notifiche notifications agente agent claude codex vibe mistral avvisi permesso permission" },
   { id: "notify-limitReset", section: "agents", label: "settings.notifications.limitReset.label", desc: "settings.notifications.limitReset.desc", keywords: "notifiche notifications limite limit reset sessione session utilizzo usage claude codex 5 ore hours" },
