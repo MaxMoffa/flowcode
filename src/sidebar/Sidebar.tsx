@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { FileTree } from "./FileTree";
 import { GitPanel } from "../git/GitPanel";
 import type { GitChange } from "../git/gitStatus";
@@ -24,12 +24,21 @@ interface SidebarProps {
    * program - only meaningful to explain why "auto" is momentarily acting
    * disconnected, not something the sidebar otherwise reacts to. */
   terminalBusy: boolean;
+  /** The agent history panel, given while the active tab runs a coding agent:
+   * it adds a "History" tab (selected by default) and is told whether it is
+   * the one showing. */
+  history?: (visible: boolean) => ReactNode;
 }
 
 const SIDEBAR_TAB_KEY = "flowcode.sidebarTab";
+/** Kept apart from `SIDEBAR_TAB_KEY`, so a plain terminal keeps its own
+ * Explorer/Git choice while agent tabs default to History. */
+const AGENT_SIDEBAR_TAB_KEY = "flowcode.sidebarTab.agent";
 const SIDEBAR_TABS = ["explorer", "git"] as const;
-type SidebarTab = (typeof SIDEBAR_TABS)[number];
+const AGENT_SIDEBAR_TABS = ["history", "explorer", "git"] as const;
+type SidebarTab = (typeof AGENT_SIDEBAR_TABS)[number];
 const readSidebarTab = (key: string) => readEnum<SidebarTab>(key, SIDEBAR_TABS, "explorer");
+const readAgentSidebarTab = (key: string) => readEnum<SidebarTab>(key, AGENT_SIDEBAR_TABS, "history");
 
 export function Sidebar({
   cwd,
@@ -42,9 +51,13 @@ export function Sidebar({
   linkMode,
   onSetLinkMode,
   terminalBusy,
+  history,
 }: SidebarProps) {
   const { t } = useI18n();
-  const [tab, setTab] = usePersistentState<SidebarTab>(SIDEBAR_TAB_KEY, readSidebarTab, writeString);
+  const [plainTab, setPlainTab] = usePersistentState<SidebarTab>(SIDEBAR_TAB_KEY, readSidebarTab, writeString);
+  const [agentTab, setAgentTab] = usePersistentState<SidebarTab>(AGENT_SIDEBAR_TAB_KEY, readAgentSidebarTab, writeString);
+  const tab = history ? agentTab : plainTab;
+  const setTab = history ? setAgentTab : setPlainTab;
   const [changeCount, setChangeCount] = useState(0);
 
   return (
@@ -52,6 +65,7 @@ export function Sidebar({
       <div className="sidebar-switch">
         <SegmentedSwitch
           options={[
+            ...(history ? [{ id: "history" as const, label: t("sidebar.tab.history") }] : []),
             { id: "explorer", label: t("git.tab.explorer") },
             { id: "git", label: t("git.tab.git"), count: changeCount > 99 ? "99+" : changeCount },
           ]}
@@ -84,6 +98,17 @@ export function Sidebar({
           visible={tab === "explorer"}
         />
       </div>
+      {history && (
+        <div
+          className="sidebar-panel"
+          role="tabpanel"
+          id="sidebar-panel-history"
+          aria-labelledby="sidebar-tab-history"
+          hidden={tab !== "history"}
+        >
+          {history(tab === "history")}
+        </div>
+      )}
       <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-git" aria-labelledby="sidebar-tab-git" hidden={tab !== "git"}>
         <GitPanel cwd={cwd} visible={tab === "git"} onOpenFile={onOpenFile} onOpenDiff={onOpenDiff} onCountChange={setChangeCount} />
       </div>

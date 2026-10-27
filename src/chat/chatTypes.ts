@@ -48,6 +48,20 @@ export interface ChatModes {
   availableModes: ChatMode[];
 }
 
+export interface ChatModelOption {
+  modelId: string;
+  name: string;
+  description?: string;
+  /** The caption of the group it is listed under, when the agent groups its models. */
+  group?: string;
+}
+
+/** The models the agent offers, normalized by the backend from either ACP API (`models` or the `model` config option). */
+export interface ChatModels {
+  currentModelId: string;
+  availableModels: ChatModelOption[];
+}
+
 export interface ChatPermissionOption {
   optionId: string;
   name: string;
@@ -81,6 +95,7 @@ export interface ChatStartResult {
   sessionId: string;
   agent: string;
   modes: ChatModes | null;
+  models: ChatModels | null;
   configOptions: unknown;
   /** The session was resumed: its history arrives as events. */
   loaded: boolean;

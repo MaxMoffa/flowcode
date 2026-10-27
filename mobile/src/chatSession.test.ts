@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { ChatInfo } from "../../shared/remote-types";
-import { MAX_RAW_EVENTS, applyEvents, canDispatch, chatModes, chatStatus, emptySession, pendingPermissions, putBack, takeQueued } from "./chatSession";
+import { MAX_ITEMS, MAX_RAW_EVENTS, applyEvents, canDispatch, chatModels, chatModes, chatStatus, emptySession, forceNeedsCancel, forceQueued, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued } from "./chatSession";
 
 const user = (seq: number, text = `m${seq}`): ChatEvent => ({ seq, at: 0, kind: "user", text });
 const chunk = (seq: number, text: string): ChatEvent => ({ seq, at: 0, kind: "update", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
@@ -97,6 +97,66 @@ describe("the send queue", () => {
     expect(back.sentAtSeq).toBeNull();
   });
 
+  it("forces a queued message to the front and drops the sent-at guard", () => {
+    const base = { ...emptySession(), queued: ["a", "b", "c"], sentAtSeq: 5 };
+    const forced = forceQueued(base, 2);
+    expect(forced.queued).toEqual(["c", "a", "b"]);
+    expect(forced.sentAtSeq).toBeNull();
+    expect(canDispatch(forced, "idle")).toBe(true);
+    expect(forceQueued(base, 9)).toBe(base);
+  });
+
+  it("trusts its own events over a stale 'idle' from the desktop", () => {
+    // The pushed chat list still says idle, but the phone has seen the turn start.
+    let s = { ...applyEvents(applyEvents(emptySession(), [turnEnd(1)], replay), [user(2), chunk(3, "...")], live), queued: ["dopo"] };
+    expect(chatStatus(info("idle"), s.model)).toBe("busy");
+    expect(canDispatch(s, chatStatus(info("idle"), s.model))).toBe(false);
+    // A permission the desktop already reports, the events not yet: waiting.
+    expect(chatStatus(info("waiting"), s.model)).toBe("waiting");
+    s = applyEvents(s, [turnEnd(4)], live);
+    expect(canDispatch(s, chatStatus(info("idle"), s.model))).toBe(true);
+  });
+
+  it("remembers the sent message until its user event arrives", () => {
+    const base = { ...applyEvents(emptySession(), [turnEnd(1)], live), queued: ["a"] };
+    const { session } = takeQueued(base)!;
+    expect(session.sentText).toBe("a");
+    // Unrelated events (the turn that made the agent busy) don't settle it.
+    const during = applyEvents(session, [chunk(2, "x")], live);
+    expect(during.sentText).toBe("a");
+    const landed = applyEvents(during, [user(3, "a")], live);
+    expect(landed.sentText).toBeNull();
+    expect(requeueRefused(landed)).toBeNull();
+    // The agent going away settles it too.
+    expect(applyEvents(session, [{ seq: 2, at: 0, kind: "exit", code: 1 }], live).sentText).toBeNull();
+  });
+
+  it("puts a refused message back first, and holds it until the agent has moved on", () => {
+    const base = { ...applyEvents(emptySession(), [turnEnd(1)], live), queued: ["a", "b"] };
+    const { session } = takeQueued(base)!;
+    const back = requeueRefused(session)!;
+    expect(back.queued).toEqual(["a", "b"]);
+    expect(back.sentText).toBeNull();
+    // Still "idle" as far as anyone knows, but nothing new happened: not again straight away.
+    expect(canDispatch(back, "idle")).toBe(false);
+    const after = applyEvents(back, [chunk(2, "fine"), turnEnd(3)], live);
+    expect(canDispatch(after, "idle")).toBe(true);
+    expect(takeQueued(after)!.text).toBe("a");
+  });
+
+  it("ties a refusal to the one chat with a message in flight, or to none", () => {
+    const idle = applyEvents(emptySession(), [turnEnd(1)], live);
+    const flying = takeQueued({ ...idle, queued: ["x"] })!.session;
+    expect(refusedChat({ a: idle, b: flying })).toBe("b");
+    expect(refusedChat({ a: idle })).toBeNull();
+    expect(refusedChat({ a: flying, b: flying })).toBeNull();
+  });
+
+  it("forgets the sent message when it is put back", () => {
+    const { session, text } = takeQueued({ ...emptySession(), queued: ["a"] })!;
+    expect(putBack(session, text, session.sentAtSeq!).sentText).toBeNull();
+  });
+
   it("does not dispatch an empty queue or to an agent that is waiting, starting or gone", () => {
     const s = { ...emptySession(), queued: ["x"] };
     for (const st of ["busy", "waiting", "starting", "exited"] as const) expect(canDispatch(s, st)).toBe(false);
@@ -131,5 +191,61 @@ describe("status, permissions and modes", () => {
     expect(chatModes({ ...info("idle"), modes: { availableModes: [] } }, base)).toBeNull();
     expect(chatModes({ ...info("idle"), modes: "x" }, base)).toBeNull();
     expect(chatModes(undefined, base)).toBeNull();
+  });
+
+  it("reads the announced models, the live model wins, and junk or a single model is no choice", () => {
+    const models = { currentModelId: "sonnet", availableModels: [{ modelId: "sonnet", name: "Sonnet", group: "Claude" }, { modelId: "opus", name: "Opus" }, { name: "no id" }] };
+    const base = applyEvents(emptySession(), [], live).model;
+    const read = chatModels({ ...info("idle"), models }, base);
+    expect(read?.currentModelId).toBe("sonnet");
+    expect(read?.availableModels.map((m) => m.modelId)).toEqual(["sonnet", "opus"]);
+    const changed = applyEvents(emptySession(), [{ seq: 1, at: 0, kind: "ext", method: "_flowcode/model", params: { currentModelId: "opus" } }], live).model;
+    expect(chatModels({ ...info("idle"), models }, changed)?.currentModelId).toBe("opus");
+    expect(chatModels({ ...info("idle"), models: { availableModels: [{ modelId: "a", name: "A" }, { modelId: "b", name: "B" }] } }, base)?.currentModelId).toBe("a");
+    expect(chatModels({ ...info("idle"), models: { currentModelId: "a", availableModels: [{ modelId: "a", name: "A" }] } }, base)).toBeNull();
+    expect(chatModels({ ...info("idle"), models: { availableModels: "x" } }, base)).toBeNull();
+    expect(chatModels({ ...info("idle"), models: 5 }, base)).toBeNull();
+    expect(chatModels(undefined, base)).toBeNull();
+  });
+});
+
+describe("the models from events", () => {
+  const two = { currentModelId: "a", availableModels: [{ modelId: "a", name: "A" }, { modelId: "b", name: "B" }] };
+
+  it("prefers the list the chat's events last said over the announced one", () => {
+    const three = { currentModelId: "c", availableModels: [...two.availableModels, { modelId: "c", name: "C" }] };
+    const s = applyEvents(emptySession(), [{ seq: 1, at: 0, kind: "ext", method: "_flowcode/model", params: three }], live);
+    expect(chatModels({ ...info("idle"), models: two }, s.model)?.availableModels.map((m) => m.modelId)).toEqual(["a", "b", "c"]);
+    // The agent offers no choice any more: none, whatever was announced.
+    const gone = applyEvents(s, [{ seq: 2, at: 0, kind: "ext", method: "_flowcode/model", params: { currentModelId: null, availableModels: [] } }], live);
+    expect(chatModels({ ...info("idle"), models: two }, gone.model)).toBeNull();
+  });
+});
+
+describe("the item cap", () => {
+  it("drops the oldest items past MAX_ITEMS and keeps lastSeq", () => {
+    const events = Array.from({ length: MAX_ITEMS + 10 }, (_, i) => user(i + 1));
+    const s = applyEvents(emptySession(), events, replay);
+    expect(s.model.items).toHaveLength(MAX_ITEMS);
+    expect(s.model.items[0]).toMatchObject({ type: "user", text: "m11" });
+    expect(s.model.lastSeq).toBe(MAX_ITEMS + 10);
+    // Older events still read as already applied: nothing comes back.
+    const again = applyEvents(s, [user(1), user(MAX_ITEMS + 11)], live);
+    expect(again.model.items).toHaveLength(MAX_ITEMS);
+    expect(again.model.items[MAX_ITEMS - 1]).toMatchObject({ text: `m${MAX_ITEMS + 11}` });
+    expect(again.model.lastSeq).toBe(MAX_ITEMS + 11);
+  });
+});
+
+describe("forceNeedsCancel", () => {
+  it("cancels a running turn, or a message still on its way", () => {
+    const idle = applyEvents(emptySession(), [user(1), turnEnd(2)], replay);
+    expect(forceNeedsCancel(idle, "idle")).toBe(false);
+    expect(forceNeedsCancel(idle, "busy")).toBe(true);
+    expect(forceNeedsCancel(idle, "waiting")).toBe(true);
+    const sent = takeQueued({ ...idle, queued: ["a", "b"] })!.session;
+    expect(forceNeedsCancel(sent, "idle")).toBe(true);
+    // Its `user` event arrived: no longer in flight.
+    expect(forceNeedsCancel(applyEvents(sent, [user(3), turnEnd(4)], live), "idle")).toBe(false);
   });
 });

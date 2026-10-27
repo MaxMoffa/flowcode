@@ -45,6 +45,10 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
   stateRef.current = state;
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
+  // Set by `cancel` until the next `start`: a phrase the recognizer still
+  // flushes after it (e.g. right after the message was sent) is dropped instead
+  // of landing in the next, empty draft.
+  const droppedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,10 +56,12 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
       if (!cancelled) setSupported(ok);
     });
     const unlisten = Promise.all([
-      listen<{ text: string }>("speech://partial", (e) => setPartial(e.payload.text)),
+      listen<{ text: string }>("speech://partial", (e) => {
+        if (!droppedRef.current) setPartial(e.payload.text);
+      }),
       listen<{ text: string }>("speech://final", (e) => {
         setPartial("");
-        onFinalRef.current(e.payload.text);
+        if (!droppedRef.current) onFinalRef.current(e.payload.text);
       }),
       listen<DictationEnd>("speech://end", (e) => {
         setPartial("");
@@ -74,6 +80,7 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
   }, []);
 
   const start = useCallback(async () => {
+    droppedRef.current = false;
     setError(null);
     setPartial("");
     setState("listening");
@@ -93,8 +100,9 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
     invoke("speech_stop").catch(() => {});
   }, []);
 
-  /** Drops the session without a result. */
+  /** Drops the session without a result - also the phrase a session already stopped may still deliver. */
   const cancel = useCallback(() => {
+    droppedRef.current = true;
     if (stateRef.current !== "listening") return;
     setState("idle");
     setPartial("");

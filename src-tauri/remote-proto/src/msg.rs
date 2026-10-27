@@ -93,12 +93,16 @@ pub enum ClientMsg {
     /// Answer an agent's permission request; `option_id: None` cancels it.
     ChatPermission { chat_id: String, request_id: serde_json::Value, option_id: Option<String> },
     ChatMode { chat_id: String, mode_id: String },
+    /// Switch the chat's agent to another of the models it offers (`ChatInfo::models`).
+    ChatModel { chat_id: String, model_id: String },
     /// Hand the chat's session over to a desktop terminal tab, as Ctrl+` does there.
     ChatTerminal { chat_id: String },
     /// Reopen the agent running in the terminal tab of `pty_id` as a chat tab on the same session (the reverse of `ChatTerminal`).
     TerminalChat { pty_id: String },
     /// Rename the chat tab, at most 128 characters.
     ChatRename { chat_id: String, label: String },
+    /// Close the chat tab (not the last tab of its window).
+    ChatCloseTab { chat_id: String },
     /// Open a new desktop chat tab for `cli`, in `cwd` (else the shell's start folder).
     NewChat {
         cli: String,
@@ -240,6 +244,10 @@ pub struct ChatInfo {
     /// The ACP `modes` object the agent announced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modes: Option<serde_json::Value>,
+    /// The models the agent offers, normalized from either ACP API:
+    /// `{ currentModelId, availableModels: [{ modelId, name, description?, group? }] }`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<serde_json::Value>,
 }
 
 /// An installed agent view plugin: its manifest plus what a phone needs to
@@ -445,6 +453,8 @@ mod tests {
         assert_eq!(msg, ClientMsg::ChatPermission { chat_id: "c1".into(), request_id: serde_json::json!("a1"), option_id: None });
         let json = serde_json::to_value(ClientMsg::ChatMode { chat_id: "c1".into(), mode_id: "plan".into() }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "chatmode", "chatId": "c1", "modeId": "plan" }));
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatmodel","chatId":"c1","modelId":"opus"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatModel { chat_id: "c1".into(), model_id: "opus".into() });
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"newchat","cli":"claude"}"#).unwrap();
         assert_eq!(msg, ClientMsg::NewChat { cli: "claude".into(), cwd: None, profile: None });
         let events = vec![serde_json::json!({ "seq": 1 })];
@@ -461,6 +471,7 @@ mod tests {
             session_id: Some("s1".into()),
             status: Some("idle".into()),
             modes: None,
+            models: None,
         };
         let json = serde_json::to_value(ServerMsg::Chats { chats: vec![info] }).unwrap();
         assert_eq!(
@@ -531,6 +542,14 @@ mod tests {
         assert_eq!(msg, ClientMsg::TerminalChat { pty_id: "p".into() });
         let json = serde_json::to_value(ClientMsg::ChatRename { chat_id: "c1".into(), label: "Notes".into() }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "chatrename", "chatId": "c1", "label": "Notes" }));
+    }
+
+    #[test]
+    fn chat_close_tab_round_trips() {
+        let json = serde_json::to_value(ClientMsg::ChatCloseTab { chat_id: "c1".into() }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "chatclosetab", "chatId": "c1" }));
+        let msg: ClientMsg = serde_json::from_value(json).unwrap();
+        assert_eq!(msg, ClientMsg::ChatCloseTab { chat_id: "c1".into() });
     }
 
     #[test]

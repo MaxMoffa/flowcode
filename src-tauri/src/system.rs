@@ -128,26 +128,80 @@ pub fn set_window_square_corners(window: tauri::WebviewWindow, square: bool) {
 /// included, which ShellExecute opens like any other UNC path.
 #[tauri::command(async)]
 pub fn open_with_default_app(path: String) -> Result<(), String> {
-    if is_executable_file(&path) {
-        return Err(flowcode_shared::i18n::tr(
+    let target = openable_path(&path)?;
+    tauri_plugin_opener::open_path(target, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// The real on-disk path `path` names, fit to hand to the default app - or
+/// why not. Judged on the canonical name too, not just the one asked for: a
+/// link `notes.txt` -> `run.bat`, or `run.exe.` (Windows drops the trailing
+/// dot), would otherwise slip a program past the extension check.
+fn openable_path(path: &str) -> Result<std::path::PathBuf, String> {
+    use flowcode_shared::i18n::tr;
+    let not_local = || {
+        tr("Flowcode apre solo file locali o di WSL.", "Flowcode only opens local or WSL files.").to_string()
+    };
+    let executable = || {
+        tr(
             "Per sicurezza Flowcode non apre file eseguibili: aprilo dal terminale se ti fidi.",
             "For safety Flowcode doesn't open executable files: run it from the terminal if you trust it.",
         )
-        .to_string());
+        .to_string()
+    };
+    let asked = std::path::Path::new(path);
+    // Before canonicalize: resolving a share (or a link to one) already
+    // makes Windows log in to that server.
+    if !crate::fs::is_local_path(asked, true) || !crate::fs::links_stay_local(asked) {
+        return Err(not_local());
     }
-    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+    if is_executable_file(asked) {
+        return Err(executable());
+    }
+    let real = std::fs::canonicalize(asked).map_err(|e| e.to_string())?;
+    if !crate::fs::is_local_path(&real, true) {
+        return Err(not_local());
+    }
+    if is_executable_file(&real) {
+        return Err(executable());
+    }
+    Ok(strip_verbatim(real))
 }
 
-/// Whether opening `path` with the OS default handler would run code: a click
-/// in the explorer on `x.bat` from a cloned repo must not launch it. Judged by
-/// extension (case-insensitive) everywhere, plus the exec bit on Unix.
-fn is_executable_file(path: &str) -> bool {
-    const DENIED: &[&str] = &[
-        "exe", "com", "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "msi", "msp", "scr",
-        "lnk", "url", "cpl", "reg", "jar", "appref-ms", "app", "command", "sh", "pif", "inf",
-    ];
-    let p = std::path::Path::new(path);
-    if p.extension().is_some_and(|e| DENIED.iter().any(|d| e.eq_ignore_ascii_case(d))) {
+/// `\?\C:\x` -> `C:\x`, `\?\UNC\srv\share\x` -> `\srv\share\x`: what
+/// `canonicalize` returns on Windows, turned back into the form every app
+/// handed the path by ShellExecute understands.
+fn strip_verbatim(path: std::path::PathBuf) -> std::path::PathBuf {
+    let Some(s) = path.to_str() else { return path };
+    if let Some(rest) = s.strip_prefix(r"\?\UNC\") {
+        return std::path::PathBuf::from(format!(r"\{rest}"));
+    }
+    match s.strip_prefix(r"\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => std::path::PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+/// Extensions whose default handler runs code (or mounts/installs something
+/// that does): a click in the explorer on `x.bat` from a cloned repo must not
+/// launch it. Authoritative; `EXECUTABLE_EXT` in src/lib/filePaths.ts mirrors
+/// it to hide the "open" action up front (a test keeps the two in sync).
+const DENIED_OPEN_EXT: &str = concat!(
+    "exe com bat cmd ps1 psm1 psd1 ps1xml vbs vbe vb js jse mjs cjs wsf wsh ws wsc sct hta msi msp mst scr lnk url website ",
+    "cpl reg jar jnlp appref-ms application xbap app command sh bash zsh fish ksh csh pif inf ins isp scf gadget msc chm xll ",
+    "py pyw pyc pyz pl rb php appx msix appxbundle msixbundle appinstaller diagcab vsix mdb accde accdb ade adp ",
+    "library-ms searchconnector-ms settingcontent-ms iso img vhd vhdx desktop appimage run bin deb rpm pkg dmg apk tool workflow",
+);
+
+/// Whether opening `path` with the OS default handler would run code. Judged
+/// by extension (case-insensitive) everywhere, plus the exec bit on Unix. A
+/// name ending in `.`/space (Windows trims it: `run.exe.` opens `run.exe`) or
+/// naming an alternate data stream (`a.txt:x.exe`) counts as executable.
+fn is_executable_file(p: &std::path::Path) -> bool {
+    let name = p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+    if name.ends_with('.') || name.ends_with(' ') || name.contains(':') {
+        return true;
+    }
+    if p.extension().is_some_and(|e| DENIED_OPEN_EXT.split(' ').any(|d| e.eq_ignore_ascii_case(d))) {
         return true;
     }
     #[cfg(unix)]
@@ -303,4 +357,72 @@ pub fn powershell_history() -> Vec<String> {
 /// prompt wrapper's name, or the Codex usage probe.
 fn is_flowcode_command(line: &str) -> bool {
     line.starts_with(' ') || line.contains("__flowcodePrompt") || line.contains("check_for_update_on_startup=false")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn executables_are_refused_by_extension_and_trimmed_name() {
+        for bad in ["a.exe", "RUN.BAT", "x.chm", "a.xll", "p.appx", "i.ISO", "d.vhdx", "s.settingcontent-ms", "w.website",
+            "a.exe.", "a.exe ", "a.txt.", "a.txt:x.exe", "s.ps1"]
+        {
+            assert!(is_executable_file(Path::new(bad)), "{bad:?}");
+        }
+        for ok in ["a.txt", "b.png", "c.pdf", "README", "notes.md"] {
+            assert!(!is_executable_file(Path::new(ok)), "{ok:?}");
+        }
+    }
+
+    #[test]
+    fn verbatim_prefix_is_stripped() {
+        assert_eq!(strip_verbatim(PathBuf::from(r"\?\C:\a\b.pdf")), PathBuf::from(r"C:\a\b.pdf"));
+        assert_eq!(strip_verbatim(PathBuf::from(r"\?\UNC\wsl.localhost\U\a")), PathBuf::from(r"\wsl.localhost\U\a"));
+        assert_eq!(strip_verbatim(PathBuf::from(r"\?\GLOBALROOT\x")), PathBuf::from(r"\?\GLOBALROOT\x"));
+        assert_eq!(strip_verbatim(PathBuf::from("/home/a")), PathBuf::from("/home/a"));
+    }
+
+    #[test]
+    fn openable_path_checks_the_real_file() {
+        let dir = std::env::temp_dir().join(format!("flowcode-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("doc.pdf"), "x").unwrap();
+        std::fs::write(dir.join("run.bat"), "x").unwrap();
+        let doc = openable_path(&dir.join("doc.pdf").to_string_lossy()).unwrap();
+        assert!(doc.ends_with("doc.pdf") && !doc.to_string_lossy().starts_with(r"\?\"));
+        assert!(openable_path(&dir.join("run.bat").to_string_lossy()).is_err());
+        assert!(openable_path(&dir.join("missing.pdf").to_string_lossy()).is_err());
+        #[cfg(windows)]
+        {
+            assert!(openable_path(r"\attacker.invalid\share\a.pdf").is_err());
+            assert!(openable_path(r"\.\pipe\x").is_err());
+            // A link with an innocent name to a program: judged by its target.
+            if std::os::windows::fs::symlink_file(dir.join("run.bat"), dir.join("notes.txt")).is_ok() {
+                assert!(openable_path(&dir.join("notes.txt").to_string_lossy()).is_err());
+            }
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.join("run.bat"), dir.join("notes.txt")).unwrap();
+            assert!(openable_path(&dir.join("notes.txt").to_string_lossy()).is_err());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// src/lib/filePaths.ts hides "open" for the same extensions this refuses.
+    #[test]
+    fn denied_extensions_match_the_frontend_list() {
+        let ts = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/filePaths.ts")).unwrap();
+        let start = ts.find("const EXECUTABLE_EXT").expect("EXECUTABLE_EXT in filePaths.ts");
+        let block = &ts[start..start + ts[start..].find(".split(").unwrap()];
+        let mut front: Vec<&str> =
+            block.split('"').skip(1).step_by(2).flat_map(|s| s.split_whitespace()).collect();
+        let mut back: Vec<&str> = DENIED_OPEN_EXT.split(' ').collect();
+        front.sort_unstable();
+        back.sort_unstable();
+        assert_eq!(front, back);
+    }
 }

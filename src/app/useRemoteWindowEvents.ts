@@ -25,12 +25,13 @@ interface RemoteWindowEventRefs {
   remoteChatTerminalRef: MutableRefObject<(tabId: string) => void>;
   remoteTerminalChatRef: MutableRefObject<(ptyId: string) => void>;
   remoteChatRenameRef: MutableRefObject<(tabId: string, label: string) => void>;
+  remoteChatCloseRef: MutableRefObject<(tabId: string) => void>;
   remoteNewChatRef: MutableRefObject<(cwd: string | null, cli: string, profile: string | null | undefined) => void>;
 }
 
 export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
   useEffect(() => {
-    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef, remoteCloseRef, remoteChatTerminalRef, remoteTerminalChatRef, remoteChatRenameRef, remoteNewChatRef } = refs;
+    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef, remoteCloseRef, remoteChatTerminalRef, remoteTerminalChatRef, remoteChatRenameRef, remoteChatCloseRef, remoteNewChatRef } = refs;
     const webview = getCurrentWebviewWindow();
     const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
       adoptTabRef.current(e.payload);
@@ -98,6 +99,8 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
     const unlistenChatRename = webview.listen<{ tabId: string; label: string }>("remote://chat-rename", (e) =>
       remoteChatRenameRef.current(e.payload.tabId, e.payload.label),
     );
+    // A phone (or another PC) closing one of our chat tabs.
+    const unlistenChatClose = webview.listen<{ tabId: string }>("remote://chat-close", (e) => remoteChatCloseRef.current(e.payload.tabId));
     // A phone asking for a new chat tab here.
     const unlistenNewChat = webview.listen<{ cwd?: string | null; cli: string; profile?: string | null }>("remote://new-chat", (e) => {
       remoteNewChatRef.current(e.payload.cwd ?? null, e.payload.cli, e.payload.profile ?? undefined);
@@ -117,6 +120,7 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       unlistenChatTerminal.then((off) => off());
       unlistenTerminalChat.then((off) => off());
       unlistenChatRename.then((off) => off());
+      unlistenChatClose.then((off) => off());
       unlistenNewChat.then((off) => off());
       unlistenSubmit.then((off) => off());
     };

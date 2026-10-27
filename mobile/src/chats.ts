@@ -12,8 +12,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { Tab } from "./remote";
-import { applyEvents, canDispatch, chatStatus, emptySession, freshEvents, pendingPermissions, putBack, takeQueued, type ChatSession } from "./chatSession";
-import { currentChats, onMessage, send, sendChecked, useRemoteSelector } from "./remote";
+import { isAgentBusy } from "../../src/chat/chatModel";
+import { applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
+import { t } from "./i18n";
+import { currentChats, onMessage, send, sendChecked, showToast, useRemoteSelector } from "./remote";
 import type { ChatInfo, ServerMsg } from "../../shared/remote-types";
 import { createStore } from "./store";
 
@@ -53,7 +55,13 @@ function syncFollows() {
   const chats = currentChats();
   if (!chats || awaitingChats) return;
   const known = new Set(chats.map((c) => c.chatId));
-  const wanted = new Set(chats.filter((c) => (refs.get(c.chatId) ?? 0) > 0 || c.status === "waiting").map((c) => c.chatId));
+  const { sessions } = store.get();
+  // A chat with messages still to send (or one sent, not yet seen arriving) stays followed after its screen closes: the queue moves on its events, not on the pushed status alone.
+  const pendingSend = (id: string) => {
+    const s = sessions[id];
+    return !!s && (s.queued.length > 0 || s.sentText !== null);
+  };
+  const wanted = new Set(chats.filter((c) => (refs.get(c.chatId) ?? 0) > 0 || c.status === "waiting" || pendingSend(c.chatId)).map((c) => c.chatId));
   for (const chatId of wanted) {
     if (opened.has(chatId)) continue;
     opened.add(chatId);
@@ -102,10 +110,24 @@ const pumpAll = () => Object.keys(store.get().sessions).forEach(pump);
 function onChatEvents(chatId: string, events: unknown[], replay: boolean) {
   const before = store.get().sessions[chatId] ?? emptySession();
   const fresh = freshEvents(before, events);
-  patchSession(chatId, () => applyEvents(before, events, { replay, busy: infoOf(chatId)?.status === "busy" }));
+  const status = infoOf(chatId)?.status;
+  patchSession(chatId, () => applyEvents(before, events, { replay, busy: status === "busy" || status === "waiting" }));
   const listeners = eventListeners.get(chatId);
   if (listeners) for (const event of fresh) listeners.forEach((l) => l(event));
   pump(chatId);
+  // The sent message may have arrived, or the queue emptied: a chat kept followed for them can be let go.
+  syncFollows();
+}
+
+/** The desktop refused a prompt as `agent_busy` (its error names no chat): the message in flight goes back to the front of its queue, sent again once the turn is over. */
+function onRefusedBusy() {
+  const chatId = refusedChat(store.get().sessions);
+  const back = chatId ? requeueRefused(store.get().sessions[chatId]) : null;
+  if (!chatId || !back) {
+    showToast(t("chatBusyRefused"));
+    return;
+  }
+  patchSession(chatId, () => back);
 }
 
 function onChatList(chats: ChatInfo[]) {
@@ -144,6 +166,9 @@ function onChatMsg(m: ServerMsg) {
     case "chatevents":
       onChatEvents(m.chatId, m.events, m.replay);
       break;
+    case "error":
+      if (isAgentBusy(m.message)) onRefusedBusy();
+      break;
   }
 }
 
@@ -172,19 +197,41 @@ export function sendChatPrompt(chatId: string, text: string) {
   if (!trimmed) return;
   patchSession(chatId, (s) => ({ ...s, queued: [...s.queued, trimmed] }));
   pump(chatId);
+  syncFollows();
 }
 
-export const unqueueChatPrompt = (chatId: string, index: number) => patchSession(chatId, (s) => ({ ...s, queued: s.queued.filter((_, i) => i !== index) }));
+export function unqueueChatPrompt(chatId: string, index: number) {
+  patchSession(chatId, (s) => ({ ...s, queued: s.queued.filter((_, i) => i !== index) }));
+  syncFollows();
+}
+/** "Send now": the message goes first and a running turn (or the message still on its way) is cancelled, so it leaves as soon as the agent is idle. */
+export function forceChatPrompt(chatId: string, index: number) {
+  const session = store.get().sessions[chatId];
+  if (!session) return;
+  patchSession(chatId, (s) => forceQueued(s, index));
+  if (forceNeedsCancel(session, chatStatus(infoOf(chatId), session.model))) cancelChat(chatId);
+  else pump(chatId);
+}
+
 export const cancelChat = (chatId: string) => send({ t: "chatcancel", chatId });
-export const answerChatPermission = (chatId: string, requestId: string, optionId: string | null) => send({ t: "chatpermission", chatId, requestId, optionId });
+/** Answers a permission request; false when the link refused it, so the caller can offer the buttons again. */
+export const answerChatPermission = (chatId: string, requestId: string, optionId: string | null): Promise<boolean> => sendChecked({ t: "chatpermission", chatId, requestId, optionId });
 export const setChatMode = (chatId: string, modeId: string) => send({ t: "chatmode", chatId, modeId });
+/** Switches the chat's model; the desktop's `_flowcode/model` event shows it, a refusal arrives as an error toast. */
+export function setChatModel(chatId: string, modelId: string) {
+  void sendChecked({ t: "chatmodel", chatId, modelId }).then((ok) => {
+    if (!ok) showToast(t("chatModelSendFailed"));
+  });
+}
 export const renameChat = (chatId: string, label: string) => send({ t: "chatrename", chatId, label });
 /** Asks the desktop to turn the chat's session into a terminal tab. */
 const chatToTerminal = (chatId: string) => send({ t: "chatterminal", chatId });
 
 /** The first permission the agent is waiting on in a followed chat, if any: what a list row can say about it. */
-export const pendingPermissionTitle = (session: ChatSession | undefined): string | undefined => {
-  const first = session ? pendingPermissions(session.model)[0] : undefined;
+export const pendingPermissionTitle = (session: ChatSession | undefined, info?: ChatInfo): string | undefined => {
+  // An agent that is gone asks nothing any more, even before its `exit` event marked the requests cancelled.
+  if (!session || chatStatus(info, session.model) === "exited") return undefined;
+  const first = pendingPermissions(session.model)[0];
   return first ? (first.toolCall.title ?? first.toolCall.kind) : undefined;
 };
 

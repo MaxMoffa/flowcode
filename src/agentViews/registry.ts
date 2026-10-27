@@ -5,6 +5,9 @@ import type { AgentViewDef } from "./types";
 /** The view a chat opens with, and the fallback for an id nobody registers. */
 export const DEFAULT_ACP_VIEW = "chat";
 
+/** The built-in view that runs the agent's own TUI in a terminal tab. */
+export const TERMINAL_VIEW = "terminal";
+
 /** An ordered list of views: the order is the one the session menu shows. */
 export function createRegistry() {
   // Replaced, never mutated: `list` is a snapshot React can compare.

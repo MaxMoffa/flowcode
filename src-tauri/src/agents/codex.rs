@@ -366,7 +366,7 @@ pub(super) fn read_codex_session(
     // Sub-agent threads (a reviewer, a spawned helper) have one too, with a
     // parent - not something to resume on its own.
     if let Some(meta) = rollout_meta(path) {
-        return if meta.subagent { None } else { Some(entry(meta.cwd, meta.id)) };
+        return if meta.subagent || !super::is_safe_session_id(&meta.id) { None } else { Some(entry(meta.cwd, meta.id)) };
     }
     // Older layouts: no `session_meta` envelope - best-effort search.
     let reader = BufReader::new(std::fs::File::open(path).ok()?);
@@ -386,7 +386,7 @@ pub(super) fn read_codex_session(
             break;
         }
     }
-    let session_id = session_id.or_else(|| uuid_from_filename(path))?;
+    let session_id = session_id.or_else(|| uuid_from_filename(path)).filter(|id| super::is_safe_session_id(id))?;
     Some(entry(cwd?, session_id))
 }
 
@@ -430,6 +430,7 @@ pub async fn list_codex_sessions(app: tauri::AppHandle, fresh: Option<bool>) -> 
         sessions.truncate(MAX_CODEX_SESSIONS);
         let mut all: Vec<CodexSessionEntry> = live
             .iter()
+            .filter(|t| super::is_safe_session_id(&t.id))
             .map(|t| CodexSessionEntry {
                 cwd: t.cwd.clone(),
                 session_id: t.id.clone(),

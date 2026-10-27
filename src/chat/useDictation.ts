@@ -17,6 +17,19 @@ export function appendDictation(draft: string, text: string): string {
   return `${draft} ${spoken}`;
 }
 
+/** The microphone level (0..1) after a new peak reading: speech peaks sit low
+ * so they're lifted, a rise shows at once and a fall decays. */
+export function nextLevel(prev: number, peak: number): number {
+  const lifted = Math.min(1, Math.sqrt(Math.max(0, peak)) * 1.4);
+  return Math.max(lifted, prev * 0.7);
+}
+
+/** Whether an event belongs to the session `current` (a chat consumes only
+ * the events of the session it started). */
+export function isOwnEvent(current: string | null, payload: { session?: string | null }): boolean {
+  return current !== null && payload.session === current;
+}
+
 /** Whether the backend can dictate on this platform; asked once. */
 let supportedProbe: Promise<boolean> | null = null;
 function probeSupported(): Promise<boolean> {
@@ -24,33 +37,69 @@ function probeSupported(): Promise<boolean> {
   return supportedProbe;
 }
 
+function newSessionToken(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 /** Voice dictation through the backend's speech recognizer (see
  * src-tauri/src/dictation.rs). `onFinal` gets each phrase once it settles;
- * `partial` is the phrase still being heard, shown but never committed. The
- * session ends when `active` turns false or the component unmounts. */
+ * `partial` is the phrase still being heard, shown but not committed until it
+ * settles (or, when the session ends first, at its end). `level` follows the
+ * microphone. After a stop the session lingers invisibly until its "end" so
+ * the flushed last phrase still lands. The session ends when `active` turns
+ * false or the component unmounts. */
 export function useDictation(onFinal: (text: string) => void, active: boolean) {
   const [supported, setSupported] = useState(false);
   const [state, setState] = useState<DictationState>("idle");
   const [partial, setPartial] = useState("");
+  const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
+  // The session this chat started and hasn't seen end yet.
+  const sessionRef = useRef<string | null>(null);
+  // The phrase being heard, not yet settled.
+  const pendingRef = useRef("");
+
+  /** Commits the unsettled phrase, if any. */
+  const flushPending = useCallback(() => {
+    const text = pendingRef.current;
+    pendingRef.current = "";
+    setPartial("");
+    if (text.trim()) onFinalRef.current(text);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     probeSupported().then((ok) => {
       if (!cancelled) setSupported(ok);
     });
+    type Own = { session?: string | null };
     const unlisten = Promise.all([
-      listen<{ text: string }>("dictation://partial", (e) => setPartial(e.payload.text)),
-      listen<{ text: string }>("dictation://final", (e) => {
+      listen<Own & { text: string }>("dictation://partial", (e) => {
+        if (!isOwnEvent(sessionRef.current, e.payload)) return;
+        pendingRef.current = e.payload.text;
+        if (stateRef.current === "listening") setPartial(e.payload.text);
+      }),
+      listen<Own & { text: string }>("dictation://final", (e) => {
+        if (!isOwnEvent(sessionRef.current, e.payload)) return;
+        pendingRef.current = "";
         setPartial("");
         onFinalRef.current(e.payload.text);
       }),
-      listen<DictationEnd>("dictation://end", (e) => {
-        setPartial("");
+      listen<Own & { value: number }>("dictation://level", (e) => {
+        if (!isOwnEvent(sessionRef.current, e.payload) || stateRef.current !== "listening") return;
+        setLevel((prev) => nextLevel(prev, e.payload.value));
+      }),
+      listen<Own & DictationEnd>("dictation://end", (e) => {
+        if (!isOwnEvent(sessionRef.current, e.payload)) return;
+        sessionRef.current = null;
+        flushPending();
+        setLevel(0);
         if (e.payload.reason === "error") {
           setError(e.payload.message ?? null);
           setState("error");
@@ -63,25 +112,63 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
       cancelled = true;
       unlisten.then((fns) => fns.forEach((fn) => fn()));
     };
-  }, []);
+  }, [flushPending]);
 
   const start = useCallback(async () => {
+    // A session still winding down gives up what it heard first.
+    flushPending();
+    const token = newSessionToken();
+    sessionRef.current = token;
     setError(null);
-    setPartial("");
+    setLevel(0);
     setState("listening");
     try {
-      await invoke("dictation_start", {});
+      await invoke("dictation_start", { session: token });
     } catch (e) {
+      if (sessionRef.current === token) sessionRef.current = null;
       setError(String(e));
       setState("error");
     }
-  }, []);
+  }, [flushPending]);
 
   const stop = useCallback(() => {
     if (stateRef.current !== "listening") return;
+    const token = sessionRef.current;
     setState("idle");
     setPartial("");
-    invoke("dictation_stop").catch(() => {});
+    setLevel(0);
+    // The session stays ours until its "end": the flushed phrase arrives first.
+    invoke("dictation_stop")
+      .catch(() => {})
+      .then(() => {
+        // The end event should be in by now; if it never came, keep the phrase.
+        setTimeout(() => {
+          if (sessionRef.current === token) {
+            sessionRef.current = null;
+            flushPending();
+          }
+        }, 1000);
+      });
+  }, [flushPending]);
+
+  /**
+   * For a message being sent: ends the session at once and disowns it, so
+   * nothing it still flushes lands in the next (empty) draft, and hands back
+   * the phrase heard but not yet settled - the caller adds it to what it sends,
+   * so the words on screen are the words sent. (Waiting for the final flush
+   * instead would hold the send for up to a second.)
+   */
+  const discard = useCallback((): string => {
+    const heard = pendingRef.current;
+    pendingRef.current = "";
+    // Only a session still listening is stopped: one already winding down stops on its own, and the recognizer may meanwhile serve another chat.
+    const listening = stateRef.current === "listening" && sessionRef.current !== null;
+    sessionRef.current = null;
+    setPartial("");
+    setLevel(0);
+    setState((s) => (s === "listening" ? "idle" : s));
+    if (listening) invoke("dictation_stop").catch(() => {});
+    return heard;
   }, []);
 
   const toggle = useCallback(() => {
@@ -100,5 +187,5 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
   }, [active, stop]);
   useEffect(() => stop, [stop]);
 
-  return { supported, state, partial, error, start, stop, toggle, dismissError };
+  return { supported, state, partial, level, error, start, stop, discard, toggle, dismissError };
 }

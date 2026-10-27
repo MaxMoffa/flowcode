@@ -1,9 +1,12 @@
-import { useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
-import { lineDiff, type ChatItem } from "./chatModel";
+import { lineDiff, stopKind, type ChatItem, type StopKind } from "./chatModel";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { LinkPreviews } from "./LinkPreviews";
-import type { ChatToolCall, ChatToolContent } from "./chatTypes";
+import { basename } from "../lib/path";
+import { ChatPathLink } from "../lib/fileLinks";
+import { STEP_CATEGORIES, summarizeSteps, type TimelineStep } from "./chatTimeline";
+import type { ChatPermissionOption, ChatToolContent } from "./chatTypes";
 
 /** Diff rows drawn before "… N more lines". */
 const DIFF_ROWS_SHOWN = 80;
@@ -11,29 +14,6 @@ const DIFF_ROWS_SHOWN = 80;
 const TOOL_TEXT_MAX = 4000;
 
 type DiffContent = Extract<ChatToolContent, { type: "diff" }>;
-
-function Spinner() {
-  return <span className="chat-spinner" aria-hidden="true" />;
-}
-
-function ToolStatusIcon({ status }: { status: ChatToolCall["status"] }) {
-  if (status === "completed") {
-    return (
-      <svg className="chat-tool-status is-done" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="5 12.5 10 17.5 19 7" />
-      </svg>
-    );
-  }
-  if (status === "failed") {
-    return (
-      <svg className="chat-tool-status is-failed" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-        <line x1="6" y1="6" x2="18" y2="18" />
-        <line x1="18" y1="6" x2="6" y2="18" />
-      </svg>
-    );
-  }
-  return <Spinner />;
-}
 
 function DiffCard({ diff }: { diff: DiffContent }) {
   const { t } = useI18n();
@@ -44,7 +24,9 @@ function DiffCard({ diff }: { diff: DiffContent }) {
     <div className="chat-diff">
       <div className="chat-diff-head">
         <span className="chat-diff-path" title={diff.path}>
-          <bdi>{diff.path}</bdi>
+          <ChatPathLink parsed={{ path: diff.path }}>
+            <bdi>{diff.path}</bdi>
+          </ChatPathLink>
         </span>
         <span className="chat-diff-count is-add">+{added}</span>
         <span className="chat-diff-count is-del">{"−"}{removed}</span>
@@ -64,33 +46,141 @@ function DiffCard({ diff }: { diff: DiffContent }) {
   );
 }
 
-function ToolCall({ call }: { call: ChatToolCall }) {
+function ToolStep({ step, live }: { step: Extract<TimelineStep, { type: "tool" }>; live: boolean }) {
+  const { t } = useI18n();
+  const call = step.call;
   const content = call.content ?? [];
   const diffs = content.filter((c): c is DiffContent => c.type === "diff");
   const text = content
     .map((c) => (c.type === "content" && c.content.type === "text" ? (c.content.text ?? "") : ""))
     .filter(Boolean)
     .join("\n");
+  const failed = call.status === "failed";
+  const running = live && call.status !== "completed" && !failed;
+  const title = call.title ?? call.kind ?? call.toolCallId;
+  const file = call.locations?.[0]?.path;
+  const fileLine = call.locations?.[0]?.line ?? undefined;
+  const fileName = file ? basename(file) : "";
   const header = (
     <>
-      <ToolStatusIcon status={call.status} />
-      <span className="chat-tool-title">{call.title ?? call.kind ?? call.toolCallId}</span>
-      {call.kind && <span className="chat-tool-kind">{call.kind}</span>}
+      <span className={`chat-dot${running ? " is-live" : failed ? " is-failed" : " is-done"}`} aria-hidden="true" />
+      {running && <span className="chat-spinner" aria-hidden="true" />}
+      <span className="chat-step-title">{title}</span>
+      {fileName && !title.includes(fileName) && (
+        <span className="chat-step-file" title={file}>
+          <ChatPathLink parsed={{ path: file ?? "", line: fileLine }}>{fileName}</ChatPathLink>
+        </span>
+      )}
+      {failed && <span className="chat-step-failed">{t("chat.tool.failed")}</span>}
     </>
   );
   return (
-    <div className="chat-tool">
+    <div className={`chat-step${failed ? " is-failed" : ""}`}>
       {text ? (
         <details>
-          <summary className="chat-tool-row">{header}</summary>
+          <summary className="chat-step-row">{header}</summary>
           <pre className="chat-tool-output">{text.length > TOOL_TEXT_MAX ? `${text.slice(0, TOOL_TEXT_MAX)}…` : text}</pre>
         </details>
       ) : (
-        <div className="chat-tool-row">{header}</div>
+        <div className="chat-step-row">{header}</div>
       )}
       {diffs.map((diff, i) => (
         <DiffCard key={i} diff={diff} />
       ))}
+    </div>
+  );
+}
+
+function PermissionStep({ step }: { step: Extract<TimelineStep, { type: "permission" }> }) {
+  const { t } = useI18n();
+  const title = step.toolCall.title ?? step.toolCall.kind ?? t("chat.permission.title");
+  const option = step.options.find((o) => o.optionId === step.resolved);
+  return (
+    <div className="chat-step">
+      <div className="chat-step-row is-quiet">
+        <span className="chat-dot is-done" aria-hidden="true" />
+        <span className="chat-step-title">
+          {option ? t("chat.permission.answered", { option: option.name }) : t("chat.permission.cancelled")}
+          {" · "}
+          {title}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function summaryText(steps: TimelineStep[], t: ReturnType<typeof useI18n>["t"]): string {
+  const { counts, failed } = summarizeSteps(steps);
+  const parts: string[] = STEP_CATEGORIES.filter((c) => counts[c] > 0).map((c) =>
+    t(`chat.group.${c}.${counts[c] === 1 ? "one" : "other"}`, { count: counts[c] }),
+  );
+  if (parts.length === 0) parts.push(t("chat.group.other.other", { count: steps.length }));
+  if (failed > 0) parts.push(t(`chat.group.failed.${failed === 1 ? "one" : "other"}`, { count: failed }));
+  return parts.join(" · ");
+}
+
+/** The tool activity of one agent turn on a thin rail: open while it runs,
+ * then one summary line (counts per kind) that expands to the steps. */
+export const ToolGroup = memo(function ToolGroup({ steps, live }: { steps: TimelineStep[]; live: boolean }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const open = live || expanded;
+  const { failed } = summarizeSteps(steps);
+  return (
+    <div className="chat-rail">
+      {!live && (
+        <button type="button" className="chat-group-toggle" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+          <span className={`chat-dot${failed > 0 ? " is-failed" : " is-done"}`} aria-hidden="true" />
+          <svg className="chat-group-chevron" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+          <span className={failed > 0 ? "chat-group-summary has-failed" : "chat-group-summary"}>{summaryText(steps, t)}</span>
+        </button>
+      )}
+      {open &&
+        steps.map((step) =>
+          step.type === "tool" ? <ToolStep key={step.id} step={step} live={live} /> : <PermissionStep key={step.id} step={step} />,
+        )}
+    </div>
+  );
+  // The timeline rebuilds its step arrays on every render; the steps themselves keep their identity until they change.
+}, (a, b) => a.live === b.live && a.steps.length === b.steps.length && a.steps.every((s, i) => s === b.steps[i]));
+
+/** The words for why a turn stopped early. */
+const STOP_TEXT: Record<StopKind, Parameters<ReturnType<typeof useI18n>["t"]>[0]> = {
+  maxTokens: "chat.stop.maxTokens",
+  maxTurnRequests: "chat.stop.maxTurnRequests",
+  refusal: "chat.stop.refusal",
+  other: "chat.stop.other",
+};
+
+/** A permission request waiting for an answer, anchored on the rail above the composer. */
+export function PermissionCard({ item, onAnswer }: { item: Extract<ChatItem, { type: "permission" }>; onAnswer: ChatItemViewProps["onAnswer"] }) {
+  const { t } = useI18n();
+  const title = item.toolCall.title ?? item.toolCall.kind ?? t("chat.permission.title");
+  const order = (o: ChatPermissionOption) => (o.kind.startsWith("reject") ? 0 : o.kind === "allow_always" ? 1 : 2);
+  const options = [...item.options].sort((a, b) => order(a) - order(b));
+  return (
+    <div className="chat-rail">
+      <span className="chat-dot is-warn" aria-hidden="true" />
+      <div className="chat-permission" role="group" aria-label={t("chat.permission.title")}>
+        <div className="chat-permission-text">
+          <div className="chat-permission-label">{t("chat.permission.needed")}</div>
+          <div className="chat-permission-title">{title}</div>
+        </div>
+        <div className="chat-permission-options">
+          {options.map((option) => (
+            <button
+              key={option.optionId}
+              type="button"
+              className={"chat-btn" + (option.kind === "allow_once" ? " is-primary" : "")}
+              onClick={() => onAnswer(item.requestId, option.optionId)}
+            >
+              {option.name}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -100,8 +190,8 @@ interface ChatItemViewProps {
   onAnswer: (requestId: string, optionId: string | null) => void;
 }
 
-/** One entry of the conversation. */
-export function ChatItemView({ item, onAnswer }: ChatItemViewProps) {
+/** One entry of the conversation outside the tool rail; redrawn only when its item changed (the model keeps unchanged items as they are). */
+export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewProps) {
   const { t } = useI18n();
   switch (item.type) {
     case "user":
@@ -120,43 +210,20 @@ export function ChatItemView({ item, onAnswer }: ChatItemViewProps) {
           <div className="chat-thought-text">{item.text}</div>
         </details>
       );
-    case "tool":
-      return <ToolCall call={item.call} />;
     case "error":
       return (
         <div className="chat-error" role="alert">
           {item.message}
         </div>
       );
-    case "permission": {
-      const title = item.toolCall.title ?? item.toolCall.kind ?? t("chat.permission.title");
-      if (item.resolved !== undefined) {
-        const option = item.options.find((o) => o.optionId === item.resolved);
-        return (
-          <div className="chat-permission-done">
-            {option ? t("chat.permission.answered", { option: option.name }) : t("chat.permission.cancelled")}
-            {" · "}
-            {title}
-          </div>
-        );
-      }
+    case "stop":
       return (
-        <div className="chat-permission" role="group" aria-label={t("chat.permission.title")}>
-          <div className="chat-permission-title">{title}</div>
-          <div className="chat-permission-options">
-            {item.options.map((option) => (
-              <button
-                key={option.optionId}
-                type="button"
-                className={"chat-btn" + (option.kind === "allow_once" ? " is-primary" : "")}
-                onClick={() => onAnswer(item.requestId, option.optionId)}
-              >
-                {option.name}
-              </button>
-            ))}
-          </div>
+        <div className="chat-stop" role="status">
+          {t(STOP_TEXT[stopKind(item.reason)], { reason: item.reason })}
         </div>
       );
-    }
+    default:
+      // Tool calls and permission requests are drawn by the timeline; a kind added later is skipped.
+      return null;
   }
-}
+});

@@ -1,0 +1,229 @@
+/* Header selector for the PC in front: an icon button, plus a chip naming the other PC while one is in front. */
+.host-selector {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.host-selector-chip {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  min-width: 0;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.host-selector-chip:hover {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.host-selector-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Connection state of a PC: green online, amber connecting, grey offline. */
+.host-dot {
+  flex: 0 0 auto;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fg-muted);
+  opacity: 0.6;
+}
+
+.host-dot.is-online {
+  background: var(--ansi-green, var(--accent));
+  opacity: 1;
+}
+
+.host-dot.is-connecting {
+  background: var(--ansi-bright-yellow);
+  opacity: 1;
+}
+
+/* Status of the PC in front, at the end of its tab strip. */
+.host-chip {
+  -webkit-app-region: no-drag;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg-muted) 16%, transparent);
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.host-chip.is-connecting {
+  background: color-mix(in srgb, var(--ansi-bright-yellow) 18%, transparent);
+  color: var(--fg);
+}
+
+.host-chip-retry {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.remote-tab-strip .term-tab-new:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The content area while another PC is in front: the terminal stack's card. */
+.remote-workspace {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  overflow: hidden;
+}
+
+.remote-workspace .terminal-container {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.remote-empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--fg-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.remote-terminal-ended {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--term-bg) 82%, var(--fg-muted));
+  color: var(--fg);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+/* Pairing dialog. */
+.host-pair-panel {
+  --modal-w: 420px;
+  --modal-pad: 18px;
+}
+
+.host-pair-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.host-pair-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.host-pair-link {
+  max-width: none;
+  height: auto;
+  padding: 8px 10px;
+  resize: none;
+}
+
+.host-pair-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.host-pair-field .settings-text-input {
+  max-width: none;
+}
+
+.host-pair-codes {
+  display: flex;
+  gap: 24px;
+}
+
+.host-pair-codes small {
+  display: block;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  margin-bottom: 2px;
+}
+
+.host-pair-code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+.host-pair-wait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+.host-pair-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.host-spinner {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: host-spin 0.8s linear infinite;
+}
+
+@keyframes host-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.host-settings-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.host-settings-actions {
+  display: flex;
+  gap: 8px;
+}

@@ -1,6 +1,8 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { useOpenLink } from "../terminal/useOpenLink";
 import { splitLinks } from "./chatLinks";
+import { findPaths, parsePathToken } from "../lib/filePaths";
+import { ChatPathLink } from "../lib/fileLinks";
 
 type OpenLink = ReturnType<typeof useOpenLink>;
 
@@ -22,24 +24,56 @@ function ChatLink({ url, open, children }: { url: string; open: OpenLink; childr
   );
 }
 
-/** Text with its `[text](url)` and bare http(s) urls as links. */
+/** Text with the file paths in it as path links (each one a link only once the disk says it exists). */
+function withPaths(text: string, keyBase: string, bare = false): ReactNode[] {
+  const matches = findPaths(text, { bare });
+  if (matches.length === 0) return [text];
+  const out: ReactNode[] = [];
+  let last = 0;
+  matches.forEach((m, i) => {
+    if (m.start > last) out.push(text.slice(last, m.start));
+    out.push(
+      <ChatPathLink key={`${keyBase}-f${i}`} parsed={m}>
+        {text.slice(m.start, m.end)}
+      </ChatPathLink>,
+    );
+    last = m.end;
+  });
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+/** Text with its `[text](url)` and bare http(s) urls as links, and file paths as path links. */
 function withLinks(text: string, keyBase: string, open: OpenLink): ReactNode[] {
-  return splitLinks(text).map((part, i) =>
+  return splitLinks(text).flatMap((part, i) =>
     part.url ? (
       <ChatLink key={`${keyBase}-${i}`} url={part.url} open={open}>
         {part.text}
       </ChatLink>
     ) : (
-      part.text
+      withPaths(part.text, `${keyBase}-${i}`)
     ),
   );
+}
+
+/** An `inline code` span: agents write paths this way, bare file names (`useChat.ts`) included. */
+function codeSpan(code: string, key: string): ReactNode {
+  const whole = parsePathToken(code, { bare: true, spaces: true });
+  if (whole) {
+    return (
+      <ChatPathLink key={key} parsed={whole}>
+        <code>{code}</code>
+      </ChatPathLink>
+    );
+  }
+  return <code key={key}>{withPaths(code, key, true)}</code>;
 }
 
 /** `inline code`, **bold** and links inside one line of text. */
 function inline(text: string, keyBase: string, open: OpenLink): ReactNode[] {
   return text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((part, i) => {
     const key = `${keyBase}-${i}`;
-    if (part.length > 2 && part.startsWith("`") && part.endsWith("`")) return <code key={key}>{part.slice(1, -1)}</code>;
+    if (part.length > 2 && part.startsWith("`") && part.endsWith("`")) return codeSpan(part.slice(1, -1), key);
     if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) return <strong key={key}>{withLinks(part.slice(2, -2), key, open)}</strong>;
     return withLinks(part, key, open);
   });
@@ -58,7 +92,7 @@ function lines(rows: string[], keyBase: string, open: OpenLink): ReactNode[] {
 /** A light markdown subset - fenced code, `code`, **bold**, links, "- " bullets, line
  * breaks - built as React nodes (never as HTML). An unclosed fence, as the
  * agent is still typing it, runs to the end of the text. */
-export function ChatMarkdown({ text }: { text: string }) {
+export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
   const open = useOpenLink();
   const blocks: ReactNode[] = [];
   const rows = text.split("\n");
@@ -103,4 +137,5 @@ export function ChatMarkdown({ text }: { text: string }) {
   }
   flush();
   return <div className="chat-md">{blocks}</div>;
-}
+  // Rebuilt only when the text changed: every other message stays as drawn while one streams.
+});

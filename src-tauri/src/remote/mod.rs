@@ -15,7 +15,7 @@ mod chat;
 mod connlog;
 mod fsbrowse;
 mod hex;
-mod keystore;
+pub(crate) mod keystore;
 mod stream;
 mod views;
 
@@ -146,6 +146,8 @@ const EVT_CHAT_TERMINAL: &str = "remote://chat-terminal";
 const EVT_TERMINAL_CHAT: &str = "remote://terminal-chat";
 /// `{tabId, label}`: a phone renamed a chat tab, to the window showing it.
 const EVT_CHAT_RENAME: &str = "remote://chat-rename";
+/// `{tabId}`: a phone closed a chat tab, to the window showing it.
+const EVT_CHAT_CLOSE: &str = "remote://chat-close";
 /// A phone asked for a new chat tab (see `ClientMsg::NewChat`).
 const EVT_NEW_CHAT: &str = "remote://new-chat";
 /// How long the user has to confirm a new phone on the desktop. The phone
@@ -289,6 +291,12 @@ pub struct SizeInfo {
 }
 
 impl RemoteState {
+    /// This desktop's own server node id while the endpoint runs, so the
+    /// client side (`remote_client`) can refuse to pair with itself.
+    pub(crate) fn node_id(&self) -> Option<String> {
+        lock(&self.0.runtime).running.as_ref().map(|r| r.node_id.clone())
+    }
+
     pub fn load(app: &AppHandle) -> RemoteState {
         let dir = app.path().app_config_dir().unwrap_or_default();
         let _ = std::fs::create_dir_all(&dir);
@@ -775,6 +783,7 @@ impl Shared {
                     session_id: chat.session_id.clone(),
                     status: Some(chat.status.as_str().to_string()),
                     modes: chat.modes.clone(),
+                    models: chat.models.clone(),
                 })
             })
             .collect()
@@ -2143,6 +2152,22 @@ impl Conn {
                     }
                 });
             }
+            // As `ChatMode`; the new model reaches every view as a chat event
+            // and the phones' list as a fresh `chats`.
+            ClientMsg::ChatModel { chat_id, model_id } => {
+                if chat_id.len() > MAX_ID_BYTES || model_id.is_empty() || model_id.len() > MAX_ID_BYTES {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                    return;
+                }
+                let (app, out) = (self.shared.app.clone(), self.out_tx.clone());
+                tauri::async_runtime::spawn(async move {
+                    let result = app.state::<ChatState>().set_model(&chat_id, model_id).await;
+                    if let Err(message) = result {
+                        let message = format!("{}: {message}", tr("Impossibile cambiare modello", "Couldn't change the model"));
+                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                    }
+                });
+            }
             ClientMsg::ChatTerminal { chat_id } => {
                 let Some(chat) = self.chat(&chat_id) else { return };
                 let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_TERMINAL, serde_json::json!({ "tabId": chat.tab_id }));
@@ -2167,6 +2192,11 @@ impl Conn {
                 let Some(chat) = self.chat(&chat_id) else { return };
                 let payload = serde_json::json!({ "tabId": chat.tab_id, "label": label });
                 let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_RENAME, payload);
+            }
+            ClientMsg::ChatCloseTab { chat_id } => {
+                let Some(chat) = self.chat(&chat_id) else { return };
+                let payload = serde_json::json!({ "tabId": chat.tab_id });
+                let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_CLOSE, payload);
             }
             ClientMsg::Views => self.send_views(),
             ClientMsg::ViewFile { view_id, path } => {

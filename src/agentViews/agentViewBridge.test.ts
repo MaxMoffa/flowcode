@@ -17,6 +17,7 @@ describe("parseViewMessage", () => {
     expect(parseViewMessage({ type: "send", text: "hi" })).toEqual({ ok: true, message: { type: "send", text: "hi" } });
     expect(parseViewMessage({ type: "cancel", extra: 1 })).toEqual({ ok: true, message: { type: "cancel" } });
     expect(parseViewMessage({ type: "setMode", modeId: "plan" })).toEqual({ ok: true, message: { type: "setMode", modeId: "plan" } });
+    expect(parseViewMessage({ type: "setModel", modelId: "opus" })).toEqual({ ok: true, message: { type: "setModel", modelId: "opus" } });
     expect(parseViewMessage({ type: "openFile", path: "a.ts" })).toEqual({ ok: true, message: { type: "openFile", path: "a.ts" } });
     expect(parseViewMessage({ type: "switchView", viewId: "chat" })).toEqual({ ok: true, message: { type: "switchView", viewId: "chat" } });
   });
@@ -25,6 +26,7 @@ describe("parseViewMessage", () => {
     expect(parseViewMessage({ type: "send", text: "  " })).toEqual({ ok: false, request: "send" });
     expect(parseViewMessage({ type: "send", text: 3 })).toEqual({ ok: false, request: "send" });
     expect(parseViewMessage({ type: "setMode", modeId: "" })).toEqual({ ok: false, request: "setMode" });
+    expect(parseViewMessage({ type: "setModel", modelId: 3 })).toEqual({ ok: false, request: "setModel" });
     expect(parseViewMessage({ type: "openFile", path: null })).toEqual({ ok: false, request: "openFile" });
     expect(parseViewMessage({ type: "switchView" })).toEqual({ ok: false, request: "switchView" });
   });

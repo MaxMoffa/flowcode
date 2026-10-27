@@ -46,6 +46,8 @@ export interface ChatInfo {
   status?: "starting" | "idle" | "busy" | "waiting" | "exited";
   /** The ACP `modes` object the agent announced (`{ currentModeId, availableModes }`). */
   modes?: unknown;
+  /** The models the agent offers, normalized by the desktop (`{ currentModelId, availableModels: [{ modelId, name, description?, group? }] }`); absent when the agent offers none, or from older desktops. */
+  models?: unknown;
 }
 
 /** An installed agent view plugin offered to phones (its manifest, see
@@ -209,7 +211,11 @@ export type RemoteCap =
   /** `terminalchat`: an agent's terminal tab reopened as a chat. */
   | "terminalChat"
   /** `chatrename`: renaming a chat tab. */
-  | "chatRename";
+  | "chatRename"
+  /** `chatclosetab`: closing a chat tab. */
+  | "chatCloseTab"
+  /** `chatmodel`: switching a chat's model. */
+  | "chatModel";
 
 export type ServerMsg =
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -263,12 +269,16 @@ export type ClientMsg =
   /** Answers an agent's permission request; `optionId: null` cancels it. */
   | { t: "chatpermission"; chatId: string; requestId: unknown; optionId: string | null }
   | { t: "chatmode"; chatId: string; modeId: string }
+  /** Switches the chat's agent to another model it offers (`ChatInfo.models`). */
+  | { t: "chatmodel"; chatId: string; modelId: string }
   /** Hands the chat's session over to a desktop terminal tab (as Ctrl+` does on the desktop). */
   | { t: "chatterminal"; chatId: string }
   /** Reopens the agent running in the terminal tab of `ptyId` as a chat tab on the same session (the reverse of `chatterminal`). */
   | { t: "terminalchat"; ptyId: string }
   /** Renames the desktop chat tab. */
   | { t: "chatrename"; chatId: string; label: string }
+  /** Closes the desktop chat tab (not the last one of its window). */
+  | { t: "chatclosetab"; chatId: string }
   /** Opens a new desktop chat tab for `cli` in `cwd` (else the start folder). */
   | { t: "newchat"; cli: string; cwd?: string; /** "" = the default profile; absent = automatic. */ profile?: string }
   | { t: "views" }

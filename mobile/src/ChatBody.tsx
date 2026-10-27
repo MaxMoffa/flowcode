@@ -1,10 +1,10 @@
-import { memo, useMemo, useState } from "react";
-import { lineDiff, type ChatItem } from "../../src/chat/chatModel";
+import { memo, useMemo, useState, type ReactNode } from "react";
+import { lineDiff, stopKind, type ChatItem, type StopKind } from "../../src/chat/chatModel";
 import type { ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
 import { ChatMarkdown } from "./ChatMarkdown";
-import { t } from "./i18n";
-import { AgentLogo } from "./icons";
+import { t, type Key } from "./i18n";
+import { ChevronDownIcon } from "./icons";
 
 type DiffContent = Extract<ChatToolContent, { type: "diff" }>;
 
@@ -13,22 +13,6 @@ const DIFF_ROWS_PREVIEW = 6;
 const DIFF_ROWS_MAX = 80;
 /** Characters of a tool's text output shown. */
 const TOOL_TEXT_MAX = 3000;
-
-function ToolStatus({ status }: { status: ChatToolCall["status"] }) {
-  if (status === "completed")
-    return (
-      <svg className="chat-tool-st is-done" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <polyline points="5 12.5 10 17.5 19 7" />
-      </svg>
-    );
-  if (status === "failed")
-    return (
-      <svg className="chat-tool-st is-failed" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
-        <path d="m6 6 12 12M18 6 6 18" />
-      </svg>
-    );
-  return <span className="chat-spinner" aria-hidden="true" />;
-}
 
 /** An edit as a small card: the file, +added −removed, and the first rows of the change. */
 function DiffCard({ diff }: { diff: DiffContent }) {
@@ -64,30 +48,76 @@ function DiffCard({ diff }: { diff: DiffContent }) {
   );
 }
 
-function ToolRow({ call }: { call: ChatToolCall }) {
+const isFinished = (call: ChatToolCall) => call.status === "completed" || call.status === "failed";
+
+type Category = "read" | "search" | "edit" | "run" | "other";
+
+/** The summary words per category: singular and plural. */
+const SUMMARY: Record<Category, [Key, Key]> = {
+  read: ["chatSumRead1", "chatSumReadN"],
+  search: ["chatSumSearch1", "chatSumSearchN"],
+  edit: ["chatSumEdit1", "chatSumEditN"],
+  run: ["chatSumRun1", "chatSumRunN"],
+  other: ["chatSumOther1", "chatSumOtherN"],
+};
+const CATEGORY_ORDER: Category[] = ["read", "search", "edit", "run", "other"];
+
+function categoryOf(call: ChatToolCall): Category {
+  switch (call.kind) {
+    case "read":
+      return "read";
+    case "search":
+      return "search";
+    case "edit":
+    case "delete":
+    case "move":
+      return "edit";
+    case "execute":
+      return "run";
+    default:
+      return "other";
+  }
+}
+
+/** "2 file letti · 1 modifica" for a run of finished steps, with the failed ones counted last. */
+function summaryOf(calls: ChatToolCall[]): string {
+  const counts = new Map<Category, number>();
+  for (const call of calls) counts.set(categoryOf(call), (counts.get(categoryOf(call)) ?? 0) + 1);
+  const parts = CATEGORY_ORDER.flatMap((c) => {
+    const n = counts.get(c);
+    return n ? [t(SUMMARY[c][n === 1 ? 0 : 1], { n })] : [];
+  });
+  const failed = calls.filter((c) => c.status === "failed").length;
+  if (failed > 0) parts.push(t(failed === 1 ? "chatSumFailed1" : "chatSumFailedN", { n: failed }));
+  return parts.join(" · ");
+}
+
+/** One step on the rail: a dot (muted when done, glowing while it runs, red when it failed), what it did, and its output on tap. */
+function ToolStep({ call }: { call: ChatToolCall }) {
   const content = call.content ?? [];
   const diffs = content.filter((c): c is DiffContent => c.type === "diff");
   const text = content
     .map((c) => (c.type === "content" && c.content.type === "text" ? (c.content.text ?? "") : ""))
     .filter(Boolean)
     .join("\n");
-  const rowClass = "chat-tool-row" + (call.status === "completed" || call.status === "failed" ? "" : " is-running");
+  const state = call.status === "failed" ? "is-failed" : call.status === "completed" ? "is-done" : "is-live";
   const head = (
     <>
-      <ToolStatus status={call.status} />
-      <span className="chat-tool-title">{call.title ?? call.kind ?? call.toolCallId}</span>
-      {call.kind && <span className="chat-tool-kind">{call.kind}</span>}
+      <i className={"chat-dot " + state} aria-hidden="true" />
+      <span className="chat-step-title">{call.title ?? call.kind ?? call.toolCallId}</span>
+      {state === "is-live" && <span className="chat-spinner" aria-hidden="true" />}
+      {state === "is-failed" && <b className="chat-step-failed">{t("chatToolFailed")}</b>}
     </>
   );
   return (
-    <div className="chat-tool">
+    <div className={"chat-step " + state}>
       {text ? (
         <details>
-          <summary className={rowClass}>{head}</summary>
+          <summary className="chat-step-row">{head}</summary>
           <pre className="chat-tool-out mono">{text.length > TOOL_TEXT_MAX ? `${text.slice(0, TOOL_TEXT_MAX)}…` : text}</pre>
         </details>
       ) : (
-        <div className={rowClass}>{head}</div>
+        <div className="chat-step-row">{head}</div>
       )}
       {diffs.map((d, i) => (
         <DiffCard key={i} diff={d} />
@@ -95,6 +125,34 @@ function ToolRow({ call }: { call: ChatToolCall }) {
     </div>
   );
 }
+
+/** A run of the agent's tool calls on a thin rail. While one runs the steps are open; once all are done they fold into a one-line summary that opens on tap. Redrawn only when one of its calls changed (the model replaces just the changed ones). */
+const ToolRun = memo(function ToolRun({ calls }: { calls: ChatToolCall[] }) {
+  const live = calls.some((c) => !isFinished(c));
+  const [open, setOpen] = useState(false);
+  const failed = calls.some((c) => c.status === "failed");
+  const expanded = live || open;
+  return (
+    <div className="chat-rail">
+      {!live && (
+        <button type="button" className="chat-step-row chat-sum" aria-expanded={expanded} onClick={() => setOpen(!open)}>
+          <i className={"chat-dot " + (failed ? "is-failed" : "is-done")} aria-hidden="true" />
+          <span className="chat-sum-text">{summaryOf(calls)}</span>
+          <ChevronDownIcon />
+        </button>
+      )}
+      {expanded && calls.map((c) => <ToolStep key={c.toolCallId} call={c} />)}
+    </div>
+  );
+}, (a, b) => a.calls.length === b.calls.length && a.calls.every((c, i) => c === b.calls[i]));
+
+/** The words for why a turn stopped early. */
+const STOP_TEXT: Record<StopKind, Key> = {
+  maxTokens: "chatStopMaxTokens",
+  maxTurnRequests: "chatStopMaxTurnRequests",
+  refusal: "chatStopRefusal",
+  other: "chatStopOther",
+};
 
 function PlanCard({ plan }: { plan: ChatPlanEntry[] }) {
   const done = plan.filter((p) => p.status === "completed").length;
@@ -128,7 +186,8 @@ const AgentText = memo(function AgentText({ text, onLink }: { text: string; onLi
   );
 });
 
-function Item({ item, onLink }: { item: ChatItem; onLink: (url: string) => void }) {
+/** One item; redrawn only when it changed (the model keeps the object of an unchanged item). */
+const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url: string) => void }) {
   switch (item.type) {
     case "user":
       return <div className="chat-user">{item.text}</div>;
@@ -142,7 +201,7 @@ function Item({ item, onLink }: { item: ChatItem; onLink: (url: string) => void 
         </details>
       );
     case "tool":
-      return <ToolRow call={item.call} />;
+      return <ToolRun calls={[item.call]} />;
     case "error":
       return (
         <div className="chat-error" role="alert">
@@ -150,21 +209,56 @@ function Item({ item, onLink }: { item: ChatItem; onLink: (url: string) => void 
         </div>
       );
     case "permission": {
-      // The open request is answered from the bar above the composer; here it only leaves a trace.
+      // The open request is answered from the card above the composer; here it only leaves a trace on the rail.
       const title = item.toolCall.title ?? item.toolCall.kind ?? t("chatPermTitle");
       const option = item.options.find((o) => o.optionId === item.resolved);
-      if (item.resolved === undefined) return <div className="chat-perm-line is-open">{t("chatAsks", { title })}</div>;
+      const open = item.resolved === undefined;
       return (
-        <div className="chat-perm-line">
-          {option ? t("chatPermAnswered", { option: option.name }) : t("chatPermCancelled")} · {title}
+        <div className="chat-rail">
+          <div className={"chat-step chat-perm-line" + (open ? " is-open" : "")}>
+            <div className="chat-step-row">
+              <i className={"chat-dot " + (open ? "is-warn" : "is-done")} aria-hidden="true" />
+              <span className="chat-step-title">{open ? t("chatAsks", { title }) : `${option ? t("chatPermAnswered", { option: option.name }) : t("chatPermCancelled")} · ${title}`}</span>
+            </div>
+          </div>
         </div>
       );
     }
+    case "stop":
+      return (
+        <div className="chat-stop" role="status">
+          {t(STOP_TEXT[stopKind(item.reason)], { reason: item.reason })}
+        </div>
+      );
+    default:
+      // An item kind added by a newer desktop: skipped, never a crash.
+      return null;
   }
+});
+
+/** A turn's items in order, with each run of consecutive tool calls folded into one rail. */
+function Turn({ group, onLink }: { group: ChatItem[]; onLink: (url: string) => void }) {
+  const out: ReactNode[] = [];
+  for (let i = 0; i < group.length; i++) {
+    const item = group[i];
+    if (item.type !== "tool") {
+      out.push(<Item key={item.id} item={item} onLink={onLink} />);
+      continue;
+    }
+    const calls: ChatToolCall[] = [item.call];
+    while (i + 1 < group.length) {
+      const next = group[i + 1];
+      if (next.type !== "tool") break;
+      calls.push(next.call);
+      i++;
+    }
+    out.push(<ToolRun key={item.id} calls={calls} />);
+  }
+  return <div className="chat-turn">{out}</div>;
 }
 
-/** The conversation: the user's bubbles, and each run of agent output (text, tools, edits) as one turn under the agent's avatar, then the plan. `onLink` gets a tapped link. */
-export const ChatBody = memo(function ChatBody({ items, plan, agent, onLink }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; agent: string; onLink: (url: string) => void }) {
+/** The conversation: the user's small bubbles, and each run of agent output as one turn of plain text with its tool calls on a rail, then the plan. `onLink` gets a tapped link. */
+export const ChatBody = memo(function ChatBody({ items, plan, onLink }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; onLink: (url: string) => void }) {
   const groups: ChatItem[][] = [];
   for (const item of items) {
     const last = groups[groups.length - 1];
@@ -173,22 +267,7 @@ export const ChatBody = memo(function ChatBody({ items, plan, agent, onLink }: {
   }
   return (
     <>
-      {groups.map((group) =>
-        group[0].type === "user" ? (
-          <Item key={group[0].id} item={group[0]} onLink={onLink} />
-        ) : (
-          <div key={group[0].id} className="chat-turn">
-            <span className="chat-turn-avatar">
-              <AgentLogo cli={agent} size={15} />
-            </span>
-            <div className="chat-turn-body">
-              {group.map((item) => (
-                <Item key={item.id} item={item} onLink={onLink} />
-              ))}
-            </div>
-          </div>
-        ),
-      )}
+      {groups.map((group) => (group[0].type === "user" ? <Item key={group[0].id} item={group[0]} onLink={onLink} /> : <Turn key={group[0].id} group={group} onLink={onLink} />))}
       {plan && plan.length > 0 && <PlanCard plan={plan} />}
     </>
   );

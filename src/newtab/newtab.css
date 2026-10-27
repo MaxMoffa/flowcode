@@ -292,23 +292,23 @@
   font-size: 12px;
 }
 
-/* The shell chips and, under them, the profile chips. */
+/* The shell chips, with the profile selector pinned to the right. */
 .newtab-chip-groups {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 
-.newtab-profile-dot {
-  width: 8px;
-  height: 8px;
+.newtab-chip-groups > .newtab-chips {
+  flex: 1;
+  min-width: 0;
+}
+
+.newtab-foot-profile {
   flex: none;
-  margin: 2.5px;
-  border-radius: 999px;
-}
-
-.newtab-profile-dot.is-default {
-  box-shadow: inset 0 0 0 1.5px currentColor;
+  margin-left: auto;
 }
 
 .newtab-chips {

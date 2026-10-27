@@ -185,8 +185,9 @@ function handleMsg(m: ServerMsg) {
       break;
     case "error":
       // Fatal ones also arrive as a state change; only requests that failed
-      // deserve a toast.
-      if (!m.fatal) showToast(m.message);
+      // deserve a toast. A prompt refused as `agent_busy` is not lost: chats.ts
+      // puts it back in its queue (and says so itself when it can't).
+      if (!m.fatal && !m.message.startsWith("agent_busy")) showToast(m.message);
       break;
   }
   msgListeners.forEach((l) => l(m));

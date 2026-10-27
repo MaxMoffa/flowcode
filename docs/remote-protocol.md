@@ -71,7 +71,7 @@ are not limited by that.
 | C to S | `pair {code, deviceName}` | New device: redeems the one-time code from the QR. |
 | C to S | `auth {token}` | Known device. The token must match **and** the connection's node id must be the one that paired. |
 | S to C | `paired {token, deviceName}` | Reply to `pair`. Store the token; it is never shown again. Followed by `ready`. |
-| S to C | `ready {deviceName, hostName, appVersion?, proto?, caps?}` | Handshake done. `appVersion` is the desktop's app version, `proto` its protocol revision (`proto::PROTOCOL_VERSION`, 2 today; absent = 1) and `caps` the optional features it supports (`proto::CAPABILITIES`: `rename`, `closeTab`, `profiles`, `profileLogin`, `profileAgents`, `newTabProfile`, `background`, `gemini`; `profileLogin` is signing a non-default profile in, `profileAgents` signing out and the default profile's agents). A desktop that sends none of them is an old one (0.9 / 0.10): the phone assumes proto 1 and what those releases had (`LEGACY_CAPS`: `profiles`, `profileLogin`, `background`), hides the matching UI and shows a dismissable banner; below its minimum proto (`MIN_DESKTOP_PROTO`) it shows a blocking "update Flowcode" screen. A new feature adds a capability here, in `RemoteCap` and in the phone's `CAP_LABELS`. Followed by `usage` and `actions` with the current values, by `settings` once the desktop has published them, and by an unsolicited `tabs` with the current list (so the phone need not wait for the reply to its `list`; a phone should still send `list` after `ready`, which an older desktop answers and a newer one answers again with the same list). |
+| S to C | `ready {deviceName, hostName, appVersion?, proto?, caps?}` | Handshake done. `appVersion` is the desktop's app version, `proto` its protocol revision (`proto::PROTOCOL_VERSION`, 2 today; absent = 1) and `caps` the optional features it supports (`proto::CAPABILITIES`: `rename`, `closeTab`, `profiles`, `profileLogin`, `profileAgents`, `newTabProfile`, `background`, `gemini`, `chat`, `agentViews`, `linkPreview`, `compress`, `terminalChat`, `chatRename`, `chatCloseTab`, `chatModel`; `profileLogin` is signing a non-default profile in, `profileAgents` signing out and the default profile's agents, `chat` the desktop's chat tabs (the `chat*` messages, `chats`, `chatevents`), `agentViews` the view plugins (`views`, `viewfile`), `compress` deflated frames after `hello`). A desktop that sends none of them is an old one (0.9 / 0.10): the phone assumes proto 1 and what those releases had (`LEGACY_CAPS`: `profiles`, `profileLogin`, `background`), hides the matching UI and shows a dismissable banner; below its minimum proto (`MIN_DESKTOP_PROTO`) it shows a blocking "update Flowcode" screen. A new feature adds a capability here, in `RemoteCap` and in the phone's `CAP_LABELS`. Followed by `usage` and `actions` with the current values, by `settings` once the desktop has published them, and by an unsolicited `tabs` with the current list (so the phone need not wait for the reply to its `list`; a phone should still send `list` after `ready`, which an older desktop answers and a newer one answers again with the same list). |
 | S to C | `error {message, ptyId?, fatal}` | `fatal: true` means the server is closing the connection (bad code, bad token, too many attempts, device revoked). `message` is localized text for the user. |
 
 After a valid `pair` the desktop asks its user to confirm the new phone and
@@ -112,7 +112,17 @@ Client messages:
 | `rename {ptyId, label}` | Rename the desktop tab owning `ptyId`, like a desktop rename: the label is trimmed (max 128 characters) and a blank one is ignored. An unknown pty gets an `error`. No reply: the next `tabs` shows the new label. |
 | `closetab {ptyId}` | Close the desktop tab owning `ptyId`, like closing it on the desktop. The window's last tab stays open (closing it would close the window). An unknown pty gets an `error`. No reply: the next `tabs` no longer lists it. |
 | `terminalchat {ptyId}` | Reopen the agent running in the tab owning `ptyId` as a chat tab on the same session (the reverse of `chatterminal`). The desktop starts the chat with a strict `session/load` and closes the terminal only once the session has loaded; if the agent is busy, can't resume or fails to start, the terminal stays. An unknown pty gets an `error`. No reply: the new chat shows in the next `chats`, the terminal leaves the next `tabs`. Needs the `terminalChat` capability. |
+| `chatopen {chatId, afterSeq}` | Follow a chat tab: answered with a `chatevents` replay of every event after `afterSeq` (`0` for all), then live `chatevents` batches until `chatclose` or the end of the connection. A reconnecting client asks again from its last `seq`. Needs the `chat` capability, like every `chat*` message. |
+| `chatclose {chatId}` | Stop following a chat. |
+| `chatprompt {chatId, text}` | Send a message to the chat's agent, as typed in the desktop chat. A prompt sent while the agent is not idle is refused with a non-fatal `error` whose message starts with `agent_busy:` (`agent_exited:` once the agent has exited); nothing is logged for it. That `error` names no chat: a client puts the message back at the front of its queue (when it can tell which chat it was, i.e. one prompt is in flight) and sends it again after the turn ends. |
+| `chatcancel {chatId}` | Cancel the running turn. |
+| `chatpermission {chatId, requestId, optionId}` | Answer the agent's permission request; `optionId: null` cancels it. |
+| `chatmode {chatId, modeId}` | Switch the agent's ACP mode (one of the chat's `modes`). |
+| `chatterminal {chatId}` | Hand the chat's session over to a desktop terminal tab (as Ctrl+` does on the desktop). |
+| `newchat {cli, cwd?, profile?}` | Open a new desktop chat tab for `cli`, in `cwd` (else the start folder), under `profile` like `newtab`. |
 | `chatrename {chatId, label}` | Rename a desktop chat tab, like `rename` (trimmed, max 128 characters, blank ignored). No reply: the next `chats` shows the new label. Needs the `chatRename` capability. |
+| `chatclosetab {chatId}` | Close a desktop chat tab, like `closetab` (never the last tab of its window). No reply: the next `chats` no longer lists it. Needs the `chatCloseTab` capability. |
+| `chatmodel {chatId, modelId}` | Switch the chat's agent to another of the models it offers (`models` of the chat in `chats`: `{currentModelId, availableModels: [{modelId, name, description?, group?}]}`, normalized by the desktop from ACP's `models` or its `model` config option). Allowed mid-turn: it applies from the next prompt. A model the agent doesn't offer, or an agent that refuses, gets a non-fatal `error`. No reply: followers get an `ext` chat event `_flowcode/model` with the new models, and the next `chats` shows them. Needs the `chatModel` capability. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
 | `linkpreview {url}` | The preview of a web link in a chat, answered with `linkpreview`. Needs the `linkPreview` capability (not in `RemoteCap`: an older desktop just has no previews). |
@@ -136,6 +146,8 @@ Server messages:
 | `profiles {profiles, defaultLoggedIn?}` | The account profiles besides the default one, as an array of `{id, name, color, loggedIn: {claude, codex, vibe, gemini}}` (booleans, read off the CLIs' files). `defaultLoggedIn` is the default profile's `{claude, codex, vibe, gemini}` in the same form; absent from older desktops (and until the desktop knows it). Pushed after `ready` once published, and on every change, including ones made on the desktop and sign-ins finishing. |
 | `ls {ptyId, path, entries}` | Reply to `ls`. |
 | `file {ptyId, path, text, truncated}` | Reply to `read`. |
+| `chats {chats}` | Every desktop chat tab, as `ChatInfo` (see Types); sent on connect and whenever one changes (status, label, mode, models...). |
+| `chatevents {chatId, events, replay}` | Events of a followed chat (see Chat events). `replay: true` is the answer to `chatopen`, even when empty; then live batches. |
 | `linkpreview {url, preview}` | Reply to `linkpreview`. `preview` is `{url, finalUrl, title?, description?, siteName?, image?, favicon?}` (the pictures are `data:` URIs, dropped if the frame would pass ~900 KiB), or `null` when the page has nothing to show or the desktop's `linkPreviews` setting is `never`. |
 | `pong` | Reply to `ping`. |
 | `error {message, ptyId?, fatal}` | A failed request (non-fatal) or the end of the connection (fatal). A message the desktop could not send because it exceeds one frame is dropped and reported with a non-fatal `error` (with its `ptyId` when it had one). |
@@ -175,7 +187,14 @@ UsageItem  {pluginId, label, profile?, profileName?, profileColor?, metrics: [Us
 UsageMetric{kind, label?, percent?, resets?, command?, period?, cost?, tokens?, sessions?}
 Action     {id, label, icon?, cli?: "claude"|"codex"|"vibe"|"gemini"}
 LsEntry    {name, dir, size?}
+ChatInfo   {chatId, tabId, window, label, agent, cwd, profile?, sessionId?,
+            status?: "starting"|"idle"|"busy"|"waiting"|"exited",
+            modes?: {currentModeId, availableModes}, models?: {currentModelId, availableModels: [{modelId, name, description?, group?}]}}
 ```
+
+- `ChatInfo.models` is what the agent offers, normalized by the desktop (from
+  ACP's `models` or its `model` config option); absent when it offers no
+  choice, or from an older desktop. `chatmodel` picks one of them.
 
 - `context` is how full the agent's context window is, in tokens (`used` of
   `window`); only for claude/codex tabs whose transcript can be read, and
@@ -192,6 +211,25 @@ LsEntry    {name, dir, size?}
 - `action.id` ids come from the desktop's pinned quick actions (plugin ids).
   The desktop may still ask its user to confirm a command it has not run
   before; the phone cannot bypass that.
+
+### Chat events
+
+`chatevents` carries the desktop's own chat events (`ChatEvent` in
+src/chat/chatTypes.ts), each with a `seq` that only grows: `update` (an ACP
+`session/update`), `user`, `permission`, `permissionResolved`, `turnEnd`,
+`error`, `exit` and `ext` (an extension notification `{method, params}`).
+The desktop's log merges runs of text chunks into one event carrying the last
+chunk's `seq`, so a replay is authoritative up to its last `seq`. Kinds and
+`ext` methods a client does not know must be skipped. The desktop's own ext
+events:
+
+- `_flowcode/model`: the chat's models changed (a `chatmodel`, or the agent
+  pushed new config options). `params` is the normalized
+  `{currentModelId, availableModels}` (as `ChatInfo.models`), or
+  `{currentModelId: null, availableModels: []}` when the agent no longer
+  offers a choice.
+- `_session/retrying`: the agent retries a failed request (`params`:
+  `{category, detail}`); stale once the turn ended.
 
 ### Phone-sized terminals
 
@@ -216,6 +254,17 @@ grid actually in effect, which the phone should adopt.
 - `read`: text only. A file with a NUL byte in its first 8 KiB is refused
   (`error`). Content is cut at 1 MiB and then further if its JSON-escaped form
   would not fit one frame; `truncated` says so. Invalid UTF-8 is replaced.
+
+## Desktop as a client
+
+A desktop can also be the client of another desktop ("Connect another PC"):
+it pairs exactly like a phone (same ticket, same `pair` / `auth` handshake,
+the other PC's user confirms it) and then speaks the same protocol, following
+terminals and chats with the same messages. The client side lives in
+src-tauri/src/remote_client and reuses the phone's link code through
+`#[path]` modules: mobile/src-tauri/src/{link,store,backoff,connlog}.rs. The
+desktop answers it like any phone: a paired desktop shows in its devices
+list and can be revoked the same way.
 
 ## Pairing ticket (the QR code)
 

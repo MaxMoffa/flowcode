@@ -400,12 +400,17 @@ pub async fn duplicate_entry(path: String) -> Result<FsEntry, String> {
     .await
 }
 
+/// Largest file the editor opens: it holds the whole text in memory (and
+/// ships it over IPC), so a multi-hundred-MB log would freeze it.
+const EDITOR_MAX_BYTES: u64 = 20 * 1024 * 1024;
+/// How much of a file `path_kind` reads to tell text from binary.
+const TEXT_SNIFF_BYTES: usize = 8 * 1024;
+/// Longest path a clicked chat/terminal link may name.
+const LINK_PATH_MAX: usize = 4096;
+
 #[tauri::command(async)]
 pub fn read_text_file(path: String) -> Result<String, String> {
-    // The editor holds the whole text in memory (and ships it over IPC), so a
-    // multi-hundred-MB log would freeze it.
-    const MAX_BYTES: u64 = 20 * 1024 * 1024;
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_BYTES) {
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > EDITOR_MAX_BYTES) {
         return Err(tr(
             "File troppo grande da aprire nell'editor (oltre 20 MB).",
             "File too large to open in the editor (over 20 MB).",
@@ -506,9 +511,329 @@ pub fn get_file_info(path: String) -> Result<FileInfo, String> {
     })
 }
 
+/// What a file path written in the chat or printed in a terminal points at -
+/// see `path_kind`.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct PathTarget {
+    /// Absolute and lexically normalized (`.`/`..` folded; not canonicalized,
+    /// so no `\\?\` prefix and symlinks kept as written).
+    path: String,
+    /// `"file"` or `"dir"`.
+    kind: &'static str,
+    /// A file the built-in editor can open: at most `EDITOR_MAX_BYTES`, and
+    /// its first `TEXT_SNIFF_BYTES` look like UTF-8 text (`looks_like_text`).
+    text: bool,
+}
+
+/// Whether the first bytes of a file are what `read_to_string` will accept:
+/// no NUL byte and valid UTF-8 (a BOM is valid UTF-8 too). `truncated` = the
+/// file goes on past `head`, so a multi-byte sequence cut at its end is fine.
+fn looks_like_text(head: &[u8], truncated: bool) -> bool {
+    if head.contains(&0) {
+        return false;
+    }
+    match std::str::from_utf8(head) {
+        Ok(_) => true,
+        // `error_len() == None`: the bytes stop mid-sequence rather than being invalid.
+        Err(e) => truncated && e.error_len().is_none(),
+    }
+}
+
+/// `.` and `..` folded away without touching the disk (a `..` never climbs
+/// above the root/prefix).
+fn normalize_lexically(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
+                    out.pop();
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// `path` as an absolute path: `~` expanded, a relative one joined onto
+/// `cwd` (which must itself be absolute). `None` for an empty or oversized
+/// path, a NUL byte, or a relative path with no usable cwd.
+fn resolve_link_path(path: &str, cwd: Option<&str>) -> Option<PathBuf> {
+    if path.is_empty() || path.len() > LINK_PATH_MAX || path.contains('\0') {
+        return None;
+    }
+    let p = if path == "~" {
+        user_home()?
+    } else if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        user_home()?.join(rest)
+    } else {
+        PathBuf::from(path)
+    };
+    let full = if p.is_absolute() {
+        p
+    } else {
+        let base = Path::new(cwd.map(str::trim).filter(|c| !c.contains('\0'))?);
+        if !base.is_absolute() {
+            return None;
+        }
+        let joined = base.join(p);
+        // `D:x` (drive-relative) replaces the cwd outright when joined: a
+        // "relative" link must stay on the cwd's own drive/share.
+        if path_prefix(&joined) != path_prefix(base) {
+            return None;
+        }
+        joined
+    };
+    Some(normalize_lexically(&full))
+}
+
+/// The `C:` / `\\server\share` part of a path, `None` without one (any path
+/// off Windows).
+fn path_prefix(path: &Path) -> Option<std::path::PrefixComponent<'_>> {
+    match path.components().next() {
+        Some(std::path::Component::Prefix(p)) => Some(p),
+        _ => None,
+    }
+}
+
+/// `\\wsl.localhost\<distro>` and `\\wsl$\<distro>`: the only UNC shares
+/// Flowcode touches by itself (served locally by WSL, no network login).
+fn is_wsl_server(server: &std::ffi::OsStr) -> bool {
+    server.eq_ignore_ascii_case("wsl.localhost") || server.eq_ignore_ascii_case("wsl$")
+}
+
+/// Whether merely stat'ing/opening `path` stays on this machine: a plain
+/// drive path or a WSL share. Any other UNC path makes Windows authenticate
+/// to that server (leaking the user's NTLM hash - `\\host@SSL@443\x` even
+/// over HTTPS/WebDAV), and `\\.\` / `\\?\GLOBALROOT` reach devices and named
+/// pipes. `verbatim` lets `\\?\C:\` / `\\?\UNC\wsl.localhost\` through: what
+/// `canonicalize` and junction targets look like, never what a link written
+/// in text should be.
+pub(crate) fn is_local_path(path: &Path, verbatim: bool) -> bool {
+    use std::path::Prefix;
+    let Some(prefix) = path_prefix(path) else { return true };
+    match prefix.kind() {
+        Prefix::Disk(_) => true,
+        Prefix::UNC(server, _) => is_wsl_server(server),
+        Prefix::VerbatimDisk(_) => verbatim,
+        Prefix::VerbatimUNC(server, _) => verbatim && is_wsl_server(server),
+        Prefix::DeviceNS(_) | Prefix::Verbatim(_) => false,
+    }
+}
+
+/// How many links `links_stay_local` follows in all (a chain, or links
+/// found inside other links' targets) before giving up and refusing: a
+/// planted maze of links must not turn one hover into millions of stats.
+const LINK_HOPS: u8 = 16;
+
+pub(crate) fn links_stay_local(path: &Path) -> bool {
+    let mut hops = LINK_HOPS;
+    links_stay_local_within(path, &mut hops)
+}
+
+fn links_stay_local_within(path: &Path, hops: &mut u8) -> bool {
+    use std::path::Component;
+    if !is_local_path(path, true) {
+        return false;
+    }
+    let mut cur = PathBuf::new();
+    for c in path.components() {
+        cur.push(c.as_os_str());
+        if !matches!(c, Component::Normal(_)) {
+            continue;
+        }
+        let meta = match std::fs::symlink_metadata(&cur) {
+            Ok(m) => m,
+            // Nothing further exists: whatever stat comes next fails anyway.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return true,
+            Err(_) => return false,
+        };
+        if meta.file_type().is_symlink() {
+            if *hops == 0 {
+                return false;
+            }
+            *hops -= 1;
+            let Ok(target) = std::fs::read_link(&cur) else { return false };
+            let target = match cur.parent() {
+                Some(parent) if !target.is_absolute() => parent.join(target),
+                _ => target,
+            };
+            if !links_stay_local_within(&normalize_lexically(&target), hops) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn stat_link_path(path: &str, cwd: Option<&str>) -> Option<PathTarget> {
+    use std::io::Read;
+    let full = resolve_link_path(path, cwd)?;
+    if !is_local_path(&full, false) || !links_stay_local(&full) {
+        return None;
+    }
+    // A plain stat (plus an 8 KB read of a file): no globbing, nothing run.
+    let meta = std::fs::metadata(&full).ok()?;
+    let (kind, text) = if meta.is_dir() {
+        ("dir", false)
+    } else if meta.is_file() {
+        let text = meta.len() <= EDITOR_MAX_BYTES
+            && std::fs::File::open(&full).is_ok_and(|f| {
+                let mut head = Vec::with_capacity(TEXT_SNIFF_BYTES);
+                f.take(TEXT_SNIFF_BYTES as u64).read_to_end(&mut head).is_ok()
+                    && looks_like_text(&head, meta.len() > head.len() as u64)
+            });
+        ("file", text)
+    } else {
+        return None;
+    };
+    Some(PathTarget { path: full.to_string_lossy().into_owned(), kind, text })
+}
+
+/// What a path the chat or a terminal shows points at, so it can be offered
+/// as a link: `None` when it doesn't exist (or is neither a file nor a
+/// folder). A relative path resolves against `cwd`.
+#[tauri::command]
+pub async fn path_kind(path: String, cwd: Option<String>) -> Option<PathTarget> {
+    blocking(move || Ok(stat_link_path(&path, cwd.as_deref()))).await.ok().flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_sniff() {
+        assert!(looks_like_text(b"", false), "empty file");
+        assert!(looks_like_text(b"fn main() {}\n", false));
+        assert!(looks_like_text("caff\u{e8} \u{1f600}".as_bytes(), false));
+        assert!(looks_like_text(b"\xEF\xBB\xBFwith bom", false), "BOM");
+        assert!(!looks_like_text(b"abc\0def", false), "NUL");
+        assert!(!looks_like_text(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR", true), "PNG header");
+        assert!(!looks_like_text(b"caff\xe8 latin-1", false), "invalid UTF-8");
+        assert!(!looks_like_text(b"caff\xe8 latin-1", true), "invalid UTF-8 in a longer file");
+        // U+1F600 is F0 9F 98 80: cut after two bytes at the sniff boundary.
+        assert!(looks_like_text(b"ok \xF0\x9F", true), "sequence cut at the boundary");
+        assert!(!looks_like_text(b"ok \xF0\x9F", false), "file really ends mid-sequence");
+    }
+
+    #[test]
+    fn link_path_resolution() {
+        assert_eq!(resolve_link_path("", None), None);
+        assert_eq!(resolve_link_path("a\0b", Some(if cfg!(windows) { "C:\\x" } else { "/x" })), None);
+        assert_eq!(resolve_link_path("src/a.ts", None), None, "relative without cwd");
+        assert_eq!(resolve_link_path("src/a.ts", Some("relative/cwd")), None);
+        assert_eq!(resolve_link_path(&"a".repeat(LINK_PATH_MAX + 1), None), None);
+        if cfg!(windows) {
+            assert_eq!(resolve_link_path("src/./b/../a.ts", Some("C:\\proj")), Some(PathBuf::from("C:\\proj\\src\\a.ts")));
+            assert_eq!(resolve_link_path("..\\..\\..\\x", Some("C:\\proj")), Some(PathBuf::from("C:\\x")));
+            assert_eq!(resolve_link_path("D:/a/b.txt", Some("C:\\proj")), Some(PathBuf::from("D:\\a\\b.txt")));
+        } else {
+            assert_eq!(resolve_link_path("src/./b/../a.ts", Some("/proj")), Some(PathBuf::from("/proj/src/a.ts")));
+            assert_eq!(resolve_link_path("../../../x", Some("/proj")), Some(PathBuf::from("/x")));
+            assert_eq!(resolve_link_path("/a/b.txt", Some("/proj")), Some(PathBuf::from("/a/b.txt")));
+        }
+        assert!(resolve_link_path("~/x", None).is_some_and(|p| p.is_absolute()));
+    }
+
+    #[test]
+    fn stat_link_path_kinds() {
+        let dir = std::env::temp_dir().join(format!("flowcode-path-kind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "hello").unwrap();
+        std::fs::write(dir.join("b.png"), b"\x89PNG\r\n\x1a\n\0\0").unwrap();
+        let cwd = dir.to_string_lossy().into_owned();
+        let a = stat_link_path("a.txt", Some(&cwd)).unwrap();
+        assert_eq!((a.kind, a.text), ("file", true));
+        assert!(Path::new(&a.path).is_absolute());
+        let b = stat_link_path("./b.png", Some(&cwd)).unwrap();
+        assert_eq!((b.kind, b.text), ("file", false));
+        let d = stat_link_path(".", Some(&cwd)).unwrap();
+        assert_eq!((d.kind, d.text), ("dir", false));
+        assert_eq!(stat_link_path("missing.txt", Some(&cwd)), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn link_paths_stay_off_the_network_and_devices() {
+        let cwd = Some("C:\\proj");
+        // Refused before any stat: these would reach a server or a device.
+        for bad in [
+            "\\\\attacker\\share\\a.txt",
+            "\\\\host@SSL@443\\x\\a",
+            "\\\\host@80\\x\\a",
+            "\\\\.\\pipe\\x",
+            "\\\\.\\C:\\x",
+            "\\\\?\\C:\\Windows\\win.ini",
+            "\\\\?\\UNC\\attacker\\share\\a",
+            "\\\\?\\GLOBALROOT\\Device\\x",
+            "//attacker/share/a.txt",
+        ] {
+            assert_eq!(stat_link_path(bad, cwd), None, "{bad:?}");
+            let full = resolve_link_path(bad, cwd);
+            assert!(full.is_none_or(|f| !is_local_path(&f, false)), "{bad:?}");
+        }
+        // Drive-relative: would silently jump off the cwd's drive.
+        assert_eq!(resolve_link_path("D:x\\a.txt", cwd), None);
+        assert_eq!(resolve_link_path("a.txt", Some("\\\\attacker\\share")).map(|f| is_local_path(&f, false)), Some(false));
+        // WSL shares (any case) and plain drives are fine.
+        for ok in ["C:\\x", "\\\\wsl.localhost\\Ubuntu\\home", "\\\\WSL$\\Ubuntu\\home", "\\\\Wsl.LocalHost\\U\\x"] {
+            assert!(is_local_path(Path::new(ok), false), "{ok:?}");
+        }
+        // Verbatim forms only when asked for (canonical paths, junction targets).
+        assert!(is_local_path(Path::new("\\\\?\\C:\\x"), true));
+        assert!(is_local_path(Path::new("\\\\?\\UNC\\wsl.localhost\\Ubuntu\\x"), true));
+        assert!(!is_local_path(Path::new("\\\\?\\UNC\\attacker\\s\\x"), true));
+        assert!(!is_local_path(Path::new("\\\\.\\pipe\\x"), true));
+    }
+
+    #[test]
+    fn links_to_remote_targets_are_refused() {
+        let dir = std::env::temp_dir().join(format!("flowcode-link-local-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        std::fs::write(dir.join("real").join("a.txt"), "hi").unwrap();
+        assert!(links_stay_local(&dir.join("real").join("a.txt")));
+        assert!(links_stay_local(&dir.join("missing").join("x")));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.join("real"), dir.join("ok")).unwrap();
+            std::os::unix::fs::symlink("ok", dir.join("chain")).unwrap();
+            std::os::unix::fs::symlink("loop", dir.join("loop")).unwrap();
+            assert!(links_stay_local(&dir.join("ok").join("a.txt")));
+            assert!(links_stay_local(&dir.join("chain").join("a.txt")));
+            assert!(!links_stay_local(&dir.join("loop").join("x")), "a loop runs out of hops");
+        }
+        #[cfg(windows)]
+        {
+            // Symlinks need a privilege (or developer mode); a junction doesn't.
+            let junction = |link: &Path, target: &str| {
+                std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(link)
+                    .arg(target)
+                    .output()
+                    .is_ok_and(|o| o.status.success())
+            };
+            if junction(&dir.join("ok"), &dir.join("real").to_string_lossy()) {
+                assert!(links_stay_local(&dir.join("ok").join("a.txt")));
+                let cwd = dir.to_string_lossy().into_owned();
+                assert!(stat_link_path("ok\\a.txt", Some(&cwd)).is_some());
+            }
+            // A junction can't point at a share, but a directory symlink can.
+            let remote = dir.join("remote");
+            if std::os::windows::fs::symlink_dir("\\\\attacker.invalid\\share", &remote).is_ok() {
+                assert!(!links_stay_local(&remote.join("a.txt")));
+                let cwd = dir.to_string_lossy().into_owned();
+                assert_eq!(stat_link_path("remote\\a.txt", Some(&cwd)), None);
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn validate_name_rejects_paths() {

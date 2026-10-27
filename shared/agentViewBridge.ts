@@ -9,7 +9,7 @@ export const BRIDGE_API_VERSION = 1;
 export type ViewPluginDevice = "desktop" | "tablet" | "phone";
 
 /** What a view may ask the host to do; every other request is refused. */
-type ViewPermission = "send" | "cancel" | "setMode" | "openFile";
+type ViewPermission = "send" | "cancel" | "setMode" | "setModel" | "openFile";
 
 /** An installed view plugin, as `view_plugins_list` answers. */
 export interface ViewPluginManifest {
@@ -57,6 +57,12 @@ interface ViewModes {
   availableModes: { id: string; name: string; description?: string }[];
 }
 
+/** The models the agent offers (a chat's `ChatModels`); null when there is no choice. */
+interface ViewModels {
+  currentModelId: string;
+  availableModels: { modelId: string; name: string; description?: string; group?: string }[];
+}
+
 interface ViewSessionInfo {
   agent: string;
   agentLabel: string;
@@ -78,6 +84,7 @@ export interface ViewStatus {
   status: string;
   queued: string[];
   currentModeId: string | null;
+  currentModelId: string | null;
 }
 
 /** Host -> view, over the port. `Event` is the backend's chat event (src/chat/chatTypes.ts).
@@ -89,6 +96,7 @@ export type HostMessage<Event = unknown> =
       viewId: string;
       session: ViewSessionInfo;
       modes: ViewModes | null;
+      models: ViewModels | null;
       permissions: ViewPermission[];
       locale: string;
       device: ViewPluginDevice;
@@ -106,6 +114,7 @@ type ViewMessage =
   | { type: "send"; text: string }
   | { type: "cancel" }
   | { type: "setMode"; modeId: string }
+  | { type: "setModel"; modelId: string }
   | { type: "openFile"; path: string }
   | { type: "switchView"; viewId: string };
 
@@ -114,6 +123,7 @@ const REQUIRED_PERMISSION: Partial<Record<ViewMessage["type"], ViewPermission>> 
   send: "send",
   cancel: "cancel",
   setMode: "setMode",
+  setModel: "setModel",
   openFile: "openFile",
 };
 
@@ -137,6 +147,8 @@ export function parseViewMessage(data: unknown): ParsedViewMessage | null {
       return good({ type: "cancel" });
     case "setMode":
       return typeof data.modeId === "string" && data.modeId !== "" ? good({ type: "setMode", modeId: data.modeId }) : bad;
+    case "setModel":
+      return typeof data.modelId === "string" && data.modelId !== "" ? good({ type: "setModel", modelId: data.modelId }) : bad;
     case "openFile":
       return typeof data.path === "string" && data.path !== "" ? good({ type: "openFile", path: data.path }) : bad;
     case "switchView":
@@ -206,6 +218,7 @@ export interface BridgeSource<Event extends { seq: number }> {
   locale(): string;
   session(): ViewSessionInfo;
   modes(): ViewModes | null;
+  models(): ViewModels | null;
   status(): ViewStatus;
   theme(): ViewTheme;
   /** Live events; resolves once the subscription is in place. */
@@ -217,6 +230,7 @@ export interface BridgeSource<Event extends { seq: number }> {
   send(text: string): void;
   cancel(): void;
   setMode(modeId: string): void;
+  setModel(modelId: string): void;
   /** An absolute path already checked to be inside the session's cwd. */
   openFile(path: string): void;
   switchView(viewId: string): void;
@@ -305,6 +319,9 @@ export function createBridgeHost<Event extends { seq: number }>({ iframeWindow, 
       case "setMode":
         source.setMode(message.modeId);
         break;
+      case "setModel":
+        source.setModel(message.modelId);
+        break;
       case "openFile": {
         const path = resolveInsideCwd(source.session().cwd, message.path);
         if (path) source.openFile(path);
@@ -334,6 +351,7 @@ export function createBridgeHost<Event extends { seq: number }>({ iframeWindow, 
       viewId: manifest.id,
       session: source.session(),
       modes: source.modes(),
+      models: source.models(),
       permissions: manifest.permissions,
       locale: source.locale(),
       device: source.device,

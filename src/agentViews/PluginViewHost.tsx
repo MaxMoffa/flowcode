@@ -36,18 +36,19 @@ export function PluginViewHost(props: PluginViewHostProps) {
   const { manifest, rev, session, agent, cwd, title, hidden, onSwitchView, onOpenFile } = props;
   const { t, language } = useI18n();
   const { theme, paletteId, contrast, glassOpacity } = useTheme();
-  const { model, phase, queued, modes, chatId } = session;
+  const { model, phase, queued, modes, models, chatId } = session;
 
   const status = phase === "failed" ? "exited" : model.status;
   const currentModeId = model.currentModeId ?? modes?.currentModeId ?? null;
+  const currentModelId = models?.currentModelId ?? null;
   const name = manifest.labels?.[language] ?? manifest.label;
 
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [connected, setConnected] = useState(false);
   const [unresponsive, setUnresponsive] = useState(false);
   // What the source below reads, so the bridge host never goes stale.
-  const latest = useRef({ agent, cwd, title, session, status, currentModeId, language, theme, onSwitchView, onOpenFile });
-  latest.current = { agent, cwd, title, session, status, currentModeId, language, theme, onSwitchView, onOpenFile };
+  const latest = useRef({ agent, cwd, title, session, status, currentModeId, currentModelId, language, theme, onSwitchView, onOpenFile });
+  latest.current = { agent, cwd, title, session, status, currentModeId, currentModelId, language, theme, onSwitchView, onOpenFile };
   const statusListeners = useRef(new Set<(status: ViewStatus) => void>());
   const themeListeners = useRef(new Set<(theme: ViewTheme) => void>());
 
@@ -61,6 +62,7 @@ export function PluginViewHost(props: PluginViewHostProps) {
     status: latest.current.status,
     queued: latest.current.session.queued,
     currentModeId: latest.current.currentModeId,
+    currentModelId: latest.current.currentModelId,
   });
 
   useEffect(() => {
@@ -73,6 +75,7 @@ export function PluginViewHost(props: PluginViewHostProps) {
         return { agent, agentLabel: CLI_INFO[agent].label, cwd, sessionId: session.sessionId ?? null, title };
       },
       modes: () => latest.current.session.modes,
+      models: () => latest.current.session.models,
       status: viewStatus,
       theme: () => readTheme(latest.current.theme),
       subscribe: (listener) =>
@@ -91,6 +94,7 @@ export function PluginViewHost(props: PluginViewHostProps) {
       send: (text) => latest.current.session.send(text),
       cancel: () => latest.current.session.cancel(),
       setMode: (modeId) => latest.current.session.setMode(modeId),
+      setModel: (modelId) => latest.current.session.setModel(modelId),
       openFile: (path) => latest.current.onOpenFile(path),
       switchView: (viewId) => latest.current.onSwitchView(viewId),
     };
@@ -108,7 +112,7 @@ export function PluginViewHost(props: PluginViewHostProps) {
 
   useEffect(() => {
     statusListeners.current.forEach((listener) => listener(viewStatus()));
-  }, [status, queued, currentModeId]);
+  }, [status, queued, currentModeId, currentModelId]);
 
   // Runs after the theme provider has applied the new theme to :root.
   useEffect(() => {

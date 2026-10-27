@@ -3,13 +3,15 @@ import "./terminal.css";
 import "./chat.css";
 import type { ChatInfo } from "../../shared/remote-types";
 import { ChatBody } from "./ChatBody";
+import { FrogThinking } from "../../shared/FrogThinking";
 import { ChatComposer } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
 import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
-import { chatModes, chatStatus, emptySession, pendingPermissions } from "./chatSession";
+import { defaultModeToApply } from "./chatModeDefaults";
+import { chatModels, chatModes, chatStatus, emptySession, pendingPermissions } from "./chatSession";
 import { useTwoFingerSwipe } from "./chatSwipe";
-import { answerChatPermission, cancelChat, lastChatViews, renameChat, sendChatPrompt, setChatMode, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatPermission, cancelChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { t } from "./i18n";
@@ -24,9 +26,15 @@ import { useWide } from "./wide";
 /** Distance from the end of the thread that still counts as "at the bottom". */
 const BOTTOM_SLACK = 80;
 
+/** Playful verbs the thinking line cycles through while no tool runs. */
+const THINKING_VERBS = ["chatVerb1", "chatVerb2", "chatVerb3", "chatVerb4", "chatVerb5", "chatVerb6", "chatVerb7", "chatVerb8"] as const;
+
 const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ?? cwd;
 
 /** `embedded`: the wide layout's main card, whose tab strip already says which chat this is, so there is no back button. `onTerminal` hands the session to a desktop terminal tab (App opens it once it appears). `onSwitch` opens another terminal from the agents drawer. */
+/** Chats whose default mode was already tried, so it is applied at most once per chat. */
+const defaultModeTried = new Set<string>();
+
 export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -75,7 +83,16 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const status = info ? chatStatus(info, model) : "idle";
   const exited = status === "exited";
   const working = status === "busy" || status === "waiting";
-  const pending = pendingPermissions(model);
+  // An agent that is gone can't take an answer: no request is offered once the chat has exited.
+  const pending = exited ? [] : pendingPermissions(model);
+  const answerPermission = useCallback(
+    (requestId: string, optionId: string | null) =>
+      answerChatPermission(chatId, requestId, optionId).then((ok) => {
+        if (!ok) showToast(t("chatPermSendFailed"));
+        return ok;
+      }),
+    [chatId],
+  );
   const confirmLinks = useRemoteSelector((s) => s.settings?.confirmLinkOpen);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const closeLink = useCallback(() => setLinkUrl(null), []);
@@ -88,6 +105,15 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
     [confirmLinks],
   );
   const modes = chatModes(info, model);
+  const canSetModel = useSupports("chatModel");
+  const models = canSetModel ? chatModels(info, model) : null;
+  // A new chat starts in the agent's default mode for this device, once.
+  useEffect(() => {
+    if (!info || !modes || defaultModeTried.has(chatId)) return;
+    const wanted = defaultModeToApply({ agent: info.agent, offered: modes.availableModes.map((m) => m.id), currentModeId: modes.currentModeId, liveModeId: model.currentModeId, itemCount: model.items.length, loaded: session.loaded, ready: status === "idle" });
+    if (status === "idle" && session.loaded) defaultModeTried.add(chatId);
+    if (wanted) setChatMode(chatId, wanted);
+  });
 
   /** Shows another view; the terminal isn't one the phone draws: the desktop turns the session into a terminal tab and App opens it. */
   const pick = useCallback(
@@ -157,6 +183,15 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
 
   const stateText = status === "waiting" ? t("termStateWaiting") : status === "busy" ? t("termStateBusy") : status === "starting" ? t("chatStateStarting") : status === "exited" ? t("chatStateExited") : t("termStateIdle");
+
+  /** What the agent is doing right now, for the status line: the title of the step still running. */
+  const runningTool = useMemo(() => {
+    for (let i = model.items.length - 1; i >= 0; i--) {
+      const item = model.items[i];
+      if (item.type === "tool" && item.call.status !== "completed" && item.call.status !== "failed") return item.call.title ?? item.call.kind ?? null;
+    }
+    return null;
+  }, [model.items]);
 
   const back = !embedded && (
     <button type="button" className="tm-back" aria-label={t("back")} onClick={onBack}>
@@ -232,7 +267,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
                 {model.items.length === 0 && <div className="chat-empty">{session.loaded ? t("chatEmpty") : t("loading")}</div>}
-                <ChatBody items={model.items} plan={model.plan} agent={info.agent} onLink={onLink} />
+                <ChatBody items={model.items} plan={model.plan} onLink={onLink} />
               </div>
             </div>
             {!atBottom && (
@@ -249,18 +284,23 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
               </button>
             )}
           </div>
-          <PermissionBar pending={pending} onAnswer={(requestId, optionId) => answerChatPermission(chatId, requestId, optionId)} />
+          <PermissionBar pending={pending} onAnswer={answerPermission} />
+          {status === "busy" && !exited && (
+            <div className="chat-status">
+              <FrogThinking activity={runningTool} verbs={THINKING_VERBS.map((k) => t(k))} startedAt={model.turn?.startedAt} outChars={model.turn?.outChars} tokensLabel={(n) => t("chatTokens", { n })} tokensTitle={t("chatTokensTitle")} />
+            </div>
+          )}
           {exited ? (
             <div className="chat-ended" role="status">
               {t("chatExited")}
             </div>
           ) : (
-            <ChatComposer chatId={chatId} busy={working} queued={session.queued} onSend={(text) => sendChatPrompt(chatId, text)} onStop={() => cancelChat(chatId)} onUnqueue={(i) => unqueueChatPrompt(chatId, i)} />
+            <ChatComposer chatId={chatId} agent={info?.agent ?? ""} busy={working} queued={session.queued} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} onSend={(text) => sendChatPrompt(chatId, text)} onStop={() => cancelChat(chatId)} onUnqueue={(i) => unqueueChatPrompt(chatId, i)} onForce={(i) => forceChatPrompt(chatId, i)} />
           )}
         </>
       ) : (
         <>
-          <PermissionBar pending={pending} onAnswer={(requestId, optionId) => answerChatPermission(chatId, requestId, optionId)} />
+          <PermissionBar pending={pending} onAnswer={answerPermission} />
           <ChatPluginView key={pkg.id} pkg={pkg} info={info} session={session} onSwitchView={pick} />
           {exited && (
             <div className="chat-ended" role="status">

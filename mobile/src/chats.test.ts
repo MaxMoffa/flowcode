@@ -7,6 +7,7 @@ const link = vi.hoisted(() => ({
   sent: [] as unknown[],
   handler: null as ((m: ServerMsg) => void) | null,
   online: true,
+  toasts: [] as string[],
 }));
 
 vi.mock("./remote", () => ({
@@ -18,6 +19,7 @@ vi.mock("./remote", () => ({
     return link.online;
   },
   useRemoteSelector: () => undefined,
+  showToast: (text: string) => void link.toasts.push(text),
 }));
 
 // Each test gets a fresh store, as a freshly started app would.
@@ -44,6 +46,7 @@ beforeEach(async () => {
   link.sent = [];
   link.chats = null;
   link.online = true;
+  link.toasts = [];
 });
 
 describe("following a chat", () => {
@@ -110,10 +113,58 @@ describe("the send queue", () => {
     sendChatPrompt("c1", "  dopo  ");
     expect(prompts()).toEqual([]);
 
+    // The list says idle before the turn's end reached the phone: the phone's own events still say busy, so it waits.
     chats([info("idle")]);
+    await Promise.resolve();
+    expect(prompts()).toEqual([]);
+
+    say({ t: "chatevents", chatId: "c1", events: [{ seq: 2, at: 0, kind: "turnEnd", stopReason: "end_turn" }], replay: false });
     await Promise.resolve();
     expect(prompts()).toEqual([{ t: "chatprompt", chatId: "c1", text: "dopo" }]);
     stop();
+  });
+
+  it("puts a prompt the desktop refused as busy back first and resends it after the turn", async () => {
+    ready();
+    chats([info("idle")]);
+    const stop = followChat("c1");
+    say({ t: "chatevents", chatId: "c1", events: [{ seq: 1, at: 0, kind: "turnEnd", stopReason: "end_turn" }], replay: true });
+    sendChatPrompt("c1", "uno");
+    sendChatPrompt("c1", "due");
+    await Promise.resolve();
+    expect(prompts()).toHaveLength(1);
+
+    // The refusal names no chat: it belongs to the one message in flight.
+    say({ t: "error", message: "agent_busy: still working", fatal: false });
+    expect(getChatSession("c1")?.queued).toEqual(["uno", "due"]);
+    // Not again until the agent has moved on.
+    chats([info("idle")]);
+    await Promise.resolve();
+    expect(prompts()).toHaveLength(1);
+
+    say({ t: "chatevents", chatId: "c1", events: [{ seq: 2, at: 0, kind: "turnEnd", stopReason: "end_turn" }], replay: false });
+    await Promise.resolve();
+    expect(prompts()).toHaveLength(2);
+    expect(prompts()[1]).toEqual({ t: "chatprompt", chatId: "c1", text: "uno" });
+    expect(link.toasts).toEqual([]);
+    stop();
+  });
+
+  it("says so when a busy refusal can't be tied to a message", () => {
+    ready();
+    chats([info("idle")]);
+    say({ t: "error", message: "agent_busy", fatal: false });
+    expect(link.toasts).toHaveLength(1);
+  });
+
+  it("keeps following a chat with queued messages after its screen closes", () => {
+    ready();
+    chats([info("busy")]);
+    const stop = followChat("c1");
+    say({ t: "chatevents", chatId: "c1", events: [{ seq: 1, at: 0, kind: "user", text: "primo" }], replay: true });
+    sendChatPrompt("c1", "dopo");
+    stop();
+    expect(link.sent.some((m) => (m as ClientMsg).t === "chatclose")).toBe(false);
   });
 
   it("sends the next queued message only after the previous one has started its turn", async () => {

@@ -20,6 +20,8 @@ use crate::windows::WindowTabs;
 
 mod claude;
 pub use self::claude::*;
+mod claude_history;
+pub use self::claude_history::*;
 mod codex;
 pub use self::codex::*;
 pub(crate) use self::codex::find_codex_rollout;
@@ -297,24 +299,33 @@ fn find_agent_sessions(
     sessions
 }
 
+/// Whether a session id read from disk (a transcript's file name, a field
+/// inside it, an agent's registry) is fit to be pasted into a
+/// `claude --resume <id>` / `codex resume <id>` command line typed into a
+/// shell: a planted `x;calc.jsonl` must not become shell syntax. Real ids are
+/// UUIDs or short slugs, so anything outside `[A-Za-z0-9_-]{1,128}` is dropped.
+pub(crate) fn is_safe_session_id(id: &str) -> bool {
+    (1..=128).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 impl AgentSession {
     /// Id, name and "busy"/"waiting"/"idle" from a Claude Code registry
     /// entry (see `claude_registry_entry`).
     fn apply_claude_entry(&mut self, entry: &serde_json::Value) {
         let text = |key: &str| entry.get(key).and_then(|v| v.as_str()).map(str::to_string);
-        self.session_id = text("sessionId");
+        self.session_id = text("sessionId").filter(|id| is_safe_session_id(id));
         self.session_name = text("name");
         self.status = text("status");
     }
 
     fn apply_vibe_session(&mut self, (id, name, status): (String, Option<String>, &'static str)) {
-        self.session_id = Some(id);
+        self.session_id = Some(id).filter(|id| is_safe_session_id(id));
         self.session_name = name;
         self.status = Some(status.to_string());
     }
 
     fn apply_thread(&mut self, thread: &LiveThread) {
-        self.session_id = Some(thread.id.clone());
+        self.session_id = Some(thread.id.clone()).filter(|id| is_safe_session_id(id));
         self.session_name = thread.name.clone();
         self.status = Some(thread.status().to_string());
     }
@@ -434,6 +445,31 @@ fn agent_of(comm: &str, argv: &str) -> Option<(&'static str, &'static str)> {
 mod tests {
     use super::{agent_of, rollout_turn_open};
     use super::codex::read_codex_session;
+    use super::is_safe_session_id;
+
+    #[test]
+    fn session_ids_fit_for_a_command_line() {
+        for ok in ["0b9c1f0e-8a8e-4c6e-9d1a-2f3b4c5d6e7f", "abc123", "thread_1", &"a".repeat(128)] {
+            assert!(is_safe_session_id(ok), "{ok:?}");
+        }
+        for bad in ["", "x;calc", "a b", "$(rm -rf ~)", "a`b`", "a&b", "a|b", "..", "a/b", "a\\b", "caf\u{e9}", "x\n", &"a".repeat(129)] {
+            assert!(!is_safe_session_id(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn codex_session_with_an_unsafe_id_is_skipped() {
+        let dir = std::env::temp_dir().join(format!("flowcode-codex-unsafe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rollout.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"type":"session_meta","payload":{"id":"x;calc","cwd":"/home/u/p","source":"cli"}}"#,
+        )
+        .unwrap();
+        assert!(read_codex_session(&path, None, None, None).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn recognizes_agents_inside_wsl() {

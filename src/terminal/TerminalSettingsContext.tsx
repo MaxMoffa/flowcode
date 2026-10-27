@@ -9,6 +9,7 @@ const SHELL_KEY = "flowcode.terminalShell";
 const START_PATH_KEY = "flowcode.terminalStartPath";
 const SHELL_START_PATHS_KEY = "flowcode.terminalStartPathByShell";
 const RESTORE_SESSION_KEY = "flowcode.restoreSession";
+const RESTORE_CONTENT_KEY = "flowcode.restoreSessionContent";
 const NEW_TAB_PAGE_KEY = "flowcode.newTabPage";
 const CONFIRM_LINKS_KEY = "flowcode.confirmLinkOpen";
 const LINK_PREVIEWS_KEY = "flowcode.linkPreviews";
@@ -81,6 +82,9 @@ interface TerminalSettingsValue {
    * content) and the next launch reopens them - see `src/session/`. */
   restoreSession: boolean;
   setRestoreSession: (enabled: boolean) => void;
+  /** Whether restored tabs bring back their old text (terminals) and conversation (chats), or start clean in the same folder. */
+  restoreContent: boolean;
+  setRestoreContent: (enabled: boolean) => void;
   /** Whether clicking a link in a terminal asks first (a small menu at the
    * click) or opens it in the browser straight away. */
   confirmLinkOpen: boolean;
@@ -133,6 +137,7 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
   Object.values(value).every((v) => typeof v === "string");
 const readShellStartPaths = (key: string) => readJson(key, isStringRecord, {});
 const readRestoreSession = (key: string) => readBool(key, true);
+const readRestoreContent = (key: string) => readBool(key, true);
 const readConfirmLinks = (key: string) => readBool(key, true);
 const readLinkPreviews = (key: string) => readEnum<LinkPreviewMode>(key, ["always", "onClick", "never"], "onClick");
 const readExplorerDoubleClick = (key: string) => readBool(key, true);
@@ -170,6 +175,7 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
     [setShellStartPaths],
   );
   const [restoreSession, setRestoreSession] = usePersistentState(RESTORE_SESSION_KEY, readRestoreSession, writeBool, true);
+  const [restoreContent, setRestoreContent] = usePersistentState(RESTORE_CONTENT_KEY, readRestoreContent, writeBool, true);
   const [confirmLinkOpen, setConfirmLinkOpen] = usePersistentState(CONFIRM_LINKS_KEY, readConfirmLinks, writeBool, true);
   const [linkPreviews, setLinkPreviews] = usePersistentState(LINK_PREVIEWS_KEY, readLinkPreviews, writeString, true);
   const [explorerDoubleClick, setExplorerDoubleClick] = usePersistentState(
@@ -218,6 +224,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       resetShellStartPaths: () => setShellStartPaths({}),
       restoreSession,
       setRestoreSession,
+      restoreContent,
+      setRestoreContent,
       confirmLinkOpen,
       setConfirmLinkOpen,
       linkPreviews,
@@ -244,6 +252,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setShellStartPaths,
       restoreSession,
       setRestoreSession,
+      restoreContent,
+      setRestoreContent,
       confirmLinkOpen,
       setConfirmLinkOpen,
       linkPreviews,

@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -32,11 +32,25 @@ const MODE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Events kept per chat for `chat_events`; the oldest are dropped past it.
 const MAX_LOG_EVENTS: usize = 20_000;
 
+/// Most text kept per chat log (approximated by the length of its strings),
+/// oldest events dropped first: a long chat streams far more text than the
+/// event count alone bounds once its chunks are merged (see `LogEntry`).
+const MAX_LOG_BYTES: usize = 32 * 1024 * 1024;
+
 /// How much of an agent's stderr is kept to explain why it died.
 const STDERR_TAIL: usize = 4 * 1024;
 
 /// ACP's "method not found" JSON-RPC error code.
 const METHOD_NOT_FOUND: i64 = -32601;
+
+/// Replies the reader thread may queue for the chat's writer thread (see
+/// `Chat::replies`) before further ones are dropped.
+const REPLY_QUEUE: usize = 64;
+
+/// Longest line read from the agent's stdout: past it the rest of that line
+/// is skipped, not buffered - a runaway agent must not grow one `Vec` until
+/// the app runs out of memory.
+const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Events a phone following a chat may fall behind by before it has to resync
 /// from the log.
@@ -66,8 +80,9 @@ pub enum ChatBody {
     TurnEnd { stop_reason: String },
     Error { message: String },
     Exit { code: Option<i32> },
-    /// An extension notification (its method starts with `_`), verbatim. It
-    /// doesn't change the chat's status.
+    /// An extension notification (its method starts with `_`), verbatim - or
+    /// Flowcode's own `_flowcode/model` (the model changed). It doesn't
+    /// change the chat's status.
     Ext { method: String, params: Value },
 }
 
@@ -91,6 +106,55 @@ impl ChatStatus {
             ChatStatus::Waiting => "waiting",
             ChatStatus::Exited => "exited",
         }
+    }
+}
+
+/// The status a chat moves to when `body` is emitted while it is `before`;
+/// `permissions_pending` says whether a permission request is still open
+/// (after the bookkeeping of this very event).
+///
+/// Only the user's prompt starts a turn: agents keep sending updates between
+/// turns (usage, commands, session info), and an adapter may even ask for a
+/// permission outside one (it is still recorded, and answerable) - none of
+/// that may make an idle chat look busy, or a prompt would be refused as
+/// `agent_busy` with nothing ever ending the phantom turn.
+fn next_status(before: ChatStatus, body: &ChatBody, permissions_pending: bool) -> ChatStatus {
+    use ChatStatus::*;
+    let in_turn = if permissions_pending { Waiting } else { Busy };
+    match (before, body) {
+        (Exited, _) | (_, ChatBody::Exit { .. }) => Exited,
+        // A resumed session replays its history while starting: nothing
+        // moves until the handshake is done (`Chat::started`).
+        (Starting, _) => Starting,
+        (_, ChatBody::TurnEnd { .. } | ChatBody::Error { .. }) => Idle,
+        (_, ChatBody::Ext { .. }) => before,
+        (Idle, ChatBody::User { .. }) => in_turn,
+        (Idle, _) => Idle,
+        (Busy | Waiting, _) => in_turn,
+    }
+}
+
+/// Whether an event emitted while the chat is `before` is news a phone should
+/// be alerted to: not the history a starting chat replays, nor anything after
+/// the agent exited.
+fn is_live(before: ChatStatus, body: &ChatBody) -> bool {
+    match before {
+        ChatStatus::Exited => false,
+        ChatStatus::Starting => matches!(body, ChatBody::Exit { .. }),
+        _ => true,
+    }
+}
+
+/// Whether a prompt may be sent to a chat that is `status`. One turn at a time:
+/// two windows (or a phone and the desktop) prompting at once must not
+/// interleave turns, so anything but idle is refused (the frontend queues the
+/// message and sends it when the turn ends).
+fn prompt_gate(status: ChatStatus) -> Result<(), String> {
+    match status {
+        ChatStatus::Idle => Ok(()),
+        ChatStatus::Exited => Err("agent_exited: the agent has exited".into()),
+        ChatStatus::Starting => Err("agent_busy: the agent is still starting".into()),
+        ChatStatus::Busy | ChatStatus::Waiting => Err("agent_busy: the agent is still working on its turn".into()),
     }
 }
 
@@ -118,6 +182,8 @@ pub(crate) struct ChatSummary {
     pub profile: Option<String>,
     pub session_id: Option<String>,
     pub modes: Option<Value>,
+    /// The normalized models (`ChatModels::to_json`), when the agent offers any.
+    pub models: Option<Value>,
     pub status: ChatStatus,
 }
 
@@ -128,6 +194,8 @@ pub struct ChatStarted {
     pub session_id: String,
     pub agent: String,
     pub modes: Option<Value>,
+    /// The normalized models (`ChatModels::to_json`), when the agent offers any.
+    pub models: Option<Value>,
     pub config_options: Option<Value>,
     /// The agent replayed a previous session (`session/load`) rather than
     /// starting a fresh one.
@@ -210,9 +278,333 @@ fn launch_command(agent: &str) -> Option<(&'static str, &'static [&'static str])
     })
 }
 
+/// The text of a streamed agent message or thought chunk, with what another
+/// chunk must share to be merged with it: its `sessionUpdate` kind and its
+/// `messageId` (if the agent sends one). `None` for any other update.
+fn text_chunk(update: &Value) -> Option<(&str, Option<&Value>, &str)> {
+    let kind = update.get("sessionUpdate")?.as_str()?;
+    if kind != "agent_message_chunk" && kind != "agent_thought_chunk" {
+        return None;
+    }
+    let content = update.get("content")?;
+    if content.get("type")?.as_str()? != "text" {
+        return None;
+    }
+    let text = content.get("text")?.as_str()?;
+    Some((kind, update.get("messageId").filter(|id| !id.is_null()), text))
+}
+
+/// Whether `session/update` params name the session `stale` (one whose load
+/// failed and was replaced). Updates without a `sessionId` are kept.
+fn is_stale_update(params: &Value, stale: Option<&str>) -> bool {
+    stale.is_some_and(|stale| params.get("sessionId").and_then(Value::as_str) == Some(stale))
+}
+
+/// The extension event that tells every view a chat's model changed; its
+/// params are the normalized models (`ChatModels::to_json`).
+const MODEL_EXT_METHOD: &str = "_flowcode/model";
+
+/// One model the agent offers.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ModelChoice {
+    id: String,
+    name: String,
+    description: Option<String>,
+    /// The caption of the group it is listed under (grouped config options).
+    group: Option<String>,
+}
+
+/// Which ACP API changes the model: the two coexist while the protocol moves
+/// from the unstable `models` to the session config options.
+#[derive(Clone, Debug, PartialEq)]
+enum ModelVia {
+    /// `session/set_model` (the `models` of `session/new` / `session/load`).
+    Models,
+    /// `session/set_config_option` on the option with this id.
+    ConfigOption { config_id: String },
+}
+
+/// The models a chat's agent offers, whichever API announced them.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ChatModels {
+    current: String,
+    available: Vec<ModelChoice>,
+    via: ModelVia,
+}
+
+impl ChatModels {
+    /// What the frontend gets: the shape of ACP's `models`, plus `group`.
+    fn to_json(&self) -> Value {
+        let available: Vec<Value> = self
+            .available
+            .iter()
+            .map(|m| {
+                let mut entry = json!({ "modelId": m.id, "name": m.name });
+                if let Some(description) = &m.description {
+                    entry["description"] = json!(description);
+                }
+                if let Some(group) = &m.group {
+                    entry["group"] = json!(group);
+                }
+                entry
+            })
+            .collect();
+        json!({ "currentModelId": self.current, "availableModels": available })
+    }
+
+    fn offers(&self, model_id: &str) -> bool {
+        self.available.iter().any(|m| m.id == model_id)
+    }
+}
+
+fn opt_str(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
+}
+
+/// The unstable ACP `models` object: `{ currentModelId, availableModels:
+/// [{ modelId, name, description? }] }`. Entries without an id are skipped,
+/// a name falls back to the id; `None` when nothing usable is left.
+fn models_from_models(models: &Value) -> Option<ChatModels> {
+    let current = opt_str(models, "currentModelId")?;
+    let available: Vec<ModelChoice> = models
+        .get("availableModels")?
+        .as_array()?
+        .iter()
+        .filter_map(|m| {
+            let id = opt_str(m, "modelId")?;
+            Some(ModelChoice { name: opt_str(m, "name").unwrap_or_else(|| id.clone()), id, description: opt_str(m, "description"), group: None })
+        })
+        .collect();
+    (!available.is_empty()).then_some(ChatModels { current, available, via: ModelVia::Models })
+}
+
+/// The model option of ACP session config options: the `select` option of
+/// category `model` (else the one with id `model`). Its options may be flat
+/// (`{ value, name, description? }`) or grouped (`{ group, name, options }`);
+/// groups are flattened, their name kept as each model's caption.
+fn models_from_config_options(options: &Value) -> Option<ChatModels> {
+    let options = options.as_array()?;
+    let is_model = |o: &&Value| o.get("category").and_then(Value::as_str) == Some("model");
+    let option = options
+        .iter()
+        .find(is_model)
+        .or_else(|| options.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")))?;
+    if option.get("type").and_then(Value::as_str).is_some_and(|t| t != "select") {
+        return None;
+    }
+    let config_id = opt_str(option, "id")?;
+    let current = opt_str(option, "currentValue")?;
+    let choice = |v: &Value, group: Option<&String>| {
+        let id = opt_str(v, "value")?;
+        Some(ModelChoice {
+            name: opt_str(v, "name").unwrap_or_else(|| id.clone()),
+            id,
+            description: opt_str(v, "description"),
+            group: group.cloned(),
+        })
+    };
+    let mut available = Vec::new();
+    for entry in option.get("options")?.as_array()? {
+        match entry.get("options").and_then(Value::as_array) {
+            Some(grouped) => {
+                let caption = opt_str(entry, "name").or_else(|| opt_str(entry, "group"));
+                available.extend(grouped.iter().filter_map(|v| choice(v, caption.as_ref())));
+            }
+            None => available.extend(choice(entry, None)),
+        }
+    }
+    (!available.is_empty()).then_some(ChatModels { current, available, via: ModelVia::ConfigOption { config_id } })
+}
+
+/// The models a `session/new` / `session/load` result announces: its config
+/// options when they have a model option (the newer API), else its `models`.
+fn normalize_models(result: &Value) -> Option<ChatModels> {
+    result
+        .get("configOptions")
+        .and_then(models_from_config_options)
+        .or_else(|| result.get("models").and_then(models_from_models))
+}
+
+/// The models after the agent accepted `model_id`: a `set_config_option`
+/// answer carries every option anew (the agent may have changed the list),
+/// otherwise only the current model moved.
+fn models_after_set(before: &ChatModels, result: &Value, model_id: &str) -> ChatModels {
+    let fresh = match before.via {
+        ModelVia::ConfigOption { .. } => result.get("configOptions").and_then(models_from_config_options),
+        ModelVia::Models => None,
+    };
+    fresh.unwrap_or_else(|| ChatModels { current: model_id.to_string(), ..before.clone() })
+}
+
+/// The models after a `config_option_update`: `Some(new)` when they changed.
+/// An update without a model option only matters to models that came from
+/// config options (they're gone); `session/set_model` ones stay.
+fn models_after_config_update(before: Option<&ChatModels>, options: &Value) -> Option<Option<ChatModels>> {
+    let next = match models_from_config_options(options) {
+        Some(models) => Some(models),
+        None if matches!(before, Some(ChatModels { via: ModelVia::ConfigOption { .. }, .. })) => None,
+        None => return None,
+    };
+    (next.as_ref() != before).then_some(next)
+}
+
+/// Roughly how many bytes a JSON value takes: its strings and keys, plus a
+/// little for the rest. Cheaper than serializing it, and enough for a cap.
+fn approx_size(value: &Value) -> usize {
+    match value {
+        Value::String(s) => s.len() + 2,
+        Value::Array(items) => 2 + items.iter().map(approx_size).sum::<usize>(),
+        Value::Object(map) => 2 + map.iter().map(|(k, v)| k.len() + 4 + approx_size(v)).sum::<usize>(),
+        _ => 8,
+    }
+}
+
+/// `approx_size` of an event, with its envelope.
+fn body_size(body: &ChatBody) -> usize {
+    64 + match body {
+        ChatBody::Update { update } => approx_size(update),
+        ChatBody::User { text } => text.len(),
+        ChatBody::Permission { request_id, tool_call, options } => {
+            approx_size(request_id) + approx_size(tool_call) + approx_size(options)
+        }
+        ChatBody::PermissionResolved { request_id, option_id } => {
+            approx_size(request_id) + option_id.as_ref().map_or(0, String::len)
+        }
+        ChatBody::TurnEnd { stop_reason } => stop_reason.len(),
+        ChatBody::Error { message } => message.len(),
+        ChatBody::Exit { .. } => 0,
+        ChatBody::Ext { method, params } => method.len() + approx_size(params),
+    }
+}
+
+/// One entry of a chat's log. Agents stream a message a few tokens per
+/// `session/update`, so the text chunks of one message (or thought) are merged
+/// into a single entry - otherwise a long chat would spend `MAX_LOG_EVENTS` on
+/// tokens and lose its start. Only the log merges: the live feed and the
+/// window still get every chunk as its own event.
+///
+/// A merged entry carries the `seq` (and `at`) of its last chunk, so anyone
+/// replaying from before it gets the whole text. Someone who already saw part
+/// of the run live (its `after_seq` falls inside the run) must get only the
+/// rest, or it would show that text twice: `offsets` remember where each
+/// chunk's text starts, and `since` slices from the first chunk not yet seen.
+struct LogEntry {
+    event: ChatEvent,
+    /// `seq` of the first chunk in this entry; `event.seq` is the last one's,
+    /// and the chunks in between have every `seq` in between (only the last
+    /// entry takes merges, and only from the very next event).
+    first_seq: u64,
+    /// Byte offset in the merged text at which each chunk starts, in `seq`
+    /// order. Empty for an entry that isn't a text chunk: it never merges.
+    offsets: Vec<usize>,
+    /// `body_size`, grown with each merge - what `Log::bytes` counts.
+    size: usize,
+}
+
+impl LogEntry {
+    fn new(event: ChatEvent) -> Self {
+        let offsets = match &event.body {
+            ChatBody::Update { update } if text_chunk(update).is_some() => vec![0],
+            _ => Vec::new(),
+        };
+        LogEntry { first_seq: event.seq, size: body_size(&event.body), offsets, event }
+    }
+
+    /// Merges `next` into this entry if both are text chunks of the same
+    /// message and `next` directly follows; returns the bytes added.
+    fn absorb(&mut self, next: &ChatEvent) -> Option<usize> {
+        if self.offsets.is_empty() || next.seq != self.event.seq + 1 {
+            return None;
+        }
+        let ChatBody::Update { update: next_update } = &next.body else { return None };
+        let (kind, message_id, text) = text_chunk(next_update)?;
+        let ChatBody::Update { update } = &mut self.event.body else { return None };
+        if !matches!(text_chunk(update), Some((k, id, _)) if k == kind && id == message_id) {
+            return None;
+        }
+        let Some(Value::String(merged)) = update.pointer_mut("/content/text") else { return None };
+        self.offsets.push(merged.len());
+        merged.push_str(text);
+        self.event.seq = next.seq;
+        self.event.at = next.at;
+        self.size += text.len();
+        Some(text.len())
+    }
+
+    /// This entry for someone who has seen every event up to `after_seq`
+    /// (which is below `event.seq`): whole, or only the text of the chunks
+    /// after `after_seq` if that falls inside the merged run.
+    fn since(&self, after_seq: u64) -> ChatEvent {
+        let mut event = self.event.clone();
+        if after_seq < self.first_seq || after_seq >= self.event.seq {
+            return event;
+        }
+        let Some(&offset) = usize::try_from(after_seq - self.first_seq + 1).ok().and_then(|i| self.offsets.get(i)) else {
+            return event;
+        };
+        if let ChatBody::Update { update } = &mut event.body {
+            if let Some(Value::String(text)) = update.pointer_mut("/content/text") {
+                // Always a boundary: each offset is where a whole chunk began.
+                if text.is_char_boundary(offset) {
+                    text.drain(..offset);
+                }
+            }
+        }
+        event
+    }
+}
+
+/// A chat's numbered events, as `chat_events` and the phones replay them.
 struct Log {
+    /// The last `seq` given out: never reused, even after `reset`.
     seq: u64,
-    events: VecDeque<ChatEvent>,
+    events: VecDeque<LogEntry>,
+    /// Sum of the entries' `size`.
+    bytes: usize,
+    max_events: usize,
+    max_bytes: usize,
+}
+
+impl Log {
+    fn new(max_events: usize, max_bytes: usize) -> Self {
+        Log { seq: 0, events: VecDeque::new(), bytes: 0, max_events, max_bytes }
+    }
+
+    /// Numbers `body` and records it, dropping the oldest entries past the
+    /// caps (always keeping the newest). Returns the event as it happened -
+    /// what the live feed carries - even when the log merged it.
+    fn push(&mut self, body: ChatBody, at: u64) -> ChatEvent {
+        self.seq += 1;
+        let event = ChatEvent { seq: self.seq, at, body };
+        match self.events.back_mut().and_then(|last| last.absorb(&event)) {
+            Some(added) => self.bytes += added,
+            None => {
+                let entry = LogEntry::new(event.clone());
+                self.bytes += entry.size;
+                self.events.push_back(entry);
+            }
+        }
+        while self.events.len() > self.max_events || (self.bytes > self.max_bytes && self.events.len() > 1) {
+            let Some(dropped) = self.events.pop_front() else { break };
+            self.bytes = self.bytes.saturating_sub(dropped.size);
+        }
+        event
+    }
+
+    /// What someone who has seen every event up to `after_seq` is missing
+    /// (`LogEntry::since`: nothing it saw comes back).
+    fn after(&self, after_seq: u64) -> Vec<ChatEvent> {
+        // Entries are in `seq` order: a merge only ever raises the last one's.
+        let start = self.events.partition_point(|e| e.event.seq <= after_seq);
+        self.events.range(start..).map(|e| e.since(after_seq)).collect()
+    }
+
+    /// Forgets every event but keeps counting from the last `seq`, so the
+    /// numbering stays strictly increasing for anyone who saw some.
+    fn reset(&mut self) {
+        self.events.clear();
+        self.bytes = 0;
+    }
 }
 
 /// Everything about one running agent; shared by the commands and the
@@ -227,6 +619,12 @@ struct Chat {
     profile: Option<String>,
     child: Mutex<Child>,
     writer: Mutex<ChildStdin>,
+    /// Replies the reader thread owes the agent, written by the chat's own
+    /// writer thread (`write_replies`): the reader must never block on the
+    /// agent's stdin - an agent busy writing to a full stdout isn't reading
+    /// it, and nobody would read that stdout. Bounded, unlike a thread per
+    /// reply: an agent flooding requests gets replies dropped, not threads.
+    replies: mpsc::SyncSender<Value>,
     next_id: AtomicU64,
     pending: Mutex<HashMap<u64, Pending>>,
     /// Permission requests the agent is waiting on: the JSON text of the
@@ -246,61 +644,96 @@ struct Chat {
     session_id: OnceLock<String>,
     /// The `modes` the agent announced when the session started.
     modes: OnceLock<Value>,
+    /// The models the agent offers; unlike the modes they change after the
+    /// start (`chat_set_model`, a `config_option_update`), hence the mutex.
+    models: Mutex<Option<ChatModels>>,
+    /// A session whose `session/load` failed and was replaced by a new one:
+    /// whatever history it still streams (a timed-out load may go on) is
+    /// dropped. Set under the log lock, and checked under it (`emit_when`).
+    stale_session: Mutex<Option<String>>,
 }
 
 impl Chat {
-    /// Logs an event and sends it to the owner window and the phones. Under
-    /// the log lock, so events reach them in `seq` order and
-    /// `ChatState::subscribe` can take the log and the feed in one go.
+    /// Logs an event and sends it to the owner window and the phones.
     fn emit(&self, body: ChatBody) {
+        let _ = self.emit_when(body, |_| Ok(()));
+    }
+
+    /// `emit`, if `allow` accepts the status the chat is in; its error
+    /// otherwise, and nothing is emitted. The check, the status move and the
+    /// logging all happen under the log lock, so no other event slips in
+    /// between - which is what makes `ChatState::prompt`'s "only when idle"
+    /// atomic. The log lock is held while sending too, so events reach the
+    /// window and the phones in `seq` order and `ChatState::subscribe` can
+    /// take the log and the feed in one go; neither send blocks (a broadcast
+    /// and a queued webview event). Lock order: log, status, permissions -
+    /// nothing may call this holding `permissions` or `status`.
+    fn emit_when(&self, body: ChatBody, allow: impl FnOnce(ChatStatus) -> Result<(), String>) -> Result<(), String> {
         let mut log = lock(&self.log);
-        log.seq += 1;
-        let event = ChatEvent { seq: log.seq, at: now_ms(), body };
-        log.events.push_back(event.clone());
-        if log.events.len() > MAX_LOG_EVENTS {
-            log.events.pop_front();
-        }
+        let (before, after) = {
+            let mut status = lock(&self.status);
+            let before = *status;
+            allow(before)?;
+            let permissions_pending = !lock(&self.permissions).is_empty();
+            *status = next_status(before, &body, permissions_pending);
+            (before, *status)
+        };
+        let live = is_live(before, &body);
+        let event = log.push(body, now_ms());
         let _ = self.feed.send(event.clone());
         if !self.closed.load(Ordering::Relaxed) {
             let _ = self.app.emit_to(&self.owner, "chat-event", json!({ "chatId": self.id, "event": event }));
         }
-        let (live, changed) = self.track(&event.body);
         drop(log);
-        if changed {
+        if after != before {
             self.changed();
         }
         if live {
             self.alert(&event.body);
         }
+        Ok(())
     }
 
-    /// Moves the status along with an event; returns whether the chat is past
-    /// its start and whether the status changed. Nothing moves while the agent
-    /// is starting (a resumed session replays its history) or once it exited.
-    fn track(&self, body: &ChatBody) -> (bool, bool) {
-        let mut status = lock(&self.status);
-        let before = *status;
-        let ended = matches!(body, ChatBody::Exit { .. });
-        if before == ChatStatus::Exited || (before == ChatStatus::Starting && !ended) {
-            return (false, false);
-        }
-        *status = match body {
-            ChatBody::Exit { .. } => ChatStatus::Exited,
-            ChatBody::TurnEnd { .. } | ChatBody::Error { .. } => ChatStatus::Idle,
-            ChatBody::Ext { .. } => before,
-            // Agents keep sending updates between turns (usage, commands,
-            // session info): only a prompt starts a turn.
-            ChatBody::Update { .. } if before == ChatStatus::Idle => before,
-            _ if lock(&self.permissions).is_empty() => ChatStatus::Busy,
-            _ => ChatStatus::Waiting,
+    /// The handshake is done: the chat goes from starting to idle - only from
+    /// starting, since the agent may already have exited and a dead chat must
+    /// not look idle.
+    fn started(&self) {
+        let moved = {
+            let mut status = lock(&self.status);
+            let moved = *status == ChatStatus::Starting;
+            if moved {
+                *status = ChatStatus::Idle;
+            }
+            moved
         };
-        (true, *status != before)
-    }
-
-    fn set_status(&self, status: ChatStatus) {
-        if std::mem::replace(&mut *lock(&self.status), status) != status {
+        if moved {
             self.changed();
         }
+    }
+
+    /// A `session/load` of `session_id` failed and a new session replaces it:
+    /// the history the load already replayed would show up in the new
+    /// session's log, so the log is emptied (nobody has read it yet - the
+    /// chat isn't listed nor known to its window before `chat_start` answers)
+    /// and whatever that session still streams is dropped from now on.
+    fn forget_session(&self, session_id: &str) {
+        let mut log = lock(&self.log);
+        *lock(&self.stale_session) = Some(session_id.to_string());
+        log.reset();
+    }
+
+    /// The new session took the id of the one `forget_session` dropped (an
+    /// agent that reuses ids): its updates are this chat's after all.
+    fn unforget_session(&self, session_id: &str) {
+        let mut stale = lock(&self.stale_session);
+        if stale.as_deref() == Some(session_id) {
+            *stale = None;
+        }
+    }
+
+    /// Whether a `session/update`'s params belong to a session `forget_session` dropped.
+    fn is_stale(&self, params: &Value) -> bool {
+        is_stale_update(params, lock(&self.stale_session).as_deref())
     }
 
     /// Tells the remote access server the chat list or a status changed.
@@ -385,7 +818,63 @@ impl Chat {
         self.session_id.get().map(String::as_str).ok_or_else(|| "chat not started".to_string())
     }
 
-    fn handle(&self, incoming: Incoming) {
+    /// Switches the agent to `model_id` (one it offers) through whichever API
+    /// announced the models. Allowed mid-turn: ACP applies it from the next
+    /// prompt. Every view hears of it through a `_flowcode/model` event, the
+    /// phones' chat list through `changed`.
+    fn set_model(&self, model_id: &str) -> Result<(), String> {
+        let session_id = self.session_id()?.to_string();
+        let via = {
+            let models = lock(&self.models);
+            let models = models.as_ref().ok_or_else(|| "the agent offers no model to choose".to_string())?;
+            if !models.offers(model_id) {
+                return Err(format!("unknown model: {model_id}"));
+            }
+            models.via.clone()
+        };
+        let result = match &via {
+            ModelVia::Models => self.request(
+                "session/set_model",
+                json!({ "sessionId": session_id, "modelId": model_id }),
+                MODE_TIMEOUT,
+            )?,
+            ModelVia::ConfigOption { config_id } => self.request(
+                "session/set_config_option",
+                json!({ "sessionId": session_id, "configId": config_id, "value": model_id }),
+                MODE_TIMEOUT,
+            )?,
+        };
+        let next = {
+            let mut models = lock(&self.models);
+            let Some(before) = models.as_ref() else { return Ok(()) };
+            let next = models_after_set(before, &result, model_id);
+            *models = Some(next.clone());
+            next
+        };
+        self.models_changed(Some(&next));
+        Ok(())
+    }
+
+    /// The agent pushed new config options: stores the model part, if it moved.
+    fn config_options_changed(&self, options: &Value) {
+        let next = {
+            let mut models = lock(&self.models);
+            let Some(next) = models_after_config_update(models.as_ref(), options) else { return };
+            *models = next.clone();
+            next
+        };
+        self.models_changed(next.as_ref());
+    }
+
+    /// Tells the views (an event, so a replay knows too) and the phones' list.
+    /// Called without the `models` lock: `emit` takes the log lock.
+    fn models_changed(&self, models: Option<&ChatModels>) {
+        let params = models.map_or_else(|| json!({ "currentModelId": null, "availableModels": [] }), ChatModels::to_json);
+        self.emit(ChatBody::Ext { method: MODEL_EXT_METHOD.to_string(), params });
+        self.changed();
+    }
+
+    fn handle(self: &Arc<Self>, incoming: Incoming) {
         match incoming {
             Incoming::Response { id, result } => {
                 let Some(pending) = lock(&self.pending).remove(&id) else { return };
@@ -412,18 +901,33 @@ impl Chat {
                         options: params.get("options").cloned().unwrap_or_else(|| json!([])),
                     });
                 } else {
-                    // No fs or terminal capability was advertised.
-                    let _ = self.send(&json!({
+                    // No fs or terminal capability was advertised. Answered
+                    // by the writer thread (see `replies`).
+                    let reply = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": { "code": METHOD_NOT_FOUND, "message": "Method not found" },
-                    }));
+                    });
+                    if let Err(mpsc::TrySendError::Full(_)) = self.replies.try_send(reply) {
+                        eprintln!("chat {}: too many unanswered agent requests, dropping the reply to `{method}`", self.id);
+                    }
                 }
             }
             Incoming::Notification { method, params } => {
                 if method == "session/update" {
                     if let Some(update) = params.get("update") {
-                        self.emit(ChatBody::Update { update: update.clone() });
+                        if update.get("sessionUpdate").and_then(Value::as_str) == Some("config_option_update")
+                            && !self.is_stale(&params)
+                        {
+                            if let Some(options) = update.get("configOptions") {
+                                self.config_options_changed(options);
+                            }
+                        }
+                        // The staleness is checked under the log lock, so a
+                        // late update can't pass it, then land after the
+                        // `forget_session` that emptied the log.
+                        let stale = |_| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
+                        let _ = self.emit_when(ChatBody::Update { update: update.clone() }, stale);
                     }
                 } else if method.starts_with('_') {
                     self.emit(ChatBody::Ext { method, params });
@@ -475,6 +979,14 @@ impl Chat {
             self.exited.store(true, Ordering::Release);
             std::mem::take(&mut *map)
         };
+        // Nobody is left to answer the open permission requests: close each
+        // in the views before they hear the agent exited. Taken out of the
+        // map first - `emit` locks it - so a `resolve_permission` racing
+        // this one resolves each request at most once between them.
+        let permissions = std::mem::take(&mut *lock(&self.permissions));
+        for request_id in permissions.into_values() {
+            self.emit(ChatBody::PermissionResolved { request_id, option_id: None });
+        }
         for pending in drained.into_values() {
             match pending {
                 Pending::Waiter(tx) => {
@@ -483,11 +995,12 @@ impl Chat {
                 Pending::Prompt => self.emit(ChatBody::Error { message: message.clone() }),
             }
         }
-        lock(&self.permissions).clear();
         self.emit(ChatBody::Exit { code });
     }
 
-    /// Waits (briefly) for the process to be gone, killing it if it lingers.
+    /// Waits (briefly) for the process to be gone, killing it if it lingers -
+    /// with what it started, as `kill` does: killing only `cmd` (Windows) or
+    /// the `npx` shim would leave the real agent running.
     fn reap(&self) -> Option<i32> {
         for _ in 0..40 {
             if let Ok(Some(status)) = lock(&self.child).try_wait() {
@@ -496,7 +1009,7 @@ impl Chat {
             std::thread::sleep(Duration::from_millis(50));
         }
         let mut child = lock(&self.child);
-        let _ = child.kill();
+        kill_if_running(&mut child);
         child.wait().ok().and_then(|status| status.code())
     }
 
@@ -505,8 +1018,68 @@ impl Chat {
     fn kill(&self) {
         self.closed.store(true, Ordering::Relaxed);
         let mut child = lock(&self.child);
+        kill_if_running(&mut child);
+        // Briefly, until it is really gone (`chat_close` promises a dead
+        // agent); the reader thread still collects the status the same way.
+        for _ in 0..40 {
+            if !matches!(child.try_wait(), Ok(None)) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}
+
+/// `kill_tree` plus `Child::kill`, only while the child hasn't been reaped:
+/// once `wait` collected it its pid is free for the OS to hand to an
+/// unrelated process, which `taskkill /T` would then kill with its children.
+fn kill_if_running(child: &mut Child) {
+    if matches!(child.try_wait(), Ok(None)) {
         kill_tree(child.id());
         let _ = child.kill();
+    }
+}
+
+/// The chat's writer thread: sends the queued replies (see `Chat::replies`)
+/// until the chat is gone - its sender dropped with it.
+fn write_replies(chat: Weak<Chat>, replies: mpsc::Receiver<Value>) {
+    while let Ok(reply) = replies.recv() {
+        let Some(chat) = chat.upgrade() else { return };
+        let _ = chat.send(&reply);
+    }
+}
+
+/// Reads one `\n`-terminated line into `buf` (cleared first), keeping at most
+/// `max` bytes of it: the rest of a longer line is read and thrown away.
+/// `Ok(None)` at the end of the stream, `Ok(Some(false))` for a cut line.
+fn read_line_capped(reader: &mut impl BufRead, buf: &mut Vec<u8>, max: usize) -> std::io::Result<Option<bool>> {
+    buf.clear();
+    let mut complete = true;
+    let mut read_any = false;
+    loop {
+        let chunk = match reader.fill_buf() {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        if chunk.is_empty() {
+            return Ok(read_any.then_some(complete));
+        }
+        read_any = true;
+        let (piece, done) = match chunk.iter().position(|&b| b == b'\n') {
+            Some(i) => (&chunk[..=i], true),
+            None => (chunk, false),
+        };
+        let room = max.saturating_sub(buf.len());
+        if piece.len() > room {
+            complete = false;
+        }
+        buf.extend_from_slice(&piece[..piece.len().min(room)]);
+        let used = piece.len();
+        reader.consume(used);
+        if done {
+            return Ok(Some(complete));
+        }
     }
 }
 
@@ -537,29 +1110,42 @@ fn read_stdout(chat: Arc<Chat>, stdout: impl Read) {
     let mut reader = BufReader::new(stdout);
     let mut buf = Vec::new();
     loop {
-        buf.clear();
         // Bytes, not `lines()`: one stray non-UTF-8 byte must not end the chat.
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {
+        match read_line_capped(&mut reader, &mut buf, MAX_LINE_BYTES) {
+            Ok(None) | Err(_) => break,
+            Ok(Some(true)) => {
                 if let Some(incoming) = parse_line(&String::from_utf8_lossy(&buf)) {
                     chat.handle(incoming);
                 }
+            }
+            Ok(Some(false)) => {
+                eprintln!("chat {}: skipped an agent message over {MAX_LINE_BYTES} bytes", chat.id);
+                chat.emit(ChatBody::Error {
+                    message: format!("the agent sent a message over {} MiB; it was skipped", MAX_LINE_BYTES >> 20),
+                });
             }
         }
     }
     chat.finish();
 }
 
-fn read_stderr(chat: Arc<Chat>, mut stderr: impl Read) {
+/// Keeps the tail of the agent's stderr. Holds the chat weakly: a grandchild
+/// that outlived the agent (and so escaped `kill_tree`) can keep the pipe -
+/// and this thread - open indefinitely, and must not keep the chat alive.
+fn read_stderr(chat: Weak<Chat>, mut stderr: impl Read) {
     let mut buf = [0u8; 2048];
     loop {
         match stderr.read(&mut buf) {
             Ok(0) | Err(_) => break,
-            Ok(n) => push_tail(&mut lock(&chat.stderr), &buf[..n], STDERR_TAIL),
+            Ok(n) => {
+                let Some(chat) = chat.upgrade() else { return };
+                push_tail(&mut lock(&chat.stderr), &buf[..n], STDERR_TAIL);
+            }
         }
     }
-    chat.stderr_done.store(true, Ordering::Release);
+    if let Some(chat) = chat.upgrade() {
+        chat.stderr_done.store(true, Ordering::Release);
+    }
 }
 
 /// A chat in `ChatState`; dropping it kills the agent.
@@ -615,6 +1201,7 @@ impl ChatState {
                 profile: s.chat.profile.clone(),
                 session_id: s.chat.session_id.get().cloned(),
                 modes: s.chat.modes.get().cloned(),
+                models: lock(&s.chat.models).as_ref().map(ChatModels::to_json),
                 status: *lock(&s.chat.status),
             })
             .collect()
@@ -629,26 +1216,53 @@ impl ChatState {
     ) -> Result<(Vec<ChatEvent>, broadcast::Receiver<ChatEvent>), String> {
         let chat = self.get(chat_id)?;
         let log = lock(&chat.log);
-        let events = log.events.iter().filter(|e| e.seq > after_seq).cloned().collect();
+        let events = log.after(after_seq);
         Ok((events, chat.feed.subscribe()))
     }
 
-    /// Hands the agent a prompt, recording it as the user's.
+    /// Hands the agent a prompt, recording it as the user's. Refused with
+    /// `agent_busy` unless the chat is idle (`prompt_gate`; checked and moved
+    /// to busy atomically by `emit_when`, so of two racing prompts exactly one
+    /// starts the turn), `agent_exited` once the agent is gone.
+    ///
+    /// Once the `User` event is out, the turn must end: if the request can't
+    /// be sent, an `Error` closes it (back to idle) - unless the agent's exit
+    /// already failed the registered prompt, which emits that `Error` itself.
     pub(crate) fn prompt(&self, chat_id: &str, text: String) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         let session_id = chat.session_id()?.to_string();
-        chat.emit(ChatBody::User { text: text.clone() });
-        let id = chat.register(Pending::Prompt)?;
-        chat.send_request(
-            id,
-            "session/prompt",
-            json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": text }] }),
-        )
+        chat.emit_when(ChatBody::User { text: text.clone() }, prompt_gate)?;
+        let id = match chat.register(Pending::Prompt) {
+            Ok(id) => id,
+            Err(message) => {
+                chat.emit(ChatBody::Error { message: message.clone() });
+                return Err(message);
+            }
+        };
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "session/prompt",
+            "params": { "sessionId": session_id, "prompt": [{ "type": "text", "text": text }] },
+        });
+        if let Err(message) = chat.send(&request) {
+            // Whoever takes the pending prompt out reports its failure.
+            if lock(&chat.pending).remove(&id).is_some() {
+                chat.emit(ChatBody::Error { message: message.clone() });
+            }
+            return Err(message);
+        }
+        Ok(())
     }
 
+    /// Stops the running turn. Without one there is nothing to stop: no
+    /// `session/cancel` is sent (an adapter may carry it over to the next
+    /// prompt, or fail writing to an agent that exited) - but permission
+    /// requests asked outside a turn are still cancelled.
     pub(crate) fn cancel(&self, chat_id: &str) -> Result<(), String> {
         let chat = self.get(chat_id)?;
-        let sent = chat.notify("session/cancel", json!({ "sessionId": chat.session_id()? }));
+        let running = matches!(*lock(&chat.status), ChatStatus::Busy | ChatStatus::Waiting);
+        let sent = if running { chat.notify("session/cancel", json!({ "sessionId": chat.session_id()? })) } else { Ok(()) };
         // ACP: every permission request still open when a turn is cancelled
         // is answered as cancelled.
         chat.cancel_permissions();
@@ -668,6 +1282,12 @@ impl ChatState {
                 .map(|_| ())
         })
         .await
+    }
+
+    /// Waits for the agent's answer, so it runs on the blocking pool.
+    pub(crate) async fn set_model(&self, chat_id: &str, model_id: String) -> Result<(), String> {
+        let chat = self.get(chat_id)?;
+        crate::blocking(move || chat.set_model(&model_id)).await
     }
 
     fn get(&self, chat_id: &str) -> Result<Arc<Chat>, String> {
@@ -718,7 +1338,28 @@ fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>) -
     Ok((child, line))
 }
 
-/// `initialize`, then `session/load` or `session/new`; `strict` refuses a fresh session when the resume can't load.
+/// Whether a non-`strict` resume whose `session/load` failed with `error`
+/// goes on with a new session. Not when the agent wants a sign-in: a new
+/// session would fail the same way, and the view must offer the login.
+fn falls_back(strict: bool, error: &str) -> bool {
+    !strict && !error.starts_with("auth_required")
+}
+
+fn new_session(chat: &Chat, cwd: &str) -> Result<(Value, String, bool), String> {
+    let result = chat.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), SETUP_TIMEOUT)?;
+    let session_id = result
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "session/new returned no sessionId".to_string())?
+        .to_string();
+    Ok((result, session_id, false))
+}
+
+/// `initialize`, then `session/load` or `session/new`; `strict` refuses a
+/// fresh session when the resume can't load. Otherwise a load that fails
+/// (the session is gone, the agent can't read it...) falls back to a new
+/// session (`loaded` false, its new id) rather than failing the chat; the
+/// history the failed load had already replayed is dropped with it.
 fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Result<(Value, String, bool), String> {
     let init = chat.request(
         "initialize",
@@ -735,22 +1376,26 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
     }
     match resume.filter(|id| can_load && !id.is_empty()) {
         Some(session_id) => {
-            let result = chat.request(
+            let loaded = chat.request(
                 "session/load",
                 json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
                 SETUP_TIMEOUT,
-            )?;
-            Ok((result, session_id, true))
+            );
+            match loaded {
+                Ok(result) => Ok((result, session_id, true)),
+                // An agent that died explains itself better than a
+                // `session/new` it can no longer answer.
+                Err(e) if !falls_back(strict, &e) || chat.exited.load(Ordering::Acquire) => Err(e),
+                Err(e) => {
+                    eprintln!("chat: could not load session {session_id}, starting a new one: {e}");
+                    chat.forget_session(&session_id);
+                    let fresh = new_session(chat, cwd)?;
+                    chat.unforget_session(&fresh.1);
+                    Ok(fresh)
+                }
+            }
         }
-        None => {
-            let result = chat.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), SETUP_TIMEOUT)?;
-            let session_id = result
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "session/new returned no sessionId".to_string())?
-                .to_string();
-            Ok((result, session_id, false))
-        }
+        None => new_session(chat, cwd),
     }
 }
 
@@ -772,6 +1417,7 @@ fn start_blocking(
         return Err(format!("could not open the pipes of `{line}`"));
     };
     let chat_id = uuid::Uuid::new_v4().to_string();
+    let (replies, queued) = mpsc::sync_channel(REPLY_QUEUE);
     let chat = Arc::new(Chat {
         id: chat_id.clone(),
         app,
@@ -781,10 +1427,11 @@ fn start_blocking(
         profile,
         child: Mutex::new(child),
         writer: Mutex::new(stdin),
+        replies,
         next_id: AtomicU64::new(1),
         pending: Mutex::new(HashMap::new()),
         permissions: Mutex::new(HashMap::new()),
-        log: Mutex::new(Log { seq: 0, events: VecDeque::new() }),
+        log: Mutex::new(Log::new(MAX_LOG_EVENTS, MAX_LOG_BYTES)),
         feed: broadcast::channel(FEED_CAPACITY).0,
         status: Mutex::new(ChatStatus::Starting),
         stderr: Mutex::new(Vec::new()),
@@ -793,14 +1440,20 @@ fn start_blocking(
         closed: AtomicBool::new(false),
         session_id: OnceLock::new(),
         modes: OnceLock::new(),
+        models: Mutex::new(None),
+        stale_session: Mutex::new(None),
     });
     {
         let chat = Arc::clone(&chat);
         std::thread::spawn(move || read_stdout(chat, stdout));
     }
     {
-        let chat = Arc::clone(&chat);
+        let chat = Arc::downgrade(&chat);
         std::thread::spawn(move || read_stderr(chat, stderr));
+    }
+    {
+        let chat = Arc::downgrade(&chat);
+        std::thread::spawn(move || write_replies(chat, queued));
     }
     match handshake(&chat, &cwd, resume, strict) {
         Ok((result, session_id, loaded)) => {
@@ -808,12 +1461,15 @@ fn start_blocking(
             if let Some(modes) = result.get("modes") {
                 let _ = chat.modes.set(modes.clone());
             }
-            chat.set_status(ChatStatus::Idle);
+            let models = normalize_models(&result);
+            *lock(&chat.models) = models.clone();
+            chat.started();
             let started = ChatStarted {
                 chat_id,
                 session_id,
                 agent,
                 modes: result.get("modes").cloned(),
+                models: models.as_ref().map(ChatModels::to_json),
                 config_options: result.get("configOptions").cloned(),
                 loaded,
             };
@@ -838,31 +1494,53 @@ pub async fn chat_start(
     strict_resume: Option<bool>,
 ) -> Result<ChatStarted, String> {
     let owner = window.label().to_string();
-    let (chat, started) =
-        crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id, strict_resume.unwrap_or(false))).await?;
-    lock(&state.sessions).insert(started.chat_id.clone(), ChatSession { chat });
+    let (chat, started) = {
+        let (app, owner) = (app.clone(), owner.clone());
+        crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id, strict_resume.unwrap_or(false)))
+            .await?
+    };
+    // The window may have closed while the agent was starting, and its
+    // `kill_owned_by` (run by `on_window_event` on `Destroyed`) then had
+    // nothing to kill. Tauri takes a destroyed window out of its map *before*
+    // running the `Destroyed` handlers, so inserting first and looking the
+    // window up after can't miss both ways: either the insert came first and
+    // `kill_owned_by` takes the chat, or it came after that handler ran - and
+    // so after the window left the map - and the lookup finds no window.
+    let chat_id = started.chat_id.clone();
+    lock(&state.sessions).insert(chat_id.clone(), ChatSession { chat });
+    if app.get_webview_window(&owner).is_none() {
+        // `None` if `kill_owned_by` got it first; either way it dies.
+        let orphan = lock(&state.sessions).remove(&chat_id);
+        state.changed();
+        if let Some(orphan) = orphan {
+            std::thread::spawn(move || drop(orphan));
+        }
+        return Err("window_closed".into());
+    }
     state.changed();
     Ok(started)
 }
 
-#[tauri::command(async)]
-pub fn chat_prompt(state: State<'_, ChatState>, chat_id: String, text: String) -> Result<(), String> {
-    state.prompt(&chat_id, text)
+/// The commands that write to the agent run on the blocking pool: a write to
+/// an agent that stopped reading its stdin blocks until it reads again.
+#[tauri::command]
+pub async fn chat_prompt(app: AppHandle, chat_id: String, text: String) -> Result<(), String> {
+    crate::blocking(move || app.state::<ChatState>().prompt(&chat_id, text)).await
 }
 
-#[tauri::command(async)]
-pub fn chat_cancel(state: State<'_, ChatState>, chat_id: String) -> Result<(), String> {
-    state.cancel(&chat_id)
+#[tauri::command]
+pub async fn chat_cancel(app: AppHandle, chat_id: String) -> Result<(), String> {
+    crate::blocking(move || app.state::<ChatState>().cancel(&chat_id)).await
 }
 
-#[tauri::command(async)]
-pub fn chat_permission(
-    state: State<'_, ChatState>,
+#[tauri::command]
+pub async fn chat_permission(
+    app: AppHandle,
     chat_id: String,
     request_id: Value,
     option_id: Option<String>,
 ) -> Result<(), String> {
-    state.permission(&chat_id, &request_id, option_id.as_deref())
+    crate::blocking(move || app.state::<ChatState>().permission(&chat_id, &request_id, option_id.as_deref())).await
 }
 
 #[tauri::command]
@@ -870,25 +1548,79 @@ pub async fn chat_set_mode(state: State<'_, ChatState>, chat_id: String, mode_id
     state.set_mode(&chat_id, mode_id).await
 }
 
-#[tauri::command(async)]
-pub fn chat_close(state: State<'_, ChatState>, chat_id: String) -> Result<(), String> {
-    // Dropping the session kills the agent.
-    let session = lock(&state.sessions).remove(&chat_id);
-    drop(session);
-    state.changed();
-    Ok(())
+#[tauri::command]
+pub async fn chat_set_model(state: State<'_, ChatState>, chat_id: String, model_id: String) -> Result<(), String> {
+    state.set_model(&chat_id, model_id).await
 }
 
+/// Resolves only once the agent is dead: the terminal handoff awaits it
+/// before running `claude --resume` on the same session, which must not find
+/// the chat's agent still holding it.
 #[tauri::command]
+pub async fn chat_close(app: AppHandle, chat_id: String) -> Result<(), String> {
+    let state = app.state::<ChatState>();
+    let session = lock(&state.sessions).remove(&chat_id);
+    state.changed();
+    // Dropping the session kills the agent - `taskkill` / `kill` and the
+    // wait for the exit included: not on an async worker.
+    crate::blocking(move || {
+        drop(session);
+        Ok(())
+    })
+    .await
+}
+
+/// Async: a whole log is cloned (and then serialized), not for the main thread.
+#[tauri::command(async)]
 pub fn chat_events(state: State<'_, ChatState>, chat_id: String, after_seq: u64) -> Result<Vec<ChatEvent>, String> {
     let chat = state.get(&chat_id)?;
-    let log = lock(&chat.log);
-    Ok(log.events.iter().filter(|e| e.seq > after_seq).cloned().collect())
+    let events = lock(&chat.log).after(after_seq);
+    Ok(events)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_lines_are_cut_and_the_rest_skipped() {
+        let input = format!("short\n{}\nnext\ntail", "x".repeat(50));
+        // A tiny BufReader capacity: the long line spans many `fill_buf`s.
+        let mut reader = BufReader::with_capacity(4, input.as_bytes());
+        let mut buf = Vec::new();
+        assert_eq!(read_line_capped(&mut reader, &mut buf, 10).unwrap(), Some(true));
+        assert_eq!(buf, b"short\n");
+        assert_eq!(read_line_capped(&mut reader, &mut buf, 10).unwrap(), Some(false));
+        assert_eq!(buf.len(), 10, "only the cap is kept");
+        assert_eq!(read_line_capped(&mut reader, &mut buf, 10).unwrap(), Some(true));
+        assert_eq!(buf, b"next\n", "the long line's rest was skipped");
+        assert_eq!(read_line_capped(&mut reader, &mut buf, 10).unwrap(), Some(true));
+        assert_eq!(buf, b"tail", "a last line without newline");
+        assert_eq!(read_line_capped(&mut reader, &mut buf, 10).unwrap(), None);
+        // Exactly at the cap (newline included) is whole.
+        let mut reader = BufReader::new(&b"123456789\n"[..]);
+        assert_eq!(read_line_capped(&mut reader, &mut buf, 10).unwrap(), Some(true));
+    }
+
+    #[test]
+    fn a_reaped_child_is_not_killed_again() {
+        let mut cmd = if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "ping -n 30 127.0.0.1 >NUL"]);
+            c
+        } else {
+            let mut c = Command::new("sleep");
+            c.arg("30");
+            c
+        };
+        let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        kill_if_running(&mut child);
+        let status = child.wait().unwrap();
+        assert!(!status.success(), "killed, not finished");
+        // Reaped: its pid may belong to anyone now - must be a no-op.
+        kill_if_running(&mut child);
+        assert!(matches!(child.try_wait(), Ok(Some(_))));
+    }
 
     #[test]
     fn sorts_lines_into_responses_requests_and_notifications() {
@@ -980,6 +1712,263 @@ mod tests {
         assert_eq!(buf, b"efgh");
     }
 
+    fn chunk(kind: &str, text: &str) -> ChatBody {
+        ChatBody::Update { update: json!({ "sessionUpdate": kind, "content": { "type": "text", "text": text } }) }
+    }
+
+    fn chunk_with_id(text: &str, id: &str) -> ChatBody {
+        ChatBody::Update {
+            update: json!({ "sessionUpdate": "agent_message_chunk", "messageId": id, "content": { "type": "text", "text": text } }),
+        }
+    }
+
+    /// (seq, text) of each event: a chunk's text or a user message.
+    fn summary(events: &[ChatEvent]) -> Vec<(u64, String)> {
+        events
+            .iter()
+            .map(|e| {
+                let text = match &e.body {
+                    ChatBody::Update { update } => update["content"]["text"].as_str().unwrap_or("").to_string(),
+                    ChatBody::User { text } => text.clone(),
+                    _ => String::new(),
+                };
+                (e.seq, text)
+            })
+            .collect()
+    }
+
+    fn big_log() -> Log {
+        Log::new(MAX_LOG_EVENTS, MAX_LOG_BYTES)
+    }
+
+    #[test]
+    fn status_follows_events() {
+        use ChatStatus::*;
+        let user = ChatBody::User { text: "hi".into() };
+        let update = ChatBody::Update { update: json!({ "sessionUpdate": "usage_update" }) };
+        let permission = ChatBody::Permission { request_id: json!(1), tool_call: json!({}), options: json!([]) };
+        let resolved = ChatBody::PermissionResolved { request_id: json!(1), option_id: None };
+        let ext = ChatBody::Ext { method: "_x".into(), params: Value::Null };
+        let turn_end = ChatBody::TurnEnd { stop_reason: "end_turn".into() };
+        let error = ChatBody::Error { message: "boom".into() };
+        let exit = ChatBody::Exit { code: Some(0) };
+
+        // Only the user's prompt starts a turn.
+        assert_eq!(next_status(Idle, &user, false), Busy);
+        assert_eq!(next_status(Idle, &user, true), Waiting);
+        for body in [&update, &permission, &resolved, &ext] {
+            assert_eq!(next_status(Idle, body, false), Idle, "{body:?}");
+            assert_eq!(next_status(Idle, body, true), Idle, "{body:?}");
+        }
+        // In a turn: waiting exactly while a permission is open.
+        for before in [Busy, Waiting] {
+            for body in [&user, &update, &permission, &resolved] {
+                assert_eq!(next_status(before, body, true), Waiting, "{before:?} {body:?}");
+                assert_eq!(next_status(before, body, false), Busy, "{before:?} {body:?}");
+            }
+            assert_eq!(next_status(before, &ext, false), before);
+            assert_eq!(next_status(before, &ext, true), before);
+        }
+        // The turn ends, the agent exits.
+        for before in [Idle, Busy, Waiting] {
+            assert_eq!(next_status(before, &turn_end, true), Idle);
+            assert_eq!(next_status(before, &error, false), Idle);
+            assert_eq!(next_status(before, &exit, false), Exited);
+        }
+        // Nothing moves while starting (a resumed session replays history) but the exit.
+        for body in [&user, &update, &permission, &resolved, &ext, &turn_end, &error] {
+            assert_eq!(next_status(Starting, body, false), Starting, "{body:?}");
+            assert_eq!(next_status(Exited, body, false), Exited, "{body:?}");
+        }
+        assert_eq!(next_status(Starting, &exit, false), Exited);
+        assert_eq!(next_status(Exited, &exit, false), Exited);
+    }
+
+    #[test]
+    fn only_events_after_the_start_are_live() {
+        let update = ChatBody::Update { update: json!({}) };
+        let exit = ChatBody::Exit { code: None };
+        assert!(!is_live(ChatStatus::Starting, &update));
+        assert!(is_live(ChatStatus::Starting, &exit));
+        assert!(!is_live(ChatStatus::Exited, &update));
+        assert!(!is_live(ChatStatus::Exited, &exit));
+        for status in [ChatStatus::Idle, ChatStatus::Busy, ChatStatus::Waiting] {
+            assert!(is_live(status, &update));
+        }
+    }
+
+    #[test]
+    fn prompts_go_only_to_an_idle_agent() {
+        assert!(prompt_gate(ChatStatus::Idle).is_ok());
+        for status in [ChatStatus::Busy, ChatStatus::Waiting, ChatStatus::Starting] {
+            assert!(prompt_gate(status).unwrap_err().starts_with("agent_busy"), "{status:?}");
+        }
+        assert!(prompt_gate(ChatStatus::Exited).unwrap_err().starts_with("agent_exited"));
+    }
+
+    #[test]
+    fn a_failed_load_falls_back_unless_strict_or_signed_out() {
+        assert!(falls_back(false, "Session not found"));
+        assert!(falls_back(false, "session/load timed out after 180s"));
+        assert!(!falls_back(true, "Session not found"));
+        assert!(!falls_back(false, "auth_required: Authentication required"));
+        assert!(!falls_back(true, "auth_required: Authentication required"));
+    }
+
+    #[test]
+    fn updates_of_a_forgotten_session_are_stale() {
+        let params = json!({ "sessionId": "old", "update": {} });
+        assert!(is_stale_update(&params, Some("old")));
+        assert!(!is_stale_update(&params, Some("new")));
+        assert!(!is_stale_update(&params, None));
+        assert!(!is_stale_update(&json!({ "update": {} }), Some("old")));
+    }
+
+    #[test]
+    fn recognizes_text_chunks() {
+        let thought = json!({
+            "sessionUpdate": "agent_thought_chunk", "messageId": "m", "content": { "type": "text", "text": "hm" }
+        });
+        let (kind, id, text) = text_chunk(&thought).unwrap();
+        assert_eq!((kind, id, text), ("agent_thought_chunk", Some(&json!("m")), "hm"));
+        let no_id =
+            json!({ "sessionUpdate": "agent_message_chunk", "messageId": null, "content": { "type": "text", "text": "a" } });
+        assert_eq!(text_chunk(&no_id).unwrap().1, None);
+        let user = json!({ "sessionUpdate": "user_message_chunk", "content": { "type": "text", "text": "a" } });
+        assert!(text_chunk(&user).is_none());
+        let image = json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "image", "data": "" } });
+        assert!(text_chunk(&image).is_none());
+        assert!(text_chunk(&json!({ "sessionUpdate": "tool_call" })).is_none());
+    }
+
+    #[test]
+    fn the_log_merges_a_streamed_message_but_the_feed_gets_every_chunk() {
+        let mut log = big_log();
+        let user = log.push(ChatBody::User { text: "q".into() }, 1);
+        let live: Vec<ChatEvent> = ["Hel", "lo ", "wörld"]
+            .iter()
+            .enumerate()
+            .map(|(i, t)| log.push(chunk("agent_message_chunk", t), 10 + i as u64))
+            .collect();
+        assert_eq!(user.seq, 1);
+        assert_eq!(summary(&live), vec![(2, "Hel".into()), (3, "lo ".into()), (4, "wörld".into())]);
+        assert_eq!(log.events.len(), 2);
+        let replay = log.after(0);
+        assert_eq!(summary(&replay), vec![(1, "q".into()), (4, "Hello wörld".into())]);
+        // The merged entry carries its last chunk's time.
+        assert_eq!(replay[1].at, 12);
+    }
+
+    #[test]
+    fn a_replay_from_inside_a_merged_run_gets_only_the_rest() {
+        let mut log = big_log();
+        log.push(ChatBody::User { text: "q".into() }, 0);
+        for t in ["a", "bé", "c", "d"] {
+            log.push(chunk("agent_message_chunk", t), 0); // seqs 2..=5
+        }
+        // Saw only the user's message: the whole run.
+        assert_eq!(summary(&log.after(1)), vec![(5, "abécd".into())]);
+        // Saw the first chunk live.
+        assert_eq!(summary(&log.after(2)), vec![(5, "bécd".into())]);
+        // Saw up to the third.
+        assert_eq!(summary(&log.after(4)), vec![(5, "d".into())]);
+        // Saw everything.
+        assert!(log.after(5).is_empty());
+        // The run grows after someone saw all of it: they get just the new text.
+        log.push(chunk("agent_message_chunk", "e"), 0);
+        assert_eq!(summary(&log.after(5)), vec![(6, "e".into())]);
+        // The entry itself is untouched by the slicing.
+        assert_eq!(summary(&log.after(0)), vec![(1, "q".into()), (6, "abécde".into())]);
+    }
+
+    #[test]
+    fn only_chunks_of_the_same_message_merge() {
+        let mut log = big_log();
+        log.push(chunk("agent_thought_chunk", "think"), 0); // 1
+        log.push(chunk("agent_message_chunk", "say"), 0); // 2: another kind
+        log.push(chunk("agent_message_chunk", " more"), 0); // 3: merges into 2
+        log.push(ChatBody::Update { update: json!({ "sessionUpdate": "tool_call", "toolCallId": "t" }) }, 0); // 4
+        log.push(chunk("agent_message_chunk", "after"), 0); // 5: the tool call broke the run
+        log.push(chunk_with_id("x", "m1"), 0); // 6: an id the last one lacks
+        log.push(chunk_with_id("y", "m1"), 0); // 7: same id, merges
+        log.push(chunk_with_id("z", "m2"), 0); // 8: another message
+        let image = json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "image", "data": "" } });
+        log.push(ChatBody::Update { update: image }, 0); // 9: not text
+        log.push(chunk("agent_message_chunk", "end"), 0); // 10
+        assert_eq!(
+            summary(&log.after(0)),
+            vec![
+                (1, "think".into()),
+                (3, "say more".into()),
+                (4, String::new()),
+                (5, "after".into()),
+                (7, "xy".into()),
+                (8, "z".into()),
+                (9, String::new()),
+                (10, "end".into()),
+            ]
+        );
+        // From inside the id'd run, and from just before a single entry.
+        assert_eq!(
+            summary(&log.after(6)),
+            vec![(7, "y".into()), (8, "z".into()), (9, String::new()), (10, "end".into())]
+        );
+        assert_eq!(summary(&log.after(9)), vec![(10, "end".into())]);
+    }
+
+    #[test]
+    fn the_log_drops_its_oldest_past_the_caps() {
+        let mut log = Log::new(3, MAX_LOG_BYTES);
+        for n in 1..=5 {
+            log.push(ChatBody::User { text: n.to_string() }, 0);
+        }
+        assert_eq!(summary(&log.after(0)), vec![(3, "3".into()), (4, "4".into()), (5, "5".into())]);
+
+        // By bytes: each of these is 64 + 100 bytes, room for two.
+        let mut log = Log::new(100, 400);
+        for n in 1..=4u8 {
+            log.push(ChatBody::User { text: n.to_string().repeat(100) }, 0);
+        }
+        assert_eq!(log.after(0).iter().map(|e| e.seq).collect::<Vec<_>>(), vec![3, 4]);
+        assert_eq!(log.bytes, log.events.iter().map(|e| e.size).sum::<usize>());
+
+        // A merged run counts its whole text against the cap.
+        let mut log = Log::new(100, 400);
+        log.push(ChatBody::User { text: "q".into() }, 0);
+        for _ in 0..10 {
+            log.push(chunk("agent_message_chunk", &"x".repeat(50)), 0);
+        }
+        assert_eq!(log.events.len(), 1, "the user message goes, the newest entry stays");
+        assert_eq!(log.after(0)[0].seq, 11);
+        assert_eq!(log.bytes, log.events.iter().map(|e| e.size).sum::<usize>());
+
+        // The newest entry is kept even when alone over the cap.
+        let mut log = Log::new(100, 10);
+        log.push(ChatBody::User { text: "y".repeat(1000) }, 0);
+        assert_eq!(log.events.len(), 1);
+    }
+
+    #[test]
+    fn a_reset_log_keeps_counting() {
+        let mut log = big_log();
+        log.push(chunk("agent_message_chunk", "old history"), 0);
+        log.push(ChatBody::User { text: "old".into() }, 0);
+        log.reset();
+        assert!(log.after(0).is_empty());
+        assert_eq!(log.bytes, 0);
+        let next = log.push(chunk("agent_message_chunk", "new"), 0);
+        assert_eq!(next.seq, 3);
+        assert_eq!(summary(&log.after(0)), vec![(3, "new".into())]);
+    }
+
+    #[test]
+    fn json_sizes_are_approximated() {
+        assert_eq!(approx_size(&json!("abc")), 5);
+        assert_eq!(approx_size(&json!({ "k": "v" })), 2 + 1 + 4 + 3);
+        assert_eq!(approx_size(&json!([1, null])), 2 + 8 + 8);
+        assert!(body_size(&ChatBody::User { text: "x".repeat(1000) }) >= 1000);
+    }
+
     #[test]
     fn knows_how_to_launch_each_agent() {
         assert_eq!(launch_command("vibe"), Some(("vibe-acp", &[][..])));
@@ -987,5 +1976,117 @@ mod tests {
         assert_eq!(launch_command("claude").map(|c| c.0), Some("npx"));
         assert_eq!(launch_command("codex").map(|c| c.0), Some("npx"));
         assert!(launch_command("nope").is_none());
+    }
+
+    #[test]
+    fn normalizes_the_unstable_models_object() {
+        let result = json!({ "models": {
+            "currentModelId": "sonnet",
+            "availableModels": [
+                { "modelId": "sonnet", "name": "Sonnet", "description": "Everyday" },
+                { "modelId": "opus" },
+                { "name": "no id" },
+            ],
+        } });
+        let models = normalize_models(&result).unwrap();
+        assert_eq!(models.via, ModelVia::Models);
+        assert_eq!(
+            models.to_json(),
+            json!({ "currentModelId": "sonnet", "availableModels": [
+                { "modelId": "sonnet", "name": "Sonnet", "description": "Everyday" },
+                { "modelId": "opus", "name": "opus" },
+            ] })
+        );
+    }
+
+    #[test]
+    fn prefers_the_model_config_option() {
+        let result = json!({
+            "models": { "currentModelId": "a", "availableModels": [{ "modelId": "a", "name": "A" }] },
+            "configOptions": [
+                { "id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "ask",
+                  "options": [{ "value": "ask", "name": "Ask" }] },
+                { "id": "llm", "name": "Model", "category": "model", "type": "select", "currentValue": "gpt-5",
+                  "options": [{ "value": "gpt-5", "name": "GPT-5", "description": "Smart" }, { "value": "gpt-5-mini", "name": "Mini" }] },
+            ],
+        });
+        let models = normalize_models(&result).unwrap();
+        assert_eq!(models.via, ModelVia::ConfigOption { config_id: "llm".into() });
+        assert_eq!(models.current, "gpt-5");
+        assert_eq!(models.available.len(), 2);
+        assert_eq!(models.available[0].description.as_deref(), Some("Smart"));
+
+        // No model option among the config options: the `models` object it is.
+        let result = json!({
+            "models": { "currentModelId": "a", "availableModels": [{ "modelId": "a", "name": "A" }] },
+            "configOptions": [{ "id": "mode", "category": "mode", "type": "select", "currentValue": "x", "options": [{ "value": "x", "name": "X" }] }],
+        });
+        assert_eq!(normalize_models(&result).unwrap().via, ModelVia::Models);
+    }
+
+    #[test]
+    fn falls_back_to_the_option_called_model_and_flattens_groups() {
+        let options = json!([{ "id": "model", "name": "Model", "type": "select", "currentValue": "b", "options": [
+            { "group": "fast", "name": "Fast", "options": [{ "value": "a", "name": "A" }] },
+            { "group": "smart", "options": [{ "value": "b", "name": "B" }, { "value": "c" }] },
+        ] }]);
+        let models = models_from_config_options(&options).unwrap();
+        assert_eq!(
+            models.to_json(),
+            json!({ "currentModelId": "b", "availableModels": [
+                { "modelId": "a", "name": "A", "group": "Fast" },
+                { "modelId": "b", "name": "B", "group": "smart" },
+                { "modelId": "c", "name": "c", "group": "smart" },
+            ] })
+        );
+    }
+
+    #[test]
+    fn no_or_malformed_models_give_none() {
+        assert!(normalize_models(&json!({ "sessionId": "s" })).is_none());
+        assert!(normalize_models(&json!({ "models": null })).is_none());
+        assert!(normalize_models(&json!({ "models": { "currentModelId": "a", "availableModels": [] } })).is_none());
+        assert!(normalize_models(&json!({ "models": { "availableModels": [{ "modelId": "a" }] } })).is_none());
+        assert!(normalize_models(&json!({ "models": { "currentModelId": "a", "availableModels": "a" } })).is_none());
+        assert!(normalize_models(&json!({ "configOptions": { "id": "model" } })).is_none());
+        let not_select = json!([{ "id": "model", "category": "model", "type": "boolean", "currentValue": "a", "options": [{ "value": "a" }] }]);
+        assert!(models_from_config_options(&not_select).is_none());
+        let no_current = json!([{ "id": "model", "category": "model", "type": "select", "options": [{ "value": "a" }] }]);
+        assert!(models_from_config_options(&no_current).is_none());
+        let no_options = json!([{ "id": "model", "category": "model", "type": "select", "currentValue": "a", "options": [{ "name": "x" }] }]);
+        assert!(models_from_config_options(&no_options).is_none());
+    }
+
+    #[test]
+    fn a_set_model_answer_updates_the_models() {
+        let flat = models_from_models(&json!({ "currentModelId": "a", "availableModels": [{ "modelId": "a" }, { "modelId": "b" }] })).unwrap();
+        assert!(flat.offers("b") && !flat.offers("z"));
+        let after = models_after_set(&flat, &Value::Null, "b");
+        assert_eq!((after.current.as_str(), after.available.len()), ("b", 2));
+
+        let option = |current: &str| json!([{ "id": "model", "category": "model", "type": "select", "currentValue": current,
+            "options": [{ "value": "a" }, { "value": "b" }, { "value": "c" }] }]);
+        let config = models_from_config_options(&option("a")).unwrap();
+        // The answer's options win (here the agent picked "c" for "b")...
+        let after = models_after_set(&config, &json!({ "configOptions": option("c") }), "b");
+        assert_eq!(after.current, "c");
+        // ...and without any, the asked model is the current one.
+        assert_eq!(models_after_set(&config, &json!({}), "b").current, "b");
+    }
+
+    #[test]
+    fn config_option_updates_change_the_models_only_when_they_moved() {
+        let option = |current: &str| json!([{ "id": "model", "category": "model", "type": "select", "currentValue": current,
+            "options": [{ "value": "a" }, { "value": "b" }] }]);
+        let config = models_from_config_options(&option("a")).unwrap();
+        assert_eq!(models_after_config_update(Some(&config), &option("a")), None);
+        assert_eq!(models_after_config_update(Some(&config), &option("b")).unwrap().unwrap().current, "b");
+        assert_eq!(models_after_config_update(None, &option("a")), Some(Some(config.clone())));
+        // The model option went away.
+        assert_eq!(models_after_config_update(Some(&config), &json!([])), Some(None));
+        // Models announced by `models` aren't config options: untouched.
+        let flat = models_from_models(&json!({ "currentModelId": "a", "availableModels": [{ "modelId": "a" }] })).unwrap();
+        assert_eq!(models_after_config_update(Some(&flat), &json!([])), None);
+        assert_eq!(models_after_config_update(None, &json!([])), None);
     }
 }

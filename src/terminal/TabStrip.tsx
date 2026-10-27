@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { createPortal } from "react-dom";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "./shellOptions";
@@ -10,6 +10,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { wslDistroOfShell } from "./wslPath";
 import type { TabAgent } from "../agents/agentSessions";
 import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles";
+import { ProfileSelect } from "../profiles/ProfileSelect";
 import { ChangelogIcon, ChatIcon, GearIcon } from "../app/icons";
 import { SWEEP_DASHES } from "../../shared/busySweep";
 import "./tabstrip.css";
@@ -226,8 +227,29 @@ function tabProfile(profiles: ReturnType<typeof useProfiles>, tab: AppTab): Prof
   return tab.kind === "terminal" || tab.kind === "chat" ? profileById(profiles, tab.profileId) : undefined;
 }
 
+/** The "+" menu's profile row: a ProfileSelect that keeps its own pick (the
+ * menu's items are a snapshot) and reports it for the shell rows below. */
+/** `undefined` = automatic (what a plain click opens), `null` = the default profile on purpose. */
+function NewTabProfileRow({ onChange }: { onChange: (id: string | null | undefined) => void }) {
+  const { t } = useI18n();
+  const [value, setValue] = useState<string | null | undefined>(undefined);
+  return (
+    <div className="context-menu-profile-row">
+      <span>{t("agents.profile.label")}</span>
+      <ProfileSelect
+        allowAuto
+        value={value}
+        onChange={(id) => {
+          setValue(id);
+          onChange(id);
+        }}
+      />
+    </div>
+  );
+}
+
 /** The busy tab's arc, run round the outline at a constant speed (see tabstrip.css). */
-function BusySweep() {
+export function BusySweep() {
   return (
     <svg className="term-tab-sweep" aria-hidden="true">
       {SWEEP_DASHES.map((d, i) => (
@@ -664,37 +686,25 @@ export function TabStrip({
             onNew();
             return;
           }
-          const items: ContextMenuItem[] = shellOptions.map((opt) => ({
-            label: shellOptionLabel(opt),
-            icon: shellOptionIcon(opt.id),
-            onSelect: () => onNew(opt.id),
-          }));
+          // The profile picked at the top of the menu: undefined while it says
+          // "Automatic" (like a plain click), else the profile id or null for
+          // the default one. Env vars don't reach a WSL distro, so a WSL
+          // shell ignores it.
+          const picked: { profileId?: string | null } = {};
+          const items: ContextMenuItem[] = [];
           if (profiles.profiles.length > 0) {
-            // Env vars don't reach a WSL distro, so a profile only pairs
-            // with the other shells.
-            const hostShells = shellOptions.filter((opt) => wslDistroOfShell(opt.id) === undefined);
-            const profileRow = (label: string, profileId: string | null, dot: ReactNode): ContextMenuItem => {
-              const pick = (shellId?: string) => onNew(shellId, profileId);
-              return hostShells.length > 1
-                ? {
-                    label,
-                    icon: dot,
-                    submenu: hostShells.map((opt) => ({
-                      label: shellOptionLabel(opt),
-                      icon: shellOptionIcon(opt.id),
-                      onSelect: () => pick(opt.id),
-                    })),
-                  }
-                : { label, icon: dot, onSelect: () => pick(hostShells[0]?.id) };
-            };
             items.push(
-              { label: "sep-profiles", separator: true },
-              profileRow(t("agents.profile.default"), null, <span className="context-menu-profile-dot is-default" />),
-              ...profiles.profiles.map((p) =>
-                profileRow(p.name, p.id, <span className="context-menu-profile-dot" style={{ background: p.color }} />),
-              ),
+              { label: "profile", custom: <NewTabProfileRow onChange={(id) => (picked.profileId = id)} /> },
+              { label: "sep-profile", separator: true },
             );
           }
+          items.push(
+            ...shellOptions.map((opt) => ({
+              label: shellOptionLabel(opt),
+              icon: shellOptionIcon(opt.id),
+              onSelect: () => onNew(opt.id, wslDistroOfShell(opt.id) === undefined ? picked.profileId : undefined),
+            })),
+          );
           openMenu(e, items);
         }}
       >

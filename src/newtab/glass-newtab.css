@@ -347,16 +347,21 @@
   border-radius: 14px;
 }
 
-.glass-profile-dot {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  margin: 2.5px;
-  border-radius: 999px;
+/* Shell chips on the left, the profile selector pinned to the right. */
+.glass-foot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.glass-profile-dot.is-default {
-  box-shadow: inset 0 0 0 1.5px currentColor;
+.glass-foot-row > .glass-chips {
+  flex: 1;
+  min-width: 0;
+}
+
+.glass-foot-profile {
+  flex: none;
+  margin-left: auto;
 }
 
 .glass-newtab :focus-visible {

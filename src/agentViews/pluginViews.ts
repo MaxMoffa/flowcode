@@ -46,6 +46,7 @@ export async function loadPluginViews(reinstalled?: string) {
       id: manifest.id,
       label: manifest.label,
       labels: manifest.labels,
+      description: manifest.description,
       source: "plugin",
       transport: manifest.transport,
       devices: manifest.devices,

@@ -4,10 +4,14 @@
 //! block) that owns the recognizer for as long as the session lasts. Other
 //! platforms report dictation as unsupported.
 //!
-//! Events, to the window that started it: `dictation://partial` `{ text }` (the
-//! words heard so far in the current phrase), `dictation://final` `{ text }`
-//! (a phrase settled) and `dictation://end` `{ reason, message? }` with reason
-//! "stopped", "silence" or "error".
+//! Events, to the window that started it, each carrying the `session` token the
+//! caller gave `dictation_start` (a window may host several chats, only the one
+//! that started the session consumes them): `dictation://partial` `{ text }`
+//! (the words heard so far in the current phrase), `dictation://final` `{ text }`
+//! (a phrase settled), `dictation://level` `{ value }` (microphone peak, 0..1)
+//! and `dictation://end` `{ reason, message? }` with reason "stopped",
+//! "silence" or "error". A stop flushes the pending phrase: its `final` comes
+//! before the `end`.
 
 use flowcode_shared::i18n::tr;
 use std::sync::mpsc;
@@ -59,16 +63,20 @@ impl Session {
 
 /// The one dictation session of the app, if any.
 #[derive(Default)]
-pub struct DictationState(Mutex<Option<Session>>);
+pub struct DictationState {
+    session: Mutex<Option<Session>>,
+    /// Serialises start and stop: two overlapping starts make WinRT fail.
+    gate: tokio::sync::Mutex<()>,
+}
 
 impl DictationState {
     fn take(&self) -> Option<Session> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
+        self.session.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
 
     /// A closed window ends its session, silently: nothing is left to tell.
     pub fn forget(&self, label: &str) {
-        let mut session = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
         if session.as_ref().is_some_and(|s| s.label == label) {
             if let Some(session) = session.take() {
                 // Not joined: this runs on the event loop.
@@ -92,7 +100,10 @@ pub async fn dictation_start(
     window: WebviewWindow,
     state: State<'_, DictationState>,
     language: Option<String>,
+    session: Option<String>,
 ) -> Result<(), String> {
+    let _gate = state.gate.lock().await;
+    let token = session.unwrap_or_default();
     if let Some(previous) = state.take() {
         crate::blocking(move || {
             previous.finish(false);
@@ -108,16 +119,24 @@ pub async fn dictation_start(
         let signals = signals.clone();
         std::thread::Builder::new()
             .name("dictation".into())
-            .spawn(move || imp::run(window, language, signals, inbox, ready_tx))
+            .spawn(move || imp::run(window, language, token, signals, inbox, ready_tx))
             .map_err(|e| e.to_string())?
     };
-    *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Session { label, signals, thread });
-    ready_rx.await.map_err(|e| e.to_string())?
+    *state.session.lock().unwrap_or_else(|e| e.into_inner()) = Some(Session { label, signals, thread });
+    let ready = ready_rx.await.map_err(|e| e.to_string()).and_then(|r| r);
+    if ready.is_err() {
+        // The thread is gone already: don't keep a dead session around.
+        if let Some(dead) = state.take() {
+            let _ = dead.thread.join();
+        }
+    }
+    ready
 }
 
 /// Stops the session, if there is one; the window still gets its "end".
 #[tauri::command]
 pub async fn dictation_stop(state: State<'_, DictationState>) -> Result<(), String> {
+    let _gate = state.gate.lock().await;
     if let Some(session) = state.take() {
         crate::blocking(move || {
             session.finish(true);
@@ -164,16 +183,47 @@ fn failure_message(code: u32) -> Option<&'static str> {
             "La lingua del riconoscimento vocale non è installata. Aggiungila in Impostazioni di Windows → Ora e lingua → Lingua e area geografica.",
             "The speech recognition language isn't installed. Add it in Windows Settings → Time & language → Language & region.",
         )),
+        // COR_E_INVALIDOPERATION: a previous recognizer was still shutting down
+        0x8013_1509 => Some(tr(
+            "Il riconoscimento vocale era ancora occupato: riprova.",
+            "Speech recognition was still busy: try again.",
+        )),
         _ => None,
+    }
+}
+
+/// What the user reads for a failed start: the known wording of the code, else
+/// the system's text, else (when Windows has none, or only its "cannot find
+/// the text for this error code") a generic line with the hex code.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn describe_failure(code: u32, system_message: &str) -> String {
+    if let Some(known) = failure_message(code) {
+        return known.to_string();
+    }
+    let message = system_message.trim();
+    let lower = message.to_lowercase();
+    let generic = message.is_empty()
+        || lower.contains("cannot find the text")
+        || lower.contains("impossibile trovare il testo")
+        || lower.contains("text associated with this error code");
+    if generic {
+        let base = tr(
+            "Il riconoscimento vocale non è riuscito ad avviarsi",
+            "Speech recognition couldn't start",
+        );
+        format!("{base} ({code:#010X}).")
+    } else {
+        message.to_string()
     }
 }
 
 #[cfg(target_os = "windows")]
 mod imp {
-    use super::{failure_message, End, Signal};
+    use super::{describe_failure, failure_message, End, Signal};
     use flowcode_shared::i18n::tr;
     use serde_json::json;
-    use std::sync::mpsc::{Receiver, Sender};
+    use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
+    use std::time::Duration;
     use tauri::{Emitter, WebviewWindow};
     use tokio::sync::oneshot;
     use windows::{
@@ -186,13 +236,33 @@ mod imp {
             SpeechRecognitionResultStatus, SpeechRecognitionScenario, SpeechRecognitionTopicConstraint,
             SpeechRecognizer,
         },
-        Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED},
+        Win32::{
+            Media::Audio::{
+                eCapture, eConsole, Endpoints::IAudioMeterInformation, IMMDeviceEnumerator, MMDeviceEnumerator,
+            },
+            System::{
+                Com::{CoCreateInstance, CLSCTX_ALL},
+                WinRT::{RoInitialize, RO_INIT_MULTITHREADED},
+            },
+        },
     };
 
     fn describe(error: &windows::core::Error) -> String {
-        failure_message(error.code().0 as u32)
-            .map(str::to_string)
-            .unwrap_or_else(|| error.message())
+        describe_failure(error.code().0 as u32, &error.message())
+    }
+
+    /// COR_E_INVALIDOPERATION: what a start racing a recognizer still shutting
+    /// down fails with.
+    const BUSY: u32 = 0x8013_1509;
+    const START_RETRIES: u32 = 2;
+
+    /// The peak meter of the default microphone, if Windows gives one.
+    fn open_meter() -> Option<IAudioMeterInformation> {
+        unsafe {
+            let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+            let device = enumerator.GetDefaultAudioEndpoint(eCapture, eConsole).ok()?;
+            device.Activate::<IAudioMeterInformation>(CLSCTX_ALL, None).ok()
+        }
     }
 
     /// A recognizer for `language`, or else for what Windows listens in by default.
@@ -207,6 +277,7 @@ mod imp {
     pub fn run(
         window: WebviewWindow,
         language: String,
+        token: String,
         signals: Sender<Signal>,
         inbox: Receiver<Signal>,
         ready: oneshot::Sender<Result<(), String>>,
@@ -214,22 +285,47 @@ mod imp {
         // Speech recognition lives in the multithreaded apartment; a new
         // thread starts in none.
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
-        let (recognizer, session) = match listen(&window, &language, signals) {
-            Ok(started) => started,
-            Err(error) => {
-                let _ = ready.send(Err(describe(&error)));
-                return;
+        let mut attempt = 0;
+        let (recognizer, session) = loop {
+            match listen(&window, &language, &token, signals.clone()) {
+                Ok(started) => break started,
+                Err(error) if error.code().0 as u32 == BUSY && attempt < START_RETRIES => {
+                    attempt += 1;
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                Err(error) => {
+                    let _ = ready.send(Err(describe(&error)));
+                    return;
+                }
             }
         };
         let _ = ready.send(Ok(()));
-        let end = match inbox.recv() {
-            Ok(Signal::Stop { notify: true }) => Some(End::stopped()),
-            Ok(Signal::Ended(end)) => Some(end),
-            Ok(Signal::Stop { notify: false }) | Err(_) => None,
+        let meter = open_meter();
+        let end = loop {
+            match inbox.recv_timeout(Duration::from_millis(50)) {
+                Ok(Signal::Stop { notify: true }) => break Some(End::stopped()),
+                Ok(Signal::Ended(end)) => break Some(end),
+                Ok(Signal::Stop { notify: false }) | Err(RecvTimeoutError::Disconnected) => break None,
+                Err(RecvTimeoutError::Timeout) => {
+                    if let Some(meter) = &meter {
+                        if let Ok(peak) = unsafe { meter.GetPeakValue() } {
+                            let _ = window.emit_to(
+                                window.label(),
+                                "dictation://level",
+                                json!({ "session": token, "value": peak }),
+                            );
+                        }
+                    }
+                }
+            }
         };
+        // Stopping flushes the pending phrase through ResultGenerated; give
+        // that callback (on another thread) a moment so its "final" goes out
+        // before the "end".
         if let Ok(stopping) = session.StopAsync() {
             let _ = stopping.get();
         }
+        std::thread::sleep(Duration::from_millis(150));
         if let Ok(closable) = recognizer.cast::<IClosable>() {
             let _ = closable.Close();
         }
@@ -237,7 +333,7 @@ mod imp {
             let _ = window.emit_to(
                 window.label(),
                 "dictation://end",
-                json!({ "reason": end.reason, "message": end.message }),
+                json!({ "session": token, "reason": end.reason, "message": end.message }),
             );
         }
     }
@@ -245,6 +341,7 @@ mod imp {
     fn listen(
         window: &WebviewWindow,
         language: &str,
+        token: &str,
         signals: Sender<Signal>,
     ) -> windows::core::Result<(SpeechRecognizer, SpeechContinuousRecognitionSession)> {
         let recognizer = recognizer_for(language)?;
@@ -260,11 +357,12 @@ mod imp {
         }
 
         let target = window.clone();
+        let tag = token.to_string();
         recognizer.HypothesisGenerated(&TypedEventHandler::new(
             move |_, args: windows::core::Ref<SpeechRecognitionHypothesisGeneratedEventArgs>| {
                 if let Some(args) = args.as_ref() {
                     let text = args.Hypothesis()?.Text()?.to_string();
-                    let _ = target.emit_to(target.label(), "dictation://partial", json!({ "text": text }));
+                    let _ = target.emit_to(target.label(), "dictation://partial", json!({ "session": tag, "text": text }));
                 }
                 Ok(())
             },
@@ -272,13 +370,14 @@ mod imp {
 
         let session = recognizer.ContinuousRecognitionSession()?;
         let target = window.clone();
+        let tag = token.to_string();
         session.ResultGenerated(&TypedEventHandler::new(
             move |_, args: windows::core::Ref<SpeechContinuousRecognitionResultGeneratedEventArgs>| {
                 if let Some(args) = args.as_ref() {
                     let result = args.Result()?;
                     let text = result.Text()?.to_string();
                     if result.Status()? == SpeechRecognitionResultStatus::Success && !text.trim().is_empty() {
-                        let _ = target.emit_to(target.label(), "dictation://final", json!({ "text": text }));
+                        let _ = target.emit_to(target.label(), "dictation://final", json!({ "session": tag, "text": text }));
                     }
                 }
                 Ok(())
@@ -361,6 +460,7 @@ mod imp {
     pub fn run(
         _window: WebviewWindow,
         _language: String,
+        _session: String,
         _signals: Sender<Signal>,
         _inbox: Receiver<Signal>,
         ready: oneshot::Sender<Result<(), String>>,
@@ -390,5 +490,17 @@ mod tests {
         assert!(failure_message(0x8004_5509).is_some_and(|m| m.contains("Privacy")));
         assert!(failure_message(0x8007_0005).is_some());
         assert!(failure_message(0x8000_4005).is_none());
+        assert!(failure_message(0x8013_1509).is_some());
+    }
+
+    #[test]
+    fn describe_failure_never_shows_an_empty_text() {
+        assert!(describe_failure(0x8000_4005, "").contains("0x80004005"));
+        assert!(describe_failure(0x8000_4005, "  ").contains("0x80004005"));
+        assert!(describe_failure(0x8000_4005, "Impossibile trovare il testo associato a questo codice di errore.")
+            .contains("0x80004005"));
+        assert!(describe_failure(0x8000_4005, "Cannot find the text for this error code").contains("0x80004005"));
+        assert_eq!(describe_failure(0x8000_4005, "Boom"), "Boom");
+        assert_eq!(describe_failure(0x8013_1509, ""), failure_message(0x8013_1509).unwrap());
     }
 }

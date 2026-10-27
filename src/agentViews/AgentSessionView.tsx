@@ -1,13 +1,14 @@
-import { Suspense, useRef, useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, type KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
 import { CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
-import { useOutsideClose } from "../hooks/useOutsideClose";
 import type { ChatStatus } from "../chat/chatTypes";
 import { useChat } from "../chat/useChat";
 import "../chat/chat.css";
 import "./builtins";
+import { AgentHeader } from "./AgentHeader";
+import { AgentMenuChoices } from "./AgentMenuChoices";
 import { agentView, resolveAcpView, useAgentViews, viewLabel } from "./registry";
 
 const AUTH_PREFIX = "auth_required:";
@@ -29,8 +30,12 @@ interface AgentSessionViewProps {
   onSessionId: (id: string) => void;
   onStatus: (status: ChatStatus) => void;
   onViewChange: (viewId: string) => void;
-  /** Opens the same session in a terminal tab. */
-  onSwitchToTerminal: (sessionId: string) => void;
+  /** Whether the session has a conversation to resume: true once the first prompt was sent, false when a resume fell back to a fresh session. */
+  onTalked: (talked: boolean) => void;
+  /** The view hands over how to end its agent (null when it goes): the terminal taking the session over waits for it. */
+  onCloser: (close: (() => Promise<void>) | null) => void;
+  /** Opens the session in a terminal tab: resumes `sessionId`, or starts a fresh one when it is null (nothing was said yet, so there is nothing on disk to resume). */
+  onSwitchToTerminal: (sessionId: string | null) => void;
   /** Opens a file of the project in an editor tab. */
   onOpenFile: (path: string) => void;
   /** Runs the agent's sign-in command in a terminal. */
@@ -52,6 +57,8 @@ export function AgentSessionView({
   onSessionId,
   onStatus,
   onViewChange,
+  onTalked,
+  onCloser,
   onSwitchToTerminal,
   onOpenFile,
   onOpenLogin,
@@ -59,7 +66,7 @@ export function AgentSessionView({
   const { t, language } = useI18n();
   const views = useAgentViews();
   const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, onSessionId, onStatus });
-  const { model, phase, error, modes, sessionId } = chat;
+  const { model, phase, error, modes, models, sessionId } = chat;
   const label = CLI_INFO[agent].label;
   const folder = basename(cwd);
   const subtitle = title === label ? folder : `${label} · ${folder}`;
@@ -68,17 +75,31 @@ export function AgentSessionView({
   const current = resolveAcpView(viewId);
   const View = current.component;
 
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useOutsideClose(menuOpen, [menuRef], () => setMenuOpen(false), { escape: true });
+  // A conversation exists once a prompt was sent, or when the chat resumed one
+  // (`chat.resumed`: `resumeSessionId` at mount - it also fills in later with
+  // the new session's own id). A resume whose load failed fell back to a new,
+  // empty session: nothing to resume there.
+  const talked = (chat.resumed && (phase !== "ready" || chat.loaded)) || model.items.some((item) => item.type === "user");
+  useEffect(() => {
+    onTalked(talked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [talked]);
+  const { close: closeChat } = chat;
+  useEffect(() => {
+    onCloser(closeChat);
+    return () => onCloser(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeChat]);
+  /** Switching needs the session id only when there is a conversation to resume, and never mid-turn: the terminal would resume a session the agent is still writing. */
+  const canSwitch = !working && (!talked || !!sessionId);
+  const switchToTerminal = () => onSwitchToTerminal(talked ? (sessionId ?? null) : null);
 
   const currentModeId = model.currentModeId ?? modes?.currentModeId ?? null;
 
   function onViewKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.ctrlKey && e.key === "`" && sessionId) {
+    if (e.ctrlKey && e.key === "`" && canSwitch) {
       e.preventDefault();
-      onSwitchToTerminal(sessionId);
+      switchToTerminal();
     }
   }
 
@@ -87,40 +108,24 @@ export function AgentSessionView({
     const target = agentView(id);
     if (!target) return;
     if (target.transport === "pty") {
-      if (sessionId) onSwitchToTerminal(sessionId);
+      if (canSwitch) switchToTerminal();
     } else {
       onViewChange(id);
     }
-  }
-
-  function menuAction(action: () => void) {
-    setMenuOpen(false);
-    action();
   }
 
   const authRequired = phase === "failed" && !!error?.startsWith(AUTH_PREFIX);
 
   return (
     <div className="chat-view" style={hidden ? { display: "none" } : undefined} onKeyDown={onViewKeyDown}>
-      <div className="chat-header">
-        <div className="chat-menu-anchor" ref={menuRef}>
-          <button
-            type="button"
-            className="chat-session"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            title={t("chat.menu.label")}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            <span className="chat-session-icon">{agentCliIcon(agent)}</span>
-            <span className="chat-session-title">{title}</span>
-            <span className="chat-session-agent">{subtitle}</span>
-            <svg className="chat-session-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-          {menuOpen && (
-            <div className="chat-menu" role="menu">
+      <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status}>
+        {(close) => {
+          const menuAction = (action: () => void) => {
+            close();
+            action();
+          };
+          return (
+            <>
               <div className="chat-menu-caption">{t("agentViews.viewAs")}</div>
               {views
                 .filter((view) => view.devices.includes("desktop"))
@@ -132,8 +137,9 @@ export function AgentSessionView({
                       role="menuitemradio"
                       aria-checked={false}
                       className="chat-menu-item"
-                      disabled={!sessionId}
-                      onClick={() => menuAction(() => sessionId && onSwitchToTerminal(sessionId))}
+                      disabled={!canSwitch}
+                      title={working ? t("chat.menu.stopFirst") : undefined}
+                      onClick={() => menuAction(switchToTerminal)}
                     >
                       <span className="chat-menu-check" />
                       <span>{viewLabel(view, t, language)}</span>
@@ -153,25 +159,13 @@ export function AgentSessionView({
                     </button>
                   ),
                 )}
-              {modes && modes.availableModes.length > 0 && (
-                <>
-                  <div className="chat-menu-caption">{t("chat.menu.mode")}</div>
-                  {modes.availableModes.map((mode) => (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={mode.id === currentModeId}
-                      className="chat-menu-item"
-                      title={mode.description}
-                      onClick={() => menuAction(() => chat.setMode(mode.id))}
-                    >
-                      <span className="chat-menu-check">{mode.id === currentModeId ? "✓" : ""}</span>
-                      <span>{mode.name}</span>
-                    </button>
-                  ))}
-                </>
-              )}
+              <AgentMenuChoices
+                modes={modes}
+                currentModeId={currentModeId}
+                models={models}
+                onMode={(id) => menuAction(() => chat.setMode(id))}
+                onModel={(id) => menuAction(() => chat.setModel(id))}
+              />
               <button
                 type="button"
                 role="menuitem"
@@ -185,12 +179,10 @@ export function AgentSessionView({
               <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => menuAction(chat.cancel)}>
                 <span>{t("chat.menu.stop")}</span>
               </button>
-            </div>
-          )}
-        </div>
-        <span className="chat-status-text">{t(`chat.status.${status}`)}</span>
-        <span className={`chat-status-dot is-${status}`} aria-hidden="true" />
-      </div>
+            </>
+          );
+        }}
+      </AgentHeader>
 
       {phase === "ready" ? (
         View && (

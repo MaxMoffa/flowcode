@@ -74,15 +74,8 @@ interface AgentsSidebarProps {
   /** Starts an agent in a NEW tab opened in `cwd` (the "+" menu). `shell` is
    * the shell to open it in - absent for a fresh worktree, which is on the
    * host file system. `profileId` is the account profile to run it under
-   * (the default one when absent). `asChat`: open it as a chat tab rather
-   * than in a terminal. */
-  onLaunchAgent: (
-    cli: "claude" | "codex" | "vibe" | "gemini",
-    cwd: string,
-    shell?: string,
-    profileId?: string,
-    asChat?: boolean,
-  ) => void;
+   * (the default one when absent). */
+  onLaunchAgent: (cli: "claude" | "codex" | "vibe" | "gemini", cwd: string, shell?: string, profileId?: string) => void;
   /** Opens a plain terminal tab in a folder (a worktree). */
   onOpenFolder: (cwd: string) => void;
   onClose: () => void;
@@ -426,16 +419,16 @@ export function AgentsSidebar({
   );
 
   /** Starts `cli` in the project folder, or in a fresh worktree of its repo. */
-  async function launch(cli: "claude" | "codex" | "vibe" | "gemini", inWorktree: boolean, profileId?: string, asChat = false) {
+  async function launch(cli: "claude" | "codex" | "vibe" | "gemini", inWorktree: boolean, profileId?: string) {
     if (!projectCwd) return;
     if (!inWorktree || !repoRoot) {
-      onLaunchAgent(cli, projectCwd, projectShell, profileId, asChat);
+      onLaunchAgent(cli, projectCwd, projectShell, profileId);
       return;
     }
     setCreating(true);
     try {
       const wt = await gitWorktreeAdd(repoRoot, cli);
-      onLaunchAgent(cli, wt.path, undefined, profileId, asChat);
+      onLaunchAgent(cli, wt.path, undefined, profileId);
       void loadRepo();
     } catch (err) {
       setError(t("agents.worktree.addFailed", { message: String(err) }));
@@ -482,7 +475,7 @@ export function AgentsSidebar({
             projectCwd={projectCwd}
             repoRoot={repoRoot}
             worktreeCapable={worktreeCapable}
-            onLaunch={(cli, inWorktree, profileId, asChat) => void launch(cli, inWorktree, profileId, asChat)}
+            onLaunch={(cli, inWorktree, profileId) => void launch(cli, inWorktree, profileId)}
             onClose={() => setMenuOpen(false)}
           />
         )}

@@ -39,7 +39,7 @@ pub struct ViewPluginManifest {
     /// Subset of "desktop" | "tablet" | "phone"; a new tab page is "desktop" only.
     pub devices: Vec<String>,
     /// What the view may ask the app to do on its behalf: a subset of "send" |
-    /// "cancel" | "setMode" | "openFile" for an agent view, of "launch" for a
+    /// "cancel" | "setMode" | "setModel" | "openFile" for an agent view, of "launch" for a
     /// new tab page.
     #[serde(default)]
     pub permissions: Vec<String>,
@@ -60,7 +60,7 @@ const API_VERSION: u32 = 1;
 /// Ids the app itself already uses, for views and new tab layouts.
 const RESERVED_IDS: [&str; 3] = ["chat", "terminal", "glass"];
 const DEVICES: [&str; 3] = ["desktop", "tablet", "phone"];
-const AGENT_VIEW_PERMISSIONS: [&str; 4] = ["send", "cancel", "setMode", "openFile"];
+const AGENT_VIEW_PERMISSIONS: [&str; 5] = ["send", "cancel", "setMode", "setModel", "openFile"];
 const NEW_TAB_PERMISSIONS: [&str; 1] = ["launch"];
 const MAX_FILES: usize = 500;
 pub(crate) const MAX_FILE_BYTES: usize = 5 * 1024 * 1024;

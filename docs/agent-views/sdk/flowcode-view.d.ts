@@ -2,7 +2,7 @@
 // `FlowcodeView`), the Flowcode agent-view SDK (bridge protocol v1).
 // Written by hand next to index.ts: keep the two in step.
 
-export type ViewPermission = "send" | "cancel" | "setMode" | "openFile";
+export type ViewPermission = "send" | "cancel" | "setMode" | "setModel" | "openFile";
 export type ViewDevice = "desktop" | "tablet" | "phone";
 
 export interface ViewTheme {
@@ -16,6 +16,8 @@ export interface ViewStatus {
   /** Messages waiting for the agent's turn to end. */
   queued: string[];
   currentModeId: string | null;
+  /** The model the agent uses, when it offers a choice (`init.models`). */
+  currentModelId: string | null;
 }
 
 export interface ViewInit {
@@ -24,6 +26,8 @@ export interface ViewInit {
   viewId: string;
   session: { agent: string; agentLabel: string; cwd: string; sessionId: string | null; title: string };
   modes: { currentModeId: string; availableModes: { id: string; name: string; description?: string }[] } | null;
+  /** The models the agent offers; null when there is no choice. `group` is a caption for grouped lists. */
+  models: { currentModelId: string; availableModels: { modelId: string; name: string; description?: string; group?: string }[] } | null;
   permissions: ViewPermission[];
   /** "it" or "en". */
   locale: string;
@@ -77,13 +81,20 @@ export type ChatItem =
       /** Unset while it waits for an answer; the chosen option id after it, null if cancelled. */
       resolved?: string | null;
     }
-  | { type: "error"; id: string; message: string };
+  | { type: "error"; id: string; message: string }
+  /** A turn that ended early (ACP stopReason: max_tokens, max_turn_requests, refusal, ...). */
+  | { type: "stop"; id: string; reason: string };
+// New item types may be added: a view should skip a `type` it doesn't know.
 
 export interface ChatModelState {
   items: ChatItem[];
   plan: ChatPlanEntry[] | null;
   commands: { name: string; description?: string; input?: unknown }[];
   currentModeId: string | null;
+  /** The model the agent last said it uses; null until it changes in this conversation (see `init.models`). */
+  currentModelId: string | null;
+  /** The models the agent offers as its events last said (`_flowcode/model`); null when it offers none, absent until an event says (then `init.models` holds). */
+  models?: { currentModelId: string; availableModels: { modelId: string; name: string; description?: string; group?: string }[] } | null;
   status: "starting" | "idle" | "busy" | "waiting" | "exited";
   lastSeq: number;
   turnActive: boolean;
@@ -118,6 +129,8 @@ export interface ViewClient {
   send(text: string): void;
   cancel(): void;
   setMode(modeId: string): void;
+  /** Needs the `setModel` permission; applies from the next message if a turn runs. */
+  setModel(modelId: string): void;
   openFile(path: string): void;
   switchView(viewId: string): void;
   can(permission: ViewPermission): boolean;

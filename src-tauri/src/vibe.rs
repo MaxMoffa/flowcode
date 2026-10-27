@@ -92,7 +92,7 @@ fn read_meta(dir: &Path) -> Option<SessionMeta> {
 
 fn parse_meta(value: &serde_json::Value, dir: PathBuf, updated_at: Option<u64>) -> Option<SessionMeta> {
     let text = |v: Option<&serde_json::Value>| v.and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_string);
-    let id = text(value.get("session_id"))?;
+    let id = text(value.get("session_id")).filter(|id| crate::agents::is_safe_session_id(id))?;
     let stats = value.get("stats");
     let num = |key: &str| stats.and_then(|s| s.get(key)).and_then(|v| v.as_f64()).unwrap_or(0.0);
     let prompt = num("session_prompt_tokens");

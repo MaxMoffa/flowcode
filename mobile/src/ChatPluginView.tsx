@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import { THEME_TOKENS, createBridgeHost, type BridgeSource, type ViewStatus, type ViewTheme } from "../../shared/agentViewBridge";
 import type { ChatInfo, ViewPackage } from "../../shared/remote-types";
-import { chatModes, chatStatus, type ChatSession } from "./chatSession";
-import { cancelChat, onNewChatEvents, rawChatEvents, sendChatPrompt, setChatMode } from "./chats";
+import { chatModels, chatModes, chatStatus, type ChatSession } from "./chatSession";
+import { cancelChat, onNewChatEvents, rawChatEvents, sendChatPrompt, setChatMode, setChatModel } from "./chats";
 import { agentName } from "./common";
 import { t } from "./i18n";
-import { showToast, useRemoteSelector } from "./remote";
+import { showToast, useRemoteSelector, useSupports } from "./remote";
 import { phoneTheme } from "./theme";
 import { useWide } from "./wide";
 import { viewLabel, viewSrc } from "./viewCache";
@@ -64,9 +64,12 @@ export function ChatPluginView({ pkg, info, session, onSwitchView }: { pkg: View
   const [unresponsive, setUnresponsive] = useState(false);
   const status = chatStatus(info, session.model);
   const currentModeId = session.model.currentModeId ?? chatModes(info, session.model)?.currentModeId ?? null;
+  // A desktop that can't switch models offers the view no choice.
+  const canSetModel = useSupports("chatModel");
+  const currentModelId = canSetModel ? (chatModels(info, session.model)?.currentModelId ?? null) : null;
   // What the source below reads, so the bridge host never goes stale.
-  const latest = useRef({ info, session, language, wide, onSwitchView });
-  latest.current = { info, session, language, wide, onSwitchView };
+  const latest = useRef({ info, session, language, wide, onSwitchView, canSetModel });
+  latest.current = { info, session, language, wide, onSwitchView, canSetModel };
   const statusListeners = useRef(new Set<(status: ViewStatus) => void>());
   const themeListeners = useRef(new Set<(theme: ViewTheme) => void>());
   const src = useMemo(() => viewSrc(pkg), [pkg]);
@@ -75,6 +78,7 @@ export function ChatPluginView({ pkg, info, session, onSwitchView }: { pkg: View
     status: chatStatus(latest.current.info, latest.current.session.model),
     queued: latest.current.session.queued,
     currentModeId: latest.current.session.model.currentModeId ?? chatModes(latest.current.info, latest.current.session.model)?.currentModeId ?? null,
+    currentModelId: latest.current.canSetModel ? (chatModels(latest.current.info, latest.current.session.model)?.currentModelId ?? null) : null,
   });
 
   useEffect(() => {
@@ -88,6 +92,7 @@ export function ChatPluginView({ pkg, info, session, onSwitchView }: { pkg: View
         return { agent: info.agent, agentLabel: agentName(info.agent), cwd: info.cwd, sessionId: info.sessionId ?? null, title: info.label };
       },
       modes: () => chatModes(latest.current.info, latest.current.session.model),
+      models: () => (latest.current.canSetModel ? chatModels(latest.current.info, latest.current.session.model) : null),
       status: viewStatus,
       theme: readTheme,
       subscribe: async (listener) => onNewChatEvents(chatId, listener),
@@ -103,6 +108,7 @@ export function ChatPluginView({ pkg, info, session, onSwitchView }: { pkg: View
       send: (text) => sendChatPrompt(chatId, text),
       cancel: () => cancelChat(chatId),
       setMode: (modeId) => setChatMode(chatId, modeId),
+      setModel: (modelId) => setChatModel(chatId, modelId),
       // The phone has no file viewer for a chat's folder (its viewer needs a terminal): say so rather than ignore it.
       openFile: () => showToast(t("chatOpenFileUnavailable")),
       switchView: (viewId) => latest.current.onSwitchView(viewId),
@@ -123,7 +129,7 @@ export function ChatPluginView({ pkg, info, session, onSwitchView }: { pkg: View
   useEffect(() => {
     statusListeners.current.forEach((listener) => listener(viewStatus()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, session.queued, currentModeId]);
+  }, [status, session.queued, currentModeId, currentModelId]);
 
   // Runs after App has applied the new colors to <html>.
   useEffect(() => {

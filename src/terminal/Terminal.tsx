@@ -12,6 +12,8 @@ import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
 import { useOpenLink } from "./useOpenLink";
+import { createPathLinkProvider } from "./pathLinkProvider";
+import { checkPath, useOpenPath, type PathTarget } from "../lib/fileLinks";
 import {
   FROG_HEIGHT,
   FROG_WIDTH,
@@ -66,6 +68,10 @@ interface TerminalViewProps {
    * acceptable here since the only thing read out of it is a leading command
    * name, not the full line. */
   onCommandLine?: (line: string) => void;
+  /** Asked on Enter with the typed line, before it reaches the shell: `true`
+   * takes the line over - it is cancelled at the prompt (Ctrl+C) instead of
+   * run. Same best-effort shadow buffer as `onCommandLine`. */
+  interceptCommandLine?: (line: string) => boolean;
   /** Fires once this tab's pty id is known (`getPtyId` is non-null from here). */
   onPtyReady?: () => void;
   /** A command to type and submit the moment this tab's shell is ready -
@@ -107,7 +113,7 @@ interface TerminalViewProps {
 // memo: the parent re-renders on every title/agent-poll change, and a
 // terminal has nothing to redraw unless one of its own props moved.
 export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, onPtyReady, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach }, ref) => {
+  ({ tabId, cwd, hidden, onTitleChange, onBusyChange, onCommandLine, interceptCommandLine, onPtyReady, runOnStart, typeOnStart, onAnchor, onPromptShown, shellOverride, profileId, restoredContent, attach }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // xterm mounts into this padding-free inner box, not the padded container:
   // FitAddon sizes the grid off its parent's computed height, which under
@@ -155,6 +161,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   onBusyChangeRef.current = onBusyChange;
   const onCommandLineRef = useRef(onCommandLine);
   onCommandLineRef.current = onCommandLine;
+  const interceptCommandLineRef = useRef(interceptCommandLine);
+  interceptCommandLineRef.current = interceptCommandLine;
   const onPtyReadyRef = useRef(onPtyReady);
   onPtyReadyRef.current = onPtyReady;
   const lineBufferRef = useRef("");
@@ -167,6 +175,12 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // setting/menu through a ref instead of the values captured back then.
   const linkClickRef = useRef<(event: MouseEvent, uri: string) => void>(() => {});
   linkClickRef.current = openLink;
+  // File paths in the output: relative ones resolve against where the shell is now.
+  const openPath = useOpenPath();
+  const pathClickRef = useRef<(event: MouseEvent, target: PathTarget, line?: number) => void>(() => {});
+  pathClickRef.current = openPath;
+  const liveCwdRef = useRef(cwd);
+  liveCwdRef.current = cwd;
   const fontSize = getTabFontSize(tabId);
   const bannerEnabledRef = useRef(bannerEnabled);
   bannerEnabledRef.current = bannerEnabled;
@@ -610,6 +624,15 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     // through the same confirm menu.
     term.loadAddon(new WebLinksAddon((event, uri) => linkClickRef.current(event, uri)));
     term.options.linkHandler = { activate: (event, uri) => linkClickRef.current(event, uri) };
+    // File paths (never urls: those stay the web links above), linked only
+    // once the disk confirms they exist; a click opens the path menu.
+    term.registerLinkProvider(
+      createPathLinkProvider(
+        () => term.buffer.active,
+        (path) => checkPath(path, liveCwdRef.current),
+        (event, target, line) => pathClickRef.current(event, target, line),
+      ),
+    );
     term.open(hostRef.current!);
     // This effect body only ever runs once per tab, at the moment it's
     // created (tabs stay mounted, just hidden, once switched away from - see
@@ -734,6 +757,13 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         pendingInput.push(data);
         return;
       }
+      // An Enter whose line the host takes over (an agent CLI opened as a
+      // chat instead): the line is cancelled at the prompt rather than run.
+      if ((data === "\r" || data === "\n") && lineBufferRef.current.trim() && interceptCommandLineRef.current?.(lineBufferRef.current)) {
+        lineBufferRef.current = "";
+        writePty(id, "\x03");
+        return;
+      }
       writePty(id, data);
 
       // See `onCommandLine`'s own doc comment for what this shadow buffer
@@ -815,7 +845,16 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         // restored tab is saved back with this same content (see App.tsx's
         // session snapshot), so a marker would pile up one more line on
         // every restart.
-        term.write(`${restoredContentRef.current}\x1b[0m\r\n`);
+        await new Promise<void>((resolve) => term.write(`${restoredContentRef.current}\x1b[0m`, resolve));
+        if (disposed) return;
+        // The serialized text ends by moving the cursor back where it was
+        // in the old session - often up inside a TUI's screen (e.g. Claude
+        // Code's input box). The new shell's prompt belongs below the last
+        // line of text instead.
+        const buf = term.buffer.active;
+        let last = buf.length - 1;
+        while (last >= 0 && !buf.getLine(last)?.translateToString(true).trim()) last--;
+        term.write(`\x1b[${Math.max(last - buf.baseY, 0) + 1};1H${last >= buf.baseY ? "\r\n" : ""}`);
       } else if (bannerEnabledRef.current) {
         // The New Tab page has usually queried this already: with it cached
         // there is no await here, so the shell spawns without waiting.

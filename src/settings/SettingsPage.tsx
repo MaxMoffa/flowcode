@@ -15,6 +15,7 @@ import { writeBool } from "../lib/storage";
 import { NOTIFICATION_KINDS, setNotificationEnabled, useNotificationSettings } from "../notifications/notificationSettings";
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
 import { RemoteAccessSettings } from "./RemoteAccessSettings";
+import { RemoteHostsSettings } from "../remoteHosts/RemoteHostsSettings";
 import { ShellStartDirs } from "./ShellStartDirs";
 import { PalettePicker } from "./PalettePicker";
 import { DEFAULT_CONTRAST, DEFAULT_PALETTE_ID } from "../themes/palettes";
@@ -25,8 +26,9 @@ import { SECTION_DESCRIPTION_KEYS, SECTION_TITLE_KEYS } from "./settingsIndex";
 import { Segmented, SettingRow, SettingsGroup, Switch, settingDomId } from "./SettingsControls";
 import { ShortcutsSettings } from "../shortcuts/ShortcutsSettings";
 import { layoutLabel, resolveNewTabLayout, useNewTabLayouts } from "../newtab/layouts";
-import { resolveAcpView, useAgentViews, viewLabel as agentViewLabel } from "../agentViews/registry";
+import { DEFAULT_ACP_VIEW, useAgentViews } from "../agentViews/registry";
 import { setDefaultAgentView, useDefaultAgentView } from "../agentViews/defaultView";
+import { AgentViewPicker } from "./AgentViewPicker";
 import "../agentViews/builtins";
 import { useNewTabSettings } from "../newtab/newTabSettings";
 import { isWindowsPlatform } from "../lib/path";
@@ -95,6 +97,7 @@ export function SettingsPage({
   const [newTabSettings, setNewTabSettings] = useNewTabSettings();
   const newTabLayouts = useNewTabLayouts();
   const agentViewsList = useAgentViews();
+  const desktopViews = agentViewsList.filter((v) => v.devices.includes("desktop"));
   const defaultView = useDefaultAgentView();
   const { mode, setMode, paletteId, setPaletteId, terminalPaletteId, setTerminalPaletteId, contrast, setContrast, glassOpacity, setGlassOpacity, resetGlassOpacity } =
     useTheme();
@@ -112,6 +115,8 @@ export function SettingsPage({
     resetShellStartPaths,
     restoreSession,
     setRestoreSession,
+    restoreContent,
+    setRestoreContent,
     confirmLinkOpen,
     setConfirmLinkOpen,
     linkPreviews,
@@ -278,6 +283,7 @@ export function SettingsPage({
     setStartPathDraft("");
     resetShellStartPaths();
     setRestoreSession(true);
+    setRestoreContent(true);
     setConfirmLinkOpen(true);
     setExplorerDoubleClick(true);
     setNewTabPage(true);
@@ -522,6 +528,23 @@ export function SettingsPage({
                   onChange={(v) => setRestoreSession(v === "restore")}
                 />
               </SettingRow>
+              {restoreSession && (
+                <SettingRow
+                  id="restoreContent"
+                  label={t("settings.restoreContent.label")}
+                  desc={t("settings.restoreContent.desc")}
+                >
+                  <Segmented
+                    ariaLabel={t("settings.restoreContent.label")}
+                    value={restoreContent ? "keep" : "clear"}
+                    options={[
+                      { value: "keep", label: t("settings.restoreContent.keep") },
+                      { value: "clear", label: t("settings.restoreContent.clear") },
+                    ]}
+                    onChange={(v) => setRestoreContent(v === "keep")}
+                  />
+                </SettingRow>
+              )}
             </SettingsGroup>
           </>
         )}
@@ -557,11 +580,10 @@ export function SettingsPage({
         {section === "agents" && (
           <>
             <SettingsGroup title={t("settings.group.agentView")}>
-              <SettingRow id="agentView" label={t("settings.agentView.label")} desc={t("settings.agentView.desc")}>
-                <Segmented
-                  ariaLabel={t("settings.agentView.label")}
-                  value={resolveAcpView(defaultView).id}
-                  options={agentViewsList.filter((v) => v.transport === "acp").map((v) => ({ value: v.id, label: agentViewLabel(v, t, language) }))}
+              <SettingRow id="agentView" label={t("settings.agentView.label")} desc={t("settings.agentView.desc")} stacked>
+                <AgentViewPicker
+                  views={desktopViews}
+                  value={desktopViews.some((v) => v.id === defaultView) ? defaultView : DEFAULT_ACP_VIEW}
                   onChange={setDefaultAgentView}
                 />
               </SettingRow>
@@ -609,7 +631,12 @@ export function SettingsPage({
           </>
         )}
 
-        {section === "remote" && <RemoteAccessSettings />}
+        {section === "remote" && (
+          <>
+            <RemoteAccessSettings />
+            <RemoteHostsSettings />
+          </>
+        )}
 
         {section === "shortcuts" && <ShortcutsSettings onOpenGuide={onOpenShortcutsGuide} />}
 

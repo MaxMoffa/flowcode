@@ -8,6 +8,7 @@ import { CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { useAvailableClis } from "../agents/useAvailableClis";
 import { agentCliIcon } from "../plugins/icons";
 import { useProfiles } from "../profiles/profiles";
+import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useI18n } from "../i18n";
 import { FolderIcon, HistoryIcon, SearchIcon } from "./icons";
 import { fuzzyFilter } from "./fuzzy";
@@ -335,52 +336,34 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
           </div>
 
           <div className="glass-card glass-foot">
-            <div className="glass-chips" role="group" aria-label={t("newTab.shellLabel")}>
-              {chips.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  className="glass-chip"
-                  aria-pressed={chipShell(opt) === shell}
-                  onClick={() => pickShell(chipShell(opt))}
-                >
-                  <span className="glass-icon">{shellOptionIcon(opt.id)}</span>
-                  {shellOptionLabel(opt)}
-                </button>
-              ))}
-            </div>
-            {/* Env vars don't reach a WSL distro: no profile there. */}
-            {profiles.length > 0 && wslDistroOfShell(shell) === undefined && (
-              <div className="glass-chips" role="group" aria-label={t("agents.profile.label")}>
-                <button
-                  type="button"
-                  className="glass-chip"
-                  aria-pressed={!profileId}
-                  onClick={() => {
-                    onProfileChange(null);
-                    inputRef.current?.focus();
-                  }}
-                >
-                  <span className="glass-profile-dot is-default" />
-                  {t("agents.profile.default")}
-                </button>
-                {profiles.map((p) => (
+            <div className="glass-foot-row">
+              <div className="glass-chips" role="group" aria-label={t("newTab.shellLabel")}>
+                {chips.map((opt) => (
                   <button
-                    key={p.id}
+                    key={opt.id}
                     type="button"
                     className="glass-chip"
-                    aria-pressed={profileId === p.id}
-                    onClick={() => {
-                      onProfileChange(p.id);
-                      inputRef.current?.focus();
-                    }}
+                    aria-pressed={chipShell(opt) === shell}
+                    onClick={() => pickShell(chipShell(opt))}
                   >
-                    <span className="glass-profile-dot" style={{ background: p.color }} />
-                    {p.name}
+                    <span className="glass-icon">{shellOptionIcon(opt.id)}</span>
+                    {shellOptionLabel(opt)}
                   </button>
                 ))}
               </div>
-            )}
+              {/* Env vars don't reach a WSL distro: no profile there. */}
+              {profiles.length > 0 && wslDistroOfShell(shell) === undefined && (
+                <div className="glass-foot-profile">
+                  <ProfileSelect
+                    value={profileId ?? undefined}
+                    onChange={(id) => {
+                      onProfileChange(id ?? null);
+                      inputRef.current?.focus();
+                    }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
           <p className="glass-keys">
             {t("newTab.glass.keys", { shell: labelOf(chosenShell()), count: Math.min(chips.length, 9) })}

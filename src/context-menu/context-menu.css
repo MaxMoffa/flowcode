@@ -176,15 +176,14 @@
   cursor: default;
 }
 
-.context-menu-profile-dot {
-  width: 8px;
-  height: 8px;
-  margin: 3px;
-  border-radius: 999px;
-}
-
-.context-menu-profile-dot.is-default {
-  box-shadow: inset 0 0 0 1.5px currentColor;
+.context-menu-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 4px 2px 8px;
+  color: var(--fg-muted);
+  font-size: 12px;
 }
 
 .context-menu-search {

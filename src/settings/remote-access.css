@@ -62,6 +62,38 @@
   align-self: flex-end;
 }
 
+/* The pairing link as a copyable code, under the QR. */
+.remote-pair-code {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.remote-pair-code-label {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.remote-pair-code-row {
+  display: flex;
+  gap: 8px;
+}
+
+.remote-pair-code-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  text-overflow: ellipsis;
+}
+
 /* The app download buttons, under the row's text. */
 .remote-app-actions {
   display: flex;

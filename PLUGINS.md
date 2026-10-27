@@ -285,7 +285,7 @@ interface ViewPluginManifest {
   entry: string;         // file HTML di partenza, relativo alla cartella
   transport: "acp";      // la vista mostra una chat ospitata dall'app
   devices: ("desktop" | "tablet" | "phone")[]; // dove viene offerta
-  permissions: ("send" | "cancel" | "setMode" | "openFile")[];
+  permissions: ("send" | "cancel" | "setMode" | "setModel" | "openFile")[];
 }
 ```
 
@@ -296,6 +296,7 @@ interface ViewPluginManifest {
 | `send`     | `send`: invia un messaggio all'agente (passa dalla coda dei messaggi, come dalla chat) | "Invia messaggi all'agente" |
 | `cancel`   | `cancel`: interrompe il turno in corso | "Interrompe l'agente" |
 | `setMode`  | `setMode`: cambia la modalità della sessione | "Cambia modalità" |
+| `setModel` | `setModel`: cambia il modello dell'agente (dal prossimo messaggio, se un turno è in corso) | "Cambia modello" |
 | `openFile` | `openFile`: apre un file del progetto in un editor | "Apre file del progetto" |
 
 `switchView` non richiede nessun permesso. Una richiesta senza il permesso
@@ -332,9 +333,9 @@ inviati prima restano in coda.
 
 | Messaggio | Contenuto |
 |-----------|-----------|
-| `init` | `apiVersion`, `viewId`, `session` (`agent`, `agentLabel`, `cwd`, `sessionId`, `title`), `modes` (`{ currentModeId, availableModes[] }` o `null`), `permissions` (quelli concessi), `locale` (`it`/`en`), `device` (`desktop`, `tablet` o `phone`), `insets` (facoltativo, `{ top, right, bottom, left }` in px: aree non sicure dello schermo), `theme`. Un nuovo `init` significa una nuova conversazione: la vista scarta quello che sapeva. |
+| `init` | `apiVersion`, `viewId`, `session` (`agent`, `agentLabel`, `cwd`, `sessionId`, `title`), `modes` (`{ currentModeId, availableModes[] }` o `null`), `models` (`{ currentModelId, availableModels: [{ modelId, name, description?, group? }] }`, o `null` se l'agente non offre una scelta), `permissions` (quelli concessi), `locale` (`it`/`en`), `device` (`desktop`, `tablet` o `phone`), `insets` (facoltativo, `{ top, right, bottom, left }` in px: aree non sicure dello schermo), `theme`. Un nuovo `init` significa una nuova conversazione: la vista scarta quello che sapeva. |
 | `events` | `events`: array di eventi grezzi del backend (`kind`: `update`, `user`, `permission`, `permissionResolved`, `turnEnd`, `error`, `exit`; vedi `src/chat/chatTypes.ts`), ognuno con `seq` e `at`. Prima arriva l'intera cronologia, poi i lotti dal vivo; ogni `seq` arriva una volta sola. `at` (epoch ms) è il momento in cui Flowcode ha *ricevuto* l'evento, non quello in cui è avvenuto: in una sessione ripresa la cronologia riprodotta porta tutta l'ora della ripresa. `update.update` è l'oggetto ACP `session/update` (es. `sessionUpdate: "agent_message_chunk"` con `content.text`). |
-| `status` | `status` (`starting`, `idle`, `busy`, `waiting`, `exited`), `queued` (messaggi in coda), `currentModeId`. Inviato a ogni cambiamento. |
+| `status` | `status` (`starting`, `idle`, `busy`, `waiting`, `exited`), `queued` (messaggi in coda), `currentModeId`, `currentModelId`. Inviato a ogni cambiamento. |
 | `theme` | `theme`: inviato quando cambia il tema dell'app. |
 | `error` | `code` (`permission_denied` o `bad_request`) e `request` (il `type` della richiesta rifiutata). |
 
@@ -366,6 +367,7 @@ sconosciuto sono ignorati)
 | `{ type: "send", text }` | `send` | invia `text` all'agente (in coda se un turno è in corso) |
 | `{ type: "cancel" }` | `cancel` | interrompe l'agente |
 | `{ type: "setMode", modeId }` | `setMode` | cambia modalità |
+| `{ type: "setModel", modelId }` | `setModel` | cambia modello (uno di `init.models`) |
 | `{ type: "openFile", path }` | `openFile` | apre il file in un editor; `path` è relativo a `session.cwd` o assoluto, e deve stare dentro la cartella del progetto (altrimenti `permission_denied`) |
 | `{ type: "switchView", viewId }` | nessuno | mostra la sessione con un'altra vista (es. `chat`) |
 

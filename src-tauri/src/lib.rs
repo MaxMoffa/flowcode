@@ -12,6 +12,7 @@ mod plugins;
 mod profiles;
 mod pty;
 mod remote;
+mod remote_client;
 mod session;
 mod spend;
 mod system;
@@ -79,6 +80,7 @@ pub fn run() {
             let remote = remote::RemoteState::load(app.handle());
             remote.autostart();
             app.manage(remote);
+            app.manage(remote_client::RemoteClients::new(app.handle()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -126,6 +128,7 @@ pub fn run() {
             chat::chat_cancel,
             chat::chat_permission,
             chat::chat_set_mode,
+            chat::chat_set_model,
             chat::chat_close,
             chat::chat_events,
             dictation::dictation_supported,
@@ -164,6 +167,7 @@ pub fn run() {
             fs::read_text_file,
             fs::write_text_file,
             fs::get_file_info,
+            fs::path_kind,
             plugins::list_plugins,
             plugins::save_plugin,
             plugins::delete_plugin,
@@ -173,6 +177,7 @@ pub fn run() {
             plugins::open_in_vscode,
             agents::list_agent_sessions,
             agents::list_claude_agents,
+            agents::list_claude_sessions,
             agents::list_codex_sessions,
             agents::run_claude_usage_probe,
             git::git_repo_root,
@@ -228,6 +233,17 @@ pub fn run() {
             remote::remote_publish_settings,
             remote::remote_publish_profiles,
             remote::remote_publish_actions,
+            remote_client::remote_hosts,
+            remote_client::remote_host_inspect,
+            remote_client::remote_host_fingerprint,
+            remote_client::remote_host_pair,
+            remote_client::remote_host_cancel_pair,
+            remote_client::remote_host_connect,
+            remote_client::remote_host_disconnect,
+            remote_client::remote_host_forget,
+            remote_client::remote_host_send,
+            remote_client::remote_host_cached,
+            remote_client::remote_host_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -185,6 +185,8 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
       const target = e.target as Node;
       if (menuRef.current?.contains(target)) return;
       if (submenuRef.current?.contains(target)) return;
+      // A dropdown inside a compound row (ProfileSelect) portals its list out of the menu.
+      if (e.target instanceof Element && e.target.closest("[data-profile-select-menu]")) return;
       hide();
     };
     // Capture phase: xterm stops propagation of every keydown it handles, so

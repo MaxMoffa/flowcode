@@ -237,7 +237,7 @@ const chatState = (chat: ChatInfo) => (chat.status === "waiting" ? "waiting" : c
 
 /** A chat session that waits for an answer: what it asks, one tap to answer it in the chat. */
 function ChatWaitingRow({ chat }: { chat: ChatInfo }) {
-  const asks = pendingPermissionTitle(useChatSession(chat.chatId));
+  const asks = pendingPermissionTitle(useChatSession(chat.chatId), chat);
   return (
     <button type="button" className="card tile is-waiting" onClick={() => requestOpenChat(chat.chatId)}>
       <span className="tile-head">

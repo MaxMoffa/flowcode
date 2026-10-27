@@ -7,11 +7,61 @@ var FlowcodeView = (function(exports) {
 			plan: null,
 			commands: [],
 			currentModeId: null,
+			currentModelId: null,
 			status: "starting",
 			lastSeq: -1,
 			turnActive: false,
-			notice: null
+			notice: null,
+			turn: null
 		};
+	}
+	/** The current value of the model option among ACP session config options (category `model`, else id `model`); null without one. */
+	function configModelValue(configOptions) {
+		if (!Array.isArray(configOptions)) return null;
+		const options = configOptions.filter((o) => typeof o === "object" && o !== null);
+		const option = options.find((o) => o.category === "model") ?? options.find((o) => o.id === "model");
+		return option && typeof option.currentValue === "string" && option.currentValue !== "" ? option.currentValue : null;
+	}
+	var str = (v) => typeof v === "string" && v !== "" ? v : null;
+	/** The backend's normalized models (`{ currentModelId, availableModels }`, the `_flowcode/model` params and `ChatInfo.models`), checked; null when there are none (`availableModels: []` = the agent offers no choice any more). */
+	function normalizeModels(raw) {
+		const m = raw;
+		if (!m || typeof m !== "object" || !Array.isArray(m.availableModels)) return null;
+		const availableModels = m.availableModels.filter((x) => !!x && typeof x.modelId === "string" && x.modelId !== "" && typeof x.name === "string");
+		if (availableModels.length === 0) return null;
+		return {
+			currentModelId: str(m.currentModelId) ?? availableModels[0].modelId,
+			availableModels
+		};
+	}
+	/** The models of ACP session config options, like the backend reads them: the `select` option of category `model` (else id `model`), its choices flat or grouped (the group's name as caption). Null without one. */
+	function configModels(configOptions) {
+		if (!Array.isArray(configOptions)) return null;
+		const options = configOptions.filter((o) => typeof o === "object" && o !== null);
+		const option = options.find((o) => o.category === "model") ?? options.find((o) => o.id === "model");
+		if (!option || typeof option.type === "string" && option.type !== "select") return null;
+		const currentModelId = str(option.currentValue);
+		if (!currentModelId || !Array.isArray(option.options)) return null;
+		const choice = (v, group) => {
+			const o = typeof v === "object" && v !== null ? v : {};
+			const modelId = str(o.value);
+			if (!modelId) return [];
+			const description = str(o.description);
+			return [{
+				modelId,
+				name: str(o.name) ?? modelId,
+				...description ? { description } : {},
+				...group ? { group } : {}
+			}];
+		};
+		const availableModels = option.options.flatMap((entry) => {
+			const e = typeof entry === "object" && entry !== null ? entry : {};
+			return Array.isArray(e.options) ? e.options.flatMap((v) => choice(v, str(e.name) ?? str(e.group))) : choice(entry, null);
+		});
+		return availableModels.length > 0 ? {
+			currentModelId,
+			availableModels
+		} : null;
 	}
 	/** Updates that show the agent is making progress again, so a notice is stale. */
 	var PROGRESS_UPDATES = /* @__PURE__ */ new Set([
@@ -44,7 +94,7 @@ var FlowcodeView = (function(exports) {
 			type,
 			id: `${type}-${seq}`,
 			text
-		}], type === "user" ? state.turnActive : true);
+		}]);
 	}
 	function textOf(update) {
 		const content = update.content;
@@ -67,7 +117,7 @@ var FlowcodeView = (function(exports) {
 				call: merged
 			};
 		}
-		return withItems(state, items, true);
+		return withItems(state, items);
 	}
 	function applyUpdate(state, update, seq) {
 		switch (update.sessionUpdate) {
@@ -82,9 +132,7 @@ var FlowcodeView = (function(exports) {
 			case "tool_call_update": return upsertTool(state, update);
 			case "plan": return {
 				...state,
-				plan: update.entries ?? [],
-				turnActive: true,
-				status: statusOf(state.items, true, state.status)
+				plan: update.entries ?? []
 			};
 			case "available_commands_update": return {
 				...state,
@@ -94,19 +142,55 @@ var FlowcodeView = (function(exports) {
 				...state,
 				currentModeId: update.currentModeId ?? state.currentModeId
 			};
+			case "config_option_update": {
+				const modelId = configModelValue(update.configOptions);
+				const models = configModels(update.configOptions);
+				if (modelId === null || modelId === state.currentModelId && !models) return state;
+				return {
+					...state,
+					currentModelId: modelId,
+					...models ? { models } : {}
+				};
+			}
 			default: return state;
 		}
+	}
+	/** Keeps the turn stats after an update: a turn joined mid-way (a phone opening a busy chat) starts at this event, and streamed text counts toward it. */
+	function trackTurn(next, update, at) {
+		let turn = next.turn;
+		if (!turn && next.turnActive) turn = {
+			startedAt: at,
+			outChars: 0
+		};
+		if (turn && (update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "agent_thought_chunk")) turn = {
+			...turn,
+			outChars: turn.outChars + (textOf(update)?.length ?? 0)
+		};
+		return turn === next.turn ? next : {
+			...next,
+			turn
+		};
 	}
 	function reduce(state, ev) {
 		switch (ev.kind) {
 			case "update": {
 				const next = applyUpdate(state, ev.update, ev.seq);
-				return PROGRESS_UPDATES.has(ev.update.sessionUpdate) ? {
+				return trackTurn(PROGRESS_UPDATES.has(ev.update.sessionUpdate) ? {
 					...next,
 					notice: null
-				} : next;
+				} : next, ev.update, ev.at);
 			}
 			case "ext": {
+				if (ev.method === "_flowcode/model") {
+					const params = ev.params ?? {};
+					if (!Array.isArray(params.availableModels) && str(params.currentModelId) === null) return state;
+					const models = Array.isArray(params.availableModels) ? normalizeModels(params) : state.models;
+					return {
+						...state,
+						models,
+						currentModelId: str(params.currentModelId) ?? state.currentModelId
+					};
+				}
 				if (ev.method !== "_session/retrying" || !state.turnActive) return state;
 				const params = ev.params ?? {};
 				return {
@@ -118,12 +202,18 @@ var FlowcodeView = (function(exports) {
 					}
 				};
 			}
-			case "user": return withItems(state, [...state.items, {
-				type: "user",
-				id: `user-${ev.seq}`,
-				text: ev.text,
-				local: true
-			}], true);
+			case "user": return {
+				...withItems(state, [...state.items, {
+					type: "user",
+					id: `user-${ev.seq}`,
+					text: ev.text,
+					local: true
+				}], true),
+				turn: {
+					startedAt: ev.at,
+					outChars: 0
+				}
+			};
 			case "permission": return withItems(state, [...state.items, {
 				type: "permission",
 				id: `perm-${ev.requestId}`,
@@ -135,27 +225,49 @@ var FlowcodeView = (function(exports) {
 				...i,
 				resolved: ev.optionId
 			} : i));
-			case "turnEnd": return {
-				...withItems(state, state.items, false),
-				notice: null
-			};
-			case "error": return {
-				...withItems(state, [...state.items, {
-					type: "error",
-					id: `error-${ev.seq}`,
-					message: ev.message
-				}], false),
-				notice: null
-			};
-			case "exit": return {
-				...state,
-				turnActive: false,
-				status: "exited",
-				notice: null
-			};
+			case "turnEnd": {
+				const reason = typeof ev.stopReason === "string" ? ev.stopReason : "";
+				return {
+					...withItems(state, !reason || QUIET_STOPS.has(reason) ? state.items : [...state.items, {
+						type: "stop",
+						id: `stop-${ev.seq}`,
+						reason
+					}], false),
+					notice: null,
+					turn: null
+				};
+			}
+			case "error": {
+				const last = state.items[state.items.length - 1];
+				return {
+					...withItems(state, last?.type === "error" && last.local && last.message === ev.message ? state.items : [...state.items, {
+						type: "error",
+						id: `error-${ev.seq}`,
+						message: ev.message
+					}], false),
+					notice: null,
+					turn: null
+				};
+			}
+			case "exit": {
+				const items = state.items.some((i) => i.type === "permission" && i.resolved === void 0) ? state.items.map((i) => i.type === "permission" && i.resolved === void 0 ? {
+					...i,
+					resolved: null
+				} : i) : state.items;
+				return {
+					...state,
+					items,
+					turnActive: false,
+					status: "exited",
+					notice: null,
+					turn: null
+				};
+			}
 			default: return state;
 		}
 	}
+	/** Stop reasons that need no notice: the turn finished, or the user cancelled it. */
+	var QUIET_STOPS = /* @__PURE__ */ new Set(["end_turn", "cancelled"]);
 	/** Folds one event into the conversation. Pure: the same events in the same
 	* order always give the same state, and one already applied (by `seq`) is skipped. */
 	function applyEvent(state, ev) {
@@ -444,6 +556,10 @@ var FlowcodeView = (function(exports) {
 					type: "setMode",
 					modeId
 				}),
+				setModel: (modelId) => request({
+					type: "setModel",
+					modelId
+				}),
 				openFile: (path) => request({
 					type: "openFile",
 					path
@@ -474,7 +590,10 @@ var FlowcodeView = (function(exports) {
 				switch (message.type) {
 					case "init": {
 						const first = init === null;
-						init = message;
+						init = {
+							...message,
+							models: message.models ?? null
+						};
 						model = initialChat();
 						timing = /* @__PURE__ */ new Map();
 						status = null;
@@ -493,7 +612,8 @@ var FlowcodeView = (function(exports) {
 						status = {
 							status: message.status,
 							queued: message.queued,
-							currentModeId: message.currentModeId
+							currentModeId: message.currentModeId,
+							currentModelId: message.currentModelId ?? null
 						};
 						emit("status", status);
 						break;

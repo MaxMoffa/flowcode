@@ -62,22 +62,22 @@ fn write_key(path: &Path, key: &[u8; 32]) -> std::io::Result<()> {
 /// is no such facility - or if it failed, in which case the key is kept
 /// readable the way it always was rather than lost.
 #[cfg(windows)]
-fn seal(plain: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn seal(plain: &[u8]) -> Option<Vec<u8>> {
     dpapi(plain, true)
 }
 
 #[cfg(not(windows))]
-fn seal(_plain: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn seal(_plain: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
 #[cfg(windows)]
-fn unseal(blob: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn unseal(blob: &[u8]) -> Option<Vec<u8>> {
     dpapi(blob, false)
 }
 
 #[cfg(not(windows))]
-fn unseal(_blob: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn unseal(_blob: &[u8]) -> Option<Vec<u8>> {
     None
 }
 

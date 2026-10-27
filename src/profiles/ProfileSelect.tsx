@@ -5,10 +5,7 @@ import { useProfiles, type ProfileInfo } from "./profiles";
 import { useOutsideClose } from "../hooks/useOutsideClose";
 import "./profile-select.css";
 
-interface ProfileSelectProps {
-  /** The chosen profile id; `undefined` is the default profile. */
-  value: string | undefined;
-  onChange: (next: string | undefined) => void;
+interface CommonProps {
   /** Marks a row with a star (the project's default profile). */
   isStarred?: (id: string | undefined) => boolean;
   /** Rendered under the list, inside the dropdown. */
@@ -20,6 +17,24 @@ interface ProfileSelectProps {
   onMenuPointerEnter?: () => void;
   onMenuPointerLeave?: () => void;
 }
+
+type ProfileSelectProps = CommonProps &
+  (
+    | {
+        allowAuto?: false;
+        /** The chosen profile id; `undefined` is the default profile. */
+        value: string | undefined;
+        onChange: (next: string | undefined) => void;
+      }
+    | {
+        /** Lists "Automatic" first (the folder's project profile, else the active terminal's): then `undefined` is automatic and `null` the default profile on purpose. */
+        allowAuto: true;
+        value: string | null | undefined;
+        onChange: (next: string | null | undefined) => void;
+      }
+  );
+
+type Choice = { key: string; id: string | null | undefined; name: string; color?: string };
 
 const MENU_MARGIN = 8;
 
@@ -46,7 +61,7 @@ function placeMenu(button: HTMLElement): MenuPos {
  * ones. Renders nothing when there are no account profiles; when the filter
  * leaves only the default profile, shows the selection as a static label (no
  * list). */
-export function ProfileSelect({ value, onChange, isStarred, footer, filter, onMenuPointerEnter, onMenuPointerLeave }: ProfileSelectProps) {
+export function ProfileSelect({ value, onChange, allowAuto, isStarred, footer, filter, onMenuPointerEnter, onMenuPointerLeave }: ProfileSelectProps) {
   const { t } = useI18n();
   const all = useProfiles().profiles;
   const profiles = filter ? all.filter(filter) : all;
@@ -59,8 +74,17 @@ export function ProfileSelect({ value, onChange, isStarred, footer, filter, onMe
   const pointerInMenu = useRef(false);
   const listId = useId();
 
-  const items = [{ id: undefined as string | undefined, name: t("agents.profile.default"), color: undefined as string | undefined }, ...profiles];
+  // With "Automatic" listed the default profile is `null`, so the two can be told apart.
+  const defaultId = allowAuto ? null : undefined;
+  const items: Choice[] = [
+    ...(allowAuto ? [{ key: "auto", id: undefined, name: t("agents.profile.auto") }] : []),
+    { key: "default", id: defaultId, name: t("agents.profile.default") },
+    ...profiles.map((p) => ({ key: `profile:${p.id}`, id: p.id, name: p.name, color: p.color })),
+  ];
   const current = profiles.find((p) => p.id === value);
+  // The row shown as chosen: the profile, else the default one (or "Automatic" when listed and nothing was picked).
+  const selectedId = current ? value : allowAuto && value === null ? null : undefined;
+  const selectedName = current?.name ?? (allowAuto && value === undefined ? t("agents.profile.auto") : t("agents.profile.default"));
 
   useOutsideClose(open, [rootRef, menuRef], () => setOpen(false));
 
@@ -101,13 +125,14 @@ export function ProfileSelect({ value, onChange, isStarred, footer, filter, onMe
 
   function openList() {
     if (single) return;
-    setActive(Math.max(0, items.findIndex((p) => p.id === (current ? value : undefined))));
+    setActive(Math.max(0, items.findIndex((p) => p.id === selectedId)));
     if (buttonRef.current) setPos(placeMenu(buttonRef.current));
     setOpen(true);
   }
 
-  function pick(id: string | undefined) {
-    onChange(id);
+  function pick(id: string | null | undefined) {
+    // Without "Automatic" no row has a `null` id: the narrower callback never sees one.
+    (onChange as (next: string | null | undefined) => void)(id);
     setOpen(false);
   }
 
@@ -143,7 +168,7 @@ export function ProfileSelect({ value, onChange, isStarred, footer, filter, onMe
         onClick={() => (open ? setOpen(false) : openList())}
       >
         <span className={"profile-select-dot" + (current ? "" : " is-default")} style={current ? { background: current.color } : undefined} />
-        <span className="profile-select-name">{current?.name ?? t("agents.profile.default")}</span>
+        <span className="profile-select-name">{selectedName}</span>
         {!single && (
           <svg className="profile-select-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="m6 9 6 6 6-6" />
@@ -169,17 +194,17 @@ export function ProfileSelect({ value, onChange, isStarred, footer, filter, onMe
           <div className="profile-select-list" id={listId} role="listbox">
             {items.map((p, i) => (
               <div
-                key={p.id ?? "default"}
+                key={p.key}
                 id={`${listId}-${i}`}
                 role="option"
-                aria-selected={p.id === (current ? value : undefined)}
+                aria-selected={p.id === selectedId}
                 className={"profile-select-option" + (i === active ? " is-active" : "")}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => pick(p.id)}
               >
                 <span className={"profile-select-dot" + (p.color ? "" : " is-default")} style={p.color ? { background: p.color } : undefined} />
                 <span className="profile-select-name">{p.name}</span>
-                {isStarred?.(p.id) && (
+                {p.key !== "auto" && isStarred?.(p.id ?? undefined) && (
                   <span className="profile-select-star" title={t("agents.profile.projectDefault")} aria-hidden>
                     ★
                   </span>

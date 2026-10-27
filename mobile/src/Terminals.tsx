@@ -29,7 +29,7 @@ function stateLabel(st: string): string {
 function ChatRow({ chat }: { chat: ChatInfo }) {
   const session = useChatSession(chat.chatId);
   const st = chat.status === "waiting" ? "waiting" : chat.status === "busy" ? "busy" : "idle";
-  const asks = st === "waiting" ? pendingPermissionTitle(session) : undefined;
+  const asks = st === "waiting" ? pendingPermissionTitle(session, chat) : undefined;
   const label = chat.status === "starting" ? t("chatStateStarting") : chat.status === "exited" ? t("chatStateExited") : stateLabel(st);
   return (
     <button type="button" className="tr-row" onClick={() => requestOpenChat(chat.chatId)}>

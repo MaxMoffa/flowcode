@@ -6,15 +6,22 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
+import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
+import { HostSelector, MonitorIcon } from "./remoteHosts/HostSelector";
+import { PairHostDialog } from "./remoteHosts/PairHostDialog";
+import { isSafeSessionId } from "./agents/sessionId";
+import { RemoteTabStrip } from "./remoteHosts/RemoteTabStrip";
+import { RemoteWorkspace } from "./remoteHosts/RemoteWorkspace";
+import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setActiveHost, useActiveHost, useHosts } from "./remoteHosts/remoteHosts";
 import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
 import type { AppTab, ChatTab, TermTab, EditorTab } from "./tabs/types";
 import type { GitChange } from "./git/gitStatus";
 import { loadPluginViews } from "./agentViews/pluginViews";
-import { defaultAgentView } from "./agentViews/defaultView";
+import { defaultAgentView, defaultOpensChat } from "./agentViews/defaultView";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { shellStartKey, TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
 import { loadSession, saveWindowSession, type SavedTab, type SavedWindow } from "./session/session";
@@ -42,6 +49,7 @@ import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
 import { ContextMenuProvider, useOpenContextMenu, useContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
 import { ConfirmDialogProvider, useConfirmDialog } from "./dialog/ConfirmDialogContext";
+import { FileLinkActionsContext, FileLinkCwdContext, type FileLinkActions } from "./lib/fileLinks";
 import { SettingsPage } from "./settings/SettingsPage";
 import { ChangelogNav, ChangelogPage, ChangelogProvider, WhatsNewPage } from "./changelog/ChangelogPage";
 import { consumeUpdatedVersion } from "./changelog/lastRunVersion";
@@ -118,6 +126,7 @@ interface Handoff {
 // onboarding flow are the bulk of the bundle, and plenty of sessions never
 // open a file - the welcome flow only ever shows on first launch.
 const DiffView = lazy(() => import("./git/DiffView").then((m) => ({ default: m.DiffView })));
+const TerminalAgentHeader = lazy(() => import("./agentViews/TerminalAgentHeader").then((m) => ({ default: m.TerminalAgentHeader })));
 const AgentSessionView = lazy(() => import("./agentViews/AgentSessionView").then((m) => ({ default: m.AgentSessionView })));
 const EditorView = lazy(() => import("./editor/EditorView").then((m) => ({ default: m.EditorView })));
 const WelcomeFlow = lazy(() => import("./welcome/WelcomeFlow").then((m) => ({ default: m.WelcomeFlow })));
@@ -142,6 +151,12 @@ import {
   readSidebarMode,
   readLinkMode,
 } from "./app/appPrefs";
+
+/** `tabs` with `tab` inserted at strip index `at` (the end when absent or out of range). */
+function insertTabAt(tabs: AppTab[], tab: AppTab, at?: number): AppTab[] {
+  if (at === undefined || at < 0 || at >= tabs.length) return [...tabs, tab];
+  return [...tabs.slice(0, at), tab, ...tabs.slice(at)];
+}
 
 function Shell() {
   // All persisted across restarts - every toggle path (header button,
@@ -194,6 +209,7 @@ function Shell() {
   const [pluginToast, setPluginToast] = useState<string | null>(null);
   const [pluginDialog, setPluginDialog] = useState<PluginDef | null>(null);
   const pluginToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPluginToastRef = useRef<(message: string) => void>(() => {});
   const termRefs = useRef(new Map<string, TerminalHandle>());
   // Command to type into a tab the instant its shell is ready - set by
   // openTerminalWithCommand, read once by that tab's own TerminalView via
@@ -232,6 +248,10 @@ function Shell() {
   const confirm = useConfirmDialog();
   const { t, language } = useI18n();
   const openMenu = useOpenContextMenu();
+  const activeHost = useActiveHost();
+  // No PC paired yet: the header has no PC selector, so pairing is in the "more options" menu.
+  const noPairedHosts = useHosts().length === 0;
+  const [pairingHost, setPairingHost] = useState(false);
   const { hide: hideMenu } = useContextMenu();
   const { mode, toggleTheme, setMode } = useTheme();
   const notificationSettings = useNotificationSettings();
@@ -246,6 +266,7 @@ function Shell() {
     zoomTabIn,
     zoomTabOut,
     restoreSession,
+    restoreContent,
     shellId,
     newTabPage,
     tabFontSizeOverrides,
@@ -260,6 +281,8 @@ function Shell() {
     setHandoffs((prev) => (prev.has(tabId) ? new Map(prev).set(tabId, { ...prev.get(tabId), ...patch }) : prev));
   const restoreSessionRef = useRef(restoreSession);
   restoreSessionRef.current = restoreSession;
+  const restoreContentRef = useRef(restoreContent);
+  restoreContentRef.current = restoreContent;
   // Previous session's terminal text, keyed by the restored tab's new id -
   // handed to its TerminalView once, at mount (see `restoredContent`).
   const restoredContentRef = useRef(new Map<string, string>());
@@ -415,7 +438,7 @@ function Shell() {
               : "";
           const id = newTabId("tab");
           restoredTabIdsRef.current.add(id);
-          if (t.content) restoredContentRef.current.set(id, t.content);
+          if (t.content && restoreContentRef.current) restoredContentRef.current.set(id, t.content);
           if (t.shell) pendingShellOverrideRef.current.set(id, t.shell);
           restored.push({
             kind: "terminal",
@@ -432,15 +455,18 @@ function Shell() {
         } else if (t.kind === "chat") {
           // A folder deleted since can't host the agent: the tab is dropped.
           if (await firstExistingDir([t.cwd])) {
+            const keepChat = restoreContentRef.current;
             restored.push({
               kind: "chat",
               id: newTabId("chat"),
               agent: t.agent as AgentCli,
               cwd: t.cwd,
-              label: t.label,
+              label: keepChat ? t.label : CLI_INFO[t.agent as AgentCli].name,
               profileId: t.profileId,
-              sessionId: t.sessionId,
+              sessionId: keepChat ? t.sessionId : undefined,
               viewId: t.viewId,
+              // No saved session (or not restoring it): a fresh chat, nothing to resume yet.
+              talked: keepChat && t.sessionId ? undefined : false,
             });
           }
         } else if (t.kind === "editor") {
@@ -530,11 +556,17 @@ function Shell() {
               notifyMuted: t.notifyMuted,
               shell: tabShell(t),
               profileId: t.profileId,
-              content: term?.wasUsed() ? term.serialize() : restoredContentRef.current.get(t.id),
+              content: !restoreContentRef.current
+                ? undefined
+                : term?.wasUsed()
+                  ? term.serialize()
+                  : restoredContentRef.current.get(t.id),
             };
           }
           if (t.kind === "chat") {
-            return { kind: "chat", agent: t.agent, cwd: t.cwd, label: t.label, profileId: t.profileId, sessionId: t.sessionId, viewId: t.viewId };
+            // A session nobody spoke to isn't on the agent's disk: resuming it after a restart would fail, so it isn't saved.
+            const sessionId = restoreContentRef.current && t.talked !== false ? t.sessionId : undefined;
+            return { kind: "chat", agent: t.agent, cwd: t.cwd, label: t.label, profileId: t.profileId, sessionId, viewId: t.viewId };
           }
           if (t.kind === "editor") return { kind: "editor", path: t.path, label: t.label };
           if (t.kind === "changelog") return { kind: "changelog" };
@@ -630,33 +662,39 @@ function Shell() {
 
   useCliLoginEvent(openTerminalWithCommand);
 
+  // A PC in front of the phone-style remote workspace takes the shortcuts.
+  const remote = activeHost !== LOCAL_HOST ? activeHost : null;
   // Copy/paste only make sense with a terminal on screen - an editor or
-  // input keeps its own native clipboard handling.
-  const activeTermHandle = () => (activeTabId === activeTerminalId ? termRefs.current.get(activeTerminalId) : undefined);
+  // input keeps its own native clipboard handling. While another PC is in
+  // front the local terminals are hidden: nothing acts on them then.
+  const activeTermHandle = () => (!remote && activeTabId === activeTerminalId ? termRefs.current.get(activeTerminalId) : undefined);
+  /** The terminal the clipboard/clear shortcuts act on: the remote one on screen, else the local one. */
+  const shortcutTerm = () => (remote ? frontRemoteTerminal() : activeTermHandle());
+  useEffect(() => onRemoteNotice((message) => showPluginToastRef.current(message)), []);
   useShortcuts({
     toggleSidebar: () => setSidebarCollapsed((c) => !c),
-    clearTerminal: () => activeTermHandle()?.clear(),
-    copy: () => activeTermHandle()?.copySelection(),
-    paste: () => activeTermHandle()?.paste(),
-    newTab: () => openNewTab(),
+    clearTerminal: () => shortcutTerm()?.clear(),
+    copy: () => shortcutTerm()?.copySelection(),
+    paste: () => shortcutTerm()?.paste(),
+    newTab: () => (remote ? remoteShortcuts.newTab(remote) : openNewTab()),
     // Without any profile there is nothing to pick: same as a plain new tab.
-    newTabWithProfile: () => (profiles.length > 0 ? setProfilePickerOpen(true) : openNewTab()),
-    closeTab: () => closeTab(activeTabId),
+    newTabWithProfile: () => (remote ? remoteShortcuts.newTab(remote) : profiles.length > 0 ? setProfilePickerOpen(true) : openNewTab()),
+    closeTab: () => (remote ? remoteShortcuts.closeTab(remote) : closeTab(activeTabId)),
     toggleTheme: () => toggleTheme(),
-    duplicateTab: () => duplicateTab(activeTabId),
-    nextTab: () => stepTab(1),
-    prevTab: () => stepTab(-1),
-    moveTabLeft: () => moveActiveTab(-1),
-    moveTabRight: () => moveActiveTab(1),
-    selectTab1: () => selectTabAt(0),
-    selectTab2: () => selectTabAt(1),
-    selectTab3: () => selectTabAt(2),
-    selectTab4: () => selectTabAt(3),
-    selectTab5: () => selectTabAt(4),
-    selectTab6: () => selectTabAt(5),
-    selectTab7: () => selectTabAt(6),
-    selectTab8: () => selectTabAt(7),
-    lastTab: () => selectTabAt(tabs.length - 1),
+    duplicateTab: () => !remote && duplicateTab(activeTabId),
+    nextTab: () => (remote ? remoteShortcuts.step(remote, 1) : stepTab(1)),
+    prevTab: () => (remote ? remoteShortcuts.step(remote, -1) : stepTab(-1)),
+    moveTabLeft: () => !remote && moveActiveTab(-1),
+    moveTabRight: () => !remote && moveActiveTab(1),
+    selectTab1: () => (remote ? remoteShortcuts.select(remote, 0) : selectTabAt(0)),
+    selectTab2: () => (remote ? remoteShortcuts.select(remote, 1) : selectTabAt(1)),
+    selectTab3: () => (remote ? remoteShortcuts.select(remote, 2) : selectTabAt(2)),
+    selectTab4: () => (remote ? remoteShortcuts.select(remote, 3) : selectTabAt(3)),
+    selectTab5: () => (remote ? remoteShortcuts.select(remote, 4) : selectTabAt(4)),
+    selectTab6: () => (remote ? remoteShortcuts.select(remote, 5) : selectTabAt(5)),
+    selectTab7: () => (remote ? remoteShortcuts.select(remote, 6) : selectTabAt(6)),
+    selectTab8: () => (remote ? remoteShortcuts.select(remote, 7) : selectTabAt(7)),
+    lastTab: () => (remote ? remoteShortcuts.select(remote, -1) : selectTabAt(tabs.length - 1)),
     zoomIn: () => activeTermHandle() && zoomTabIn(activeTerminalId),
     zoomOut: () => activeTermHandle() && zoomTabOut(activeTerminalId),
     resetZoom: () => activeTermHandle() && resetTabZoom(activeTerminalId),
@@ -703,8 +741,12 @@ function Shell() {
   const remoteCloseRef = useRef<(ptyId: string) => void>(() => {});
   /** The phone asked to hand a chat tab over to a terminal / for a new chat tab. */
   const remoteChatTerminalRef = useRef<(tabId: string) => void>(() => {});
+  /** How to end each chat tab's agent (see AgentSessionView `onCloser`), so a terminal resuming its session starts only once it is gone. */
+  const chatClosersRef = useRef(new Map<string, () => Promise<void>>());
+  const switchingChatsRef = useRef(new Set<string>());
   const remoteTerminalChatRef = useRef<(ptyId: string) => void>(() => {});
   const remoteChatRenameRef = useRef<(tabId: string, label: string) => void>(() => {});
+  const remoteChatCloseRef = useRef<(tabId: string) => void>(() => {});
   const remoteNewChatRef = useRef<(cwd: string | null, cli: string, profile: string | null | undefined) => void>(() => {});
   const remoteLoginTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
@@ -936,7 +978,12 @@ function Shell() {
    * background/saved session (one this app has no open tab for), so
    * double-clicking it drops the user straight back into that chat instead
    * of a bare shell they'd have to resume by hand. */
-  async function openAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string) {
+  async function openAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, at?: number) {
+    // Typed into a shell below: an id that isn't a plain token is never run.
+    if (!isSafeSessionId(sessionId)) {
+      console.warn("refusing to resume a session with an unexpected id", JSON.stringify(sessionId));
+      return;
+    }
     if (wslDistro) {
       // Saved inside WSL: resumed by the distro's own CLI, in a WSL tab
       // opened on that folder (`cwd` is a Linux path there). The
@@ -963,9 +1010,19 @@ function Shell() {
             : await withCodexLaunchFlags(`codex resume ${sessionId}`);
     const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, makeTermTab(id, cwd, { profileId })]);
+    setTabs((prev) => insertTabAt(prev, makeTermTab(id, cwd, { profileId }), at));
     setActiveTabId(id);
     setActiveTerminalId(id);
+  }
+
+  /** A saved session picked in the Agents sidebar: resumed in the default
+   * agent view - a chat tab, or a terminal (always, for one inside WSL). */
+  function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string) {
+    if (!wslDistro && defaultOpensChat()) {
+      void openChatTab(cli, cwd, { profileId, resume: { sessionId } });
+      return;
+    }
+    void openAgentSession(cwd, sessionId, cli, wslDistro, profileId);
   }
 
   /** The `pty_spawn` shell id a new terminal needs to land in the same kind
@@ -1017,7 +1074,7 @@ function Shell() {
       return;
     }
     if (tab.kind === "chat") {
-      void openChatTab(tab.agent, tab.cwd, tab.profileId, tab.viewId);
+      void openChatTab(tab.agent, tab.cwd, { profileId: tab.profileId, viewId: tab.viewId });
       return;
     }
     if (tab.kind === "editor") {
@@ -1041,17 +1098,46 @@ function Shell() {
       );
       return;
     }
+    openInEditor(path);
+  }
+
+  /** Opens (or focuses) `path` in an editor tab, whatever its extension - the
+   * caller already knows it is text (a chat/terminal path link: the backend
+   * sniffed it) - and moves to `line` (1-based) when given. */
+  function openInEditor(path: string, line?: number) {
     const existing = latestRef.current.tabs.find((t) => t.kind === "editor" && t.path === path);
-    if (existing) {
-      setActiveTabId(existing.id);
-      return;
-    }
     // Two opens before the next render both miss `existing`: they share one
     // id, and the updater drops the second add.
-    const id = reservedTabId(`editor:${path}`, "editor");
-    setTabs((prev) => (prev.some((t) => t.id === id) ? prev : [...prev, { kind: "editor", id, path, label: name }]));
+    const id = existing?.id ?? reservedTabId(`editor:${path}`, "editor");
+    if (!existing) {
+      setTabs((prev) => (prev.some((t) => t.id === id) ? prev : [...prev, { kind: "editor", id, path, label: basename(path) }]));
+    }
     setActiveTabId(id);
+    if (line && line > 0) {
+      // A new tab's editor mounts on a later render; it keeps the line until its text is loaded.
+      const reveal = (attempt: number) => {
+        const handle = editorRefs.current.get(id);
+        if (handle) handle.scrollToLine(line);
+        else if (attempt < 40) window.setTimeout(() => reveal(attempt + 1), 50);
+      };
+      reveal(0);
+    }
   }
+
+  // What a path link in a chat or terminal can do in the app; one object for
+  // the window's life (the handlers it calls are read fresh each time).
+  const fileLinkLatestRef = useRef<FileLinkActions>({ openInEditor, browseFolder: () => {} });
+  fileLinkLatestRef.current = {
+    openInEditor,
+    browseFolder: (path) => {
+      browseExplorer(path);
+      setSidebarCollapsed(false);
+    },
+  };
+  const [fileLinkActions] = useState<FileLinkActions>(() => ({
+    openInEditor: (path, line) => fileLinkLatestRef.current.openInEditor(path, line),
+    browseFolder: (path) => fileLinkLatestRef.current.browseFolder(path),
+  }));
 
   /** Opens (or focuses) the diff of one file from the Git tab. */
   function openDiff(root: string, change: GitChange, staged: boolean) {
@@ -1214,12 +1300,14 @@ function Shell() {
     title: handleTitleChange,
     busy: handleBusyChange,
     commandLine: handleCommandLine,
+    interceptCommandLine,
     patchHandoff,
   });
   handlersRef.current = {
     title: handleTitleChange,
     busy: handleBusyChange,
     commandLine: handleCommandLine,
+    interceptCommandLine,
     patchHandoff,
   };
   const termCallbacksRef = useRef(
@@ -1230,6 +1318,7 @@ function Shell() {
         onTitleChange: (title: string) => void;
         onBusyChange: (busy: boolean) => void;
         onCommandLine: (line: string) => void;
+        interceptCommandLine: (line: string) => boolean;
         onAnchor: (anchor: PromptAnchor) => void;
         onPromptShown: (anchor: PromptAnchor | null) => void;
         onPtyReady: () => void;
@@ -1247,6 +1336,7 @@ function Shell() {
         onTitleChange: (title) => handlersRef.current.title(tabId, title),
         onBusyChange: (busy) => handlersRef.current.busy(tabId, busy),
         onCommandLine: (line) => handlersRef.current.commandLine(tabId, line),
+        interceptCommandLine: (line) => handlersRef.current.interceptCommandLine(tabId, line),
         onAnchor: (anchor) => handlersRef.current.patchHandoff(tabId, { anchor }),
         onPromptShown: (promptShown) => handlersRef.current.patchHandoff(tabId, { promptShown }),
         onPtyReady: () => setPtyVersion((v) => v + 1),
@@ -1269,6 +1359,7 @@ function Shell() {
     remoteChatTerminalRef,
     remoteTerminalChatRef,
     remoteChatRenameRef,
+    remoteChatCloseRef,
     remoteNewChatRef,
   });
 
@@ -1422,6 +1513,20 @@ function Shell() {
     }
     setTabs((prev) => prev.filter((t) => t.id !== id));
     forgetTab(id);
+  }
+
+  /** A bare agent CLI typed at a host shell prompt (`claude`, `codex`, ...)
+   * while chat is the default agent view: opened as a chat tab in the tab's
+   * folder instead of running in the terminal. A line with arguments, and a
+   * prompt that isn't a plain host shell (busy, WSL, ssh, an agent), runs as typed. */
+  function interceptCommandLine(tabId: string, line: string): boolean {
+    const match = line.trim().match(/^(claude|codex|vibe|gemini)(?:\.exe)?$/i);
+    if (!match || !defaultOpensChat()) return false;
+    const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
+    if (!tab || tab.busy || tab.nestedShell || wslDistroOfShell(tabShell(tab)) !== undefined) return false;
+    const cli = match[1].toLowerCase() as AgentCli;
+    void profileForPath(tab.cwd).then((wanted) => openChatTab(cli, tab.cwd, { profileId: (wanted ?? tab.profileId) ?? undefined, replaceTabId: tabId }));
+    return true;
   }
 
   /** Recognizes the user having typed `wsl`, `ssh ...` or an interactive
@@ -1677,6 +1782,12 @@ function Shell() {
    * disconnected (by hand, or auto-suspended because a full-screen program
    * owns the shell) - the sidebar still moves, it just stops typing into it. */
   function browseExplorer(path: string) {
+    // A chat has no shell to `cd` and no terminal explorer state: it keeps its own.
+    const front = tabs.find((t) => t.id === activeTabId);
+    if (front?.kind === "chat") {
+      patchChatTab(front.id, { explorerPath: path });
+      return;
+    }
     const active = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
     // Whether the `cd` is typed, and in which shell's syntax, is decided by
     // asking the OS what's in front of the tab (see `cdShell`); alt-screen
@@ -1775,7 +1886,21 @@ function Shell() {
     getTerm: (id) => termRefs.current.get(id),
     lastSubmitAt: (id) => lastSubmitAt(termRefs.current.get(id)?.getPtyId()),
   });
-  const sidebarCwd = activeTerminal?.explorerPath || homeDir;
+  const frontTab = tabs.find((t) => t.id === activeTabId);
+  const sidebarCwd = (frontTab?.kind === "chat" ? frontTab.explorerPath || frontTab.cwd : activeTerminal?.explorerPath) || homeDir;
+  // The coding agent of the tab in front, if any: a chat, or a terminal with an
+  // agent detected in it. Gives the sidebar its History tab.
+  const historyAgent =
+    frontTab?.kind === "chat"
+      ? { cwd: frontTab.cwd, cli: frontTab.agent, sessionId: frontTab.sessionId, wslDistro: undefined as string | undefined }
+      : activeTerminal && frontTab?.id === activeTerminal.id && activeAgentSession && (AGENT_CLIS as readonly string[]).includes(activeAgentSession.cli)
+        ? {
+            cwd: activeAgentSession.cwd ?? activeTerminal.cwd,
+            cli: activeAgentSession.cli as AgentCli,
+            sessionId: activeAgentSession.session_id ?? undefined,
+            wslDistro: activeAgentSession.wsl_distro ?? undefined,
+          }
+        : undefined;
 
   // Built-in labels come from t(), so a language change rebuilds them.
   const allPlugins = useMemo<PluginDef[]>(
@@ -1811,6 +1936,7 @@ function Shell() {
     runPluginRef.current(pending.plugin);
   }, [activeTabId]);
 
+  showPluginToastRef.current = showPluginToast;
   function showPluginToast(message: string) {
     setPluginToast(message);
     if (pluginToastTimerRef.current) clearTimeout(pluginToastTimerRef.current);
@@ -1897,6 +2023,15 @@ function Shell() {
       void launchAgentInNewTab(cliBin, tab.cwd, tabShell(tab), wanted);
       return;
     }
+    // The default agent view decides how a shortcut starts the agent: as a
+    // chat it gets a tab of its own. Chat is host-only, so a WSL or ssh tab
+    // keeps running it in the terminal.
+    if (tab && defaultOpensChat() && tab.nestedShell !== "wsl" && tab.nestedShell !== "remote" && wslDistroOfShell(tabShell(tab)) === undefined) {
+      // A plain idle host shell hands its place to the chat; anything else keeps its tab.
+      const idle = !tab.busy && !tab.nestedShell;
+      void openChatTab(cliBin, tab.cwd, { profileId: (wanted ?? tab.profileId) ?? undefined, replaceTabId: idle ? tabId : undefined });
+      return;
+    }
     if (await ensureCliReady(cliBin, tab?.profileId)) await launchInTab(cliBin, launchCommand, term, tabId);
   }
 
@@ -1939,7 +2074,8 @@ function Shell() {
       const dir = cwd ?? homeDir;
       // Automatic for an agent: the folder's project default, like a shell tab gets.
       const pick = profileId !== undefined ? Promise.resolve(profileId) : profileForPath(dir);
-      void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, undefined, id ?? undefined));
+      // The phone picks terminal or chat itself (its own default view).
+      void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, undefined, id ?? undefined, true));
     } else addTab(cwd ?? undefined, undefined, false, profileId);
   };
 
@@ -1948,12 +2084,15 @@ function Shell() {
     const profileId = remoteProfileId(profile);
     const dir = cwd ?? homeDir;
     const pick = profileId !== undefined ? Promise.resolve(profileId) : profileForPath(dir);
-    void pick.then((id) => openChatTab(cli as AgentCli, dir, id ?? undefined));
+    void pick.then((id) => openChatTab(cli as AgentCli, dir, { profileId: id ?? undefined }));
   };
 
   remoteChatTerminalRef.current = (tabId) => {
     const tab = latestRef.current.tabs.find((t): t is ChatTab => t.id === tabId && t.kind === "chat");
-    if (tab?.sessionId) switchChatToTerminal(tab, tab.sessionId);
+    // Not mid-turn: the terminal would resume a session the agent is still writing (the desktop's own Ctrl+` refuses it too).
+    if (!tab || tab.status === "busy" || tab.status === "waiting") return;
+    // `talked === false`: nothing was said, so there is no session to resume.
+    if (tab.talked === false || tab.sessionId) switchChatToTerminal(tab, tab.talked === false ? null : (tab.sessionId ?? null));
   };
 
   remoteTerminalChatRef.current = (ptyId) => {
@@ -1966,6 +2105,10 @@ function Shell() {
   remoteChatRenameRef.current = (tabId, label) => {
     if (latestRef.current.tabs.some((t) => t.id === tabId && t.kind === "chat")) renameTab(tabId, label);
   };
+  remoteChatCloseRef.current = (tabId) => {
+    // Closing the window's last tab would close the window: not from afar.
+    if (latestRef.current.tabs.length > 1 && latestRef.current.tabs.some((t) => t.id === tabId && t.kind === "chat")) void closeTab(tabId);
+  };
 
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the
    * project folder, or a fresh git worktree of it). `shell` is the shell the
@@ -1974,16 +2117,19 @@ function Shell() {
    * install check and the host-only flags, like `openAgentSession`. The new
    * tab runs under account profile `profileId` (default profile when
    * omitted) - ignored for WSL, where the env vars don't reach. Resolves to
-   * whether the tab was opened (the CLI may be missing or signed out). */
-  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string, profileId?: string, asChat = false): Promise<boolean> {
+   * whether the tab was opened (the CLI may be missing or signed out). Opens as
+   * a chat tab when that is the default agent view (Settings > Agents), unless
+   * `forceTerminal`. `at` is the strip index a plain (no `shell`) terminal tab
+   * takes instead of the end. */
+  async function launchAgentInNewTab(cli: AgentCli, cwd: string, shell?: string, profileId?: string, forceTerminal = false, at?: number): Promise<boolean> {
     let command = allPlugins.find((p) => cliOfPlugin(p.id) === cli)?.command ?? cli;
     if (wslDistroOfShell(shell) !== undefined) {
       const id = addTab(cwd, shell);
       pendingCommandsRef.current.set(id, command);
       return true;
     }
-    // Chat is host-only, so a WSL shell (above) never gets it.
-    if (asChat) return openChatTab(cli, cwd, profileId);
+    // Opens in the default agent view; chat is host-only, so a WSL shell (above) never gets it.
+    if (!forceTerminal && defaultOpensChat()) return openChatTab(cli, cwd, { profileId });
     if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     if (cli === "codex") command = await withCodexLaunchFlags(command);
@@ -1995,7 +2141,7 @@ function Shell() {
     }
     const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
-    setTabs((prev) => [...prev, makeTermTab(id, cwd, { profileId })]);
+    setTabs((prev) => insertTabAt(prev, makeTermTab(id, cwd, { profileId }), at));
     setActiveTabId(id);
     setActiveTerminalId(id);
     return true;
@@ -2015,14 +2161,34 @@ function Shell() {
 
   /** Opens `cli` as a chat tab in `cwd` (the host file system), after the same
    * install/login check a terminal launch does. With `resume`, the tab resumes
-   * that session (and takes its label) instead of starting a new one. */
-  async function openChatTab(cli: AgentCli, cwd: string, profileId?: string, viewId?: string, resume?: { sessionId: string; label?: string; handoffFrom?: string }): Promise<boolean> {
+   * that session (and takes its label) instead of starting a new one.
+   * `replaceTabId` makes the chat take that terminal's place in the strip and
+   * closes the terminal - only once the CLI is ready, so it stays otherwise;
+   * `at` is the strip index to open at instead of the end. */
+  async function openChatTab(
+    cli: AgentCli,
+    cwd: string,
+    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string }; replaceTabId?: string; at?: number } = {},
+  ): Promise<boolean> {
+    const { profileId, viewId, resume, replaceTabId, at } = opts;
     if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
-    setTabs((prev) => [...prev, { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? CLI_INFO[cli].name, profileId, viewId: viewId ?? defaultAgentView(), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom }]);
+    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? CLI_INFO[cli].name, profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false };
+    setTabs((prev) => {
+      const next = insertTabAt(prev, tab, replaceTabId ? prev.findIndex((t) => t.id === replaceTabId) : at);
+      return replaceTabId ? next.filter((t) => t.id !== replaceTabId) : next;
+    });
     setActiveTabId(id);
+    if (replaceTabId) dropTerminal(replaceTabId);
     return true;
+  }
+
+  /** Bookkeeping after a terminal tab left the strip: its handles, and the
+   * active terminal when it was that one. */
+  function dropTerminal(terminalId: string) {
+    forgetTab(terminalId);
+    setActiveTerminalId((active) => (active === terminalId ? (latestRef.current.tabs.find((t) => t.kind === "terminal" && t.id !== terminalId)?.id ?? "") : active));
   }
 
   /** Patches a chat tab's fields as its view reports them. */
@@ -2031,11 +2197,38 @@ function Shell() {
   }
 
   /** Ctrl+` in a chat: closes the chat (its view's unmount kills the agent, so
-   * the session is free) and resumes that session in a terminal tab. */
-  function switchChatToTerminal(tab: ChatTab, sessionId: string) {
-    setTabs((prev) => prev.filter((t) => t.id !== tab.id));
-    forgetTab(tab.id);
-    void openAgentSession(tab.cwd, sessionId, tab.agent, undefined, tab.profileId);
+   * the session is free) and resumes that session in a terminal tab at the
+   * chat's place. A null `sessionId` (no prompt sent yet: nothing on disk to
+   * resume) starts a fresh agent there instead, and the chat stays if it
+   * can't start. */
+  function switchChatToTerminal(tab: ChatTab, sessionId: string | null) {
+    const index = latestRef.current.tabs.findIndex((t) => t.id === tab.id);
+    const at = index < 0 ? undefined : index;
+    const dropChat = () => {
+      setTabs((prev) => prev.filter((t) => t.id !== tab.id));
+      forgetTab(tab.id);
+    };
+    // An id `openAgentSession` would refuse: the chat stays as it is rather than closing for nothing.
+    if (sessionId && !isSafeSessionId(sessionId)) {
+      console.warn("refusing to resume a session with an unexpected id", JSON.stringify(sessionId));
+      return;
+    }
+    if (sessionId) {
+      // The chat's agent is killed first and waited for: two processes must never share one session.
+      // The tab stays in place meanwhile, so the terminal still takes its spot.
+      // A second Ctrl+` while the first waits must not open a second terminal.
+      if (switchingChatsRef.current.has(tab.id)) return;
+      switchingChatsRef.current.add(tab.id);
+      const close = chatClosersRef.current.get(tab.id) ?? (() => Promise.resolve());
+      void close().then(() => {
+        switchingChatsRef.current.delete(tab.id);
+        dropChat();
+        void openAgentSession(tab.cwd, sessionId, tab.agent, undefined, tab.profileId, at);
+      });
+      return;
+    }
+    // The fresh terminal goes in front of the chat, which then closes.
+    void launchAgentInNewTab(tab.agent, tab.cwd, undefined, tab.profileId, true, at).then((ok) => ok && dropChat());
   }
 
   /** The reverse of `switchChatToTerminal`: resumes the session in a chat tab;
@@ -2043,20 +2236,21 @@ function Shell() {
    * session has loaded (`finishHandoff`), or goes away itself if it can't
    * (`failHandoff`). Only host agents whose session id is known, and not while
    * the agent is busy. */
-  function switchTerminalToChat(tabId: string) {
+  function switchTerminalToChat(tabId: string, viewId?: string) {
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     const session = sessionByTab.get(tabId);
     if (!tab || !session?.session_id || session.status === "busy" || session.wsl_distro || !(AGENT_CLIS as readonly string[]).includes(session.cli)) return;
     const resume = { sessionId: session.session_id, label: tab.label, handoffFrom: tabId };
-    void openChatTab(session.cli as AgentCli, session.cwd ?? tab.cwd, tab.profileId ?? session.profile ?? undefined, undefined, resume);
+    // Opens at the terminal's index, so the chat sits where the terminal was once that closes.
+    const at = latestRef.current.tabs.findIndex((t) => t.id === tabId);
+    void openChatTab(session.cli as AgentCli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, resume, at: at < 0 ? undefined : at });
   }
 
   /** The chat resumed the session: the terminal it took over closes. */
   function finishHandoff(chatId: string, terminalId: string) {
     patchChatTab(chatId, { handoffFrom: undefined });
     setTabs((prev) => prev.filter((t) => t.id !== terminalId));
-    forgetTab(terminalId);
-    setActiveTerminalId((active) => (active === terminalId ? (latestRef.current.tabs.find((t) => t.kind === "terminal" && t.id !== terminalId)?.id ?? "") : active));
+    dropTerminal(terminalId);
   }
 
   /** The chat couldn't resume the session: it goes away and the terminal stays. */
@@ -2271,7 +2465,27 @@ function Shell() {
         shell={activeTerminal ? (tabShell(activeTerminal) ?? shellId) : undefined}
         linkMode={explorerLinkMode}
         onSetLinkMode={setExplorerLinkMode}
-        terminalBusy={activeTerminal?.busy ?? false}
+        terminalBusy={frontTab?.kind === "chat" ? false : (activeTerminal?.busy ?? false)}
+        history={
+          historyAgent && historyAgent.cwd
+            ? (visible) => (
+                <AgentHistoryPanel
+                  projectCwd={historyAgent.cwd}
+                  wslDistro={historyAgent.wslDistro}
+                  currentSessionId={historyAgent.sessionId}
+                  currentCli={historyAgent.cli}
+                  visible={visible}
+                  sessions={agentSessions}
+                  tabs={terminalTabs}
+                  chatTabs={chatTabs}
+                  getPtyId={(id) => termRefs.current.get(id)?.getPtyId() ?? null}
+                  onOpenTab={selectTab}
+                  onResume={resumeAgentSession}
+                  onNewSession={(cli, cwd) => void launchAgentInNewTab(cli, cwd)}
+                />
+              )
+            : undefined
+        }
       />
     );
   }
@@ -2290,6 +2504,7 @@ function Shell() {
       },
       { separator: true, label: "sep-zoom" },
       { label: t("menu.newTerminal"), icon: Icons.newTerminal, onSelect: () => openNewTab() },
+      ...(noPairedHosts ? [{ label: t("remoteHosts.connectAnother"), icon: <MonitorIcon size={14} />, onSelect: () => setPairingHost(true) }] : []),
       {
         label: isFullscreen ? t("menu.exitFullscreen") : t("menu.fullscreen"),
         icon: isFullscreen ? Icons.fullscreenExit : Icons.fullscreen,
@@ -2463,9 +2678,22 @@ function Shell() {
   );
 
   return (
+    <FileLinkActionsContext.Provider value={fileLinkActions}>
     <div className={`app-shell${isNarrow ? " is-narrow" : ""}${isMaximized ? " maximized" : ""}${isEdgeFlush ? " edge-flush" : ""}`}>
       <header className="app-headerbar" data-tauri-drag-region>
         {!isNarrow && sidebarToggle}
+        <HostSelector
+          isNarrow={isNarrow}
+          onManage={() => {
+            // Settings is a local tab: bring the local PC back in front first.
+            setActiveHost(LOCAL_HOST);
+            setSettingsSection("remote");
+            openSettings();
+          }}
+        />
+        {activeHost !== LOCAL_HOST ? (
+          <RemoteTabStrip hostId={activeHost} />
+        ) : (
         <TabStrip
           compact={isNarrow}
           tabs={tabs}
@@ -2490,6 +2718,7 @@ function Shell() {
           onReorder={reorderTab}
           onDragOut={(id) => void handleTabDragOut(id)}
         />
+        )}
         <div className="header-right">
           {!isNarrow && headerTools}
           {pluginMenuAnchor && (
@@ -2536,7 +2765,9 @@ function Shell() {
             />
           </div>
         )}
-        <div className="terminal-stack">
+        {activeHost !== LOCAL_HOST && <RemoteWorkspace key={activeHost} hostId={activeHost} />}
+        {/* Hidden, never unmounted: the local terminals keep running. */}
+        <div className="terminal-stack" style={activeHost !== LOCAL_HOST ? { display: "none" } : undefined}>
           {homeDir &&
             tabs.map((tab) => {
               if (tab.kind === "terminal") {
@@ -2546,9 +2777,43 @@ function Shell() {
                 // shell in whatever directory the app itself started in.
                 const showTerminal = !tab.newTab && !!tab.cwd;
                 const callbacks = termCallbacks(tab.id);
+                // An agent running here gets the chat's header on top.
+                const agentSession = sessionByTab.get(tab.id);
+                const agentCli = agentSession && (AGENT_CLIS as readonly string[]).includes(agentSession.cli) ? (agentSession.cli as AgentCli) : undefined;
                 return (
                   <Fragment key={tab.id}>
                     {showTerminal && (
+                      <div
+                        className={"terminal-pane" + (agentCli ? " has-agent-header" : "")}
+                        style={agentCli && tab.id !== activeTabId ? { display: "none" } : undefined}
+                        onKeyDownCapture={
+                          agentCli
+                            ? (e) => {
+                                // Ctrl+` mirrors the chat's: opens the session as a chat.
+                                if (e.ctrlKey && e.key === "`") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  switchTerminalToChat(tab.id);
+                                }
+                              }
+                            : undefined
+                        }
+                      >
+                      {agentCli && agentSession && (
+                        <Suspense fallback={null}>
+                          <TerminalAgentHeader
+                            cli={agentCli}
+                            session={agentSession}
+                            title={tab.label}
+                            cwd={agentSession.cwd ?? tab.cwd}
+                            onSwitchToChat={(viewId) => switchTerminalToChat(tab.id, viewId)}
+                            onStop={() => {
+                              const ptyId = termRefs.current.get(tab.id)?.getPtyId();
+                              if (ptyId) invoke("pty_write", { id: ptyId, data: "\x1b" }).catch(() => {});
+                            }}
+                          />
+                        </Suspense>
+                      )}
                       <TerminalView
                         tabId={tab.id}
                         ref={callbacks.ref}
@@ -2557,6 +2822,7 @@ function Shell() {
                         onTitleChange={callbacks.onTitleChange}
                         onBusyChange={callbacks.onBusyChange}
                         onCommandLine={callbacks.onCommandLine}
+                        interceptCommandLine={callbacks.interceptCommandLine}
                         runOnStart={pendingCommandsRef.current.get(tab.id)}
                         typeOnStart={pendingTypedCommandsRef.current.get(tab.id)}
                         shellOverride={pendingShellOverrideRef.current.get(tab.id)}
@@ -2567,6 +2833,7 @@ function Shell() {
                         onPromptShown={callbacks.onPromptShown}
                         onPtyReady={callbacks.onPtyReady}
                       />
+                      </div>
                     )}
                     {showPage && (
                       <NewTabHost
@@ -2602,6 +2869,8 @@ function Shell() {
               if (tab.kind === "chat") {
                 return (
                   <Suspense key={tab.id} fallback={null}>
+                    {/* Paths in this chat resolve against its folder and open on this PC. */}
+                    <FileLinkCwdContext.Provider value={tab.cwd}>
                     <AgentSessionView
                       agent={tab.agent}
                       cwd={tab.cwd}
@@ -2620,10 +2889,19 @@ function Shell() {
                         else patchChatTab(tab.id, { status });
                       }}
                       onViewChange={(viewId) => patchChatTab(tab.id, { viewId })}
+                      onTalked={(talked) => {
+                        // Absent counts as talked (a restored or resumed chat); only a real change is written.
+                        if (talked ? tab.talked === false : tab.talked !== false) patchChatTab(tab.id, { talked });
+                      }}
+                      onCloser={(close) => {
+                        if (close) chatClosersRef.current.set(tab.id, close);
+                        else chatClosersRef.current.delete(tab.id);
+                      }}
                       onSwitchToTerminal={(sessionId) => switchChatToTerminal(tab, sessionId)}
                       onOpenFile={openFile}
                       onOpenLogin={(command) => openTerminalWithCommand(command, tab.profileId)}
                     />
+                    </FileLinkCwdContext.Provider>
                   </Suspense>
                 );
               }
@@ -2719,9 +2997,9 @@ function Shell() {
                   refreshSessions={refreshAgentSessions}
                   getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
                   onOpenTab={selectTab}
-                  onOpenSession={openAgentSession}
+                  onOpenSession={resumeAgentSession}
                   projectShell={agentsTerminal ? tabShell(agentsTerminal) : undefined}
-                  onLaunchAgent={(cli, cwd, shell, profileId, asChat) => void launchAgentInNewTab(cli, cwd, shell, profileId, asChat)}
+                  onLaunchAgent={(cli, cwd, shell, profileId) => void launchAgentInNewTab(cli, cwd, shell, profileId)}
                   onOpenFolder={openFolderTab}
                   onClose={() => setAgentsSidebarOpen(false)}
                 />
@@ -2756,10 +3034,12 @@ function Shell() {
         />
       )}
       {pluginToast && <PluginToast message={pluginToast} />}
+      {pairingHost && <PairHostDialog onClose={() => setPairingHost(false)} />}
       {pluginDialog && (
         <PluginDialog plugin={pluginDialog} onRunButton={(button) => runPlugin(button)} onClose={() => setPluginDialog(null)} />
       )}
     </div>
+    </FileLinkActionsContext.Provider>
   );
 }
 

@@ -1,0 +1,168 @@
+.agent-history {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.agent-history-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  /* The switch above already leaves its own 8px: the same gap as the sides. */
+  margin: 0 8px 8px;
+  padding: 0 8px;
+  height: 26px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  background: var(--bg-elevated);
+  color: var(--fg-muted);
+}
+
+.agent-history-search:focus-within {
+  border-color: var(--accent);
+}
+
+.agent-history-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.agent-history-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 6px;
+  /* Divides the switch and search above from the sessions. */
+  border-top: 1px solid var(--border);
+}
+
+.agent-history-empty {
+  padding: 10px 14px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.agent-history-group {
+  margin: 8px 12px 2px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agent-history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 12px);
+  min-height: 38px;
+  margin: 1px 6px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-history-row:hover {
+  background: var(--sidebar-hover);
+}
+
+.agent-history-row.is-current {
+  background: var(--sidebar-selected-bg);
+  color: var(--sidebar-selected-fg);
+}
+
+.agent-history-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
+.agent-history-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.agent-history-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agent-history-title,
+.agent-history-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-history-meta {
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.agent-history-status--busy {
+  color: var(--ansi-bright-red);
+}
+
+.agent-history-status--waiting {
+  color: var(--ansi-bright-yellow);
+}
+
+.agent-history-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--ansi-bright-green);
+}
+
+.agent-history-dot--busy {
+  background: var(--ansi-bright-red);
+}
+
+.agent-history-dot--waiting {
+  background: var(--ansi-bright-yellow);
+}
+
+.agent-history-footer {
+  flex: 0 0 auto;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.agent-history-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agent-history-new:hover {
+  background: var(--sidebar-hover);
+}

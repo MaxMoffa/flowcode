@@ -7,6 +7,7 @@ import { listFavorites, subscribeFavorites, type FavoriteFolder } from "../favor
 import { listRecentTerminals, subscribeRecentTerminals, type RecentTerminal } from "./recentTerminals";
 import { flushSync } from "react-dom";
 import { useProfiles } from "../profiles/profiles";
+import { ProfileSelect } from "../profiles/ProfileSelect";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -669,34 +670,14 @@ export function NewTabPage({ hidden, defaultShell, startDir, termFontSize, onLau
             </div>
             {/* Env vars don't reach a WSL distro: no profile there. */}
             {profiles.length > 0 && wslDistroOfShell(shell) === undefined && (
-              <div className="newtab-chips" role="group" aria-label={t("agents.profile.label")}>
-                <button
-                  type="button"
-                  className="newtab-chip"
-                  aria-pressed={!profileId}
-                  onClick={() => {
-                    onProfileChange(null);
+              <div className="newtab-foot-profile">
+                <ProfileSelect
+                  value={profileId ?? undefined}
+                  onChange={(id) => {
+                    onProfileChange(id ?? null);
                     inputRef.current?.focus();
                   }}
-                >
-                  <span className="newtab-profile-dot is-default" />
-                  {t("agents.profile.default")}
-                </button>
-                {profiles.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="newtab-chip"
-                    aria-pressed={profileId === p.id}
-                    onClick={() => {
-                      onProfileChange(p.id);
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    <span className="newtab-profile-dot" style={{ background: p.color }} />
-                    {p.name}
-                  </button>
-                ))}
+                />
               </div>
             )}
           </div>

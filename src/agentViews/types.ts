@@ -33,6 +33,9 @@ export interface AgentViewDef {
   /** A plugin view's name, and its translations by UI language. */
   label?: string;
   labels?: Record<string, string>;
+  /** One line under the name in Settings; a built-in view's comes from `descriptionKey`. */
+  description?: string;
+  descriptionKey?: MessageKey;
   /** "plugin" views are installed by the user and can be removed again. */
   source: "builtin" | "plugin";
   transport: ViewTransport;

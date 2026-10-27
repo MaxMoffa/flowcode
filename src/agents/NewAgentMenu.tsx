@@ -11,7 +11,6 @@ import { activeTabProfile } from "../profiles/activeTabProfile";
 import { useOutsideClose } from "../hooks/useOutsideClose";
 
 const NEW_IN_WORKTREE_KEY = "flowcode.agentsNewInWorktree";
-const NEW_AS_CHAT_KEY = "flowcode.agentsNewAsChat";
 
 interface NewAgentMenuProps {
   /** The active tab's folder. */
@@ -21,9 +20,8 @@ interface NewAgentMenuProps {
   /** Worktrees can be created for this folder (see `isWorktreeCapable`). */
   worktreeCapable: boolean;
   /** `inWorktree`: start in a fresh worktree rather than the project folder.
-   * `profileId`: the account profile picked (absent = the default one).
-   * `asChat`: open it as a chat tab rather than in a terminal. */
-  onLaunch: (cli: AgentCli, inWorktree: boolean, profileId?: string, asChat?: boolean) => void;
+   * `profileId`: the account profile picked (absent = the default one). */
+  onLaunch: (cli: AgentCli, inWorktree: boolean, profileId?: string) => void;
   onClose: () => void;
 }
 
@@ -34,7 +32,6 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const [inWorktree, setInWorktree] = usePersistentState(NEW_IN_WORKTREE_KEY, (k) => readBool(k, false), writeBool);
-  const [asChat, setAsChat] = usePersistentState(NEW_AS_CHAT_KEY, (k) => readBool(k, false), writeBool);
   const worktreeAvailable = !!repoRoot && worktreeCapable;
   const { profiles } = useProfiles();
   const projectPath = repoRoot ?? projectCwd;
@@ -100,7 +97,7 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
           role="menuitem"
           className="agents-new-menu-item"
           onClick={() => {
-            onLaunch(cli, inWorktree && worktreeAvailable, account ? selected ?? undefined : undefined, asChat);
+            onLaunch(cli, inWorktree && worktreeAvailable, account ? selected ?? undefined : undefined);
             onClose();
           }}
         >
@@ -108,10 +105,6 @@ export function NewAgentMenu({ projectCwd, repoRoot, worktreeCapable, onLaunch, 
           <span>{CLI_INFO[cli].label}</span>
         </button>
       ))}
-      <label className="agents-new-menu-option">
-        <input type="checkbox" checked={asChat} onChange={(e) => setAsChat(e.target.checked)} />
-        <span>{t("agents.new.asChat")}</span>
-      </label>
       <label
         className={"agents-new-menu-option" + (worktreeAvailable ? "" : " is-disabled")}
         title={worktreeAvailable ? undefined : t("agents.new.worktreeUnavailable")}

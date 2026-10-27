@@ -45,6 +45,8 @@ export interface ViewClient {
   send(text: string): void;
   cancel(): void;
   setMode(modeId: string): void;
+  /** Needs the `setModel` permission; `init.models` lists the choices. */
+  setModel(modelId: string): void;
   openFile(path: string): void;
   switchView(viewId: string): void;
   /** Whether the host granted `permission` (the host enforces it anyway). */
@@ -109,6 +111,7 @@ export function connect({ window: win = window }: ConnectOptions = {}): Promise<
       send: (text) => request({ type: "send", text }),
       cancel: () => request({ type: "cancel" }),
       setMode: (modeId) => request({ type: "setMode", modeId }),
+      setModel: (modelId) => request({ type: "setModel", modelId }),
       openFile: (path) => request({ type: "openFile", path }),
       switchView: (viewId) => request({ type: "switchView", viewId }),
       can: (permission) => init?.permissions.includes(permission) ?? false,
@@ -134,7 +137,8 @@ export function connect({ window: win = window }: ConnectOptions = {}): Promise<
         case "init": {
           // A new init is a new conversation.
           const first = init === null;
-          init = message;
+          // An older host sends no `models`.
+          init = { ...message, models: message.models ?? null };
           model = initialChat();
           timing = new Map();
           status = null;
@@ -150,7 +154,8 @@ export function connect({ window: win = window }: ConnectOptions = {}): Promise<
           applyEvents(message.events);
           break;
         case "status":
-          status = { status: message.status, queued: message.queued, currentModeId: message.currentModeId };
+          // An older host sends no `currentModelId`.
+          status = { status: message.status, queued: message.queued, currentModeId: message.currentModeId, currentModelId: message.currentModelId ?? null };
           emit("status", status);
           break;
         case "theme":

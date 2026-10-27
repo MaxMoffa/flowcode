@@ -66,6 +66,7 @@ function PairDialog({ onClose }: PairDialogProps) {
   const [qr, setQr] = useState("");
   const [error, setError] = useState(false);
   const [expired, setExpired] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const generate = useCallback((force = false) => {
     setError(false);
@@ -79,6 +80,14 @@ function PairDialog({ onClose }: PairDialogProps) {
 
   // No force on open: asking twice (StrictMode) must give the same code.
   useEffect(() => generate(false), [generate]);
+
+  const copyTicket = () => {
+    if (!pair) return;
+    void navigator.clipboard.writeText(pair.ticket).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }, () => {});
+  };
 
   const dismiss = useCallback(() => {
     invoke("remote_pair_cancel").catch(() => {});
@@ -144,6 +153,24 @@ function PairDialog({ onClose }: PairDialogProps) {
           // Generated locally by the qrcode package from the pairing link.
           dangerouslySetInnerHTML={{ __html: qr }}
         />
+        {pair && (
+          <div className="remote-pair-code">
+            <label className="remote-pair-code-label" htmlFor="remote-pair-code">{t("settings.remote.pairCodeLabel")}</label>
+            <div className="remote-pair-code-row">
+              <input
+                id="remote-pair-code"
+                className="remote-pair-code-input"
+                readOnly
+                value={pair.ticket}
+                spellCheck={false}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <button type="button" className="settings-choice" disabled={showExpired} onClick={copyTicket}>
+                {copied ? t("settings.remote.linkCopied") : t("settings.remote.copyCode")}
+              </button>
+            </div>
+          </div>
+        )}
         {error ? (
           <span className="settings-field-hint is-error">{t("settings.remote.pairError")}</span>
         ) : (
@@ -153,6 +180,7 @@ function PairDialog({ onClose }: PairDialogProps) {
             </span>
           )
         )}
+        {pair && <span className="settings-field-hint">{t("settings.remote.pairOtherPc")}</span>}
         <div className="remote-pair-actions">
           <button type="button" className="settings-choice" onClick={() => generate(true)}>
             {t("settings.remote.pairRegenerate")}

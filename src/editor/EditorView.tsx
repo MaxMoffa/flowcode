@@ -15,6 +15,17 @@ import { useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import "./editor.css";
 
+/** Moves the cursor to (and centers the view on) a 1-indexed line, clamped to the document. */
+function goToLine(view: CMEditorView, line: number) {
+  const clamped = Math.max(1, Math.min(line, view.state.doc.lines));
+  const pos = view.state.doc.line(clamped).from;
+  view.dispatch({
+    selection: { anchor: pos },
+    effects: CMEditorView.scrollIntoView(pos, { y: "center" }),
+  });
+  view.focus();
+}
+
 export interface EditorHandle {
   isDirty: () => boolean;
   save: () => void;
@@ -62,6 +73,8 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   const initialPathRef = useRef(path);
   const initialContentRef = useRef(initialContent);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  // A `scrollToLine` asked before the text was loaded.
+  const pendingLineRef = useRef<number | null>(null);
   // Enter commits and the blur that follows must not commit a second time.
   const renameDoneRef = useRef(false);
   const onDirtyChangeRef = useRef(onDirtyChange);
@@ -164,14 +177,9 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
       getContent: () => cmViewRef.current?.state.doc.toString() ?? content ?? "",
       scrollToLine: (line: number) => {
         const view = cmViewRef.current;
-        if (!view) return;
-        const clamped = Math.max(1, Math.min(line, view.state.doc.lines));
-        const pos = view.state.doc.line(clamped).from;
-        view.dispatch({
-          selection: { anchor: pos },
-          effects: CMEditorView.scrollIntoView(pos, { y: "center" }),
-        });
-        view.focus();
+        // Still loading the file: moved there once it is shown.
+        if (!view) pendingLineRef.current = line;
+        else goToLine(view, line);
       },
     }),
     [performSave, content],
@@ -230,6 +238,10 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
 
     const view = new CMEditorView({ state, parent: hostRef.current });
     cmViewRef.current = view;
+    if (pendingLineRef.current !== null) {
+      goToLine(view, pendingLineRef.current);
+      pendingLineRef.current = null;
+    }
     if (content !== originalRef.current) {
       dirtyRef.current = true;
       setDirty(true);

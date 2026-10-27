@@ -68,8 +68,15 @@ export interface ChatTab {
    * default. */
   viewId?: string;
   status?: ChatStatus;
+  /** `false` while a chat that started fresh has had no prompt sent: its session
+   * isn't on disk, so a switch to the terminal starts a new one instead of
+   * resuming. Absent (restored, resumed) = there is a conversation. Not saved. */
+  talked?: boolean;
   /** The terminal tab whose agent this chat takes over; closed once the session has loaded, kept if it fails. Not saved. */
   handoffFrom?: string;
+  /** The folder the sidebar explorer browses while this chat is in front;
+   * absent = `cwd`. Not saved. */
+  explorerPath?: string;
 }
 
 export interface EditorTab {
