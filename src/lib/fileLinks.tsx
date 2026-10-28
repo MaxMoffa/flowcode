@@ -4,7 +4,8 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { iconSvg, MenuIcons } from "../context-menu/menuIcons";
 import { t } from "../i18n";
-import { isExecutablePath, shortenPath, type ParsedPath } from "./filePaths";
+import { isExecutablePath, type ParsedPath } from "./filePaths";
+import { basename } from "./path";
 
 /** What a path link points at, as the backend's `path_kind` reports it. */
 export interface PathTarget {
@@ -81,7 +82,11 @@ const PathIcons = {
 function pathMenuItems(target: PathTarget, actions: FileLinkActions | null, line?: number): ContextMenuItem[] {
   const isFile = target.kind === "file";
   const items: ContextMenuItem[] = [
-    { label: shortenPath(target.path), icon: isFile ? PathIcons.file : PathIcons.folder, disabled: true },
+    {
+      label: basename(target.path.replace(/[\\/]+$/, "")) || target.path,
+      icon: isFile ? PathIcons.file : PathIcons.folder,
+      disabled: true,
+    },
     { label: "path-separator", separator: true },
   ];
   if (isFile && target.text && actions) {
@@ -90,6 +95,15 @@ function pathMenuItems(target: PathTarget, actions: FileLinkActions | null, line
   if (isFile && !isExecutablePath(target.path)) {
     items.push({
       label: t("pathLink.openDefault"),
+      icon: MenuIcons.openExternal,
+      onSelect: () => {
+        invoke("open_with_default_app", { path: target.path }).catch(() => {});
+      },
+    });
+  }
+  if (!isFile) {
+    items.push({
+      label: t("pathLink.openFolder"),
       icon: MenuIcons.openExternal,
       onSelect: () => {
         invoke("open_with_default_app", { path: target.path }).catch(() => {});

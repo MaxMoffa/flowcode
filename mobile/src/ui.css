@@ -1776,12 +1776,6 @@ button.set-row.danger {
   color: var(--muted);
 }
 
-.menu-empty {
-  padding: 12px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
 /* The row (or wide tab) shown while the desktop opens a requested terminal/chat. */
 .tr-pending {
   cursor: default;

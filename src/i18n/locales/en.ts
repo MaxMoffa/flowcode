@@ -14,7 +14,6 @@ export const en: Record<MessageKey, string> = {
   "common.checking": "Checking…",
   "common.loading": "Loading…",
   "common.noResults": "No results",
-  "common.search": "Search…",
   "common.yes": "Yes",
   "common.no": "No",
 
@@ -104,6 +103,7 @@ export const en: Record<MessageKey, string> = {
   "link.copy": "Copy link",
   "pathLink.openFile": "Open file",
   "pathLink.openDefault": "Open with default app",
+  "pathLink.openFolder": "Open folder",
   "pathLink.openInExplorer": "Open in the explorer panel",
   "pathLink.reveal": "Show in folder",
   "pathLink.copy": "Copy path",

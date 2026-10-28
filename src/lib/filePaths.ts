@@ -23,6 +23,8 @@ export interface PathMatch extends ParsedPath {
 export interface ParseOptions {
   /** A bare file name (`useChat.ts`) counts too, when its extension is a known one - for a `code span` in the chat, not for loose prose. */
   bare?: boolean;
+  /** With `bare`: a name without a known extension counts too (`src-tauri`, `LICENSE`) - for a whole `code span`, where the disk check decides. */
+  bareAny?: boolean;
   /** Spaces allowed inside (the text was quoted, so they can't be separators). */
   spaces?: boolean;
 }
@@ -116,12 +118,18 @@ export function parsePathToken(raw: string, opts: ParseOptions = {}): ParsedPath
   if (isDrivePath(base) || isUncPath(base) || isPosixAbsolute(base)) ok = true;
   else if (/^~[\\/][^\\/]/.test(base)) ok = true;
   else if (/^\.{1,2}[\\/][^\\/]/.test(base)) ok = true;
-  else if (/^[^\\/]+(?:[\\/][^\\/]+)+[\\/]?$/.test(base)) {
+  else if (/^[^\\/]+[\\/]$/.test(base)) {
+    // `src/`: one folder, written as one.
+    ok = /[A-Za-z]/.test(base) && !base.startsWith("-");
+  } else if (/^[^\\/]+(?:[\\/][^\\/]+)+[\\/]?$/.test(base)) {
     // `1/2`, `12/05/2024`: numbers, not paths.
     ok = /[A-Za-z]/.test(base) && !base.startsWith("-");
   } else if (opts.bare && /^[\w@+-][\w.@+-]*$/.test(base)) {
     const ext = extension(base);
-    ok = KNOWN_EXT.has(ext) || (base.length > 1 && KNOWN_EXT.has(base.toLowerCase()));
+    ok =
+      KNOWN_EXT.has(ext) ||
+      (base.length > 1 && KNOWN_EXT.has(base.toLowerCase())) ||
+      (!!opts.bareAny && base.length > 1 && /[A-Za-z]/.test(base) && !base.startsWith("-"));
   } else ok = false;
   if (!ok) return null;
   return line !== undefined ? (col !== undefined ? { path: base, line, col } : { path: base, line }) : { path: base };

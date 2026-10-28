@@ -58,7 +58,7 @@ function withLinks(text: string, keyBase: string, open: OpenLink): ReactNode[] {
 
 /** An `inline code` span: agents write paths this way, bare file names (`useChat.ts`) included. */
 function codeSpan(code: string, key: string): ReactNode {
-  const whole = parsePathToken(code, { bare: true, spaces: true });
+  const whole = parsePathToken(code, { bare: true, bareAny: true, spaces: true });
   if (whole) {
     return (
       <ChatPathLink key={key} parsed={whole}>

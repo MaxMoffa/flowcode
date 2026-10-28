@@ -12,7 +12,6 @@ export const it = {
   "common.checking": "Verifica in corso…",
   "common.loading": "Caricamento…",
   "common.noResults": "Nessun risultato",
-  "common.search": "Cerca…",
   "common.yes": "Sì",
   "common.no": "No",
 
@@ -104,6 +103,7 @@ export const it = {
   "link.copy": "Copia link",
   "pathLink.openFile": "Apri file",
   "pathLink.openDefault": "Apri con l'app predefinita",
+  "pathLink.openFolder": "Apri cartella",
   "pathLink.openInExplorer": "Apri nel pannello esplora file",
   "pathLink.reveal": "Mostra nella cartella",
   "pathLink.copy": "Copia percorso",

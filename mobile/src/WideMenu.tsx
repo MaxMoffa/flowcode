@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
-import { matchesQuery } from "../../shared/menuFilter";
-import { useBackHandler } from "./back";
+import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { KeyboardIcon, MonitorIcon, PinIcon, PlusIcon, SlidersIcon, StopIcon } from "./icons";
-import { MenuSearch, useMenuSearch } from "./MenuSearch";
 
 interface Row {
   label: string;
@@ -13,7 +11,7 @@ interface Row {
   danger?: boolean;
   /** The row's current value, on its right. */
   value?: string;
-  /** A rule after this row (when nothing is being searched). */
+  /** A rule after this row. */
   sepAfter?: boolean;
 }
 
@@ -35,7 +33,7 @@ export function WideMenu(props: {
 }) {
   const { open, onClose } = props;
   useBackHandler(open, onClose);
-  const search = useMenuSearch(open, onClose, true);
+  useEscape(open, onClose);
   if (!open) return null;
 
   const rows: Row[] = [
@@ -46,23 +44,19 @@ export function WideMenu(props: {
     { label: t("switchComputer"), icon: <MonitorIcon />, run: props.onComputers },
     { label: t("navSettings"), icon: <SlidersIcon />, run: props.onSettings },
   ];
-  const searching = search.query.trim() !== "";
-  const shown = rows.filter((r) => matchesQuery(r.label, search.query));
 
   return (
     <>
       <div className="w-menu-scrim" onClick={onClose} />
-      <div className="w-menu" role="menu" aria-label={t("moreOptions")} {...search.menuProps}>
-        <MenuSearch search={search} />
-        {shown.length === 0 && <div className="menu-empty">{t("noResults")}</div>}
-        {shown.map((r) => (
+      <div className="w-menu" role="menu" aria-label={t("moreOptions")}>
+        {rows.map((r) => (
           <div key={r.label} className="w-menu-entry">
-            <button type="button" role="menuitem" data-menu-row className={r.danger ? "danger" : undefined} disabled={r.disabled} onClick={r.run}>
+            <button type="button" role="menuitem" className={r.danger ? "danger" : undefined} disabled={r.disabled} onClick={r.run}>
               {r.icon}
               {r.label}
               {r.value && <span className="w-menu-k">{r.value}</span>}
             </button>
-            {r.sepAfter && !searching && <i className="w-menu-sep" />}
+            {r.sepAfter && <i className="w-menu-sep" />}
           </div>
         ))}
       </div>

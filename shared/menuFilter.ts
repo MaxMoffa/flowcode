@@ -1,8 +1,8 @@
 /** Search and grouping shared by the desktop's menus and the phone's (both
  * import this, so the two stay in step). */
 
-/** A menu with more selectable rows than this gets a search bar at its top;
- * a shorter one is quicker to read than to filter. */
+/** The phone's quick-actions library gets a search bar at its top once it has
+ * more selectable rows than this; a shorter one is quicker to read than to filter. */
 const SEARCH_MIN_ITEMS = 4;
 
 export const needsSearch = (selectableCount: number): boolean => selectableCount > SEARCH_MIN_ITEMS;

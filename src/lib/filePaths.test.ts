@@ -36,6 +36,13 @@ describe("parsePathToken", () => {
     expect(parsePathToken("./a/b")?.path).toBe("./a/b");
     expect(parsePathToken("../a/b")?.path).toBe("../a/b");
     expect(parsePathToken("src/chat/")?.path).toBe("src/chat/");
+    expect(parsePathToken("src/")).toEqual({ path: "src/" });
+  });
+
+  it("takes a bare folder name without an extension only when asked (for a code span)", () => {
+    expect(parsePathToken("src-tauri", { bare: true })).toBeNull();
+    expect(parsePathToken("src-tauri", { bare: true, bareAny: true })).toEqual({ path: "src-tauri" });
+    expect(parsePathToken("42", { bare: true, bareAny: true })).toBeNull();
   });
 
   it("splits off a line and column", () => {
