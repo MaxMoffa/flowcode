@@ -485,6 +485,56 @@ button.chat-step-row {
 .chat-sum-text {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-sum-text.is-live {
+  color: var(--fg);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  animation: chat-sum-in 0.2s ease;
+}
+
+@keyframes chat-sum-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-sum-text.is-live {
+    animation: none;
+  }
+}
+
+.chat-sum-count {
+  flex: none;
+  min-width: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-step-num {
+  flex: none;
+  min-width: 16px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-sum svg {

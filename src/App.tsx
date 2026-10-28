@@ -476,7 +476,7 @@ function Shell() {
               id: newTabId("chat"),
               agent: t.agent as AgentCli,
               cwd: t.cwd,
-              label: keepChat ? t.label : CLI_INFO[t.agent as AgentCli].name,
+              label: keepChat ? t.label : basename(t.cwd) || CLI_INFO[t.agent as AgentCli].name,
               profileId: t.profileId,
               sessionId: keepChat ? t.sessionId : undefined,
               viewId: t.viewId,
@@ -2222,7 +2222,7 @@ function Shell() {
     if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
-    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? CLI_INFO[cli].name, profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false };
+    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false };
     setTabs((prev) => {
       const next = insertTabAt(prev, tab, replaceTabId ? prev.findIndex((t) => t.id === replaceTabId) : at);
       return replaceTabId ? next.filter((t) => t.id !== replaceTabId) : next;

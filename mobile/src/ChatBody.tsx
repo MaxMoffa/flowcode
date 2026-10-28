@@ -93,7 +93,7 @@ function summaryOf(calls: ChatToolCall[]): string {
 }
 
 /** One step on the rail: a dot (muted when done, glowing while it runs, red when it failed), what it did, and its output on tap. */
-function ToolStep({ call }: { call: ChatToolCall }) {
+function ToolStep({ call, index }: { call: ChatToolCall; index: number }) {
   const content = call.content ?? [];
   const diffs = content.filter((c): c is DiffContent => c.type === "diff");
   const text = content
@@ -103,6 +103,7 @@ function ToolStep({ call }: { call: ChatToolCall }) {
   const state = call.status === "failed" ? "is-failed" : call.status === "completed" ? "is-done" : "is-live";
   const head = (
     <>
+      <span className="chat-step-num">{index}</span>
       <i className={"chat-dot " + state} aria-hidden="true" />
       <span className="chat-step-title">{call.title ?? call.kind ?? call.toolCallId}</span>
       {state === "is-live" && <span className="chat-spinner" aria-hidden="true" />}
@@ -126,22 +127,24 @@ function ToolStep({ call }: { call: ChatToolCall }) {
   );
 }
 
-/** A run of the agent's tool calls on a thin rail. While one runs the steps are open; once all are done they fold into a one-line summary that opens on tap. Redrawn only when one of its calls changed (the model replaces just the changed ones). */
+/** A run of the agent's tool calls on a thin rail, always folded to one row: the step count + the latest step while running, the summary once done; tap opens the numbered steps. Redrawn only when one of its calls changed (the model replaces just the changed ones). */
 const ToolRun = memo(function ToolRun({ calls }: { calls: ChatToolCall[] }) {
   const live = calls.some((c) => !isFinished(c));
   const [open, setOpen] = useState(false);
   const failed = calls.some((c) => c.status === "failed");
-  const expanded = live || open;
+  const last = calls[calls.length - 1];
   return (
     <div className="chat-rail">
-      {!live && (
-        <button type="button" className="chat-step-row chat-sum" aria-expanded={expanded} onClick={() => setOpen(!open)}>
-          <i className={"chat-dot " + (failed ? "is-failed" : "is-done")} aria-hidden="true" />
-          <span className="chat-sum-text">{summaryOf(calls)}</span>
-          <ChevronDownIcon />
-        </button>
-      )}
-      {expanded && calls.map((c) => <ToolStep key={c.toolCallId} call={c} />)}
+      <button type="button" className="chat-step-row chat-sum" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <i className={"chat-dot " + (live ? "is-live" : failed ? "is-failed" : "is-done")} aria-hidden="true" />
+        <span className="chat-sum-count">{calls.length}</span>
+        <span key={live ? last.toolCallId : "summary"} className={"chat-sum-text" + (live ? " is-live" : "")}>
+          {live ? (last.title ?? last.kind ?? last.toolCallId) : summaryOf(calls)}
+        </span>
+        {live && <span className="chat-spinner" aria-hidden="true" />}
+        <ChevronDownIcon />
+      </button>
+      {open && calls.map((c, i) => <ToolStep key={c.toolCallId} call={c} index={i + 1} />)}
     </div>
   );
 }, (a, b) => a.calls.length === b.calls.length && a.calls.every((c, i) => c === b.calls[i]));

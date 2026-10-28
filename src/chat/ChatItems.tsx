@@ -46,7 +46,7 @@ function DiffCard({ diff }: { diff: DiffContent }) {
   );
 }
 
-function ToolStep({ step, live }: { step: Extract<TimelineStep, { type: "tool" }>; live: boolean }) {
+function ToolStep({ step, live, index }: { step: Extract<TimelineStep, { type: "tool" }>; live: boolean; index: number }) {
   const { t } = useI18n();
   const call = step.call;
   const content = call.content ?? [];
@@ -63,6 +63,7 @@ function ToolStep({ step, live }: { step: Extract<TimelineStep, { type: "tool" }
   const fileName = file ? basename(file) : "";
   const header = (
     <>
+      <span className="chat-step-num">{index}</span>
       <span className={`chat-dot${running ? " is-live" : failed ? " is-failed" : " is-done"}`} aria-hidden="true" />
       {running && <span className="chat-spinner" aria-hidden="true" />}
       <span className="chat-step-title">{title}</span>
@@ -91,13 +92,14 @@ function ToolStep({ step, live }: { step: Extract<TimelineStep, { type: "tool" }
   );
 }
 
-function PermissionStep({ step }: { step: Extract<TimelineStep, { type: "permission" }> }) {
+function PermissionStep({ step, index }: { step: Extract<TimelineStep, { type: "permission" }>; index: number }) {
   const { t } = useI18n();
   const title = step.toolCall.title ?? step.toolCall.kind ?? t("chat.permission.title");
   const option = step.options.find((o) => o.optionId === step.resolved);
   return (
     <div className="chat-step">
       <div className="chat-step-row is-quiet">
+        <span className="chat-step-num">{index}</span>
         <span className="chat-dot is-done" aria-hidden="true" />
         <span className="chat-step-title">
           {option ? t("chat.permission.answered", { option: option.name }) : t("chat.permission.cancelled")}
@@ -119,27 +121,37 @@ function summaryText(steps: TimelineStep[], t: ReturnType<typeof useI18n>["t"]):
   return parts.join(" · ");
 }
 
-/** The tool activity of one agent turn on a thin rail: open while it runs,
- * then one summary line (counts per kind) that expands to the steps. */
+/** The tool activity of one agent turn on a thin rail, always folded to one row: the step count, then the latest step while it runs or the summary (counts per kind) once done; it expands to the numbered steps. */
 export const ToolGroup = memo(function ToolGroup({ steps, live }: { steps: TimelineStep[]; live: boolean }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
-  const open = live || expanded;
   const { failed } = summarizeSteps(steps);
+  const last = steps[steps.length - 1];
+  const lastTitle =
+    last.type === "tool"
+      ? (last.call.title ?? last.call.kind ?? last.call.toolCallId)
+      : (last.toolCall.title ?? last.toolCall.kind ?? t("chat.permission.title"));
+  const summaryClass = live ? "chat-group-summary is-live" : failed > 0 ? "chat-group-summary has-failed" : "chat-group-summary";
   return (
     <div className="chat-rail">
-      {!live && (
-        <button type="button" className="chat-group-toggle" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
-          <span className={`chat-dot${failed > 0 ? " is-failed" : " is-done"}`} aria-hidden="true" />
-          <svg className="chat-group-chevron" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polyline points="9 6 15 12 9 18" />
-          </svg>
-          <span className={failed > 0 ? "chat-group-summary has-failed" : "chat-group-summary"}>{summaryText(steps, t)}</span>
-        </button>
-      )}
-      {open &&
-        steps.map((step) =>
-          step.type === "tool" ? <ToolStep key={step.id} step={step} live={live} /> : <PermissionStep key={step.id} step={step} />,
+      <button type="button" className="chat-group-toggle" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+        <span className={`chat-dot${live ? " is-live" : failed > 0 ? " is-failed" : " is-done"}`} aria-hidden="true" />
+        <svg className="chat-group-chevron" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="9 6 15 12 9 18" />
+        </svg>
+        <span className="chat-group-count">{steps.length}</span>
+        {live && <span className="chat-spinner" aria-hidden="true" />}
+        <span key={live ? last.id : "summary"} className={summaryClass}>
+          {live ? lastTitle : summaryText(steps, t)}
+        </span>
+      </button>
+      {expanded &&
+        steps.map((step, i) =>
+          step.type === "tool" ? (
+            <ToolStep key={step.id} step={step} live={live} index={i + 1} />
+          ) : (
+            <PermissionStep key={step.id} step={step} index={i + 1} />
+          ),
         )}
     </div>
   );

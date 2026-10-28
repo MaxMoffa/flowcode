@@ -526,8 +526,62 @@
   transform: rotate(90deg);
 }
 
+.chat-group-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-group-summary.has-failed {
   color: var(--danger);
+}
+
+.chat-group-summary.is-live {
+  color: var(--fg);
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: 12.5px;
+  animation: chat-group-in 0.2s ease;
+}
+
+@keyframes chat-group-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-group-summary.is-live {
+    animation: none;
+  }
+}
+
+.chat-group-count {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-step-num {
+  flex: 0 0 auto;
+  min-width: 16px;
+  text-align: right;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-step {
