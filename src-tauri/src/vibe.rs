@@ -14,7 +14,7 @@
 //! surfaced as an error.
 
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -238,20 +238,22 @@ fn turn_open(dir: &Path) -> Option<bool> {
 }
 
 /// The session a `vibe` using Vibe home `home` and running in `cwd` is working
-/// on: the most recently written top-level session in that folder. Id, title,
-/// "busy"/"idle".
+/// on: the most recently written top-level session in that folder, other than
+/// those in `skip` (taken by another tab or a chat). Id, title, "busy"/"idle".
 pub(crate) fn live_session_in(
     home: &Path,
     cwd: &str,
     started_at: Option<u64>,
+    skip: &HashSet<String>,
 ) -> Option<(String, Option<String>, &'static str)> {
-    live_session_under(&sessions_root(home), cwd, started_at)
+    live_session_under(&sessions_root(home), cwd, started_at, skip)
 }
 
 pub(crate) fn live_session_under(
     root: &Path,
     cwd: &str,
     started_at: Option<u64>,
+    skip: &HashSet<String>,
 ) -> Option<(String, Option<String>, &'static str)> {
     let meta = session_dirs(root)
         .iter()
@@ -264,7 +266,7 @@ pub(crate) fn live_session_under(
         })
         .take(40)
         .filter_map(|(dir, _)| read_meta(dir))
-        .find(|m| !m.child && m.cwd.as_deref().is_some_and(|c| same_dir(c, cwd)))?;
+        .find(|m| !m.child && !skip.contains(&m.id) && m.cwd.as_deref().is_some_and(|c| same_dir(c, cwd)))?;
     let status = match turn_open(&meta.dir) {
         Some(true) => "busy",
         _ => "idle",

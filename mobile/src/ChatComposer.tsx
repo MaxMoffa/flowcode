@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChatModels, ChatModes } from "../../src/chat/chatTypes";
+import { AdaptiveSheet } from "./AdaptiveSheet";
+import { useBackHandler, useEscape } from "./back";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
 import { ModeIcon, StarIcon } from "./ChatModeIcons";
@@ -85,6 +87,9 @@ export function ChatComposer({
   const [text, setText] = useState(() => drafts.get(chatId) ?? "");
   const [modeOpen, setModeOpen] = useState(false);
   const [defaultMode, setDefault] = useState(() => getDefaultMode(agent));
+  const closeMode = () => setModeOpen(false);
+  useEscape(modeOpen, closeMode);
+  useBackHandler(modeOpen, closeMode);
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -174,56 +179,59 @@ export function ChatComposer({
           <div className="chat-actions-start">
             {modes && current ? (
               <div className="chat-mode">
-                {modeOpen && (
-                  <>
-                    <div className="chat-mode-scrim" onClick={() => setModeOpen(false)} />
-                    <div className="chat-mode-list" role="radiogroup" aria-label={t("chatModes")}>
-                      <div className="chat-mode-caption">{t("chatModeCaption")}</div>
-                      {modes.availableModes.map((m) => {
-                        const kind = modeKind(m);
-                        const isDefault = defaultMode === m.id;
-                        return (
-                          <div key={m.id} className={"chat-mode-row" + (m.id === current.id ? " on" : "") + (isRiskyKind(kind) ? " risky" : "")}>
-                            <button
-                              type="button"
-                              role="radio"
-                              aria-checked={m.id === current.id}
-                              className="chat-mode-pick"
-                              onClick={() => {
-                                tapFeedback();
-                                setModeOpen(false);
-                                if (m.id !== current.id) onMode(m.id);
-                              }}
-                            >
-                              <span className="chat-mode-ico">
-                                <ModeIcon kind={kind} />
-                              </span>
-                              <span className="chat-mode-text">
-                                <span className="chat-mode-name">{m.name}</span>
-                                {m.description && <span className="chat-mode-desc">{m.description}</span>}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              className={"chat-mode-star" + (isDefault ? " on" : "")}
-                              aria-pressed={isDefault}
-                              aria-label={isDefault ? t("chatModeClearDefault", { name: m.name }) : t("chatModeSetDefault", { name: m.name })}
-                              onClick={() => {
-                                tapFeedback();
-                                const next = isDefault ? null : m.id;
-                                setDefaultMode(agent, next);
-                                setDefault(next);
-                              }}
-                            >
-                              <StarIcon filled={isDefault} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-                <button type="button" {...keepFocus} className={"chat-mode-pill" + (isRiskyKind(modeKind(current)) ? " risky" : "")} aria-haspopup="true" aria-expanded={modeOpen} aria-label={t("chatModeAria", { name: current.name })} onClick={() => setModeOpen(!modeOpen)}>
+                <AdaptiveSheet open={modeOpen} onClose={closeMode} variant="drawer" side="right" portal label={t("chatModeCaption")}>
+                  <div className="tm-grabber" />
+                  <header className="tm-sheet-head">
+                    <h2>{t("chatModeCaption")}</h2>
+                    <button type="button" className="tm-btn" aria-label={t("closeViewer")} onClick={closeMode}>
+                      <CloseIcon />
+                    </button>
+                  </header>
+                  <div className="chat-pick-body" role="radiogroup" aria-label={t("chatModes")}>
+                    {modes.availableModes.map((m) => {
+                      const kind = modeKind(m);
+                      const isDefault = defaultMode === m.id;
+                      return (
+                        <div key={m.id} className={"chat-mode-row" + (m.id === current.id ? " on" : "") + (isRiskyKind(kind) ? " risky" : "")}>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={m.id === current.id}
+                            className="chat-mode-pick"
+                            onClick={() => {
+                              tapFeedback();
+                              closeMode();
+                              if (m.id !== current.id) onMode(m.id);
+                            }}
+                          >
+                            <span className="chat-mode-ico">
+                              <ModeIcon kind={kind} />
+                            </span>
+                            <span className="chat-mode-text">
+                              <span className="chat-mode-name">{m.name}</span>
+                              {m.description && <span className="chat-mode-desc">{m.description}</span>}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className={"chat-mode-star" + (isDefault ? " on" : "")}
+                            aria-pressed={isDefault}
+                            aria-label={isDefault ? t("chatModeClearDefault", { name: m.name }) : t("chatModeSetDefault", { name: m.name })}
+                            onClick={() => {
+                              tapFeedback();
+                              const next = isDefault ? null : m.id;
+                              setDefaultMode(agent, next);
+                              setDefault(next);
+                            }}
+                          >
+                            <StarIcon filled={isDefault} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </AdaptiveSheet>
+                <button type="button" {...keepFocus} className={"chat-mode-pill" + (isRiskyKind(modeKind(current)) ? " risky" : "")} aria-haspopup="dialog" aria-expanded={modeOpen} aria-label={t("chatModeAria", { name: current.name })} onClick={() => setModeOpen(!modeOpen)}>
                   <ModeIcon kind={modeKind(current)} size={18} />
                   <span>{current.name}</span>
                 </button>

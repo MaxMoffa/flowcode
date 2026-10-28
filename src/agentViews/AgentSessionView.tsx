@@ -6,6 +6,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
 import type { ChatStatus } from "../chat/chatTypes";
 import { useChat } from "../chat/useChat";
+import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
 import "../chat/chat.css";
 import "./builtins";
 import { AgentHeader } from "./AgentHeader";
@@ -29,7 +30,7 @@ interface AgentSessionViewProps {
   /** The tab's name, shown in the header. */
   title: string;
   onSessionId: (id: string) => void;
-  onStatus: (status: ChatStatus) => void;
+  onStatus: (status: ChatStatus, error?: string | null) => void;
   onViewChange: (viewId: string) => void;
   /** Whether the session has a conversation to resume: true once the first prompt was sent, false when a resume fell back to a fresh session. */
   onTalked: (talked: boolean) => void;
@@ -67,7 +68,7 @@ export function AgentSessionView({
   const { t, language } = useI18n();
   const views = useAgentViews();
   const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, onSessionId, onStatus });
-  const { model, phase, error, modes, models, sessionId } = chat;
+  const { model, phase, error, modes, sessionId } = chat;
   const label = CLI_INFO[agent].label;
   const folder = basename(cwd);
   const subtitle = title === label ? folder : `${label} · ${folder}`;
@@ -85,6 +86,8 @@ export function AgentSessionView({
       live = false;
     };
   }, [phase, agent]);
+  const nav = useOpenSubagent(model.items, hidden);
+  const subHeader = nav.sub ? subagentHeader(nav.sub, nav.back) : null;
   const current = resolveAcpView(viewId);
   const View = current.component;
 
@@ -104,7 +107,8 @@ export function AgentSessionView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closeChat]);
   /** Switching needs the session id only when there is a conversation to resume, and never mid-turn: the terminal would resume a session the agent is still writing. */
-  const canSwitch = !working && (!talked || !!sessionId);
+  // Not while starting either: the agent is still being spawned (and, resumed, loading the session), and the terminal would race it for the session.
+  const canSwitch = phase !== "starting" && !working && (!talked || !!sessionId);
   const switchToTerminal = () => onSwitchToTerminal(talked ? (sessionId ?? null) : null);
 
   const currentModeId = model.currentModeId ?? modes?.currentModeId ?? null;
@@ -131,7 +135,7 @@ export function AgentSessionView({
 
   return (
     <div className="chat-view" style={hidden ? { display: "none" } : undefined} onKeyDown={onViewKeyDown}>
-      <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status}>
+      <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status} subagent={subHeader}>
         {(close) => {
           const menuAction = (action: () => void) => {
             close();
@@ -175,9 +179,7 @@ export function AgentSessionView({
               <AgentMenuChoices
                 modes={modes}
                 currentModeId={currentModeId}
-                models={models}
                 onMode={(id) => menuAction(() => chat.setMode(id))}
-                onModel={(id) => menuAction(() => chat.setModel(id))}
               />
               <button
                 type="button"
@@ -200,7 +202,7 @@ export function AgentSessionView({
       {phase === "ready" ? (
         View && (
           <Suspense fallback={null}>
-            <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} />
+            <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.openId} onOpenSubagent={nav.open} />
           </Suspense>
         )
       ) : (

@@ -36,6 +36,21 @@ describe("splitLinks", () => {
     expect(splitLinks("no links here")).toEqual([{ text: "no links here" }]);
     expect(splitLinks("")).toEqual([]);
   });
+
+  it("shows a markdown link to a local file as its label, linked to the file", () => {
+    expect(splitLinks("[Compose](C:/a/docker-compose.yml) con backend")).toEqual([{ text: "Compose", path: "C:/a/docker-compose.yml" }, { text: " con backend" }]);
+    expect(splitLinks("vedi [README](file:///C:/x/my%20file.md).")).toEqual([{ text: "vedi " }, { text: "README", path: "C:/x/my file.md" }, { text: "." }]);
+    expect(splitLinks("[cfg](src/app.ts:12)")).toEqual([{ text: "cfg", path: "src/app.ts:12" }]);
+  });
+
+  it("shows only the label when the target is an anchor or another scheme", () => {
+    expect(splitLinks("[mail](mailto:a@b.it)")).toEqual([{ text: "mail" }]);
+    expect(splitLinks("[top](#top)")).toEqual([{ text: "top" }]);
+  });
+
+  it("keeps markdown links to the web as links", () => {
+    expect(splitLinks("[site](https://example.com/a)")).toEqual([{ text: "site", url: "https://example.com/a" }]);
+  });
 });
 
 describe("previewUrls", () => {
@@ -51,5 +66,9 @@ describe("previewUrls", () => {
   it("lists distinct urls, the first few", () => {
     const text = "https://a.dev https://a.dev https://b.dev https://c.dev https://d.dev";
     expect(previewUrls(text, 3)).toEqual(["https://a.dev", "https://b.dev", "https://c.dev"]);
+  });
+
+  it("skips markdown links to local files", () => {
+    expect(previewUrls("[x](C:/a.md) https://e.com", 3)).toEqual(["https://e.com"]);
   });
 });

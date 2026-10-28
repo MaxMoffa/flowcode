@@ -1921,7 +1921,8 @@ function Shell() {
   }, [agentSessions, tabs, ptyVersion]);
   // The active tab's agent, for the usage popovers' context section.
   const activeAgentSession = activeTerminal ? sessionByTab.get(activeTerminal.id) : undefined;
-  useActiveAgentSync(activeAgentSession, activeTerminal?.label);
+  const frontChat = tabs.find((t): t is ChatTab => t.id === activeTabId && t.kind === "chat");
+  useActiveAgentSync(activeAgentSession, activeTerminal?.label, frontChat);
   useEffect(watchLimitResets, []);
   useUsageWatch(allPluginsRef, quickActionIds);
   const doneTabIds = useAgentNotifications(tabAgents, {
@@ -2138,7 +2139,7 @@ function Shell() {
   remoteChatTerminalRef.current = (tabId) => {
     const tab = latestRef.current.tabs.find((t): t is ChatTab => t.id === tabId && t.kind === "chat");
     // Not mid-turn: the terminal would resume a session the agent is still writing (the desktop's own Ctrl+` refuses it too).
-    if (!tab || tab.status === "busy" || tab.status === "waiting") return;
+    if (!tab || tab.status === "busy" || tab.status === "waiting" || tab.status === "starting") return;
     // `talked === false`: nothing was said, so there is no session to resume.
     if (tab.talked === false || tab.sessionId) switchChatToTerminal(tab, tab.talked === false ? null : (tab.sessionId ?? null));
   };
@@ -2268,11 +2269,22 @@ function Shell() {
       if (switchingChatsRef.current.has(tab.id)) return;
       switchingChatsRef.current.add(tab.id);
       const close = chatClosersRef.current.get(tab.id) ?? (() => Promise.resolve());
-      void close().then(() => {
-        switchingChatsRef.current.delete(tab.id);
-        dropChat();
-        void openAgentSession(tab.cwd, sessionId, tab.agent, undefined, tab.profileId, at);
-      });
+      void (async () => {
+        try {
+          await close();
+          // A session with no transcript on disk (the only prompt failed before it was saved) can't be resumed:
+          // `claude --resume` / `codex resume` would just say it isn't found, so a fresh agent starts instead.
+          const saved = await invoke<boolean>("agent_session_saved", { cli: tab.agent, sessionId, profile: tab.profileId ?? null }).catch(() => true);
+          if (saved) {
+            dropChat();
+            await openAgentSession(tab.cwd, sessionId, tab.agent, undefined, tab.profileId, at);
+          } else if (await launchAgentInNewTab(tab.agent, tab.cwd, undefined, tab.profileId, true, at)) {
+            dropChat();
+          }
+        } finally {
+          switchingChatsRef.current.delete(tab.id);
+        }
+      })();
       return;
     }
     // The fresh terminal goes in front of the chat, which then closes.
@@ -2297,6 +2309,14 @@ function Shell() {
     const resume = { sessionId, label: tab.label, handoffFrom: tabId };
     void (async () => {
       try {
+        // An agent nobody prompted yet has no transcript to load (the chat would fail and the terminal be
+        // sent back to a `--resume` that finds nothing): a fresh chat takes the terminal's place instead.
+        const saved = await invoke<boolean>("agent_session_saved", { cli, sessionId, profile: tab.profileId ?? session.profile ?? null }).catch(() => true);
+        if (!saved) {
+          const at = latestRef.current.tabs.findIndex((t) => t.id === tabId);
+          await openChatTab(cli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, replaceTabId: tabId, at: at < 0 ? undefined : at });
+          return;
+        }
         const ptyId = termRefs.current.get(tabId)?.getPtyId();
         if (ptyId) await invoke("end_pty_agent", { ptyId }).catch(() => {});
         // Opens at the terminal's index, so the chat sits where the terminal was once that closes.
@@ -2322,7 +2342,7 @@ function Shell() {
   }
 
   /** The chat couldn't resume the session: it goes away and the terminal resumes it again. */
-  function failHandoff(chatId: string) {
+  function failHandoff(chatId: string, error?: string | null) {
     const chat = latestRef.current.tabs.find((t): t is ChatTab => t.id === chatId && t.kind === "chat");
     const terminalId = chat?.handoffFrom;
     setTabs((prev) => prev.filter((t) => t.id !== chatId));
@@ -2332,7 +2352,9 @@ function Shell() {
       // The terminal's agent was ended for the handoff: it gets its session back.
       if (chat.sessionId && isSafeSessionId(chat.sessionId)) resumeInTerminal(terminalId, chat.agent, chat.sessionId);
     }
-    showPluginToast(t("agents.handoff.failed"));
+    // Why, when the agent said (Codex: the session is still in use elsewhere): not a silent failure.
+    const detail = (error ?? "").replace(/^`[^`]*`:\s*/, "").replace(/^[a-z_]+:\s*/, "").trim().slice(0, 200);
+    showPluginToast(detail ? `${t("agents.handoff.failed")} ${detail}` : t("agents.handoff.failed"));
   }
 
   /** Opens a plain terminal tab in `cwd` - a worktree from the Agents panel. */
@@ -2959,8 +2981,8 @@ function Shell() {
                         patchChatTab(tab.id, { sessionId });
                         if (tab.handoffFrom) finishHandoff(tab.id, tab.handoffFrom);
                       }}
-                      onStatus={(status) => {
-                        if (status === "exited" && tab.handoffFrom) failHandoff(tab.id);
+                      onStatus={(status, error) => {
+                        if (status === "exited" && tab.handoffFrom) failHandoff(tab.id, error);
                         else patchChatTab(tab.id, { status });
                       }}
                       onViewChange={(viewId) => patchChatTab(tab.id, { viewId })}

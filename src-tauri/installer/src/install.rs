@@ -480,6 +480,7 @@ pub fn perform_install(install_dir: &str, desktop_shortcut: bool) -> Result<(), 
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>LSMinimumSystemVersion</key><string>10.15</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Flowcode uses the microphone for dictation in the chat.</string>
 </dict>
 </plist>
 "#

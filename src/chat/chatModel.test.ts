@@ -457,3 +457,28 @@ describe("local error ids", () => {
     expect(a.items[0].id).not.toBe(b.items[0].id);
   });
 });
+
+describe("subagent tool calls", () => {
+  it("records the parent launch and the tool name from _meta, keeping them through later updates", () => {
+    const state = run([
+      update({ sessionUpdate: "tool_call", toolCallId: "l", title: "Explore", rawInput: { subagent_type: "Explore" }, _meta: { claudeCode: { toolName: "Agent" } } }),
+      update({ sessionUpdate: "tool_call", toolCallId: "c", title: "Read x", _meta: { claudeCode: { parentToolUseId: "l", toolName: "Read" } } }),
+      update({ sessionUpdate: "tool_call_update", toolCallId: "c", status: "completed", _meta: { claudeCode: { toolName: "Read" } } }),
+    ]);
+    expect(tool(state, "c")).toMatchObject({ parentToolUseId: "l", status: "completed" });
+    expect(tool(state, "l")).toMatchObject({ toolName: "Agent" });
+  });
+
+  it("times a subagent launch and leaves other calls alone", () => {
+    const at = (u: Record<string, unknown>, t: number): ChatEvent => ({ kind: "update", seq: next(), at: t, update: { sessionUpdate: "x", ...u } });
+    const state = run([
+      at({ sessionUpdate: "tool_call", toolCallId: "l", _meta: { claudeCode: { toolName: "Task" } } }, 100),
+      at({ sessionUpdate: "tool_call_update", toolCallId: "l", status: "completed" }, 5100),
+      at({ sessionUpdate: "tool_call", toolCallId: "r", status: "pending" }, 200),
+      at({ sessionUpdate: "tool_call_update", toolCallId: "r", status: "completed" }, 300),
+    ]);
+    expect(tool(state, "l")).toMatchObject({ startedAt: 100, endedAt: 5100 });
+    expect(tool(state, "r")?.startedAt).toBeUndefined();
+  });
+});
+

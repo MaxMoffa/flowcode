@@ -14,8 +14,9 @@ import type {
 export type ChatItem =
   /** `local`: sent from this app (a `user` event), as opposed to history the agent replayed. */
   | { type: "user"; id: string; text: string; local?: boolean; attachments?: string[] }
-  | { type: "agent"; id: string; text: string }
-  | { type: "thought"; id: string; text: string }
+  /** `parentToolUseId`: the text is a subagent's (the Agent/Task call it runs under), not the main agent's. */
+  | { type: "agent"; id: string; text: string; parentToolUseId?: string }
+  | { type: "thought"; id: string; text: string; parentToolUseId?: string }
   | { type: "tool"; id: string; call: ChatToolCall }
   | {
       type: "permission";
@@ -128,18 +129,29 @@ export function settleChat(state: ChatModelState): ChatModelState {
 }
 
 /** Appends `text` to the last item when it has `type`, else starts a new one. */
-function appendText(state: ChatModelState, type: "user" | "agent" | "thought", text: string, seq: number): ChatModelState {
-  const last = state.items[state.items.length - 1];
+function appendText(state: ChatModelState, type: "user" | "agent" | "thought", text: string, seq: number, parent?: string): ChatModelState {
+  // The last item of the same stream (the main agent's, or one subagent's): other streams' items in between don't break a run.
+  const stream = parent ?? "";
+  let at = state.items.length - 1;
+  while (at >= 0 && streamOf(state.items[at]) !== stream) at--;
+  const last = at >= 0 ? state.items[at] : undefined;
   // Some agents (Vibe) echo the prompt back as user chunks: already shown.
   if (type === "user" && last?.type === "user" && last.local) return state;
   const items =
     last && last.type === type
-      ? [...state.items.slice(0, -1), { ...last, text: last.text + text }]
-      : [...state.items, { type, id: `${type}-${seq}`, text }];
+      ? state.items.map((item, i) => (i === at ? { ...last, text: last.text + text } : item))
+      : [...state.items, { type, id: `${type}-${seq}`, text, ...(parent && type !== "user" ? { parentToolUseId: parent } : {}) } as ChatItem];
   // Only a `user` event (a prompt sent from here) starts a turn: replayed
   // history streams the same chunks with no turn running, and treating them as
   // one left a resumed chat "busy" until a turnEnd that never comes.
   return withItems(state, items);
+}
+
+/** Whose item it is: a subagent's launch id, "" for the main conversation. */
+export function streamOf(item: ChatItem): string {
+  if (item.type === "tool") return item.call.parentToolUseId ?? "";
+  if (item.type === "agent" || item.type === "thought") return item.parentToolUseId ?? "";
+  return "";
 }
 
 /** A replayed user chunk that is a file, not text: its name joins the last user item's attachments. */
@@ -162,24 +174,48 @@ function textOf(update: ChatUpdate): string | null {
   return content?.type === "text" && typeof content.text === "string" ? content.text : null;
 }
 
-function upsertTool(state: ChatModelState, patch: ChatToolCall): ChatModelState {
+/** Whether a tool call launches a subagent (Claude's Agent/Task tool). */
+export function isSubagentLaunch(call: ChatToolCall): boolean {
+  if (call.toolName === "Agent" || call.toolName === "Task") return true;
+  const input = call.rawInput as { subagent_type?: unknown } | null | undefined;
+  return !!input && typeof input === "object" && typeof input.subagent_type === "string";
+}
+
+/** What the adapter's `_meta.claudeCode` says about an update: the SDK tool name and the subagent launch the call belongs to. */
+function claudeMeta(update: ChatUpdate): { toolName?: string; parentToolUseId?: string } {
+  const code = (update._meta as { claudeCode?: Record<string, unknown> } | undefined)?.claudeCode;
+  if (!code || typeof code !== "object") return {};
+  return {
+    ...(typeof code.toolName === "string" && code.toolName !== "" ? { toolName: code.toolName } : {}),
+    ...(typeof code.parentToolUseId === "string" && code.parentToolUseId !== "" ? { parentToolUseId: code.parentToolUseId } : {}),
+  };
+}
+
+function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): ChatModelState {
+  const patch = { ...(update as unknown as ChatToolCall), ...claudeMeta(update) };
   const index = state.items.findIndex((i) => i.type === "tool" && i.id === patch.toolCallId);
   const items = [...state.items];
   if (index < 0) {
-    items.push({ type: "tool", id: patch.toolCallId, call: patch });
+    items.push({ type: "tool", id: patch.toolCallId, call: isSubagentLaunch(patch) ? { ...patch, startedAt: at } : patch });
   } else {
     const prev = items[index] as Extract<ChatItem, { type: "tool" }>;
     const merged = { ...prev.call } as Record<string, unknown>;
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined && value !== null) merged[key] = value;
     }
-    items[index] = { ...prev, call: merged as unknown as ChatToolCall };
+    const call = merged as unknown as ChatToolCall;
+    // A subagent launch is timed: from its first event to its final status.
+    if (isSubagentLaunch(call)) {
+      if (call.startedAt === undefined) call.startedAt = at;
+      if ((call.status === "completed" || call.status === "failed") && call.endedAt === undefined) call.endedAt = at;
+    }
+    items[index] = { ...prev, call };
   }
   // Like text: a tool call alone (replayed history) doesn't start a turn.
   return withItems(state, items);
 }
 
-function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number): ChatModelState {
+function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number, at: number): ChatModelState {
   switch (update.sessionUpdate) {
     case "user_message_chunk":
     case "agent_message_chunk":
@@ -187,11 +223,11 @@ function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number): Ch
       const text = textOf(update);
       if (text === null) return update.sessionUpdate === "user_message_chunk" ? appendAttachment(state, update, seq) : state;
       const type = update.sessionUpdate === "user_message_chunk" ? "user" : update.sessionUpdate === "agent_message_chunk" ? "agent" : "thought";
-      return appendText(state, type, text, seq);
+      return appendText(state, type, text, seq, type === "user" ? undefined : claudeMeta(update).parentToolUseId);
     }
     case "tool_call":
     case "tool_call_update":
-      return upsertTool(state, update as unknown as ChatToolCall);
+      return upsertTool(state, update, at);
     case "plan":
       return { ...state, plan: (update.entries as ChatPlanEntry[]) ?? [] };
     case "available_commands_update":
@@ -223,7 +259,7 @@ function trackTurn(next: ChatModelState, update: ChatUpdate, at: number): ChatMo
 function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
   switch (ev.kind) {
     case "update": {
-      const next = applyUpdate(state, ev.update, ev.seq);
+      const next = applyUpdate(state, ev.update, ev.seq, ev.at);
       return trackTurn(PROGRESS_UPDATES.has(ev.update.sessionUpdate) ? { ...next, notice: null } : next, ev.update, ev.at);
     }
     case "ext": {

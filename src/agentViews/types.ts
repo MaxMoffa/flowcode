@@ -23,6 +23,9 @@ export interface AgentViewProps {
   onSwitchView: (viewId: string) => void;
   /** Opens a file in an editor tab. */
   onOpenFile: (path: string) => void;
+  /** The subagent whose chat the tab shows instead of the conversation (its launch call id); the host owns it so its header can navigate back. Views that ignore it keep showing the conversation. */
+  openSubagent?: string | null;
+  onOpenSubagent?: (id: string | null) => void;
 }
 
 /** One way to look at an agent session, picked from the registry. */

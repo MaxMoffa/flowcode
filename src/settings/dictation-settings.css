@@ -1,0 +1,51 @@
+.dictation-settings-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dictation-settings-model {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.dictation-settings-model-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dictation-settings-model-name {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dictation-settings-model-size {
+  margin-left: 8px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.dictation-settings-model-desc {
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dictation-settings-model-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.dictation-settings-model-state {
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}

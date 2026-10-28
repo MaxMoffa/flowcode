@@ -528,6 +528,11 @@ impl LogEntry {
         if !matches!(text_chunk(update), Some((k, id, _)) if k == kind && id == message_id) {
             return None;
         }
+        // A subagent's text (stamped with its launch call) never merges into another's or the main agent's.
+        let parent = |u: &Value| u.pointer("/_meta/claudeCode/parentToolUseId").and_then(Value::as_str).map(str::to_owned);
+        if parent(update) != parent(next_update) {
+            return None;
+        }
         let Some(Value::String(merged)) = update.pointer_mut("/content/text") else { return None };
         self.offsets.push(merged.len());
         merged.push_str(text);
@@ -1262,6 +1267,12 @@ impl ChatState {
         self.alerts.subscribe()
     }
 
+    /// The session ids of the running chats, so the agent scan can tell a
+    /// chat's thread (Codex, Vibe) from a terminal tab's.
+    pub(crate) fn live_session_ids(&self) -> std::collections::HashSet<String> {
+        lock(&self.sessions).values().filter_map(|s| s.chat.session_id.get().cloned()).collect()
+    }
+
     /// Every running chat, in no particular order.
     pub(crate) fn list(&self) -> Vec<ChatSummary> {
         lock(&self.sessions)
@@ -1459,6 +1470,16 @@ fn falls_back(strict: bool, error: &str) -> bool {
     !strict && !error.starts_with("auth_required")
 }
 
+/// Attempts (after the first) a strict `session/load` makes while another process still holds the session.
+const LOAD_RETRIES: u32 = 6;
+const LOAD_RETRY_DELAY: Duration = Duration::from_millis(500);
+
+/// Whether a `session/load` error says another client still has the session open (codex-acp's `thread_active_writer`).
+fn session_in_use(error: &str) -> bool {
+    let error = error.to_lowercase();
+    error.contains("active writer") || error.contains("in use by another")
+}
+
 fn new_session(chat: &Chat, cwd: &str) -> Result<(Value, String, bool), String> {
     let result = chat.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), SETUP_TIMEOUT)?;
     let session_id = result
@@ -1479,7 +1500,7 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
         "initialize",
         json!({
             "protocolVersion": 1,
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "_meta": { "subagent-transcript": true } },
             "clientInfo": { "name": "flowcode", "version": env!("CARGO_PKG_VERSION") },
         }),
         SETUP_TIMEOUT,
@@ -1492,11 +1513,22 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
     }
     match resume.filter(|id| can_load && !id.is_empty()) {
         Some(session_id) => {
-            let loaded = chat.request(
-                "session/load",
-                json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
-                SETUP_TIMEOUT,
-            );
+            let mut loaded = Err(String::new());
+            // A terminal that just handed its session over may still be letting go of it
+            // (Codex: "already has an active writer"): a strict resume tries again briefly.
+            for attempt in 0..=if strict { LOAD_RETRIES } else { 0 } {
+                if attempt > 0 {
+                    std::thread::sleep(LOAD_RETRY_DELAY);
+                }
+                loaded = chat.request(
+                    "session/load",
+                    json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
+                    SETUP_TIMEOUT,
+                );
+                if !loaded.as_ref().err().is_some_and(|e| session_in_use(e)) || chat.exited.load(Ordering::Acquire) {
+                    break;
+                }
+            }
             match loaded {
                 Ok(result) => Ok((result, session_id, true)),
                 // An agent that died explains itself better than a
@@ -1924,6 +1956,13 @@ mod tests {
     }
 
     #[test]
+    fn a_session_held_by_another_client_is_recognized() {
+        assert!(session_in_use("thread abc already has an active writer"));
+        assert!(session_in_use("This Codex session is in use by another Codex client (the Codex app, the CLI or an IDE extension)."));
+        assert!(!session_in_use("Session not found"));
+    }
+
+    #[test]
     fn a_failed_load_falls_back_unless_strict_or_signed_out() {
         assert!(falls_back(false, "Session not found"));
         assert!(falls_back(false, "session/load timed out after 180s"));
@@ -1974,6 +2013,27 @@ mod tests {
         assert_eq!(summary(&replay), vec![(1, "q".into()), (4, "Hello wörld".into())]);
         // The merged entry carries its last chunk's time.
         assert_eq!(replay[1].at, 12);
+    }
+
+    #[test]
+    fn subagent_chunks_do_not_merge_with_other_streams() {
+        let mut log = big_log();
+        let sub = |text: &str, parent: &str| ChatBody::Update {
+            update: json!({
+                "sessionUpdate": "agent_message_chunk",
+                "_meta": { "claudeCode": { "parentToolUseId": parent } },
+                "content": { "type": "text", "text": text }
+            }),
+        };
+        log.push(chunk("agent_message_chunk", "main "), 0); // 1
+        log.push(sub("a1 ", "A"), 0); // 2: another stream
+        log.push(sub("a2", "A"), 0); // 3: merges into 2
+        log.push(sub("b", "B"), 0); // 4: another subagent
+        log.push(chunk("agent_message_chunk", "main2"), 0); // 5
+        assert_eq!(
+            summary(&log.after(0)),
+            vec![(1, "main ".into()), (3, "a1 a2".into()), (4, "b".into()), (5, "main2".into())]
+        );
     }
 
     #[test]

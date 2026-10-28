@@ -205,7 +205,7 @@ pub(super) fn wsl_live_threads(distro: Option<&str>) -> Vec<LiveThread> {
 }
 
 /// The agents running inside a WSL distro in this app's tabs (`pty_ids`).
-pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec<AgentSession> {
+pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>, chat_ids: &HashSet<String>) -> Vec<AgentSession> {
     let scan = wsl_scan(distro);
     let distro_name = distro.map(str::to_string).or_else(crate::util::wsl_default_distro);
     let mut threads: Option<Vec<LiveThread>> = None;
@@ -225,7 +225,20 @@ pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec
             }
         }
     }
-    best.into_iter()
+    // Sessions already spoken for: a chat's, and what a tab is certain of; the
+    // guesses below (by folder) each take one more, newest process first, so
+    // two tabs in a folder never share a session.
+    let mut claimed: HashSet<String> = chat_ids.clone();
+    if best.values().any(|p| wsl_agent_of(p).is_some_and(|(bin, _)| bin != "claude" && bin != "vibe")) {
+        threads = Some(wsl_live_threads(distro));
+    }
+    if let Some(threads) = &threads {
+        claimed.extend(threads.iter().filter(|t| t.pty_id.as_ref().is_some_and(|p| pty_ids.contains(p))).map(|t| t.id.clone()));
+    }
+    let mut ordered: Vec<_> = best.into_iter().collect();
+    ordered.sort_by_key(|(_, p)| std::cmp::Reverse(p.started_at));
+    ordered
+        .into_iter()
         .filter_map(|(pty_id, proc_)| {
             let (bin, label) = wsl_agent_of(proc_)?;
             let mut session = AgentSession {
@@ -246,16 +259,19 @@ pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec
                 }
             } else if bin == "vibe" {
                 // Vibe's sessions inside the distro, through its file share.
-                if let Some(found) = distro_name.as_deref().and_then(|d| wsl_vibe_session(d, proc_)) {
+                if let Some(found) = distro_name.as_deref().and_then(|d| wsl_vibe_session(d, proc_, &claimed)) {
+                    claimed.insert(found.0.clone());
                     session.apply_vibe_session(found);
                 }
             } else {
                 let threads = threads.get_or_insert_with(|| wsl_live_threads(distro));
+                let free: Vec<LiveThread> = threads.iter().filter(|t| !claimed.contains(&t.id)).cloned().collect();
                 if let Some(thread) = threads
                     .iter()
                     .find(|t| t.pty_id.as_deref() == Some(session.pty_id.as_str()))
-                    .or_else(|| thread_in(threads, &proc_.cwd))
+                    .or_else(|| thread_in(&free, &proc_.cwd))
                 {
+                    claimed.insert(thread.id.clone());
                     session.apply_thread(thread);
                 }
             }
@@ -267,10 +283,10 @@ pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>) -> Vec
 /// The Vibe session a `vibe` inside WSL works on - read from `~/.vibe` of
 /// the distro's default user (its home asked once, retried if it failed), through the
 /// distro's file share.
-pub(super) fn wsl_vibe_session(distro: &str, proc_: &WslProc) -> Option<(String, Option<String>, &'static str)> {
+pub(super) fn wsl_vibe_session(distro: &str, proc_: &WslProc, skip: &HashSet<String>) -> Option<(String, Option<String>, &'static str)> {
     let home = crate::util::wsl_home(distro)?;
     let root = wsl_unc(distro, &format!("{}/.vibe/logs/session", home.trim_end_matches('/')));
-    crate::vibe::live_session_under(&root, &proc_.cwd, proc_.started_at)
+    crate::vibe::live_session_under(&root, &proc_.cwd, proc_.started_at, skip)
 }
 
 /// `~/.codex/sessions` of the default WSL distro, through its

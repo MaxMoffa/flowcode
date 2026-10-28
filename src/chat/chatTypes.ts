@@ -23,6 +23,13 @@ export interface ChatToolCall {
   content?: ChatToolContent[];
   locations?: ChatToolLocation[];
   rawInput?: unknown;
+  /** Claude's ACP adapter (`_meta.claudeCode`): the Agent/Task call a subagent's tool call belongs to. */
+  parentToolUseId?: string;
+  /** Claude's ACP adapter (`_meta.claudeCode.toolName`): the SDK tool name, "Agent" or "Task" for a subagent launch. */
+  toolName?: string;
+  /** Subagent launches only: when the call first appeared and when it finished (event time, ms). */
+  startedAt?: number;
+  endedAt?: number;
 }
 
 export interface ChatPlanEntry {

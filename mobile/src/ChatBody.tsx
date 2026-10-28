@@ -1,5 +1,6 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
 import { lineDiff, stopKind, type ChatItem, type StopKind } from "../../src/chat/chatModel";
+import { hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
 import type { ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -80,14 +81,14 @@ function categoryOf(call: ChatToolCall): Category {
 }
 
 /** "2 file letti · 1 modifica" for a run of finished steps, with the failed ones counted last. */
-function summaryOf(calls: ChatToolCall[]): string {
+function summaryOf(calls: ChatToolCall[], withFailed = true): string {
   const counts = new Map<Category, number>();
   for (const call of calls) counts.set(categoryOf(call), (counts.get(categoryOf(call)) ?? 0) + 1);
   const parts = CATEGORY_ORDER.flatMap((c) => {
     const n = counts.get(c);
     return n ? [t(SUMMARY[c][n === 1 ? 0 : 1], { n })] : [];
   });
-  const failed = calls.filter((c) => c.status === "failed").length;
+  const failed = withFailed ? calls.filter((c) => c.status === "failed").length : 0;
   if (failed > 0) parts.push(t(failed === 1 ? "chatSumFailed1" : "chatSumFailedN", { n: failed }));
   return parts.join(" · ");
 }
@@ -148,6 +149,67 @@ const ToolRun = memo(function ToolRun({ calls }: { calls: ChatToolCall[] }) {
     </div>
   );
 }, (a, b) => a.calls.length === b.calls.length && a.calls.every((c, i) => c === b.calls[i]));
+
+/** One subagent as a folded row like a tool run: its type and task, the steps count, the step in progress (a summary, time and a tick once done); tap opens its steps and, folded under them, its final report. */
+const SubagentRun = memo(function SubagentRun({ item, onOpen }: { item: SubagentItem; onOpen?: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const { type, description } = subagentInfo(item.call);
+  const state = subagentState(item);
+  const report = subagentReport(item.call);
+  const calls = item.steps.map((s) => s.call);
+  const recovered = !state.failed && state.failedSteps > 0 ? t(state.failedSteps === 1 ? "chatSubRecovered1" : "chatSubRecoveredN", { n: state.failedSteps }) : "";
+  const liveTitle = state.current ? (state.current.title ?? state.current.kind ?? state.current.toolCallId) : t("chatSubStarting");
+  const lineText = state.running ? liveTitle : [summaryOf(calls, false), recovered].filter(Boolean).join(" · ");
+  return (
+    <div className="chat-rail chat-sub">
+      <div className="chat-sub-row">
+      <button type="button" className="chat-step-row chat-sum chat-sub-head" aria-expanded={open} onClick={() => (onOpen ? onOpen(item.id) : setOpen(!open))}>
+        <i className={"chat-dot " + (state.running ? "is-live" : state.failed ? "is-failed" : "is-done")} aria-hidden="true" />
+        <svg className="chat-sub-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="5" y="8" width="14" height="11" rx="3" />
+          <path d="M12 4v4M9 13h.01M15 13h.01M9 16.5h6" />
+        </svg>
+        {type && <span className="chat-sub-tag">{type}</span>}
+        <span className="chat-sub-desc">{description}</span>
+        <span className="chat-sum-count">{calls.length}</span>
+        <span className="chat-sub-end">
+          {state.running ? (
+            <span className="chat-spinner" aria-hidden="true" />
+          ) : (
+            <>
+              {state.seconds !== null && <span>{t("chatSubSeconds", { n: state.seconds })}</span>}
+              <span className={"chat-sub-mark" + (state.failed ? " is-failed" : "")} title={state.failed ? t("chatSubFailed") : t("chatSubDone")}>
+                {state.failed ? "✕" : "✓"}
+              </span>
+            </>
+          )}
+        </span>
+      </button>
+      <button type="button" className="chat-sub-chevron chat-sum" aria-expanded={open} aria-label={t("chatSubInline")} onClick={() => setOpen(!open)}>
+        <ChevronDownIcon />
+      </button>
+      </div>
+      {!open && <div className={"chat-sub-line" + (state.running ? " is-live" : "")}>{lineText}</div>}
+      {open && (
+        <div className="chat-sub-nest">
+          {calls.map((c, i) => (
+            <ToolStep key={c.toolCallId} call={c} index={i + 1} />
+          ))}
+          {report && (
+            <div>
+              <button type="button" className="chat-sub-report-toggle" aria-expanded={reportOpen} onClick={() => setReportOpen(!reportOpen)}>
+                <ChevronDownIcon />
+                {t("chatSubReport")}
+              </button>
+              {reportOpen && <div className="chat-sub-report-body">{report}</div>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}, (a, b) => a.onOpen === b.onOpen && a.item.call === b.item.call && a.item.steps.length === b.item.steps.length && a.item.steps.every((s, i) => s === b.item.steps[i]));
 
 /** The words for why a turn stopped early. */
 const STOP_TEXT: Record<StopKind, Key> = {
@@ -240,10 +302,16 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
 });
 
 /** A turn's items in order, with each run of consecutive tool calls folded into one rail. */
-function Turn({ group, onLink }: { group: ChatItem[]; onLink: (url: string) => void }) {
+function Turn({ group: flat, onLink, onOpenSubagent }: { group: ChatItem[]; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void }) {
   const out: ReactNode[] = [];
+  // A subagent's tool calls fold into its own row, apart from the agent's run of calls.
+  const group = nestSubagents(flat.filter((i) => !hiddenGuardian(i)));
   for (let i = 0; i < group.length; i++) {
     const item = group[i];
+    if (item.type === "subagent") {
+      out.push(<SubagentRun key={item.id} item={item} onOpen={onOpenSubagent} />);
+      continue;
+    }
     if (item.type !== "tool") {
       out.push(<Item key={item.id} item={item} onLink={onLink} />);
       continue;
@@ -261,7 +329,7 @@ function Turn({ group, onLink }: { group: ChatItem[]; onLink: (url: string) => v
 }
 
 /** The conversation: the user's small bubbles, and each run of agent output as one turn of plain text with its tool calls on a rail, then the plan. `onLink` gets a tapped link. */
-export const ChatBody = memo(function ChatBody({ items, plan, onLink }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; onLink: (url: string) => void }) {
+export const ChatBody = memo(function ChatBody({ items, plan, onLink, onOpenSubagent }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void }) {
   const groups: ChatItem[][] = [];
   for (const item of items) {
     const last = groups[groups.length - 1];
@@ -270,8 +338,23 @@ export const ChatBody = memo(function ChatBody({ items, plan, onLink }: { items:
   }
   return (
     <>
-      {groups.map((group) => (group[0].type === "user" ? <Item key={group[0].id} item={group[0]} onLink={onLink} /> : <Turn key={group[0].id} group={group} onLink={onLink} />))}
+      {groups.map((group) => (group[0].type === "user" ? <Item key={group[0].id} item={group[0]} onLink={onLink} /> : <Turn key={group[0].id} group={group} onLink={onLink} onOpenSubagent={onOpenSubagent} />))}
       {plan && plan.length > 0 && <PlanCard plan={plan} />}
+    </>
+  );
+});
+
+/** An open subagent's own chat: the task it was given as a bubble from the main agent, then its messages and tool runs, then its final report. */
+export const SubagentBody = memo(function SubagentBody({ sub, agent, onLink }: { sub: SubagentItem; agent: string; onLink: (url: string) => void }) {
+  const prompt = subagentPrompt(sub.call);
+  const items = subagentItems(sub);
+  return (
+    <>
+      <div className="chat-user is-task">
+        <span className="chat-task-label">{t("chatSubTask", { agent })}</span>
+        {prompt || sub.call.title}
+      </div>
+      {items.length > 0 && <Turn group={items} onLink={onLink} />}
     </>
   );
 });

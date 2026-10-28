@@ -29,6 +29,7 @@ import { layoutLabel, resolveNewTabLayout, useNewTabLayouts } from "../newtab/la
 import { DEFAULT_ACP_VIEW, useAgentViews } from "../agentViews/registry";
 import { setDefaultAgentView, useDefaultAgentView } from "../agentViews/defaultView";
 import { AgentViewPicker } from "./AgentViewPicker";
+import { DictationSettings } from "./DictationSettings";
 import "../agentViews/builtins";
 import { useNewTabSettings } from "../newtab/newTabSettings";
 import { isWindowsPlatform } from "../lib/path";
@@ -154,6 +155,11 @@ export function SettingsPage({
   // see gpu.rs. `null` until loaded; `gpuChanged` flags a pending restart.
   const [hardwareAcceleration, setHardwareAcceleration] = useState<boolean | null>(null);
   const [gpuChanged, setGpuChanged] = useState(false);
+  // Dictation settings only where the backend can dictate.
+  const [dictationSupported, setDictationSupported] = useState(false);
+  useEffect(() => {
+    invoke<boolean>("dictation_supported").then(setDictationSupported, () => {});
+  }, []);
 
   useEffect(() => {
     if (!isWindowsPlatform()) return;
@@ -588,6 +594,8 @@ export function SettingsPage({
                 />
               </SettingRow>
             </SettingsGroup>
+
+            {dictationSupported && <DictationSettings />}
 
             <SettingsGroup title={t("settings.group.notifications")}>
               {NOTIFICATION_KINDS.map((kind) => (

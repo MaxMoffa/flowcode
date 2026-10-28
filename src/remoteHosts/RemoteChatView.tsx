@@ -11,6 +11,7 @@ import { AgentMenuChoices } from "../agentViews/AgentMenuChoices";
 import { agentView, resolveAcpView } from "../agentViews/registry";
 import { expectNewTab, sendToHost, useHost, useHostState } from "./remoteHosts";
 import { useRemoteChat } from "./useRemoteChat";
+import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
 
 const isAgentCli = (v: string): v is AgentCli => (AGENT_CLIS as readonly string[]).includes(v);
 
@@ -21,7 +22,8 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
   const info = useHostState(hostId).chats.find((c) => c.chatId === chatId);
   const chat = useRemoteChat(hostId, chatId);
   const View = resolveAcpView(undefined).component;
-  const { model, modes, models, sessionId } = chat;
+  const { model, modes, sessionId } = chat;
+  const nav = useOpenSubagent(model.items, hidden);
 
   if (!info) return <div className="chat-view remote-empty" style={hidden ? { display: "none" } : undefined}>{t("remoteHosts.chatGone")}</div>;
 
@@ -44,7 +46,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
 
   return (
     <div className="chat-view" style={hidden ? { display: "none" } : undefined}>
-      <AgentHeader icon={agentCliIcon(agent)} title={info.label} subtitle={`${label} · ${basename(info.cwd)} · ${host?.hostName ?? ""}`} status={status}>
+      <AgentHeader icon={agentCliIcon(agent)} title={info.label} subtitle={`${label} · ${basename(info.cwd)} · ${host?.hostName ?? ""}`} status={status} subagent={nav.sub ? subagentHeader(nav.sub, nav.back) : null}>
         {(close) => {
           const menuAction = (action: () => void) => {
             close();
@@ -56,9 +58,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
                 separated
                 modes={modes}
                 currentModeId={currentModeId}
-                models={models}
                 onMode={(id) => menuAction(() => chat.setMode(id))}
-                onModel={(id) => menuAction(() => chat.setModel(id))}
               />
               <button type="button" role="menuitem" className="chat-menu-item" disabled={!canTerminal} onClick={() => menuAction(toTerminal)}>
                 <span>{t("remoteHosts.openAsTerminal")}</span>
@@ -78,7 +78,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
       {chat.phase === "ready" ? (
         View && (
           <Suspense fallback={null}>
-            <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={() => {}} />
+            <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={() => {}} openSubagent={nav.openId} onOpenSubagent={nav.open} />
           </Suspense>
         )
       ) : (

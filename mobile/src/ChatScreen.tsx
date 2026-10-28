@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import "./terminal.css";
 import "./chat.css";
 import type { ChatInfo } from "../../shared/remote-types";
-import { ChatBody } from "./ChatBody";
+import { ChatBody, SubagentBody } from "./ChatBody";
+import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
 import { ChatComposer } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
@@ -14,14 +15,16 @@ import { useTwoFingerSwipe } from "./chatSwipe";
 import { answerChatPermission, cancelChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
+import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
-import { AgentLogo, AgentsIcon, BackIcon, ChevronDownIcon } from "./icons";
+import { AgentLogo, AgentsIcon, BackIcon, ArrowDownIcon, ChevronDownIcon } from "./icons";
 import { setChatTabShown, showToast, useRemoteSelector, useSupports } from "./remote";
 import { TermAgents } from "./TermAgents";
 import { openLink, TermLink } from "./TermLink";
 import { useTerminalViewport } from "./termViewport";
 import { useReadyViews, viewFits, viewLabel } from "./viewCache";
 import { useWide } from "./wide";
+import { findSubagent, isGuardianReview, subagentInfo, subagentState } from "../../src/chat/chatTimeline";
 
 /** Distance from the end of the thread that still counts as "at the bottom". */
 const BOTTOM_SLACK = 80;
@@ -41,6 +44,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const innerRef = useRef<HTMLDivElement>(null);
   /** The thread follows new messages only while the user is at its end. */
   const stick = useRef(true);
+  /** Set while the smooth scroll to the end runs, so its in-between scroll events don't flash the jump button. */
+  const gliding = useRef(false);
   const [atBottom, setAtBottom] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
@@ -63,6 +68,23 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const stored = useChatSession(chatId);
   const session = useMemo(() => stored ?? emptySession(), [stored]);
   const { model } = session;
+  // An open subagent: its own chat replaces the conversation until Back (header, Android button, Escape).
+  const [openSub, setOpenSub] = useState<string | null>(null);
+  const sub = useMemo(() => (openSub ? findSubagent(model.items, openSub) : null), [model.items, openSub]);
+  const subId = sub ? sub.id : null;
+  const savedScroll = useRef<{ top: number; follow: boolean } | null>(null);
+  const prevSub = useRef<string | null>(null);
+  const closeSub = useCallback(() => setOpenSub(null), []);
+  useEffect(() => {
+    if (openSub && !sub) setOpenSub(null);
+  }, [openSub, sub]);
+  useBackHandler(!!sub, closeSub);
+  useEscape(!!sub, closeSub);
+  const openSubagent = useCallback((id: string) => {
+    const el = scrollRef.current;
+    savedScroll.current = el ? { top: el.scrollTop, follow: stick.current } : null;
+    setOpenSub(id);
+  }, []);
   const wide = useWide();
   useFollowChat(chatId);
 
@@ -138,7 +160,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
       const next = order[order.indexOf(shown) + direction];
       if (next) pick(next);
     },
-    !menuOpen,
+    !menuOpen && !sub,
   );
 
   // The thread follows the conversation while the user is at its end (including when the keyboard resizes it).
@@ -146,7 +168,22 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   };
-  useLayoutEffect(toEnd, [model.items, model.plan, session.queued.length, shown, pending.length]);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const was = prevSub.current;
+    prevSub.current = subId;
+    if (!el || was === subId) return;
+    if (subId && !was) {
+      stick.current = true;
+      el.scrollTop = el.scrollHeight;
+      setAtBottom(true);
+    } else if (!subId && was && savedScroll.current) {
+      stick.current = savedScroll.current.follow;
+      el.scrollTop = savedScroll.current.follow ? el.scrollHeight : savedScroll.current.top;
+      setAtBottom(savedScroll.current.follow);
+    }
+  }, [subId]);
+  useLayoutEffect(toEnd, [model.items, model.plan, session.queued.length, shown, pending.length, subId]);
   useEffect(() => {
     const el = scrollRef.current;
     const inner = innerRef.current;
@@ -160,6 +197,10 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
     const el = scrollRef.current;
     if (!el) return;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK;
+    if (gliding.current) {
+      if (near) gliding.current = false;
+      else return;
+    }
     stick.current = near;
     setAtBottom(near);
   };
@@ -185,16 +226,18 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const stateText = status === "waiting" ? t("termStateWaiting") : status === "busy" ? t("termStateBusy") : status === "starting" ? t("chatStateStarting") : status === "exited" ? t("chatStateExited") : t("termStateIdle");
 
   /** What the agent is doing right now, for the status line: the title of the step still running. */
+  const subState = sub ? subagentState(sub) : null;
   const runningTool = useMemo(() => {
-    for (let i = model.items.length - 1; i >= 0; i--) {
-      const item = model.items[i];
-      if (item.type === "tool" && item.call.status !== "completed" && item.call.status !== "failed") return item.call.title ?? item.call.kind ?? null;
+    const list = sub ? sub.children : model.items;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const item = list[i];
+      if (item.type === "tool" && item.call.status !== "completed" && item.call.status !== "failed") return isGuardianReview(item.call) ? t("chatGuardianChecking") : (item.call.title ?? item.call.kind ?? null);
     }
     return null;
-  }, [model.items]);
+  }, [model.items, sub]);
 
-  const back = !embedded && (
-    <button type="button" className="tm-back" aria-label={t("back")} onClick={onBack}>
+  const back = (!embedded || !!sub) && (
+    <button type="button" className="tm-back" aria-label={sub ? t("chatSubBack") : t("back")} onClick={sub ? closeSub : onBack}>
       <BackIcon />
     </button>
   );
@@ -212,7 +255,19 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
     <div className={"screen term-screen chat-screen" + (embedded ? " is-embedded" : "") + (kbOpen ? " kb" : "")} ref={screenRef}>
       <header className="term-head chat-head">
         {back}
-        {editing ? (
+        {sub ? (
+          <div className="chat-crumb">
+            <AgentLogo cli={info.agent} size={18} />
+            <span className="chat-crumb-label">{[subagentInfo(sub.call).type, subagentInfo(sub.call).description].filter(Boolean).join(" · ")}</span>
+            {subState?.running ? (
+              <span className="chat-spinner" aria-hidden="true" />
+            ) : (
+              <span className={"chat-sub-mark" + (subState?.failed ? " is-failed" : "")} title={subState?.failed ? t("chatSubFailed") : t("chatSubDone")}>
+                {subState?.failed ? "✕" : "✓"}
+              </span>
+            )}
+          </div>
+        ) : editing ? (
           <div className="chat-title">
             <span className="chat-title-logo">
               <AgentLogo cli={info.agent} size={18} />
@@ -266,31 +321,52 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
           <div className="chat-thread-wrap">
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
-                {model.items.length === 0 && <div className="chat-empty">{session.loaded ? t("chatEmpty") : t("loading")}</div>}
-                <ChatBody items={model.items} plan={model.plan} onLink={onLink} />
+                {sub ? (
+                  <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} />
+                ) : (
+                  <>
+                    {model.items.length === 0 && <div className="chat-empty">{session.loaded ? t("chatEmpty") : t("loading")}</div>}
+                    <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
+                  </>
+                )}
+                {(sub ? !!subState?.running : status === "busy") && !exited && (
+                  <div className="chat-status">
+                    <FrogThinking activity={runningTool} verbs={THINKING_VERBS.map((k) => t(k))} startedAt={sub ? sub.call.startedAt : model.turn?.startedAt} outChars={sub ? undefined : model.turn?.outChars} tokensLabel={(n) => t("chatTokens", { n })} tokensTitle={t("chatTokensTitle")} />
+                  </div>
+                )}
               </div>
             </div>
             {!atBottom && (
               <button
                 type="button"
-                className="chat-jump"
+                className={"chat-jump" + ((sub ? !!subState?.running : status === "busy") && !exited ? " is-busy" : "")}
+                aria-label={t("chatJumpToEnd")}
+                title={t("chatJumpToEnd")}
                 onClick={() => {
+                  tapFeedback();
+                  const el = scrollRef.current;
                   stick.current = true;
-                  toEnd();
+                  gliding.current = true;
                   setAtBottom(true);
+                  el?.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                  window.setTimeout(() => {
+                    gliding.current = false;
+                  }, 900);
                 }}
               >
-                {t("chatJumpToEnd")}
+                <ArrowDownIcon />
               </button>
             )}
           </div>
           <PermissionBar pending={pending} onAnswer={answerPermission} />
-          {status === "busy" && !exited && (
-            <div className="chat-status">
-              <FrogThinking activity={runningTool} verbs={THINKING_VERBS.map((k) => t(k))} startedAt={model.turn?.startedAt} outChars={model.turn?.outChars} tokensLabel={(n) => t("chatTokens", { n })} tokensTitle={t("chatTokensTitle")} />
+          {sub ? (
+            <div className="chat-sub-foot">
+              <span>{t("chatSubReadOnly", { agent: agentName(info.agent) })}</span>
+              <button type="button" onClick={closeSub}>
+                {t("chatSubBack")}
+              </button>
             </div>
-          )}
-          {exited ? (
+          ) : exited ? (
             <div className="chat-ended" role="status">
               {t("chatExited")}
             </div>

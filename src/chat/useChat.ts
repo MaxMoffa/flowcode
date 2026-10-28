@@ -24,7 +24,8 @@ interface UseChatOptions {
   strictResume?: boolean;
   /** The agent's session id, once it is up (the terminal can resume it). */
   onSessionId: (sessionId: string) => void;
-  onStatus: (status: ChatStatus) => void;
+  /** The chat's status; `error` is why it failed to start, when it did. */
+  onStatus: (status: ChatStatus, error?: string | null) => void;
 }
 
 interface ChatEventPayload {
@@ -60,6 +61,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   modelRef.current = model;
   const onSessionIdRef = useRef(onSessionId);
   onSessionIdRef.current = onSessionId;
+  // The start in flight (resolves once the agent is up or failed): `close` waits for it, so an agent still starting is never left behind.
+  const startRef = useRef<Promise<void> | null>(null);
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
   // `lastSeq` when the last message was handed to the agent: until a newer
@@ -81,7 +84,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     // Deferred a tick: React StrictMode mounts, unmounts and mounts again at
     // once, and the first round must not spawn an agent of its own.
     const timer = setTimeout(() => {
-      void (async () => {
+      startRef.current = (async () => {
         try {
           const started = await invoke<ChatStartResult>("chat_start", {
             agent,
@@ -148,7 +151,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   const status: ChatStatus = phase === "failed" ? "exited" : model.status;
   useEffect(() => {
-    onStatusRef.current(status);
+    onStatusRef.current(status, error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   /** Hands a message to the agent; a failure shows up as an error in the conversation. */
@@ -256,17 +260,32 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   /** Starts the agent again - resuming the same session when it had a conversation. */
   const restart = useCallback(() => setAttempt((n) => n + 1), []);
 
+  /** "/clear": a fresh conversation in this tab. The queue is dropped and the
+   * session forgotten, so the start effect runs a `session/new` (and reports
+   * its id); the old agent is closed by the effect's cleanup, mid-turn or not. */
+  const clear = useCallback(() => {
+    setQueued([]);
+    talkedRef.current = false;
+    sessionIdRef.current = undefined;
+    resumedRef.current = false;
+    setAttempt((n) => n + 1);
+  }, []);
+
   /** Ends the agent now and resolves once the backend has killed it: a terminal
    * about to resume the same session must never run beside it. */
   const close = useCallback(async () => {
+    await startRef.current;
     const id = chatIdRef.current;
     if (!id) return;
     chatIdRef.current = null;
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, chatId, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, unqueue, force, restart, close };
+  return { model, phase, error, modes, models, chatId, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = ReturnType<typeof useChat>;
+export type ChatSession = Omit<ReturnType<typeof useChat>, "clear"> & {
+  /** Starts a fresh conversation in the same tab; absent for a chat running on another PC. */
+  clear?: () => void;
+};

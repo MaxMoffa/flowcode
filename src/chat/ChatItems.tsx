@@ -5,7 +5,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { LinkPreviews } from "./LinkPreviews";
 import { basename } from "../lib/path";
 import { ChatPathLink } from "../lib/fileLinks";
-import { STEP_CATEGORIES, summarizeSteps, type TimelineStep } from "./chatTimeline";
+import { STEP_CATEGORIES, subagentInfo, subagentReport, subagentState, summarizeSteps, type SubagentItem, type TimelineStep } from "./chatTimeline";
 import type { ChatPermissionOption, ChatToolContent } from "./chatTypes";
 
 /** Diff rows drawn before "… N more lines". */
@@ -111,8 +111,9 @@ function PermissionStep({ step, index }: { step: Extract<TimelineStep, { type: "
   );
 }
 
-function summaryText(steps: TimelineStep[], t: ReturnType<typeof useI18n>["t"]): string {
-  const { counts, failed } = summarizeSteps(steps);
+function summaryText(steps: TimelineStep[], t: ReturnType<typeof useI18n>["t"], withFailed = true): string {
+  const { counts, failed: failedCount } = summarizeSteps(steps);
+  const failed = withFailed ? failedCount : 0;
   const parts: string[] = STEP_CATEGORIES.filter((c) => counts[c] > 0).map((c) =>
     t(`chat.group.${c}.${counts[c] === 1 ? "one" : "other"}`, { count: counts[c] }),
   );
@@ -157,6 +158,99 @@ export const ToolGroup = memo(function ToolGroup({ steps, live }: { steps: Timel
   );
   // The timeline rebuilds its step arrays on every render; the steps themselves keep their identity until they change.
 }, (a, b) => a.live === b.live && a.steps.length === b.steps.length && a.steps.every((s, i) => s === b.steps[i]));
+
+const CHEVRON = (
+  <svg className="chat-group-chevron" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="9 6 15 12 9 18" />
+  </svg>
+);
+
+const BOT_ICON = (
+  <svg className="chat-sub-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="5" y="8" width="14" height="11" rx="3" />
+    <path d="M12 4v4M9 13h.01M15 13h.01M9 16.5h6" />
+  </svg>
+);
+
+/** One subagent as a folded row in the style of the tool groups: its type and task, how many steps it made and the one in progress (a summary, time and a tick once done); open, its steps indented, then its final report folded. */
+export const SubagentRow = memo(function SubagentRow({ item, onOpen }: { item: SubagentItem; onOpen?: (id: string) => void }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const { type, description } = subagentInfo(item.call);
+  const state = subagentState(item);
+  const report = subagentReport(item.call);
+  const steps = item.steps;
+  const recovered = !state.failed && state.failedSteps > 0 ? t(`chat.subagent.recovered.${state.failedSteps === 1 ? "one" : "other"}`, { count: state.failedSteps }) : "";
+  const dot = state.running ? "is-live" : state.failed ? "is-failed" : "is-done";
+  const liveTitle = state.current ? (state.current.title ?? state.current.kind ?? state.current.toolCallId) : t("chat.subagent.starting");
+  const lineText = state.running ? liveTitle : [summaryText(steps, t, false), recovered].filter(Boolean).join(" · ");
+  return (
+    <div className="chat-rail chat-sub">
+      <div className="chat-sub-head">
+      <span className={`chat-dot ${dot}`} aria-hidden="true" />
+      <button type="button" className="chat-sub-chevron" aria-expanded={open} aria-label={t("chat.subagent.inline")} title={t("chat.subagent.inline")} onClick={() => setOpen((v) => !v)}>
+        {CHEVRON}
+      </button>
+      <button type="button" className="chat-group-toggle chat-sub-toggle" title={onOpen ? t("chat.subagent.open") : undefined} onClick={() => (onOpen ? onOpen(item.id) : setOpen((v) => !v))}>
+        {BOT_ICON}
+        {type && <span className="chat-sub-tag">{type}</span>}
+        <span className="chat-sub-desc" title={description}>
+          {description}
+        </span>
+        <span className="chat-group-count" title={t("chat.subagent.steps", { count: steps.length })}>
+          {steps.length}
+        </span>
+        <span className="chat-sub-end">
+          {state.running ? (
+            <span className="chat-spinner" aria-hidden="true" />
+          ) : (
+            <>
+              {state.seconds !== null && <span>{t("chat.subagent.seconds", { count: state.seconds })}</span>}
+              <span className={state.failed ? "chat-sub-mark is-failed" : "chat-sub-mark"} title={state.failed ? t("chat.subagent.failed") : t("chat.subagent.done")}>
+                {state.failed ? "✕" : "✓"}
+              </span>
+            </>
+          )}
+        </span>
+        {onOpen && (
+          <svg className="chat-sub-open" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M7 17 17 7M8 7h9v9" />
+          </svg>
+        )}
+      </button>
+      </div>
+      {!open && (
+        <div className={`chat-sub-line${state.running ? " is-live" : ""}`}>
+          <span key={state.running ? liveTitle : "summary"} className="chat-sub-line-text">
+            {lineText}
+          </span>
+        </div>
+      )}
+      {open && (
+        <div className="chat-sub-nest">
+          {steps.map((step, i) => (
+            <ToolStep key={step.id} step={step} live={state.running} index={i + 1} />
+          ))}
+          {report && (
+            <div>
+              <button type="button" className="chat-sub-report-toggle" aria-expanded={reportOpen} onClick={() => setReportOpen((v) => !v)}>
+                {CHEVRON}
+                {t("chat.subagent.report")}
+              </button>
+              {reportOpen && (
+                <div className="chat-sub-report-body">
+                  <ChatMarkdown text={report} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+  // The timeline rebuilds the item on every render; its call and steps keep their identity until they change.
+}, (a, b) => a.onOpen === b.onOpen && a.item.call === b.item.call && a.item.steps.length === b.item.steps.length && a.item.steps.every((s, i) => s === b.item.steps[i]));
 
 /** The words for why a turn stopped early. */
 const STOP_TEXT: Record<StopKind, Parameters<ReturnType<typeof useI18n>["t"]>[0]> = {

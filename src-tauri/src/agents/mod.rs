@@ -204,6 +204,29 @@ pub async fn end_pty_agent(app: tauri::AppHandle, pty_id: String) -> Result<(), 
     .await
 }
 
+/// Whether a session of `cli` has a transcript on disk that `claude --resume` /
+/// `codex resume` / an ACP `session/load` can open. A session nobody has
+/// prompted yet (a fresh chat, or a terminal agent just started) has none, and
+/// resuming it fails: the terminal/chat switch starts a fresh agent instead.
+/// Agents other than Claude and Codex report `true` (not checked).
+#[tauri::command]
+pub async fn agent_session_saved(app: tauri::AppHandle, cli: String, session_id: String, profile: Option<String>) -> Result<bool, String> {
+    if !is_safe_session_id(&session_id) {
+        return Ok(false);
+    }
+    let Some(dirs) = crate::profiles::dirs(&app, profile.as_deref()) else { return Ok(true) };
+    crate::blocking(move || {
+        Ok(match cli.as_str() {
+            "claude" => std::fs::read_dir(dirs.claude.join("projects"))
+                .map(|folders| folders.flatten().any(|f| f.path().join(format!("{session_id}.jsonl")).is_file()))
+                .unwrap_or(false),
+            "codex" => codex::find_codex_rollout(&dirs.codex.join("sessions"), &session_id).is_some(),
+            _ => true,
+        })
+    })
+    .await
+}
+
 /// The body of `list_agent_sessions`, also used by the remote-access server
 /// (remote.rs) to tell a phone which tab runs which agent.
 pub(crate) async fn collect_agent_sessions(app: &tauri::AppHandle) -> Result<Vec<AgentSession>, String> {
@@ -219,7 +242,9 @@ pub(crate) async fn collect_agent_sessions(app: &tauri::AppHandle) -> Result<Vec
         .map(|(pty_id, _)| (pty_id.clone(), crate::pty::profile_of(&pty_state, pty_id)))
         .collect();
     let homes = ProfileHomes::of(app);
-    let mut sessions = crate::blocking(move || Ok(find_agent_sessions(shell_pids, &homes, &profiles))).await?;
+    // Threads a chat owns are not a terminal tab's.
+    let chat_ids = app.state::<crate::chat::ChatState>().live_session_ids();
+    let mut sessions = crate::blocking(move || Ok(find_agent_sessions(shell_pids, &homes, &profiles, &chat_ids))).await?;
     for session in &mut sessions {
         if let Some((window, tab)) = tabs.get(&session.pty_id) {
             session.window = Some(window.clone());
@@ -260,6 +285,7 @@ fn find_agent_sessions(
     shell_pids: Vec<(String, u32)>,
     homes: &ProfileHomes,
     profiles: &HashMap<String, Option<String>>,
+    chat_ids: &HashSet<String>,
 ) -> Vec<AgentSession> {
     // Distro -> the tabs whose agent (if any) can only be found inside it.
     let mut wsl_tabs: HashMap<Option<String>, HashSet<String>> = HashMap::new();
@@ -272,7 +298,8 @@ fn find_agent_sessions(
         }
 
         let mut sessions = Vec::new();
-        let mut host_threads: Option<Vec<LiveThread>> = None;
+        let mut codex_tabs: Vec<usize> = Vec::new();
+        let mut vibe_tabs: Vec<usize> = Vec::new();
         for (pty_id, shell_pid) in shell_pids {
             let root = Pid::from_u32(shell_pid);
             if let Some((cli, cli_label, pid, started_at)) = find_agent(sys, root, &children_of) {
@@ -292,23 +319,10 @@ fn find_agent_sessions(
                     ..AgentSession::default()
                 };
                 if cli == "codex" {
-                    let threads = host_threads.get_or_insert_with(|| host_live_threads(&homes.codex));
-                    // The tab's own profile first: two profiles can have a
-                    // thread open in the same folder.
-                    let found = cwd.as_deref().and_then(|c| {
-                        let mine: Vec<LiveThread> = threads.iter().filter(|t| t.profile == profile).cloned().collect();
-                        thread_in(&mine, c).cloned().or_else(|| thread_in(threads, c).cloned())
-                    });
-                    if let Some(thread) = found {
-                        session.apply_thread(&thread);
-                    }
+                    // Threads are paired with the tabs below, once all are known.
+                    codex_tabs.push(sessions.len());
                 } else if cli == "vibe" {
-                    let found = homes.vibe_of(&profile).and_then(|home| {
-                        cwd.as_deref().and_then(|c| crate::vibe::live_session_in(home, c, started_at))
-                    });
-                    if let Some(found) = found {
-                        session.apply_vibe_session(found);
-                    }
+                    vibe_tabs.push(sessions.len());
                 } else if let Some(entry) = claude_registry_entry(pid, &homes.claude) {
                     session.apply_claude_entry(&entry);
                 }
@@ -317,13 +331,62 @@ fn find_agent_sessions(
                 wsl_tabs.entry(distro).or_default().insert(pty_id);
             }
         }
+        if !codex_tabs.is_empty() {
+            assign_codex_threads(&mut sessions, &codex_tabs, &host_live_threads(&homes.codex), chat_ids);
+        }
+        // Newest process first, so it takes the newest session; each session once.
+        vibe_tabs.sort_by_key(|&i| std::cmp::Reverse(sessions[i].started_at));
+        let mut claimed = chat_ids.clone();
+        for i in vibe_tabs {
+            let found = homes.vibe_of(&sessions[i].profile).and_then(|home| {
+                let cwd = sessions[i].cwd.as_deref()?;
+                crate::vibe::live_session_in(home, cwd, sessions[i].started_at, &claimed)
+            });
+            if let Some(found) = found {
+                claimed.insert(found.0.clone());
+                sessions[i].apply_vibe_session(found);
+            }
+        }
         sessions
     });
     // Outside the process table's lock: this runs `wsl.exe`.
     for (distro, pty_ids) in wsl_tabs {
-        sessions.extend(wsl_agents(distro.as_deref(), &pty_ids));
+        sessions.extend(wsl_agents(distro.as_deref(), &pty_ids, chat_ids));
     }
     sessions
+}
+
+/// Gives each Codex tab (`tabs`: indexes into `sessions`) its own live thread.
+/// Codex doesn't say which process holds which thread, so tabs sharing a
+/// folder and profile used to all be handed the folder's latest thread - one
+/// working made every one of them look busy. Within such a group the tabs are
+/// paired with distinct threads in creation order (process start time against
+/// thread id, which Codex generates time-ordered); a tab left without a thread
+/// (just started, nothing written yet) is the newest one. Threads in `skip`
+/// belong to a chat (codex-acp writes them in the same Codex home) and are left out.
+fn assign_codex_threads(sessions: &mut [AgentSession], tabs: &[usize], threads: &[LiveThread], skip: &HashSet<String>) {
+    let mut groups: HashMap<(Option<String>, String), Vec<usize>> = HashMap::new();
+    for &i in tabs {
+        let key = (sessions[i].profile.clone(), sessions[i].cwd.clone().unwrap_or_default());
+        groups.entry(key).or_default().push(i);
+    }
+    for ((profile, cwd), mut members) in groups {
+        let in_dir = |own: bool| -> Vec<&LiveThread> {
+            threads.iter().filter(|t| !skip.contains(&t.id)).filter(|t| (!own || t.profile == profile) && same_dir(&t.cwd, &cwd)).collect()
+        };
+        let mut candidates = in_dir(true);
+        if candidates.is_empty() {
+            candidates = in_dir(false);
+        }
+        // More threads than tabs (Codex open elsewhere too): the busiest recent ones.
+        candidates.sort_by_key(|t| std::cmp::Reverse(t.updated_at));
+        candidates.truncate(members.len());
+        candidates.sort_by(|a, b| a.id.cmp(&b.id));
+        members.sort_by_key(|&i| sessions[i].started_at);
+        for (&i, thread) in members.iter().zip(candidates) {
+            sessions[i].apply_thread(thread);
+        }
+    }
 }
 
 /// Whether a session id read from disk (a transcript's file name, a field
@@ -473,6 +536,65 @@ mod tests {
     use super::{agent_of, rollout_turn_open};
     use super::codex::read_codex_session;
     use super::is_safe_session_id;
+    use super::{assign_codex_threads, AgentSession, LiveThread};
+    use std::collections::HashSet;
+
+    fn tab(started: u64, cwd: &str) -> AgentSession {
+        AgentSession { cli: "codex".into(), started_at: Some(started), cwd: Some(cwd.into()), ..AgentSession::default() }
+    }
+
+    fn thread(id: &str, cwd: &str, updated: u64, busy: bool) -> LiveThread {
+        LiveThread {
+            id: id.into(),
+            cwd: cwd.into(),
+            name: None,
+            updated_at: Some(updated),
+            turn_open: Some(busy),
+            wsl_distro: None,
+            pty_id: None,
+            profile: None,
+        }
+    }
+
+    fn ids(sessions: &[AgentSession]) -> Vec<Option<&str>> {
+        sessions.iter().map(|s| s.session_id.as_deref()).collect()
+    }
+
+    #[test]
+    fn codex_tabs_in_one_folder_get_distinct_threads() {
+        let mut s = vec![tab(200, "/p"), tab(100, "/p")];
+        let threads = [thread("a", "/p", 5, false), thread("b", "/p", 9, true)];
+        assign_codex_threads(&mut s, &[0, 1], &threads, &HashSet::new());
+        // Older process, older thread.
+        assert_eq!(ids(&s), vec![Some("b"), Some("a")]);
+        assert_eq!(s[0].status.as_deref(), Some("busy"));
+        assert_eq!(s[1].status.as_deref(), Some("idle"));
+    }
+
+    #[test]
+    fn extra_threads_keep_the_most_recent() {
+        let mut s = vec![tab(100, "/p")];
+        let threads = [thread("a", "/p", 1, false), thread("b", "/p", 9, true), thread("c", "/other", 99, true)];
+        assign_codex_threads(&mut s, &[0], &threads, &HashSet::new());
+        assert_eq!(ids(&s), vec![Some("b")]);
+    }
+
+    #[test]
+    fn newest_tab_without_thread_gets_none() {
+        let mut s = vec![tab(100, "/p"), tab(200, "/p")];
+        assign_codex_threads(&mut s, &[0, 1], &[thread("a", "/p", 1, false)], &HashSet::new());
+        assert_eq!(ids(&s), vec![Some("a"), None]);
+    }
+
+    #[test]
+    fn chat_threads_are_left_out() {
+        let mut s = vec![tab(100, "/p")];
+        let threads = [thread("a", "/p", 1, false), thread("chat", "/p", 9, true)];
+        let skip = HashSet::from(["chat".to_string()]);
+        assign_codex_threads(&mut s, &[0], &threads, &skip);
+        assert_eq!(ids(&s), vec![Some("a")]);
+        assert_eq!(s[0].status.as_deref(), Some("idle"));
+    }
 
     #[test]
     fn session_ids_fit_for_a_command_line() {

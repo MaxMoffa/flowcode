@@ -1,13 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
 import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
-import { ChatItemView, PaperclipIcon, PermissionCard, ToolGroup } from "./ChatItems";
-import { buildTimeline, liveTool } from "./chatTimeline";
-import type { ChatAttachment } from "./chatTypes";
+import { ChatItemView, PaperclipIcon, PermissionCard, SubagentRow, ToolGroup } from "./ChatItems";
+import { buildTimeline, findSubagent, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
+import { CLI_INFO } from "../agents/cliInfo";
+import type { ChatAttachment, ChatCommand } from "./chatTypes";
+import { ChatMarkdown } from "./ChatMarkdown";
 import { FrogThinking } from "../../shared/FrogThinking";
-import { appendDictation, useDictation } from "./useDictation";
+import { appendDictation, TRANSCRIBING_MARKER, useDictation } from "./useDictation";
+import { DictationSetupDialog } from "./DictationSetupDialog";
 import "./chat.css";
 
 /** Playful verbs the thinking line cycles through while no tool runs. */
@@ -31,6 +34,8 @@ const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 /** Heights of the bars of the listening waveform. */
 const WAVE_BARS = [7, 14, 20, 11, 18, 8, 16, 10];
+/** Circumference of the download ring around the mic (r = 15 in its 34-unit box). */
+const RING_LENGTH = 2 * Math.PI * 15;
 
 /** A bar's height in px: flat-ish while quiet, its full height at the loudest. */
 function waveHeight(full: number, level: number): number {
@@ -56,7 +61,7 @@ function formatTimer(seconds: number): string {
 
 /** The built-in "chat" view: the conversation as a timeline (messages, tool
  * activity on a rail, permission requests) and a floating composer under it. */
-export default function ChatBody({ session: chat, agent, hidden }: AgentViewProps) {
+export default function ChatBody({ session: chat, agent, hidden, openSubagent = null, onOpenSubagent }: AgentViewProps) {
   const { t } = useI18n();
   const { model, phase, queued } = chat;
   const status = model.status;
@@ -79,6 +84,9 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
   const dictation = useDictation((text) => setDraft((d) => appendDictation(d, text)), !hidden);
   const listening = dictation.state === "listening";
   const followRef = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
+  /** Set while the smooth scroll to the end runs, so its scroll events don't flash the jump button. */
+  const glidingRef = useRef(false);
 
   // Seconds spent listening, for the timer in the composer.
   const [seconds, setSeconds] = useState(0);
@@ -89,19 +97,48 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
     return () => clearInterval(timer);
   }, [listening]);
 
-  const timeline = buildTimeline(model.items);
+  // An open subagent: its own chat replaces the conversation (the composer too).
+  const sub = useMemo(() => (openSubagent ? findSubagent(model.items, openSubagent) : null), [model.items, openSubagent]);
+  const subState = sub ? subagentState(sub) : null;
+  const subId = sub ? sub.id : null;
+  const savedScroll = useRef<{ top: number; follow: boolean } | null>(null);
+  const prevSubId = useRef<string | null>(null);
+  function openSub(id: string) {
+    const column = columnRef.current;
+    savedScroll.current = column ? { top: column.scrollTop, follow: followRef.current } : null;
+    onOpenSubagent?.(id);
+  }
+  // Entering shows the subagent's end; going back restores where the conversation was.
+  useLayoutEffect(() => {
+    const column = columnRef.current;
+    const was = prevSubId.current;
+    prevSubId.current = subId;
+    if (!column || was === subId) return;
+    if (subId && !was) {
+      followRef.current = true;
+      column.scrollTop = column.scrollHeight;
+      setAtBottom(true);
+    } else if (!subId && was && savedScroll.current) {
+      followRef.current = savedScroll.current.follow;
+      column.scrollTop = savedScroll.current.follow ? column.scrollHeight : savedScroll.current.top;
+      setAtBottom(savedScroll.current.follow);
+    }
+  }, [subId]);
+
+  const mainTimeline = buildTimeline(model.items);
+  const timeline = sub ? subagentTimeline(sub) : mainTimeline;
   const pending = model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined);
   const lastSegment = timeline[timeline.length - 1];
-  const liveGroup = model.turnActive && lastSegment?.type === "group" ? lastSegment : null;
-  const running = liveTool(model.items);
-  const showLive = working && !notice && pending.length === 0;
-  const liveText = running?.title ?? running?.kind ?? null;
+  const liveGroup = (sub ? !!subState?.running : model.turnActive) && lastSegment?.type === "group" ? lastSegment : null;
+  const running = liveTool(sub ? sub.children : model.items);
+  const showLive = (sub ? !!subState?.running : working) && !notice && pending.length === 0;
+  const liveText = running && isGuardianReview(running) ? t("chat.guardian.checking") : (running?.title ?? running?.kind ?? null);
 
   // Follow the conversation while the reader is at its end.
   useLayoutEffect(() => {
     const column = columnRef.current;
     if (column && followRef.current && !hidden) column.scrollTop = column.scrollHeight;
-  }, [model.lastSeq, queued.length, phase, hidden, pending.length]);
+  }, [model.lastSeq, queued.length, phase, hidden, pending.length, subId]);
   // ...and when the content grows later, with no new event: an expanded
   // step, a link preview or a code block laid out after the render above.
   useEffect(() => {
@@ -123,16 +160,32 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
     if (!input) return;
     input.style.height = "auto";
     input.style.height = `${input.scrollHeight}px`;
-  }, [draft, phase, hidden]);
+  }, [draft, phase, hidden, subId]);
 
   useEffect(() => {
-    if (!hidden) inputRef.current?.focus();
-  }, [hidden, phase]);
+    if (!hidden && !subId) inputRef.current?.focus();
+  }, [hidden, phase, subId]);
 
+  // The "/" menu: client-side commands first (ours wins over an agent command of the same name), then the agent's.
+  const builtins: ChatCommand[] = chat.clear ? [{ name: "clear", description: t("chat.cmd.clear") }] : [];
+  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const listId = useId();
   const suggestions =
-    draft.startsWith("/") && !/\s/.test(draft)
-      ? model.commands.filter((c) => c.name.startsWith(draft.slice(1))).slice(0, COMMANDS_SHOWN)
+    draft.startsWith("/") && !/\s/.test(draft) && dismissedFor !== draft
+      ? [...builtins, ...model.commands.filter((c) => !builtins.some((b) => b.name === c.name))]
+          .filter((c) => c.name.startsWith(draft.slice(1)))
+          .slice(0, COMMANDS_SHOWN)
       : [];
+  const menuOpen = suggestions.length > 0;
+  const suggestionKey = suggestions.map((c) => c.name).join("\n");
+  const active = Math.min(activeIndex, Math.max(0, suggestions.length - 1));
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [suggestionKey]);
+  useEffect(() => {
+    if (menuOpen) document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [menuOpen, active, listId]);
 
   /** Reads the files into attachments, refusing the ones past the caps with a notice. */
   async function addFiles(files: File[]) {
@@ -183,8 +236,36 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
       }
     : {};
 
+  /** "/clear": a new conversation in this tab (the running turn, if any, ends with the old agent). */
+  function runClear() {
+    if (!chat.clear) return;
+    setDraft("");
+    setAttachments([]);
+    setAttachError(null);
+    dictation.discard();
+    if (working) chat.cancel();
+    chat.clear();
+    followRef.current = true;
+    setAtBottom(true);
+  }
+
+  function jumpToEnd() {
+    const column = columnRef.current;
+    followRef.current = true;
+    glidingRef.current = true;
+    setAtBottom(true);
+    column?.scrollTo({ top: column.scrollHeight, behavior: "smooth" });
+    window.setTimeout(() => {
+      glidingRef.current = false;
+    }, 900);
+  }
+
   function submit() {
     if (!draft.trim() && attachments.length === 0) return;
+    if (chat.clear && attachments.length === 0 && draft.trim() === "/clear") {
+      runClear();
+      return;
+    }
     // The dictation session is disowned before the draft clears, so a phrase
     // it flushes late can't land in the next draft; what it was still hearing
     // goes out with this message.
@@ -193,6 +274,7 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
     setAttachments([]);
     setAttachError(null);
     followRef.current = true;
+    setAtBottom(true);
   }
 
   function insertCommand(name: string) {
@@ -200,7 +282,42 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
     inputRef.current?.focus();
   }
 
+  /** Picks a suggestion. `run` (Enter) executes what needs no input: the built-in "clear", or an agent command taking none; otherwise it fills the draft in. */
+  function pickCommand(command: ChatCommand, run: boolean) {
+    if (command.name === "clear" && builtins.length > 0) {
+      if (run) runClear();
+      else insertCommand(command.name);
+      return;
+    }
+    if (run && command.input == null) {
+      chat.send(`/${command.name}`);
+      setDraft("");
+      followRef.current = true;
+      setAtBottom(true);
+      return;
+    }
+    insertCommand(command.name);
+  }
+
   function onComposerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (menuOpen && !e.nativeEvent.isComposing && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setActiveIndex((active + step + suggestions.length) % suggestions.length);
+        return;
+      }
+      if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Tab" && !e.shiftKey)) {
+        e.preventDefault();
+        pickCommand(suggestions[active], e.key === "Enter");
+        return;
+      }
+      if (e.key === "Escape" && !listening) {
+        e.preventDefault();
+        setDismissedFor(draft);
+        return;
+      }
+    }
     if (e.key === "Enter" && e.ctrlKey && working && (draft.trim() || attachments.length > 0) && !e.nativeEvent.isComposing) {
       // Send now: queue the draft and force it, interrupting the turn.
       e.preventDefault();
@@ -216,9 +333,6 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
     } else if (e.key === "Escape" && working) {
       e.preventDefault();
       chat.cancel();
-    } else if (e.key === "Tab" && !e.shiftKey && suggestions.length > 0) {
-      e.preventDefault();
-      insertCommand(suggestions[0].name);
     }
   }
 
@@ -234,17 +348,30 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
 
   return (
     <>
+      <div className="chat-column-wrap">
       <div
         className="chat-column"
         ref={columnRef}
         {...dropHandlers}
         onScroll={(e) => {
           const el = e.currentTarget;
-          followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK_PX;
+          const near = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK_PX;
+          if (glidingRef.current) {
+            if (near) glidingRef.current = false;
+            else return;
+          }
+          followRef.current = near;
+          setAtBottom(near);
         }}
       >
         <div className="chat-content" ref={contentRef}>
-          {model.plan && model.plan.length > 0 && (
+          {sub && (
+            <div className="chat-user is-task">
+              <span className="chat-task-label">{t("chat.subagent.task", { agent: CLI_INFO[agent].label })}</span>
+              {subagentPrompt(sub.call) ? <ChatMarkdown text={subagentPrompt(sub.call)} /> : sub.call.title}
+            </div>
+          )}
+          {!sub && model.plan && model.plan.length > 0 && (
             <details className="chat-plan" open>
               <summary>
                 <span className="chat-plan-title">{t("chat.plan.title")}</span>
@@ -263,17 +390,52 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
             </details>
           )}
           {timeline.map((segment) =>
-            segment.type === "group" ? (
+            segment.type === "subagent" ? (
+              <SubagentRow key={segment.item.id} item={segment.item} onOpen={onOpenSubagent ? openSub : undefined} />
+            ) : segment.type === "group" ? (
               <ToolGroup key={segment.id} steps={segment.steps} live={segment === liveGroup} />
             ) : (
               <ChatItemView key={segment.item.id} item={segment.item} onAnswer={chat.answerPermission} />
             ),
           )}
+          {showLive && (
+            <div className="chat-working">
+              <FrogThinking
+                activity={liveText}
+                verbs={THINKING_VERBS.map((k) => t(k))}
+                startedAt={model.turn?.startedAt}
+                outChars={model.turn?.outChars}
+                tokensLabel={(n) => t("chat.thinking.tokens", { n })}
+                tokensTitle={t("chat.thinking.tokensTitle")}
+                stopHint={t("chat.thinking.stop")}
+              />
+            </div>
+          )}
         </div>
+      </div>
+      {!atBottom && (
+        <button type="button" className={"chat-jump" + (working ? " is-busy" : "")} aria-label={t("chat.jumpToEnd")} title={t("chat.jumpToEnd")} onClick={jumpToEnd}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" />
+          </svg>
+        </button>
+      )}
       </div>
 
       <div className="chat-footer" onKeyDown={onFooterKeyDown} {...dropHandlers}>
-        {phase === "ready" && status === "exited" ? (
+        {sub ? (
+          <div className="chat-composer-wrap">
+            {pending.map((item) => (
+              <PermissionCard key={item.id} item={item} onAnswer={chat.answerPermission} />
+            ))}
+            <div className="chat-sub-footer">
+              <span>{t("chat.subagent.readOnly", { agent: CLI_INFO[agent].label })}</span>
+              <button type="button" className="chat-btn" onClick={() => onOpenSubagent?.(null)}>
+                {t("chat.subagent.back")}
+              </button>
+            </div>
+          </div>
+        ) : phase === "ready" && status === "exited" ? (
           <div className="chat-exited">
             <span>{t("chat.exited")}</span>
             <button type="button" className="chat-btn is-primary" onClick={chat.restart}>
@@ -290,17 +452,6 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
                 <span className="chat-spinner" aria-hidden="true" />
                 <span className="chat-live-text">{noticeText}</span>
               </div>
-            )}
-            {showLive && (
-              <FrogThinking
-                activity={liveText}
-                verbs={THINKING_VERBS.map((k) => t(k))}
-                startedAt={model.turn?.startedAt}
-                outChars={model.turn?.outChars}
-                tokensLabel={(n) => t("chat.thinking.tokens", { n })}
-                tokensTitle={t("chat.thinking.tokensTitle")}
-                stopHint={t("chat.thinking.stop")}
-              />
             )}
             {queued.length > 0 && (
               <div className="chat-queue">
@@ -321,8 +472,19 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
             )}
             {suggestions.length > 0 && (
               <div className="chat-commands" role="listbox">
-                {suggestions.map((command) => (
-                  <button key={command.name} type="button" role="option" aria-selected={false} className="chat-command" onClick={() => insertCommand(command.name)}>
+                {suggestions.map((command, i) => (
+                  <button
+                    key={command.name}
+                    id={`${listId}-${i}`}
+                    type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={i === active}
+                    className={`chat-command${i === active ? " is-active" : ""}`}
+                    onMouseMove={() => i !== active && setActiveIndex(i)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickCommand(command, command.name === "clear" && builtins.length > 0)}
+                  >
                     <span className="chat-command-name">/{command.name}</span>
                     {command.description && <span className="chat-command-desc">{command.description}</span>}
                   </button>
@@ -333,6 +495,22 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
               <div className="chat-notice" role="alert">
                 <span className="chat-notice-text">{dictation.error}</span>
                 <button type="button" className="chat-chip-remove" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={dictation.dismissError}>
+                  {"×"}
+                </button>
+              </div>
+            )}
+            {dictation.noVoice && (
+              <div className="chat-notice" role="alert">
+                <span className="chat-notice-text">{t("chat.dictate.noVoice")}</span>
+                <button type="button" className="chat-chip-remove" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={dictation.dismissNoVoice}>
+                  {"×"}
+                </button>
+              </div>
+            )}
+            {dictation.readyNotice && (
+              <div className="chat-notice" role="status">
+                <span className="chat-notice-text">{t("chat.dictate.ready")}</span>
+                <button type="button" className="chat-chip-remove" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={dictation.dismissReady}>
                   {"×"}
                 </button>
               </div>
@@ -373,7 +551,9 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
                   <span className="chat-listening-meta">
                     {formatTimer(seconds)} {"·"} {t("chat.dictate.escHint")}
                   </span>
-                  {dictation.partial && <span className="chat-listening-text">{dictation.partial}</span>}
+                  {dictation.partial && (
+                    <span className="chat-listening-text">{dictation.partial === TRANSCRIBING_MARKER ? t("chat.dictate.transcribing") : dictation.partial}</span>
+                  )}
                 </div>
               )}
               <textarea
@@ -381,6 +561,7 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
                 className="chat-input"
                 rows={1}
                 aria-label={t("chat.composer.label")}
+                aria-activedescendant={menuOpen ? `${listId}-${active}` : undefined}
                 placeholder={listening ? "" : t("chat.composer.placeholder")}
                 value={draft}
                 disabled={phase !== "ready"}
@@ -420,7 +601,11 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
                   <button
                     type="button"
                     className={`chat-icon-btn is-mic${listening ? " is-listening" : ""}`}
-                    title={t(listening ? "chat.dictate.stop" : "chat.dictate", { keys: "Ctrl+Shift+Space" })}
+                    title={
+                      dictation.downloadProgress !== null
+                        ? t("chat.dictate.downloadingTip", { percent: dictation.downloadProgress })
+                        : t(listening ? "chat.dictate.stop" : "chat.dictate", { keys: "Ctrl+Shift+Space" })
+                    }
                     aria-label={t("chat.dictate.label")}
                     aria-pressed={listening}
                     disabled={phase !== "ready"}
@@ -431,6 +616,20 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
                       <path d="M5 11a7 7 0 0 0 14 0" />
                       <line x1="12" y1="18" x2="12" y2="21" />
                     </svg>
+                    {dictation.downloadProgress !== null && (
+                      <svg className="chat-mic-ring" viewBox="0 0 34 34" aria-hidden="true">
+                        <circle className="chat-mic-ring-track" cx="17" cy="17" r="15" />
+                        <circle
+                          className="chat-mic-ring-value"
+                          cx="17"
+                          cy="17"
+                          r="15"
+                          transform="rotate(-90 17 17)"
+                          strokeDasharray={RING_LENGTH}
+                          strokeDashoffset={RING_LENGTH * (1 - dictation.downloadProgress / 100)}
+                        />
+                      </svg>
+                    )}
                   </button>
                 )}
                 {canStop ? (
@@ -459,6 +658,7 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
           </div>
         )}
       </div>
+      {dictation.setupOpen && <DictationSetupDialog onClose={dictation.closeSetup} />}
     </>
   );
 }
