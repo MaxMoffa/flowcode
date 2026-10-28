@@ -286,8 +286,7 @@
   /* The rule runs the page's full width, out over its side padding (see
      .newtab); the content stays on the page's columns. */
   margin-inline: -14px;
-  /* Clear of the "Personalizza" button (newtab-customize.css) at the right. */
-  padding: 10px 54px 0 14px;
+  padding: 10px 14px 0;
   border-top: 1px solid var(--border);
   font-size: 12px;
 }

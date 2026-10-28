@@ -18,6 +18,11 @@ export interface TermTab {
    * terminal or a favorite. `cwd` is already the default shell's start
    * folder, for the explorer and the page's prompt. */
   newTab?: boolean;
+  /** A `newTab` whose page is a dialog over the current view (the "glass"
+   * layout) rather than a tab: not in the strip, the session or the phone's
+   * list, and never the active tab. It becomes a normal tab on launch and is
+   * removed on dismiss. At most one exists. Not saved. */
+  dialog?: boolean;
   /** Whether a full-screen program (an alternate-screen app: Claude Code,
    * Codex, vim, htop...) currently owns this tab's shell - see
    * `onBusyChange` in Terminal.tsx. */

@@ -5,7 +5,7 @@ import type { NewTabLayoutDef } from "./types";
 
 const BUILTINS: NewTabLayoutDef[] = [
   { id: "terminal", labelKey: "newTab.layout.terminal", source: "builtin", component: NewTabPage },
-  { id: "glass", labelKey: "newTab.layout.glass", source: "builtin", component: GlassNewTab },
+  { id: "glass", labelKey: "newTab.layout.glass", source: "builtin", component: GlassNewTab, dialog: true, ownCustomizeButton: true },
 ];
 
 // The layouts every install has. Imported for its side effect by the host; a

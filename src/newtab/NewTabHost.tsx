@@ -16,7 +16,7 @@ export function NewTabHost(props: NewTabHostProps) {
   const [{ layout: layoutId }] = useNewTabSettings();
   // Re-resolves when a plugin layout is installed or removed.
   useNewTabLayouts();
-  const Layout = resolveNewTabLayout(layoutId).component;
+  const { component: Layout, ownCustomizeButton } = resolveNewTabLayout(layoutId);
   const [customizing, setCustomizing] = useState(false);
   /** The page is handing the tab over to a terminal: nothing of the host stays on it. */
   const [launched, setLaunched] = useState(false);
@@ -37,19 +37,22 @@ export function NewTabHost(props: NewTabHostProps) {
           props.onLaunch(launch);
         }}
         onCustomize={() => setCustomizing(true)}
+        customizing={customizing}
       />
       {!props.hidden && !launched && (
         <>
-          <button
-            ref={buttonRef}
-            type="button"
-            className="newtab-customize-button"
-            title={t("newTab.customize")}
-            aria-label={t("newTab.customize")}
-            onClick={() => setCustomizing(true)}
-          >
-            <PencilIcon size={15} />
-          </button>
+          {!ownCustomizeButton && (
+            <button
+              ref={buttonRef}
+              type="button"
+              className="newtab-customize-button"
+              title={t("newTab.customize")}
+              aria-label={t("newTab.customize")}
+              onClick={() => setCustomizing(true)}
+            >
+              <PencilIcon size={15} />
+            </button>
+          )}
           {customizing && <NewTabCustomize onClose={close} />}
         </>
       )}

@@ -10,7 +10,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { useProfiles } from "../profiles/profiles";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useI18n } from "../i18n";
-import { FolderIcon, HistoryIcon, SearchIcon } from "./icons";
+import { FolderIcon, HistoryIcon, PencilIcon, SearchIcon } from "./icons";
 import { fuzzyFilter } from "./fuzzy";
 import { useNewTabSettings } from "./newTabSettings";
 import { useNewTabBackgroundImage } from "./newTabBackground";
@@ -38,11 +38,13 @@ interface Entry {
   run: () => void;
 }
 
-/** The "Vetro" layout: a search field over frosted-glass cards on the theme's
- * backdrop (or the user's picture). It starts things the way the terminal
- * layout does - through `onLaunch` - and, having no prompt to hand over, lets
- * the tab turn into the terminal right away. */
-export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunchAgent, onShellChange, profileId, onProfileChange, onDone }: NewTabLayoutProps) {
+/** The "Vetro" layout: one frosted-glass panel - a search field, the agents,
+ * recents and favorites, the shell chips. Opened from "+" it is a dialog over
+ * the current view (`dialog`); in a tab (the layout picked on an open page) it
+ * sits on the theme's backdrop (or the user's picture). It starts things the
+ * way the terminal layout does - through `onLaunch` - and, having no prompt to
+ * hand over, lets the tab turn into the terminal right away. */
+export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunchAgent, onShellChange, profileId, onProfileChange, onDone, dialog, onDismiss, onCustomize, customizing }: NewTabLayoutProps) {
   const { t } = useI18n();
   const { profiles } = useProfiles();
   const [{ sections, background, grain, blur }] = useNewTabSettings();
@@ -76,6 +78,13 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
   useEffect(() => {
     if (!hidden) inputRef.current?.focus({ preventScroll: true });
   }, [hidden]);
+
+  // Closing the customize panel hands the focus back to the field.
+  const wasCustomizing = useRef(false);
+  useEffect(() => {
+    if (wasCustomizing.current && !customizing) inputRef.current?.focus({ preventScroll: true });
+    wasCustomizing.current = customizing;
+  }, [customizing]);
 
   const { chips, chipShell } = shellChips(options, defaultShell);
   const chosenShell = () => (sameShell(shell, defaultShell) ? undefined : shell);
@@ -144,8 +153,8 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
   const searching = query.trim() !== "";
   /** What the arrow keys walk: the page's entries top to bottom, or the search's results. */
   const entries = searching
-    ? fuzzyFilter([...favoriteEntries, ...recentEntries, ...agentEntries, ...chips.map(shellEntry)], query, (e) => e.texts).slice(0, RESULTS_SHOWN)
-    : [...favoriteEntries, ...recentEntries, ...agentEntries];
+    ? fuzzyFilter([...agentEntries, ...recentEntries, ...favoriteEntries, ...chips.map(shellEntry)], query, (e) => e.texts).slice(0, RESULTS_SHOWN)
+    : [...agentEntries, ...recentEntries, ...favoriteEntries];
   const entryDomId = (e: Entry) => `glass-entry-${e.id}`;
   const active = entries[selected];
 
@@ -167,7 +176,8 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
     }
     if (e.key === "Escape") {
       if (selected >= 0) setSelected(-1);
-      else setQuery("");
+      else if (query) setQuery("");
+      else if (dialog) onDismiss?.();
       return;
     }
     if (e.altKey && /^[1-9]$/.test(e.key)) {
@@ -214,139 +224,148 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
     ...(background === "image" && image ? { "--glass-newtab-image": `url("${image}")` } : {}),
   } as CSSProperties;
 
+  const rowButton = (entry: Entry, kindLabel: string) =>
+    entryButton(
+      entry,
+      "glass-result",
+      <>
+        <span className="glass-icon">{entry.icon}</span>
+        <span className="glass-result-name">{entry.label}</span>
+        <span className={"glass-result-detail" + (entry.kind === "favorite" ? " is-path" : "")}>{entry.detail}</span>
+        <span className="glass-result-kind">{kindLabel}</span>
+      </>,
+    );
+
   return (
     <div
-      className={"glass-newtab" + (background === "image" && image ? " has-image" : "") + (background === "solid" ? " is-solid" : "")}
+      className={
+        "glass-newtab" +
+        (dialog ? " is-dialog" : "") +
+        (background === "image" && image ? " has-image" : "") +
+        (background === "solid" ? " is-solid" : "")
+      }
       style={style}
       hidden={hidden}
+      // A press on the scrim, not on the panel: the dialog closes.
+      onMouseDown={dialog ? (e) => !(e.target as Element).closest(".glass-panel") && onDismiss?.() : undefined}
     >
-      <div className="glass-newtab-backdrop" aria-hidden="true" />
-      <div className="glass-newtab-grain" aria-hidden="true" />
+      {!dialog && <div className="glass-newtab-backdrop" aria-hidden="true" />}
+      {!dialog && <div className="glass-newtab-grain" aria-hidden="true" />}
 
       <div className="glass-newtab-scroll">
         <div className="glass-newtab-inner">
-          <label className="glass-card glass-search">
-            <SearchIcon size={22} />
-            <input
-              ref={inputRef}
-              className="glass-search-input"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setSelected(-1);
-              }}
-              onKeyDown={onKeyDown}
-              placeholder={t("newTab.glass.placeholder")}
-              autoComplete="off"
-              spellCheck={false}
-              role="combobox"
-              aria-expanded="true"
-              aria-label={t("newTab.glass.placeholder")}
-              aria-controls="glass-newtab-entries"
-              aria-activedescendant={active ? entryDomId(active) : undefined}
-            />
-          </label>
-          <p className="glass-hint">
-            {startDir ? t("newTab.glass.startsIn", { path: shownPath(startDir) }) : ""}
-          </p>
+          <div
+            className="glass-panel"
+            role={dialog ? "dialog" : undefined}
+            aria-modal={dialog ? true : undefined}
+            aria-label={dialog ? t("newTab.title") : undefined}
+          >
+            <div className="glass-search" onClick={() => inputRef.current?.focus()}>
+              <SearchIcon size={18} />
+              <input
+                ref={inputRef}
+                className="glass-search-input"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setSelected(-1);
+                }}
+                onKeyDown={onKeyDown}
+                placeholder={t("newTab.glass.placeholder")}
+                autoComplete="off"
+                spellCheck={false}
+                role="combobox"
+                aria-expanded="true"
+                aria-label={t("newTab.glass.placeholder")}
+                aria-controls="glass-newtab-entries"
+                aria-activedescendant={active ? entryDomId(active) : undefined}
+              />
+              <kbd className="glass-kbd">↵ {labelOf(chosenShell())}</kbd>
+              <button
+                type="button"
+                className="glass-customize"
+                title={t("newTab.customize")}
+                aria-label={t("newTab.customize")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCustomize();
+                }}
+              >
+                <PencilIcon size={15} />
+              </button>
+            </div>
 
-          <div id="glass-newtab-entries" role="listbox" aria-label={t("newTab.glass.placeholder")} className="glass-entries">
-            {searching ? (
-              <section className="glass-card glass-section">
-                {entries.length === 0 ? (
+            <div id="glass-newtab-entries" role="listbox" aria-label={t("newTab.glass.placeholder")} className="glass-body">
+              {searching ? (
+                entries.length === 0 ? (
                   <p className="glass-empty">{t("newTab.glass.noResults", { command: query.trim() })}</p>
                 ) : (
-                  entries.map((entry) =>
-                    entryButton(
-                      entry,
-                      "glass-result",
-                      <>
-                        <span className="glass-icon">{entry.icon}</span>
-                        <span className="glass-result-name">{entry.label}</span>
-                        <span className={"glass-result-detail" + (entry.kind === "favorite" ? " is-path" : "")}>{entry.detail}</span>
-                        <span className="glass-result-kind">{t(`newTab.glass.kind.${entry.kind}`)}</span>
-                      </>,
-                    ),
-                  )
-                )}
-              </section>
-            ) : (
-              <>
-                {sections.favorites && (
-                  <section className="glass-card glass-section">
-                    <h2 className="glass-heading">{t("favorites.title")}</h2>
-                    {favorites.length === 0 ? (
-                      <p className="glass-empty">{t("newTab.favoritesEmpty")}</p>
-                    ) : (
-                      <div className="glass-tiles">
-                        {favoriteEntries.map((entry) =>
+                  <div className="glass-list">{entries.map((entry) => rowButton(entry, t(`newTab.glass.kind.${entry.kind}`)))}</div>
+                )
+              ) : (
+                <>
+                  {sections.agents && agentEntries.length > 0 && (
+                    <section className="glass-section">
+                      <h2 className="glass-heading">{t("newTab.glass.agents")}</h2>
+                      <div className="glass-agents">
+                        {agentEntries.map((entry) =>
                           entryButton(
                             entry,
-                            "glass-tile",
+                            "glass-agent",
                             <>
-                              <span className="glass-tile-icon">{entry.icon}</span>
-                              <span className="glass-tile-name">{entry.label}</span>
+                              <span className="glass-icon">{entry.icon}</span>
+                              {entry.label}
                             </>,
                           ),
                         )}
                       </div>
-                    )}
-                  </section>
-                )}
-                {sections.recents && (
-                  <section className="glass-card glass-section">
-                    <h2 className="glass-heading">{t("newTab.recents")}</h2>
-                    {recents.length === 0 ? (
-                      <p className="glass-empty">{t("newTab.recentsEmpty")}</p>
-                    ) : (
-                      recentEntries.map((entry, i) =>
-                        entryButton(
-                          entry,
-                          "glass-result",
-                          <>
-                            <span className="glass-icon">{entry.icon}</span>
-                            <span className="glass-result-name">{entry.label}</span>
-                            <span className="glass-result-detail">{entry.detail}</span>
-                            <span className="glass-result-kind">{relativeTime(recents[i].at)}</span>
-                          </>,
-                        ),
-                      )
-                    )}
-                  </section>
-                )}
-                {sections.agents && agentEntries.length > 0 && (
-                  <section className="glass-card glass-section">
-                    <h2 className="glass-heading">{t("newTab.glass.agents")}</h2>
-                    <div className="glass-chips">
-                      {agentEntries.map((entry) =>
-                        entryButton(
-                          entry,
-                          "glass-chip glass-agent",
-                          <>
-                            <span className="glass-icon">{entry.icon}</span>
-                            {entry.label}
-                          </>,
-                        ),
+                    </section>
+                  )}
+                  {sections.recents && (
+                    <section className="glass-section">
+                      <h2 className="glass-heading">{t("newTab.recents")}</h2>
+                      {recents.length === 0 ? (
+                        <p className="glass-empty">{t("newTab.recentsEmpty")}</p>
+                      ) : (
+                        <div className="glass-list">{recentEntries.map((entry, i) => rowButton(entry, relativeTime(recents[i].at)))}</div>
                       )}
-                    </div>
-                  </section>
-                )}
-              </>
-            )}
-          </div>
+                    </section>
+                  )}
+                  {sections.favorites && (
+                    <section className="glass-section">
+                      <h2 className="glass-heading">{t("favorites.title")}</h2>
+                      {favorites.length === 0 ? (
+                        <p className="glass-empty">{t("newTab.favoritesEmpty")}</p>
+                      ) : (
+                        <div className="glass-favorites">
+                          {favoriteEntries.map((entry) =>
+                            entryButton(
+                              entry,
+                              "glass-favorite",
+                              <>
+                                <span className="glass-icon">{entry.icon}</span>
+                                {entry.label}
+                              </>,
+                            ),
+                          )}
+                        </div>
+                      )}
+                    </section>
+                  )}
+                </>
+              )}
+            </div>
 
-          <div className="glass-card glass-foot">
-            <div className="glass-foot-row">
-              <div className="glass-chips" role="group" aria-label={t("newTab.shellLabel")}>
+            <div className="glass-foot">
+              <div className="glass-shells" role="group" aria-label={t("newTab.shellLabel")}>
                 {chips.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
-                    className="glass-chip"
+                    className="glass-shell"
                     aria-pressed={chipShell(opt) === shell}
                     onClick={() => pickShell(chipShell(opt))}
                   >
-                    <span className="glass-icon">{shellOptionIcon(opt.id)}</span>
                     {shellOptionLabel(opt)}
                   </button>
                 ))}
@@ -366,7 +385,8 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
             </div>
           </div>
           <p className="glass-keys">
-            {t("newTab.glass.keys", { shell: labelOf(chosenShell()), count: Math.min(chips.length, 9) })}
+            {startDir ? t("newTab.glass.startsIn", { path: shownPath(startDir) }) + " · " : ""}
+            {t(dialog ? "newTab.glass.keysDialog" : "newTab.glass.keysPage", { count: Math.min(chips.length, 9) })}
           </p>
         </div>
       </div>

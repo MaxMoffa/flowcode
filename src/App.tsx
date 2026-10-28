@@ -78,6 +78,8 @@ import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
 import { useI18n } from "./i18n";
 import { NewTabHost } from "./newtab/NewTabHost";
+import { resolveNewTabLayout } from "./newtab/layouts";
+import { useNewTabSettings } from "./newtab/newTabSettings";
 import { loadPluginNewTabs } from "./newtab/pluginLayouts";
 import type { NewTabLaunch } from "./newtab/types";
 import { recordRecentTerminal } from "./newtab/recentTerminals";
@@ -105,7 +107,7 @@ import {
 } from "./terminal/tabTitle";
 import { takeWindowInit, tabStripDropIndex, type CursorTarget, type TabTransfer } from "./tabs/transfer";
 import { newTabId } from "./tabs/tabId";
-import { makeTermTab, patchTermTab } from "./tabs/tabState";
+import { isDialogTab, listedTabs, makeTermTab, patchTermTab } from "./tabs/tabState";
 import "./App.css";
 import { AGENT_CLIS, CLI_INFO, cliOfPlugin, type AgentCli } from "./agents/cliInfo";
 
@@ -202,6 +204,19 @@ function Shell() {
   const sessionDirtyRef = useRef(true);
   if (latestRef.current.tabs !== tabs || latestRef.current.activeTabId !== activeTabId) sessionDirtyRef.current = true;
   latestRef.current = { tabs, activeTabId, activeTerminalId };
+  // The tab strip, the shortcuts and the phone's list leave out the new tab dialog.
+  const stripTabs = useMemo(() => listedTabs(tabs), [tabs]);
+  const [{ layout: newTabLayoutId }] = useNewTabSettings();
+  const dialogTabId = tabs.find(isDialogTab)?.id;
+  const dialogLayout = resolveNewTabLayout(newTabLayoutId).dialog;
+  // The layout was switched (from the dialog's own customize panel) to one that
+  // is a page: the draft becomes the tab it would have been.
+  useEffect(() => {
+    if (!dialogTabId || dialogLayout) return;
+    setTabs((prev) => patchTermTab(prev, dialogTabId, { dialog: undefined }));
+    setActiveTabId(dialogTabId);
+    setActiveTerminalId(dialogTabId);
+  }, [dialogTabId, dialogLayout]);
   const { isMaximized, isEdgeFlush, isFullscreen, toggleFullscreen } = useWindowChrome();
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [pluginMenuAnchor, setPluginMenuAnchor] = useState<DOMRect | null>(null);
@@ -528,6 +543,7 @@ function Shell() {
       const kept = tabs.filter((t) => {
         // A diff is a view of the repository current state: nothing to restore.
         if (t.kind === "diff") return false;
+        if (isDialogTab(t)) return false;
         if (t.kind !== "terminal") return true;
         return restoredTabIdsRef.current.has(t.id) || !!termRefs.current.get(t.id)?.wasUsed();
       });
@@ -694,7 +710,7 @@ function Shell() {
     selectTab6: () => (remote ? remoteShortcuts.select(remote, 5) : selectTabAt(5)),
     selectTab7: () => (remote ? remoteShortcuts.select(remote, 6) : selectTabAt(6)),
     selectTab8: () => (remote ? remoteShortcuts.select(remote, 7) : selectTabAt(7)),
-    lastTab: () => (remote ? remoteShortcuts.select(remote, -1) : selectTabAt(tabs.length - 1)),
+    lastTab: () => (remote ? remoteShortcuts.select(remote, -1) : selectTabAt(stripTabs.length - 1)),
     zoomIn: () => activeTermHandle() && zoomTabIn(activeTerminalId),
     zoomOut: () => activeTermHandle() && zoomTabOut(activeTerminalId),
     resetZoom: () => activeTermHandle() && resetTabZoom(activeTerminalId),
@@ -706,21 +722,21 @@ function Shell() {
   /** Ctrl+Tab / Ctrl+Shift+Tab: the next/previous tab in strip order,
    * wrapping around at the ends. */
   function stepTab(delta: number) {
-    if (tabs.length < 2) return;
-    const i = tabs.findIndex((t) => t.id === activeTabId);
-    selectTab(tabs[(i + delta + tabs.length) % tabs.length].id);
+    if (stripTabs.length < 2) return;
+    const i = stripTabs.findIndex((t) => t.id === activeTabId);
+    selectTab(stripTabs[(i + delta + stripTabs.length) % stripTabs.length].id);
   }
 
   /** Ctrl+1..9: the tab at that position - out of range does nothing. */
   function selectTabAt(index: number) {
-    const tab = tabs[index];
+    const tab = stripTabs[index];
     if (tab) selectTab(tab.id);
   }
 
   function moveActiveTab(delta: number) {
-    const i = tabs.findIndex((t) => t.id === activeTabId);
+    const i = stripTabs.findIndex((t) => t.id === activeTabId);
     const to = i + delta;
-    if (i !== -1 && to >= 0 && to < tabs.length) reorderTab(activeTabId, to);
+    if (i !== -1 && to >= 0 && to < stripTabs.length) reorderTab(activeTabId, to);
   }
 
   function selectTab(id: string) {
@@ -758,13 +774,41 @@ function Shell() {
    * terminale" open. With the page turned off in Settings it is the default
    * shell straight away, like the tab strip's per-shell menu entries. */
   function openNewTab(): string {
-    return newTabPage ? addTab(undefined, undefined, true) : addTab();
+    if (!newTabPage) return addTab();
+    // A layout that is a dialog (see NewTabLayoutDef.dialog): no tab. One at a time.
+    if (resolveNewTabLayout(newTabLayoutId).dialog) {
+      const open = latestRef.current.tabs.find(isDialogTab);
+      if (open) {
+        focusNewTabDialog();
+        return open.id;
+      }
+      return addTab(undefined, undefined, true, undefined, true);
+    }
+    return addTab(undefined, undefined, true);
+  }
+
+  function focusNewTabDialog() {
+    document.querySelector<HTMLElement>(".glass-newtab.is-dialog .glass-search-input")?.focus();
+  }
+
+  /** Closes the new tab dialog without launching anything: the draft tab goes,
+   * the tab that was in front never stopped being it. */
+  function dismissNewTabDialog(id: string) {
+    setTabs((prev) => prev.filter((t) => t.id !== id));
+    forgetTab(id);
+    // The terminal lost the focus to the dialog's field.
+    requestAnimationFrame(() => {
+      const fields = document.querySelectorAll<HTMLElement>(".terminal-pane .xterm-helper-textarea");
+      Array.from(fields)
+        .find((el) => el.offsetParent !== null)
+        ?.focus();
+    });
   }
 
   /** `profileId`: `undefined` = automatic (the folder's project default
    * profile, else the active terminal's), `null` = the default profile on
    * purpose, a string = that profile on purpose. */
-  function addTab(cwdOverride?: string, shellOverride?: string, newTab = false, profileId?: string | null): string {
+  function addTab(cwdOverride?: string, shellOverride?: string, newTab = false, profileId?: string | null, dialog = false): string {
     // No longer inherits the active tab's cwd - a fresh tab starts in its
     // shell's start folder (Impostazioni > Cartella di avvio, per shell or
     // the general one), looked up by `fillStartDir` below. `cwdOverride` is
@@ -810,11 +854,15 @@ function Shell() {
         wslDistro: pathDistro ?? wslDistro ?? undefined,
         ...(typeof profileId === "string" && canProfile ? { profileId } : {}),
         ...(newTab ? { newTab } : {}),
+        ...(dialog ? { dialog } : {}),
       },
     ]);
     if (!cwd) fillStartDir(id, shellOverride ?? shellId, cwdOverride);
-    setActiveTabId(id);
-    setActiveTerminalId(id);
+    // A dialog is over the tab in front, which stays it until a launch.
+    if (!dialog) {
+      setActiveTabId(id);
+      setActiveTerminalId(id);
+    }
     return id;
   }
 
@@ -930,9 +978,15 @@ function Shell() {
     const lookup = !wsl && !!cwd && cwd !== tab.cwd && !explicitProfileRef.current.has(tabId);
     void (async () => {
       const profile = lookup ? await automaticProfile(tabId, nextCwd, false) : undefined;
+      // The dialog closes into the new terminal: it takes the front, no hand-off fade.
+      if (tab.dialog) {
+        setActiveTabId(tabId);
+        setActiveTerminalId(tabId);
+      }
       setTabs((prev) =>
         patchTermTab(prev, tabId, (t) => ({
           newTab: undefined,
+          dialog: undefined,
           cwd: nextCwd,
           explorerPath: nextCwd,
           label: t.customLabel ? t.label : labelForCwd(nextCwd),
@@ -1273,7 +1327,7 @@ function Shell() {
   // Bumped when a terminal learns its pty id: the tab-to-agent match and the
   // tab report both depend on it, and neither is otherwise re-run for it.
   const [ptyVersion, setPtyVersion] = useState(0);
-  const reportedTabsKey = tabs
+  const reportedTabsKey = listedTabs(tabs)
     .filter((t): t is TermTab => t.kind === "terminal")
     .map((t) => `${t.id}\u0000${t.label}\u0000${t.cwd}`)
     .join("\u0001") +
@@ -1902,7 +1956,7 @@ function Shell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [customPlugins, language],
   );
-  const terminalTabs = useMemo(() => tabs.filter((t): t is TermTab => t.kind === "terminal"), [tabs]);
+  const terminalTabs = useMemo(() => stripTabs.filter((t): t is TermTab => t.kind === "terminal"), [stripTabs]);
   const chatTabs = useMemo(() => tabs.filter((t): t is ChatTab => t.kind === "chat"), [tabs]);
 
   // The quick actions a paired phone may trigger.
@@ -2715,7 +2769,7 @@ function Shell() {
         ) : (
         <TabStrip
           compact={isNarrow}
-          tabs={tabs}
+          tabs={stripTabs}
           activeId={activeTabId}
           dirtyIds={dirtyIds}
           agents={tabAgents}
@@ -2856,12 +2910,14 @@ function Shell() {
                     )}
                     {showPage && (
                       <NewTabHost
-                        hidden={tab.id !== activeTabId}
+                        hidden={!tab.dialog && tab.id !== activeTabId}
+                        dialog={tab.dialog}
+                        onDismiss={() => dismissNewTabDialog(tab.id)}
                         defaultShell={shellId}
                         startDir={tab.cwd}
                         termFontSize={getTabFontSize(tab.id)}
                         onLaunch={(launch) => {
-                          setHandoffs((prev) => new Map(prev).set(tab.id, {}));
+                          if (!tab.dialog) setHandoffs((prev) => new Map(prev).set(tab.id, {}));
                           launchFromNewTab(tab.id, launch);
                         }}
                         onLaunchAgent={(cli) => void launchAgentFromNewTab(tab.id, cli)}

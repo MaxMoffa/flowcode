@@ -5,6 +5,7 @@ import { useEffect, type MutableRefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TerminalHandle } from "../terminal/Terminal";
 import type { AppTab, ChatTab, TermTab } from "../tabs/types";
+import { listedTabs } from "../tabs/tabState";
 
 /** Re-sent when `reportedTabsKey` or `ptyVersion` changes, and retried every
  * few seconds while some tab's shell hasn't spawned yet. */
@@ -17,7 +18,7 @@ export function useReportTabs(
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
     const report = () => {
-      const tabsNow = latestRef.current.tabs.filter((t): t is TermTab => t.kind === "terminal");
+      const tabsNow = listedTabs(latestRef.current.tabs).filter((t): t is TermTab => t.kind === "terminal");
       const reported = tabsNow.map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd }));
       // A chat is reported once its agent has a session: that is how the backend matches it to the running chat.
       const chats = latestRef.current.tabs

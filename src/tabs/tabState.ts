@@ -7,6 +7,16 @@ export function makeTermTab(id: string, cwd: string, extra?: Partial<TermTab>): 
   return { kind: "terminal", id, cwd, explorerPath: cwd, label: labelForCwd(cwd), ...extra };
 }
 
+/** A new tab page shown as a dialog (see `TermTab.dialog`), not as a tab. */
+export function isDialogTab(tab: AppTab): boolean {
+  return tab.kind === "terminal" && !!tab.dialog;
+}
+
+/** The tabs the strip, the shortcuts and the phone know about: all but the dialog. */
+export function listedTabs<T extends AppTab>(tabs: T[]): T[] {
+  return tabs.some(isDialogTab) ? tabs.filter((t) => !isDialogTab(t)) : tabs;
+}
+
 /** `tabs` with terminal `id` patched - and the very same array back when
  * nothing actually changed. Title events arrive on every prompt, mostly
  * repeating what the tab already says; handing React a new array (or tab

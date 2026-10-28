@@ -46,11 +46,17 @@ export interface NewTabHostProps {
   /** A profile chip was picked (`null` = the default profile). */
   onProfileChange: (profileId: string | null) => void;
   onDone: () => void;
+  /** The page is a dialog over the current view, not a tab's content. */
+  dialog?: boolean;
+  /** Closes the dialog without launching anything. */
+  onDismiss?: () => void;
 }
 
 /** What a layout gets: the host's props, and a way to open the customize panel. */
 export interface NewTabLayoutProps extends NewTabHostProps {
   onCustomize: () => void;
+  /** The customize panel is open - a layout that draws its own button takes the focus back when it closes. */
+  customizing: boolean;
 }
 
 /** One way to lay out the new tab page, picked from the registry. */
@@ -64,4 +70,8 @@ export interface NewTabLayoutDef {
   /** "plugin" layouts are installed by the user and can be removed again. */
   source: "builtin" | "plugin";
   component: ComponentType<NewTabLayoutProps>;
+  /** From "+" the layout opens as a dialog over the current view instead of in a tab. */
+  dialog?: boolean;
+  /** The layout draws its own "Personalizza" button (calling `onCustomize`), so the host adds no corner one. */
+  ownCustomizeButton?: boolean;
 }
