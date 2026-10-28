@@ -23,64 +23,50 @@ export interface SubagentItem {
   children: ChatItem[];
 }
 
-/** The conversation with every subagent folded in: its tool calls leave the flow and become the `steps` of its launch call, which turns into a `subagent` item. Tool calls whose launch is unknown (and every other agent's) stay as they are. */
-export function nestSubagents(items: ChatItem[]): Array<ChatItem | SubagentItem> {
-  const launches = new Map<string, SubagentItem>();
-  for (const item of items) {
-    if (item.type === "tool" && isSubagentLaunch(item.call)) launches.set(item.id, { type: "subagent", id: item.id, call: item.call, steps: [], children: [] });
-  }
+/** One pass over the conversation: the main flow with every subagent folded in (its tool calls leave the flow and become the `steps` of its launch call, which turns into a `subagent` item; tool calls whose launch is unknown, and every other agent's, stay as they are), plus every subagent by launch id, nested ones included. */
+export function indexSubagents(items: ChatItem[]): { flow: Array<ChatItem | SubagentItem>; byId: Map<string, SubagentItem> } {
+  const tools = new Map<string, ToolItem>();
+  for (const item of items) if (item.type === "tool") tools.set(item.id, item);
   // A child may follow a launch that isn't marked as one (no tool name yet): any known tool call can be a parent.
-  const toolIds = new Set(items.filter((i) => i.type === "tool").map((i) => i.id));
   const parentOf = (item: ChatItem): string | null => {
     const parent = streamOf(item);
-    return parent && parent !== item.id && toolIds.has(parent) ? parent : null;
+    return parent && parent !== item.id && tools.has(parent) ? parent : null;
   };
-  const launchOf = (parent: string): SubagentItem => {
-    let launch = launches.get(parent);
+  const byId = new Map<string, SubagentItem>();
+  const launchOf = (owner: ToolItem): SubagentItem => {
+    let launch = byId.get(owner.id);
     if (!launch) {
-      const owner = items.find((i) => i.type === "tool" && i.id === parent) as ToolItem;
       launch = { type: "subagent", id: owner.id, call: owner.call, steps: [], children: [] };
-      launches.set(parent, launch);
+      byId.set(owner.id, launch);
     }
     return launch;
   };
-  for (const item of items) {
-    const parent = parentOf(item);
-    if (!parent) continue;
-    // Only tool calls are steps; the subagent's words live in `children` below.
-    if (item.type === "tool") launchOf(parent).steps.push(item);
-    else launchOf(parent);
-  }
-  // Each launch's transcript: what runs under it, directly or through a subagent it launched.
-  for (const launch of launches.values()) {
-    const owned = new Set([launch.id]);
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const item of items) {
-        const parent = parentOf(item);
-        if (item.type === "tool" && parent && owned.has(parent) && !owned.has(item.id) && launches.has(item.id)) {
-          owned.add(item.id);
-          grew = true;
-        }
-      }
+  for (const item of items) if (item.type === "tool" && isSubagentLaunch(item.call)) launchOf(item);
+  const parents = items.map(parentOf);
+  items.forEach((item, i) => {
+    const parent = parents[i];
+    if (!parent) return;
+    // Only tool calls are steps; the subagent's words live in `children`.
+    const direct = launchOf(tools.get(parent)!);
+    if (item.type === "tool") direct.steps.push(item);
+    // Its transcript holds what runs under it, directly or through a subagent it launched.
+    const seen = new Set<string>([item.id]);
+    for (let up: string | null = parent; up && !seen.has(up); up = parentOf(tools.get(up)!)) {
+      seen.add(up);
+      launchOf(tools.get(up)!).children.push(item);
     }
-    launch.children = items.filter((item) => {
-      const parent = parentOf(item);
-      return !!parent && owned.has(parent);
-    });
-  }
-  const out: Array<ChatItem | SubagentItem> = [];
-  for (const item of items) {
-    if (item.type !== "tool") {
-      if (!parentOf(item)) out.push(item);
-      continue;
-    }
-    const launch = launches.get(item.id);
-    if (launch) out.push(launch);
-    else if (!parentOf(item)) out.push(item);
-  }
-  return out;
+  });
+  const flow: Array<ChatItem | SubagentItem> = [];
+  items.forEach((item, i) => {
+    if (parents[i]) return;
+    flow.push((item.type === "tool" && byId.get(item.id)) || item);
+  });
+  return { flow, byId };
+}
+
+/** The conversation with every subagent folded in (see `indexSubagents`). */
+export function nestSubagents(items: ChatItem[]): Array<ChatItem | SubagentItem> {
+  return indexSubagents(items).flow;
 }
 
 /** The subagent's own words for the user: its type and what it was asked, from the launch call. */
@@ -93,7 +79,7 @@ export function subagentInfo(call: ChatToolCall): { type: string | null; descrip
 
 /** The subagent with this launch id, if the conversation still has it. */
 export function findSubagent(items: ChatItem[], id: string): SubagentItem | null {
-  return (nestSubagents(items).find((i) => i.type === "subagent" && i.id === id) as SubagentItem | undefined) ?? null;
+  return indexSubagents(items).byId.get(id) ?? null;
 }
 
 /** The task the subagent was given (the launch call's prompt); empty when unknown. */

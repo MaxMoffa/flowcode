@@ -49,5 +49,12 @@ if (process.platform === "win32") {
 }
 
 const bin = join("node_modules", ".bin", process.platform === "win32" ? "tauri.cmd" : "tauri");
-const child = spawn(bin, process.argv.slice(2), { stdio: "inherit", shell: process.platform === "win32" });
+const args = process.argv.slice(2);
+const win = process.platform === "win32";
+const quoted = win ? args.map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)) : args;
+const child = spawn(bin, quoted, { stdio: "inherit", shell: win });
+child.on("error", (err) => {
+  console.error(`Couldn't start the Tauri CLI (${bin}): ${err.message}. Run npm install first.`);
+  process.exit(1);
+});
 child.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));

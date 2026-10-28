@@ -3,40 +3,55 @@
 
 use flowcode_shared::i18n::tr;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
 
 /// How long a model stays loaded once no session uses it.
 const KEEP_LOADED: Duration = Duration::from_secs(5 * 60);
 
 /// Steers Whisper towards the vocabulary of the chat (it mangles "Nginx" or
-/// "commit" without it).
-const PROMPT: &str = "Programmazione: Nginx, Docker, Git, branch, commit, TypeScript, Rust, npm, API, HTTPS.";
+/// "commit" without it). The lead-in is in the language spoken, so it doesn't
+/// bias detection or pollute another language.
+fn initial_prompt(language: &str) -> &'static str {
+    match language {
+        "it" => "Programmazione: Nginx, Docker, Git, branch, commit, TypeScript, Rust, npm, API, HTTPS.",
+        "en" => "Programming: Nginx, Docker, Git, branch, commit, TypeScript, Rust, npm, API, HTTPS.",
+        _ => "Nginx, Docker, Git, branch, commit, TypeScript, Rust, npm, API, HTTPS.",
+    }
+}
 
-/// Phrases Whisper makes up out of near-silence (its training data is full of
-/// subtitle credits).
-const HALLUCINATIONS: [&str; 5] =
-    ["sottotitoli", "amara.org", "grazie per la visione", "thank you for watching", "subtitles by"];
+/// Formulas Whisper makes up out of near-silence (its training data is full of
+/// subtitle credits); only a short text that opens with one is an invention.
+const HALLUCINATIONS: [&str; 4] = ["sottotitoli", "grazie per la visione", "thank you for watching", "subtitles by"];
+
+/// Longest text, in words, still taken for a made-up formula.
+const HALLUCINATION_MAX_WORDS: usize = 8;
 
 /// The model most recently used, loaded.
 #[derive(Default, Clone)]
-pub struct ContextCache(Arc<Mutex<Option<Cached>>>);
+pub struct ContextCache(Arc<Mutex<CacheState>>);
+
+#[derive(Default)]
+struct CacheState {
+    slot: Option<Cached>,
+    /// Whether the thread that frees the slot is alive (there is only one).
+    reaper_running: bool,
+}
 
 struct Cached {
     model: String,
     context: Arc<WhisperContext>,
-    /// Tells this entry from a later one when its expiry fires.
-    stamp: u64,
+    /// When the model is let go, unless a later `put` extends it.
+    expires_at: Instant,
 }
 
 impl ContextCache {
     /// The cached context of `model`, taking it out (a session holds it while
     /// it runs and hands it back with `put`).
     pub fn take(&self, model: &str) -> Option<Arc<WhisperContext>> {
-        let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        match slot.take() {
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match state.slot.take() {
             Some(cached) if cached.model == model => Some(cached.context),
             _ => None,
         }
@@ -44,25 +59,38 @@ impl ContextCache {
 
     /// Keeps `context` loaded for the next session, for a few minutes.
     pub fn put(&self, model: &str, context: Arc<WhisperContext>) {
-        static STAMPS: AtomicU64 = AtomicU64::new(0);
-        let stamp = STAMPS.fetch_add(1, Ordering::Relaxed);
-        *self.0.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(Cached { model: model.to_string(), context, stamp });
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        state.slot = Some(Cached { model: model.to_string(), context, expires_at: Instant::now() + KEEP_LOADED });
+        if state.reaper_running {
+            return;
+        }
+        state.reaper_running = true;
         let cache = self.0.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(KEEP_LOADED);
-            let mut slot = cache.lock().unwrap_or_else(|e| e.into_inner());
-            if slot.as_ref().is_some_and(|c| c.stamp == stamp) {
-                *slot = None;
-            }
+        std::thread::spawn(move || loop {
+            let expires_at = {
+                let mut state = cache.lock().unwrap_or_else(|e| e.into_inner());
+                match state.slot.as_ref().map(|c| c.expires_at) {
+                    Some(at) if Instant::now() < at => at,
+                    Some(_) => {
+                        state.slot = None;
+                        state.reaper_running = false;
+                        return;
+                    }
+                    None => {
+                        state.reaper_running = false;
+                        return;
+                    }
+                }
+            };
+            std::thread::sleep(expires_at.saturating_duration_since(Instant::now()));
         });
     }
 
     /// Lets go of `model` (it's being deleted).
     pub fn forget(&self, model: &str) {
-        let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if slot.as_ref().is_some_and(|c| c.model == model) {
-            *slot = None;
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if state.slot.as_ref().is_some_and(|c| c.model == model) {
+            state.slot = None;
         }
     }
 }
@@ -93,12 +121,16 @@ pub fn language_code(requested: Option<&str>) -> String {
 
 /// Whether `text` is nothing, punctuation, or one of Whisper's inventions.
 pub fn is_hallucination(text: &str) -> bool {
-    let text = text.trim();
     if !text.chars().any(char::is_alphanumeric) {
         return true;
     }
     let lower = text.to_lowercase();
-    HALLUCINATIONS.iter().any(|h| lower.contains(h))
+    if lower.contains("amara.org") {
+        return true;
+    }
+    let normalized = lower.trim_matches(|c: char| !c.is_alphanumeric());
+    normalized.split_whitespace().count() <= HALLUCINATION_MAX_WORDS
+        && HALLUCINATIONS.iter().any(|h| normalized.starts_with(h))
 }
 
 /// The words in `audio` (16 kHz mono), or "" if there are none worth keeping.
@@ -111,7 +143,7 @@ pub fn transcribe(state: &mut WhisperState, audio: &[f32], language: &str) -> Re
     params.set_single_segment(true);
     params.set_suppress_blank(true);
     params.set_no_speech_thold(0.6);
-    params.set_initial_prompt(PROMPT);
+    params.set_initial_prompt(initial_prompt(language));
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_special(false);
@@ -151,6 +183,17 @@ mod tests {
         assert!(is_hallucination("Subtitles by the Amara.org community"));
         assert!(!is_hallucination("Apri il file di configurazione di Nginx."));
         assert!(!is_hallucination("42"));
+        assert!(!is_hallucination("Aggiungi i sottotitoli al video"));
+        assert!(!is_hallucination("Scrivi un test che stampa thank you for watching alla fine del video"));
+        assert!(is_hallucination("Sottotitoli a cura di QTSS"));
+    }
+
+    #[test]
+    fn the_prompt_follows_the_language() {
+        assert!(initial_prompt("it").starts_with("Programmazione:"));
+        assert!(initial_prompt("en").starts_with("Programming:"));
+        assert_eq!(initial_prompt("auto"), initial_prompt("fr"));
+        assert!(initial_prompt("auto").starts_with("Nginx"));
     }
 
     /// Run by hand: `FLOWCODE_WHISPER_MODEL=<ggml .bin> FLOWCODE_WHISPER_WAV=<16 kHz

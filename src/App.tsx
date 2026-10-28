@@ -758,7 +758,7 @@ function Shell() {
   /** The phone asked to hand a chat tab over to a terminal / for a new chat tab. */
   const remoteChatTerminalRef = useRef<(tabId: string) => void>(() => {});
   /** How to end each chat tab's agent (see AgentSessionView `onCloser`), so a terminal resuming its session starts only once it is gone. */
-  const chatClosersRef = useRef(new Map<string, () => Promise<void>>());
+  const chatClosersRef = useRef(new Map<string, { close: () => Promise<void>; restart: () => void }>());
   const switchingChatsRef = useRef(new Set<string>());
   const remoteTerminalChatRef = useRef<(ptyId: string) => void>(() => {});
   const remoteChatRenameRef = useRef<(tabId: string, label: string) => void>(() => {});
@@ -2268,10 +2268,10 @@ function Shell() {
       // A second Ctrl+` while the first waits must not open a second terminal.
       if (switchingChatsRef.current.has(tab.id)) return;
       switchingChatsRef.current.add(tab.id);
-      const close = chatClosersRef.current.get(tab.id) ?? (() => Promise.resolve());
+      const closer = chatClosersRef.current.get(tab.id);
       void (async () => {
         try {
-          await close();
+          await closer?.close();
           // A session with no transcript on disk (the only prompt failed before it was saved) can't be resumed:
           // `claude --resume` / `codex resume` would just say it isn't found, so a fresh agent starts instead.
           const saved = await invoke<boolean>("agent_session_saved", { cli: tab.agent, sessionId, profile: tab.profileId ?? null }).catch(() => true);
@@ -2280,6 +2280,9 @@ function Shell() {
             await openAgentSession(tab.cwd, sessionId, tab.agent, undefined, tab.profileId, at);
           } else if (await launchAgentInNewTab(tab.agent, tab.cwd, undefined, tab.profileId, true, at)) {
             dropChat();
+          } else {
+            // The chat's agent is gone and no terminal took over: the chat starts again.
+            closer?.restart();
           }
         } finally {
           switchingChatsRef.current.delete(tab.id);
@@ -2990,8 +2993,8 @@ function Shell() {
                         // Absent counts as talked (a restored or resumed chat); only a real change is written.
                         if (talked ? tab.talked === false : tab.talked !== false) patchChatTab(tab.id, { talked });
                       }}
-                      onCloser={(close) => {
-                        if (close) chatClosersRef.current.set(tab.id, close);
+                      onCloser={(closer) => {
+                        if (closer) chatClosersRef.current.set(tab.id, closer);
                         else chatClosersRef.current.delete(tab.id);
                       }}
                       onSwitchToTerminal={(sessionId) => switchChatToTerminal(tab, sessionId)}

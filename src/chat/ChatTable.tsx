@@ -23,11 +23,15 @@ export function ChatTable({ table, cell }: { table: MdTable; cell: (text: string
 
   useEffect(() => {
     if (!expanded) return;
+    // Capture phase, handled: an open subagent's Escape (useOpenSubagent) must not also go back.
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setExpanded(false);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setExpanded(false);
+      }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [expanded]);
 
   const rows = sort ? sortRows(table.rows, sort.column, sort.dir) : table.rows;

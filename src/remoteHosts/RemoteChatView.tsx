@@ -78,7 +78,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
       {chat.phase === "ready" ? (
         View && (
           <Suspense fallback={null}>
-            <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={() => {}} openSubagent={nav.openId} onOpenSubagent={nav.open} />
+            <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={() => {}} openSubagent={nav.sub} onOpenSubagent={nav.open} />
           </Suspense>
         )
       ) : (

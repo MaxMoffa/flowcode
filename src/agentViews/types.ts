@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import type { AgentCli } from "../agents/cliInfo";
 import type { MessageKey } from "../i18n";
 import type { ChatSession } from "../chat/useChat";
+import type { SubagentItem } from "../chat/chatTimeline";
 import type { ViewPluginDevice } from "../../shared/agentViewBridge";
 
 /** How a view reaches the agent: "acp" is a chat session hosted by the app,
@@ -23,8 +24,8 @@ export interface AgentViewProps {
   onSwitchView: (viewId: string) => void;
   /** Opens a file in an editor tab. */
   onOpenFile: (path: string) => void;
-  /** The subagent whose chat the tab shows instead of the conversation (its launch call id); the host owns it so its header can navigate back. Views that ignore it keep showing the conversation. */
-  openSubagent?: string | null;
+  /** The subagent whose chat the tab shows instead of the conversation; the host owns it so its header can navigate back. Views that ignore it keep showing the conversation. */
+  openSubagent?: SubagentItem | null;
   onOpenSubagent?: (id: string | null) => void;
 }
 

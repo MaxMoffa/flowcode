@@ -155,12 +155,6 @@ export function SettingsPage({
   // see gpu.rs. `null` until loaded; `gpuChanged` flags a pending restart.
   const [hardwareAcceleration, setHardwareAcceleration] = useState<boolean | null>(null);
   const [gpuChanged, setGpuChanged] = useState(false);
-  // Dictation settings only where the backend can dictate.
-  const [dictationSupported, setDictationSupported] = useState(false);
-  useEffect(() => {
-    invoke<boolean>("dictation_supported").then(setDictationSupported, () => {});
-  }, []);
-
   useEffect(() => {
     if (!isWindowsPlatform()) return;
     invoke<boolean>("get_hardware_acceleration").then(setHardwareAcceleration, () => {});
@@ -595,7 +589,7 @@ export function SettingsPage({
               </SettingRow>
             </SettingsGroup>
 
-            {dictationSupported && <DictationSettings />}
+            <DictationSettings />
 
             <SettingsGroup title={t("settings.group.notifications")}>
               {NOTIFICATION_KINDS.map((kind) => (

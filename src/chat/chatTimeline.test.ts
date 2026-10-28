@@ -156,4 +156,17 @@ describe("subagent transcripts", () => {
     expect(subagentTimeline(subs[1]!)).toHaveLength(2);
     expect(findSubagent(state.items, "nope")).toBeNull();
   });
+
+  it("keeps a subagent launched by a subagent out of the main flow, but findable", () => {
+    const child = (id: string, parent: string): ChatItem => ({ type: "tool", id, call: { toolCallId: id, kind: "read", parentToolUseId: parent } }) as ChatItem;
+    const launchItem = (id: string, parent?: string): ChatItem =>
+      ({ type: "tool", id, call: { toolCallId: id, kind: "think", parentToolUseId: parent, rawInput: { subagent_type: "general" }, _meta: { claudeCode: { toolName: "Agent" } } } }) as ChatItem;
+    const items = [launchItem("s1"), launchItem("s2", "s1"), child("r1", "s2")];
+    const flow = nestSubagents(items);
+    expect(flow.filter((i) => i.type === "subagent").map((i) => i.id)).toEqual(["s1"]);
+    expect(flow).toHaveLength(1);
+    const s1 = flow[0] as { children: ChatItem[] };
+    expect(s1.children.map((c) => c.id)).toEqual(["s2", "r1"]);
+    expect(findSubagent(items, "s2")?.steps.map((c) => c.id)).toEqual(["r1"]);
+  });
 });

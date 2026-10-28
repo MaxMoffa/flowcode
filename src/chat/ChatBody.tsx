@@ -4,7 +4,7 @@ import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
 import { ChatItemView, PaperclipIcon, PermissionCard, SubagentRow, ToolGroup } from "./ChatItems";
-import { buildTimeline, findSubagent, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
+import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
 import { CLI_INFO } from "../agents/cliInfo";
 import type { ChatAttachment, ChatCommand } from "./chatTypes";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -61,7 +61,7 @@ function formatTimer(seconds: number): string {
 
 /** The built-in "chat" view: the conversation as a timeline (messages, tool
  * activity on a rail, permission requests) and a floating composer under it. */
-export default function ChatBody({ session: chat, agent, hidden, openSubagent = null, onOpenSubagent }: AgentViewProps) {
+export default function ChatBody({ session: chat, agent, hidden, openSubagent: sub = null, onOpenSubagent }: AgentViewProps) {
   const { t } = useI18n();
   const { model, phase, queued } = chat;
   const status = model.status;
@@ -98,7 +98,6 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent = 
   }, [listening]);
 
   // An open subagent: its own chat replaces the conversation (the composer too).
-  const sub = useMemo(() => (openSubagent ? findSubagent(model.items, openSubagent) : null), [model.items, openSubagent]);
   const subState = sub ? subagentState(sub) : null;
   const subId = sub ? sub.id : null;
   const savedScroll = useRef<{ top: number; follow: boolean } | null>(null);
@@ -125,8 +124,9 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent = 
     }
   }, [subId]);
 
-  const mainTimeline = buildTimeline(model.items);
-  const timeline = sub ? subagentTimeline(sub) : mainTimeline;
+  const mainTimeline = useMemo(() => (sub ? null : buildTimeline(model.items)), [sub, model.items]);
+  const subTimeline = useMemo(() => (sub ? subagentTimeline(sub) : null), [sub]);
+  const timeline = subTimeline ?? mainTimeline ?? [];
   const pending = model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined);
   const lastSegment = timeline[timeline.length - 1];
   const liveGroup = (sub ? !!subState?.running : model.turnActive) && lastSegment?.type === "group" ? lastSegment : null;
@@ -243,7 +243,6 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent = 
     setAttachments([]);
     setAttachError(null);
     dictation.discard();
-    if (working) chat.cancel();
     chat.clear();
     followRef.current = true;
     setAtBottom(true);

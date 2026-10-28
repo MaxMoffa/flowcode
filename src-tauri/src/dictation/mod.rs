@@ -280,7 +280,7 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
     let abort = Arc::new(AtomicBool::new(false));
     let (phrases_tx, phrases_rx) = mpsc::channel();
     let (loaded_tx, loaded_rx) = mpsc::channel();
-    let worker = std::thread::scope(|scope| {
+    std::thread::scope(|scope| {
         let worker = scope.spawn(|| work(&job, phrases_rx, &abort, loaded_tx));
         // The audio meanwhile queues up in `inbox`.
         match loaded_rx.recv() {
@@ -301,6 +301,7 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
 
         let mut segmenter = audio::Segmenter::default();
         let mut peak = 0f32;
+        let mut last_sent = 0f32;
         let mut last_level = Instant::now();
         let mut last_activity = Instant::now();
         // None: the window isn't told (it left, or another session took over).
@@ -323,7 +324,11 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
             }
             if last_level.elapsed() >= LEVEL_EVERY {
                 last_level = Instant::now();
-                job.emit("dictation://level", json!({ "value": peak.min(1.0) }));
+                // Silence stays quiet on the wire; the first 0 still drops the meter.
+                if peak != 0.0 || last_sent != 0.0 {
+                    job.emit("dictation://level", json!({ "value": peak.min(1.0) }));
+                    last_sent = peak;
+                }
                 peak = 0.0;
             }
             if !segmenter.in_phrase() && last_activity.elapsed() >= SILENCE_TIMEOUT {
@@ -355,5 +360,4 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
             job.emit("dictation://end", json!({ "reason": reason, "message": message }));
         }
     });
-    let _ = worker;
 }

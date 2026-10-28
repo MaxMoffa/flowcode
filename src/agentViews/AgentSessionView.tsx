@@ -35,7 +35,7 @@ interface AgentSessionViewProps {
   /** Whether the session has a conversation to resume: true once the first prompt was sent, false when a resume fell back to a fresh session. */
   onTalked: (talked: boolean) => void;
   /** The view hands over how to end its agent (null when it goes): the terminal taking the session over waits for it. */
-  onCloser: (close: (() => Promise<void>) | null) => void;
+  onCloser: (closer: { close: () => Promise<void>; restart: () => void } | null) => void;
   /** Opens the session in a terminal tab: resumes `sessionId`, or starts a fresh one when it is null (nothing was said yet, so there is nothing on disk to resume). */
   onSwitchToTerminal: (sessionId: string | null) => void;
   /** Opens a file of the project in an editor tab. */
@@ -100,12 +100,12 @@ export function AgentSessionView({
     onTalked(talked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [talked]);
-  const { close: closeChat } = chat;
+  const { close: closeChat, restart: restartChat } = chat;
   useEffect(() => {
-    onCloser(closeChat);
+    onCloser({ close: closeChat, restart: restartChat });
     return () => onCloser(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [closeChat]);
+  }, [closeChat, restartChat]);
   /** Switching needs the session id only when there is a conversation to resume, and never mid-turn: the terminal would resume a session the agent is still writing. */
   // Not while starting either: the agent is still being spawned (and, resumed, loading the session), and the terminal would race it for the session.
   const canSwitch = phase !== "starting" && !working && (!talked || !!sessionId);
@@ -202,7 +202,7 @@ export function AgentSessionView({
       {phase === "ready" ? (
         View && (
           <Suspense fallback={null}>
-            <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.openId} onOpenSubagent={nav.open} />
+            <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.sub} onOpenSubagent={nav.open} />
           </Suspense>
         )
       ) : (

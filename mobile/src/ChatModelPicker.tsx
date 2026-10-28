@@ -26,7 +26,7 @@ const keepFocus = {
 export function ChatModelPicker({ models, busy, onModel }: { models: ChatModels | null; busy: boolean; onModel: (modelId: string) => void }) {
   const [open, setOpen] = useState(false);
   const [olderOpen, setOlderOpen] = useState(false);
-  const split = useMemo(() => (models ? splitModelVersions(models.availableModels, models.currentModelId) : null), [models]);
+  const split = useMemo(() => (models ? splitModelVersions(models.availableModels) : null), [models]);
   const close = () => setOpen(false);
   useEscape(open, close);
   useBackHandler(open, close);

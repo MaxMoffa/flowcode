@@ -364,27 +364,47 @@ fn find_agent_sessions(
 /// thread id, which Codex generates time-ordered); a tab left without a thread
 /// (just started, nothing written yet) is the newest one. Threads in `skip`
 /// belong to a chat (codex-acp writes them in the same Codex home) and are left out.
+/// Groups with a thread of their own profile go first; the others fall back to
+/// any profile's thread in the folder, but never to one already taken.
 fn assign_codex_threads(sessions: &mut [AgentSession], tabs: &[usize], threads: &[LiveThread], skip: &HashSet<String>) {
     let mut groups: HashMap<(Option<String>, String), Vec<usize>> = HashMap::new();
     for &i in tabs {
         let key = (sessions[i].profile.clone(), sessions[i].cwd.clone().unwrap_or_default());
         groups.entry(key).or_default().push(i);
     }
-    for ((profile, cwd), mut members) in groups {
-        let in_dir = |own: bool| -> Vec<&LiveThread> {
-            threads.iter().filter(|t| !skip.contains(&t.id)).filter(|t| (!own || t.profile == profile) && same_dir(&t.cwd, &cwd)).collect()
-        };
-        let mut candidates = in_dir(true);
-        if candidates.is_empty() {
-            candidates = in_dir(false);
-        }
-        // More threads than tabs (Codex open elsewhere too): the busiest recent ones.
-        candidates.sort_by_key(|t| std::cmp::Reverse(t.updated_at));
-        candidates.truncate(members.len());
-        candidates.sort_by(|a, b| a.id.cmp(&b.id));
-        members.sort_by_key(|&i| sessions[i].started_at);
-        for (&i, thread) in members.iter().zip(candidates) {
-            sessions[i].apply_thread(thread);
+    let mut groups: Vec<_> = groups.into_iter().collect();
+    groups.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut claimed: HashSet<String> = HashSet::new();
+    let mut pending = Vec::new();
+    for pass in 0..2 {
+        let groups = if pass == 0 { std::mem::take(&mut groups) } else { std::mem::take(&mut pending) };
+        for (key, mut members) in groups {
+            let (profile, cwd) = &key;
+            let in_dir = |own: bool| -> Vec<&LiveThread> {
+                threads
+                    .iter()
+                    .filter(|t| !skip.contains(&t.id) && !claimed.contains(&t.id))
+                    .filter(|t| (!own || t.profile == *profile) && same_dir(&t.cwd, cwd))
+                    .collect()
+            };
+            let mut candidates = in_dir(true);
+            if candidates.is_empty() {
+                if pass == 0 {
+                    pending.push((key, members));
+                    continue;
+                }
+                candidates = in_dir(false);
+            }
+            // More threads than tabs (Codex open elsewhere too): the busiest recent ones.
+            candidates.sort_by_key(|t| std::cmp::Reverse(t.updated_at));
+            candidates.truncate(members.len());
+            candidates.sort_by(|a, b| a.id.cmp(&b.id));
+            members.sort_by_key(|&i| sessions[i].started_at);
+            let taken: Vec<String> = candidates.iter().map(|t| t.id.clone()).collect();
+            for (&i, thread) in members.iter().zip(candidates) {
+                sessions[i].apply_thread(thread);
+            }
+            claimed.extend(taken);
         }
     }
 }
@@ -507,8 +527,8 @@ pub(crate) fn scan_lines_backwards<T>(
 
 /// The live thread working in `cwd` - the most recently active one, if a
 /// folder has several.
-fn thread_in<'a>(threads: &'a [LiveThread], cwd: &str) -> Option<&'a LiveThread> {
-    threads.iter().filter(|t| same_dir(&t.cwd, cwd)).max_by_key(|t| t.updated_at)
+fn thread_in<'a>(threads: &[&'a LiveThread], cwd: &str) -> Option<&'a LiveThread> {
+    threads.iter().copied().filter(|t| same_dir(&t.cwd, cwd)).max_by_key(|t| t.updated_at)
 }
 
 /// Whether a `node` command line runs Gemini CLI: its script is `gemini` /
@@ -594,6 +614,17 @@ mod tests {
         assign_codex_threads(&mut s, &[0], &threads, &skip);
         assert_eq!(ids(&s), vec![Some("a")]);
         assert_eq!(s[0].status.as_deref(), Some("idle"));
+    }
+
+    #[test]
+    fn fallback_never_takes_a_thread_another_group_took() {
+        let mut s = vec![tab(100, "/p"), tab(200, "/p")];
+        s[1].profile = Some("work".into());
+        let mut own = thread("own", "/p", 1, false);
+        own.profile = Some("work".into());
+        let threads = [own];
+        assign_codex_threads(&mut s, &[0, 1], &threads, &HashSet::new());
+        assert_eq!(ids(&s), vec![None, Some("own")]);
     }
 
     #[test]

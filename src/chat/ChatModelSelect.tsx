@@ -28,7 +28,7 @@ export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "mod
   const menuRef = useRef<HTMLDivElement>(null);
   const [olderOpen, setOlderOpen] = useState(false);
   useOutsideClose(open, [anchorRef], () => setOpen(false), { escape: true });
-  const split = useMemo(() => (models ? splitModelVersions(models.availableModels, models.currentModelId) : null), [models]);
+  const split = useMemo(() => (models ? splitModelVersions(models.availableModels) : null), [models]);
 
   useEffect(() => {
     if (!open) return;

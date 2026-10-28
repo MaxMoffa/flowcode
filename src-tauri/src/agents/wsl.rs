@@ -208,7 +208,6 @@ pub(super) fn wsl_live_threads(distro: Option<&str>) -> Vec<LiveThread> {
 pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>, chat_ids: &HashSet<String>) -> Vec<AgentSession> {
     let scan = wsl_scan(distro);
     let distro_name = distro.map(str::to_string).or_else(crate::util::wsl_default_distro);
-    let mut threads: Option<Vec<LiveThread>> = None;
 
     // The oldest matching process per tab - a CLI's own launcher (a node
     // wrapper spawning the native binary) rather than its helpers.
@@ -229,12 +228,9 @@ pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>, chat_i
     // guesses below (by folder) each take one more, newest process first, so
     // two tabs in a folder never share a session.
     let mut claimed: HashSet<String> = chat_ids.clone();
-    if best.values().any(|p| wsl_agent_of(p).is_some_and(|(bin, _)| bin != "claude" && bin != "vibe")) {
-        threads = Some(wsl_live_threads(distro));
-    }
-    if let Some(threads) = &threads {
-        claimed.extend(threads.iter().filter(|t| t.pty_id.as_ref().is_some_and(|p| pty_ids.contains(p))).map(|t| t.id.clone()));
-    }
+    let needs_threads = best.values().any(|p| wsl_agent_of(p).is_some_and(|(bin, _)| bin != "claude" && bin != "vibe"));
+    let threads: Vec<LiveThread> = if needs_threads { wsl_live_threads(distro) } else { Vec::new() };
+    claimed.extend(threads.iter().filter(|t| t.pty_id.as_ref().is_some_and(|p| pty_ids.contains(p))).map(|t| t.id.clone()));
     let mut ordered: Vec<_> = best.into_iter().collect();
     ordered.sort_by_key(|(_, p)| std::cmp::Reverse(p.started_at));
     ordered
@@ -264,8 +260,7 @@ pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>, chat_i
                     session.apply_vibe_session(found);
                 }
             } else {
-                let threads = threads.get_or_insert_with(|| wsl_live_threads(distro));
-                let free: Vec<LiveThread> = threads.iter().filter(|t| !claimed.contains(&t.id)).cloned().collect();
+                let free: Vec<&LiveThread> = threads.iter().filter(|t| !claimed.contains(&t.id)).collect();
                 if let Some(thread) = threads
                     .iter()
                     .find(|t| t.pty_id.as_deref() == Some(session.pty_id.as_str()))

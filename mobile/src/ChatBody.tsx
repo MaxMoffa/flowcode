@@ -151,7 +151,7 @@ const ToolRun = memo(function ToolRun({ calls }: { calls: ChatToolCall[] }) {
 }, (a, b) => a.calls.length === b.calls.length && a.calls.every((c, i) => c === b.calls[i]));
 
 /** One subagent as a folded row like a tool run: its type and task, the steps count, the step in progress (a summary, time and a tick once done); tap opens its steps and, folded under them, its final report. */
-const SubagentRun = memo(function SubagentRun({ item, onOpen }: { item: SubagentItem; onOpen?: (id: string) => void }) {
+const SubagentRun = memo(function SubagentRun({ item, onOpen, onLink }: { item: SubagentItem; onOpen?: (id: string) => void; onLink?: (url: string) => void }) {
   const [open, setOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const { type, description } = subagentInfo(item.call);
@@ -202,14 +202,18 @@ const SubagentRun = memo(function SubagentRun({ item, onOpen }: { item: Subagent
                 <ChevronDownIcon />
                 {t("chatSubReport")}
               </button>
-              {reportOpen && <div className="chat-sub-report-body">{report}</div>}
+              {reportOpen && (
+                <div className="chat-sub-report-body">
+                  <ChatMarkdown text={report} onLink={onLink ?? (() => {})} />
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
     </div>
   );
-}, (a, b) => a.onOpen === b.onOpen && a.item.call === b.item.call && a.item.steps.length === b.item.steps.length && a.item.steps.every((s, i) => s === b.item.steps[i]));
+}, (a, b) => a.onOpen === b.onOpen && a.onLink === b.onLink && a.item.call === b.item.call && a.item.steps.length === b.item.steps.length && a.item.steps.every((s, i) => s === b.item.steps[i]));
 
 /** The words for why a turn stopped early. */
 const STOP_TEXT: Record<StopKind, Key> = {
@@ -309,7 +313,7 @@ function Turn({ group: flat, onLink, onOpenSubagent }: { group: ChatItem[]; onLi
   for (let i = 0; i < group.length; i++) {
     const item = group[i];
     if (item.type === "subagent") {
-      out.push(<SubagentRun key={item.id} item={item} onOpen={onOpenSubagent} />);
+      out.push(<SubagentRun key={item.id} item={item} onOpen={onOpenSubagent} onLink={onLink} />);
       continue;
     }
     if (item.type !== "tool") {
@@ -345,7 +349,7 @@ export const ChatBody = memo(function ChatBody({ items, plan, onLink, onOpenSuba
 });
 
 /** An open subagent's own chat: the task it was given as a bubble from the main agent, then its messages and tool runs, then its final report. */
-export const SubagentBody = memo(function SubagentBody({ sub, agent, onLink }: { sub: SubagentItem; agent: string; onLink: (url: string) => void }) {
+export const SubagentBody = memo(function SubagentBody({ sub, agent, onLink, onOpenSubagent }: { sub: SubagentItem; agent: string; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void }) {
   const prompt = subagentPrompt(sub.call);
   const items = subagentItems(sub);
   return (
@@ -354,7 +358,7 @@ export const SubagentBody = memo(function SubagentBody({ sub, agent, onLink }: {
         <span className="chat-task-label">{t("chatSubTask", { agent })}</span>
         {prompt || sub.call.title}
       </div>
-      {items.length > 0 && <Turn group={items} onLink={onLink} />}
+      {items.length > 0 && <Turn group={items} onLink={onLink} onOpenSubagent={onOpenSubagent} />}
     </>
   );
 });

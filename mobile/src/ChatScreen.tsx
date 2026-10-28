@@ -81,10 +81,13 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   useBackHandler(!!sub, closeSub);
   useEscape(!!sub, closeSub);
   const openSubagent = useCallback((id: string) => {
-    const el = scrollRef.current;
-    savedScroll.current = el ? { top: el.scrollTop, follow: stick.current } : null;
+    // Only the main chat's position is saved: from inside a subagent, the scroll is the subagent's.
+    if (!openSub) {
+      const el = scrollRef.current;
+      savedScroll.current = el ? { top: el.scrollTop, follow: stick.current } : null;
+    }
     setOpenSub(id);
-  }, []);
+  }, [openSub]);
   const wide = useWide();
   useFollowChat(chatId);
 
@@ -322,7 +325,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
                 {sub ? (
-                  <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} />
+                  <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
                 ) : (
                   <>
                     {model.items.length === 0 && <div className="chat-empty">{session.loaded ? t("chatEmpty") : t("loading")}</div>}

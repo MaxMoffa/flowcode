@@ -49,7 +49,7 @@ function compare(a: number[], b: number[]): number {
  * of the same families ("Sonnet 4.5" over "Sonnet 4"). Entries without a version
  * are always latest; the order of the agent's list is kept inside each part.
  */
-export function splitModelVersions(models: ChatModelOption[], _currentModelId: string): { latest: ChatModelOption[]; older: ChatModelOption[] } {
+export function splitModelVersions(models: ChatModelOption[]): { latest: ChatModelOption[]; older: ChatModelOption[] } {
   const parsed = models.map(parse);
   const best = new Map<string, number[]>();
   for (const p of parsed) {
