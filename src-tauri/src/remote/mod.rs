@@ -2119,7 +2119,7 @@ impl Conn {
                 } else if chat_id.len() > MAX_ID_BYTES {
                     self.error(tr("Chat non trovata", "Chat not found"), None);
                 } else if !text.trim().is_empty() {
-                    self.spawn_chat(move |chats| chats.prompt(&chat_id, text));
+                    self.spawn_chat(move |chats| chats.prompt(&chat_id, text, Vec::new()));
                 }
             }
             ClientMsg::ChatCancel { chat_id } => {

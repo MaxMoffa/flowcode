@@ -4,7 +4,13 @@ import { listen } from "@tauri-apps/api/event";
 import type { AgentCli } from "../agents/cliInfo";
 import { t } from "../i18n";
 import { applyEvent, applyLocalError, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, mergeReplay, settleChat, type ChatModelState } from "./chatModel";
-import type { ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus } from "./chatTypes";
+import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus } from "./chatTypes";
+
+/** A message waiting for the agent to be idle. */
+export interface QueuedMessage {
+  text: string;
+  attachments: ChatAttachment[];
+}
 
 type ChatPhase = "starting" | "ready" | "failed";
 
@@ -36,7 +42,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   // The models announced at the start; the live list and current one come from the conversation's events (`model.models`).
   const [announcedModels, setAnnouncedModels] = useState<ChatModels | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
-  const [queued, setQueued] = useState<string[]>([]);
+  const [queued, setQueued] = useState<QueuedMessage[]>([]);
   // The agent loaded the session asked for (false for a fresh one, or a resume that fell back to a new session).
   const [loaded, setLoaded] = useState(false);
   // Bumped by `restart` to run the start effect again.
@@ -146,11 +152,11 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   }, [status]);
 
   /** Hands a message to the agent; a failure shows up as an error in the conversation. */
-  const dispatch = useCallback((text: string) => {
+  const dispatch = useCallback((text: string, attachments: ChatAttachment[]) => {
     const id = chatIdRef.current;
     if (!id) return;
     sentAtSeqRef.current = modelRef.current.lastSeq;
-    invoke("chat_prompt", { chatId: id, text }).then(
+    invoke("chat_prompt", { chatId: id, text, attachments }).then(
       () => {
         if (chatIdRef.current === id) talkedRef.current = true;
       },
@@ -163,7 +169,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           // newer than now (the running turn's end), so a busy agent isn't
           // asked again in a loop; after an exit, a restart sends it.
           sentAtSeqRef.current = modelRef.current.lastSeq;
-          setQueued((q) => [text, ...q]);
+          setQueued((q) => [{ text, attachments }, ...q]);
           return;
         }
         sentAtSeqRef.current = null;
@@ -173,11 +179,11 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   }, []);
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, attachments: ChatAttachment[] = []) => {
       const trimmed = text.trim();
-      if (!trimmed || !chatIdRef.current) return;
-      if (modelRef.current.status === "idle" && sentAtSeqRef.current === null) dispatch(trimmed);
-      else setQueued((q) => [...q, trimmed]);
+      if ((!trimmed && attachments.length === 0) || !chatIdRef.current) return;
+      if (modelRef.current.status === "idle" && sentAtSeqRef.current === null) dispatch(trimmed, attachments);
+      else setQueued((q) => [...q, { text: trimmed, attachments }]);
     },
     [dispatch],
   );
@@ -188,7 +194,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     if (sentAtSeqRef.current !== null && model.lastSeq <= sentAtSeqRef.current) return;
     sentAtSeqRef.current = null;
     if (queued.length === 0) return;
-    dispatch(queued[0]);
+    dispatch(queued[0].text, queued[0].attachments);
     setQueued((q) => q.slice(1));
   }, [model.status, model.lastSeq, queued, dispatch]);
 
@@ -259,7 +265,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, chatId, queued, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, unqueue, force, restart, close };
+  return { model, phase, error, modes, models, chatId, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, unqueue, force, restart, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */

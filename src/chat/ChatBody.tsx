@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
 import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
-import { ChatItemView, PermissionCard, ToolGroup } from "./ChatItems";
+import { ChatItemView, PaperclipIcon, PermissionCard, ToolGroup } from "./ChatItems";
 import { buildTimeline, liveTool } from "./chatTimeline";
+import type { ChatAttachment } from "./chatTypes";
 import { FrogThinking } from "../../shared/FrogThinking";
 import { appendDictation, useDictation } from "./useDictation";
 import "./chat.css";
@@ -25,12 +26,28 @@ const THINKING_VERBS = [
 const FOLLOW_SLACK_PX = 80;
 /** Suggestions listed under a "/" at once. */
 const COMMANDS_SHOWN = 8;
+/** At most this many attachments per message, each up to this size. */
+const MAX_ATTACHMENTS = 10;
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 /** Heights of the bars of the listening waveform. */
 const WAVE_BARS = [7, 14, 20, 11, 18, 8, 16, 10];
 
 /** A bar's height in px: flat-ish while quiet, its full height at the loudest. */
 function waveHeight(full: number, level: number): number {
   return Math.round(3 + (full - 3) * Math.min(1, level));
+}
+
+/** Reads a file into an attachment: its bytes as base64 (no `data:` prefix). */
+function readAttachment(file: File): Promise<ChatAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error(file.name));
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve({ name: file.name || "attachment", mime: file.type || "application/octet-stream", data: url.slice(url.indexOf(",") + 1) });
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function formatTimer(seconds: number): string {
@@ -52,6 +69,10 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
     : "";
 
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -113,13 +134,64 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
       ? model.commands.filter((c) => c.name.startsWith(draft.slice(1))).slice(0, COMMANDS_SHOWN)
       : [];
 
+  /** Reads the files into attachments, refusing the ones past the caps with a notice. */
+  async function addFiles(files: File[]) {
+    if (files.length === 0 || !chat.canAttach) return;
+    let room = MAX_ATTACHMENTS - attachments.length;
+    const accepted: File[] = [];
+    let error: string | null = null;
+    for (const file of files) {
+      if (file.size > MAX_ATTACHMENT_BYTES) error = t("chat.attach.tooBig", { name: file.name });
+      else if (room <= 0) error = t("chat.attach.tooMany");
+      else {
+        accepted.push(file);
+        room--;
+      }
+    }
+    setAttachError(error);
+    try {
+      const read = await Promise.all(accepted.map(readAttachment));
+      setAttachments((a) => [...a, ...read].slice(0, MAX_ATTACHMENTS));
+    } catch (err) {
+      setAttachError(String(err));
+    }
+  }
+
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length === 0 || !chat.canAttach) return;
+    e.preventDefault();
+    void addFiles(files);
+  }
+
+  const dropHandlers = chat.canAttach
+    ? {
+        onDragOver: (e: DragEvent<HTMLElement>) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setDragOver(true);
+        },
+        onDragLeave: (e: DragEvent<HTMLElement>) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+        },
+        onDrop: (e: DragEvent<HTMLElement>) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setDragOver(false);
+          void addFiles(Array.from(e.dataTransfer.files));
+        },
+      }
+    : {};
+
   function submit() {
-    if (!draft.trim()) return;
+    if (!draft.trim() && attachments.length === 0) return;
     // The dictation session is disowned before the draft clears, so a phrase
     // it flushes late can't land in the next draft; what it was still hearing
     // goes out with this message.
-    chat.send(appendDictation(draft, dictation.discard()));
+    chat.send(appendDictation(draft, dictation.discard()), attachments);
     setDraft("");
+    setAttachments([]);
+    setAttachError(null);
     followRef.current = true;
   }
 
@@ -129,7 +201,7 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
   }
 
   function onComposerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && e.ctrlKey && working && draft.trim() && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && e.ctrlKey && working && (draft.trim() || attachments.length > 0) && !e.nativeEvent.isComposing) {
       // Send now: queue the draft and force it, interrupting the turn.
       e.preventDefault();
       const index = queued.length;
@@ -158,13 +230,14 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
   }
 
   // While the agent works an empty composer offers to stop it; with text it queues the message.
-  const canStop = working && draft.trim() === "";
+  const canStop = working && draft.trim() === "" && attachments.length === 0;
 
   return (
     <>
       <div
         className="chat-column"
         ref={columnRef}
+        {...dropHandlers}
         onScroll={(e) => {
           const el = e.currentTarget;
           followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SLACK_PX;
@@ -199,7 +272,7 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
         </div>
       </div>
 
-      <div className="chat-footer" onKeyDown={onFooterKeyDown}>
+      <div className="chat-footer" onKeyDown={onFooterKeyDown} {...dropHandlers}>
         {phase === "ready" && status === "exited" ? (
           <div className="chat-exited">
             <span>{t("chat.exited")}</span>
@@ -231,9 +304,9 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
             )}
             {queued.length > 0 && (
               <div className="chat-queue">
-                {queued.map((text, i) => (
+                {queued.map(({ text, attachments: files }, i) => (
                   <span key={i} className="chat-chip" title={text}>
-                    <span className="chat-chip-text">{t("chat.queued", { text })}</span>
+                    <span className="chat-chip-text">{t("chat.queued", { text: files.length > 0 ? `${text} (+${files.length})` : text })}</span>
                     <button type="button" className="chat-chip-remove" aria-label={t("chat.forceSend")} title={`${t("chat.forceSend")} (Ctrl+Enter)`} onClick={() => chat.force(i)}>
                       <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
@@ -264,7 +337,32 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
                 </button>
               </div>
             )}
-            <div className={`chat-composer${listening ? " is-listening" : ""}`}>
+            {attachError && (
+              <div className="chat-notice" role="alert">
+                <span className="chat-notice-text">{attachError}</span>
+                <button type="button" className="chat-chip-remove" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={() => setAttachError(null)}>
+                  {"×"}
+                </button>
+              </div>
+            )}
+            {attachments.length > 0 && (
+              <div className="chat-queue">
+                {attachments.map((file, i) => (
+                  <span key={i} className="chat-chip" title={file.name}>
+                    {file.mime.startsWith("image/") ? (
+                      <img className="chat-chip-thumb" src={`data:${file.mime};base64,${file.data}`} alt="" />
+                    ) : (
+                      <PaperclipIcon size={11} />
+                    )}
+                    <span className="chat-chip-text">{file.name}</span>
+                    <button type="button" className="chat-chip-remove" aria-label={t("chat.attach.remove")} title={t("chat.attach.remove")} onClick={() => setAttachments((a) => a.filter((_, j) => j !== i))}>
+                      {"×"}
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className={`chat-composer${listening ? " is-listening" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
               {listening && (
                 <div className="chat-listening" aria-live="polite">
                   <span className="chat-wave" aria-hidden="true">
@@ -288,11 +386,36 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
                 disabled={phase !== "ready"}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onComposerKeyDown}
+                onPaste={onPaste}
               />
               <div className="chat-composer-actions">
                 <ChatModeSelect chat={chat} agent={agent} />
                 <ChatModelSelect chat={chat} />
                 <span className="chat-actions-spacer" />
+                {chat.canAttach && (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      hidden
+                      onChange={(e) => {
+                        void addFiles(Array.from(e.target.files ?? []));
+                        e.target.value = "";
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="chat-icon-btn"
+                      title={t("chat.attach")}
+                      aria-label={t("chat.attach")}
+                      disabled={phase !== "ready"}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <PaperclipIcon size={19} />
+                    </button>
+                  </>
+                )}
                 {dictation.supported && (
                   <button
                     type="button"
@@ -322,7 +445,7 @@ export default function ChatBody({ session: chat, agent, hidden }: AgentViewProp
                     className="chat-icon-btn is-send"
                     title={t("chat.send")}
                     aria-label={t("chat.send")}
-                    disabled={phase !== "ready" || !draft.trim()}
+                    disabled={phase !== "ready" || (!draft.trim() && attachments.length === 0)}
                     onClick={submit}
                   >
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

@@ -177,6 +177,33 @@ pub async fn list_agent_sessions(app: tauri::AppHandle) -> Result<Vec<AgentSessi
     collect_agent_sessions(&app).await
 }
 
+/// Ends the agent running in this app's pty `pty_id` (its whole process
+/// tree) and resolves once it is gone, or after a few seconds: the
+/// terminal-to-chat handoff awaits it so the chat's agent never resumes a
+/// session the terminal still holds. Only an agent found under one of our
+/// ptys, never an arbitrary pid; not one inside WSL (`pid` is a Linux pid).
+#[tauri::command]
+pub async fn end_pty_agent(app: tauri::AppHandle, pty_id: String) -> Result<(), String> {
+    let sessions = collect_agent_sessions(&app).await?;
+    let Some(pid) = sessions.iter().find(|s| s.pty_id == pty_id && s.wsl_distro.is_none()).map(|s| s.pid) else {
+        return Ok(());
+    };
+    crate::blocking(move || {
+        crate::chat::kill_tree(pid);
+        let target = Pid::from_u32(pid);
+        let mut sys = System::new();
+        for _ in 0..50 {
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[target]), true);
+            if sys.process(target).is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// The body of `list_agent_sessions`, also used by the remote-access server
 /// (remote.rs) to tell a phone which tab runs which agent.
 pub(crate) async fn collect_agent_sessions(app: &tauri::AppHandle) -> Result<Vec<AgentSession>, String> {

@@ -18,6 +18,14 @@ function detectPlatform(): "linux" | "macos" | "windows" | "other" {
 }
 document.documentElement.dataset.platform = detectPlatform();
 
+// Native drag-drop is off (tauri.conf.json) so the chat composer gets HTML5
+// file drops; a file dropped anywhere else would navigate the webview to it.
+for (const type of ["dragover", "drop"]) {
+  window.addEventListener(type, (e) => {
+    if ((e as DragEvent).dataTransfer?.types.includes("Files")) e.preventDefault();
+  });
+}
+
 // A separate root, not a route inside <App/>: the installer boots before
 // Flowcode itself is set up, so it must never mount the main shell's own
 // state (terminal tabs, settings, plugins...) even transiently. Also opened

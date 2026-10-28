@@ -81,13 +81,21 @@ interface EventBase {
 
 export type ChatEvent =
   | (EventBase & { kind: "update"; update: ChatUpdate })
-  | (EventBase & { kind: "user"; text: string })
+  | (EventBase & { kind: "user"; text: string; attachments?: string[] })
   | (EventBase & { kind: "permission"; requestId: string; toolCall: ChatToolCall; options: ChatPermissionOption[] })
   | (EventBase & { kind: "permissionResolved"; requestId: string; optionId: string | null })
   | (EventBase & { kind: "turnEnd"; stopReason: string })
   | (EventBase & { kind: "error"; message: string })
   | (EventBase & { kind: "exit"; code: number | null })
   | (EventBase & { kind: "ext"; method: string; params: unknown });
+
+/** A file sent with a prompt: its bytes (base64, no `data:` prefix) or a path on this PC. */
+export interface ChatAttachment {
+  name: string;
+  mime: string;
+  data?: string;
+  path?: string;
+}
 
 /** What `chat_start` answers. */
 export interface ChatStartResult {

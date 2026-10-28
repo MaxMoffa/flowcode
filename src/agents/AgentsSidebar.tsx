@@ -10,7 +10,7 @@ import type { AgentSession } from "./agentSessions";
 import { gitRepoRoot, gitWorktreeAdd, gitWorktrees, isWorktreeCapable, type GitWorktree } from "./git";
 import { inProject, keepIfSame } from "./agentScope";
 import type { ClaudeAgentEntry, CodexSessionEntry, SavedSession, VibeSessionEntry } from "./entryTypes";
-import { formatElapsed } from "../lib/time";
+import { formatElapsed, relativeCommitTime } from "../lib/time";
 import { useSecondTick } from "../lib/useSecondTick";
 import { ChatIcon, TerminalIcon } from "../app/icons";
 import { NewAgentMenu } from "./NewAgentMenu";
@@ -32,8 +32,7 @@ const SCOPES = ["project", "all"] as const;
  * re-rendered every second for it. */
 function Elapsed({ since, ago }: { since: number; ago?: boolean }) {
   useSecondTick();
-  const duration = formatElapsed(since);
-  return <>{ago ? t("agents.ago", { duration }) : duration}</>;
+  return <>{ago ? relativeCommitTime(since / 1000) : formatElapsed(since)}</>;
 }
 
 interface AgentsSidebarProps {

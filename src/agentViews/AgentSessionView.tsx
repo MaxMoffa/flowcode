@@ -1,4 +1,5 @@
-import { Suspense, useEffect, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useState, type KeyboardEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
@@ -72,6 +73,18 @@ export function AgentSessionView({
   const subtitle = title === label ? folder : `${label} · ${folder}`;
   const status: ChatStatus = phase === "failed" ? "exited" : model.status;
   const working = status === "busy" || status === "waiting";
+  // The first start downloads the adapter only when Flowcode has none installed yet.
+  const [downloading, setDownloading] = useState(false);
+  useEffect(() => {
+    if (phase !== "starting") return;
+    let live = true;
+    invoke<boolean>("chat_adapter_ready", { agent })
+      .then((ready) => live && setDownloading(!ready))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [phase, agent]);
   const current = resolveAcpView(viewId);
   const View = current.component;
 
@@ -197,7 +210,7 @@ export function AgentSessionView({
             <div className="chat-state">
               <span className="chat-spinner" aria-hidden="true" />
               <div>{t("chat.starting", { agent: label })}</div>
-              <div className="chat-state-hint">{t("chat.starting.hint")}</div>
+              {downloading && <div className="chat-state-hint">{t("chat.starting.hint")}</div>}
             </div>
           )}
           {phase === "failed" && (

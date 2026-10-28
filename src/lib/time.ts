@@ -21,7 +21,7 @@ export function formatCompactDuration(ms: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-/** "3d ago"-style label of a commit time (unix seconds). */
+/** "3d ago"-style label of a time in unix seconds (a commit's, a session's). */
 export function relativeCommitTime(unix: number): string {
   const seconds = unix - Date.now() / 1000;
   const units: [Intl.RelativeTimeFormatUnit, number][] = [

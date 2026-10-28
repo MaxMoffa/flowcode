@@ -17,6 +17,7 @@ import { applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, f
 import { t } from "./i18n";
 import { currentChats, onMessage, send, sendChecked, showToast, useRemoteSelector } from "./remote";
 import type { ChatInfo, ServerMsg } from "../../shared/remote-types";
+import { beginPending, endPending } from "./pending";
 import { createStore } from "./store";
 
 interface ChatsSnapshot {
@@ -28,8 +29,9 @@ interface ChatsSnapshot {
 
 const store = createStore<ChatsSnapshot>({ sessions: {}, openRequest: null });
 
-/** How long a requested chat or a terminal handoff is waited for before giving up. */
-const WAIT_MS = 15_000;
+/** How long a requested chat or a handoff is waited for before giving up: a chat
+ * starts its agent's adapter and replays the session first, which takes a while. */
+const WAIT_MS = 45_000;
 
 /** Screens showing each chat; a chat with any is followed. */
 const refs = new Map<string, number>();
@@ -258,6 +260,7 @@ export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string
     const fresh = chats.find((c) => !p.known.has(c.chatId));
     if (fresh) {
       pendingRef.current = null;
+      endPending();
       onOpen(fresh.chatId);
     }
   }, [chats, onOpen]);
@@ -287,6 +290,7 @@ export function useChatHandoff(tabs: Tab[] | null, onOpen: (ptyId: string) => vo
     const target = tabs.find((x) => x.tabId === p.tabId) ?? tabs.find((x) => !p.known.has(x.ptyId));
     if (target) {
       pendingRef.current = null;
+      endPending();
       onOpen(target.ptyId);
     }
   }, [tabs, onOpen]);
@@ -295,6 +299,7 @@ export function useChatHandoff(tabs: Tab[] | null, onOpen: (ptyId: string) => vo
   tabsRef.current = tabs;
   return useCallback((chat: ChatInfo) => {
     pendingRef.current = { tabId: chat.tabId, known: new Set((tabsRef.current ?? []).map((x) => x.ptyId)), until: Date.now() + WAIT_MS };
+    beginPending({ kind: "toTerminal", label: "" }, WAIT_MS);
     chatToTerminal(chat.chatId);
   }, []);
 }
@@ -317,6 +322,7 @@ export function useTerminalHandoff(chats: ChatInfo[] | null, onOpen: (chatId: st
     const fresh = chats.find((c) => !p.known.has(c.chatId));
     if (fresh) {
       pendingRef.current = null;
+      endPending();
       lastChatViews.set(fresh.chatId, p.view);
       onOpen(fresh.chatId);
     }
@@ -326,6 +332,7 @@ export function useTerminalHandoff(chats: ChatInfo[] | null, onOpen: (chatId: st
   chatsRef.current = chats;
   return useCallback((ptyId: string, view: string) => {
     pendingRef.current = { known: new Set((chatsRef.current ?? []).map((c) => c.chatId)), view, until: Date.now() + WAIT_MS };
+    beginPending({ kind: "toChat", label: "" }, WAIT_MS);
     send({ t: "terminalchat", ptyId });
   }, []);
 }

@@ -12,7 +12,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{broadcast, watch};
@@ -73,7 +73,12 @@ pub enum ChatBody {
     /// A `session/update` notification, verbatim.
     Update { update: Value },
     /// What the user sent (recorded by `chat_prompt`).
-    User { text: String },
+    User {
+        text: String,
+        /// Names of the files sent along (the files themselves are not kept).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<String>,
+    },
     /// The agent asks for permission; answered with `chat_permission`.
     Permission { request_id: Value, tool_call: Value, options: Value },
     PermissionResolved { request_id: Value, option_id: Option<String> },
@@ -267,7 +272,8 @@ fn push_tail(buf: &mut Vec<u8>, chunk: &[u8], cap: usize) {
     }
 }
 
-/// The program and arguments that start an agent's ACP server.
+/// The program and arguments that start an agent's ACP server (for the npm
+/// adapters, the `npx` fallback used until `acp_adapters` has installed one).
 fn launch_command(agent: &str) -> Option<(&'static str, &'static [&'static str])> {
     Some(match agent {
         "vibe" => ("vibe-acp", &[]),
@@ -463,7 +469,7 @@ fn approx_size(value: &Value) -> usize {
 fn body_size(body: &ChatBody) -> usize {
     64 + match body {
         ChatBody::Update { update } => approx_size(update),
-        ChatBody::User { text } => text.len(),
+        ChatBody::User { text, .. } => text.len(),
         ChatBody::Permission { request_id, tool_call, options } => {
             approx_size(request_id) + approx_size(tool_call) + approx_size(options)
         }
@@ -607,6 +613,70 @@ impl Log {
     }
 }
 
+/// A file sent along with a prompt: its bytes (base64) or a path on this PC.
+#[derive(Deserialize, Debug)]
+pub struct Attachment {
+    name: String,
+    mime: String,
+    data: Option<String>,
+    path: Option<String>,
+}
+
+/// A name that is safe as a single path component.
+fn sanitize_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let clean: String = base.chars().filter(|c| !c.is_control() && !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|')).collect();
+    let clean = clean.trim().trim_matches('.').to_string();
+    if clean.is_empty() { "attachment".into() } else { clean }
+}
+
+/// `file:///C:/x%20y` for an absolute path (percent-encoded, forward slashes).
+fn file_uri(path: &std::path::Path) -> String {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let raw = raw.strip_prefix("//?/").unwrap_or(&raw);
+    let mut uri = String::from("file://");
+    if !raw.starts_with('/') {
+        uri.push('/');
+    }
+    for b in raw.bytes() {
+        if b.is_ascii_alphanumeric() || b"/-._~:".contains(&b) {
+            uri.push(b as char);
+        } else {
+            uri.push_str(&format!("%{b:02X}"));
+        }
+    }
+    uri
+}
+
+/// The ACP content block for one attachment: an inline `image` when the
+/// agent takes them, else a `resource_link` to a file (the baseline every
+/// agent accepts; it opens the file with its own tools).
+fn attachment_block(a: &Attachment, images: bool) -> Result<Value, String> {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    if images && a.mime.starts_with("image/") {
+        let data = match (&a.data, &a.path) {
+            (Some(data), _) => data.clone(),
+            (None, Some(path)) => b64.encode(std::fs::read(path).map_err(|e| format!("could not read {path}: {e}"))?),
+            _ => return Err(format!("attachment {} has no content", a.name)),
+        };
+        return Ok(json!({ "type": "image", "mimeType": a.mime, "data": data }));
+    }
+    let path = match (&a.data, &a.path) {
+        (Some(data), _) => {
+            let bytes = b64.decode(data).map_err(|e| format!("bad attachment {}: {e}", a.name))?;
+            let dir = std::env::temp_dir().join("flowcode-attachments").join(uuid::Uuid::new_v4().to_string());
+            std::fs::create_dir_all(&dir).map_err(|e| format!("could not save {}: {e}", a.name))?;
+            let file = dir.join(sanitize_name(&a.name));
+            std::fs::write(&file, bytes).map_err(|e| format!("could not save {}: {e}", a.name))?;
+            file
+        }
+        (None, Some(path)) => std::path::PathBuf::from(path),
+        _ => return Err(format!("attachment {} has no content", a.name)),
+    };
+    Ok(json!({ "type": "resource_link", "uri": file_uri(&path), "name": a.name, "mimeType": a.mime }))
+}
+
 /// Everything about one running agent; shared by the commands and the
 /// session's reader thread.
 struct Chat {
@@ -651,6 +721,8 @@ struct Chat {
     /// whatever history it still streams (a timed-out load may go on) is
     /// dropped. Set under the log lock, and checked under it (`emit_when`).
     stale_session: Mutex<Option<String>>,
+    /// The agent announced it takes image blocks in a prompt (`promptCapabilities.image`).
+    prompt_images: AtomicBool,
 }
 
 impl Chat {
@@ -1084,7 +1156,7 @@ fn read_line_capped(reader: &mut impl BufRead, buf: &mut Vec<u8>, max: usize) ->
 }
 
 #[cfg(target_os = "windows")]
-fn kill_tree(pid: u32) {
+pub(crate) fn kill_tree(pid: u32) {
     let _ = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .creation_flags(CREATE_NO_WINDOW)
@@ -1097,7 +1169,7 @@ fn kill_tree(pid: u32) {
 /// The agent is spawned as the leader of its own process group (see
 /// `spawn_agent`), so the whole group can be signalled.
 #[cfg(not(target_os = "windows"))]
-fn kill_tree(pid: u32) {
+pub(crate) fn kill_tree(pid: u32) {
     let _ = Command::new("kill")
         .args(["-KILL", "--", &format!("-{pid}")])
         .stdin(Stdio::null())
@@ -1228,10 +1300,20 @@ impl ChatState {
     /// Once the `User` event is out, the turn must end: if the request can't
     /// be sent, an `Error` closes it (back to idle) - unless the agent's exit
     /// already failed the registered prompt, which emits that `Error` itself.
-    pub(crate) fn prompt(&self, chat_id: &str, text: String) -> Result<(), String> {
+    pub(crate) fn prompt(&self, chat_id: &str, text: String, attachments: Vec<Attachment>) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         let session_id = chat.session_id()?.to_string();
-        chat.emit_when(ChatBody::User { text: text.clone() }, prompt_gate)?;
+        // File IO first: a failure here must not leave a turn open.
+        let mut blocks = Vec::new();
+        if !text.is_empty() || attachments.is_empty() {
+            blocks.push(json!({ "type": "text", "text": text }));
+        }
+        let images = chat.prompt_images.load(Ordering::Acquire);
+        for attachment in &attachments {
+            blocks.push(attachment_block(attachment, images)?);
+        }
+        let names = attachments.iter().map(|a| a.name.clone()).collect();
+        chat.emit_when(ChatBody::User { text, attachments: names }, prompt_gate)?;
         let id = match chat.register(Pending::Prompt) {
             Ok(id) => id,
             Err(message) => {
@@ -1243,7 +1325,7 @@ impl ChatState {
             "jsonrpc": "2.0",
             "id": id,
             "method": "session/prompt",
-            "params": { "sessionId": session_id, "prompt": [{ "type": "text", "text": text }] },
+            "params": { "sessionId": session_id, "prompt": blocks },
         });
         if let Err(message) = chat.send(&request) {
             // Whoever takes the pending prompt out reports its failure.
@@ -1310,23 +1392,55 @@ impl ChatState {
     }
 }
 
+/// Whether the agent can start without downloading its adapter: it has its
+/// own binary, or the managed install is in place.
+#[tauri::command]
+pub fn chat_adapter_ready(app: AppHandle, agent: String) -> bool {
+    crate::acp_adapters::package(&agent).is_none() || crate::acp_adapters::installed_entry(&app, &agent).is_some()
+}
+
 /// Starts the agent's ACP server in `cwd` with its pipes open.
 fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>) -> Result<(Child, String), String> {
     let (program, args) = launch_command(agent).ok_or_else(|| format!("unknown agent: {agent}"))?;
-    let line = std::iter::once(program).chain(args.iter().copied()).collect::<Vec<_>>().join(" ");
-    // Through cmd on Windows so npm's `.cmd` shims resolve.
+    // A Flowcode-managed install runs straight under node (no npx, no download);
+    // until the first one lands, npx fetches the adapter as before.
+    let installed = crate::acp_adapters::installed_entry(app, agent);
+    crate::acp_adapters::refresh_in_background(app, agent);
+    let line = match &installed {
+        Some(entry) => format!("node {}", entry.display()),
+        None => std::iter::once(program).chain(args.iter().copied()).collect::<Vec<_>>().join(" "),
+    };
     #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg(program).args(args);
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd
+    let mut cmd = match &installed {
+        Some(entry) => {
+            let mut cmd = Command::new("node");
+            cmd.arg(entry);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd
+        }
+        // Through cmd on Windows so npm's `.cmd` shims resolve.
+        None => {
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg(program).args(args);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd
+        }
     };
     #[cfg(not(target_os = "windows"))]
     let mut cmd = {
         use std::os::unix::process::CommandExt;
-        let mut cmd = Command::new(program);
-        cmd.args(args);
+        let mut cmd = match &installed {
+            Some(entry) => {
+                let mut cmd = Command::new("node");
+                cmd.arg(entry);
+                cmd
+            }
+            None => {
+                let mut cmd = Command::new(program);
+                cmd.args(args);
+                cmd
+            }
+        };
         cmd.process_group(0);
         cmd
     };
@@ -1370,6 +1484,8 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
         }),
         SETUP_TIMEOUT,
     )?;
+    let images = init.pointer("/agentCapabilities/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false);
+    chat.prompt_images.store(images, Ordering::Release);
     let can_load = init.pointer("/agentCapabilities/loadSession").and_then(Value::as_bool).unwrap_or(false);
     if strict && !can_load && resume.as_deref().is_some_and(|id| !id.is_empty()) {
         return Err("resume_unsupported: the agent can't resume a session".into());
@@ -1442,6 +1558,7 @@ fn start_blocking(
         modes: OnceLock::new(),
         models: Mutex::new(None),
         stale_session: Mutex::new(None),
+        prompt_images: AtomicBool::new(false),
     });
     {
         let chat = Arc::clone(&chat);
@@ -1524,8 +1641,8 @@ pub async fn chat_start(
 /// The commands that write to the agent run on the blocking pool: a write to
 /// an agent that stopped reading its stdin blocks until it reads again.
 #[tauri::command]
-pub async fn chat_prompt(app: AppHandle, chat_id: String, text: String) -> Result<(), String> {
-    crate::blocking(move || app.state::<ChatState>().prompt(&chat_id, text)).await
+pub async fn chat_prompt(app: AppHandle, chat_id: String, text: String, attachments: Option<Vec<Attachment>>) -> Result<(), String> {
+    crate::blocking(move || app.state::<ChatState>().prompt(&chat_id, text, attachments.unwrap_or_default())).await
 }
 
 #[tauri::command]
@@ -1729,7 +1846,7 @@ mod tests {
             .map(|e| {
                 let text = match &e.body {
                     ChatBody::Update { update } => update["content"]["text"].as_str().unwrap_or("").to_string(),
-                    ChatBody::User { text } => text.clone(),
+                    ChatBody::User { text, .. } => text.clone(),
                     _ => String::new(),
                 };
                 (e.seq, text)
@@ -1744,7 +1861,7 @@ mod tests {
     #[test]
     fn status_follows_events() {
         use ChatStatus::*;
-        let user = ChatBody::User { text: "hi".into() };
+        let user = ChatBody::User { text: "hi".into(), attachments: Vec::new() };
         let update = ChatBody::Update { update: json!({ "sessionUpdate": "usage_update" }) };
         let permission = ChatBody::Permission { request_id: json!(1), tool_call: json!({}), options: json!([]) };
         let resolved = ChatBody::PermissionResolved { request_id: json!(1), option_id: None };
@@ -1844,7 +1961,7 @@ mod tests {
     #[test]
     fn the_log_merges_a_streamed_message_but_the_feed_gets_every_chunk() {
         let mut log = big_log();
-        let user = log.push(ChatBody::User { text: "q".into() }, 1);
+        let user = log.push(ChatBody::User { text: "q".into(), attachments: Vec::new() }, 1);
         let live: Vec<ChatEvent> = ["Hel", "lo ", "wörld"]
             .iter()
             .enumerate()
@@ -1862,7 +1979,7 @@ mod tests {
     #[test]
     fn a_replay_from_inside_a_merged_run_gets_only_the_rest() {
         let mut log = big_log();
-        log.push(ChatBody::User { text: "q".into() }, 0);
+        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new() }, 0);
         for t in ["a", "bé", "c", "d"] {
             log.push(chunk("agent_message_chunk", t), 0); // seqs 2..=5
         }
@@ -1920,21 +2037,21 @@ mod tests {
     fn the_log_drops_its_oldest_past_the_caps() {
         let mut log = Log::new(3, MAX_LOG_BYTES);
         for n in 1..=5 {
-            log.push(ChatBody::User { text: n.to_string() }, 0);
+            log.push(ChatBody::User { text: n.to_string(), attachments: Vec::new() }, 0);
         }
         assert_eq!(summary(&log.after(0)), vec![(3, "3".into()), (4, "4".into()), (5, "5".into())]);
 
         // By bytes: each of these is 64 + 100 bytes, room for two.
         let mut log = Log::new(100, 400);
         for n in 1..=4u8 {
-            log.push(ChatBody::User { text: n.to_string().repeat(100) }, 0);
+            log.push(ChatBody::User { text: n.to_string().repeat(100), attachments: Vec::new() }, 0);
         }
         assert_eq!(log.after(0).iter().map(|e| e.seq).collect::<Vec<_>>(), vec![3, 4]);
         assert_eq!(log.bytes, log.events.iter().map(|e| e.size).sum::<usize>());
 
         // A merged run counts its whole text against the cap.
         let mut log = Log::new(100, 400);
-        log.push(ChatBody::User { text: "q".into() }, 0);
+        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new() }, 0);
         for _ in 0..10 {
             log.push(chunk("agent_message_chunk", &"x".repeat(50)), 0);
         }
@@ -1944,7 +2061,7 @@ mod tests {
 
         // The newest entry is kept even when alone over the cap.
         let mut log = Log::new(100, 10);
-        log.push(ChatBody::User { text: "y".repeat(1000) }, 0);
+        log.push(ChatBody::User { text: "y".repeat(1000), attachments: Vec::new() }, 0);
         assert_eq!(log.events.len(), 1);
     }
 
@@ -1952,7 +2069,7 @@ mod tests {
     fn a_reset_log_keeps_counting() {
         let mut log = big_log();
         log.push(chunk("agent_message_chunk", "old history"), 0);
-        log.push(ChatBody::User { text: "old".into() }, 0);
+        log.push(ChatBody::User { text: "old".into(), attachments: Vec::new() }, 0);
         log.reset();
         assert!(log.after(0).is_empty());
         assert_eq!(log.bytes, 0);
@@ -1966,7 +2083,7 @@ mod tests {
         assert_eq!(approx_size(&json!("abc")), 5);
         assert_eq!(approx_size(&json!({ "k": "v" })), 2 + 1 + 4 + 3);
         assert_eq!(approx_size(&json!([1, null])), 2 + 8 + 8);
-        assert!(body_size(&ChatBody::User { text: "x".repeat(1000) }) >= 1000);
+        assert!(body_size(&ChatBody::User { text: "x".repeat(1000), attachments: Vec::new() }) >= 1000);
     }
 
     #[test]

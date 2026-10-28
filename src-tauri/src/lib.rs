@@ -1,3 +1,4 @@
+mod acp_adapters;
 mod agents;
 mod fs;
 mod git;
@@ -81,6 +82,13 @@ pub fn run() {
             remote.autostart();
             app.manage(remote);
             app.manage(remote_client::RemoteClients::new(app.handle()));
+            // Late, so the check never competes with the app's own startup.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(20));
+                acp_adapters::refresh_in_background(&handle, "claude");
+                acp_adapters::refresh_in_background(&handle, "codex");
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -130,6 +138,7 @@ pub fn run() {
             chat::chat_set_mode,
             chat::chat_set_model,
             chat::chat_close,
+            chat::chat_adapter_ready,
             chat::chat_events,
             dictation::dictation_supported,
             dictation::dictation_start,
@@ -176,6 +185,7 @@ pub fn run() {
             plugins::codex_needs_no_daemon,
             plugins::open_in_vscode,
             agents::list_agent_sessions,
+            agents::end_pty_agent,
             agents::list_claude_agents,
             agents::list_claude_sessions,
             agents::list_codex_sessions,

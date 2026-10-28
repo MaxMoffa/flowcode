@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ChatTab, TermTab } from "../tabs/types";
 import { agentCliIcon } from "../plugins/icons";
 import { useI18n } from "../i18n";
-import { formatElapsed } from "../lib/time";
+import { relativeCommitTime } from "../lib/time";
 import type { AgentSession } from "./agentSessions";
 import { gitRepoRoot, gitWorktrees, isWorktreeCapable, type GitWorktree } from "./git";
 import { inProject, keepIfSame } from "./agentScope";
@@ -220,7 +220,7 @@ export function AgentHistoryPanel({
   const branchOf = (cwd: string) => worktrees.find((w) => !w.is_main && inProject(cwd, null, w.path, undefined))?.branch ?? null;
   const timeOf = (row: HistoryRow) => {
     if (row.at <= 0) return "";
-    return Date.now() - row.at < 60_000 ? t("history.now") : t("agents.ago", { duration: formatElapsed(row.at) });
+    return Date.now() - row.at < 60_000 ? t("history.now") : relativeCommitTime(row.at / 1000);
   };
 
   return (

@@ -38,6 +38,13 @@ describe("chat model", () => {
     expect(s.items).toEqual([]);
   });
 
+  it("lists replayed files and images as attachments of the user item", () => {
+    const file = (content: Record<string, unknown>) => update({ sessionUpdate: "user_message_chunk", content });
+    const s = run([chunk("user_message_chunk", "guarda"), file({ type: "resource_link", name: "a.pdf", uri: "file:///a.pdf" }), file({ type: "image", data: "x" })]);
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({ type: "user", text: "guarda", attachments: ["a.pdf", "image"] });
+  });
+
   it("merges replayed user chunks into one item", () => {
     const s = run([chunk("user_message_chunk", "uno "), chunk("user_message_chunk", "due"), chunk("agent_message_chunk", "r")]);
     expect(s.items[0]).toMatchObject({ type: "user", text: "uno due" });

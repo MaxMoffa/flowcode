@@ -8,6 +8,7 @@ import { unlock, useLock } from "./applock";
 import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { CompatBanner, IncompatibleScreen } from "./Compat";
+import { usePending } from "./pending";
 import { clearOpenRequest, requestOpenChat, useChatHandoff, useOpenRequest, useTerminalHandoff } from "./chats";
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
@@ -306,8 +307,21 @@ function AppContent() {
       {paired && !pairing && !firstConnect && !adding && <Reconnect />}
       {update.sheetPending && updatesReady && !pairing && !adding && compat.level !== "blocked" && <UpdateSheet />}
       <Toast />
+      <HandoffBar />
       {lock.hidden && <div className="privacy" aria-hidden="true" />}
     </>
+  );
+}
+
+/** A chat or terminal is being turned into the other; shown until the desktop's answer lands (or a toast says it didn't). */
+function HandoffBar() {
+  const pending = usePending();
+  if (!pending || pending.kind === "open") return null;
+  return (
+    <div className="toast handoff" role="status">
+      <span className="pend-spinner" aria-hidden="true" />
+      {pending.kind === "toTerminal" ? t("handoffToTerminal") : t("handoffToChat")}
+    </div>
   );
 }
 

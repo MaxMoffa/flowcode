@@ -123,7 +123,9 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     modes,
     models,
     chatId,
-    queued: session.queued,
+    queued: useMemo(() => session.queued.map((text) => ({ text, attachments: [] })), [session.queued]),
+    // The remote protocol carries text only.
+    canAttach: false,
     resumed: true,
     loaded: true,
     sessionId: info?.sessionId,

@@ -932,6 +932,59 @@ summary.chat-step-row {
   white-space: nowrap;
 }
 
+.chat-chip-thumb {
+  flex: 0 0 auto;
+  max-height: 28px;
+  max-width: 44px;
+  margin-left: -6px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.chat-user-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.chat-user-files:first-child {
+  margin-top: 0;
+}
+
+.chat-file {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.chat-composer {
+  position: relative;
+}
+
+.chat-composer.is-dragover {
+  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--accent);
+}
+
+.chat-composer.is-dragover::after {
+  content: attr(data-drop-label);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  color: var(--fg);
+  font-size: 13px;
+  pointer-events: none;
+}
+
 .chat-chip-remove {
   flex: 0 0 auto;
   width: 18px;

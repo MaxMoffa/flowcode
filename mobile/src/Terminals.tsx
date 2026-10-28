@@ -5,10 +5,12 @@ import { contextPercent, shortCwd } from "./common";
 import { t } from "./i18n";
 import { AgentLogo, ChatIcon, ChevronIcon, PlusIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
+import { beginPending, endPending, usePending, type Pending } from "./pending";
 import { useRemoteSelector, type ChatInfo, type Tab } from "./remote";
 
 /** How long a requested terminal is waited for before giving up on opening it. */
 const NEW_TAB_WAIT_MS = 15_000;
+const CHAT_WAIT_MS = 45_000;
 
 /** The arc running round a busy agent's icon, as on the desktop's tabs; `rx` and `className` for one running round a whole tab (WideShell). */
 export function BusyArc({ rx = 9, className = "tr-sweep" }: { rx?: number; className?: string }) {
@@ -109,6 +111,7 @@ function useOpenNewTab(tabs: Tab[] | null, onOpen: (ptyId: string) => void): () 
     const fresh = tabs.find((x) => !p.known.has(x.ptyId));
     if (fresh) {
       pendingRef.current = null;
+      endPending();
       onOpen(fresh.ptyId);
     }
   }, [tabs, onOpen]);
@@ -120,12 +123,40 @@ function useOpenNewTab(tabs: Tab[] | null, onOpen: (ptyId: string) => void): () 
   }, []);
 }
 
-/** A requested terminal or chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. */
-export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void): (asChat: boolean) => void {
+/** A requested terminal or chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet and what is being waited on (for `PendingRow`). */
+export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void): { onCreate: (asChat: boolean, label: string) => void; pending: Pending | null } {
   const chats = useRemoteSelector((r) => r.chats);
   const onTab = useOpenNewTab(tabs, onOpen);
   const onChat = useOpenNewChat(chats, requestOpenChat);
-  return useCallback((asChat) => (asChat ? onChat() : onTab()), [onTab, onChat]);
+  const pending = usePending();
+  const onCreate = useCallback(
+    (asChat: boolean, label: string) => {
+      // A chat waits as long as `useOpenNewChat` does (its agent starts first).
+      beginPending({ kind: "open", asChat, label }, asChat ? CHAT_WAIT_MS : NEW_TAB_WAIT_MS);
+      if (asChat) onChat();
+      else onTab();
+    },
+    [onTab, onChat],
+  );
+  return { onCreate, pending: pending?.kind === "open" ? pending : null };
+}
+
+/** The row at the top of the list while the desktop opens a requested terminal or chat; a muted notice if it never answers. */
+export function PendingRow({ pending }: { pending: Pending | null }) {
+  if (!pending) return null;
+  return (
+    <section className="tr-group">
+      <div className="card tr-list">
+        <div className={"tr-row tr-pending" + (pending.failed ? " is-failed" : "")} role="status">
+          <span className="tr-ico">{pending.failed ? pending.asChat ? <ChatIcon size={17} /> : <TerminalIcon /> : <span className="pend-spinner" aria-hidden="true" />}</span>
+          <span className="tr-body">
+            <b className="tr-title">{pending.failed ? t("openTimeout") : t("opening", { name: pending.label })}</b>
+            {!pending.failed && <span className="tr-sub">{t("openingOnComputer")}</span>}
+          </span>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export function TerminalsScreen({ hostName, tabs, onOpen }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void }) {
@@ -141,7 +172,7 @@ export function TerminalsScreen({ hostName, tabs, onOpen }: { hostName?: string;
   const total = all.length + (chats?.length ?? 0);
   const folders = useMemo(() => [...new Set([...all.map((x) => x.cwd), ...(chats ?? []).map((c) => c.cwd)].filter(Boolean))], [all, chats]);
   const [sheet, setSheet] = useState(false);
-  const onCreate = useOpenNew(tabs, onOpen);
+  const { onCreate, pending } = useOpenNew(tabs, onOpen);
 
   return (
     <>
@@ -160,7 +191,8 @@ export function TerminalsScreen({ hostName, tabs, onOpen }: { hostName?: string;
           {t("newTerminalShort")}
         </button>
       </header>
-      {tabs !== null && total === 0 && <div className="empty">{t("noTabs")}</div>}
+      <PendingRow pending={pending} />
+      {tabs !== null && total === 0 && !pending && <div className="empty">{t("noTabs")}</div>}
       {needYou.length > 0 && (
         <section className="tr-group">
           <div className="tr-ghead is-wait">

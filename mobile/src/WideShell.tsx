@@ -82,7 +82,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     setDoc(null);
     onSelectPty(ptyId);
   };
-  const onCreate = useOpenNew(tabs, select);
+  const { onCreate, pending } = useOpenNew(tabs, select);
   // Opening a chat from the agents panel or a notification leaves a file or settings tab.
   useEffect(() => {
     if (activeChat) setDoc(null);
@@ -260,6 +260,12 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               </button>
             );
           })}
+          {pending && (
+            <div className={"w-tab is-pending" + (pending.failed ? " is-failed" : "")} role="status">
+              <span className="w-tab-ico">{pending.failed ? <TerminalIcon /> : <span className="pend-spinner" aria-hidden="true" />}</span>
+              <span className="w-tab-label">{pending.failed ? t("openTimeout") : t("opening", { name: pending.label })}</span>
+            </div>
+          )}
           {docs.map((d) => {
             const on = doc === d.id;
             const label = d.kind === "settings" ? t("navSettings") : d.path.split("/").pop();

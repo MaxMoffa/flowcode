@@ -4,7 +4,7 @@ import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
-import { AgentLogo, CheckIcon, ChevronIcon, FolderIcon, TerminalIcon } from "./icons";
+import { AgentLogo, ArrowUpRightIcon, CheckIcon, ChevronIcon, FolderIcon, TerminalIcon } from "./icons";
 import { send, useRemoteSelector, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
 import { safeStorage } from "./store";
 import { useUiZoom } from "./uiScale";
@@ -129,7 +129,7 @@ const agentName = (cli: Cli | null) => AGENTS.find((a) => a.id === cli)?.name ??
  * straight away). The desktop opens it as a new tab; `onCreate` runs once the
  * request is sent. A bottom sheet on the phone, a centered dialog on the
  * tablet layout (Enter opens, on a hardware keyboard). */
-export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: boolean; folders: string[]; onClose: () => void; onCreate: (asChat: boolean) => void }) {
+export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: boolean; folders: string[]; onClose: () => void; onCreate: (asChat: boolean, label: string) => void }) {
   /** null = the desktop's start folder. */
   const [cwd, setCwd] = useState<string | null>(null);
   const [cli, setCli] = useState<Cli | null>(null);
@@ -170,7 +170,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
     const chat = canChat && asChat && v.cli !== null;
     if (chat) send({ t: "newchat", cli: v.cli!, ...(v.cwd ? { cwd: v.cwd } : {}), ...(p !== null ? { profile: p } : {}) });
     else send({ t: "newtab", ...(v.cwd ? { cwd: v.cwd } : {}), ...(v.cli ? { cli: v.cli } : {}), ...(p !== null ? { profile: p } : {}) });
-    onCreate(chat);
+    onCreate(chat, v.cwd ? `${agentName(v.cli)} · ${shortCwd(v.cwd)}` : agentName(v.cli));
     onClose();
   };
 
@@ -220,15 +220,22 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
       <div className="nts-body">
         {recents.length > 0 && (
           <div className="nts-field">
-            <span className="nts-label">{t("newTermRecent")}</span>
+            <span className="nts-label">
+              {t("newTermRecent")}
+              <small>{t("newTermRecentHint")}</small>
+            </span>
             <div className="nts-recents">
               {recents.map((r) => (
                 <button key={`${r.cwd}|${r.cli}|${r.profile}`} type="button" className="nts-chip" onClick={() => create(r)}>
                   {agentIcon(r.cli)}
-                  <span>{r.cwd ? shortCwd(r.cwd) : t("newTermStartFolder")}</span>
+                  <span className="nts-chip-text">{r.cwd ? `${agentName(r.cli)} · ${shortCwd(r.cwd)}` : `${agentName(r.cli)} · ${t("newTermStartFolder")}`}</span>
                   {r.profile !== null && <Dot color={profileColor(r.profile)} />}
+                  <ArrowUpRightIcon />
                 </button>
               ))}
+            </div>
+            <div className="nts-or" aria-hidden="true">
+              <span>{t("newTermOrCustom")}</span>
             </div>
           </div>
         )}

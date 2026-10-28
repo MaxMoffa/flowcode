@@ -26,7 +26,9 @@ export function TerminalAgentHeader({ cli, session, title, cwd, onSwitchToChat, 
   const views = useAgentViews();
   const label = CLI_INFO[cli].label;
   const folder = basename(cwd);
-  const subtitle = title === label ? folder : `${label} · ${folder}`;
+  // The CLI's own title leads with a status glyph ("✳ Claude Code", a braille spinner...): the header has its icon and status already.
+  const name = title.replace(/^[^\p{L}\p{N}]+/u, "").trim() || label;
+  const subtitle = name.toLowerCase() === label.toLowerCase() ? folder : `${label} · ${folder}`;
   const status: ChatStatus = session.status === "busy" || session.status === "waiting" ? session.status : "idle";
   const working = status === "busy" || status === "waiting";
   // The same conditions `switchTerminalToChat` (App.tsx) enforces.
@@ -39,7 +41,7 @@ export function TerminalAgentHeader({ cli, session, title, cwd, onSwitchToChat, 
         : undefined;
 
   return (
-    <AgentHeader icon={agentCliIcon(cli)} title={title} subtitle={subtitle} status={status} keepFocus>
+    <AgentHeader icon={agentCliIcon(cli)} title={name} subtitle={subtitle} status={status} keepFocus>
       {(close) => {
         const act = (action: () => void) => {
           close();

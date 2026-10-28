@@ -973,6 +973,14 @@ function Shell() {
     setActiveTerminalId(id);
   }
 
+  /** The command that resumes `sessionId` in `cli` - host (`wsl` false) gets the Codex launch flags. */
+  async function resumeCommand(cli: AgentCli, sessionId: string, host: boolean): Promise<string> {
+    if (cli === "claude") return `claude --resume ${sessionId}`;
+    if (cli === "vibe") return `vibe --resume ${sessionId}`;
+    if (cli === "gemini") return `gemini --resume ${sessionId}`;
+    return host ? await withCodexLaunchFlags(`codex resume ${sessionId}`) : `codex resume ${sessionId}`;
+  }
+
   /** Opens a fresh terminal tab in `cwd`, resuming a specific agent session
    * the moment its shell is ready - used from the Agents sidebar for a
    * background/saved session (one this app has no open tab for), so
@@ -988,26 +996,12 @@ function Shell() {
       // Saved inside WSL: resumed by the distro's own CLI, in a WSL tab
       // opened on that folder (`cwd` is a Linux path there). The
       // `--no-daemon` check is about Windows' Job Object - not WSL's concern.
-      const command =
-        cli === "claude"
-          ? `claude --resume ${sessionId}`
-          : cli === "vibe"
-            ? `vibe --resume ${sessionId}`
-            : cli === "gemini"
-              ? `gemini --resume ${sessionId}`
-              : `codex resume ${sessionId}`;
+      const command = await resumeCommand(cli, sessionId, false);
       const id = addTab(toWindowsPath(wslDistro, cwd), wslShellId(wslDistro));
       pendingCommandsRef.current.set(id, command);
       return;
     }
-    const command =
-      cli === "claude"
-        ? `claude --resume ${sessionId}`
-        : cli === "vibe"
-          ? `vibe --resume ${sessionId}`
-          : cli === "gemini"
-            ? `gemini --resume ${sessionId}`
-            : await withCodexLaunchFlags(`codex resume ${sessionId}`);
+    const command = await resumeCommand(cli, sessionId, true);
     const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
     setTabs((prev) => insertTabAt(prev, makeTermTab(id, cwd, { profileId }), at));
@@ -2231,19 +2225,39 @@ function Shell() {
     void launchAgentInNewTab(tab.agent, tab.cwd, undefined, tab.profileId, true, at).then((ok) => ok && dropChat());
   }
 
-  /** The reverse of `switchChatToTerminal`: resumes the session in a chat tab;
-   * the chat closes the terminal tab (its agent ends with the pty) once its
-   * session has loaded (`finishHandoff`), or goes away itself if it can't
-   * (`failHandoff`). Only host agents whose session id is known, and not while
-   * the agent is busy. */
+  /** The reverse of `switchChatToTerminal`: resumes the session in a chat tab.
+   * The terminal's agent is ended first and waited for (two processes must
+   * never share one session); the terminal tab stays, at its shell prompt,
+   * until the chat has loaded (`finishHandoff`) and closes it. If the chat
+   * can't, the session is resumed back in that terminal. Only host agents
+   * whose session id is known, and not while the agent is busy. */
   function switchTerminalToChat(tabId: string, viewId?: string) {
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     const session = sessionByTab.get(tabId);
     if (!tab || !session?.session_id || session.status === "busy" || session.wsl_distro || !(AGENT_CLIS as readonly string[]).includes(session.cli)) return;
-    const resume = { sessionId: session.session_id, label: tab.label, handoffFrom: tabId };
-    // Opens at the terminal's index, so the chat sits where the terminal was once that closes.
-    const at = latestRef.current.tabs.findIndex((t) => t.id === tabId);
-    void openChatTab(session.cli as AgentCli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, resume, at: at < 0 ? undefined : at });
+    // A second trigger while the agent is still being ended must not open a second chat.
+    if (switchingChatsRef.current.has(tabId)) return;
+    switchingChatsRef.current.add(tabId);
+    const cli = session.cli as AgentCli;
+    const sessionId = session.session_id;
+    const resume = { sessionId, label: tab.label, handoffFrom: tabId };
+    void (async () => {
+      try {
+        const ptyId = termRefs.current.get(tabId)?.getPtyId();
+        if (ptyId) await invoke("end_pty_agent", { ptyId }).catch(() => {});
+        // Opens at the terminal's index, so the chat sits where the terminal was once that closes.
+        const at = latestRef.current.tabs.findIndex((t) => t.id === tabId);
+        const opened = await openChatTab(cli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, resume, at: at < 0 ? undefined : at });
+        if (!opened) resumeInTerminal(tabId, cli, sessionId);
+      } finally {
+        switchingChatsRef.current.delete(tabId);
+      }
+    })();
+  }
+
+  /** Resumes `sessionId` again in terminal tab `tabId`, whose agent a handoff ended: the shell is back at its prompt. */
+  function resumeInTerminal(tabId: string, cli: AgentCli, sessionId: string) {
+    void resumeCommand(cli, sessionId, true).then((command) => termRefs.current.get(tabId)?.runCommandSilently(command));
   }
 
   /** The chat resumed the session: the terminal it took over closes. */
@@ -2253,12 +2267,17 @@ function Shell() {
     dropTerminal(terminalId);
   }
 
-  /** The chat couldn't resume the session: it goes away and the terminal stays. */
+  /** The chat couldn't resume the session: it goes away and the terminal resumes it again. */
   function failHandoff(chatId: string) {
-    const terminalId = latestRef.current.tabs.find((t): t is ChatTab => t.id === chatId && t.kind === "chat")?.handoffFrom;
+    const chat = latestRef.current.tabs.find((t): t is ChatTab => t.id === chatId && t.kind === "chat");
+    const terminalId = chat?.handoffFrom;
     setTabs((prev) => prev.filter((t) => t.id !== chatId));
     forgetTab(chatId);
-    if (terminalId && latestRef.current.tabs.some((t) => t.id === terminalId)) setActiveTabId(terminalId);
+    if (terminalId && latestRef.current.tabs.some((t) => t.id === terminalId)) {
+      setActiveTabId(terminalId);
+      // The terminal's agent was ended for the handoff: it gets its session back.
+      if (chat.sessionId && isSafeSessionId(chat.sessionId)) resumeInTerminal(terminalId, chat.agent, chat.sessionId);
+    }
     showPluginToast(t("agents.handoff.failed"));
   }
 

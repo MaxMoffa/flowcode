@@ -13,7 +13,7 @@ import type {
 /** One thing in the conversation, in the order it happened. */
 export type ChatItem =
   /** `local`: sent from this app (a `user` event), as opposed to history the agent replayed. */
-  | { type: "user"; id: string; text: string; local?: boolean }
+  | { type: "user"; id: string; text: string; local?: boolean; attachments?: string[] }
   | { type: "agent"; id: string; text: string }
   | { type: "thought"; id: string; text: string }
   | { type: "tool"; id: string; call: ChatToolCall }
@@ -142,6 +142,21 @@ function appendText(state: ChatModelState, type: "user" | "agent" | "thought", t
   return withItems(state, items);
 }
 
+/** A replayed user chunk that is a file, not text: its name joins the last user item's attachments. */
+function appendAttachment(state: ChatModelState, update: ChatUpdate, seq: number): ChatModelState {
+  const content = update.content as { type?: string; name?: string } | undefined;
+  if (content?.type !== "image" && content?.type !== "resource_link") return state;
+  const name = content.type === "resource_link" && content.name ? content.name : "image";
+  const last = state.items[state.items.length - 1];
+  // Vibe echoes the prompt back: already shown.
+  if (last?.type === "user" && last.local) return state;
+  const items =
+    last?.type === "user"
+      ? [...state.items.slice(0, -1), { ...last, attachments: [...(last.attachments ?? []), name] }]
+      : [...state.items, { type: "user" as const, id: `user-${seq}`, text: "", attachments: [name] }];
+  return withItems(state, items);
+}
+
 function textOf(update: ChatUpdate): string | null {
   const content = update.content as { type?: string; text?: string } | undefined;
   return content?.type === "text" && typeof content.text === "string" ? content.text : null;
@@ -170,7 +185,7 @@ function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number): Ch
     case "agent_message_chunk":
     case "agent_thought_chunk": {
       const text = textOf(update);
-      if (text === null) return state;
+      if (text === null) return update.sessionUpdate === "user_message_chunk" ? appendAttachment(state, update, seq) : state;
       const type = update.sessionUpdate === "user_message_chunk" ? "user" : update.sessionUpdate === "agent_message_chunk" ? "agent" : "thought";
       return appendText(state, type, text, seq);
     }
@@ -233,7 +248,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
     }
     case "user":
       return {
-        ...withItems(state, [...state.items, { type: "user", id: `user-${ev.seq}`, text: ev.text, local: true }], true),
+        ...withItems(state, [...state.items, { type: "user", id: `user-${ev.seq}`, text: ev.text, local: true, ...(ev.attachments?.length ? { attachments: ev.attachments } : {}) }], true),
         turn: { startedAt: ev.at, outChars: 0 },
       };
     case "permission":

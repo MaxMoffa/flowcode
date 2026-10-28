@@ -60,7 +60,7 @@ export function PluginViewHost(props: PluginViewHostProps) {
 
   const viewStatus = (): ViewStatus => ({
     status: latest.current.status,
-    queued: latest.current.session.queued,
+    queued: latest.current.session.queued.map((m) => m.text),
     currentModeId: latest.current.currentModeId,
     currentModelId: latest.current.currentModelId,
   });
