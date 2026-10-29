@@ -356,7 +356,7 @@ export const SubagentBody = memo(function SubagentBody({ sub, agent, onLink, onO
     <>
       <div className="chat-user is-task">
         <span className="chat-task-label">{t("chatSubTask", { agent })}</span>
-        {prompt || sub.call.title}
+        {prompt ? <ChatMarkdown text={prompt} onLink={onLink} /> : sub.call.title}
       </div>
       {items.length > 0 && <Turn group={items} onLink={onLink} onOpenSubagent={onOpenSubagent} />}
     </>

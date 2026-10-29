@@ -305,7 +305,9 @@
 .chat-md ul,
 .chat-md ol,
 .chat-md pre,
-.chat-md h4,
+.chat-md .chat-h,
+.chat-md blockquote,
+.chat-md .chat-code,
 .chat-md .chat-table-card {
   margin: 0 0 8px;
 }
@@ -341,14 +343,91 @@
   font-size: 13px;
 }
 
-.chat-md h4 {
+.chat-md .chat-h {
   margin-top: 12px;
   font-size: 14px;
   font-weight: 600;
 }
 
-.chat-md > h4:first-child {
+.chat-md .chat-h1 {
+  font-size: 18px;
+}
+
+.chat-md .chat-h2 {
+  font-size: 16px;
+}
+
+.chat-md .chat-h3 {
+  font-size: 15px;
+}
+
+.chat-md > .chat-h:first-child {
   margin-top: 0;
+}
+
+.chat-md ul ul,
+.chat-md ol ol,
+.chat-md ul ol,
+.chat-md ol ul {
+  margin: 2px 0 0;
+}
+
+.chat-md li > p {
+  margin: 0;
+}
+
+.chat-md del {
+  opacity: 0.7;
+}
+
+.chat-md blockquote {
+  padding: 0 0 0 12px;
+  border-left: 3px solid var(--card-border);
+  color: var(--fg-muted);
+}
+
+.chat-md blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-md hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--card-border);
+}
+
+.chat-md li.chat-task {
+  margin-left: -20px;
+  list-style: none;
+}
+
+.chat-md li.chat-task input {
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+}
+
+.chat-md .chat-code {
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
+  background: var(--card-bg);
+}
+
+.chat-md .chat-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 2px 12px;
+  border-bottom: 1px solid var(--card-border);
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.chat-md .chat-code pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .chat-table-card {

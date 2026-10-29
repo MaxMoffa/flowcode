@@ -1080,6 +1080,8 @@ export const it = {
   "chat.table.copyMarkdownTitle": "Copia come Markdown",
   "chat.table.copyCsvTitle": "Copia come CSV",
   "chat.table.copied": "Copiato",
+  "chat.code.copy": "Copia",
+  "chat.code.copyTitle": "Copia il codice",
   "chat.table.expand": "Espandi",
   "chat.table.close": "Chiudi",
   "chat.table.sort": "Ordina per questa colonna",

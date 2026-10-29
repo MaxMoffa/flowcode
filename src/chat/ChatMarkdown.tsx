@@ -1,17 +1,13 @@
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import { useOpenLink } from "../terminal/useOpenLink";
 import { splitLinks } from "./chatLinks";
-import { readTable } from "./markdownTable";
+import { parseBlocks, parseInline, type Block, type Inline } from "./markdownBlocks";
+import { useI18n } from "../i18n";
 import { ChatTable } from "./ChatTable";
 import { findPaths, parsePathToken } from "../lib/filePaths";
 import { ChatPathLink } from "../lib/fileLinks";
 
 type OpenLink = ReturnType<typeof useOpenLink>;
-
-const HEADING = /^#{1,6}\s+(.*?)\s*#*\s*$/;
-const BULLET = /^\s*[-*+]\s+(.*)$/;
-const ORDERED = /^\s*\d+[.)]\s+(.*)$/;
-const FENCE = /^\s*(```|~~~)/;
 
 /** A link in the text: opens through the app's own link path (the terminal's, with its "ask first" menu), never by navigating the window. */
 function ChatLink({ url, open, children }: { url: string; open: OpenLink; children: ReactNode }) {
@@ -88,14 +84,24 @@ function codeSpan(code: string, key: string): ReactNode {
   return <code key={key}>{withPaths(code, key, true)}</code>;
 }
 
-/** `inline code`, **bold** and links inside one line of text. */
-function inline(text: string, keyBase: string, open: OpenLink): ReactNode[] {
-  return text.split(/(\[[^\]\n]+\]\((?:[^()\n]|\([^()\n]*\))+\)|`[^`]+`|\*\*[^*]+\*\*)/g).map((part, i) => {
+/** Inline tokens as React nodes: formatting, `code` (paths linked), links, and the text between them with its urls and file paths linked. */
+function inline(tokens: Inline[], keyBase: string, open: OpenLink): ReactNode[] {
+  return tokens.map((tok, i) => {
     const key = `${keyBase}-${i}`;
-    if (part.startsWith("[") && part.endsWith(")") && part.includes("](")) return withLinks(part, key, open, (label, k) => inline(label, k, open));
-    if (part.length > 2 && part.startsWith("`") && part.endsWith("`")) return codeSpan(part.slice(1, -1), key);
-    if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) return <strong key={key}>{inline(part.slice(2, -2), key, open)}</strong>;
-    return withLinks(part, key, open);
+    switch (tok.type) {
+      case "text":
+        return withLinks(tok.text, key, open);
+      case "code":
+        return codeSpan(tok.text, key);
+      case "link":
+        return withLinks(tok.raw, key, open, (label, k) => inline(parseInline(label), k, open));
+      case "strong":
+        return <strong key={key}>{inline(tok.children, key, open)}</strong>;
+      case "em":
+        return <em key={key}>{inline(tok.children, key, open)}</em>;
+      case "del":
+        return <del key={key}>{inline(tok.children, key, open)}</del>;
+    }
   });
 }
 
@@ -104,72 +110,98 @@ function lines(rows: string[], keyBase: string, open: OpenLink): ReactNode[] {
   const out: ReactNode[] = [];
   rows.forEach((row, i) => {
     if (i > 0) out.push(<br key={`${keyBase}-br${i}`} />);
-    out.push(...inline(row, `${keyBase}-${i}`, open));
+    out.push(...inline(parseInline(row), `${keyBase}-${i}`, open));
   });
   return out;
 }
 
-/** The light markdown of an agent's reply, like the phone's: fenced code, headings, bullet and numbered lists, tables, `code`, **bold**, links and line breaks. Built as React nodes (never as HTML); an unclosed fence, as the agent is still typing it, runs to the end of the text. */
+/** A fenced block: the language and a Copy button over the code. */
+function CodeBlock({ lang, text }: { lang: string; text: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1400);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <div className="chat-code">
+      <div className="chat-code-bar">
+        <span className="chat-code-lang">{lang}</span>
+        <button
+          type="button"
+          className="chat-table-btn"
+          title={t("chat.code.copyTitle")}
+          onClick={() =>
+            navigator.clipboard.writeText(text).then(
+              () => setCopied(true),
+              () => {},
+            )
+          }
+        >
+          {copied ? t("chat.table.copied") : t("chat.code.copy")}
+        </button>
+      </div>
+      <pre>
+        <code>{text}</code>
+      </pre>
+    </div>
+  );
+}
+
+/** A list item's blocks; a task item's checkbox leads its first paragraph. */
+function item(it: { checked: boolean | null; blocks: Block[] }, keyBase: string, open: OpenLink): ReactNode {
+  if (it.checked === null) return blocks(it.blocks, keyBase, open);
+  const box = <input key={`${keyBase}-box`} type="checkbox" checked={it.checked} disabled readOnly />;
+  const [first, ...rest] = it.blocks;
+  if (first?.type === "paragraph") {
+    return [<p key={`${keyBase}-p`}>{[box, ...lines(first.lines, `${keyBase}-p`, open)]}</p>, ...blocks(rest, keyBase, open, 1)];
+  }
+  return [box, ...blocks(it.blocks, keyBase, open)];
+}
+
+function blocks(list: Block[], keyBase: string, open: OpenLink, offset = 0): ReactNode[] {
+  return list.map((b, n) => {
+    const key = `${keyBase}-${n + offset}`;
+    switch (b.type) {
+      case "paragraph":
+        return <p key={key}>{lines(b.lines, key, open)}</p>;
+      case "heading": {
+        // Levels 1-3 are three sizes; 4-6 share the small one.
+        const Tag = b.level <= 3 ? (`h${b.level + 1}` as "h2" | "h3" | "h4") : "h5";
+        return (
+          <Tag key={key} className={`chat-h chat-h${Math.min(b.level, 4)}`}>
+            {inline(parseInline(b.text), key, open)}
+          </Tag>
+        );
+      }
+      case "code":
+        return <CodeBlock key={key} lang={b.lang} text={b.text} />;
+      case "table":
+        return <ChatTable key={key} table={b.table} cell={(text, cellKey) => inline(parseInline(text), `${key}-${cellKey}`, open)} />;
+      case "list": {
+        const Tag = b.ordered ? "ol" : "ul";
+        return (
+          <Tag key={key} start={b.ordered && b.start !== 1 ? b.start : undefined}>
+            {b.items.map((it, i) => (
+              <li key={i} className={it.checked === null ? undefined : "chat-task"}>
+                {item(it, `${key}-${i}`, open)}
+              </li>
+            ))}
+          </Tag>
+        );
+      }
+      case "blockquote":
+        return <blockquote key={key}>{blocks(b.blocks, key, open)}</blockquote>;
+      case "hr":
+        return <hr key={key} />;
+    }
+  });
+}
+
+/** The light markdown of an agent's reply, like the phone's: fenced code (with copy), headings, nested bullet, numbered and task lists, quotes, rules, tables, `code`, **bold**, *italic*, ~~strike~~, links and line breaks. Built as React nodes (never as HTML); an unclosed fence, as the agent is still typing it, runs to the end of the text. */
 export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
   const open = useOpenLink();
-  const blocks: ReactNode[] = [];
-  const rows = text.replace(/\r\n?/g, "\n").split("\n");
-  let paragraph: string[] = [];
-  let list: { ordered: boolean; items: string[] } | null = null;
-  const flush = () => {
-    const key = blocks.length;
-    if (paragraph.length > 0) blocks.push(<p key={`p${key}`}>{lines(paragraph, `p${key}`, open)}</p>);
-    if (list) {
-      const Tag = list.ordered ? "ol" : "ul";
-      blocks.push(
-        <Tag key={`l${key}`}>
-          {list.items.map((item, i) => (
-            <li key={i}>{inline(item, `l${key}-${i}`, open)}</li>
-          ))}
-        </Tag>,
-      );
-    }
-    paragraph = [];
-    list = null;
-  };
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const fence = FENCE.exec(row);
-    const table = !fence && row.includes("|") ? readTable(rows, i) : null;
-    const heading = HEADING.exec(row);
-    const bullet = BULLET.exec(row);
-    const numbered = bullet ? null : ORDERED.exec(row);
-    if (fence) {
-      flush();
-      const code: string[] = [];
-      for (i++; i < rows.length && !rows[i].trim().startsWith(fence[1]); i++) code.push(rows[i]);
-      blocks.push(
-        <pre key={`c${blocks.length}`}>
-          <code>{code.join("\n")}</code>
-        </pre>,
-      );
-    } else if (table) {
-      flush();
-      const key = `t${blocks.length}`;
-      blocks.push(<ChatTable key={key} table={table.table} cell={(text, cellKey) => inline(text, `${key}-${cellKey}`, open)} />);
-      i = table.next - 1;
-    } else if (heading) {
-      flush();
-      blocks.push(<h4 key={`h${blocks.length}`}>{inline(heading[1], `h${blocks.length}`, open)}</h4>);
-    } else if (bullet || numbered) {
-      // A list item ends the paragraph before it, and a list of the other kind.
-      const ordered = numbered !== null;
-      if (paragraph.length > 0 || (list && list.ordered !== ordered)) flush();
-      list = list ?? { ordered, items: [] };
-      list.items.push((bullet ?? numbered)![1]);
-    } else if (row.trim() === "") {
-      flush();
-    } else {
-      if (list) flush();
-      paragraph.push(row);
-    }
-  }
-  flush();
-  return <div className="chat-md">{blocks}</div>;
+  return <div className="chat-md">{blocks(parseBlocks(text), "b", open)}</div>;
   // Rebuilt only when the text changed: every other message stays as drawn while one streams.
 });
