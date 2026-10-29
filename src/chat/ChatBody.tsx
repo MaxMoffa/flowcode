@@ -276,6 +276,16 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
     setAtBottom(true);
   }
 
+  /** Takes a queued message back into the composer: its text ahead of the draft, its files among the attachments. */
+  function editQueued(i: number) {
+    const item = queued[i];
+    if (!item) return;
+    chat.unqueue(i);
+    setDraft((d) => (d.trim() ? `${item.text}\n${d}` : item.text));
+    setAttachments((a) => [...item.attachments, ...a].slice(0, MAX_ATTACHMENTS));
+    inputRef.current?.focus();
+  }
+
   function insertCommand(name: string) {
     setDraft(`/${name} `);
     inputRef.current?.focus();
@@ -410,6 +420,50 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
               />
             </div>
           )}
+          {!sub && queued.length > 0 && (
+            <>
+              <div className="chat-pending-sep">{t("chat.queue.waiting")}</div>
+              {queued.map(({ text, attachments: files }, i) => (
+                <div key={i} className="chat-pending">
+                  <div className="chat-user is-pending">
+                    {text}
+                    {files.length > 0 && (
+                      <div className="chat-user-files">
+                        {files.map((file, j) => (
+                          <span key={j} className="chat-file" title={file.name}>
+                            <PaperclipIcon size={11} />
+                            <span className="chat-chip-text">{file.name}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="chat-pending-meta">
+                    <span className="chat-pending-pos">
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="8" cy="8" r="6" />
+                        <path d="M8 4.5V8l2.2 1.5" />
+                      </svg>
+                      {i === 0 ? t("chat.queue.next") : t("chat.queue.nth", { n: i + 1 })}
+                    </span>
+                    <button type="button" className="chat-pending-btn" aria-label={t("chat.forceSend")} title={`${t("chat.forceSend")} (Ctrl+Enter)`} onClick={() => chat.force(i)}>
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+                      </svg>
+                    </button>
+                    <button type="button" className="chat-pending-btn" aria-label={t("chat.queue.edit")} title={t("chat.queue.edit")} onClick={() => editQueued(i)}>
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M11 2.5 13.5 5 5.5 13H3v-2.5z" />
+                      </svg>
+                    </button>
+                    <button type="button" className="chat-pending-btn" aria-label={t("chat.unqueue")} title={t("chat.unqueue")} onClick={() => chat.unqueue(i)}>
+                      {"×"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       </div>
       {!atBottom && (
@@ -450,23 +504,6 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
               <div className="chat-live" role="status">
                 <span className="chat-spinner" aria-hidden="true" />
                 <span className="chat-live-text">{noticeText}</span>
-              </div>
-            )}
-            {queued.length > 0 && (
-              <div className="chat-queue">
-                {queued.map(({ text, attachments: files }, i) => (
-                  <span key={i} className="chat-chip" title={text}>
-                    <span className="chat-chip-text">{t("chat.queued", { text: files.length > 0 ? `${text} (+${files.length})` : text })}</span>
-                    <button type="button" className="chat-chip-remove" aria-label={t("chat.forceSend")} title={`${t("chat.forceSend")} (Ctrl+Enter)`} onClick={() => chat.force(i)}>
-                      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
-                      </svg>
-                    </button>
-                    <button type="button" className="chat-chip-remove" aria-label={t("chat.unqueue")} title={t("chat.unqueue")} onClick={() => chat.unqueue(i)}>
-                      {"×"}
-                    </button>
-                  </span>
-                ))}
               </div>
             )}
             {suggestions.length > 0 && (

@@ -469,10 +469,9 @@ export function SettingsPage({
               <SettingRow id="linkPreviews" label={t("settings.linkPreviews.label")} desc={t("settings.linkPreviews.desc")}>
                 <Segmented
                   ariaLabel={t("settings.linkPreviews.label")}
-                  value={linkPreviews}
+                  value={linkPreviews === "always" ? "always" : "never"}
                   options={[
                     { value: "always", label: t("settings.linkPreviews.always") },
-                    { value: "onClick", label: t("settings.linkPreviews.onClick") },
                     { value: "never", label: t("settings.linkPreviews.never") },
                   ]}
                   onChange={setLinkPreviews}

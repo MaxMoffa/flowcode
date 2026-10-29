@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { previewUrls } from "../../src/chat/chatLinks";
 import type { LinkPreview } from "../../shared/remote-types";
-import { t } from "./i18n";
 import { requestLinkPreview, useLinkPreview } from "./linkPreviews";
 import { useRemoteSelector } from "./remote";
 
@@ -42,20 +41,13 @@ function Card({ preview, url, onLink }: { preview: LinkPreview; url: string; onL
   );
 }
 
-/** Chip, skeleton, card or nothing for one link. */
-function LinkPreviewView({ url, auto, onLink }: { url: string; auto: boolean; onLink: (url: string) => void }) {
+/** Skeleton, card or nothing for one link; it is asked for as soon as it shows. */
+function LinkPreviewView({ url, onLink }: { url: string; onLink: (url: string) => void }) {
   const entry = useLinkPreview(url);
   useEffect(() => {
-    if (auto) requestLinkPreview(url);
-  }, [auto, url]);
-  if (entry === undefined) {
-    return auto ? null : (
-      <button type="button" className="chat-link-chip" onClick={() => requestLinkPreview(url)}>
-        {t("chatLinkShow")} · {domainOf(url)}
-      </button>
-    );
-  }
-  if (entry === null) return null;
+    requestLinkPreview(url);
+  }, [url]);
+  if (entry === undefined || entry === null) return null;
   if (entry === "pending") {
     return (
       <div className="chat-link-card is-loading" aria-hidden="true">
@@ -70,10 +62,10 @@ function LinkPreviewView({ url, auto, onLink }: { url: string; auto: boolean; on
   return <Card preview={entry} url={url} onLink={onLink} />;
 }
 
-/** Preview cards for the first links of an agent's message, as the desktop's "Link previews" setting says and only if that desktop can fetch them. */
+/** Preview cards for the first links of an agent's message, only when the desktop's "Link previews" setting is "always" and that desktop can fetch them (any other value, including the old "onClick", shows nothing). */
 export function ChatLinkPreviews({ text, onLink }: { text: string; onLink: (url: string) => void }) {
   const mode = useRemoteSelector((s) => (s.host?.caps.includes("linkPreview") ? s.settings?.linkPreviews : "never"));
-  const urls = useMemo(() => (mode === "never" || !mode ? [] : previewUrls(text, PREVIEWS_SHOWN)), [text, mode]);
+  const urls = useMemo(() => (mode === "always" ? previewUrls(text, PREVIEWS_SHOWN) : []), [text, mode]);
   const key = urls.join("\n");
   // Only links the text has stopped changing under: a url still being typed is not asked for.
   const [settled, setSettled] = useState<string[]>([]);
@@ -86,7 +78,7 @@ export function ChatLinkPreviews({ text, onLink }: { text: string; onLink: (url:
   return (
     <div className="chat-link-previews">
       {shown.map((url) => (
-        <LinkPreviewView key={url} url={url} auto={mode === "always"} onLink={onLink} />
+        <LinkPreviewView key={url} url={url} onLink={onLink} />
       ))}
     </div>
   );

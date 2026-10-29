@@ -514,20 +514,6 @@ th[style*="center"] .chat-table-sort {
   margin-top: 8px;
 }
 
-.chat-link-chip {
-  max-width: 100%;
-  min-height: 44px;
-  padding: 0 14px;
-  overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .chat-link-card {
   width: 100%;
@@ -1148,48 +1134,10 @@ button.chat-step-row {
   padding: 0 12px 10px;
 }
 
-.chat-queue {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
 
-.chat-queued {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  padding: 0 2px 0 12px;
-  border: 1px dashed var(--accent-border);
-  border-radius: 999px;
-  background: var(--accent-bg);
-  font-size: 14px;
-}
 
-.chat-queued-text {
-  min-width: 0;
-  max-width: 60vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.chat-queued button {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-}
 
-.chat-queued button svg {
-  width: 16px;
-  height: 16px;
-}
 
 /* The floating card: text on top, one row of actions under it. */
 .chat-card {
@@ -1886,4 +1834,69 @@ button.chat-step-row {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Messages waiting for the agent: dashed bubbles closing the thread. */
+.chat-pending-sep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.chat-pending-sep::before,
+.chat-pending-sep::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.chat-pending {
+  align-self: flex-end;
+  max-width: 86%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.chat-user.is-pending {
+  max-width: 100%;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  color: var(--muted);
+}
+
+.chat-pending-meta {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chat-pending-pos {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.chat-pending-meta button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.chat-pending-meta button svg {
+  width: 16px;
+  height: 16px;
 }

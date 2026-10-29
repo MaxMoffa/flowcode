@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import type { ChatModels, ChatModes } from "../../src/chat/chatTypes";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
@@ -47,32 +47,16 @@ function useElapsed(running: boolean): string {
 /** Heights of the waveform bars; the animation swells and shrinks them. */
 const WAVE = [7, 14, 20, 11, 18, 8];
 
-/**
- * The message card: the text field first, then one row of actions - the mode
- * pill on the left (it opens the list of modes) and the model pill beside it, the mic and the send button
- * (the stop button while a turn runs and the box is empty) on the right, both
- * round and 56px for the thumb. While dictating, a waveform and a timer sit
- * where the placeholder was. Messages waiting for the agent are listed above.
- */
-export function ChatComposer({
-  chatId,
-  agent,
-  busy,
-  queued,
-  modes,
-  onMode,
-  models = null,
-  onModel,
-  onSend,
-  onStop,
-  onUnqueue,
-  onForce,
-}: {
+/** What the thread can ask of the composer: take a message back into the draft. */
+export interface ChatComposerHandle {
+  insertDraft: (text: string) => void;
+}
+
+interface ChatComposerProps {
   chatId: string;
   /** The agent CLI, which the default mode is kept per. */
   agent: string;
   busy: boolean;
-  queued: string[];
   modes: ChatModes | null;
   onMode: (modeId: string) => void;
   /** Null when there is no model to choose (one model, or a desktop that can't switch). */
@@ -80,9 +64,26 @@ export function ChatComposer({
   onModel?: (modelId: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
-  onUnqueue: (index: number) => void;
-  onForce: (index: number) => void;
-}) {
+}
+
+/**
+ * The message card: the text field first, then one row of actions - the mode
+ * pill on the left (it opens the list of modes) and the model pill beside it, the mic and the send button
+ * (the stop button while a turn runs and the box is empty) on the right, both
+ * round and 56px for the thumb. While dictating, a waveform and a timer sit
+ * where the placeholder was.
+ */
+export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(function ChatComposer({
+  chatId,
+  agent,
+  busy,
+  modes,
+  onMode,
+  models = null,
+  onModel,
+  onSend,
+  onStop,
+}, ref) {
   const box = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(() => drafts.get(chatId) ?? "");
   const [modeOpen, setModeOpen] = useState(false);
@@ -106,6 +107,13 @@ export function ChatComposer({
   };
   const latest = useRef(text);
   latest.current = text;
+  useImperativeHandle(ref, () => ({
+    insertDraft: (added) => {
+      change(latest.current.trim() ? `${added}
+${latest.current}` : added);
+      box.current?.focus();
+    },
+  }));
   const dictation = useDictation((spoken) => change(appendDictation(latest.current, spoken)), true);
   const listening = dictation.state === "listening";
   const elapsed = useElapsed(listening);
@@ -124,21 +132,6 @@ export function ChatComposer({
 
   return (
     <div className="chat-composer">
-      {queued.length > 0 && (
-        <div className="chat-queue" role="list" aria-label={t("chatQueued")}>
-          {queued.map((q, i) => (
-            <span key={i} className="chat-queued" role="listitem">
-              <span className="chat-queued-text">{q}</span>
-              <button type="button" aria-label={t("chatForce")} onClick={() => onForce(i)}>
-                <SendIcon />
-              </button>
-              <button type="button" aria-label={t("chatUnqueue")} onClick={() => onUnqueue(i)}>
-                <CloseIcon />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
       {dictation.error && (
         <div className="chat-notice" role="alert">
           <span className="chat-notice-text">{dictation.error}</span>
@@ -259,4 +252,4 @@ export function ChatComposer({
       </div>
     </div>
   );
-}
+});

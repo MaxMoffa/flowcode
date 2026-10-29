@@ -5,7 +5,7 @@ import type { ChatInfo } from "../../shared/remote-types";
 import { ChatBody, SubagentBody } from "./ChatBody";
 import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
-import { ChatComposer } from "./ChatComposer";
+import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
 import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
@@ -17,7 +17,7 @@ import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
-import { AgentLogo, AgentsIcon, BackIcon, ArrowDownIcon, ChevronDownIcon } from "./icons";
+import { AgentLogo, AgentsIcon, BackIcon, ArrowDownIcon, ChevronDownIcon, CloseIcon, PencilIcon, SendIcon, Svg } from "./icons";
 import { setChatTabShown, showToast, useRemoteSelector, useSupports } from "./remote";
 import { TermAgents } from "./TermAgents";
 import { openLink, TermLink } from "./TermLink";
@@ -42,6 +42,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const screenRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<ChatComposerHandle>(null);
   /** The thread follows new messages only while the user is at its end. */
   const stick = useRef(true);
   /** Set while the smooth scroll to the end runs, so its in-between scroll events don't flash the jump button. */
@@ -337,6 +338,41 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
                     <FrogThinking activity={runningTool} verbs={THINKING_VERBS.map((k) => t(k))} startedAt={sub ? sub.call.startedAt : model.turn?.startedAt} outChars={sub ? undefined : model.turn?.outChars} tokensLabel={(n) => t("chatTokens", { n })} tokensTitle={t("chatTokensTitle")} />
                   </div>
                 )}
+                {!sub && session.queued.length > 0 && (
+                  <>
+                    <div className="chat-pending-sep">{t("chatQueueWaiting")}</div>
+                    {session.queued.map((text, i) => (
+                      <div key={i} className="chat-pending">
+                        <div className="chat-user is-pending">{text}</div>
+                        <div className="chat-pending-meta">
+                          <span className="chat-pending-pos">
+                            <Svg size={13} strokeWidth={2}>
+                              <circle cx="12" cy="12" r="9" />
+                              <path d="M12 7v5l3 2" />
+                            </Svg>
+                            {i === 0 ? t("chatQueueNext") : t("chatQueueNth", { n: i + 1 })}
+                          </span>
+                          <button type="button" aria-label={t("chatForce")} onClick={() => forceChatPrompt(chatId, i)}>
+                            <SendIcon />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={t("chatQueueEdit")}
+                            onClick={() => {
+                              unqueueChatPrompt(chatId, i);
+                              composerRef.current?.insertDraft(text);
+                            }}
+                          >
+                            <PencilIcon />
+                          </button>
+                          <button type="button" aria-label={t("chatUnqueue")} onClick={() => unqueueChatPrompt(chatId, i)}>
+                            <CloseIcon />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
             {!atBottom && (
@@ -374,7 +410,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
               {t("chatExited")}
             </div>
           ) : (
-            <ChatComposer chatId={chatId} agent={info?.agent ?? ""} busy={working} queued={session.queued} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} onSend={(text) => sendChatPrompt(chatId, text)} onStop={() => cancelChat(chatId)} onUnqueue={(i) => unqueueChatPrompt(chatId, i)} onForce={(i) => forceChatPrompt(chatId, i)} />
+            <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} onSend={(text) => sendChatPrompt(chatId, text)} onStop={() => cancelChat(chatId)} />
           )}
         </>
       ) : (

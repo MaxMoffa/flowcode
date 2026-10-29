@@ -139,7 +139,8 @@ const readShellStartPaths = (key: string) => readJson(key, isStringRecord, {});
 const readRestoreSession = (key: string) => readBool(key, true);
 const readRestoreContent = (key: string) => readBool(key, true);
 const readConfirmLinks = (key: string) => readBool(key, true);
-const readLinkPreviews = (key: string) => readEnum<LinkPreviewMode>(key, ["always", "onClick", "never"], "onClick");
+/** "onClick" (removed) and anything unknown read as "never". */
+const readLinkPreviews = (key: string) => readEnum<LinkPreviewMode>(key, ["always", "never"], "never");
 const readExplorerDoubleClick = (key: string) => readBool(key, true);
 const readNewTabPage = (key: string) => readBool(key, true);
 

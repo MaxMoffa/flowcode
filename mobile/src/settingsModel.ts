@@ -20,7 +20,7 @@ export const DEFAULT_SETTINGS: MirroredSettings = {
   terminalFontSize: 14,
   bannerEnabled: true,
   confirmLinkOpen: true,
-  linkPreviews: "onClick",
+  linkPreviews: "never",
   restoreSession: true,
   newTabPage: false,
   notify: { done: true, input: true, exited: false, limitReset: true },
@@ -66,7 +66,8 @@ export function normalizeSettings(raw: unknown): MirroredSettings | null {
     terminalFontSize: num(raw.terminalFontSize, d.terminalFontSize, 9, 28),
     bannerEnabled: bool(raw.bannerEnabled, d.bannerEnabled),
     confirmLinkOpen: bool(raw.confirmLinkOpen, d.confirmLinkOpen),
-    linkPreviews: oneOf<LinkPreviewMode>(raw.linkPreviews, ["always", "onClick", "never"], d.linkPreviews),
+    // "onClick" is no longer a mode (old desktops may still send it): it reads as "never".
+    linkPreviews: oneOf<LinkPreviewMode>(raw.linkPreviews === "onClick" ? "never" : raw.linkPreviews, ["always", "never"], d.linkPreviews),
     restoreSession: bool(raw.restoreSession, d.restoreSession),
     newTabPage: bool(raw.newTabPage, d.newTabPage),
     notify: {

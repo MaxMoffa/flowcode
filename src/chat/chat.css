@@ -297,6 +297,81 @@
   overflow-wrap: anywhere;
 }
 
+.chat-user.is-pending {
+  max-width: 100%;
+  margin-top: 0;
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--fg-muted) 55%, transparent);
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
+}
+
+.chat-pending-sep {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.chat-pending-sep::before,
+.chat-pending-sep::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.chat-pending {
+  align-self: flex-end;
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.chat-pending-meta {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.chat-pending-pos {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.chat-pending-btn {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.chat-pending:hover .chat-pending-btn,
+.chat-pending:focus-within .chat-pending-btn {
+  opacity: 1;
+}
+
+.chat-pending-btn:hover {
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
 .chat-md {
   overflow-wrap: anywhere;
 }
@@ -607,25 +682,7 @@ th[style*="center"] .chat-table-sort {
   margin-top: 8px;
 }
 
-.chat-link-chip {
-  max-width: 100%;
-  padding: 3px 10px;
-  overflow: hidden;
-  border: 1px solid var(--card-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
 
-.chat-link-chip:hover {
-  background: var(--sidebar-hover);
-  color: var(--fg);
-}
 
 .chat-link-card {
   width: 100%;

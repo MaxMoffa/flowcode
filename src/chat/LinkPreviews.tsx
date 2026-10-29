@@ -32,33 +32,24 @@ const domainOf = (url: string) => {
   }
 };
 
-/** Skeleton, card or nothing for one url; it is fetched only once `wanted`. */
-function usePreview(url: string, wanted: boolean): LinkPreview | "loading" | null {
+/** Skeleton, card or nothing for one url; it is fetched as soon as the card mounts. */
+function usePreview(url: string): LinkPreview | "loading" | null {
   const [result, setResult] = useState<LinkPreview | "loading" | null>("loading");
   useEffect(() => {
-    if (!wanted) return;
     let live = true;
     setResult("loading");
     void fetchPreview(url).then((p) => live && setResult(p));
     return () => {
       live = false;
     };
-  }, [url, wanted]);
+  }, [url]);
   return result;
 }
 
-function LinkCard({ url, auto }: { url: string; auto: boolean }) {
+function LinkCard({ url }: { url: string }) {
   const { t } = useI18n();
   const open = useOpenLink();
-  const [asked, setAsked] = useState(false);
-  const preview = usePreview(url, auto || asked);
-  if (!auto && !asked) {
-    return (
-      <button type="button" className="chat-link-chip" title={url} onClick={() => setAsked(true)}>
-        {t("chat.link.show")} · {domainOf(url)}
-      </button>
-    );
-  }
+  const preview = usePreview(url);
   if (preview === null) return null;
   if (preview === "loading") {
     return (
@@ -95,10 +86,10 @@ function LinkCard({ url, auto }: { url: string; auto: boolean }) {
   );
 }
 
-/** Preview cards for the first links of an agent's message, as the "Link previews" setting says. */
+/** Preview cards for the first links of an agent's message, only when the "Link previews" setting is "always" (any other value, including the old "onClick", shows nothing). */
 export function LinkPreviews({ text }: { text: string }) {
   const { linkPreviews } = useTerminalSettings();
-  const urls = useMemo(() => (linkPreviews === "never" ? [] : previewUrls(text, PREVIEWS_SHOWN)), [text, linkPreviews]);
+  const urls = useMemo(() => (linkPreviews === "always" ? previewUrls(text, PREVIEWS_SHOWN) : []), [text, linkPreviews]);
   const key = urls.join("\n");
   // Only links the text has stopped changing under: a url still being typed is not fetched.
   const [settled, setSettled] = useState<string[]>([]);
@@ -111,7 +102,7 @@ export function LinkPreviews({ text }: { text: string }) {
   return (
     <div className="chat-link-previews">
       {shown.map((url) => (
-        <LinkCard key={url} url={url} auto={linkPreviews === "always"} />
+        <LinkCard key={url} url={url} />
       ))}
     </div>
   );

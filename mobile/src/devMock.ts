@@ -58,7 +58,7 @@ const mockSettings = {
   terminalFontSize: 13,
   bannerEnabled: true,
   confirmLinkOpen: true,
-  linkPreviews: "onClick",
+  linkPreviews: "never",
   restoreSession: true,
   newTabPage: false,
   notify: { done: true, input: true, exited: false, limitReset: true },

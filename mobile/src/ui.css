@@ -50,7 +50,7 @@ body,
   color: var(--fg);
   font: 15px/1.4 var(--font);
   overscroll-behavior: none;
-  /* Pinch zoom stays on; this only drops the double-tap zoom delay. */
+  /* No double-tap zoom (pinch zoom is off in the viewport meta). */
   touch-action: manipulation;
 }
 
