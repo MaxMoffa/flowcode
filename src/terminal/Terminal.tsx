@@ -273,7 +273,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     const id = ptyIdRef.current;
     if (!id || startSentRef.current) return;
     startSentRef.current = true;
-    if (runOnStartRef.current) writePty(id, `${runOnStartRef.current}\r`);
+    if (runOnStartRef.current) writePty(id, `${unrecorded(runOnStartRef.current)}\r`);
     else if (typeOnStartRef.current) writePty(id, typeOnStartRef.current);
   }
 
@@ -435,9 +435,10 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       // the more "written text" instinct of `\n`, is what makes ConPTY
       // (the Windows pty backend) actually treat this as pressing Enter
       // instead of leaving the line sitting there typed but unsubmitted.
+      // Leading space keeps it out of the shell's history (see `unrecorded`).
       if (id) {
         usedRef.current = true;
-        writePty(id, `${cmd}\r`);
+        writePty(id, `${unrecorded(cmd)}\r`);
       }
     },
     // A launched full-screen CLI can take a while to draw its first titled
