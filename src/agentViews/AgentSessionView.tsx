@@ -10,7 +10,6 @@ import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
 import "../chat/chat.css";
 import "./builtins";
 import { AgentHeader } from "./AgentHeader";
-import { AgentMenuChoices } from "./AgentMenuChoices";
 import { agentView, resolveAcpView, useAgentViews, viewLabel } from "./registry";
 
 const AUTH_PREFIX = "auth_required:";
@@ -68,7 +67,7 @@ export function AgentSessionView({
   const { t, language } = useI18n();
   const views = useAgentViews();
   const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, onSessionId, onStatus });
-  const { model, phase, error, modes, sessionId } = chat;
+  const { model, phase, error, sessionId } = chat;
   const label = CLI_INFO[agent].label;
   const folder = basename(cwd);
   const subtitle = title === label ? folder : `${label} · ${folder}`;
@@ -110,8 +109,6 @@ export function AgentSessionView({
   // Not while starting either: the agent is still being spawned (and, resumed, loading the session), and the terminal would race it for the session.
   const canSwitch = phase !== "starting" && !working && (!talked || !!sessionId);
   const switchToTerminal = () => onSwitchToTerminal(talked ? (sessionId ?? null) : null);
-
-  const currentModeId = model.currentModeId ?? modes?.currentModeId ?? null;
 
   function onViewKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.ctrlKey && e.key === "`" && canSwitch) {
@@ -176,11 +173,6 @@ export function AgentSessionView({
                     </button>
                   ),
                 )}
-              <AgentMenuChoices
-                modes={modes}
-                currentModeId={currentModeId}
-                onMode={(id) => menuAction(() => chat.setMode(id))}
-              />
               <button
                 type="button"
                 role="menuitem"

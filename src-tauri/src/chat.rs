@@ -1366,13 +1366,17 @@ impl ChatState {
         self.get(chat_id)?.resolve_permission(request_id, option_id)
     }
 
-    /// Waits for the agent's answer, so it runs on the blocking pool.
+    /// Waits for the agent's answer, so it runs on the blocking pool. Agents
+    /// only send `current_mode_update` for switches of their own, so once
+    /// one is accepted it is logged as one: every view (the window, the
+    /// phones, a later replay) then shows the same mode.
     pub(crate) async fn set_mode(&self, chat_id: &str, mode_id: String) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         crate::blocking(move || {
             let session_id = chat.session_id()?.to_string();
-            chat.request("session/set_mode", json!({ "sessionId": session_id, "modeId": mode_id }), MODE_TIMEOUT)
-                .map(|_| ())
+            chat.request("session/set_mode", json!({ "sessionId": session_id, "modeId": mode_id }), MODE_TIMEOUT)?;
+            chat.emit(ChatBody::Update { update: json!({ "sessionUpdate": "current_mode_update", "currentModeId": mode_id }) });
+            Ok(())
         })
         .await
     }

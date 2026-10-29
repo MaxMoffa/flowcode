@@ -7,7 +7,6 @@ import type { ChatStatus } from "../chat/chatTypes";
 import "../chat/chat.css";
 import "../agentViews/builtins";
 import { AgentHeader } from "../agentViews/AgentHeader";
-import { AgentMenuChoices } from "../agentViews/AgentMenuChoices";
 import { agentView, resolveAcpView } from "../agentViews/registry";
 import { expectNewTab, sendToHost, useHost, useHostState } from "./remoteHosts";
 import { useRemoteChat } from "./useRemoteChat";
@@ -22,7 +21,7 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
   const info = useHostState(hostId).chats.find((c) => c.chatId === chatId);
   const chat = useRemoteChat(hostId, chatId);
   const View = resolveAcpView(undefined).component;
-  const { model, modes, sessionId } = chat;
+  const { model, sessionId } = chat;
   const nav = useOpenSubagent(model.items, hidden);
 
   if (!info) return <div className="chat-view remote-empty" style={hidden ? { display: "none" } : undefined}>{t("remoteHosts.chatGone")}</div>;
@@ -31,7 +30,6 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
   const label = CLI_INFO[agent].label;
   const status: ChatStatus = model.status;
   const working = status === "busy" || status === "waiting";
-  const currentModeId = model.currentModeId ?? modes?.currentModeId ?? null;
   const canTerminal = !!host?.caps.includes("chat");
   const toTerminal = () => {
     // The chat turns into a terminal tab over there: bring that one to the front when it appears.
@@ -54,12 +52,6 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
           };
           return (
             <>
-              <AgentMenuChoices
-                separated
-                modes={modes}
-                currentModeId={currentModeId}
-                onMode={(id) => menuAction(() => chat.setMode(id))}
-              />
               <button type="button" role="menuitem" className="chat-menu-item" disabled={!canTerminal} onClick={() => menuAction(toTerminal)}>
                 <span>{t("remoteHosts.openAsTerminal")}</span>
               </button>
