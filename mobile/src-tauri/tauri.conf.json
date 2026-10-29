@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Flowcode Mobile",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "identifier": "com.maxmoffa.flowcode.mobile",
   "build": {
     "beforeDevCommand": "npm run mobile:vite",
@@ -32,7 +32,7 @@
     "active": true,
     "targets": "all",
     "android": {
-      "versionCode": 17000
+      "versionCode": 18000
     },
     "icon": [
       "icons/32x32.png",
