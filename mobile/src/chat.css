@@ -1221,7 +1221,7 @@ button.chat-step-row {
 /* The floating card: text on top, one row of actions under it. */
 .chat-card {
   position: relative;
-  padding: 14px 8px 8px 18px;
+  padding: 16px 10px 10px 20px;
   border-radius: 28px;
   background: var(--surface-2);
   box-shadow:
@@ -1270,13 +1270,13 @@ button.chat-step-row {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 10px;
 }
 
 .chat-actions-end {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .chat-actions-start {
@@ -1298,8 +1298,55 @@ button.chat-step-row {
   flex: 0 1 auto;
 }
 
+/* Mode and model share one pill, split by a hairline; each half opens its own sheet. */
+.chat-actions-start:has(> :nth-child(2)) {
+  height: 46px;
+  border-radius: 23px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--border);
+  gap: 0;
+  overflow: hidden;
+}
+
+.chat-actions-start:has(> :nth-child(2)) .chat-mode-pill {
+  height: 46px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.chat-actions-start:has(> :nth-child(2)) .chat-mode-pill:active {
+  background: var(--surface-3);
+}
+
+.chat-actions-start > .chat-model:nth-child(2)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.chat-actions-start > .chat-model:nth-child(2) {
+  position: relative;
+}
+
+.chat-mode-icon {
+  padding: 0 10px 0 14px;
+}
+
 .chat-model-pill {
-  padding: 0 12px;
+  gap: 8px;
+  padding: 0 12px 0 10px;
+}
+
+.chat-pill-chevron {
+  flex: none;
+  display: grid;
+  place-items: center;
+  margin-left: -2px;
+  color: var(--muted);
 }
 
 .chat-model-hint {
@@ -1314,11 +1361,6 @@ button.chat-step-row {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
-}
-
-.chat-model-level {
-  flex: none;
-  color: var(--muted);
 }
 
 .chat-think {
@@ -1522,8 +1564,8 @@ button.chat-step-row {
   flex: none;
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   padding: 0;
   border: 0;
   border-radius: 50%;

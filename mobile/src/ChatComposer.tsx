@@ -229,9 +229,8 @@ ${latest.current}` : added);
                     })}
                   </div>
                 </AdaptiveSheet>
-                <button type="button" {...keepFocus} className={"chat-mode-pill" + (isRiskyKind(modeKind(current)) ? " risky" : "")} aria-haspopup="dialog" aria-expanded={modeOpen} aria-label={t("chatModeAria", { name: current.name })} onClick={() => setModeOpen(!modeOpen)}>
+                <button type="button" {...keepFocus} className={"chat-mode-pill chat-mode-icon" + (isRiskyKind(modeKind(current)) ? " risky" : "")} aria-haspopup="dialog" aria-expanded={modeOpen} aria-label={t("chatModeAria", { name: current.name })} title={current.name} onClick={() => setModeOpen(!modeOpen)}>
                   <ModeIcon kind={modeKind(current)} size={18} />
-                  <span>{current.name}</span>
                 </button>
               </div>
             ) : null}

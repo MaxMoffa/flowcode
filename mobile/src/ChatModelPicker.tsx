@@ -167,7 +167,9 @@ export function ChatModelPicker({
       >
         <ChipIcon />
         <span>{name}</span>
-        {models && level && <span className="chat-model-level">· {level.name}</span>}
+        <span className="chat-pill-chevron">
+          <ChevronDownIcon />
+        </span>
       </button>
     </div>
   );

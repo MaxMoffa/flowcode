@@ -207,15 +207,16 @@
   padding: 0 24px;
   display: flex;
   flex-direction: column;
-  /* Hides what scrolls under the composer's bottom gap (.chat-footer's 20px padding). */
-  mask-image: linear-gradient(to top, transparent 20px, #000 20px);
+  /* Hides what scrolls under the composer's bottom gap (.chat-footer's 20px padding),
+     less 2px so the composer's 1-1.5px box-shadow ring below the box stays visible. */
+  mask-image: linear-gradient(to top, transparent 18px, #000 18px);
 }
 
 .chat-content {
   flex: 1 0 auto;
   width: 100%;
   max-width: 740px;
-  padding-bottom: 14px;
+  padding-bottom: 48px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -1541,8 +1542,10 @@ summary.chat-step-row {
 .chat-commands-scroll {
   max-height: 360px;
   padding: 4px;
+  overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
+  /* No scrollbar-width here: in Chromium it overrides the themed
+     ::-webkit-scrollbar (themes.css) with the OS default bar. */
 }
 
 .chat-commands-group {
@@ -1656,7 +1659,10 @@ summary.chat-step-row {
 }
 
 .chat-command-name {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--mono, ui-monospace, Consolas, monospace);
   font-size: 12.5px;

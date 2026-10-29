@@ -1,4 +1,3 @@
-import type { ChatModes } from "../../src/chat/chatTypes";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { shortCwd } from "./common";
@@ -14,7 +13,7 @@ export interface ViewChoice {
 export const CHAT_VIEW = "chat";
 export const TERMINAL_VIEW = "terminal";
 
-/** The session sheet behind the header's title button: how to view the session, its modes, its id, and stopping the agent. */
+/** The session sheet behind the header's title button: how to view the session, its id, and stopping the agent. */
 export function ChatMenu(props: {
   open: boolean;
   onClose: () => void;
@@ -28,8 +27,6 @@ export function ChatMenu(props: {
   onView: (id: string) => void;
   /** Greys out the choices other than the current view (the desktop can't switch this session). */
   viewsDisabled?: boolean;
-  modes?: ChatModes | null;
-  onMode?: (modeId: string) => void;
   onRename?: () => void;
   onCopyId?: () => void;
   onStop?: () => void;
@@ -88,26 +85,6 @@ export function ChatMenu(props: {
             </button>
           ))}
         </div>
-        {props.modes && props.onMode && (
-          <>
-            <div className="chat-menu-label">{t("chatModes")}</div>
-            <div className="chat-menu-group" role="radiogroup" aria-label={t("chatModes")}>
-              {props.modes.availableModes.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={m.id === props.modes?.currentModeId}
-                  className={m.id === props.modes?.currentModeId ? "on" : ""}
-                  onClick={close(() => m.id !== props.modes?.currentModeId && props.onMode?.(m.id))}
-                >
-                  <span>{m.name}</span>
-                  {m.id === props.modes?.currentModeId && <CheckIcon />}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
         <div className="chat-menu-group">
           {props.onRename && (
             <button type="button" onClick={close(props.onRename)}>

@@ -438,8 +438,6 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
         views={choices}
         view={shown}
         onView={pick}
-        modes={modes}
-        onMode={(modeId) => setChatMode(chatId, modeId)}
         onCopyId={info.sessionId ? copyId : undefined}
         onRename={
           canRename
