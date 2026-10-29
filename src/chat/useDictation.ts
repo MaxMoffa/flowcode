@@ -4,14 +4,15 @@ import { listen } from "@tauri-apps/api/event";
 import {
   downloadPercent,
   ensureModelsLoaded,
-  getDictationLanguage,
+  dictationLanguageParam,
+  getDictationLanguages,
   getSelectedModel,
   hasInstalledModel,
   modelForSession,
   useDictationModels,
 } from "./dictationModels";
 
-export type DictationState = "idle" | "listening" | "error";
+export type DictationState = "idle" | "listening" | "transcribing" | "error";
 
 interface DictationEnd {
   reason: "stopped" | "silence" | "error";
@@ -28,6 +29,20 @@ export function appendDictation(draft: string, text: string): string {
   if (!spoken) return draft;
   if (!draft || /\s$/.test(draft)) return draft + spoken;
   return `${draft} ${spoken}`;
+}
+
+/** A Space press at least this long (ms) is a hold (push-to-talk), shorter is a tap. */
+export const HOLD_MS = 400;
+
+/** What to do with a dictation started by Space once the key is released:
+ * "stop" it, or "keep" listening until the next Space. A hold stops when holding
+ * is enabled; a quick tap stops only when taps are off (hold-only: a very short
+ * recording); otherwise (tap-only) any press counts as a tap. */
+export function spaceRelease(heldMs: number, tap: boolean, hold: boolean): "stop" | "keep" {
+  const held = heldMs >= HOLD_MS;
+  if (held && hold) return "stop";
+  if (!held && !tap) return "stop";
+  return "keep";
 }
 
 /** The microphone level (0..1) after a new peak reading: speech peaks sit low
@@ -62,8 +77,10 @@ function newSessionToken(): string {
  * settles (or, when the session ends first, at its end). `level` follows the
  * microphone. After a stop the session lingers invisibly until its "end" so
  * the flushed last phrase still lands. The session ends when `active` turns
- * false or the component unmounts. */
-export function useDictation(onFinal: (text: string) => void, active: boolean) {
+ * false or the component unmounts. `onEnd(heard)` runs once a session of this
+ * chat has ended without error, after its last phrase was committed (not when
+ * `discard` disowns it): `heard` tells whether it picked up any speech. */
+export function useDictation(onFinal: (text: string) => void, active: boolean, onEnd?: (heard: boolean) => void) {
   const [supported, setSupported] = useState(false);
   const [state, setState] = useState<DictationState>("idle");
   const [partial, setPartial] = useState("");
@@ -82,6 +99,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
   stateRef.current = state;
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
   // The session this chat started and hasn't seen end yet.
   const sessionRef = useRef<string | null>(null);
   // The phrase being heard, not yet settled.
@@ -111,7 +130,7 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
         heardRef.current = true;
         // The marker only says a phrase is being transcribed: nothing to commit.
         pendingRef.current = e.payload.text === TRANSCRIBING_MARKER ? "" : e.payload.text;
-        if (stateRef.current === "listening") setPartial(e.payload.text);
+        if (stateRef.current === "listening" || stateRef.current === "transcribing") setPartial(e.payload.text);
       }),
       listen<Own & { text: string }>("dictation://final", (e) => {
         if (!isOwnEvent(sessionRef.current, e.payload)) return;
@@ -135,6 +154,7 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
         } else {
           setState("idle");
           if (e.payload.reason === "silence" && !heardRef.current) setNoVoice(true);
+          onEndRef.current?.(heardRef.current);
         }
       }),
     ]);
@@ -163,7 +183,7 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
     try {
       await invoke("dictation_start", {
         session: token,
-        language: getDictationLanguage(),
+        language: dictationLanguageParam(getDictationLanguages()),
         model: modelForSession(modelsRef.current.models, getSelectedModel()),
       });
     } catch (e) {
@@ -182,8 +202,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
   const stop = useCallback(() => {
     if (stateRef.current !== "listening") return;
     const token = sessionRef.current;
-    setState("idle");
-    setPartial("");
+    // Transcribing until the "end": the last phrase may still take a while.
+    setState("transcribing");
     setLevel(0);
     // The session stays ours until its "end": the flushed phrase arrives first.
     invoke("dictation_stop")
@@ -194,6 +214,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
           if (sessionRef.current === token) {
             sessionRef.current = null;
             flushPending();
+            setState((s) => (s === "transcribing" ? "idle" : s));
+            onEndRef.current?.(heardRef.current);
           }
         }, 1000);
       });
@@ -214,12 +236,13 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
     sessionRef.current = null;
     setPartial("");
     setLevel(0);
-    setState((s) => (s === "listening" ? "idle" : s));
+    setState((s) => (s === "listening" || s === "transcribing" ? "idle" : s));
     if (listening) invoke("dictation_stop").catch(() => {});
     return heard;
   }, []);
 
   const toggle = useCallback(() => {
+    if (stateRef.current === "transcribing") return;
     if (stateRef.current === "listening") stop();
     else void start();
   }, [start, stop]);

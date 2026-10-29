@@ -75,8 +75,8 @@ describe("chat timeline", () => {
       ];
       const state = events.reduce(applyEvent, settleChat(initialChat()));
       const segments = buildTimeline(state.items);
-      expect(segments.map((s) => s.type)).toEqual(["group", "subagent", "subagent", "subagent"]);
-      const subs = segments.flatMap((s) => (s.type === "subagent" ? [s.item] : []));
+      expect(segments.map((s) => s.type)).toEqual(["group", "subagents"]);
+      const subs = segments.flatMap((s) => (s.type === "subagents" ? s.items : []));
       expect(subs.map((s) => s.steps.length)).toEqual([2, 3, 1]);
       expect(subagentInfo(subs[0].call)).toEqual({ type: "Explore", description: "code" });
       expect(subagentReport(subs[0].call)).toBe("report one");

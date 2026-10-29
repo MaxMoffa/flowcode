@@ -204,12 +204,18 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 24px 14px;
+  padding: 0 24px;
+  display: flex;
+  flex-direction: column;
+  /* Hides what scrolls under the composer's bottom gap (.chat-footer's 20px padding). */
+  mask-image: linear-gradient(to top, transparent 20px, #000 20px);
 }
 
 .chat-content {
+  flex: 1 0 auto;
+  width: 100%;
   max-width: 740px;
-  min-height: 100%;
+  padding-bottom: 14px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -227,7 +233,7 @@
 .chat-jump {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  bottom: calc(var(--chat-footer-h, 0px) + 12px);
   width: 36px;
   height: 36px;
   margin-left: -18px;
@@ -1007,6 +1013,81 @@ summary.chat-step-row {
   font-size: 12px;
 }
 
+/* The folded tool run is a card: a header row, and the numbered steps under it when open. */
+.chat-tools {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 4%, var(--surface));
+  overflow: hidden;
+}
+
+.chat-tools-head {
+  height: auto;
+  width: 100%;
+  max-width: 100%;
+  padding: 7px 10px;
+  border-radius: 0;
+  text-align: left;
+}
+
+.chat-tools-head:hover {
+  background: color-mix(in srgb, var(--fg) 7%, var(--surface));
+}
+
+.chat-tools-head:focus-visible {
+  outline-offset: -2px;
+}
+
+.chat-tools-status {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ansi-green);
+}
+
+.chat-tools-status.is-failed {
+  background: var(--danger);
+}
+
+.chat-tools-list {
+  max-height: 280px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+
+.chat-tools-list > .chat-step {
+  padding: 4px 10px 4px 12px;
+}
+
+.chat-tools-list > .chat-step + .chat-step {
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+/* Inside the card the step dots sit inline, not on a rail. */
+.chat-tools .chat-dot {
+  position: static;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  border: none;
+  box-shadow: none;
+  background: var(--fg-muted);
+}
+
+.chat-tools .chat-dot.is-done {
+  background: var(--ansi-green);
+}
+
+.chat-tools .chat-dot.is-live {
+  background: var(--accent);
+}
+
+.chat-tools .chat-dot.is-failed {
+  background: var(--danger);
+}
+
 .chat-tool-output {
   margin: 4px 0 6px;
   padding: 8px 10px;
@@ -1288,8 +1369,17 @@ summary.chat-step-row {
 }
 
 /* --- composer ----------------------------------------------------------- */
+/* Sticky at the bottom of the scroller: messages slide behind the opaque
+ * composer box, with no fade above it. The 20px strip under the composer is
+ * masked off the column (see .chat-column), not painted: the chat surface is
+ * see-through, so a painted strip would show as a band. The negative margins
+ * stretch it over the column's 24px side padding. */
 .chat-footer {
   flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 -24px;
   padding: 0 24px 20px;
 }
 
@@ -1475,14 +1565,55 @@ summary.chat-step-row {
 .chat-composer {
   padding: 14px 12px 10px 18px;
   border-radius: 24px;
-  /* Raised off the chat surface (--term-bg) so the box reads on it. */
-  background: color-mix(in srgb, var(--fg) 7%, var(--surface));
+  /* Raised off the chat surface (--term-bg) so the box reads on it; opaque
+     (the surface's colour without its alpha) so messages scrolling behind it
+     don't show through. */
+  background: color-mix(in srgb, var(--fg) 7%, rgb(var(--surface-rgb)));
   box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1px color-mix(in srgb, var(--fg) 24%, transparent);
 }
 
 .chat-composer:focus-within,
 .chat-composer.is-listening {
   box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--accent);
+}
+
+.chat-composer.is-transcribing,
+.chat-composer.is-transcribing:focus-within {
+  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* While the last words are transcribed two arcs run round the composer
+   (see ComposerSweep). The stroke covers the composer's 1px ring: the svg
+   overhangs the box by 0.75px, radius 24 + 0.75. */
+.chat-composer-sweep {
+  position: absolute;
+  top: -0.75px;
+  left: -0.75px;
+  width: calc(100% + 1.5px);
+  height: calc(100% + 1.5px);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.chat-composer-sweep rect {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  animation: chat-composer-sweep 3s linear infinite;
+}
+
+/* The second arc runs half a lap behind the first. */
+.chat-composer-sweep rect.is-second {
+  animation-delay: -1.5s;
+}
+
+@keyframes chat-composer-sweep {
+  from {
+    stroke-dashoffset: 0px;
+  }
+  to {
+    stroke-dashoffset: -100px;
+  }
 }
 
 .chat-input {
@@ -1818,6 +1949,12 @@ summary.chat-step-row {
   transition: stroke-dashoffset 0.2s;
 }
 
+/* After a stop: the last phrase is still being transcribed (see ComposerSweep). */
+.chat-icon-btn.is-mic.is-transcribing {
+  color: var(--accent);
+  cursor: default;
+}
+
 .chat-icon-btn.is-mic.is-listening {
   background: var(--accent);
   color: var(--on-accent);
@@ -1869,13 +2006,23 @@ summary.chat-step-row {
 .chat-listening-text {
   flex-basis: 100%;
   min-width: 0;
+  max-height: 4.5em;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
   font-style: italic;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .chat-composer-sweep {
+    display: none;
+  }
+
+  .chat-composer.is-transcribing,
+  .chat-composer.is-transcribing:focus-within {
+    box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--accent);
+  }
+
   .chat-icon-btn.is-mic.is-listening {
     animation: none;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
@@ -1904,21 +2051,6 @@ summary.chat-step-row {
 }
 
 /* --- subagents ---------------------------------------------------------- */
-.chat-sub {
-  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  margin-left: 2px;
-  padding-left: 22px;
-}
-
-.chat-sub::before {
-  display: none;
-}
-
-.chat-sub-toggle {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 .chat-sub-icon {
   flex: 0 0 auto;
   color: var(--accent);
@@ -1933,24 +2065,6 @@ summary.chat-step-row {
   line-height: 18px;
 }
 
-.chat-sub-desc {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg);
-}
-
-.chat-sub-end {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  font-size: 11.5px;
-}
-
 .chat-sub-mark {
   color: var(--accent);
 }
@@ -1959,51 +2073,241 @@ summary.chat-step-row {
   color: var(--danger);
 }
 
-.chat-sub-line {
-  min-width: 0;
-  padding: 0 4px 4px 0;
-  color: var(--fg-muted);
-  font-size: 12px;
+/* Subagents launched together: one card each side by side (a lone one fills the row), the selected one opens under them. */
+.chat-subcards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.chat-sub-line-text {
-  display: block;
+.chat-subcards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.chat-subcards-grid.is-single {
+  grid-template-columns: 1fr;
+}
+
+.chat-subcard-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.chat-subcard {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  height: auto;
+  max-width: 100%;
+  padding: 8px 9px;
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  background: var(--card-bg);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.chat-subcard:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  transform: translateY(-1px);
+}
+
+.chat-subcard.is-selected {
+  border-color: var(--accent);
+}
+
+.chat-subcard:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chat-subcard-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-subcard-row.has-open {
+  padding-right: 22px;
+}
+
+.chat-subcard-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-subcard-pill {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-subcard-time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.chat-subcard-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 17px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.chat-subcard-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chat-sub-line.is-live .chat-sub-line-text {
+.chat-subcard-text.is-mono {
   color: var(--fg);
   font-family: var(--font-mono, ui-monospace, Consolas, monospace);
-  animation: chat-group-in 0.2s ease;
 }
 
-.chat-sub-nest {
-  margin: 2px 0 4px 6px;
-  padding-left: 24px;
-  border-left: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+.chat-subcard-bar {
+  display: block;
+  height: 3px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
-.chat-sub-report-toggle {
-  display: flex;
+.chat-subcard-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.chat-subcard-bar.is-running i {
+  background: linear-gradient(90deg, var(--accent-2, var(--fg-muted)), var(--accent), var(--accent-2, var(--fg-muted)));
+  background-size: 200% 100%;
+  animation: chat-subcard-shimmer 1.6s linear infinite;
+}
+
+.chat-subcard-bar.is-bad i {
+  background: var(--danger);
+  animation: none;
+}
+
+@keyframes chat-subcard-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Small round button: open the subagent's chat, or close the detail. */
+.chat-subcard-open {
+  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  padding: 2px 0;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: none;
+  border-radius: 4px;
   background: none;
   color: var(--fg-muted);
-  font: inherit;
-  font-size: 12px;
+  font-size: 15px;
+  line-height: 1;
   cursor: pointer;
 }
 
-.chat-sub-report-toggle[aria-expanded="true"] .chat-group-chevron {
-  transform: rotate(90deg);
+.chat-subcard-open:hover {
+  background: var(--sidebar-hover);
+  color: var(--fg);
 }
 
-.chat-sub-report-body {
-  margin: 4px 0 2px;
+.chat-subcard-open.is-floating {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.chat-subcards-detail {
+  display: flex;
+  flex-direction: column;
+  padding: 7px 9px;
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  background: var(--card-bg);
+}
+
+.chat-subcards-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-bottom: 3px;
+  font-size: 12.5px;
+}
+
+.chat-subcards-detail-head b {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-subcards-detail-note {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.chat-subcards-detail .chat-dot {
+  position: static;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  border: none;
+  box-shadow: none;
+  background: var(--fg-muted);
+}
+
+.chat-subcards-detail .chat-dot.is-done {
+  background: var(--ansi-green);
+}
+
+.chat-subcards-detail .chat-dot.is-live {
+  background: var(--accent);
+}
+
+.chat-subcards-detail .chat-dot.is-failed {
+  background: var(--danger);
+}
+
+.chat-subcards-report {
+  margin-top: 6px;
   padding: 7px 9px;
   border: 1px solid var(--card-border);
   border-radius: 7px;
@@ -2011,45 +2315,27 @@ summary.chat-step-row {
   font-size: 12.5px;
 }
 
-.chat-sub-head {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 28px;
-}
-
-.chat-sub-chevron {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: none;
+.chat-subcards-report-label {
+  display: block;
+  margin-bottom: 2px;
   color: var(--fg-muted);
-  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
-.chat-sub-chevron:hover {
-  color: var(--fg);
-  background: var(--sidebar-hover);
-}
+@media (prefers-reduced-motion: reduce) {
+  .chat-subcard-bar.is-running i {
+    animation: none;
+  }
 
-.chat-sub-chevron[aria-expanded="true"] .chat-group-chevron {
-  transform: rotate(90deg);
-}
+  .chat-subcard {
+    transition: none;
+  }
 
-.chat-sub-open {
-  flex: 0 0 auto;
-  opacity: 0.45;
-}
-
-.chat-sub-toggle:hover .chat-sub-open {
-  opacity: 1;
+  .chat-subcard:hover {
+    transform: none;
+  }
 }
 
 /* --- an open subagent's chat ------------------------------------------- */

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  COMMON_DICTATION_LANGUAGES,
   INITIAL_MODELS,
+  WHISPER_LANGUAGES,
+  dictationLanguageParam,
+  languageName,
+  parseDictationLanguages,
+  sanitizeLanguages,
   applyDone,
   applyModels,
   applyProgress,
@@ -96,5 +102,35 @@ describe("ellipsizeMiddle", () => {
     expect(cut).toContain("…");
     expect(cut.startsWith("C:\Users")).toBe(true);
     expect(cut.endsWith("models")).toBe(true);
+  });
+});
+
+describe("dictation languages", () => {
+  it("parses the stored value, keeping known codes once", () => {
+    expect(parseDictationLanguages("auto")).toEqual([]);
+    expect(parseDictationLanguages(null)).toEqual([]);
+    expect(parseDictationLanguages("it")).toEqual(["it"]);
+    expect(parseDictationLanguages("it,en,xx,it, de")).toEqual(["it", "en", "de"]);
+    expect(parseDictationLanguages("haw,yue")).toEqual(["haw", "yue"]);
+  });
+
+  it("sanitizes a list", () => {
+    expect(sanitizeLanguages(["en", "en", "nope", "fr"])).toEqual(["en", "fr"]);
+    expect(sanitizeLanguages([])).toEqual([]);
+  });
+
+  it("sends auto when empty, else the joined codes", () => {
+    expect(dictationLanguageParam([])).toBe("auto");
+    expect(dictationLanguageParam(["it", "en"])).toBe("it,en");
+  });
+
+  it("knows the common languages", () => {
+    for (const code of COMMON_DICTATION_LANGUAGES) expect(WHISPER_LANGUAGES).toContain(code);
+  });
+
+  it("names a language, falling back to the code", () => {
+    expect(languageName("it")).toBe("Italiano");
+    expect(languageName("!!bad code")).toBe("!!bad code");
+    expect(languageName("it")).toBe(languageName("it"));
   });
 });

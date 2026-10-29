@@ -8,8 +8,10 @@
 //! Events, to the window that started it, each carrying the `session` token the
 //! caller gave `dictation_start` (a window may host several chats, only the one
 //! that started the session consumes them): `dictation://partial` `{ text }`
-//! ("…" while a phrase is being transcribed, "" once it is), `dictation://final`
-//! `{ text }` (a phrase settled), `dictation://level` `{ value }` (microphone
+//! (the words of the phrase being spoken so far, refreshed as it goes; "…"
+//! while a phrase with no such preview yet is being transcribed; "" to clear),
+//! `dictation://final` `{ text }` (a phrase settled, which also clears the
+//! partial), `dictation://level` `{ value }` (microphone
 //! peak, 0..1) and `dictation://end` `{ reason, message? }` with reason
 //! "stopped", "silence" or "error". A stop flushes the phrase being spoken: its
 //! `final` comes before the `end`. Model downloads report to every window as
@@ -22,7 +24,7 @@ mod models;
 
 use flowcode_shared::i18n::tr;
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -32,6 +34,25 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 /// A session with no speech at all for this long ends by itself.
 const SILENCE_TIMEOUT: Duration = Duration::from_secs(60);
 const LEVEL_EVERY: Duration = Duration::from_millis(50);
+/// While a phrase is spoken its words so far are shown at most this often...
+const PREVIEW_EVERY: Duration = Duration::from_millis(700);
+/// ...and only once it has grown by this much (400 ms of audio) since the last.
+const PREVIEW_MIN_NEW: usize = 6_400;
+
+/// What the worker is given to transcribe.
+enum Piece {
+    /// The phrase being spoken so far: its words are shown, not kept.
+    Preview(Vec<f32>),
+    /// A finished phrase.
+    Phrase(Vec<f32>),
+}
+
+/// Hands a finished phrase to the worker, counting it as waiting until the
+/// worker takes it.
+fn send_phrase(pieces: &mpsc::Sender<Piece>, waiting: &AtomicUsize, phrase: Vec<f32>) {
+    waiting.fetch_add(1, Ordering::SeqCst);
+    let _ = pieces.send(Piece::Phrase(phrase));
+}
 
 /// What the thread of a session is told from outside.
 enum Signal {
@@ -132,8 +153,9 @@ pub async fn dictation_delete_model(
 /// Starts listening and reports to the calling window. A session already
 /// running (in any window) is stopped first. `model` is the id of the model to
 /// use (else the best installed one); with none installed this fails with
-/// "model-missing". `language` is a code ("it") or BCP 47 tag ("it-IT"); none
-/// or "auto" lets Whisper detect it. Resolves once the microphone is listening
+/// "model-missing". `language` is a code ("it"), a BCP 47 tag ("it-IT") or a
+/// comma-separated list of them ("it,en"), among which Whisper picks; none or
+/// "auto" lets it detect among all. Resolves once the microphone is listening
 /// and the model loaded, or with why it couldn't.
 #[tauri::command]
 pub async fn dictation_start(
@@ -164,7 +186,7 @@ pub async fn dictation_start(
     let job = Job {
         window,
         token,
-        language: engine::language_code(language.as_deref()),
+        languages: engine::language_codes(language.as_deref()),
         model_id,
         model_path,
         contexts: state.contexts.clone(),
@@ -203,7 +225,7 @@ pub async fn dictation_stop(state: State<'_, DictationState>) -> Result<(), Stri
 struct Job {
     window: WebviewWindow,
     token: String,
-    language: String,
+    languages: Vec<String>,
     model_id: String,
     model_path: std::path::PathBuf,
     contexts: engine::ContextCache,
@@ -217,9 +239,18 @@ impl Job {
     }
 }
 
-/// Transcribes the phrases it is sent, one at a time, until the channel
-/// closes. Loads the model first and reports how that went on `loaded`.
-fn work(job: &Job, phrases: mpsc::Receiver<Vec<f32>>, abort: &AtomicBool, loaded: mpsc::Sender<Result<(), String>>) {
+/// Transcribes the pieces it is sent, one at a time, until the channel
+/// closes. Loads the model first and reports how that went on `loaded`. `busy`
+/// is set while it transcribes, `waiting` counts the phrases sent and not yet
+/// taken (a preview behind one is stale and skipped).
+fn work(
+    job: &Job,
+    pieces: mpsc::Receiver<Piece>,
+    abort: &AtomicBool,
+    busy: &AtomicBool,
+    waiting: &AtomicUsize,
+    loaded: mpsc::Sender<Result<(), String>>,
+) {
     let context = match job.contexts.take(&job.model_id).map(Ok).unwrap_or_else(|| engine::load(&job.model_path)) {
         Ok(context) => context,
         Err(message) => {
@@ -235,19 +266,53 @@ fn work(job: &Job, phrases: mpsc::Receiver<Vec<f32>>, abort: &AtomicBool, loaded
         }
     };
     let _ = loaded.send(Ok(()));
-    for audio in phrases {
+    // Whether words of the current phrase are on screen already.
+    let mut previewed = false;
+    // The language picked for the current phrase's previews.
+    let mut detected: Option<String> = None;
+    for piece in pieces {
         if abort.load(Ordering::Relaxed) {
             break;
         }
-        job.emit("dictation://partial", json!({ "text": "…" }));
-        let heard = engine::transcribe(&mut state, &audio, &job.language);
-        job.emit("dictation://partial", json!({ "text": "" }));
-        match heard {
-            Ok(text) if !text.is_empty() => job.emit("dictation://final", json!({ "text": text })),
-            Ok(_) => {}
-            Err(message) => {
-                let base = tr("Il riconoscimento vocale è fallito", "Speech recognition failed");
-                let _ = job.signals.send(Signal::Failed(format!("{base}: {message}")));
+        match piece {
+            Piece::Preview(audio) => {
+                if waiting.load(Ordering::SeqCst) > 0 {
+                    continue;
+                }
+                busy.store(true, Ordering::SeqCst);
+                let language =
+                    detected.get_or_insert_with(|| engine::pick_language(&mut state, &audio, &job.languages)).clone();
+                let heard = engine::transcribe(&mut state, &audio, &language);
+                busy.store(false, Ordering::SeqCst);
+                if let Ok(text) = heard {
+                    if !text.is_empty() && !abort.load(Ordering::Relaxed) {
+                        previewed = true;
+                        job.emit("dictation://partial", json!({ "text": text }));
+                    }
+                }
+            }
+            Piece::Phrase(audio) => {
+                // Busy before no longer waiting: the run loop never sees both idle.
+                busy.store(true, Ordering::SeqCst);
+                waiting.fetch_sub(1, Ordering::SeqCst);
+                if !previewed {
+                    job.emit("dictation://partial", json!({ "text": "…" }));
+                }
+                let language = engine::pick_language(&mut state, &audio, &job.languages);
+                let heard = engine::transcribe(&mut state, &audio, &language);
+                busy.store(false, Ordering::SeqCst);
+                match heard {
+                    Ok(text) if !text.is_empty() => job.emit("dictation://final", json!({ "text": text })),
+                    // Nothing settled: clear the preview or the "…" marker.
+                    Ok(_) => job.emit("dictation://partial", json!({ "text": "" })),
+                    Err(message) => {
+                        job.emit("dictation://partial", json!({ "text": "" }));
+                        let base = tr("Il riconoscimento vocale è fallito", "Speech recognition failed");
+                        let _ = job.signals.send(Signal::Failed(format!("{base}: {message}")));
+                    }
+                }
+                previewed = false;
+                detected = None;
             }
         }
     }
@@ -278,10 +343,12 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
     };
 
     let abort = Arc::new(AtomicBool::new(false));
-    let (phrases_tx, phrases_rx) = mpsc::channel();
+    let busy = AtomicBool::new(false);
+    let waiting = AtomicUsize::new(0);
+    let (pieces_tx, pieces_rx) = mpsc::channel();
     let (loaded_tx, loaded_rx) = mpsc::channel();
     std::thread::scope(|scope| {
-        let worker = scope.spawn(|| work(&job, phrases_rx, &abort, loaded_tx));
+        let worker = scope.spawn(|| work(&job, pieces_rx, &abort, &busy, &waiting, loaded_tx));
         // The audio meanwhile queues up in `inbox`.
         match loaded_rx.recv() {
             Ok(Ok(())) => {}
@@ -304,6 +371,9 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
         let mut last_sent = 0f32;
         let mut last_level = Instant::now();
         let mut last_activity = Instant::now();
+        let mut last_preview = Instant::now();
+        // Length of the audio of the last preview of the phrase being heard.
+        let mut previewed_len = 0usize;
         // None: the window isn't told (it left, or another session took over).
         let end: Option<(&str, Option<String>)> = loop {
             let signal = inbox.recv_timeout(LEVEL_EVERY);
@@ -313,11 +383,26 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
                 Ok(Signal::Failed(message)) => break Some(("error", Some(message))),
                 Ok(Signal::Audio(samples)) => {
                     peak = samples.iter().fold(peak, |p, s| p.max(s.abs()));
-                    for phrase in segmenter.push(&samples) {
-                        let _ = phrases_tx.send(phrase);
+                    let done = segmenter.push(&samples);
+                    if !done.is_empty() {
+                        previewed_len = 0;
+                    }
+                    for phrase in done {
+                        send_phrase(&pieces_tx, &waiting, phrase);
                     }
                     if segmenter.in_phrase() {
                         last_activity = Instant::now();
+                    }
+                    // The words so far, when the worker has nothing else to do.
+                    if !busy.load(Ordering::SeqCst)
+                        && waiting.load(Ordering::SeqCst) == 0
+                        && last_preview.elapsed() >= PREVIEW_EVERY
+                    {
+                        if let Some(audio) = segmenter.current().filter(|a| a.len() >= previewed_len + PREVIEW_MIN_NEW) {
+                            previewed_len = audio.len();
+                            last_preview = Instant::now();
+                            let _ = pieces_tx.send(Piece::Preview(audio.to_vec()));
+                        }
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -342,19 +427,19 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
             for signal in inbox.try_iter() {
                 if let Signal::Audio(samples) = signal {
                     for phrase in segmenter.push(&samples) {
-                        let _ = phrases_tx.send(phrase);
+                        send_phrase(&pieces_tx, &waiting, phrase);
                     }
                 }
             }
             if let Some(phrase) = segmenter.flush() {
-                let _ = phrases_tx.send(phrase);
+                send_phrase(&pieces_tx, &waiting, phrase);
             }
         } else {
             abort.store(true, Ordering::Relaxed);
         }
         // Closing the channel lets the worker finish what it was sent (so every
         // "final" is out) and hand the model back to the cache.
-        drop(phrases_tx);
+        drop(pieces_tx);
         let _ = worker.join();
         if let Some((reason, message)) = end {
             job.emit("dictation://end", json!({ "reason": reason, "message": message }));

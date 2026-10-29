@@ -11,7 +11,7 @@ export type TimelineStep = ToolItem | (PermissionItem & { resolved: string | nul
 export type TimelineSegment =
   | { type: "item"; item: ChatItem }
   | { type: "group"; id: string; steps: TimelineStep[] }
-  | { type: "subagent"; item: SubagentItem };
+  | { type: "subagents"; id: string; items: SubagentItem[] };
 
 /** A subagent: the Agent/Task tool call that launched it, and the tool calls it made (in order). */
 export interface SubagentItem {
@@ -163,7 +163,7 @@ export function categoryOf(call: ChatToolCall): StepCategory {
   }
 }
 
-/** Splits the conversation into segments: consecutive tool calls (and the
+/** Splits the conversation into segments: consecutive subagents form one block of cards; consecutive tool calls (and the
  * permission requests answered between them) form one group, the steps of an
  * agent turn. Pending permission requests are left out - they are drawn above
  * the composer, not in the flow. */
@@ -172,7 +172,9 @@ export function buildTimeline(items: ChatItem[]): TimelineSegment[] {
   for (const item of nestSubagents(items)) {
     if (item.type !== "subagent" && hiddenGuardian(item)) continue;
     if (item.type === "subagent") {
-      segments.push({ type: "subagent", item });
+      const last = segments[segments.length - 1];
+      if (last?.type === "subagents") last.items.push(item);
+      else segments.push({ type: "subagents", id: item.id, items: [item] });
       continue;
     }
     if (item.type === "permission" && item.resolved === undefined) continue;

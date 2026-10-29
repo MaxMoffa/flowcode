@@ -101,6 +101,12 @@ impl Segmenter {
         self.phrase.is_some()
     }
 
+    /// The audio of the phrase being heard so far, once it has enough speech to
+    /// count as a phrase.
+    pub fn current(&self) -> Option<&[f32]> {
+        self.phrase.as_ref().filter(|p| p.speech_frames >= MIN_SPEECH_FRAMES).map(|p| p.audio.as_slice())
+    }
+
     /// Feeds samples; returns the phrases they completed.
     pub fn push(&mut self, samples: &[f32]) -> Vec<Vec<f32>> {
         let mut done = Vec::new();
@@ -378,6 +384,19 @@ mod tests {
         assert!(segmenter.push(&audio).is_empty());
         assert!(segmenter.in_phrase());
         assert!(segmenter.flush().is_some_and(|p| p.len() >= RATE as usize));
+    }
+
+    #[test]
+    fn the_phrase_in_progress_is_visible_once_it_has_enough_speech() {
+        let mut segmenter = Segmenter::default();
+        assert!(segmenter.current().is_none());
+        segmenter.push(&tone(0.12, 0.3));
+        assert!(segmenter.in_phrase());
+        assert!(segmenter.current().is_none());
+        segmenter.push(&tone(0.5, 0.3));
+        assert!(segmenter.current().is_some_and(|p| p.len() >= RATE as usize / 2));
+        segmenter.push(&silence(1.0));
+        assert!(segmenter.current().is_none());
     }
 
     #[test]

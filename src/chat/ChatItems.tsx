@@ -134,36 +134,36 @@ export const ToolGroup = memo(function ToolGroup({ steps, live }: { steps: Timel
       : (last.toolCall.title ?? last.toolCall.kind ?? t("chat.permission.title"));
   const summaryClass = live ? "chat-group-summary is-live" : failed > 0 ? "chat-group-summary has-failed" : "chat-group-summary";
   return (
-    <div className="chat-rail">
-      <button type="button" className="chat-group-toggle" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
-        <span className={`chat-dot${live ? " is-live" : failed > 0 ? " is-failed" : " is-done"}`} aria-hidden="true" />
+    <div className={`chat-tools${expanded ? " is-open" : ""}`}>
+      <button type="button" className="chat-group-toggle chat-tools-head" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
         <svg className="chat-group-chevron" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <polyline points="9 6 15 12 9 18" />
         </svg>
         <span className="chat-group-count">{steps.length}</span>
-        {live && <span className="chat-spinner" aria-hidden="true" />}
+        {live ? (
+          <span className="chat-spinner" aria-hidden="true" />
+        ) : (
+          <span className={`chat-tools-status${failed > 0 ? " is-failed" : ""}`} aria-hidden="true" />
+        )}
         <span key={live ? last.id : "summary"} className={summaryClass}>
           {live ? lastTitle : summaryText(steps, t)}
         </span>
       </button>
-      {expanded &&
-        steps.map((step, i) =>
-          step.type === "tool" ? (
-            <ToolStep key={step.id} step={step} live={live} index={i + 1} />
-          ) : (
-            <PermissionStep key={step.id} step={step} index={i + 1} />
-          ),
-        )}
+      {expanded && (
+        <div className="chat-tools-list">
+          {steps.map((step, i) =>
+            step.type === "tool" ? (
+              <ToolStep key={step.id} step={step} live={live} index={i + 1} />
+            ) : (
+              <PermissionStep key={step.id} step={step} index={i + 1} />
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
   // The timeline rebuilds its step arrays on every render; the steps themselves keep their identity until they change.
 }, (a, b) => a.live === b.live && a.steps.length === b.steps.length && a.steps.every((s, i) => s === b.steps[i]));
-
-const CHEVRON = (
-  <svg className="chat-group-chevron" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="9 6 15 12 9 18" />
-  </svg>
-);
 
 const BOT_ICON = (
   <svg className="chat-sub-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -172,85 +172,119 @@ const BOT_ICON = (
   </svg>
 );
 
-/** One subagent as a folded row in the style of the tool groups: its type and task, how many steps it made and the one in progress (a summary, time and a tick once done); open, its steps indented, then its final report folded. */
-export const SubagentRow = memo(function SubagentRow({ item, onOpen }: { item: SubagentItem; onOpen?: (id: string) => void }) {
+const OPEN_ICON = (
+  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M7 17 17 7M8 7h9v9" />
+  </svg>
+);
+
+/** The small "open its chat" button of a subagent (on its card, and in the detail under the cards). */
+function OpenSubagentButton({ id, onOpen, className }: { id: string; onOpen: (id: string) => void; className?: string }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
+  return (
+    <button type="button" className={`chat-subcard-open${className ? ` ${className}` : ""}`} title={t("chat.subagent.open")} aria-label={t("chat.subagent.open")} onClick={() => onOpen(id)}>
+      {OPEN_ICON}
+    </button>
+  );
+}
+
+/** One subagent as a card: its task, type, step count and time, the step in progress (a summary and a tick once done) and a progress bar. Clicking selects it; the open-chat button sits over the card, not inside it. */
+function SubagentCard({ item, selected, onToggle, onOpen }: { item: SubagentItem; selected: boolean; onToggle: () => void; onOpen?: (id: string) => void }) {
+  const { t } = useI18n();
   const { type, description } = subagentInfo(item.call);
   const state = subagentState(item);
-  const report = subagentReport(item.call);
   const steps = item.steps;
+  const last = steps[steps.length - 1];
+  const bad = state.failed || (state.running && last?.call.status === "failed");
+  const percent = state.running ? Math.min(92, 12 + steps.length * 17) : 100;
   const recovered = !state.failed && state.failedSteps > 0 ? t(`chat.subagent.recovered.${state.failedSteps === 1 ? "one" : "other"}`, { count: state.failedSteps }) : "";
-  const dot = state.running ? "is-live" : state.failed ? "is-failed" : "is-done";
   const liveTitle = state.current ? (state.current.title ?? state.current.kind ?? state.current.toolCallId) : t("chat.subagent.starting");
-  const lineText = state.running ? liveTitle : [summaryText(steps, t, false), recovered].filter(Boolean).join(" · ");
   return (
-    <div className="chat-rail chat-sub">
-      <div className="chat-sub-head">
-      <span className={`chat-dot ${dot}`} aria-hidden="true" />
-      <button type="button" className="chat-sub-chevron" aria-expanded={open} aria-label={t("chat.subagent.inline")} title={t("chat.subagent.inline")} onClick={() => setOpen((v) => !v)}>
-        {CHEVRON}
-      </button>
-      <button type="button" className="chat-group-toggle chat-sub-toggle" title={onOpen ? t("chat.subagent.open") : undefined} onClick={() => (onOpen ? onOpen(item.id) : setOpen((v) => !v))}>
-        {BOT_ICON}
-        {type && <span className="chat-sub-tag">{type}</span>}
-        <span className="chat-sub-desc" title={description}>
-          {description}
+    <div className="chat-subcard-wrap">
+      <button type="button" className={`chat-subcard${selected ? " is-selected" : ""}`} aria-expanded={selected} onClick={onToggle}>
+        <span className={`chat-subcard-row${onOpen ? " has-open" : ""}`}>
+          {BOT_ICON}
+          <span className="chat-subcard-name" title={description}>
+            {description}
+          </span>
         </span>
-        <span className="chat-group-count" title={t("chat.subagent.steps", { count: steps.length })}>
-          {steps.length}
+        <span className="chat-subcard-row">
+          {type && <span className="chat-sub-tag">{type}</span>}
+          <span className="chat-subcard-pill" title={t("chat.subagent.steps", { count: steps.length })}>
+            {steps.length}
+          </span>
+          <span className="chat-subcard-time">{state.running ? t("chat.subagent.running") : state.seconds !== null ? t("chat.subagent.seconds", { count: state.seconds }) : ""}</span>
         </span>
-        <span className="chat-sub-end">
+        <span className="chat-subcard-live">
           {state.running ? (
-            <span className="chat-spinner" aria-hidden="true" />
+            <>
+              <span className="chat-spinner" aria-hidden="true" />
+              <span className="chat-subcard-text is-mono">{liveTitle}</span>
+            </>
           ) : (
             <>
-              {state.seconds !== null && <span>{t("chat.subagent.seconds", { count: state.seconds })}</span>}
               <span className={state.failed ? "chat-sub-mark is-failed" : "chat-sub-mark"} title={state.failed ? t("chat.subagent.failed") : t("chat.subagent.done")}>
-                {state.failed ? "✕" : "✓"}
+                {state.failed ? "\u2715" : "\u2713"}
               </span>
+              <span className="chat-subcard-text">{[summaryText(steps, t, false), recovered].filter(Boolean).join(" \u00b7 ")}</span>
             </>
           )}
         </span>
-        {onOpen && (
-          <svg className="chat-sub-open" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M7 17 17 7M8 7h9v9" />
-          </svg>
-        )}
+        <span className={`chat-subcard-bar${state.running ? " is-running" : ""}${bad ? " is-bad" : ""}`} aria-hidden="true">
+          <i style={{ width: `${percent}%` }} />
+        </span>
       </button>
-      </div>
-      {!open && (
-        <div className={`chat-sub-line${state.running ? " is-live" : ""}`}>
-          <span key={state.running ? liveTitle : "summary"} className="chat-sub-line-text">
-            {lineText}
-          </span>
-        </div>
-      )}
-      {open && (
-        <div className="chat-sub-nest">
-          {steps.map((step, i) => (
-            <ToolStep key={step.id} step={step} live={state.running} index={i + 1} />
-          ))}
-          {report && (
-            <div>
-              <button type="button" className="chat-sub-report-toggle" aria-expanded={reportOpen} onClick={() => setReportOpen((v) => !v)}>
-                {CHEVRON}
-                {t("chat.subagent.report")}
-              </button>
-              {reportOpen && (
-                <div className="chat-sub-report-body">
-                  <ChatMarkdown text={report} />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {onOpen && <OpenSubagentButton id={item.id} onOpen={onOpen} className="is-floating" />}
     </div>
   );
-  // The timeline rebuilds the item on every render; its call and steps keep their identity until they change.
-}, (a, b) => a.onOpen === b.onOpen && a.item.call === b.item.call && a.item.steps.length === b.item.steps.length && a.item.steps.every((s, i) => s === b.item.steps[i]));
+}
+
+/** A run of subagents launched together as cards side by side (one alone fills the row); the selected card shows its steps and final report under them. */
+export const SubagentCards = memo(function SubagentCards({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id: string) => void }) {
+  const { t } = useI18n();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = items.find((item) => item.id === selectedId) ?? null;
+  let detail = null;
+  if (selected) {
+    const { type, description } = subagentInfo(selected.call);
+    const state = subagentState(selected);
+    const report = subagentReport(selected.call);
+    const recovered = !state.failed && state.failedSteps > 0 ? t(`chat.subagent.recovered.${state.failedSteps === 1 ? "one" : "other"}`, { count: state.failedSteps }) : "";
+    detail = (
+      <div className="chat-subcards-detail">
+        <div className="chat-subcards-detail-head">
+          {type && <span className="chat-sub-tag">{type}</span>}
+          <b title={description}>{description}</b>
+          {recovered && <span className="chat-subcards-detail-note">{recovered}</span>}
+          {onOpen && <OpenSubagentButton id={selected.id} onOpen={onOpen} />}
+          <button type="button" className="chat-subcard-open" title={t("common.close")} aria-label={t("common.close")} onClick={() => setSelectedId(null)}>
+            {"\u00d7"}
+          </button>
+        </div>
+        {selected.steps.map((step, i) => (
+          <ToolStep key={step.id} step={step} live={state.running} index={i + 1} />
+        ))}
+        {report && (
+          <div className="chat-subcards-report">
+            <span className="chat-subcards-report-label">{t("chat.subagent.report")}</span>
+            <ChatMarkdown text={report} />
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="chat-subcards">
+      <div className={`chat-subcards-grid${items.length === 1 ? " is-single" : ""}`}>
+        {items.map((item) => (
+          <SubagentCard key={item.id} item={item} selected={item.id === selectedId} onToggle={() => setSelectedId(item.id === selectedId ? null : item.id)} onOpen={onOpen} />
+        ))}
+      </div>
+      {detail}
+    </div>
+  );
+  // The timeline rebuilds the items on every render; their calls and steps keep their identity until they change.
+}, (a, b) => a.onOpen === b.onOpen && a.items.length === b.items.length && a.items.every((x, i) => x.call === b.items[i].call && x.steps.length === b.items[i].steps.length && x.steps.every((s, j) => s === b.items[i].steps[j])));
 
 /** The words for why a turn stopped early. */
 const STOP_TEXT: Record<StopKind, Parameters<ReturnType<typeof useI18n>["t"]>[0]> = {

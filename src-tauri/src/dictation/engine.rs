@@ -107,16 +107,63 @@ pub fn new_state(context: &WhisperContext) -> Result<WhisperState, String> {
     context.create_state().map_err(|e| e.to_string())
 }
 
-/// Whisper's language code for what the frontend asked: the primary subtag of
-/// a BCP 47 tag ("it-IT" → "it"), or "auto" to detect it.
-pub fn language_code(requested: Option<&str>) -> String {
-    let tag = requested.map(str::trim).unwrap_or_default();
-    let primary = tag.split(['-', '_']).next().unwrap_or_default().to_ascii_lowercase();
-    if primary.is_empty() || primary == "auto" {
-        "auto".into()
-    } else {
-        primary
+/// Whisper's language codes for what the frontend asked: a comma-separated list
+/// of the primary subtags of BCP 47 tags ("it-IT, en" → ["it", "en"]). Empty
+/// ("auto", none, or nothing Whisper knows) means detect among all of them.
+pub fn language_codes(requested: Option<&str>) -> Vec<String> {
+    let mut codes: Vec<String> = Vec::new();
+    for tag in requested.unwrap_or_default().split(',') {
+        let primary = tag.trim().split(['-', '_']).next().unwrap_or_default().to_ascii_lowercase();
+        // Letters only: get_lang_id panics on a NUL byte.
+        if primary.is_empty()
+            || primary == "auto"
+            || !primary.bytes().all(|b| b.is_ascii_alphabetic())
+            || whisper_rs::get_lang_id(&primary).is_none()
+        {
+            continue;
+        }
+        if !codes.contains(&primary) {
+            codes.push(primary);
+        }
     }
+    codes
+}
+
+fn thread_count() -> i32 {
+    std::thread::available_parallelism().map_or(4, |n| n.get()).min(8) as i32
+}
+
+/// The allowed language id with the highest probability (the first on a tie),
+/// `probs` being indexed by language id.
+fn best_allowed(probs: &[f32], allowed: &[i32]) -> Option<i32> {
+    let mut best: Option<(i32, f32)> = None;
+    for &id in allowed {
+        let Some(&p) = usize::try_from(id).ok().and_then(|i| probs.get(i)) else { continue };
+        if best.is_none_or(|(_, top)| p > top) {
+            best = Some((id, p));
+        }
+    }
+    best.map(|(id, _)| id)
+}
+
+/// The language to transcribe `audio` in: "auto" with no `allowed` language, the
+/// one there is, or else the most likely of them according to Whisper.
+pub fn pick_language(state: &mut WhisperState, audio: &[f32], allowed: &[String]) -> String {
+    match allowed {
+        [] => return "auto".into(),
+        [only] => return only.clone(),
+        _ => {}
+    }
+    let first = allowed[0].clone();
+    let threads = thread_count() as usize;
+    if state.pcm_to_mel(audio, threads).is_err() {
+        return first;
+    }
+    let Ok((_, probs)) = state.lang_detect(0, threads) else { return first };
+    let ids: Vec<i32> = allowed.iter().filter_map(|code| whisper_rs::get_lang_id(code)).collect();
+    best_allowed(&probs, &ids)
+        .and_then(|id| allowed.iter().find(|code| whisper_rs::get_lang_id(code) == Some(id)).cloned())
+        .unwrap_or(first)
 }
 
 /// Whether `text` is nothing, punctuation, or one of Whisper's inventions.
@@ -137,8 +184,7 @@ pub fn is_hallucination(text: &str) -> bool {
 pub fn transcribe(state: &mut WhisperState, audio: &[f32], language: &str) -> Result<String, String> {
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_language(Some(language));
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(8);
-    params.set_n_threads(threads as i32);
+    params.set_n_threads(thread_count());
     params.set_no_context(true);
     params.set_single_segment(true);
     params.set_suppress_blank(true);
@@ -162,14 +208,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn language_code_takes_the_primary_subtag() {
-        assert_eq!(language_code(Some("it")), "it");
-        assert_eq!(language_code(Some("it-IT")), "it");
-        assert_eq!(language_code(Some("EN_us")), "en");
-        assert_eq!(language_code(Some("pt-BR")), "pt");
-        assert_eq!(language_code(Some("auto")), "auto");
-        assert_eq!(language_code(Some("  ")), "auto");
-        assert_eq!(language_code(None), "auto");
+    fn language_codes_take_the_primary_subtags() {
+        assert_eq!(language_codes(Some("it")), ["it"]);
+        assert_eq!(language_codes(Some("it-IT")), ["it"]);
+        assert_eq!(language_codes(Some("EN_us")), ["en"]);
+        assert_eq!(language_codes(Some("pt-BR")), ["pt"]);
+        assert_eq!(language_codes(Some("it, en-US,it,xx")), ["it", "en"]);
+        assert!(language_codes(Some("auto")).is_empty());
+        assert!(language_codes(Some("  ")).is_empty());
+        assert!(language_codes(None).is_empty());
+    }
+
+    #[test]
+    fn the_likeliest_allowed_language_wins() {
+        let probs = [0.1, 0.5, 0.3, 0.05];
+        assert_eq!(best_allowed(&probs, &[0, 2, 3]), Some(2));
+        assert_eq!(best_allowed(&probs, &[3, 0]), Some(0));
+        assert_eq!(best_allowed(&[0.2, 0.2], &[1, 0]), Some(1));
+        assert_eq!(best_allowed(&probs, &[9, -1]), None);
+        assert_eq!(best_allowed(&probs, &[]), None);
     }
 
     #[test]

@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
 import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
-import { ChatItemView, PaperclipIcon, PermissionCard, SubagentRow, ToolGroup } from "./ChatItems";
+import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, ToolGroup } from "./ChatItems";
 import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
 import { CLI_INFO } from "../agents/cliInfo";
 import type { ChatAttachment, ChatCommand } from "./chatTypes";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { FrogThinking } from "../../shared/FrogThinking";
-import { appendDictation, TRANSCRIBING_MARKER, useDictation } from "./useDictation";
+import { sweepDashes } from "../../shared/busySweep";
+import { appendDictation, spaceRelease, TRANSCRIBING_MARKER, useDictation } from "./useDictation";
+import { getDictationAutoSend, useDictationShortcuts } from "./dictationModels";
 import { DictationSetupDialog } from "./DictationSetupDialog";
 import "./chat.css";
 
@@ -59,6 +61,20 @@ function formatTimer(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+/** Two arcs running round the composer while the last words are transcribed: the tabs' busy sweep (shared/busySweep.ts), doubled and slower. */
+const COMPOSER_SWEEP = sweepDashes(28, 16);
+function ComposerSweep() {
+  return (
+    <svg className="chat-composer-sweep" aria-hidden="true">
+      {[0, 1].map((arc) =>
+        COMPOSER_SWEEP.map((d, i) => (
+          <rect key={`${arc}-${i}`} width="100%" height="100%" rx="24.75" pathLength="100" className={arc ? "is-second" : undefined} style={{ strokeDasharray: d.dasharray, opacity: d.opacity }} />
+        )),
+      )}
+    </svg>
+  );
+}
+
 /** The built-in "chat" view: the conversation as a timeline (messages, tool
  * activity on a rail, permission requests) and a floating composer under it. */
 export default function ChatBody({ session: chat, agent, hidden, openSubagent: sub = null, onOpenSubagent }: AgentViewProps) {
@@ -80,9 +96,51 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   const fileInputRef = useRef<HTMLInputElement>(null);
   const columnRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  const [footerH, setFooterH] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const dictation = useDictation((text) => setDraft((d) => appendDictation(d, text)), !hidden && !sub);
+  // Set when a dictation ended with auto-send on; the effect below sends once the final phrase is in the draft.
+  const autoSendRef = useRef(false);
+  // Whether the current dictation put any words in the draft (a cough or a filtered hallucination doesn't).
+  const dictatedRef = useRef(false);
+  const dictation = useDictation(
+    (text) => {
+      if (text.trim()) dictatedRef.current = true;
+      setDraft((d) => appendDictation(d, text));
+    },
+    !hidden && !sub,
+    () => {
+      // Not when the session ended because this view was hidden or a subagent opened over it.
+      if (dictatedRef.current && getDictationAutoSend() && !hidden && !sub) autoSendRef.current = true;
+    },
+  );
+  const dictationStateRef = useRef(dictation.state);
+  dictationStateRef.current = dictation.state;
+  // Set once a Space press was taken for dictation, so its auto-repeats type nothing either.
+  const spaceHeldRef = useRef(false);
+  const spaceShortcuts = useDictationShortcuts();
+  const shortcutsRef = useRef(spaceShortcuts);
+  shortcutsRef.current = spaceShortcuts;
+  // The Space press that started (or is running) a dictation, and its key-up listeners.
+  const spaceRef = useRef<{ downAt: number; mode: "pending" | "tap" } | null>(null);
+  const spaceCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => spaceCleanupRef.current?.(), []);
+  // A session ended some other way (mic, Esc, send) leaves no stale tap mode.
+  useEffect(() => {
+    if (dictation.state !== "listening" && spaceRef.current?.mode === "tap") spaceRef.current = null;
+    // A new session starts with nothing dictated yet.
+    if (dictation.state === "listening") dictatedRef.current = false;
+  }, [dictation.state]);
   const listening = dictation.state === "listening";
+  useEffect(() => {
+    if (dictation.state === "listening") autoSendRef.current = false;
+    else if (autoSendRef.current && dictation.state === "idle") {
+      autoSendRef.current = false;
+      submit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dictation.state, draft]);
+  const transcribing = dictation.state === "transcribing";
   const followRef = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   /** Set while the smooth scroll to the end runs, so its scroll events don't flash the jump button. */
@@ -145,16 +203,24 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   }, [model.lastSeq, queued.length, phase, hidden, pending.length, subId]);
   // ...and when the content grows later, with no new event: an expanded
   // step, a link preview or a code block laid out after the render above.
-  useEffect(() => {
+  // The composer sits inside the scroller: its growth pins the view too, and
+  // its height (measured here) floats the jump button above it.
+  useLayoutEffect(() => {
     const column = columnRef.current;
     const content = contentRef.current;
+    const footer = footerRef.current;
     if (!column || !content || hidden || typeof ResizeObserver === "undefined") return;
-    const follow = () => {
-      if (followRef.current) column.scrollTop = column.scrollHeight;
+    const measure = () => {
+      if (footer) setFooterH(footer.offsetHeight);
     };
-    const ro = new ResizeObserver(follow);
+    measure();
+    const ro = new ResizeObserver(() => {
+      measure();
+      if (followRef.current) column.scrollTop = column.scrollHeight;
+    });
     ro.observe(column);
     ro.observe(content);
+    if (footer) ro.observe(footer);
     return () => ro.disconnect();
   }, [hidden, phase]);
 
@@ -264,6 +330,7 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   }
 
   function submit() {
+    autoSendRef.current = false;
     if (!draft.trim() && attachments.length === 0) return;
     if (chat.clear && attachments.length === 0 && draft.trim() === "/clear") {
       runClear();
@@ -313,6 +380,66 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
     insertCommand(command.name);
   }
 
+  /** Space in the empty composer dictates (tap to start/stop, hold to talk).
+   * Returns whether the key was consumed. */
+  function spaceDictation(e: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (e.code !== "Space" || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey || e.nativeEvent.isComposing) return false;
+    // The repeats of a press taken for dictation (held to talk, or held on the tap that stopped it): no spaces typed.
+    if (e.repeat && spaceHeldRef.current) {
+      e.preventDefault();
+      return true;
+    }
+    if (!e.repeat) spaceHeldRef.current = false;
+    if (!dictation.supported || phase !== "ready" || menuOpen) return false;
+    const session = spaceRef.current;
+    if (dictation.state === "listening" && session?.mode === "tap" && spaceShortcuts.tap) {
+      e.preventDefault();
+      spaceHeldRef.current = true;
+      dictation.stop();
+      spaceRef.current = null;
+      return true;
+    }
+    if (dictation.state === "transcribing" && draft === "") {
+      e.preventDefault();
+      return true;
+    }
+    if (draft !== "" || (dictation.state !== "idle" && dictation.state !== "error") || !(spaceShortcuts.tap || spaceShortcuts.hold)) return false;
+    e.preventDefault();
+    if (e.repeat) return true;
+    spaceHeldRef.current = true;
+    spaceRef.current = { downAt: performance.now(), mode: "pending" };
+    void dictation.start();
+    spaceCleanupRef.current?.();
+    const release = () => {
+      spaceCleanupRef.current?.();
+      const current = spaceRef.current;
+      if (!current || current.mode !== "pending") return;
+      const { tap, hold } = shortcutsRef.current;
+      // It never got to listen (the model setup dialog opened, or it failed): no tap mode to leave behind.
+      if (dictationStateRef.current !== "listening") {
+        spaceRef.current = null;
+        return;
+      }
+      if (spaceRelease(performance.now() - current.downAt, tap, hold) === "stop") {
+        dictation.stop();
+        spaceRef.current = null;
+      } else {
+        current.mode = "tap";
+      }
+    };
+    const onKeyUp = (k: globalThis.KeyboardEvent) => {
+      if (k.code === "Space") release();
+    };
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", release);
+    spaceCleanupRef.current = () => {
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", release);
+      spaceCleanupRef.current = null;
+    };
+    return true;
+  }
+
   function onComposerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (menuOpen && !e.nativeEvent.isComposing && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -332,6 +459,7 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
         return;
       }
     }
+    if (spaceDictation(e)) return;
     if (e.key === "Enter" && e.ctrlKey && working && (draft.trim() || attachments.length > 0) && !e.nativeEvent.isComposing) {
       // Send now: queue the draft and force it, interrupting the turn.
       e.preventDefault();
@@ -362,7 +490,7 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
 
   return (
     <>
-      <div className="chat-column-wrap">
+      <div className="chat-column-wrap" style={{ "--chat-footer-h": `${footerH}px` } as CSSProperties}>
       <div
         className="chat-column"
         ref={columnRef}
@@ -404,8 +532,8 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
             </details>
           )}
           {timeline.map((segment) =>
-            segment.type === "subagent" ? (
-              <SubagentRow key={segment.item.id} item={segment.item} onOpen={onOpenSubagent ? openSub : undefined} />
+            segment.type === "subagents" ? (
+              <SubagentCards key={segment.id} items={segment.items} onOpen={onOpenSubagent ? openSub : undefined} />
             ) : segment.type === "group" ? (
               <ToolGroup key={segment.id} steps={segment.steps} live={segment === liveGroup} />
             ) : (
@@ -470,17 +598,9 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
             </>
           )}
         </div>
-      </div>
-      {!atBottom && (
-        <button type="button" className={"chat-jump" + (working ? " is-busy" : "")} aria-label={t("chat.jumpToEnd")} title={t("chat.jumpToEnd")} onClick={jumpToEnd}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" />
-          </svg>
-        </button>
-      )}
-      </div>
 
-      <div className="chat-footer" onKeyDown={onFooterKeyDown} {...dropHandlers}>
+      {/* Inside the scroller and sticky, so messages slide behind the composer. */}
+      <div className="chat-footer" ref={footerRef} onKeyDown={onFooterKeyDown}>
         {sub ? (
           <div className="chat-composer-wrap">
             {pending.map((item) => (
@@ -581,18 +701,25 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
                 ))}
               </div>
             )}
-            <div className={`chat-composer${listening ? " is-listening" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
-              {listening && (
+            <div className={`chat-composer${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
+              {transcribing && <ComposerSweep />}
+              {(listening || transcribing) && (
                 <div className="chat-listening" aria-live="polite">
-                  <span className="chat-wave" aria-hidden="true">
-                    {WAVE_BARS.map((h, i) => (
-                      <span key={i} className="chat-wave-bar" style={{ height: waveHeight(h, dictation.level) }} />
-                    ))}
-                  </span>
-                  <span className="chat-listening-meta">
-                    {formatTimer(seconds)} {"·"} {t("chat.dictate.escHint")}
-                  </span>
-                  {dictation.partial && (
+                  {transcribing ? (
+                    <span className="chat-listening-meta">{t("chat.dictate.transcribingLabel")}</span>
+                  ) : (
+                    <>
+                      <span className="chat-wave" aria-hidden="true">
+                        {WAVE_BARS.map((h, i) => (
+                          <span key={i} className="chat-wave-bar" style={{ height: waveHeight(h, dictation.level) }} />
+                        ))}
+                      </span>
+                      <span className="chat-listening-meta">
+                        {formatTimer(seconds)} {"·"} {t("chat.dictate.escHint")}
+                      </span>
+                    </>
+                  )}
+                  {dictation.partial && !(transcribing && dictation.partial === TRANSCRIBING_MARKER) && (
                     <span className="chat-listening-text">{dictation.partial === TRANSCRIBING_MARKER ? t("chat.dictate.transcribing") : dictation.partial}</span>
                   )}
                 </div>
@@ -603,7 +730,13 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
                 rows={1}
                 aria-label={t("chat.composer.label")}
                 aria-activedescendant={menuOpen ? `${listId}-${active}` : undefined}
-                placeholder={listening ? "" : t("chat.composer.placeholder")}
+                placeholder={
+                  listening || transcribing
+                    ? ""
+                    : dictation.supported && draft === "" && dictation.state === "idle" && (spaceShortcuts.tap || spaceShortcuts.hold)
+                      ? t("chat.composer.placeholderSpace")
+                      : t("chat.composer.placeholder")
+                }
                 value={draft}
                 disabled={phase !== "ready"}
                 onChange={(e) => setDraft(e.target.value)}
@@ -641,14 +774,17 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
                 {dictation.supported && (
                   <button
                     type="button"
-                    className={`chat-icon-btn is-mic${listening ? " is-listening" : ""}`}
+                    className={`chat-icon-btn is-mic${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}`}
                     title={
-                      dictation.downloadProgress !== null
-                        ? t("chat.dictate.downloadingTip", { percent: dictation.downloadProgress })
-                        : t(listening ? "chat.dictate.stop" : "chat.dictate", { keys: "Ctrl+Shift+Space" })
+                      transcribing
+                        ? t("chat.dictate.transcribingLabel")
+                        : dictation.downloadProgress !== null
+                          ? t("chat.dictate.downloadingTip", { percent: dictation.downloadProgress })
+                          : t(listening ? "chat.dictate.stop" : "chat.dictate", { keys: "Ctrl+Shift+Space" })
                     }
                     aria-label={t("chat.dictate.label")}
                     aria-pressed={listening}
+                    aria-busy={transcribing}
                     disabled={phase !== "ready"}
                     onClick={dictation.toggle}
                   >
@@ -698,6 +834,15 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
             </div>
           </div>
         )}
+      </div>
+      </div>
+      {!atBottom && (
+        <button type="button" className={"chat-jump" + (working ? " is-busy" : "")} aria-label={t("chat.jumpToEnd")} title={t("chat.jumpToEnd")} onClick={jumpToEnd}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" />
+          </svg>
+        </button>
+      )}
       </div>
       {dictation.setupOpen && <DictationSetupDialog onClose={dictation.closeSetup} />}
     </>

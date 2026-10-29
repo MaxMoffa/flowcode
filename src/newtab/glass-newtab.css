@@ -28,15 +28,28 @@
 }
 
 /* Over the tab in front, on the content area alone (the tab strip stays
-   clear): the view underneath dims and blurs a little. */
+   clear): the view underneath dims. No blur on this scrim: a backdrop-filter
+   here would be the panel's backdrop root, so the panel's own blur would only
+   see the scrim and the terminals' text would show through it sharp. */
 .glass-newtab.is-dialog {
   position: absolute;
   inset: 0;
   z-index: 5;
   height: auto;
-  background: rgb(6 10 11 / 0.5);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  background: rgb(6 10 11 / 0.45);
+}
+
+/* As a dialog the panel floats over live terminals and pages, so it is the
+   frosted glass of the app's floating panels and menus: a mostly opaque fill
+   (not tied to the window's transparency) and a blur of at least the app's
+   glass blur. WebView2 doesn't clip a backdrop-filter to rounded corners but
+   does clip it to a clip-path (see App.css), hence the clip - which also
+   drops the panel's shadow; the dimmed scrim sets it apart instead. */
+.glass-newtab.is-dialog .glass-panel {
+  background: rgb(var(--surface-rgb) / 0.82);
+  backdrop-filter: blur(max(var(--glass-newtab-blur), var(--glass-blur))) saturate(140%);
+  -webkit-backdrop-filter: blur(max(var(--glass-newtab-blur), var(--glass-blur))) saturate(140%);
+  clip-path: inset(0 round 16px);
 }
 
 /* ---------- backdrop ---------- */

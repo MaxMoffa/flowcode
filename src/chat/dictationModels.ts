@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { t, type MessageKey } from "../i18n";
-import { readEnum, readString, removeKey, writeString } from "../lib/storage";
+import { readBool, readString, removeKey, writeBool, writeString } from "../lib/storage";
 
 /** A speech model as the backend lists it (see src-tauri/src/dictation.rs). */
 export interface DictationModel {
@@ -195,11 +195,49 @@ export const useDictationModels = (): ModelsState => useSyncExternalStore(subscr
 
 const MODEL_KEY = "flowcode.dictation.model";
 const LANGUAGE_KEY = "flowcode.dictation.language";
-export const DICTATION_LANGUAGES = ["auto", "it", "en"] as const;
-export type DictationLanguage = (typeof DICTATION_LANGUAGES)[number];
+
+/** The language codes Whisper knows. */
+export const WHISPER_LANGUAGES: readonly string[] =
+  "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue".split(" ");
+
+/** Shown first in Settings. */
+export const COMMON_DICTATION_LANGUAGES = ["it", "en", "es", "fr", "de", "pt"] as const;
+
+const languageNames = new Map<string, string>();
+
+/** A language's own name ("Italiano"), the code itself when the runtime has none. */
+export function languageName(code: string): string {
+  const cached = languageNames.get(code);
+  if (cached !== undefined) return cached;
+  let name = code;
+  try {
+    const own = new Intl.DisplayNames([code], { type: "language" }).of(code);
+    if (own && own !== code) name = own.charAt(0).toLocaleUpperCase(code) + own.slice(1);
+  } catch {
+    /* unknown code for this runtime */
+  }
+  languageNames.set(code, name);
+  return name;
+}
+
+/** `codes` reduced to known Whisper languages, without repeats; empty = automatic. */
+export function sanitizeLanguages(codes: readonly string[]): string[] {
+  return [...new Set(codes.map((c) => c.trim()).filter((c) => WHISPER_LANGUAGES.includes(c)))];
+}
+
+/** The stored value ("auto" or "it,en") as a list. */
+export function parseDictationLanguages(stored: string | null | undefined): string[] {
+  return sanitizeLanguages((stored ?? "").split(","));
+}
+
+/** What the backend is sent: "auto" for none, else the comma-joined codes. */
+export function dictationLanguageParam(codes: readonly string[]): string {
+  return codes.length === 0 ? "auto" : codes.join(",");
+}
 
 let selectedModel: string | null = readString(MODEL_KEY) || null;
-let language: DictationLanguage = readEnum(LANGUAGE_KEY, DICTATION_LANGUAGES, "auto");
+// Replaced (never mutated) on set: a stable reference for useSyncExternalStore.
+let languages: readonly string[] = parseDictationLanguages(readString(LANGUAGE_KEY));
 const prefListeners = new Set<() => void>();
 
 function notifyPrefs() {
@@ -207,7 +245,8 @@ function notifyPrefs() {
 }
 
 export const getSelectedModel = (): string | null => selectedModel;
-export const getDictationLanguage = (): DictationLanguage => language;
+/** The languages to listen for; empty = automatic detection. */
+export const getDictationLanguages = (): readonly string[] => languages;
 
 export function setSelectedModel(id: string | null) {
   selectedModel = id;
@@ -216,9 +255,9 @@ export function setSelectedModel(id: string | null) {
   notifyPrefs();
 }
 
-export function setDictationLanguage(next: DictationLanguage) {
-  language = next;
-  writeString(LANGUAGE_KEY, next);
+export function setDictationLanguages(codes: readonly string[]) {
+  languages = sanitizeLanguages(codes);
+  writeString(LANGUAGE_KEY, dictationLanguageParam(languages));
   notifyPrefs();
 }
 
@@ -230,7 +269,42 @@ function subscribePrefs(listener: () => void) {
 }
 
 export const useSelectedModel = (): string | null => useSyncExternalStore(subscribePrefs, getSelectedModel);
-export const useDictationLanguage = (): DictationLanguage => useSyncExternalStore(subscribePrefs, getDictationLanguage);
+export const useDictationLanguages = (): readonly string[] => useSyncExternalStore(subscribePrefs, getDictationLanguages);
+
+// The Space shortcuts of the empty composer: tap to start/stop, hold to talk.
+const SPACE_TAP_KEY = "flowcode.dictation.spaceTap";
+const SPACE_HOLD_KEY = "flowcode.dictation.spaceHold";
+let shortcuts = { tap: readBool(SPACE_TAP_KEY, true), hold: readBool(SPACE_HOLD_KEY, true) };
+
+export const getDictationShortcuts = (): { tap: boolean; hold: boolean } => shortcuts;
+
+export function setDictationSpaceTap(on: boolean) {
+  shortcuts = { ...shortcuts, tap: on };
+  writeBool(SPACE_TAP_KEY, on);
+  notifyPrefs();
+}
+
+export function setDictationSpaceHold(on: boolean) {
+  shortcuts = { ...shortcuts, hold: on };
+  writeBool(SPACE_HOLD_KEY, on);
+  notifyPrefs();
+}
+
+export const useDictationShortcuts = (): { tap: boolean; hold: boolean } => useSyncExternalStore(subscribePrefs, getDictationShortcuts);
+
+// Send the composed message as soon as a dictation ends.
+const AUTO_SEND_KEY = "flowcode.dictation.autoSend";
+let autoSend = readBool(AUTO_SEND_KEY, false);
+
+export const getDictationAutoSend = (): boolean => autoSend;
+
+export function setDictationAutoSend(on: boolean) {
+  autoSend = on;
+  writeBool(AUTO_SEND_KEY, on);
+  notifyPrefs();
+}
+
+export const useDictationAutoSend = (): boolean => useSyncExternalStore(subscribePrefs, getDictationAutoSend);
 
 const MODEL_TEXT: Record<string, { name: MessageKey; desc: MessageKey }> = {
   base: { name: "chat.dictate.model.base.name", desc: "chat.dictate.model.base.desc" },

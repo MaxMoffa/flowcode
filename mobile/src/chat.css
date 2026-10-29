@@ -782,6 +782,85 @@ button.chat-step-row {
   transform: rotate(180deg);
 }
 
+/* The folded tool run is a card: a header row, and the numbered steps under it when open. */
+.chat-tools {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 4%, var(--surface));
+  overflow: hidden;
+}
+
+.chat-tools .chat-tools-head {
+  height: auto;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 0;
+  text-align: left;
+}
+
+.chat-tools .chat-tools-head:hover {
+  background: color-mix(in srgb, var(--fg) 7%, var(--surface));
+}
+
+/* The chevron points right when folded and down when open. */
+.chat-tools .chat-tools-head svg {
+  transform: rotate(-90deg);
+}
+
+.chat-tools .chat-tools-head[aria-expanded="true"] svg {
+  transform: none;
+}
+
+.chat-tools-status {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ansi-green, var(--accent));
+}
+
+.chat-tools-status.is-failed {
+  background: var(--danger);
+}
+
+.chat-tools-list {
+  max-height: 280px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+
+.chat-tools-list > .chat-step {
+  padding: 4px 10px 4px 12px;
+}
+
+.chat-tools-list > .chat-step + .chat-step {
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+/* Inside the card the step dots sit inline, not on a rail. */
+.chat-tools .chat-dot {
+  position: static;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0;
+  border: none;
+  box-shadow: none;
+  background: var(--muted);
+}
+
+.chat-tools .chat-dot.is-done {
+  background: var(--ansi-green, var(--accent));
+}
+
+.chat-tools .chat-dot.is-live {
+  background: var(--accent);
+}
+
+.chat-tools .chat-dot.is-failed {
+  background: var(--danger);
+}
+
 .chat-spinner {
   flex: none;
   width: 14px;
@@ -1651,17 +1730,7 @@ button.chat-step-row {
 }
 
 /* ---- subagents -------------------------------------------------------------- */
-.chat-sub {
-  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  margin-left: 2px;
-  padding-left: 24px;
-}
-
-.chat-sub::before {
-  display: none;
-}
-
-.chat-sub .chat-sub-icon {
+.chat-sub-icon {
   flex: none;
   color: var(--accent);
 }
@@ -1675,24 +1744,6 @@ button.chat-step-row {
   line-height: 20px;
 }
 
-.chat-sub-desc {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg);
-}
-
-.chat-sub-end {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  font-size: 12.5px;
-}
-
 .chat-sub-mark {
   color: var(--accent);
 }
@@ -1701,87 +1752,255 @@ button.chat-step-row {
   color: var(--danger);
 }
 
-.chat-sub-line {
-  padding: 0 0 6px;
+/* Subagents launched together: one card each side by side (a lone one fills the row), the selected one opens under them. */
+.chat-subcards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-subcards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.chat-subcards-grid.is-single {
+  grid-template-columns: 1fr;
+}
+
+.chat-subcard-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.chat-subcard {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 4%, var(--surface));
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.chat-subcard:active {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.chat-subcard.is-selected {
+  border-color: var(--accent);
+}
+
+.chat-subcard-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-subcard-row.has-open {
+  padding-right: 34px;
+}
+
+.chat-subcard-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
-  font-size: 13px;
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
-.chat-sub-line.is-live {
+.chat-subcard-pill {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-subcard-time {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chat-subcard-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 19px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.chat-subcard-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-subcard-text.is-mono {
   color: var(--fg);
   font-family: ui-monospace, Consolas, monospace;
 }
 
-.chat-sub-nest {
-  margin: 2px 0 6px 6px;
-  padding-left: 26px;
-  border-left: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+.chat-subcard-bar {
+  display: block;
+  height: 3px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
-.chat-sub-report-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 40px;
+.chat-subcard-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.chat-subcard-bar.is-running i {
+  background: linear-gradient(90deg, var(--accent-2, var(--muted)), var(--accent), var(--accent-2, var(--muted)));
+  background-size: 200% 100%;
+  animation: chat-subcard-shimmer 1.6s linear infinite;
+}
+
+.chat-subcard-bar.is-bad i {
+  background: var(--danger);
+  animation: none;
+}
+
+@keyframes chat-subcard-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Small round button: open the subagent's chat, or close the detail. */
+.chat-subcard-open {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
-  background: none;
+  border-radius: 8px;
+  background: transparent;
   color: var(--muted);
-  font: inherit;
-  font-size: 13.5px;
+  font-size: 20px;
+  line-height: 1;
 }
 
-.chat-sub-report-toggle svg {
-  transition: transform 0.15s;
+.chat-subcard-open:active {
+  background: var(--surface-2);
 }
 
-.chat-sub-report-toggle[aria-expanded="true"] svg {
-  transform: rotate(180deg);
+.chat-subcard-open.is-floating {
+  position: absolute;
+  top: 4px;
+  right: 4px;
 }
 
-.chat-sub-report-body {
-  margin: 2px 0 6px;
+.chat-subcards-detail {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 4%, var(--surface));
+}
+
+.chat-subcards-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-bottom: 3px;
+  font-size: 14px;
+}
+
+.chat-subcards-detail-head b {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-subcards-detail-note {
+  flex: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.chat-subcards-detail .chat-dot {
+  position: static;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0;
+  border: none;
+  box-shadow: none;
+  background: var(--muted);
+}
+
+.chat-subcards-detail .chat-dot.is-done {
+  background: var(--ansi-green, var(--accent));
+}
+
+.chat-subcards-detail .chat-dot.is-live {
+  background: var(--accent);
+}
+
+.chat-subcards-detail .chat-dot.is-failed {
+  background: var(--danger);
+}
+
+.chat-subcards-report {
+  margin-top: 6px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
   font-size: 14px;
 }
 
-.chat-sub .chat-sum[aria-expanded="true"] .chat-sub-icon {
-  transform: none;
+.chat-subcards-report-label {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-subcard-bar.is-running i {
+    animation: none;
+  }
+
+  .chat-subcard {
+    transition: none;
+  }
 }
 
 /* ---- subagent chat ------------------------------------------------------------ */
-.chat-sub-row {
-  display: flex;
-  align-items: center;
-}
-
-.chat-sub-row .chat-sub-head {
-  flex: 1;
-  min-width: 0;
-}
-
-.chat-sub-chevron {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-}
-
-.chat-sub-chevron:active {
-  background: var(--surface-2);
-}
-
 .chat-user.is-task {
   align-self: stretch;
   max-width: none;

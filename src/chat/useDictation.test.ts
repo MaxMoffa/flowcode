@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendDictation, isOwnEvent, nextLevel } from "./useDictation";
+import { appendDictation, HOLD_MS, isOwnEvent, nextLevel, spaceRelease } from "./useDictation";
 
 describe("isOwnEvent", () => {
   it("accepts only the session the chat started", () => {
@@ -39,5 +39,22 @@ describe("appendDictation", () => {
 
   it("leaves the draft alone for an empty phrase", () => {
     expect(appendDictation("draft", "  ")).toBe("draft");
+  });
+});
+
+describe("spaceRelease", () => {
+  it("stops a hold when hold is enabled", () => {
+    expect(spaceRelease(HOLD_MS, true, true)).toBe("stop");
+    expect(spaceRelease(2000, false, true)).toBe("stop");
+  });
+  it("keeps a quick tap listening when tap is enabled", () => {
+    expect(spaceRelease(HOLD_MS - 1, true, true)).toBe("keep");
+    expect(spaceRelease(50, true, false)).toBe("keep");
+  });
+  it("stops a quick tap in hold-only mode", () => {
+    expect(spaceRelease(50, false, true)).toBe("stop");
+  });
+  it("treats a long press as a tap in tap-only mode", () => {
+    expect(spaceRelease(2000, true, false)).toBe("keep");
   });
 });
