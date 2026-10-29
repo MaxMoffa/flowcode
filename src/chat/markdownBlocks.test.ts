@@ -22,6 +22,13 @@ describe("parseBlocks", () => {
     ]);
   });
 
+  it("keeps a # that ends a heading's last word (C#), dropping only a closing sequence", () => {
+    expect(parseBlocks("## Learning C#\n# a ## b ##")).toEqual([
+      { type: "heading", level: 2, text: "Learning C#" },
+      { type: "heading", level: 1, text: "a ## b" },
+    ]);
+  });
+
   it("reads a fenced block with its language, and closes only on a long enough same fence", () => {
     expect(parseBlocks("```ts\nlet a;\n```")).toEqual([{ type: "code", lang: "ts", text: "let a;" }]);
     expect(parseBlocks("````md\n```\ninner\n```\n````\nafter")).toEqual([

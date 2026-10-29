@@ -39,7 +39,7 @@ pub struct Resampler {
 
 impl Resampler {
     pub fn new(input_rate: u32) -> Self {
-        let exact = (input_rate > RATE && input_rate % RATE == 0).then(|| (input_rate / RATE) as usize);
+        let exact = (input_rate > RATE && input_rate.is_multiple_of(RATE)).then_some((input_rate / RATE) as usize);
         Resampler { step: input_rate as f64 / RATE as f64, exact, pending: Vec::new(), pos: 0.0 }
     }
 

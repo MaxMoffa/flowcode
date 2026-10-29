@@ -25,7 +25,7 @@ export type Block =
 
 /** Deeper nesting than this is kept as plain text, so a hostile reply can't blow the stack. */
 const MAX_DEPTH = 16;
-const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/;
+const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
 const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const QUOTE = /^ {0,3}>[ \t]?(.*)$/;
 const ITEM = /^([ \t]*)([-*+]|(\d{1,9})[.)])([ \t]+|$)(.*)$/;

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { sortRows, tableToCsv, tableToMarkdown, type MdTable } from "../../src/chat/markdownTable";
 
@@ -13,6 +14,9 @@ export function ChatTable({ table, cell }: { table: MdTable; cell: (text: string
   const [sort, setSort] = useState<Sort>(null);
   const [copied, setCopied] = useState<"md" | "csv" | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const collapse = () => setExpanded(false);
+  useEscape(expanded, collapse);
+  useBackHandler(expanded, collapse);
 
   useEffect(() => {
     if (!copied) return;

@@ -534,7 +534,6 @@ export const it = {
   "settings.dictation.model.deleteTitle": "Eliminare il modello {name}?",
   "settings.dictation.model.deleteConfirm": "Libera {size} MB. Per dettare di nuovo dovrai scaricarlo ancora.",
   "settings.dictation.model.deleteFailed": "Impossibile eliminare il modello: {error}",
-  "settings.dictation.model.none": "Nessun modello scaricato: il primo clic sul microfono di una chat propone di scaricarne uno.",
   "settings.dictation.space.label": "Spazio occupato",
   "settings.dictation.space.desc": "Dai modelli scaricati su questo computer.",
   "settings.dictation.space.value": "{size} MB in {dir}",

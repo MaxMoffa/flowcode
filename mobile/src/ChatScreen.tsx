@@ -359,8 +359,10 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
                             type="button"
                             aria-label={t("chatQueueEdit")}
                             onClick={() => {
+                              // No composer (session ended): leave it queued rather than lose the text.
+                              if (!composerRef.current) return;
                               unqueueChatPrompt(chatId, i);
-                              composerRef.current?.insertDraft(text);
+                              composerRef.current.insertDraft(text);
                             }}
                           >
                             <PencilIcon />

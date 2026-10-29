@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
 import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
@@ -81,7 +81,7 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   const columnRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const dictation = useDictation((text) => setDraft((d) => appendDictation(d, text)), !hidden);
+  const dictation = useDictation((text) => setDraft((d) => appendDictation(d, text)), !hidden && !sub);
   const listening = dictation.state === "listening";
   const followRef = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
@@ -102,11 +102,15 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   const subId = sub ? sub.id : null;
   const savedScroll = useRef<{ top: number; follow: boolean } | null>(null);
   const prevSubId = useRef<string | null>(null);
-  function openSub(id: string) {
-    const column = columnRef.current;
-    savedScroll.current = column ? { top: column.scrollTop, follow: followRef.current } : null;
-    onOpenSubagent?.(id);
-  }
+  // Stable, so the memoised subagent rows don't re-render with every streamed chunk.
+  const openSub = useCallback(
+    (id: string) => {
+      const column = columnRef.current;
+      savedScroll.current = column ? { top: column.scrollTop, follow: followRef.current } : null;
+      onOpenSubagent?.(id);
+    },
+    [onOpenSubagent],
+  );
   // Entering shows the subagent's end; going back restores where the conversation was.
   useLayoutEffect(() => {
     const column = columnRef.current;
@@ -299,6 +303,7 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
       return;
     }
     if (run && command.input == null) {
+      dictation.discard();
       chat.send(`/${command.name}`);
       setDraft("");
       followRef.current = true;

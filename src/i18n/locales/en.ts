@@ -533,7 +533,6 @@ export const en: Record<MessageKey, string> = {
   "settings.dictation.model.deleteTitle": "Delete the {name} model?",
   "settings.dictation.model.deleteConfirm": "Frees {size} MB. You will need to download it again to dictate.",
   "settings.dictation.model.deleteFailed": "Could not delete the model: {error}",
-  "settings.dictation.model.none": "No model downloaded: the first click on a chat microphone offers to download one.",
   "settings.dictation.space.label": "Space used",
   "settings.dictation.space.desc": "By the models downloaded on this computer.",
   "settings.dictation.space.value": "{size} MB in {dir}",
