@@ -1,0 +1,99 @@
+/* The compaction divider: a faded line with a pill; the base tone is amber, neutral when the agent did it on its own, red when it failed. */
+.chat-compaction {
+  --c: var(--accent-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+.chat-compaction.is-auto,
+.chat-compaction.is-cancelled { --c: var(--fg-muted); }
+.chat-compaction.is-failed { --c: var(--danger); }
+
+.chat-compaction-line {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.chat-compaction-line::before,
+.chat-compaction-line::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  opacity: 0.55;
+  background: linear-gradient(90deg, transparent, var(--c) 40%, var(--c));
+}
+.chat-compaction-line::after { background: linear-gradient(270deg, transparent, var(--c) 40%, var(--c)); }
+
+.chat-compaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: 100%;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent);
+}
+.chat-compaction-pill svg { width: 15px; height: 15px; flex: none; }
+.chat-compaction-meta {
+  color: var(--fg-muted);
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-compaction-toggle {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  opacity: 0.8;
+}
+.chat-compaction-toggle:hover { opacity: 1; text-decoration: underline; }
+
+.chat-compaction-summary {
+  width: min(600px, 92%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  padding: 12px 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+  animation: chat-compaction-fade 0.18s ease-out;
+}
+
+/* Running: a sheen sweeps along the line. */
+.chat-compaction.is-in_progress .chat-compaction-line::before,
+.chat-compaction.is-in_progress .chat-compaction-line::after {
+  background: linear-gradient(90deg, transparent, var(--c), transparent) 0 0 / 200% 100%;
+  animation: chat-compaction-sheen 1.4s linear infinite;
+}
+.chat-compaction-spin { animation: chat-compaction-rot 0.9s linear infinite; transform-origin: center; }
+
+@keyframes chat-compaction-sheen { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes chat-compaction-rot { to { transform: rotate(360deg); } }
+@keyframes chat-compaction-fade { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+
+/* Everything above a finished compaction is only a summary to the agent now: dimmed, still readable.
+   Not the plan (it is the agent's current one) nor earlier dividers (they mark where history was cut). */
+.chat-content > :not(.chat-plan, .chat-compaction):has(~ .chat-compaction[data-compacted]) {
+  opacity: 0.45;
+  transition: opacity 0.3s;
+}
+.chat-content > :not(.chat-plan, .chat-compaction):has(~ .chat-compaction[data-compacted]):hover { opacity: 0.85; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-compaction.is-in_progress .chat-compaction-line::before,
+  .chat-compaction.is-in_progress .chat-compaction-line::after,
+  .chat-compaction-spin,
+  .chat-compaction-summary { animation: none; }
+  .chat-content > :not(.chat-plan, .chat-compaction):has(~ .chat-compaction[data-compacted]) { transition: none; }
+}

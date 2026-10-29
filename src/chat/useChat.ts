@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AgentCli } from "../agents/cliInfo";
 import { t } from "../i18n";
+import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { applyEvent, applyLocalError, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleChat, type ChatModelState } from "./chatModel";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 
@@ -45,6 +46,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   // The thinking levels announced at the start; the live ones come from the conversation's events (`model.thought`).
   const [announcedThought, setAnnouncedThought] = useState<ChatThought | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
+  // The WSL distro the agent runs in (its paths are Linux ones); null for a Windows chat.
+  const [wslDistro, setWslDistro] = useState<string | null>(null);
   const [queued, setQueued] = useState<QueuedMessage[]>([]);
   // The agent loaded the session asked for (false for a fresh one, or a resume that fell back to a new session).
   const [loaded, setLoaded] = useState(false);
@@ -94,6 +97,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
             profile: profileId ?? null,
             resumeSessionId: resumeId ?? null,
             strictResume: strictResume ?? false,
+            // The chat runs where the user's terminal runs (inside WSL when the default shell is WSL).
+            shell: getConfiguredShell(),
           });
           startedId = started.chatId;
           if (cancelled) {
@@ -106,6 +111,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           talkedRef.current = started.loaded;
           setLoaded(started.loaded);
           setChatId(started.chatId);
+          setWslDistro(started.wslDistro ?? null);
           setModes(started.modes);
           setAnnouncedModels(started.models ?? null);
           setAnnouncedThought(started.thought ?? null);
@@ -149,6 +155,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       if (startedId) invoke("chat_close", { chatId: startedId }).catch(() => {});
       chatIdRef.current = null;
       setChatId(null);
+      setWslDistro(null);
     };
   }, [agent, cwd, profileId, attempt]);
 
@@ -303,7 +310,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, setThought, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, setThought, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */

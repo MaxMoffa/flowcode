@@ -173,7 +173,7 @@ fn package_entry(dir: &Path, pkg: &str) -> Result<PathBuf, String> {
 /// cmd on Windows so npm's `.cmd` shim resolves.
 fn run_npm(args: &[&str], timeout: Duration) -> Result<String, String> {
     #[cfg(target_os = "windows")]
-    let mut cmd = {
+    let cmd = {
         let mut cmd = Command::new("cmd");
         cmd.arg("/C").arg("npm").args(args);
         cmd.creation_flags(CREATE_NO_WINDOW);
@@ -185,12 +185,18 @@ fn run_npm(args: &[&str], timeout: Duration) -> Result<String, String> {
         cmd.args(args);
         cmd
     };
+    run_with_timeout(cmd, &format!("npm {}", args.first().unwrap_or(&"")), timeout)
+}
+
+/// Runs `cmd` (stdin closed) and returns its stdout; killed after `timeout`.
+/// `label` names it in errors.
+fn run_with_timeout(mut cmd: Command, label: &str, timeout: Duration) -> Result<String, String> {
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("could not start npm: {e}"))?;
+        .map_err(|e| format!("could not start {label}: {e}"))?;
     // Drained on threads so a chatty npm never blocks on a full pipe.
     fn drain(pipe: Option<impl std::io::Read + Send + 'static>) -> std::thread::JoinHandle<String> {
         std::thread::spawn(move || {
@@ -211,7 +217,7 @@ fn run_npm(args: &[&str], timeout: Duration) -> Result<String, String> {
             Ok(None) => {
                 // The readers are left behind: a grandchild may hold the pipes open.
                 let _ = child.kill();
-                return Err(format!("npm {} timed out", args.first().unwrap_or(&"")));
+                return Err(format!("{label} timed out"));
             }
             Err(e) => return Err(e.to_string()),
         }
@@ -221,8 +227,67 @@ fn run_npm(args: &[&str], timeout: Duration) -> Result<String, String> {
     if status.success() {
         Ok(stdout)
     } else {
-        Err(format!("npm {} failed: {}", args.first().unwrap_or(&""), stderr.trim()))
+        Err(format!("{label} failed: {}", stderr.trim()))
     }
+}
+
+/// The refresh of a managed adapter inside a WSL distro, run by `bash -lc`
+/// (the Windows-side `refresh` ported to shell, with the same layout under
+/// `~/.local/share/flowcode/acp-adapters/<agent>`; `current` holds the entry's
+/// path). `{agent}` and `{pkg}` are filled in by `wsl_refresh_script`.
+const WSL_REFRESH_SCRIPT: &str = r#"set -e
+d="$HOME/.local/share/flowcode/acp-adapters/{agent}"
+mkdir -p "$d"
+if [ -f "$d/checked" ] && [ -n "$(find "$d/checked" -mmin -720)" ]; then exit 0; fi
+touch "$d/checked"
+v=$(npm view "{pkg}" version)
+case "$v" in ''|*[!A-Za-z0-9.+-]*) echo "unexpected version $v" >&2; exit 1;; esac
+cur=$(cat "$d/current" 2>/dev/null || true)
+case "$cur" in "$d/$v/"*) if [ -f "$cur" ]; then exit 0; fi;; esac
+rm -rf "$d/$v.tmp"
+npm install --prefix "$d/$v.tmp" "{pkg}@$v" --no-audit --no-fund --omit=dev --loglevel=error || { rm -rf "$d/$v.tmp"; exit 1; }
+rm -rf "$d/$v"
+mv "$d/$v.tmp" "$d/$v"
+p="$d/$v/node_modules/{pkg}"
+b=$(node -e 'const b=require(process.argv[1]).bin;process.stdout.write(typeof b==="string"?b:Object.values(b)[0])' "$p/package.json")
+[ -f "$p/$b" ]
+printf '%s' "$p/$b" > "$d/current.tmp"
+mv "$d/current.tmp" "$d/current"
+prev=${cur#"$d/"}; prev=${prev%%/*}
+for x in "$d"/*/; do n=$(basename "$x"); [ "$n" = "$v" ] || [ "$n" = "$prev" ] || rm -rf "$x"; done
+"#;
+
+fn wsl_refresh_script(agent: &str, pkg: &str) -> String {
+    WSL_REFRESH_SCRIPT.replace("{agent}", agent).replace("{pkg}", pkg)
+}
+
+/// `refresh_in_background` for a chat running inside WSL: the adapter is
+/// installed in the distro itself (a Windows install can't run there). Same
+/// 12-hour throttle, kept in the distro. No-op off Windows.
+pub(crate) fn refresh_wsl_in_background(distro: Option<String>, agent: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        let Some(pkg) = package(agent) else { return };
+        let key = format!("wsl:{}:{agent}", distro.as_deref().unwrap_or(""));
+        if !crate::util::lock(running()).insert(key.clone()) {
+            return;
+        }
+        let guard = RunningGuard(key);
+        let script = wsl_refresh_script(agent, pkg);
+        std::thread::spawn(move || {
+            let _guard = guard;
+            let mut cmd = Command::new("wsl.exe");
+            if let Some(distro) = &distro {
+                cmd.arg("-d").arg(distro);
+            }
+            cmd.args(["--exec", "bash", "-lc"]).arg(script).creation_flags(CREATE_NO_WINDOW);
+            if let Err(e) = run_with_timeout(cmd, "wsl adapter refresh", INSTALL_TIMEOUT) {
+                eprintln!("acp adapter {pkg} (wsl): {e}");
+            }
+        });
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = (distro, agent);
 }
 
 #[cfg(test)]
@@ -233,6 +298,13 @@ mod tests {
     fn only_npm_adapters_have_a_package() {
         assert_eq!(package("claude"), Some("@agentclientprotocol/claude-agent-acp"));
         assert!(package("vibe").is_none());
+    }
+
+    #[test]
+    fn wsl_refresh_script_has_no_placeholders_left() {
+        let script = wsl_refresh_script("claude", "@agentclientprotocol/claude-agent-acp");
+        assert!(!script.contains("{agent}") && !script.contains("{pkg}"));
+        assert!(script.contains("acp-adapters/claude\"") && script.contains("@agentclientprotocol/claude-agent-acp@$v"));
     }
 
     #[test]

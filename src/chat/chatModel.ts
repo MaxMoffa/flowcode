@@ -32,7 +32,9 @@ export type ChatItem =
   /** `local`: raised here (a send or an answer the backend refused), not an event of the agent's stream. */
   | { type: "error"; id: string; message: string; local?: boolean }
   /** A turn that ended for another reason than finishing or being cancelled (ACP `stopReason`: `max_tokens`, `max_turn_requests`, `refusal`, ...). */
-  | { type: "stop"; id: string; reason: string };
+  | { type: "stop"; id: string; reason: string }
+  /** The agent compacted its context (ACP `compaction_update`): a divider at that point, everything above it is now only a summary for the agent. `status`: `in_progress`, `completed`, `failed` or `cancelled`; `manual`: the user asked for it (`/compact`), as opposed to the agent's own. */
+  | { type: "compaction"; id: string; compactionId: string; status: string; summary: string; error?: string; at: number; manual: boolean };
 
 export interface ChatModelState {
   items: ChatItem[];
@@ -130,7 +132,7 @@ export function liveModels(models: ChatModels | null | undefined, currentModelId
 }
 
 /** Updates that show the agent is making progress again, so a notice is stale. */
-const PROGRESS_UPDATES = new Set(["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"]);
+const PROGRESS_UPDATES = new Set(["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update", "compaction_update", "compaction_summary_chunk"]);
 
 function statusOf(items: ChatItem[], turnActive: boolean, current: ChatStatus): ChatStatus {
   if (current === "exited" || current === "starting") return current;
@@ -236,6 +238,46 @@ function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): Chat
   return withItems(state, items);
 }
 
+type CompactionItem = Extract<ChatItem, { type: "compaction" }>;
+
+const COMPACTION_DONE = new Set(["completed", "failed", "cancelled"]);
+
+/** Creates or patches the compaction item of `compactionId`; the others are kept as they are. */
+function upsertCompaction(state: ChatModelState, compactionId: string, at: number, patch: (prev: CompactionItem) => CompactionItem): ChatModelState {
+  const index = state.items.findIndex((i) => i.type === "compaction" && i.compactionId === compactionId);
+  if (index >= 0) {
+    const prev = state.items[index] as CompactionItem;
+    const next = patch(prev);
+    return next === prev ? state : withItems(state, state.items.map((item, i) => (i === index ? next : item)));
+  }
+  // The adapters don't say who asked: manual when the user's last message was `/compact`.
+  const lastUser = [...state.items].reverse().find((i) => i.type === "user");
+  const manual = lastUser?.type === "user" && lastUser.text.trim().startsWith("/compact");
+  const fresh: CompactionItem = { type: "compaction", id: `compaction:${compactionId}`, compactionId, status: "in_progress", summary: "", at, manual };
+  return withItems(state, [...state.items, patch(fresh)]);
+}
+
+function applyCompaction(state: ChatModelState, update: ChatUpdate, at: number): ChatModelState {
+  const compactionId = str(update.compactionId);
+  if (!compactionId) return state;
+  if (update.sessionUpdate === "compaction_summary_chunk") {
+    const text = textOf(update);
+    if (!text) return state;
+    return upsertCompaction(state, compactionId, at, (prev) => ({ ...prev, summary: prev.summary + text }));
+  }
+  const status = str(update.status);
+  const blocks = Array.isArray(update.summary) ? (update.summary as { type?: string; text?: string }[]) : [];
+  const summary = blocks.map((b) => (b?.type === "text" && typeof b.text === "string" ? b.text : "")).join("");
+  const error = str(update.error);
+  return upsertCompaction(state, compactionId, at, (prev) => {
+    // A late in_progress after the end (or a second end) changes nothing about the status.
+    const settled = COMPACTION_DONE.has(prev.status);
+    const nextStatus = status && !(settled && !COMPACTION_DONE.has(status)) ? status : prev.status;
+    if (nextStatus === prev.status && !summary && !error) return prev;
+    return { ...prev, status: nextStatus, ...(summary ? { summary } : {}), ...(error ? { error } : {}) };
+  });
+}
+
 function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number, at: number): ChatModelState {
   switch (update.sessionUpdate) {
     case "user_message_chunk":
@@ -249,6 +291,9 @@ function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number, at:
     case "tool_call":
     case "tool_call_update":
       return upsertTool(state, update, at);
+    case "compaction_update":
+    case "compaction_summary_chunk":
+      return applyCompaction(state, update, at);
     case "plan":
       return { ...state, plan: (update.entries as ChatPlanEntry[]) ?? [] };
     case "available_commands_update":

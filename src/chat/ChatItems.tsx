@@ -3,6 +3,8 @@ import { useI18n } from "../i18n";
 import { lineDiff, stopKind, type ChatItem, type StopKind } from "./chatModel";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { LinkPreviews } from "./LinkPreviews";
+import { CompactionDivider } from "./CompactionDivider";
+import { UserText } from "./CommandChip";
 import { basename } from "../lib/path";
 import { ChatPathLink } from "../lib/fileLinks";
 import { STEP_CATEGORIES, subagentInfo, subagentReport, subagentState, summarizeSteps, type SubagentItem, type TimelineStep } from "./chatTimeline";
@@ -345,7 +347,7 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
     case "user":
       return (
         <div className="chat-user">
-          {item.text}
+          <UserText text={item.text} />
           {item.attachments && item.attachments.length > 0 && (
             <div className="chat-user-files">
               {item.attachments.map((name, i) => (
@@ -384,6 +386,8 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
           {t(STOP_TEXT[stopKind(item.reason)], { reason: item.reason })}
         </div>
       );
+    case "compaction":
+      return <CompactionDivider item={item} />;
     default:
       // Tool calls and permission requests are drawn by the timeline; a kind added later is skipped.
       return null;

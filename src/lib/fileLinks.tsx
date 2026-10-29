@@ -4,6 +4,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { iconSvg, MenuIcons } from "../context-menu/menuIcons";
 import { t } from "../i18n";
+import { toWindowsPath } from "../terminal/wslPath";
 import { isExecutablePath, type ParsedPath } from "./filePaths";
 import { basename } from "./path";
 
@@ -29,6 +30,9 @@ export const FileLinkActionsContext = createContext<FileLinkActions | null>(null
 /** The folder relative paths in a chat resolve against. `null` (the
  * default) = this chat's paths are not on this PC (a remote one's): no links. */
 export const FileLinkCwdContext = createContext<string | null>(null);
+
+/** The WSL distro a chat's agent runs in: its Linux paths are mapped to Windows ones before they're checked or opened. `null` = a Windows chat. */
+export const FileLinkWslContext = createContext<string | null>(null);
 
 /** How long an answer is trusted: a file can be created or deleted meanwhile. */
 const CHECK_TTL_MS = 5000;
@@ -144,19 +148,22 @@ export function useOpenPath(): (event: { clientX: number; clientY: number }, tar
  * text until then (and for good when it doesn't, or the chat is a remote PC's). */
 export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; children: ReactNode }) {
   const cwd = useContext(FileLinkCwdContext);
+  const distro = useContext(FileLinkWslContext);
   const open = useOpenPath();
+  // A WSL agent writes Linux paths (`/mnt/c/...`): map them to the Windows ones the disk check and the opener need.
+  const path = distro && parsed.path.startsWith("/") ? toWindowsPath(distro, parsed.path) : parsed.path;
   const [target, setTarget] = useState<PathTarget | null>(null);
   useEffect(() => {
     setTarget(null);
     if (cwd === null) return;
     let live = true;
-    void checkPath(parsed.path, cwd).then((found) => {
+    void checkPath(path, cwd).then((found) => {
       if (live) setTarget(found);
     });
     return () => {
       live = false;
     };
-  }, [parsed.path, cwd]);
+  }, [path, cwd]);
   if (!target) return <>{children}</>;
   // A span, not a <button>: a long path must wrap with the text around it.
   return (

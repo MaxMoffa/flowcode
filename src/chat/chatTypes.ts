@@ -127,6 +127,8 @@ export interface ChatStartResult {
   configOptions: unknown;
   /** The session was resumed: its history arrives as events. */
   loaded: boolean;
+  /** The WSL distro the agent runs in (its paths are Linux ones); null/absent for a Windows chat. */
+  wslDistro?: string | null;
 }
 
 export type ChatStatus = "starting" | "idle" | "busy" | "waiting" | "exited";

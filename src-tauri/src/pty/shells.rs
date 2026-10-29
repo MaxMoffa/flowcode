@@ -207,7 +207,7 @@ pub(super) fn resolve_shell(id: Option<&str>) -> String {
 /// UNC form (see wslPath.ts), but it can't be wsl.exe's cwd as-is - the
 /// distro would start in its default dir instead - so it's handed over as
 /// `-d <distro> --cd <posix path>`.
-pub(super) fn split_wsl_unc(path: &str) -> Option<(String, String)> {
+pub(crate) fn split_wsl_unc(path: &str) -> Option<(String, String)> {
     let lower = path.to_ascii_lowercase();
     let prefix = [r"\\wsl.localhost\", r"\\wsl$\"]
         .into_iter()

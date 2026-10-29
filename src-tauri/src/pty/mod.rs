@@ -19,7 +19,7 @@ use flowcode_shared::CREATE_NO_WINDOW;
 
 mod foreground;
 pub use self::foreground::*;
-mod shells;
+pub(crate) mod shells;
 pub use self::shells::*;
 use self::shells::{resolve_shell, split_wsl_unc};
 

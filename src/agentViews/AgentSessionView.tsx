@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
+import { FileLinkWslContext } from "../lib/fileLinks";
 import { basename } from "../lib/path";
 import type { ChatStatus } from "../chat/chatTypes";
 import { useChat } from "../chat/useChat";
@@ -131,115 +132,117 @@ export function AgentSessionView({
   const authRequired = phase === "failed" && !!error?.startsWith(AUTH_PREFIX);
 
   return (
-    <div className="chat-view" style={hidden ? { display: "none" } : undefined} onKeyDown={onViewKeyDown}>
-      <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status} subagent={subHeader}>
-        {(close) => {
-          const menuAction = (action: () => void) => {
-            close();
-            action();
-          };
-          return (
-            <>
-              <div className="chat-menu-caption">{t("agentViews.viewAs")}</div>
-              {views
-                .filter((view) => view.devices.includes("desktop"))
-                .map((view) =>
-                  view.transport === "pty" ? (
-                    <button
-                      key={view.id}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={false}
-                      className="chat-menu-item"
-                      disabled={!canSwitch}
-                      title={working ? t("chat.menu.stopFirst") : undefined}
-                      onClick={() => menuAction(switchToTerminal)}
-                    >
-                      <span className="chat-menu-check" />
-                      <span>{viewLabel(view, t, language)}</span>
-                      <kbd>Ctrl+`</kbd>
-                    </button>
-                  ) : (
-                    <button
-                      key={view.id}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={view.id === current.id}
-                      className="chat-menu-item"
-                      onClick={() => menuAction(() => onViewChange(view.id))}
-                    >
-                      <span className="chat-menu-check">{view.id === current.id ? "✓" : ""}</span>
-                      <span>{viewLabel(view, t, language)}</span>
-                    </button>
-                  ),
-                )}
-              <button
-                type="button"
-                role="menuitem"
-                className="chat-menu-item"
-                disabled={!sessionId}
-                onClick={() => menuAction(() => sessionId && void navigator.clipboard.writeText(sessionId).catch(() => {}))}
-              >
-                <span>{t("chat.menu.copyId")}</span>
-              </button>
-              <div className="chat-menu-sep" role="separator" />
-              <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => menuAction(chat.cancel)}>
-                <span>{t("chat.menu.stop")}</span>
-              </button>
-            </>
-          );
-        }}
-      </AgentHeader>
+    <FileLinkWslContext.Provider value={chat.wslDistro ?? null}>
+      <div className="chat-view" style={hidden ? { display: "none" } : undefined} onKeyDown={onViewKeyDown}>
+        <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status} subagent={subHeader}>
+          {(close) => {
+            const menuAction = (action: () => void) => {
+              close();
+              action();
+            };
+            return (
+              <>
+                <div className="chat-menu-caption">{t("agentViews.viewAs")}</div>
+                {views
+                  .filter((view) => view.devices.includes("desktop"))
+                  .map((view) =>
+                    view.transport === "pty" ? (
+                      <button
+                        key={view.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={false}
+                        className="chat-menu-item"
+                        disabled={!canSwitch}
+                        title={working ? t("chat.menu.stopFirst") : undefined}
+                        onClick={() => menuAction(switchToTerminal)}
+                      >
+                        <span className="chat-menu-check" />
+                        <span>{viewLabel(view, t, language)}</span>
+                        <kbd>Ctrl+`</kbd>
+                      </button>
+                    ) : (
+                      <button
+                        key={view.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={view.id === current.id}
+                        className="chat-menu-item"
+                        onClick={() => menuAction(() => onViewChange(view.id))}
+                      >
+                        <span className="chat-menu-check">{view.id === current.id ? "✓" : ""}</span>
+                        <span>{viewLabel(view, t, language)}</span>
+                      </button>
+                    ),
+                  )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="chat-menu-item"
+                  disabled={!sessionId}
+                  onClick={() => menuAction(() => sessionId && void navigator.clipboard.writeText(sessionId).catch(() => {}))}
+                >
+                  <span>{t("chat.menu.copyId")}</span>
+                </button>
+                <div className="chat-menu-sep" role="separator" />
+                <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => menuAction(chat.cancel)}>
+                  <span>{t("chat.menu.stop")}</span>
+                </button>
+              </>
+            );
+          }}
+        </AgentHeader>
 
-      {phase === "ready" ? (
-        View && (
-          <Suspense fallback={null}>
-            <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.sub} onOpenSubagent={nav.open} />
-          </Suspense>
-        )
-      ) : (
-        <div className="chat-column">
-          <div className="chat-content">
-          {phase === "starting" && (
-            <div className="chat-state">
-              <span className="chat-spinner" aria-hidden="true" />
-              <div>{t("chat.starting", { agent: label })}</div>
-              {downloading && <div className="chat-state-hint">{t("chat.starting.hint")}</div>}
+        {phase === "ready" ? (
+          View && (
+            <Suspense fallback={null}>
+              <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.sub} onOpenSubagent={nav.open} />
+            </Suspense>
+          )
+        ) : (
+          <div className="chat-column">
+            <div className="chat-content">
+            {phase === "starting" && (
+              <div className="chat-state">
+                <span className="chat-spinner" aria-hidden="true" />
+                <div>{t("chat.starting", { agent: label })}</div>
+                {downloading && <div className="chat-state-hint">{t("chat.starting.hint")}</div>}
+              </div>
+            )}
+            {phase === "failed" && (
+              <div className="chat-state">
+                {authRequired ? (
+                  <>
+                    <div className="chat-state-title">{t("chat.auth.title", { agent: label })}</div>
+                    <div>{t("chat.auth.body", { agent: label, command: CLI_INFO[agent].loginCommand })}</div>
+                    <div className="chat-state-actions">
+                      <button type="button" className="chat-btn is-primary" onClick={() => onOpenLogin(CLI_INFO[agent].loginCommand)}>
+                        {t("chat.auth.open")}
+                      </button>
+                      <button type="button" className="chat-btn" onClick={chat.restart}>
+                        {t("chat.retry")}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="chat-state-title">{t("chat.failed")}</div>
+                    <div className="chat-error" role="alert">
+                      {error}
+                    </div>
+                    <div className="chat-state-actions">
+                      <button type="button" className="chat-btn is-primary" onClick={chat.restart}>
+                        {t("chat.retry")}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             </div>
-          )}
-          {phase === "failed" && (
-            <div className="chat-state">
-              {authRequired ? (
-                <>
-                  <div className="chat-state-title">{t("chat.auth.title", { agent: label })}</div>
-                  <div>{t("chat.auth.body", { agent: label, command: CLI_INFO[agent].loginCommand })}</div>
-                  <div className="chat-state-actions">
-                    <button type="button" className="chat-btn is-primary" onClick={() => onOpenLogin(CLI_INFO[agent].loginCommand)}>
-                      {t("chat.auth.open")}
-                    </button>
-                    <button type="button" className="chat-btn" onClick={chat.restart}>
-                      {t("chat.retry")}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="chat-state-title">{t("chat.failed")}</div>
-                  <div className="chat-error" role="alert">
-                    {error}
-                  </div>
-                  <div className="chat-state-actions">
-                    <button type="button" className="chat-btn is-primary" onClick={chat.restart}>
-                      {t("chat.retry")}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </FileLinkWslContext.Provider>
   );
 }

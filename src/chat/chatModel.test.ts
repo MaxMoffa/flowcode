@@ -113,6 +113,58 @@ describe("chat model", () => {
     expect(["max_tokens", "max_turn_requests", "refusal", "something_new"].map(stopKind)).toEqual(["maxTokens", "maxTurnRequests", "refusal", "other"]);
   });
 
+  describe("compaction", () => {
+    const comp = (u: Record<string, unknown>, at = 0): ChatEvent => ({ kind: "update", seq: next(), at, update: { sessionUpdate: "compaction_update", compactionId: "c1", ...u } });
+    const summaryChunk = (text: string): ChatEvent => update({ sessionUpdate: "compaction_summary_chunk", compactionId: "c1", content: { type: "text", text } });
+    const item = (s: ChatModelState) => s.items.find((i) => i.type === "compaction");
+
+    it("creates the item on the first update and finishes it on the next", () => {
+      const s1 = run([comp({ status: "in_progress" }, 5)]);
+      expect(item(s1)).toMatchObject({ id: "compaction:c1", status: "in_progress", summary: "", at: 5, manual: false });
+      const s2 = run([comp({ status: "completed", summary: [{ type: "text", text: "Done " }, { type: "text", text: "well" }] })], s1);
+      expect(s2.items).toHaveLength(1);
+      expect(item(s2)).toMatchObject({ status: "completed", summary: "Done well", at: 5 });
+    });
+
+    it("streams the summary through chunks, creating the item if needed", () => {
+      const s = run([summaryChunk("Hel"), summaryChunk("lo")]);
+      expect(item(s)).toMatchObject({ status: "in_progress", summary: "Hello" });
+    });
+
+    it("keeps the settled status on a duplicate terminal or a late in_progress", () => {
+      const s = run([comp({ status: "completed" }), comp({ status: "in_progress" }), comp({ status: "completed" })]);
+      expect(s.items).toHaveLength(1);
+      expect(item(s)).toMatchObject({ status: "completed" });
+    });
+
+    it("keeps the streamed summary when the terminal update carries none", () => {
+      const s = run([summaryChunk("kept"), comp({ status: "completed" })]);
+      expect(item(s)).toMatchObject({ status: "completed", summary: "kept" });
+    });
+
+    it("is manual when the last user message is /compact", () => {
+      const user = (text: string): ChatEvent => ({ kind: "user", seq: next(), at: 0, text });
+      expect(item(run([user("hi"), comp({ status: "in_progress" })]))).toMatchObject({ manual: false });
+      expect(item(run([user("hi"), user("  /compact keep this"), comp({ status: "in_progress" })]))).toMatchObject({ manual: true });
+    });
+
+    it("records the error of a failed compaction", () => {
+      const s = run([comp({ status: "in_progress" }), comp({ status: "failed", error: "prompt too long" })]);
+      expect(item(s)).toMatchObject({ status: "failed", error: "prompt too long" });
+    });
+
+    it("keeps unchanged items by reference", () => {
+      const s1 = run([chunk("agent_message_chunk", "a"), comp({ status: "in_progress" })]);
+      const s2 = run([comp({ status: "completed" })], s1);
+      expect(s2.items[0]).toBe(s1.items[0]);
+    });
+
+    it("clears the retry notice", () => {
+      const base = { ...settleChat(initialChat()), notice: { kind: "retrying" as const, category: "x", detail: "" } };
+      expect(run([comp({ status: "in_progress" })], base).notice).toBeNull();
+    });
+  });
+
   it("times the turn from the event, counts streamed characters, and clears it at turnEnd", () => {
     const at = (ev: ChatEvent, t: number): ChatEvent => ({ ...ev, at: t });
     let s = run([at({ kind: "user", seq: next(), at: 0, text: "a" }, 5000)]);

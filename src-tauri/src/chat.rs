@@ -209,6 +209,8 @@ pub struct ChatStarted {
     /// The agent replayed a previous session (`session/load`) rather than
     /// starting a fresh one.
     pub loaded: bool,
+    /// The WSL distro the agent runs in; `None` for a chat running on Windows.
+    pub wsl_distro: Option<String>,
 }
 
 /// What a request sent to the agent does with its answer.
@@ -286,6 +288,49 @@ fn launch_command(agent: &str) -> Option<(&'static str, &'static [&'static str])
         "codex" => ("npx", &["-y", "@agentclientprotocol/codex-acp"]),
         _ => return None,
     })
+}
+
+/// Where a chat's agent runs when it runs inside WSL: the distro (`None`: the default one) and the cwd as a Linux path.
+struct WslTarget {
+    distro: Option<String>,
+    cwd: String,
+}
+
+/// A Windows path as the distro sees it: `C:\a\b` -> `/mnt/c/a/b`, a WSL UNC
+/// path -> its Linux path. `None` for anything else (and off Windows).
+fn to_wsl_path(path: &str) -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    if let Some((_, posix)) = crate::pty::shells::split_wsl_unc(path) {
+        return Some(posix);
+    }
+    let bytes = path.as_bytes();
+    if bytes.len() < 2 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || !path.is_char_boundary(2) {
+        return None;
+    }
+    let rest = &path[2..];
+    if !rest.is_empty() && !rest.starts_with(['\\', '/']) {
+        return None;
+    }
+    let rest = rest.replace('\\', "/");
+    let rest = rest.trim_end_matches('/');
+    Some(format!("/mnt/{}{}{}", (bytes[0] as char).to_ascii_lowercase(), if rest.is_empty() || rest.starts_with('/') { "" } else { "/" }, rest))
+}
+
+/// Whether a chat in `cwd` runs inside WSL: its folder is a WSL UNC path (the
+/// distro is then the folder's), or the user's terminal shell is WSL (the
+/// agent should see the same config as the terminal agents do).
+fn wsl_target(cwd: &str, shell: Option<&str>) -> Option<WslTarget> {
+    if !cfg!(windows) {
+        return None;
+    }
+    if let Some((distro, posix)) = crate::pty::shells::split_wsl_unc(cwd) {
+        return Some(WslTarget { distro: Some(distro), cwd: posix });
+    }
+    let shell = shell?;
+    let distro = if shell == "wsl" { None } else { Some(shell.strip_prefix("wsl:")?).filter(|d| !d.is_empty()).map(str::to_string) };
+    Some(WslTarget { distro, cwd: to_wsl_path(cwd)? })
 }
 
 /// The text of a streamed agent message or thought chunk, with what another
@@ -739,8 +784,10 @@ fn file_uri(path: &std::path::Path) -> String {
 
 /// The ACP content block for one attachment: an inline `image` when the
 /// agent takes them, else a `resource_link` to a file (the baseline every
-/// agent accepts; it opens the file with its own tools).
-fn attachment_block(a: &Attachment, images: bool) -> Result<Value, String> {
+/// agent accepts; it opens the file with its own tools). For an agent running
+/// in WSL (`wsl`) the link is the file's Linux path (`/mnt/c/...` for a
+/// Windows file), the only kind it can open.
+fn attachment_block(a: &Attachment, images: bool, wsl: bool) -> Result<Value, String> {
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD;
     if images && a.mime.starts_with("image/") {
@@ -763,7 +810,11 @@ fn attachment_block(a: &Attachment, images: bool) -> Result<Value, String> {
         (None, Some(path)) => std::path::PathBuf::from(path),
         _ => return Err(format!("attachment {} has no content", a.name)),
     };
-    Ok(json!({ "type": "resource_link", "uri": file_uri(&path), "name": a.name, "mimeType": a.mime }))
+    let uri = match wsl.then(|| to_wsl_path(&path.to_string_lossy())).flatten() {
+        Some(posix) => file_uri(std::path::Path::new(&posix)),
+        None => file_uri(&path),
+    };
+    Ok(json!({ "type": "resource_link", "uri": uri, "name": a.name, "mimeType": a.mime }))
 }
 
 /// Everything about one running agent; shared by the commands and the
@@ -775,6 +826,8 @@ struct Chat {
     owner: String,
     agent: String,
     cwd: String,
+    /// The agent runs inside WSL: it sees Linux paths, so attachments are linked as such.
+    wsl: bool,
     profile: Option<String>,
     child: Mutex<Child>,
     writer: Mutex<ChildStdin>,
@@ -1457,7 +1510,7 @@ impl ChatState {
         }
         let images = chat.prompt_images.load(Ordering::Acquire);
         for attachment in &attachments {
-            blocks.push(attachment_block(attachment, images)?);
+            blocks.push(attachment_block(attachment, images, chat.wsl)?);
         }
         let names = attachments.iter().map(|a| a.name.clone()).collect();
         chat.emit_when(ChatBody::User { text, attachments: names }, prompt_gate)?;
@@ -1556,9 +1609,46 @@ pub fn chat_adapter_ready(app: AppHandle, agent: String) -> bool {
     crate::acp_adapters::package(&agent).is_none() || crate::acp_adapters::installed_entry(&app, &agent).is_some()
 }
 
-/// Starts the agent's ACP server in `cwd` with its pipes open.
-fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>) -> Result<(Child, String), String> {
+/// The shell script that starts an agent's ACP server inside WSL (the managed
+/// install under the distro's home, else `npx`/the binary), with a readable
+/// description of it for error messages.
+fn wsl_script(agent: &str) -> Option<(String, String)> {
+    let (program, args) = launch_command(agent)?;
+    let fallback = std::iter::once(program).chain(args.iter().copied()).collect::<Vec<_>>().join(" ");
+    Some(match crate::acp_adapters::package(agent) {
+        Some(_) => (
+            format!(
+                "d=\"$HOME/.local/share/flowcode/acp-adapters/{agent}\"; e=$(cat \"$d/current\" 2>/dev/null); \
+                 if [ -n \"$e\" ] && [ -f \"$e\" ]; then exec node \"$e\"; fi; exec {fallback}"
+            ),
+            format!("wsl: node <adapter> || {fallback}"),
+        ),
+        None => (format!("exec {fallback}"), format!("wsl: {fallback}")),
+    })
+}
+
+/// Starts the agent's ACP server in `cwd` with its pipes open - inside the
+/// distro of `wsl` when given, else as a Windows process.
+fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, wsl: Option<&WslTarget>) -> Result<(Child, String), String> {
     let (program, args) = launch_command(agent).ok_or_else(|| format!("unknown agent: {agent}"))?;
+    #[cfg(target_os = "windows")]
+    if let Some(wsl) = wsl {
+        let (script, line) = wsl_script(agent).ok_or_else(|| format!("unknown agent: {agent}"))?;
+        crate::acp_adapters::refresh_wsl_in_background(wsl.distro.clone(), agent);
+        let mut cmd = Command::new("wsl.exe");
+        if let Some(distro) = &wsl.distro {
+            cmd.arg("-d").arg(distro);
+        }
+        // `--exec`: without it wsl.exe runs the line through the default shell, which expands the script's `$`.
+        // `-l` but not `-i`: a login shell finds node (nvm...), while an interactive one lets .bashrc print into the ACP stream.
+        cmd.arg("--cd").arg(&wsl.cwd).arg("--exec").args(["bash", "-lc"]).arg(script);
+        // No profile env: it holds Windows paths, meaningless in the distro (as for the terminals).
+        cmd.creation_flags(CREATE_NO_WINDOW).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = cmd.spawn().map_err(|e| format!("could not start `{line}`: {e}"))?;
+        return Ok((child, line));
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = wsl;
     // A Flowcode-managed install runs straight under node (no npx, no download);
     // until the first one lands, npx fetches the adapter as before.
     let installed = crate::acp_adapters::installed_entry(app, agent);
@@ -1646,7 +1736,8 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
         "initialize",
         json!({
             "protocolVersion": 1,
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "_meta": { "subagent-transcript": true } },
+            // `session.compaction`: the adapters send `compaction_update` events (not a generic tool call) only to clients that declare it.
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "session": { "compaction": {} }, "_meta": { "subagent-transcript": true } },
             "clientInfo": { "name": "flowcode", "version": env!("CARGO_PKG_VERSION") },
         }),
         SETUP_TIMEOUT,
@@ -1693,6 +1784,7 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn start_blocking(
     app: AppHandle,
     owner: String,
@@ -1701,8 +1793,10 @@ fn start_blocking(
     profile: Option<String>,
     resume: Option<String>,
     strict: bool,
+    shell: Option<String>,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
-    let (mut child, line) = spawn_agent(&app, &agent, &cwd, profile.as_deref())?;
+    let wsl = wsl_target(&cwd, shell.as_deref());
+    let (mut child, line) = spawn_agent(&app, &agent, &cwd, profile.as_deref(), wsl.as_ref())?;
     let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
         kill_tree(child.id());
@@ -1718,6 +1812,7 @@ fn start_blocking(
         owner,
         agent: agent.clone(),
         cwd: cwd.clone(),
+        wsl: wsl.is_some(),
         profile,
         child: Mutex::new(child),
         writer: Mutex::new(stdin),
@@ -1751,7 +1846,8 @@ fn start_blocking(
         let chat = Arc::downgrade(&chat);
         std::thread::spawn(move || write_replies(chat, queued));
     }
-    match handshake(&chat, &cwd, resume, strict) {
+    // The agent sees Linux paths when it runs in WSL.
+    match handshake(&chat, wsl.as_ref().map_or(&cwd, |w| &w.cwd), resume, strict) {
         Ok((result, session_id, loaded)) => {
             let _ = chat.session_id.set(session_id.clone());
             if let Some(modes) = result.get("modes") {
@@ -1771,6 +1867,7 @@ fn start_blocking(
                 thought: thought.as_ref().map(ThoughtLevels::to_json),
                 config_options: result.get("configOptions").cloned(),
                 loaded,
+                wsl_distro: wsl.as_ref().and_then(|w| w.distro.clone().or_else(crate::util::wsl_default_distro)),
             };
             Ok((chat, started))
         }
@@ -1791,11 +1888,12 @@ pub async fn chat_start(
     profile: Option<String>,
     resume_session_id: Option<String>,
     strict_resume: Option<bool>,
+    shell: Option<String>,
 ) -> Result<ChatStarted, String> {
     let owner = window.label().to_string();
     let (chat, started) = {
         let (app, owner) = (app.clone(), owner.clone());
-        crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id, strict_resume.unwrap_or(false)))
+        crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id, strict_resume.unwrap_or(false), shell))
             .await?
     };
     // The window may have closed while the agent was starting, and its
@@ -1885,6 +1983,36 @@ pub fn chat_events(state: State<'_, ChatState>, chat_id: String, after_seq: u64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn maps_windows_paths_into_wsl() {
+        assert_eq!(to_wsl_path(r"C:\a\b").as_deref(), Some("/mnt/c/a/b"));
+        assert_eq!(to_wsl_path("D:/a/b/").as_deref(), Some("/mnt/d/a/b"));
+        assert_eq!(to_wsl_path(r"C:\").as_deref(), Some("/mnt/c"));
+        assert_eq!(to_wsl_path(r"\\wsl.localhost\Ubuntu\home\me").as_deref(), Some("/home/me"));
+        assert_eq!(to_wsl_path(r"\\wsl$\Debian").as_deref(), Some("/"));
+        assert_eq!(to_wsl_path("relative/dir"), None);
+        assert_eq!(to_wsl_path(r"\\server\share"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn wsl_target_follows_the_folder_then_the_shell() {
+        let unc = wsl_target(r"\\wsl.localhost\Ubuntu\home\me", Some("powershell")).unwrap();
+        assert_eq!((unc.distro.as_deref(), unc.cwd.as_str()), (Some("Ubuntu"), "/home/me"));
+        let old = wsl_target(r"\\wsl$\Debian\srv", None).unwrap();
+        assert_eq!((old.distro.as_deref(), old.cwd.as_str()), (Some("Debian"), "/srv"));
+        let default = wsl_target(r"C:\a\b", Some("wsl")).unwrap();
+        assert_eq!((default.distro, default.cwd.as_str()), (None, "/mnt/c/a/b"));
+        let named = wsl_target("C:/a/b", Some("wsl:Ubuntu")).unwrap();
+        assert_eq!((named.distro.as_deref(), named.cwd.as_str()), (Some("Ubuntu"), "/mnt/c/a/b"));
+        let empty = wsl_target(r"C:\", Some("wsl:")).unwrap();
+        assert_eq!((empty.distro, empty.cwd.as_str()), (None, "/mnt/c"));
+        assert!(wsl_target(r"C:\a", Some("powershell")).is_none());
+        assert!(wsl_target(r"C:\a", Some("system")).is_none());
+        assert!(wsl_target(r"C:\a", None).is_none());
+    }
 
     #[test]
     fn long_lines_are_cut_and_the_rest_skipped() {
