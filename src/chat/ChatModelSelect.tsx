@@ -5,8 +5,8 @@ import type { ChatModelOption } from "./chatTypes";
 import { splitModelVersions } from "./modelVersions";
 import type { ChatSession } from "./useChat";
 
-/** Everything the arrow keys visit: the model rows and the "older versions" row. */
-const NAV = '[role="menuitemradio"], [data-older-toggle]';
+/** Everything the arrow keys visit: the model rows, the "older versions" row and the current thinking level (Left/Right move inside that group). */
+const NAV = '[role="menuitemradio"], [data-older-toggle], [role="radio"][aria-checked="true"]';
 
 function ChipIcon({ size }: { size: number }) {
   return (
@@ -18,10 +18,12 @@ function ChipIcon({ size }: { size: number }) {
 }
 
 /** The composer's model pill (beside the mode one) and the menu it opens
- * upward; hidden unless the agent offers a choice of models. */
-export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "models" | "setModel" | "model"> }) {
+ * upward: the models, then the thinking level. Hidden unless the agent offers
+ * a choice of either (with levels only, the pill shows just the level). */
+export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "models" | "setModel" | "model" | "thought" | "setThought"> }) {
   const { t } = useI18n();
   const models = chat.models;
+  const thought = chat.thought;
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLButtonElement>(null);
@@ -38,13 +40,14 @@ export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "mod
     (current ?? items[0]).focus();
   }, [open]);
 
-  if (!models || !split) return null;
-  const currentId = models.currentModelId;
-  const current = models.availableModels.find((m) => m.modelId === currentId);
+  if ((!models || !split) && !thought) return null;
+  const currentId = models?.currentModelId ?? null;
+  const current = models?.availableModels.find((m) => m.modelId === currentId);
+  const level = thought ? (thought.available.find((l) => l.id === thought.currentId) ?? null) : null;
   const busy = chat.model.status === "busy" || chat.model.status === "waiting";
 
-  const hasOlder = split.older.length > 0;
-  const olderHasCurrent = split.older.some((m) => m.modelId === currentId);
+  const hasOlder = !!split && split.older.length > 0;
+  const olderHasCurrent = !!split && split.older.some((m) => m.modelId === currentId);
   const showOlder = hasOlder && olderOpen;
 
   const close = () => {
@@ -55,7 +58,11 @@ export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "mod
 
   const onMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>(NAV) ?? []);
-    const index = items.indexOf(document.activeElement as HTMLElement);
+    const active = document.activeElement as HTMLElement | null;
+    // On a thinking level the menu's position is the group's current one.
+    const group = active?.closest<HTMLElement>('[role="radiogroup"]') ?? null;
+    const onLevel = active?.getAttribute("role") === "radio" && !!group;
+    const index = onLevel ? items.indexOf(group.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') as HTMLElement) : items.indexOf(active as HTMLElement);
     const toggle = menuRef.current?.querySelector<HTMLElement>("[data-older-toggle]") ?? null;
     const inOlder = !!(document.activeElement as HTMLElement | null)?.closest("[data-older-list]");
     const collapseOlder = () => {
@@ -68,6 +75,11 @@ export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "mod
       e.stopPropagation();
       if (showOlder && inOlder) collapseOlder();
       else close();
+    } else if (onLevel && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+      e.preventDefault();
+      const radios = Array.from(group.querySelectorAll<HTMLElement>('[role="radio"]'));
+      const at = radios.indexOf(active as HTMLElement);
+      radios[(at + (e.key === "ArrowRight" ? 1 : -1) + radios.length) % radios.length]?.focus();
     } else if (e.key === "ArrowRight" && document.activeElement === toggle && !showOlder) {
       e.preventDefault();
       setOlderOpen(true);
@@ -122,6 +134,8 @@ export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "mod
       );
     });
 
+  const pillTitle = !models ? t("chat.menu.thinking") : thought ? t("chat.thought.change") : t("chat.model.change");
+
   return (
     <div className="chat-mode-anchor" ref={anchorRef}>
       <button
@@ -130,21 +144,22 @@ export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "mod
         className="chat-mode-pill chat-model-pill"
         aria-haspopup="menu"
         aria-expanded={open}
-        title={busy ? `${t("chat.model.change")} - ${t("chat.model.nextTurn")}` : t("chat.model.change")}
+        title={busy ? `${pillTitle} - ${t("chat.model.nextTurn")}` : pillTitle}
         onClick={() => {
           if (!open) setOlderOpen(olderHasCurrent);
           setOpen((o) => !o);
         }}
       >
         <ChipIcon size={15} />
-        <span className="chat-mode-name">{current?.name ?? currentId}</span>
+        <span className="chat-mode-name">{models ? (current?.name ?? currentId) : (level?.name ?? thought?.currentId)}</span>
+        {models && level && <span className="chat-model-level">· {level.name}</span>}
       </button>
       {open && (
-        <div className="chat-menu chat-mode-menu chat-model-menu" role="menu" aria-label={t("chat.menu.model")} ref={menuRef} onKeyDown={onMenuKeyDown}>
-          <div className="chat-mode-caption">{t("chat.menu.model")}</div>
+        <div className="chat-menu chat-mode-menu chat-model-menu" role="menu" aria-label={t(models ? "chat.menu.model" : "chat.menu.thinking")} ref={menuRef} onKeyDown={onMenuKeyDown}>
+          {models && split && <div className="chat-mode-caption">{t("chat.menu.model")}</div>}
           {busy && <div className="chat-model-hint">{t("chat.model.nextTurn")}</div>}
-          {renderList(split.latest)}
-          {hasOlder && (
+          {split && renderList(split.latest)}
+          {split && hasOlder && (
             <>
               <div className="chat-model-sep" role="separator" />
               <button
@@ -169,6 +184,39 @@ export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "mod
                   {renderList(split.older)}
                 </div>
               )}
+            </>
+          )}
+          {thought && (
+            <>
+              {models && <div className="chat-model-sep" role="separator" />}
+              <div className="chat-think">
+                <div className="chat-think-head">
+                  <span>{t("chat.menu.thinking")}</span>
+                  <b>{level?.name ?? thought.currentId}</b>
+                </div>
+                <div className="chat-think-seg" role="radiogroup" aria-label={t("chat.menu.thinking")}>
+                  {thought.available.map((l) => {
+                    const on = l.id === thought.currentId;
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        tabIndex={on ? 0 : -1}
+                        className={`chat-think-opt${on ? " is-on" : ""}`}
+                        title={l.description}
+                        onClick={() => {
+                          if (!on) chat.setThought(l.id);
+                        }}
+                      >
+                        {l.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {level?.description && <div className="chat-mode-desc chat-think-desc">{level.description}</div>}
+              </div>
             </>
           )}
         </div>

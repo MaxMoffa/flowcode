@@ -189,6 +189,8 @@ pub(crate) struct ChatSummary {
     pub modes: Option<Value>,
     /// The normalized models (`ChatModels::to_json`), when the agent offers any.
     pub models: Option<Value>,
+    /// The normalized thinking levels (`ThoughtLevels::to_json`), when the agent offers any.
+    pub thought: Option<Value>,
     pub status: ChatStatus,
 }
 
@@ -201,6 +203,8 @@ pub struct ChatStarted {
     pub modes: Option<Value>,
     /// The normalized models (`ChatModels::to_json`), when the agent offers any.
     pub models: Option<Value>,
+    /// The normalized thinking levels (`ThoughtLevels::to_json`), when the agent offers any.
+    pub thought: Option<Value>,
     pub config_options: Option<Value>,
     /// The agent replayed a previous session (`session/load`) rather than
     /// starting a fresh one.
@@ -400,6 +404,14 @@ fn models_from_config_options(options: &Value) -> Option<ChatModels> {
     }
     let config_id = opt_str(option, "id")?;
     let current = opt_str(option, "currentValue")?;
+    let available = select_choices(option)?;
+    Some(ChatModels { current, available, via: ModelVia::ConfigOption { config_id } })
+}
+
+/// The choices of a `select` config option, flat (`{ value, name,
+/// description? }`) or grouped (`{ group, name, options }`, flattened with the
+/// group's name as each choice's caption); `None` when there are none.
+fn select_choices(option: &Value) -> Option<Vec<ModelChoice>> {
     let choice = |v: &Value, group: Option<&String>| {
         let id = opt_str(v, "value")?;
         Some(ModelChoice {
@@ -419,7 +431,7 @@ fn models_from_config_options(options: &Value) -> Option<ChatModels> {
             None => available.extend(choice(entry, None)),
         }
     }
-    (!available.is_empty()).then_some(ChatModels { current, available, via: ModelVia::ConfigOption { config_id } })
+    (!available.is_empty()).then_some(available)
 }
 
 /// The models a `session/new` / `session/load` result announces: its config
@@ -452,6 +464,78 @@ fn models_after_config_update(before: Option<&ChatModels>, options: &Value) -> O
         None => return None,
     };
     (next.as_ref() != before).then_some(next)
+}
+
+/// The extension event that tells every view a chat's thinking level changed;
+/// its params are the normalized levels (`ThoughtLevels::to_json`).
+const THOUGHT_EXT_METHOD: &str = "_flowcode/thought";
+
+/// The thinking levels a chat's agent offers: its `thought_level` config
+/// option. They depend on the model, so they come and go with it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ThoughtLevels {
+    config_id: String,
+    current: String,
+    available: Vec<ModelChoice>,
+}
+
+impl ThoughtLevels {
+    /// What the frontend gets: `{ currentId, available: [{ id, name, description? }] }`.
+    fn to_json(&self) -> Value {
+        let available: Vec<Value> = self
+            .available
+            .iter()
+            .map(|c| {
+                let mut entry = json!({ "id": c.id, "name": c.name });
+                if let Some(description) = &c.description {
+                    entry["description"] = json!(description);
+                }
+                entry
+            })
+            .collect();
+        json!({ "currentId": self.current, "available": available })
+    }
+
+    fn offers(&self, value: &str) -> bool {
+        self.available.iter().any(|c| c.id == value)
+    }
+}
+
+/// The thinking levels of ACP session config options: the `select` option of
+/// category `thought_level`, flat or grouped like the model option.
+fn thought_from_config_options(options: &Value) -> Option<ThoughtLevels> {
+    let option = options
+        .as_array()?
+        .iter()
+        .find(|o| o.get("category").and_then(Value::as_str) == Some("thought_level"))?;
+    if option.get("type").and_then(Value::as_str).is_some_and(|t| t != "select") {
+        return None;
+    }
+    Some(ThoughtLevels {
+        config_id: opt_str(option, "id")?,
+        current: opt_str(option, "currentValue")?,
+        available: select_choices(option)?,
+    })
+}
+
+/// The levels after a `config_option_update`: `Some(new)` when they changed
+/// (`Some(None)`: the agent no longer offers any).
+fn thought_after_config_update(before: Option<&ThoughtLevels>, options: &Value) -> Option<Option<ThoughtLevels>> {
+    let next = thought_from_config_options(options);
+    (next.as_ref() != before).then_some(next)
+}
+
+/// The levels after a `session/set_config_option` answer (the model's or the
+/// level's own): its `configOptions`, when it has them, are authoritative;
+/// otherwise only the level `asked` moved. `Some(new)` when they changed.
+fn thought_after_set(before: Option<&ThoughtLevels>, result: &Value, asked: Option<&str>) -> Option<Option<ThoughtLevels>> {
+    if result.get("configOptions").is_some_and(Value::is_array) {
+        return thought_after_config_update(before, &result["configOptions"]);
+    }
+    let before = before?;
+    // The levels may have moved meanwhile (a model switch): only one they still offer.
+    let asked = asked.filter(|v| *v != before.current && before.offers(v))?;
+    Some(Some(ThoughtLevels { current: asked.to_string(), ..before.clone() }))
 }
 
 /// Roughly how many bytes a JSON value takes: its strings and keys, plus a
@@ -722,6 +806,9 @@ struct Chat {
     /// The models the agent offers; unlike the modes they change after the
     /// start (`chat_set_model`, a `config_option_update`), hence the mutex.
     models: Mutex<Option<ChatModels>>,
+    /// The thinking levels the agent offers; they change like the models, and
+    /// with them (a model switch brings its own levels).
+    thought: Mutex<Option<ThoughtLevels>>,
     /// A session whose `session/load` failed and was replaced by a new one:
     /// whatever history it still streams (a timed-out load may go on) is
     /// dropped. Set under the log lock, and checked under it (`emit_when`).
@@ -929,18 +1016,59 @@ impl Chat {
             next
         };
         self.models_changed(Some(&next));
+        self.update_thought(|before| thought_after_set(before, &result, None));
         Ok(())
     }
 
-    /// The agent pushed new config options: stores the model part, if it moved.
+    /// Switches the agent to the thinking level `value` (one it offers), with
+    /// `session/set_config_option`. Every view hears of it through a
+    /// `_flowcode/thought` event, as for `set_model`.
+    fn set_thought(&self, value: &str) -> Result<(), String> {
+        let session_id = self.session_id()?.to_string();
+        let config_id = {
+            let thought = lock(&self.thought);
+            let thought = thought.as_ref().ok_or_else(|| "the agent offers no thinking level to choose".to_string())?;
+            if !thought.offers(value) {
+                return Err(format!("unknown thinking level: {value}"));
+            }
+            thought.config_id.clone()
+        };
+        let result = self.request(
+            "session/set_config_option",
+            json!({ "sessionId": session_id, "configId": config_id, "value": value }),
+            MODE_TIMEOUT,
+        )?;
+        self.update_thought(|before| thought_after_set(before, &result, Some(value)));
+        Ok(())
+    }
+
+    /// Stores what `next` makes of the thinking levels, if they changed, and
+    /// tells the views. `next` runs under the `thought` lock.
+    fn update_thought(&self, next: impl FnOnce(Option<&ThoughtLevels>) -> Option<Option<ThoughtLevels>>) {
+        let next = {
+            let mut thought = lock(&self.thought);
+            let Some(next) = next(thought.as_ref()) else { return };
+            *thought = next.clone();
+            next
+        };
+        self.thought_changed(next.as_ref());
+    }
+
+    /// The agent pushed new config options: stores the model and thinking
+    /// parts, if they moved.
     fn config_options_changed(&self, options: &Value) {
         let next = {
             let mut models = lock(&self.models);
-            let Some(next) = models_after_config_update(models.as_ref(), options) else { return };
-            *models = next.clone();
+            let next = models_after_config_update(models.as_ref(), options);
+            if let Some(next) = &next {
+                *models = next.clone();
+            }
             next
         };
-        self.models_changed(next.as_ref());
+        if let Some(next) = next {
+            self.models_changed(next.as_ref());
+        }
+        self.update_thought(|before| thought_after_config_update(before, options));
     }
 
     /// Tells the views (an event, so a replay knows too) and the phones' list.
@@ -948,6 +1076,13 @@ impl Chat {
     fn models_changed(&self, models: Option<&ChatModels>) {
         let params = models.map_or_else(|| json!({ "currentModelId": null, "availableModels": [] }), ChatModels::to_json);
         self.emit(ChatBody::Ext { method: MODEL_EXT_METHOD.to_string(), params });
+        self.changed();
+    }
+
+    /// As `models_changed`, for the thinking levels.
+    fn thought_changed(&self, thought: Option<&ThoughtLevels>) {
+        let params = thought.map_or_else(|| json!({ "currentId": null, "available": [] }), ThoughtLevels::to_json);
+        self.emit(ChatBody::Ext { method: THOUGHT_EXT_METHOD.to_string(), params });
         self.changed();
     }
 
@@ -1285,6 +1420,7 @@ impl ChatState {
                 session_id: s.chat.session_id.get().cloned(),
                 modes: s.chat.modes.get().cloned(),
                 models: lock(&s.chat.models).as_ref().map(ChatModels::to_json),
+                thought: lock(&s.chat.thought).as_ref().map(ThoughtLevels::to_json),
                 status: *lock(&s.chat.status),
             })
             .collect()
@@ -1385,6 +1521,12 @@ impl ChatState {
     pub(crate) async fn set_model(&self, chat_id: &str, model_id: String) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         crate::blocking(move || chat.set_model(&model_id)).await
+    }
+
+    /// As `set_model`, for the thinking level.
+    pub(crate) async fn set_thought(&self, chat_id: &str, value: String) -> Result<(), String> {
+        let chat = self.get(chat_id)?;
+        crate::blocking(move || chat.set_thought(&value)).await
     }
 
     fn get(&self, chat_id: &str) -> Result<Arc<Chat>, String> {
@@ -1593,6 +1735,7 @@ fn start_blocking(
         session_id: OnceLock::new(),
         modes: OnceLock::new(),
         models: Mutex::new(None),
+        thought: Mutex::new(None),
         stale_session: Mutex::new(None),
         prompt_images: AtomicBool::new(false),
     });
@@ -1616,6 +1759,8 @@ fn start_blocking(
             }
             let models = normalize_models(&result);
             *lock(&chat.models) = models.clone();
+            let thought = result.get("configOptions").and_then(thought_from_config_options);
+            *lock(&chat.thought) = thought.clone();
             chat.started();
             let started = ChatStarted {
                 chat_id,
@@ -1623,6 +1768,7 @@ fn start_blocking(
                 agent,
                 modes: result.get("modes").cloned(),
                 models: models.as_ref().map(ChatModels::to_json),
+                thought: thought.as_ref().map(ThoughtLevels::to_json),
                 config_options: result.get("configOptions").cloned(),
                 loaded,
             };
@@ -1704,6 +1850,11 @@ pub async fn chat_set_mode(state: State<'_, ChatState>, chat_id: String, mode_id
 #[tauri::command]
 pub async fn chat_set_model(state: State<'_, ChatState>, chat_id: String, model_id: String) -> Result<(), String> {
     state.set_model(&chat_id, model_id).await
+}
+
+#[tauri::command]
+pub async fn chat_set_thought(state: State<'_, ChatState>, chat_id: String, value: String) -> Result<(), String> {
+    state.set_thought(&chat_id, value).await
 }
 
 /// Resolves only once the agent is dead: the terminal handoff awaits it
@@ -2269,5 +2420,79 @@ mod tests {
         let flat = models_from_models(&json!({ "currentModelId": "a", "availableModels": [{ "modelId": "a" }] })).unwrap();
         assert_eq!(models_after_config_update(Some(&flat), &json!([])), None);
         assert_eq!(models_after_config_update(None, &json!([])), None);
+    }
+
+    fn effort(current: &str, levels: &[&str]) -> Value {
+        let options: Vec<Value> = levels.iter().map(|l| json!({ "value": l, "name": l.to_uppercase() })).collect();
+        json!({ "id": "effort", "name": "Effort", "category": "thought_level", "type": "select", "currentValue": current, "options": options })
+    }
+
+    #[test]
+    fn normalizes_the_thought_level_option() {
+        let flat = json!([{ "id": "model", "category": "model", "type": "select", "currentValue": "a", "options": [{ "value": "a" }] },
+            effort("medium", &["low", "medium"])]);
+        let thought = thought_from_config_options(&flat).unwrap();
+        assert_eq!(thought.config_id, "effort");
+        assert_eq!(
+            thought.to_json(),
+            json!({ "currentId": "medium", "available": [{ "id": "low", "name": "LOW" }, { "id": "medium", "name": "MEDIUM" }] })
+        );
+        assert!(thought.offers("low") && !thought.offers("max"));
+
+        let mut grouped = effort("deep", &[]);
+        grouped["options"] = json!([{ "group": "g", "name": "Levels", "options": [{ "value": "deep", "name": "Deep", "description": "Slow" }] }]);
+        let thought = thought_from_config_options(&json!([grouped])).unwrap();
+        assert_eq!(thought.to_json(), json!({ "currentId": "deep", "available": [{ "id": "deep", "name": "Deep", "description": "Slow" }] }));
+    }
+
+    #[test]
+    fn no_or_malformed_thought_levels_give_none() {
+        assert!(thought_from_config_options(&json!([])).is_none());
+        assert!(thought_from_config_options(&json!({ "id": "effort" })).is_none());
+        // Only the thought_level category counts.
+        let mut other = effort("low", &["low"]);
+        other["category"] = json!("mode");
+        assert!(thought_from_config_options(&json!([other])).is_none());
+        let mut not_select = effort("low", &["low"]);
+        not_select["type"] = json!("boolean");
+        assert!(thought_from_config_options(&json!([not_select])).is_none());
+        let mut no_current = effort("low", &["low"]);
+        no_current.as_object_mut().unwrap().remove("currentValue");
+        assert!(thought_from_config_options(&json!([no_current])).is_none());
+        assert!(thought_from_config_options(&json!([effort("low", &[])])).is_none());
+    }
+
+    #[test]
+    fn thought_updates_only_when_it_moved() {
+        let options = |current: &str| json!([effort(current, &["low", "high"])]);
+        let before = thought_from_config_options(&options("low")).unwrap();
+        assert_eq!(thought_after_config_update(Some(&before), &options("low")), None);
+        assert_eq!(thought_after_config_update(Some(&before), &options("high")).unwrap().unwrap().current, "high");
+        assert_eq!(thought_after_config_update(None, &options("low")), Some(Some(before.clone())));
+        // The option went away.
+        assert_eq!(thought_after_config_update(Some(&before), &json!([])), Some(None));
+        assert_eq!(thought_after_config_update(None, &json!([])), None);
+    }
+
+    #[test]
+    fn a_set_config_option_answer_updates_the_thought_levels() {
+        let before = thought_from_config_options(&json!([effort("low", &["low", "high"])])).unwrap();
+        // A level switch without options in the answer: the asked one is current.
+        assert_eq!(thought_after_set(Some(&before), &json!({}), Some("high")).unwrap().unwrap().current, "high");
+        assert_eq!(thought_after_set(Some(&before), &Value::Null, Some("low")), None);
+        assert_eq!(thought_after_set(None, &json!({}), Some("high")), None);
+        // A model switch whose answer has no options doesn't touch them...
+        assert_eq!(thought_after_set(Some(&before), &json!({}), None), None);
+        // ...one that changes the model and the levels does...
+        let answer = json!({ "configOptions": [
+            { "id": "model", "category": "model", "type": "select", "currentValue": "b", "options": [{ "value": "a" }, { "value": "b" }] },
+            effort("medium", &["medium", "max"]),
+        ] });
+        let after = thought_after_set(Some(&before), &answer, None).unwrap().unwrap();
+        assert_eq!((after.current.as_str(), after.available.len()), ("medium", 2));
+        assert_eq!(models_after_set(&models_from_config_options(&answer["configOptions"]).unwrap(), &answer, "b").current, "b");
+        // ...and one that drops them is authoritative, whatever was asked.
+        let dropped = json!({ "configOptions": [] });
+        assert_eq!(thought_after_set(Some(&before), &dropped, Some("high")), Some(None));
     }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { ChatInfo } from "../../shared/remote-types";
-import { MAX_ITEMS, MAX_RAW_EVENTS, applyEvents, canDispatch, chatModels, chatModes, chatStatus, emptySession, forceNeedsCancel, forceQueued, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued } from "./chatSession";
+import { MAX_ITEMS, MAX_RAW_EVENTS, applyEvents, canDispatch, chatModels, chatModes, chatStatus, chatThought, emptySession, forceNeedsCancel, forceQueued, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued } from "./chatSession";
 
 const user = (seq: number, text = `m${seq}`): ChatEvent => ({ seq, at: 0, kind: "user", text });
 const chunk = (seq: number, text: string): ChatEvent => ({ seq, at: 0, kind: "update", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
@@ -219,6 +219,23 @@ describe("the models from events", () => {
     // The agent offers no choice any more: none, whatever was announced.
     const gone = applyEvents(s, [{ seq: 2, at: 0, kind: "ext", method: "_flowcode/model", params: { currentModelId: null, availableModels: [] } }], live);
     expect(chatModels({ ...info("idle"), models: two }, gone.model)).toBeNull();
+  });
+});
+
+describe("the thinking levels", () => {
+  const levels = { currentId: "low", available: [{ id: "low", name: "Low" }, { id: "high", name: "High" }] };
+  const thoughtEvent = (seq: number, params: unknown): ChatEvent => ({ seq, at: 0, kind: "ext", method: "_flowcode/thought", params });
+
+  it("reads the announced levels, events override them, and one level is no choice", () => {
+    const base = emptySession().model;
+    expect(chatThought({ ...info("idle"), thought: levels }, base)).toEqual(levels);
+    expect(chatThought({ ...info("idle"), thought: { currentId: "a", available: [{ id: "a", name: "A" }] } }, base)).toBeNull();
+    expect(chatThought({ ...info("idle"), thought: 5 }, base)).toBeNull();
+    expect(chatThought(undefined, base)).toBeNull();
+    const s = applyEvents(emptySession(), [thoughtEvent(1, { currentId: "high", available: levels.available })], live);
+    expect(chatThought({ ...info("idle"), thought: levels }, s.model)?.currentId).toBe("high");
+    const gone = applyEvents(s, [thoughtEvent(2, { currentId: null, available: [] })], live);
+    expect(chatThought({ ...info("idle"), thought: levels }, gone.model)).toBeNull();
   });
 });
 

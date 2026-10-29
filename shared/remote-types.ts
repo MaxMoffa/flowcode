@@ -48,6 +48,8 @@ export interface ChatInfo {
   modes?: unknown;
   /** The models the agent offers, normalized by the desktop (`{ currentModelId, availableModels: [{ modelId, name, description?, group? }] }`); absent when the agent offers none, or from older desktops. */
   models?: unknown;
+  /** The thinking levels the agent offers, normalized by the desktop (`{ currentId, available: [{ id, name, description? }] }`); absent when it offers none, or from older desktops. */
+  thought?: unknown;
 }
 
 /** An installed agent view plugin offered to phones (its manifest, see
@@ -215,7 +217,9 @@ export type RemoteCap =
   /** `chatclosetab`: closing a chat tab. */
   | "chatCloseTab"
   /** `chatmodel`: switching a chat's model. */
-  | "chatModel";
+  | "chatModel"
+  /** `chatthought`: switching a chat's thinking level. */
+  | "chatThought";
 
 export type ServerMsg =
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -271,6 +275,8 @@ export type ClientMsg =
   | { t: "chatmode"; chatId: string; modeId: string }
   /** Switches the chat's agent to another model it offers (`ChatInfo.models`). */
   | { t: "chatmodel"; chatId: string; modelId: string }
+  /** Switches the chat's agent to another thinking level it offers (`ChatInfo.thought`). */
+  | { t: "chatthought"; chatId: string; value: string }
   /** Hands the chat's session over to a desktop terminal tab (as Ctrl+` does on the desktop). */
   | { t: "chatterminal"; chatId: string }
   /** Reopens the agent running in the terminal tab of `ptyId` as a chat tab on the same session (the reverse of `chatterminal`). */

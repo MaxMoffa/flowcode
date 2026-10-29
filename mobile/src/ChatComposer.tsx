@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
-import type { ChatModels, ChatModes } from "../../src/chat/chatTypes";
+import type { ChatModels, ChatModes, ChatThought } from "../../src/chat/chatTypes";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { tapFeedback } from "./haptics";
@@ -62,6 +62,9 @@ interface ChatComposerProps {
   /** Null when there is no model to choose (one model, or a desktop that can't switch). */
   models?: ChatModels | null;
   onModel?: (modelId: string) => void;
+  /** The thinking levels the agent offers (more than one), shown in the model drawer. */
+  thought?: ChatThought | null;
+  onThought?: (value: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
 }
@@ -80,7 +83,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   modes,
   onMode,
   models = null,
+  thought = null,
   onModel,
+  onThought,
   onSend,
   onStop,
 }, ref) {
@@ -230,7 +235,7 @@ ${latest.current}` : added);
                 </button>
               </div>
             ) : null}
-            {onModel && <ChatModelPicker models={models} busy={busy} onModel={onModel} />}
+            {onModel && onThought && <ChatModelPicker models={models} thought={thought} busy={busy} onModel={onModel} onThought={onThought} />}
           </div>
           <div className="chat-actions-end">
             {dictation.supported && (

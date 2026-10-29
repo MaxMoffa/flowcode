@@ -1817,6 +1817,72 @@ summary.chat-step-row {
   background: var(--border);
 }
 
+.chat-model-level {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.chat-think {
+  padding: 6px 8px 8px;
+}
+
+.chat-think-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.chat-think-head b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.chat-think-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--border);
+}
+
+.chat-think-opt {
+  flex: 1 1 auto;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.chat-think-opt:hover {
+  color: var(--fg);
+}
+
+.chat-think-opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chat-think-opt.is-on {
+  background: var(--card-bg);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.chat-think-desc {
+  margin-top: 6px;
+}
+
 .chat-model-older {
   width: 100%;
   align-items: center;

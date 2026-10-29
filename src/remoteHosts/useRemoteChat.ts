@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { applyEvents, canDispatch, chatModels, chatModes, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
+import { applyEvents, canDispatch, chatModels, chatModes, chatThought, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
 import { t } from "../i18n";
 import { applyLocalError, isAgentBusy } from "../chat/chatModel";
 import type { ChatSession } from "../chat/useChat";
@@ -80,6 +80,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const model = useMemo(() => (status === session.model.status ? session.model : { ...session.model, status }), [session.model, status]);
   const modes = useMemo(() => chatModes(info, model), [info, model]);
   const models = useMemo(() => (canSetModel ? chatModels(info, model) : null), [canSetModel, info, model]);
+  const thought = useMemo(() => chatThought(info, model), [info, model]);
 
   const send = useCallback(
     (text: string) => {
@@ -98,6 +99,14 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     (modelId: string) =>
       void sendToHost(hostId, { t: "chatmodel", chatId, modelId }).then((ok) => {
         if (!ok) update((s) => ({ ...s, model: applyLocalError(s.model, t("chat.model.failed", { error: t("chat.model.offline") })) }));
+      }),
+    [hostId, chatId, update],
+  );
+  /** Like `setModel`: the remote's `_flowcode/thought` event shows the outcome. */
+  const setThought = useCallback(
+    (value: string) =>
+      void sendToHost(hostId, { t: "chatthought", chatId, value }).then((ok) => {
+        if (!ok) update((s) => ({ ...s, model: applyLocalError(s.model, t("chat.thought.failed", { error: t("chat.model.offline") })) }));
       }),
     [hostId, chatId, update],
   );
@@ -122,6 +131,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     error: null,
     modes,
     models,
+    thought,
     chatId,
     queued: useMemo(() => session.queued.map((text) => ({ text, attachments: [] })), [session.queued]),
     // The remote protocol carries text only.
@@ -134,6 +144,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     answerPermission,
     setMode,
     setModel,
+    setThought,
     unqueue,
     force,
     restart,

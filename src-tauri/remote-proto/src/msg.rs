@@ -95,6 +95,8 @@ pub enum ClientMsg {
     ChatMode { chat_id: String, mode_id: String },
     /// Switch the chat's agent to another of the models it offers (`ChatInfo::models`).
     ChatModel { chat_id: String, model_id: String },
+    /// Switch the chat's agent to another of the thinking levels it offers (`ChatInfo::thought`).
+    ChatThought { chat_id: String, value: String },
     /// Hand the chat's session over to a desktop terminal tab, as Ctrl+` does there.
     ChatTerminal { chat_id: String },
     /// Reopen the agent running in the terminal tab of `pty_id` as a chat tab on the same session (the reverse of `ChatTerminal`).
@@ -248,6 +250,10 @@ pub struct ChatInfo {
     /// `{ currentModelId, availableModels: [{ modelId, name, description?, group? }] }`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models: Option<serde_json::Value>,
+    /// The thinking levels the agent offers (they follow the model):
+    /// `{ currentId, available: [{ id, name, description? }] }`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thought: Option<serde_json::Value>,
 }
 
 /// An installed agent view plugin: its manifest plus what a phone needs to
@@ -455,6 +461,8 @@ mod tests {
         assert_eq!(json, serde_json::json!({ "t": "chatmode", "chatId": "c1", "modeId": "plan" }));
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatmodel","chatId":"c1","modelId":"opus"}"#).unwrap();
         assert_eq!(msg, ClientMsg::ChatModel { chat_id: "c1".into(), model_id: "opus".into() });
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatthought","chatId":"c1","value":"high"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatThought { chat_id: "c1".into(), value: "high".into() });
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"newchat","cli":"claude"}"#).unwrap();
         assert_eq!(msg, ClientMsg::NewChat { cli: "claude".into(), cwd: None, profile: None });
         let events = vec![serde_json::json!({ "seq": 1 })];
@@ -472,6 +480,7 @@ mod tests {
             status: Some("idle".into()),
             modes: None,
             models: None,
+            thought: None,
         };
         let json = serde_json::to_value(ServerMsg::Chats { chats: vec![info] }).unwrap();
         assert_eq!(

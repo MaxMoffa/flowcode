@@ -122,6 +122,7 @@ Client messages:
 | `newchat {cli, cwd?, profile?}` | Open a new desktop chat tab for `cli`, in `cwd` (else the start folder), under `profile` like `newtab`. |
 | `chatrename {chatId, label}` | Rename a desktop chat tab, like `rename` (trimmed, max 128 characters, blank ignored). No reply: the next `chats` shows the new label. Needs the `chatRename` capability. |
 | `chatclosetab {chatId}` | Close a desktop chat tab, like `closetab` (never the last tab of its window). No reply: the next `chats` no longer lists it. Needs the `chatCloseTab` capability. |
+| `chatthought {chatId, value}` | Switch the chat's agent to another of the thinking levels it offers (`thought` of the chat in `chats`: `{currentId, available: [{id, name, description?}]}`, from the agent's `thought_level` config option; the levels depend on the model). A level the agent doesn't offer, or an agent that refuses, gets a non-fatal `error`. No reply: followers get an `ext` chat event `_flowcode/thought`, and the next `chats` shows it. Needs the `chatThought` capability. |
 | `chatmodel {chatId, modelId}` | Switch the chat's agent to another of the models it offers (`models` of the chat in `chats`: `{currentModelId, availableModels: [{modelId, name, description?, group?}]}`, normalized by the desktop from ACP's `models` or its `model` config option). Allowed mid-turn: it applies from the next prompt. A model the agent doesn't offer, or an agent that refuses, gets a non-fatal `error`. No reply: followers get an `ext` chat event `_flowcode/model` with the new models, and the next `chats` shows them. Needs the `chatModel` capability. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
@@ -189,12 +190,16 @@ Action     {id, label, icon?, cli?: "claude"|"codex"|"vibe"|"gemini"}
 LsEntry    {name, dir, size?}
 ChatInfo   {chatId, tabId, window, label, agent, cwd, profile?, sessionId?,
             status?: "starting"|"idle"|"busy"|"waiting"|"exited",
-            modes?: {currentModeId, availableModes}, models?: {currentModelId, availableModels: [{modelId, name, description?, group?}]}}
+            modes?: {currentModeId, availableModes}, models?: {currentModelId, availableModels: [{modelId, name, description?, group?}]},
+            thought?: {currentId, available: [{id, name, description?}]}}
 ```
 
 - `ChatInfo.models` is what the agent offers, normalized by the desktop (from
   ACP's `models` or its `model` config option); absent when it offers no
   choice, or from an older desktop. `chatmodel` picks one of them.
+- `ChatInfo.thought` is the agent's thinking levels (its `thought_level` config
+  option); absent when it offers none (it may change with the model).
+  `chatthought` picks one of them.
 
 - `context` is how full the agent's context window is, in tokens (`used` of
   `window`); only for claude/codex tabs whose transcript can be read, and
@@ -228,6 +233,10 @@ events:
   `{currentModelId, availableModels}` (as `ChatInfo.models`), or
   `{currentModelId: null, availableModels: []}` when the agent no longer
   offers a choice.
+- `_flowcode/thought`: the chat's thinking levels changed (a `chatthought`, a
+  model switch, or the agent pushed new config options). `params` is the
+  normalized `{currentId, available}` (as `ChatInfo.thought`), or
+  `{currentId: null, available: []}` when the agent no longer offers any.
 - `_session/retrying`: the agent retries a failed request (`params`:
   `{category, detail}`); stale once the turn ended.
 

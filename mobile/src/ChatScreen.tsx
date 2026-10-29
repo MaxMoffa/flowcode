@@ -10,9 +10,9 @@ import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu"
 import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
 import { defaultModeToApply } from "./chatModeDefaults";
-import { chatModels, chatModes, chatStatus, emptySession, pendingPermissions } from "./chatSession";
+import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingPermissions } from "./chatSession";
 import { useTwoFingerSwipe } from "./chatSwipe";
-import { answerChatPermission, cancelChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatPermission, cancelChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { tapFeedback } from "./haptics";
@@ -133,6 +133,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const modes = chatModes(info, model);
   const canSetModel = useSupports("chatModel");
   const models = canSetModel ? chatModels(info, model) : null;
+  const thought = chatThought(info, model);
   // A new chat starts in the agent's default mode for this device, once.
   useEffect(() => {
     if (!info || !modes || defaultModeTried.has(chatId)) return;
@@ -412,7 +413,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
               {t("chatExited")}
             </div>
           ) : (
-            <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} onSend={(text) => sendChatPrompt(chatId, text)} onStop={() => cancelChat(chatId)} />
+            <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={(text) => sendChatPrompt(chatId, text)} onStop={() => cancelChat(chatId)} />
           )}
         </>
       ) : (

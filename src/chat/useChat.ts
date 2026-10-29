@@ -3,8 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AgentCli } from "../agents/cliInfo";
 import { t } from "../i18n";
-import { applyEvent, applyLocalError, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, mergeReplay, settleChat, type ChatModelState } from "./chatModel";
-import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus } from "./chatTypes";
+import { applyEvent, applyLocalError, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleChat, type ChatModelState } from "./chatModel";
+import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 
 /** A message waiting for the agent to be idle. */
 export interface QueuedMessage {
@@ -42,6 +42,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   const [modes, setModes] = useState<ChatModes | null>(null);
   // The models announced at the start; the live list and current one come from the conversation's events (`model.models`).
   const [announcedModels, setAnnouncedModels] = useState<ChatModels | null>(null);
+  // The thinking levels announced at the start; the live ones come from the conversation's events (`model.thought`).
+  const [announcedThought, setAnnouncedThought] = useState<ChatThought | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
   const [queued, setQueued] = useState<QueuedMessage[]>([]);
   // The agent loaded the session asked for (false for a fresh one, or a resume that fell back to a new session).
@@ -106,6 +108,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           setChatId(started.chatId);
           setModes(started.modes);
           setAnnouncedModels(started.models ?? null);
+          setAnnouncedThought(started.thought ?? null);
           onSessionIdRef.current(started.sessionId);
           // Subscribe before fetching the replay, and hold what arrives
           // meanwhile: applied first, a live event would raise `lastSeq` past
@@ -255,6 +258,25 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     });
   }, []);
 
+  // Likewise the thinking levels: `_flowcode/thought` says them once they change (they follow the model).
+  const offeredThought = model.thought !== undefined ? model.thought : announcedThought;
+  const thought = useMemo(() => liveThought(offeredThought), [offeredThought]);
+  const thoughtRef = useRef(thought);
+  thoughtRef.current = thought;
+
+  /** Switches the agent's thinking level (from its next message on, if a turn runs): shown at once, put back if the backend refuses. */
+  const setThought = useCallback((value: string) => {
+    const id = chatIdRef.current;
+    const before = thoughtRef.current;
+    if (!id || !before || value === before.currentId) return;
+    setModelState((m) => ({ ...m, thought: { ...before, currentId: value } }));
+    invoke("chat_set_thought", { chatId: id, value }).catch((err) => {
+      if (chatIdRef.current !== id) return;
+      // Only undo our own guess: an event may have moved the level since.
+      setModelState((m) => applyLocalError(m.thought?.currentId === value ? { ...m, thought: before } : m, t("chat.thought.failed", { error: String(err) })));
+    });
+  }, []);
+
   const unqueue = useCallback((index: number) => setQueued((q) => q.filter((_, i) => i !== index)), []);
 
   /** Starts the agent again - resuming the same session when it had a conversation. */
@@ -281,7 +303,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, chatId, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, setThought, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */

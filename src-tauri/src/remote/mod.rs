@@ -784,6 +784,7 @@ impl Shared {
                     status: Some(chat.status.as_str().to_string()),
                     modes: chat.modes.clone(),
                     models: chat.models.clone(),
+                    thought: chat.thought.clone(),
                 })
             })
             .collect()
@@ -2164,6 +2165,21 @@ impl Conn {
                     let result = app.state::<ChatState>().set_model(&chat_id, model_id).await;
                     if let Err(message) = result {
                         let message = format!("{}: {message}", tr("Impossibile cambiare modello", "Couldn't change the model"));
+                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                    }
+                });
+            }
+            // As `ChatModel`, for the thinking level.
+            ClientMsg::ChatThought { chat_id, value } => {
+                if chat_id.len() > MAX_ID_BYTES || value.is_empty() || value.len() > MAX_ID_BYTES {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                    return;
+                }
+                let (app, out) = (self.shared.app.clone(), self.out_tx.clone());
+                tauri::async_runtime::spawn(async move {
+                    let result = app.state::<ChatState>().set_thought(&chat_id, value).await;
+                    if let Err(message) = result {
+                        let message = format!("{}: {message}", tr("Impossibile cambiare il livello di ragionamento", "Couldn't change the thinking level"));
                         let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
                     }
                 });

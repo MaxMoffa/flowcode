@@ -2,8 +2,8 @@
 // own reducer, src/chat/chatModel.ts) plus what only the phone keeps: the raw
 // events for plugin views and the messages waiting to be sent. Pure functions,
 // so the resume-after-reconnect and queue rules are testable without a link.
-import { applyEvent, forceCancels, initialChat, liveModels, normalizeModels, settleChat, type ChatModelState } from "../src/chat/chatModel";
-import type { ChatEvent, ChatModels, ChatModes, ChatStatus } from "../src/chat/chatTypes";
+import { applyEvent, forceCancels, initialChat, liveModels, liveThought, normalizeModels, normalizeThought, settleChat, type ChatModelState } from "../src/chat/chatModel";
+import type { ChatEvent, ChatModels, ChatModes, ChatStatus, ChatThought } from "../src/chat/chatTypes";
 import type { ChatInfo } from "./remote-types";
 
 /** Raw events kept per chat for plugin views to replay; the oldest go first. */
@@ -134,4 +134,9 @@ export function chatModes(info: ChatInfo | undefined, model: ChatModelState): Ch
 /** The models the desktop announced (already normalized there), checked; the list its events last said and the live model win. Null when there is nothing to choose between. */
 export function chatModels(info: ChatInfo | undefined, model: ChatModelState): ChatModels | null {
   return liveModels(model.models !== undefined ? model.models : normalizeModels(info?.models), model.currentModelId);
+}
+
+/** The thinking levels the desktop announced, checked; the list its events last said wins. Null when there is nothing to choose between. */
+export function chatThought(info: ChatInfo | undefined, model: ChatModelState): ChatThought | null {
+  return liveThought(model.thought !== undefined ? model.thought : normalizeThought(info?.thought));
 }

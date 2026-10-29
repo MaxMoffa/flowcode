@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import type { ChatModelOption, ChatModels } from "../../src/chat/chatTypes";
+import type { ChatModelOption, ChatModels, ChatThought } from "../../src/chat/chatTypes";
 import { splitModelVersions } from "../../src/chat/modelVersions";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
@@ -23,21 +23,37 @@ const keepFocus = {
 /** The composer's model pill and the bottom drawer it opens, styled like the mode
  * picker; the newest models come first and older versions sit behind an expandable row.
  * `models` is null when the agent offers no choice (or the desktop can't switch). */
-export function ChatModelPicker({ models, busy, onModel }: { models: ChatModels | null; busy: boolean; onModel: (modelId: string) => void }) {
+export function ChatModelPicker({
+  models,
+  thought = null,
+  busy,
+  onModel,
+  onThought,
+}: {
+  models: ChatModels | null;
+  /** The thinking levels (more than one), shown under the models; the pill also shows the current one. */
+  thought?: ChatThought | null;
+  busy: boolean;
+  onModel: (modelId: string) => void;
+  onThought?: (value: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [olderOpen, setOlderOpen] = useState(false);
   const split = useMemo(() => (models ? splitModelVersions(models.availableModels) : null), [models]);
   const close = () => setOpen(false);
   useEscape(open, close);
   useBackHandler(open, close);
-  if (!models || !split) return null;
-  const current = models.availableModels.find((m) => m.modelId === models.currentModelId);
-  const name = current?.name ?? models.currentModelId;
-  const olderHasCurrent = split.older.some((m) => m.modelId === models.currentModelId);
+  if ((!models || !split) && !thought) return null;
+  const current = models?.availableModels.find((m) => m.modelId === models.currentModelId);
+  const modelName = models ? (current?.name ?? models.currentModelId) : null;
+  const level = thought ? (thought.available.find((l) => l.id === thought.currentId) ?? null) : null;
+  // Without a model choice the pill shows just the level.
+  const name = modelName ?? level?.name ?? thought?.currentId ?? "";
+  const olderHasCurrent = !!models && !!split && split.older.some((m) => m.modelId === models.currentModelId);
 
   const renderList = (list: ChatModelOption[]) =>
     list.map((m, i) => {
-      const on = m.modelId === models.currentModelId;
+      const on = m.modelId === models?.currentModelId;
       const newGroup = m.group && m.group !== list[i - 1]?.group;
       return (
         <Fragment key={m.modelId}>
@@ -67,18 +83,20 @@ export function ChatModelPicker({ models, busy, onModel }: { models: ChatModels 
 
   return (
     <div className="chat-mode chat-model">
-      <AdaptiveSheet open={open} onClose={close} variant="drawer" side="right" portal label={t("chatModel")}>
+      <AdaptiveSheet open={open} onClose={close} variant="drawer" side="right" portal label={t(models ? "chatModel" : "chatThinkingLevel")}>
         <div className="tm-grabber" />
         <header className="tm-sheet-head">
-          <h2>{t("chatModel")}</h2>
+          <h2>{t(models ? "chatModel" : "chatThinkingLevel")}</h2>
           <button type="button" className="tm-btn" aria-label={t("closeViewer")} onClick={close}>
             <CloseIcon />
           </button>
         </header>
-        <div className="chat-pick-body" role="radiogroup" aria-label={t("chatModel")}>
+        <div className="chat-pick-body">
           {busy && <div className="chat-model-hint">{t("chatModelNextTurn")}</div>}
-          {renderList(split.latest)}
-          {split.older.length > 0 && (
+          {models && split && (
+            <div role="radiogroup" aria-label={t("chatModel")}>
+              {renderList(split.latest)}
+              {split.older.length > 0 && (
             <>
               <div className="chat-mode-row">
                 <button
@@ -101,6 +119,37 @@ export function ChatModelPicker({ models, busy, onModel }: { models: ChatModels 
               </div>
               {olderOpen && renderList(split.older)}
             </>
+              )}
+            </div>
+          )}
+          {thought && onThought && (
+            <div className="chat-think">
+              <div className="chat-think-head">
+                <span>{t("chatThinkingLevel")}</span>
+                <b>{level?.name ?? thought.currentId}</b>
+              </div>
+              <div className="chat-think-seg" role="radiogroup" aria-label={t("chatThinkingLevel")}>
+                {thought.available.map((l) => {
+                  const on = l.id === thought.currentId;
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      className={on ? "on" : ""}
+                      onClick={() => {
+                        tapFeedback();
+                        if (!on) onThought(l.id);
+                      }}
+                    >
+                      {l.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {level?.description && <div className="chat-think-desc">{level.description}</div>}
+            </div>
           )}
         </div>
       </AdaptiveSheet>
@@ -110,7 +159,7 @@ export function ChatModelPicker({ models, busy, onModel }: { models: ChatModels 
         className="chat-mode-pill chat-model-pill"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={t("chatModelAria", { name })}
+        aria-label={models ? t("chatModelAria", { name }) + (level ? `, ${t("chatThinkingLevel")}: ${level.name}` : "") : `${t("chatThinkingLevel")}: ${name}`}
         onClick={() => {
           if (!open) setOlderOpen(olderHasCurrent);
           setOpen(!open);
@@ -118,6 +167,7 @@ export function ChatModelPicker({ models, busy, onModel }: { models: ChatModels 
       >
         <ChipIcon />
         <span>{name}</span>
+        {models && level && <span className="chat-model-level">· {level.name}</span>}
       </button>
     </div>
   );

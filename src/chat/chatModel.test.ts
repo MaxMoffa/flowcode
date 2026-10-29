@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, mergeReplay, settleChat, stopKind, type ChatModelState } from "./chatModel";
+import { applyEvent, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
 
 let seq = 0;
@@ -394,6 +394,39 @@ describe("merged replay chunks", () => {
 
   it("takes every live event when the replay is empty", () => {
     expect(mergeReplay([], [text(2, "b"), text(1, "a")]).map((e) => e.seq)).toEqual([1, 2]);
+  });
+});
+
+describe("the thinking levels from events", () => {
+  const ext = (params: unknown): ChatEvent => ({ kind: "ext", seq: next(), at: 0, method: THOUGHT_EXT_METHOD, params });
+  const levels = { currentId: "high", available: [{ id: "low", name: "Low" }, { id: "high", name: "High", description: "Thinks a lot" }] };
+
+  it("is unknown until an event says, then follows `_flowcode/thought`", () => {
+    expect(initialChat().thought).toBeUndefined();
+    let s = run([ext(levels)]);
+    expect(s.thought).toEqual(levels);
+    // The levels change with the model.
+    s = run([ext({ currentId: "max", available: [...levels.available, { id: "max", name: "Max" }] })], s);
+    expect(s.thought?.available).toHaveLength(3);
+    expect(s.thought?.currentId).toBe("max");
+    // Not offered any more.
+    s = run([ext({ currentId: null, available: [] })], s);
+    expect(s.thought).toBeNull();
+  });
+
+  it("ignores junk and keeps the announced one holding until an event says", () => {
+    const s = run([ext("x"), ext({ currentId: "low" })]);
+    expect(s.thought).toBeUndefined();
+    expect(liveThought(s.thought !== undefined ? s.thought : levels)).toBe(levels);
+  });
+
+  it("offers a choice only with two levels or more, and normalizes defensively", () => {
+    expect(liveThought(levels)).toBe(levels);
+    expect(liveThought({ currentId: "a", available: [{ id: "a", name: "A" }] })).toBeNull();
+    expect(liveThought(null)).toBeNull();
+    expect(normalizeThought({ available: [{ id: "a", name: "A" }, { name: "no id" }, null] })).toEqual({ currentId: "a", available: [{ id: "a", name: "A" }] });
+    expect(normalizeThought({ currentId: "a", available: [] })).toBeNull();
+    expect(normalizeThought(5)).toBeNull();
   });
 });
 

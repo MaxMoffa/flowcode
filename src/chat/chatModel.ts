@@ -6,6 +6,8 @@ import type {
   ChatPermissionOption,
   ChatPlanEntry,
   ChatStatus,
+  ChatThought,
+  ChatThoughtOption,
   ChatToolCall,
   ChatUpdate,
 } from "./chatTypes";
@@ -41,6 +43,8 @@ export interface ChatModelState {
   currentModelId: string | null;
   /** The models the agent offers, as its events last said (a `_flowcode/model` event, or a `config_option_update` with a model option): null when it offers none, undefined until an event says (the ones announced at the start hold). */
   models?: ChatModels | null;
+  /** The thinking levels the agent offers, as its `_flowcode/thought` events last said: null when it offers none, undefined until an event says (the one announced at the start holds). */
+  thought?: ChatThought | null;
   status: ChatStatus;
   /** Highest event `seq` applied - replayed and live events never apply twice. */
   lastSeq: number;
@@ -58,6 +62,9 @@ export function initialChat(): ChatModelState {
 
 /** The backend's event saying the chat's model changed (params: the normalized `ChatModels`). */
 export const MODEL_EXT_METHOD = "_flowcode/model";
+
+/** The backend's event saying the chat's thinking levels (or the current one) changed (params: the normalized `ChatThought`). */
+export const THOUGHT_EXT_METHOD = "_flowcode/thought";
 
 /** The current value of the model option among ACP session config options (category `model`, else id `model`); null without one. */
 export function configModelValue(configOptions: unknown): string | null {
@@ -78,6 +85,20 @@ export function normalizeModels(raw: unknown): ChatModels | null {
   );
   if (availableModels.length === 0) return null;
   return { currentModelId: str(m.currentModelId) ?? availableModels[0].modelId, availableModels };
+}
+
+/** The backend's normalized thinking levels (`{ currentId, available }`, the `_flowcode/thought` params and `ChatInfo.thought`), checked; null when there are none (`available: []` = the agent offers no level any more). */
+export function normalizeThought(raw: unknown): ChatThought | null {
+  const m = raw as Partial<ChatThought> | null | undefined;
+  if (!m || typeof m !== "object" || !Array.isArray(m.available)) return null;
+  const available = m.available.filter((x): x is ChatThoughtOption => !!x && typeof x.id === "string" && x.id !== "" && typeof x.name === "string");
+  if (available.length === 0) return null;
+  return { currentId: str(m.currentId) ?? available[0].id, available };
+}
+
+/** The announced thinking levels, or null when there is no choice to make (fewer than two levels). */
+export function liveThought(thought: ChatThought | null | undefined): ChatThought | null {
+  return thought && thought.available.length >= 2 ? thought : null;
 }
 
 /** The models of ACP session config options, like the backend reads them: the `select` option of category `model` (else id `model`), its choices flat or grouped (the group's name as caption). Null without one. */
@@ -269,6 +290,12 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
         // Normalized by the backend: the whole list, `availableModels: []` when the agent offers none any more.
         const models = Array.isArray(params.availableModels) ? normalizeModels(params) : state.models;
         return { ...state, models, currentModelId: str(params.currentModelId) ?? state.currentModelId };
+      }
+      if (ev.method === THOUGHT_EXT_METHOD) {
+        const params = (ev.params ?? {}) as Record<string, unknown>;
+        if (!Array.isArray(params.available)) return state;
+        // Normalized by the backend: the whole list, `available: []` when the agent offers none any more.
+        return { ...state, thought: normalizeThought(params) };
       }
       // A retry reported after the turn ended (e.g. it was cancelled) is stale.
       if (ev.method !== "_session/retrying" || !state.turnActive) return state;

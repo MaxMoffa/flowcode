@@ -69,6 +69,18 @@ export interface ChatModels {
   availableModels: ChatModelOption[];
 }
 
+export interface ChatThoughtOption {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** The thinking levels the agent offers (its `thought_level` config option); they can change with the model. */
+export interface ChatThought {
+  currentId: string;
+  available: ChatThoughtOption[];
+}
+
 export interface ChatPermissionOption {
   optionId: string;
   name: string;
@@ -111,6 +123,7 @@ export interface ChatStartResult {
   agent: string;
   modes: ChatModes | null;
   models: ChatModels | null;
+  thought?: ChatThought | null;
   configOptions: unknown;
   /** The session was resumed: its history arrives as events. */
   loaded: boolean;

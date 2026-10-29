@@ -225,6 +225,12 @@ export function setChatModel(chatId: string, modelId: string) {
     if (!ok) showToast(t("chatModelSendFailed"));
   });
 }
+/** Switches the chat's thinking level; the desktop's `_flowcode/thought` event shows it, a refusal arrives as an error toast. */
+export function setChatThought(chatId: string, value: string) {
+  void sendChecked({ t: "chatthought", chatId, value }).then((ok) => {
+    if (!ok) showToast(t("chatThoughtSendFailed"));
+  });
+}
 export const renameChat = (chatId: string, label: string) => send({ t: "chatrename", chatId, label });
 /** Asks the desktop to turn the chat's session into a terminal tab. */
 const chatToTerminal = (chatId: string) => send({ t: "chatterminal", chatId });

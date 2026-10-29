@@ -1316,6 +1316,64 @@ button.chat-step-row {
   font-weight: 600;
 }
 
+.chat-model-level {
+  flex: none;
+  color: var(--muted);
+}
+
+.chat-think {
+  padding: 12px 16px 6px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-think-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.chat-think-head b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.chat-think-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.chat-think-seg button {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+}
+
+.chat-think-seg button.on {
+  background: var(--surface-3);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.chat-think-desc {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
 .chat-model-chevron {
   flex: none;
   display: grid;

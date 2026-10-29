@@ -137,6 +137,7 @@ pub fn run() {
             chat::chat_permission,
             chat::chat_set_mode,
             chat::chat_set_model,
+            chat::chat_set_thought,
             chat::chat_close,
             chat::chat_adapter_ready,
             chat::chat_events,
