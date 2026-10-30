@@ -13,6 +13,8 @@ interface NarrowLayoutInput {
   setSidebarCollapsed: Setter<boolean>;
   agentsSidebarOpen: boolean;
   setAgentsSidebarOpen: Setter<boolean>;
+  browserOpen: boolean;
+  setBrowserOpen: Setter<boolean>;
 }
 
 export function useNarrowLayout({
@@ -21,6 +23,8 @@ export function useNarrowLayout({
   setSidebarCollapsed,
   agentsSidebarOpen,
   setAgentsSidebarOpen,
+  browserOpen,
+  setBrowserOpen,
 }: NarrowLayoutInput) {
   // Booleans, not the raw width: React bails out of the re-render when a
   // resize frame doesn't cross a breakpoint.
@@ -48,18 +52,28 @@ export function useNarrowLayout({
   const sidebarDocked = effectiveSidebarMode === "docked" && !sidebarCollapsed;
   const sidebarPresence = usePanelPresence(sidebarDocked);
   const agentsPresence = usePanelPresence(agentsSidebarOpen);
+  const browserPresence = usePanelPresence(browserOpen);
 
-  // Both panels are overlays when narrow, so only one may be open: whichever
-  // was opened last wins (on entering narrow with both open, the sidebar wins).
-  const prevPanelsRef = useRef({ sidebarOpen: !sidebarCollapsed, agentsOpen: agentsSidebarOpen });
+  // The panels are overlays when narrow, so only one may be open: whichever
+  // was opened last wins (on entering narrow with several open, the first in
+  // this order - sidebar, agents, browser - wins).
+  const prevPanelsRef = useRef({ sidebar: !sidebarCollapsed, agents: agentsSidebarOpen, browser: browserOpen });
   useEffect(() => {
     const prev = prevPanelsRef.current;
-    const sidebarOpen = !sidebarCollapsed;
-    prevPanelsRef.current = { sidebarOpen, agentsOpen: agentsSidebarOpen };
-    if (!isNarrow || !sidebarOpen || !agentsSidebarOpen) return;
-    if (!prev.agentsOpen) setSidebarCollapsed(true);
-    else setAgentsSidebarOpen(false);
-  }, [isNarrow, sidebarCollapsed, agentsSidebarOpen, setSidebarCollapsed, setAgentsSidebarOpen]);
+    const panels = [
+      { key: "sidebar", open: !sidebarCollapsed, close: () => setSidebarCollapsed(true) },
+      { key: "agents", open: agentsSidebarOpen, close: () => setAgentsSidebarOpen(false) },
+      { key: "browser", open: browserOpen, close: () => setBrowserOpen(false) },
+    ] as const;
+    prevPanelsRef.current = { sidebar: panels[0].open, agents: panels[1].open, browser: panels[2].open };
+    if (!isNarrow) return;
+    const open = panels.filter((p) => p.open);
+    if (open.length < 2) return;
+    // The one that just opened stays; with none new (entering narrow) the first wins.
+    const fresh = open.filter((p) => !prev[p.key]);
+    const keep = fresh.length > 0 ? fresh[fresh.length - 1] : open[0];
+    for (const p of open) if (p !== keep) p.close();
+  }, [isNarrow, sidebarCollapsed, agentsSidebarOpen, browserOpen, setSidebarCollapsed, setAgentsSidebarOpen, setBrowserOpen]);
 
   useEffect(() => {
     if (!isNarrow || !agentsSidebarOpen) return;
@@ -71,6 +85,15 @@ export function useNarrowLayout({
   }, [isNarrow, agentsSidebarOpen, setAgentsSidebarOpen]);
 
   useEffect(() => {
+    if (!isNarrow || !browserOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBrowserOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isNarrow, browserOpen, setBrowserOpen]);
+
+  useEffect(() => {
     if (effectiveSidebarMode !== "floating" || sidebarCollapsed) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSidebarCollapsed(true);
@@ -79,5 +102,5 @@ export function useNarrowLayout({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [effectiveSidebarMode, sidebarCollapsed]);
 
-  return { isNarrow, effectiveSidebarMode, sidebarPresence, agentsPresence };
+  return { isNarrow, effectiveSidebarMode, sidebarPresence, agentsPresence, browserPresence };
 }

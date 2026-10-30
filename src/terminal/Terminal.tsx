@@ -12,6 +12,8 @@ import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
 import { useOpenLink } from "./useOpenLink";
+import { addDetectedServer, extractLocalServers, openUrlInPreview, removeServersOfTab, stripAnsi } from "../browser/browserStore";
+import { getBrowserSettings } from "../browser/browserSettings";
 import { createPathLinkProvider } from "./pathLinkProvider";
 import { checkPath, useOpenPath, type PathTarget } from "../lib/fileLinks";
 import {
@@ -204,6 +206,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // When pty output last reached this component - a silent navigation waits
   // for it to go quiet, so the prompt it settles on is the finished one.
   const lastOutputAtRef = useRef(0);
+  const serverTailRef = useRef("");
   // A silent `cd` in flight (see `navigateSilently`): the pty's output is
   // held back from xterm - the screen just stays as it was, like a short
   // delay - and applied in one go once the fresh prompt has been drawn.
@@ -317,12 +320,25 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     }
   }
 
+  /** Spots a dev server announcing its address. The tail of the previous chunk
+   * is kept because a chunk boundary can split a URL; re-matching it is
+   * harmless since the store dedupes by port. */
+  function detectServers(data: string) {
+    const text = serverTailRef.current + stripAnsi(data);
+    serverTailRef.current = text.slice(-200);
+    if (!text.includes("://")) return;
+    for (const { url, port } of extractLocalServers(text)) {
+      if (addDetectedServer(url, port, tabId) && getBrowserSettings().autoOpenOnServer) openUrlInPreview(url);
+    }
+  }
+
   /** Every chunk of pty output goes through here. Normally straight into
    * xterm; while a silent navigation is in flight it is held instead, and its
    * title escape (the shell reporting the new cwd) starts the wait for the
    * fresh prompt to finish drawing. */
   function receive(data: string, seq: number) {
     lastOutputAtRef.current = performance.now();
+    detectServers(data);
     const term = xtermRef.current;
     if (!term) return;
     const nav = navRef.current;
@@ -1059,6 +1075,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
 
     return () => {
       disposed = true;
+      removeServersOfTab(tabId);
       resizeObserver.disconnect();
       unsubscribeDragEnd();
       unsubscribeResume();

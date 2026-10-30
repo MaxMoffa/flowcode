@@ -45,6 +45,7 @@ type PluginAction =
   | "clearTerminal"        // clears the active terminal
   | "toggleSidebar"        // shows/hides the left file-explorer panel
   | "toggleAgentsSidebar"  // shows/hides the right "Agenti attivi" panel
+  | "toggleBrowser"        // shows/hides the right built-in browser panel (local server, artifact and web page preview)
   | "runCommand"      // types `command` into the active terminal, as if the user had typed it
   | "notify"          // shows `message` as a transient toast
   | "dialog"          // opens a dialog with `title` + `message` + `buttons`

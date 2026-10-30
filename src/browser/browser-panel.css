@@ -1,0 +1,327 @@
+/* The in-app browser, filling its panel-card on the right like the agents
+ * panel. The header and chips follow the file tree's header rhythm. */
+.browser-panel {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar-bg);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+
+.browser-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--panel-header-h);
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.browser-panel .icon-button.sm {
+  width: 24px;
+  height: 24px;
+}
+
+.browser-panel .icon-button.sm svg {
+  width: 13px;
+  height: 13px;
+}
+
+.browser-panel .icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+
+/* Same look as the file tree's header label (.file-tree-header-label). */
+.browser-panel-url,
+.browser-panel-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0 4px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  border-radius: 4px;
+  color: var(--fg);
+}
+
+.browser-panel-url {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: none;
+  text-align: left;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.browser-panel-url:hover {
+  background: color-mix(in srgb, var(--fg) 13%, transparent);
+}
+
+.browser-panel-url svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+}
+
+.browser-panel-url-host {
+  flex: 0 1 auto;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-panel-url-path {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-panel-url-input {
+  padding: 2px 7px;
+  border: 1px solid var(--accent);
+  outline: none;
+  background: var(--bg-elevated);
+}
+
+/* One chip per open page, then one per detected server not yet open. */
+.browser-panel-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex: 0 0 auto;
+  scrollbar-width: none;
+}
+
+.browser-panel-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.browser-panel-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--sidebar-hover);
+  color: var(--fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.browser-panel-chip.is-active {
+  background: var(--sidebar-selected-bg);
+  color: var(--sidebar-selected-fg);
+  border-color: transparent;
+}
+
+.browser-panel-chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding: 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* A page chip's label sits left of its ×, so it gives that side less padding. */
+.browser-panel-chip > .browser-panel-chip-main {
+  padding-right: 2px;
+}
+
+/* A server chip is a single button: it is the chip itself. */
+.browser-panel-chip.browser-panel-chip-main {
+  padding: 0 8px;
+}
+
+.browser-panel-chip-main svg {
+  width: 11px;
+  height: 11px;
+}
+
+.browser-panel-chip-label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-panel-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.browser-panel-chip-x:hover {
+  opacity: 1;
+  background: var(--ctrl-hover-bg);
+}
+
+.browser-panel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-muted);
+}
+
+.browser-panel-dot.is-alive {
+  background: var(--ansi-green);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ansi-green) 25%, transparent);
+}
+
+.browser-panel-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg-elevated);
+}
+
+/* Web pages assume a white canvas: show it behind them, not behind the empty state. */
+.browser-panel-viewport.has-page {
+  background: #fff;
+}
+
+.browser-panel-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* An iframe swallows pointer events, which would cut the resize drag short
+   the moment the cursor crosses it. */
+.browser-panel-viewport.is-dragging {
+  pointer-events: none;
+}
+
+.browser-panel-loadbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  height: 2px;
+  width: 40%;
+  background: var(--accent);
+  animation: browser-panel-load 1.2s ease-in-out infinite;
+}
+
+@keyframes browser-panel-load {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-panel-loadbar {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
+}
+
+/* Empty and blocked states cover the frame. */
+.browser-panel-state {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 30px;
+  text-align: center;
+  background: var(--bg-elevated);
+  color: var(--fg-muted);
+}
+
+.browser-panel-state-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--sidebar-hover);
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+
+.browser-panel-state-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.browser-panel-state h4 {
+  margin: 4px 0 0;
+  color: var(--fg);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.browser-panel-state p {
+  margin: 0;
+  max-width: 300px;
+}
+
+.browser-panel-state-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.browser-panel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--sidebar-hover);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.browser-panel-btn:hover {
+  background: var(--ctrl-hover-bg);
+}
+
+.browser-panel-btn.is-primary {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}

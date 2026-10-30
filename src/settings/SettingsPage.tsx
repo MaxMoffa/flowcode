@@ -12,6 +12,7 @@ import type { PluginDef, PluginManifest } from "../plugins/types";
 import type { SidebarMode } from "./modes";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "../terminal/shellOptions";
 import { writeBool } from "../lib/storage";
+import { setBrowserSetting, useBrowserSettings, type Target } from "../browser/browserSettings";
 import { NOTIFICATION_KINDS, setNotificationEnabled, useNotificationSettings } from "../notifications/notificationSettings";
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
 import { RemoteAccessSettings } from "./RemoteAccessSettings";
@@ -118,7 +119,6 @@ export function SettingsPage({
     setRestoreSession,
     restoreContent,
     setRestoreContent,
-    confirmLinkOpen,
     setConfirmLinkOpen,
     linkPreviews,
     setLinkPreviews,
@@ -285,6 +285,9 @@ export function SettingsPage({
     setRestoreSession(true);
     setRestoreContent(true);
     setConfirmLinkOpen(true);
+    setBrowserSetting("local", "app");
+    setBrowserSetting("artifacts", "app");
+    setBrowserSetting("external", "ask");
     setExplorerDoubleClick(true);
     setNewTabPage(true);
     onSetSidebarMode("auto");
@@ -298,6 +301,12 @@ export function SettingsPage({
 
 
   const onOff: [string, string] = [t("settings.on"), t("settings.off")];
+  const browserSettings = useBrowserSettings();
+  const targetOptions: { value: Target; label: string }[] = [
+    { value: "app", label: t("settings.browser.app") },
+    { value: "system", label: t("settings.browser.system") },
+    { value: "ask", label: t("settings.browser.ask") },
+  ];
   const languageOptions = (["system", ...LANGUAGES.map((l) => l.code)] as LanguagePreference[]).map((code) => ({
     value: code,
     label: code === "system" ? t("settings.language.system") : (LANGUAGES.find((l) => l.code === code)?.name ?? code),
@@ -455,17 +464,6 @@ export function SettingsPage({
             </SettingsGroup>
 
             <SettingsGroup title={t("settings.group.behavior")}>
-              <SettingRow id="links" label={t("settings.links.label")} desc={t("settings.links.desc")}>
-                <Segmented
-                  ariaLabel={t("settings.links.label")}
-                  value={confirmLinkOpen ? "ask" : "open"}
-                  options={[
-                    { value: "ask", label: t("settings.links.ask") },
-                    { value: "open", label: t("settings.links.open") },
-                  ]}
-                  onChange={(v) => setConfirmLinkOpen(v === "ask")}
-                />
-              </SettingRow>
               <SettingRow id="linkPreviews" label={t("settings.linkPreviews.label")} desc={t("settings.linkPreviews.desc")}>
                 <Segmented
                   ariaLabel={t("settings.linkPreviews.label")}
@@ -628,6 +626,60 @@ export function SettingsPage({
                   />
                 </SettingRow>
               )}
+            </SettingsGroup>
+          </>
+        )}
+
+        {section === "browser" && (
+          <>
+            <SettingsGroup title={t("settings.group.browserOpenWith")}>
+              {(
+                [
+                  ["browserLocal", "local"],
+                  ["browserArtifacts", "artifacts"],
+                  ["browserExternal", "external"],
+                ] as const
+              ).map(([id, field]) => (
+                <SettingRow key={id} id={id} label={t(`settings.browser.${field}.label`)} desc={t(`settings.browser.${field}.desc`)}>
+                  <Segmented
+                    ariaLabel={t(`settings.browser.${field}.label`)}
+                    value={browserSettings[field]}
+                    options={targetOptions}
+                    onChange={(value) => {
+                      setBrowserSetting(field, value);
+                      // The phone app still reads (and syncs) the old "ask before opening links" switch.
+                      if (field === "external") setConfirmLinkOpen(value === "ask");
+                    }}
+                  />
+                </SettingRow>
+              ))}
+            </SettingsGroup>
+
+            <SettingsGroup title={t("settings.group.behavior")}>
+              <SettingRow id="browserAutoOpen" label={t("settings.browser.autoOpen.label")} desc={t("settings.browser.autoOpen.desc")}>
+                <Switch
+                  checked={browserSettings.autoOpenOnServer}
+                  onChange={(on) => setBrowserSetting("autoOpenOnServer", on)}
+                  label={t("settings.browser.autoOpen.label")}
+                  stateLabels={onOff}
+                />
+              </SettingRow>
+              <SettingRow id="browserAutoReload" label={t("settings.browser.autoReload.label")} desc={t("settings.browser.autoReload.desc")}>
+                <Switch
+                  checked={browserSettings.autoReloadArtifacts}
+                  onChange={(on) => setBrowserSetting("autoReloadArtifacts", on)}
+                  label={t("settings.browser.autoReload.label")}
+                  stateLabels={onOff}
+                />
+              </SettingRow>
+              <SettingRow id="browserScripts" label={t("settings.browser.scripts.label")} desc={t("settings.browser.scripts.desc")}>
+                <Switch
+                  checked={browserSettings.artifactScripts}
+                  onChange={(on) => setBrowserSetting("artifactScripts", on)}
+                  label={t("settings.browser.scripts.label")}
+                  stateLabels={onOff}
+                />
+              </SettingRow>
             </SettingsGroup>
           </>
         )}

@@ -11,6 +11,7 @@ mod newtab_background;
 mod notify;
 mod plugins;
 mod profiles;
+mod preview;
 mod pty;
 mod remote;
 mod remote_client;
@@ -61,6 +62,11 @@ pub fn run() {
         .register_uri_scheme_protocol("flowcode-plugin", |ctx, request| {
             view_plugins::serve(ctx.app_handle(), &request)
         })
+        // Serves the browser panel's host page and the files of a previewed
+        // folder (see preview.rs). Its own scheme, separate from flowcode-plugin,
+        // because the two have opposite trust: a plugin is sandboxed from the
+        // network, a preview artifact may load CDN scripts.
+        .register_uri_scheme_protocol("flowcode-preview", |ctx, request| preview::serve(ctx.app_handle(), &request))
         .setup(|app| {
             #[cfg(target_os = "windows")]
             {
@@ -112,6 +118,7 @@ pub fn run() {
                 app.state::<watcher::DirWatchers>().forget(label);
             }
         })
+        .manage(preview::PreviewRoots::default())
         .manage(PtyState::default())
         .manage(chat::ChatState::default())
         .manage(dictation::DictationState::default())
@@ -229,6 +236,10 @@ pub fn run() {
             vibe::vibe_usage_stats,
             vibe::vibe_ensure_model,
             link_preview::link_preview,
+            preview::preview_register_root,
+            preview::preview_frame_check,
+            preview::preview_probe_port,
+            preview::preview_file_mtime,
             system::system_info,
             system::open_with_default_app,
             system::wsl_default_distro,

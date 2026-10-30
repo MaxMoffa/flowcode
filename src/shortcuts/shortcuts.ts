@@ -29,7 +29,7 @@ const SHORTCUT_GROUPS = {
     "lastTab",
   ],
   terminal: ["copy", "paste", "clearTerminal", "zoomIn", "zoomOut", "resetZoom"],
-  app: ["toggleSidebar", "toggleAgents", "toggleTheme", "openSettings", "showShortcuts"],
+  app: ["toggleSidebar", "toggleAgents", "toggleBrowser", "toggleTheme", "openSettings", "showShortcuts"],
 } as const satisfies Record<ShortcutGroup, readonly string[]>;
 
 export type ShortcutAction = (typeof SHORTCUT_GROUPS)[ShortcutGroup][number];
@@ -74,6 +74,7 @@ export const FALLBACK_DEFAULTS: Record<ShortcutAction, string> = {
   resetZoom: "Ctrl+0",
   toggleSidebar: "Ctrl+B",
   toggleAgents: "Ctrl+Shift+A",
+  toggleBrowser: "Ctrl+Shift+B",
   toggleTheme: "Ctrl+Shift+L",
   openSettings: "Ctrl+,",
   showShortcuts: "F1",

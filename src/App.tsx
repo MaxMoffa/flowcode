@@ -6,6 +6,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentsSidebar } from "./agents/AgentsSidebar";
+import { openFileInPreview, setBrowserOpen, toggleBrowser, useBrowser } from "./browser/browserStore";
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
@@ -131,6 +132,7 @@ const DiffView = lazy(() => import("./git/DiffView").then((m) => ({ default: m.D
 const TerminalAgentHeader = lazy(() => import("./agentViews/TerminalAgentHeader").then((m) => ({ default: m.TerminalAgentHeader })));
 const AgentSessionView = lazy(() => import("./agentViews/AgentSessionView").then((m) => ({ default: m.AgentSessionView })));
 const EditorView = lazy(() => import("./editor/EditorView").then((m) => ({ default: m.EditorView })));
+const BrowserPanel = lazy(() => import("./browser/BrowserPanel").then((m) => ({ default: m.BrowserPanel })));
 const WelcomeFlow = lazy(() => import("./welcome/WelcomeFlow").then((m) => ({ default: m.WelcomeFlow })));
 
 import {
@@ -194,6 +196,14 @@ function Shell() {
     max: 480,
     handleSide: "left",
   });
+  const browserResize = useResizablePanelWidth({
+    storageKey: "flowcode.browserWidth",
+    defaultWidth: 480,
+    min: 320,
+    max: 1100,
+    handleSide: "left",
+  });
+  const { open: browserOpen } = useBrowser();
   const [homeDir, setHomeDir] = useState<string>("");
   const [tabs, setTabs] = useState<AppTab[]>([makeTermTab("tab-0", "")]);
   const [activeTabId, setActiveTabId] = useState("tab-0");
@@ -668,12 +678,14 @@ function Shell() {
     [],
   );
 
-  const { isNarrow, effectiveSidebarMode, sidebarPresence, agentsPresence } = useNarrowLayout({
+  const { isNarrow, effectiveSidebarMode, sidebarPresence, agentsPresence, browserPresence } = useNarrowLayout({
     sidebarMode,
     sidebarCollapsed,
     setSidebarCollapsed,
     agentsSidebarOpen,
     setAgentsSidebarOpen,
+    browserOpen,
+    setBrowserOpen,
   });
 
   useCliLoginEvent(openTerminalWithCommand);
@@ -715,6 +727,7 @@ function Shell() {
     zoomOut: () => activeTermHandle() && zoomTabOut(activeTerminalId),
     resetZoom: () => activeTermHandle() && resetTabZoom(activeTerminalId),
     toggleAgents: () => setAgentsSidebarOpen((o) => !o),
+    toggleBrowser: () => toggleBrowser(),
     openSettings: () => openSettings(),
     showShortcuts: () => setShortcutsDialogOpen((o) => !o),
   });
@@ -1174,17 +1187,19 @@ function Shell() {
 
   // What a path link in a chat or terminal can do in the app; one object for
   // the window's life (the handlers it calls are read fresh each time).
-  const fileLinkLatestRef = useRef<FileLinkActions>({ openInEditor, browseFolder: () => {} });
+  const fileLinkLatestRef = useRef<FileLinkActions>({ openInEditor, browseFolder: () => {}, openInPreview: openFileInPreview });
   fileLinkLatestRef.current = {
     openInEditor,
     browseFolder: (path) => {
       browseExplorer(path);
       setSidebarCollapsed(false);
     },
+    openInPreview: openFileInPreview,
   };
   const [fileLinkActions] = useState<FileLinkActions>(() => ({
     openInEditor: (path, line) => fileLinkLatestRef.current.openInEditor(path, line),
     browseFolder: (path) => fileLinkLatestRef.current.browseFolder(path),
+    openInPreview: (path) => fileLinkLatestRef.current.openInPreview(path),
   }));
 
   /** Opens (or focuses) the diff of one file from the Git tab. */
@@ -2442,6 +2457,9 @@ function Shell() {
       case "toggleAgentsSidebar":
         setAgentsSidebarOpen((o) => !o);
         break;
+      case "toggleBrowser":
+        toggleBrowser();
+        break;
       case "runCommand": {
         if (!plugin.command) break;
         const term = termRefs.current.get(activeTerminalId);
@@ -3065,6 +3083,29 @@ function Shell() {
         )}
         {isNarrow && agentsSidebarOpen && (
           <div className="sidebar-floating-backdrop" onClick={() => setAgentsSidebarOpen(false)} />
+        )}
+        {isNarrow && browserOpen && <div className="sidebar-floating-backdrop" onClick={() => setBrowserOpen(false)} />}
+        {browserPresence.mounted && (
+          <div
+            className={
+              "resizable-panel resizable-panel-right resizable-panel-browser" +
+              (browserPresence.shown ? "" : " is-hidden") +
+              (browserResize.dragging ? " is-dragging" : "")
+            }
+            style={{ width: browserPresence.shown ? browserResize.width : 0 }}
+          >
+            <div
+              className={"resize-handle resize-handle-left" + (browserResize.dragging ? " is-dragging" : "")}
+              onPointerDown={browserResize.onHandlePointerDown}
+            />
+            <div className="panel-card">
+              <div className="panel-card-content" style={{ width: browserResize.width - 2 }}>
+                <Suspense fallback={null}>
+                  <BrowserPanel dragging={browserResize.dragging} />
+                </Suspense>
+              </div>
+            </div>
+          </div>
         )}
         {agentsPresence.mounted && (
           <div

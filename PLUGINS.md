@@ -49,6 +49,7 @@ type PluginAction =
   | "clearTerminal"        // pulisce il terminale attivo
   | "toggleSidebar"        // mostra/nasconde il pannello laterale (file explorer) a sinistra
   | "toggleAgentsSidebar"  // mostra/nasconde il pannello "Agenti attivi" a destra
+  | "toggleBrowser"        // mostra/nasconde il browser integrato (anteprima di server locali, artefatti, pagine web) a destra
   | "runCommand"      // digita `command` nel terminale attivo, come se l'utente l'avesse scritto
   | "notify"          // mostra `message` in un popup (toast) temporaneo
   | "dialog"          // apre un dialog con `title` + `message` e i pulsanti `buttons`

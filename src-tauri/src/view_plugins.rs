@@ -279,7 +279,7 @@ pub fn view_plugin_delete(app: AppHandle, id: String) -> Result<(), String> {
 
 /// Percent-decodes a URL path (`%2F` included, so a path whose slashes were
 /// encoded splits all the same). None on bad escapes or non-UTF-8.
-fn percent_decode(s: &str) -> Option<String> {
+pub(crate) fn percent_decode(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -307,7 +307,7 @@ fn split_request_path(uri_path: &str) -> Option<(String, String)> {
     Some((id.to_string(), sanitize_path(rest)?))
 }
 
-fn content_type(path: &str) -> &'static str {
+pub(crate) fn content_type(path: &str) -> &'static str {
     match extension_of(path).as_str() {
         "html" | "htm" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
@@ -324,6 +324,9 @@ fn content_type(path: &str) -> &'static str {
         "ttf" => "font/ttf",
         "otf" => "font/otf",
         "txt" | "md" => "text/plain; charset=utf-8",
+        "pdf" => "application/pdf",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
         _ => "application/octet-stream",
     }
 }

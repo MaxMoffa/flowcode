@@ -29,7 +29,7 @@ pub struct PluginManifest {
     pub description: String,
     /// One of "newTerminal" | "clearTerminal" | "toggleSidebar" |
     /// "toggleAgentsSidebar" | "runCommand" | "notify" | "dialog" |
-    /// "commandOutput" | "openInVsCode" - see `PluginAction` in
+    /// "commandOutput" | "openInVsCode" | "toggleBrowser" - see `PluginAction` in
     /// src/plugins/types.ts.
     pub action: String,
     /// runCommand: typed into the active terminal exactly as if the user had

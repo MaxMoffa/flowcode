@@ -10,6 +10,7 @@ export type PluginAction =
   | "clearTerminal"
   | "toggleSidebar"
   | "toggleAgentsSidebar"
+  | "toggleBrowser"
   | "runCommand"
   | "notify"
   | "dialog"
@@ -57,6 +58,7 @@ export const PLUGIN_ACTION_LABELS: Record<PluginAction, MessageKey> = {
   clearTerminal: "pluginAction.clearTerminal",
   toggleSidebar: "pluginAction.toggleSidebar",
   toggleAgentsSidebar: "pluginAction.toggleAgentsSidebar",
+  toggleBrowser: "pluginAction.toggleBrowser",
   runCommand: "pluginAction.runCommand",
   notify: "pluginAction.notify",
   dialog: "pluginAction.dialog",

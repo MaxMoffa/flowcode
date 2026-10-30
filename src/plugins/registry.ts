@@ -17,6 +17,13 @@ export function builtinPlugins(): PluginDef[] {
     { id: "clearTerminal", label: t("plugin.clearTerminal"), action: "clearTerminal", builtin: true },
     { id: "toggleSidebar", label: t("plugin.toggleSidebar"), action: "toggleSidebar", builtin: true },
     {
+      id: "browser",
+      label: t("plugin.browser"),
+      description: t("plugin.browser.description"),
+      action: "toggleBrowser",
+      builtin: true,
+    },
+    {
       id: "openInVsCode",
       label: t("plugin.openInVsCode"),
       description: t("plugin.openInVsCode.description"),

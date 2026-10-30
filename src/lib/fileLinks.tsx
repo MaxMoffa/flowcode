@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { isPreviewableFile } from "../browser/browserStore";
+import { getBrowserSettings } from "../browser/browserSettings";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useContextMenu, type ContextMenuItem } from "../context-menu/ContextMenuContext";
 import { iconSvg, MenuIcons } from "../context-menu/menuIcons";
@@ -23,6 +25,8 @@ export interface FileLinkActions {
   openInEditor: (path: string, line?: number) => void;
   /** Shows a folder in the explorer panel. */
   browseFolder: (path: string) => void;
+  /** Shows a file (html, svg, pdf, image...) in the Browser panel. */
+  openInPreview: (path: string) => void;
 }
 
 export const FileLinkActionsContext = createContext<FileLinkActions | null>(null);
@@ -93,6 +97,9 @@ function pathMenuItems(target: PathTarget, actions: FileLinkActions | null, line
     },
     { label: "path-separator", separator: true },
   ];
+  if (isFile && actions && isPreviewableFile(target.path)) {
+    items.push({ label: t("pathLink.openInPreview"), icon: MenuIcons.globe, onSelect: () => actions.openInPreview(target.path) });
+  }
   if (isFile && target.text && actions) {
     items.push({ label: t("pathLink.openFile"), icon: PathIcons.edit, onSelect: () => actions.openInEditor(target.path, line) });
   }
@@ -139,7 +146,21 @@ export function useOpenPath(): (event: { clientX: number; clientY: number }, tar
   const { show } = useContextMenu();
   const actions = useContext(FileLinkActionsContext);
   return useCallback(
-    (event, target, line) => show(event.clientX, event.clientY, pathMenuItems(target, actions, line)),
+    (event, target, line) => {
+      // Read at click time: a menu-less open needs no subscription.
+      if (target.kind === "file" && actions && isPreviewableFile(target.path)) {
+        const { artifacts } = getBrowserSettings();
+        if (artifacts === "app") {
+          actions.openInPreview(target.path);
+          return;
+        }
+        if (artifacts === "system") {
+          invoke("open_with_default_app", { path: target.path }).catch(() => {});
+          return;
+        }
+      }
+      show(event.clientX, event.clientY, pathMenuItems(target, actions, line));
+    },
     [actions, show],
   );
 }

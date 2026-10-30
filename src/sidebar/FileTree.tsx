@@ -12,7 +12,8 @@ import { isRootPath, normalizeDir, parentPath, separatorOf, trimTrailingSeparato
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { useI18n } from "../i18n";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
-import { iconSvg } from "../context-menu/menuIcons";
+import { iconSvg, MenuIcons } from "../context-menu/menuIcons";
+import { isPreviewableFile, openFileInPreview } from "../browser/browserStore";
 
 interface FsEntry {
   name: string;
@@ -516,6 +517,9 @@ export function FileTree({
     const items: ContextMenuItem[] = [];
     if (!entry.is_dir) {
       items.push({ label: t("files.open"), icon: Icons.open, onSelect: () => onOpenFile(entry.path) });
+      if (isPreviewableFile(entry.path)) {
+        items.push({ label: t("pathLink.openInPreview"), icon: MenuIcons.globe, onSelect: () => openFileInPreview(entry.path) });
+      }
     } else {
       items.push({
         label: t("files.openInTerminal"),

@@ -34,6 +34,13 @@ const BUILTIN_ICONS: Record<string, ReactNode> = {
       <line x1="9.5" y1="4.5" x2="9.5" y2="19.5" />
     </svg>
   ),
+  browser: (
+    <svg {...svgProps} strokeWidth={1.7}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17" />
+      <path d="M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z" />
+    </svg>
+  ),
 };
 
 const GENERIC_ICON = (
