@@ -2215,10 +2215,10 @@ function Shell() {
   /** An agent picked on the new tab page: it starts in a new tab (see
    * `launchAgentInNewTab`) that takes the page's place, in its folder and
    * under its account profile. The page stays if the agent can't start. */
-  async function launchAgentFromNewTab(tabId: string, cli: AgentCli) {
+  async function launchAgentFromNewTab(tabId: string, cli: AgentCli, cwd?: string, shell?: string) {
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     if (!tab?.newTab) return;
-    if (!(await launchAgentInNewTab(cli, tab.cwd || homeDir, undefined, tab.profileId))) return;
+    if (!(await launchAgentInNewTab(cli, cwd || tab.cwd || homeDir, shell, tab.profileId))) return;
     setTabs((prev) => prev.filter((t) => t.id !== tabId));
     forgetTab(tabId);
     setActiveTerminalId((active) => (active === tabId ? (latestRef.current.tabs.find((t) => t.kind === "terminal" && t.id !== tabId)?.id ?? "") : active));
@@ -2964,7 +2964,7 @@ function Shell() {
                           if (!tab.dialog) setHandoffs((prev) => new Map(prev).set(tab.id, {}));
                           launchFromNewTab(tab.id, launch);
                         }}
-                        onLaunchAgent={(cli) => void launchAgentFromNewTab(tab.id, cli)}
+                        onLaunchAgent={(cli, cwd, shell) => void launchAgentFromNewTab(tab.id, cli, cwd, shell)}
                         onShellChange={(shell) => previewNewTabShell(tab.id, shell)}
                         profileId={tab.profileId}
                         onProfileChange={(id) => {

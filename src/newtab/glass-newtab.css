@@ -492,3 +492,20 @@
     animation: none !important;
   }
 }
+
+/* An agent ticked: it starts in the next folder picked. */
+.glass-agent-check {
+  display: none;
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.is-picked > .glass-agent-check {
+  display: inline-flex;
+}
+
+.glass-agent.is-picked,
+.glass-result.is-picked {
+  border-color: var(--accent);
+  background: var(--glass-selected);
+}

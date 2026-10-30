@@ -29,8 +29,9 @@ export interface NewTabHostProps {
    * underneath while the page is still on top (see `is-overlay`) - it stays
    * until it has faded out and calls `onDone`. */
   onLaunch: (launch: NewTabLaunch) => void;
-  /** Starts `cli` in place of this page, under the tab's account profile. */
-  onLaunchAgent: (cli: AgentCli) => void;
+  /** Starts `cli` in place of this page, under the tab's account profile, in
+   * `cwd` (`undefined` = the tab's folder) on `shell`. */
+  onLaunchAgent: (cli: AgentCli, cwd?: string, shell?: string) => void;
   /** Where the terminal underneath will draw its first prompt, once its
    * banner (if any) is on screen. */
   anchor?: PromptAnchor;

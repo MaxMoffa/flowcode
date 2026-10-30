@@ -60,3 +60,9 @@ export const ImageIcon = ({ size }: { size?: number }) => (
     <path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5" />
   </Icon>
 );
+
+export const CheckIcon = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="m5 12.5 4.5 4.5L19 7.5" />
+  </Icon>
+);

@@ -10,7 +10,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { useProfiles } from "../profiles/profiles";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useI18n } from "../i18n";
-import { FolderIcon, HistoryIcon, PencilIcon, SearchIcon } from "./icons";
+import { CheckIcon, FolderIcon, HistoryIcon, PencilIcon, SearchIcon } from "./icons";
 import { fuzzyFilter } from "./fuzzy";
 import { useNewTabSettings } from "./newTabSettings";
 import { useNewTabBackgroundImage } from "./newTabBackground";
@@ -56,6 +56,8 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
   /** The entry picked with the arrow keys (-1: the search field itself). */
   const [selected, setSelected] = useState(-1);
   const [leaving, setLeaving] = useState(false);
+  /** The agent ticked: the next folder picked starts it there, instead of a plain terminal. */
+  const [agent, setAgent] = useState<AgentCli | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const favorites = useSyncExternalStore(subscribeFavorites, listFavorites, listFavorites);
   const recents = useSyncExternalStore(subscribeRecentTerminals, listRecentTerminals, listRecentTerminals).slice(0, RECENTS_SHOWN);
@@ -99,6 +101,11 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
    * so it is gone as soon as the terminal is mounting. */
   function launch(next: NewTabLaunch) {
     if (leaving) return;
+    // An agent is ticked and no command was typed: the agent starts where the pick points.
+    if (agent && !next.command) {
+      onLaunchAgent(agent, next.cwd, next.shell);
+      return;
+    }
     setLeaving(true);
     onLaunch(next);
     onDone();
@@ -135,7 +142,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
     detail: CLI_INFO[cli].name,
     texts: [CLI_INFO[cli].label, CLI_INFO[cli].name, cli],
     icon: agentCliIcon(cli),
-    run: () => onLaunchAgent(cli),
+    run: () => setAgent((current) => (current === cli ? null : cli)),
   });
   const shellEntry = (opt: ShellOption): Entry => ({
     id: `shell:${opt.id}`,
@@ -209,7 +216,8 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
       type="button"
       role="option"
       aria-selected={entry === active}
-      className={className + (entry === active ? " is-selected" : "")}
+      aria-pressed={entry.kind === "agent" ? agent === entry.id.slice("agent:".length) : undefined}
+      className={className + (entry === active ? " is-selected" : "") + (entry.kind === "agent" && agent === entry.id.slice("agent:".length) ? " is-picked" : "")}
       tabIndex={-1}
       onClick={entry.run}
       onMouseDown={(e) => e.preventDefault()}
@@ -233,6 +241,11 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
         <span className="glass-result-name">{entry.label}</span>
         <span className={"glass-result-detail" + (entry.kind === "favorite" ? " is-path" : "")}>{entry.detail}</span>
         <span className="glass-result-kind">{kindLabel}</span>
+        {entry.kind === "agent" && (
+          <span className="glass-agent-check" aria-hidden="true">
+            <CheckIcon size={14} />
+          </span>
+        )}
       </>,
     );
 
@@ -315,6 +328,9 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
                             <>
                               <span className="glass-icon">{entry.icon}</span>
                               {entry.label}
+                              <span className="glass-agent-check" aria-hidden="true">
+                                <CheckIcon size={14} />
+                              </span>
                             </>,
                           ),
                         )}
