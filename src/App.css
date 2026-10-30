@@ -321,6 +321,7 @@
 
 .app-shell.is-narrow .resizable-panel-right .panel-card {
   clip-path: inset(0 round var(--card-radius));
+  background: linear-gradient(var(--card-bg), var(--card-bg)), var(--menu-surface);
 }
 
 /* Over the terminals rather than beside them, with the terminal card's
@@ -332,7 +333,9 @@
   bottom: 8px;
   left: 8px;
   border: 1px solid var(--card-border);
-  background: var(--card-bg);
+  /* The card's darker shade over the menus' near-opaque surface: it covers
+     the terminals and the blur below doesn't reliably hide their text. */
+  background: linear-gradient(var(--card-bg), var(--card-bg)), var(--menu-surface);
   border-radius: var(--card-radius);
   overflow: hidden;
   /* Flex like .resizable-panel: the panel inside stretches to this height

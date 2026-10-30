@@ -27,6 +27,12 @@
   display: none;
 }
 
+/* On a picture the window's glass opacity alone can leave the panel too thin
+   to read over a busy image: never below 0.6 there. */
+.glass-newtab.has-image {
+  --glass-fill: rgb(var(--surface-rgb) / max(0.6, calc(var(--surface-alpha) * 0.7)));
+}
+
 /* Over the tab in front, on the content area alone (the tab strip stays
    clear): the view underneath dims. No blur on this scrim: a backdrop-filter
    here would be the panel's backdrop root, so the panel's own blur would only
@@ -40,13 +46,13 @@
 }
 
 /* As a dialog the panel floats over live terminals and pages, so it is the
-   frosted glass of the app's floating panels and menus: a mostly opaque fill
+   frosted glass of the app's floating panels and menus: the menus' near-opaque fill
    (not tied to the window's transparency) and a blur of at least the app's
    glass blur. WebView2 doesn't clip a backdrop-filter to rounded corners but
    does clip it to a clip-path (see App.css), hence the clip - which also
    drops the panel's shadow; the dimmed scrim sets it apart instead. */
 .glass-newtab.is-dialog .glass-panel {
-  background: rgb(var(--surface-rgb) / 0.82);
+  background: var(--menu-surface);
   backdrop-filter: blur(max(var(--glass-newtab-blur), var(--glass-blur))) saturate(140%);
   -webkit-backdrop-filter: blur(max(var(--glass-newtab-blur), var(--glass-blur))) saturate(140%);
   clip-path: inset(0 round 16px);
@@ -77,7 +83,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: rgb(var(--surface-rgb) / 0.28);
+  background: rgb(var(--surface-rgb) / 0.45);
 }
 
 /* The window's own film grain (see --app-grain in App.css), at the strength
