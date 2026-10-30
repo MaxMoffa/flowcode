@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FROG_BOX, FROG_PIXELS, REST_POSE, frogPixels, type FrogPose } from "../terminal/asciiBanner";
+import { FROG_BOX, FROG_PIXELS, REST_POSE, frogPixels, type FrogPose } from "../terminal/frogArt";
 import { catchTime, huntFrame, planHunt, type CatchFrame, type FlyArea, type HuntPlan, type Point } from "./frogHunt";
 
 export type { CatchFrame, FlyArea };

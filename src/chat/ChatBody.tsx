@@ -11,6 +11,7 @@ import { buildMenu, commandText, displayName, type CommandKind, type MenuEntry }
 import { CommandChip, KindIcon, UserText } from "./CommandChip";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { FrogThinking } from "../../shared/FrogThinking";
+import { ChatEmptyFrog } from "./ChatEmptyFrog";
 import { sweepDashes } from "../../shared/busySweep";
 import { appendDictation, spaceRelease, TRANSCRIBING_MARKER, useDictation } from "./useDictation";
 import { getDictationAutoSend, useDictationShortcuts } from "./dictationModels";
@@ -931,6 +932,9 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
         )}
       </div>
       </div>
+      {!sub && phase === "ready" && status !== "exited" && !working && model.items.length === 0 && queued.length === 0 && !model.plan?.length && (
+        <ChatEmptyFrog hidden={hidden} />
+      )}
       {!atBottom && (
         <button type="button" className={"chat-jump" + (working ? " is-busy" : "")} aria-label={t("chat.jumpToEnd")} title={t("chat.jumpToEnd")} onClick={jumpToEnd}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

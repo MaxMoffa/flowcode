@@ -1,0 +1,17 @@
+/* Over the empty conversation, centered in the room the messages will take
+   (above the composer on the desktop, where --chat-footer-h is set). */
+.chat-empty-frog {
+  position: absolute;
+  inset: 0 0 var(--chat-footer-h, 0px) 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.chat-empty-frog canvas {
+  display: block;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}

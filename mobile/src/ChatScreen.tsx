@@ -6,6 +6,7 @@ import { ChatBody, SubagentBody } from "./ChatBody";
 import { ChatImagesProvider } from "./ChatImage";
 import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
+import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
 import { PermissionBar } from "./ChatPermission";
@@ -332,7 +333,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
                     <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
                   ) : (
                     <>
-                      {model.items.length === 0 && <div className="chat-empty">{session.loaded ? t("chatEmpty") : t("loading")}</div>}
+                      {model.items.length === 0 && !session.loaded && <div className="chat-empty">{t("loading")}</div>}
                       <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
                     </>
                   )}
@@ -381,6 +382,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
                 )}
               </div>
             </div>
+            {!sub && session.loaded && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && <ChatEmptyFrog />}
             {!atBottom && (
               <button
                 type="button"
