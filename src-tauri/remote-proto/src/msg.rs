@@ -105,6 +105,8 @@ pub enum ClientMsg {
     ChatRename { chat_id: String, label: String },
     /// Close the chat tab (not the last tab of its window).
     ChatCloseTab { chat_id: String },
+    /// Start a fresh conversation in the chat's tab, as `/clear` does on the desktop (the tab keeps its id, the chat gets a new one).
+    ChatClear { chat_id: String },
     /// Open a new desktop chat tab for `cli`, in `cwd` (else the shell's start folder).
     NewChat {
         cli: String,

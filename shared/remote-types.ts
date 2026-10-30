@@ -221,7 +221,9 @@ export type RemoteCap =
   /** `chatmodel`: switching a chat's model. */
   | "chatModel"
   /** `chatthought`: switching a chat's thinking level. */
-  | "chatThought";
+  | "chatThought"
+  /** `chatclear`: starting a fresh conversation in a chat tab (`/clear`). */
+  | "chatClear";
 
 export type ServerMsg =
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -281,6 +283,8 @@ export type ClientMsg =
   | { t: "chatmodel"; chatId: string; modelId: string }
   /** Switches the chat's agent to another thinking level it offers (`ChatInfo.thought`). */
   | { t: "chatthought"; chatId: string; value: string }
+  /** Starts a fresh conversation in the chat's tab, as `/clear` does on the desktop: the tab stays, the chat gets a new `chatId`. */
+  | { t: "chatclear"; chatId: string }
   /** Hands the chat's session over to a desktop terminal tab (as Ctrl+` does on the desktop). */
   | { t: "chatterminal"; chatId: string }
   /** Reopens the agent running in the terminal tab of `ptyId` as a chat tab on the same session (the reverse of `chatterminal`). */

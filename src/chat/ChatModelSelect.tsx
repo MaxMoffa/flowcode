@@ -8,6 +8,12 @@ import type { ChatSession } from "./useChat";
 /** Everything the arrow keys visit: the model rows, the "older versions" row and the current thinking level (Left/Right move inside that group). */
 const NAV = '[role="menuitemradio"], [data-older-toggle], [role="radio"][aria-checked="true"]';
 
+/** How far along the track the current thinking level sits, 0 to 1. */
+function thoughtFill(thought: NonNullable<ChatSession["thought"]>): number {
+  const at = thought.available.findIndex((l) => l.id === thought.currentId);
+  return thought.available.length > 1 && at > 0 ? at / (thought.available.length - 1) : 0;
+}
+
 function ChipIcon({ size }: { size: number }) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -195,25 +201,32 @@ export default function ChatModelSelect({ chat }: { chat: Pick<ChatSession, "mod
                   <b>{level?.name ?? thought.currentId}</b>
                 </div>
                 <div className="chat-think-seg" role="radiogroup" aria-label={t("chat.menu.thinking")}>
-                  {thought.available.map((l) => {
+                  <i className="chat-think-fill" style={{ width: `calc((100% - 24px) * ${thoughtFill(thought)})` }} aria-hidden="true" />
+                  {thought.available.map((l, i) => {
                     const on = l.id === thought.currentId;
+                    const past = i < thought.available.findIndex((x) => x.id === thought.currentId);
                     return (
                       <button
                         key={l.id}
                         type="button"
                         role="radio"
                         aria-checked={on}
+                        aria-label={l.name}
                         tabIndex={on ? 0 : -1}
-                        className={`chat-think-opt${on ? " is-on" : ""}`}
-                        title={l.description}
+                        className={`chat-think-opt${on ? " is-on" : past ? " is-past" : ""}`}
+                        title={l.description ? `${l.name}: ${l.description}` : l.name}
                         onClick={() => {
                           if (!on) chat.setThought(l.id);
                         }}
                       >
-                        {l.name}
+                        <i aria-hidden="true" />
                       </button>
                     );
                   })}
+                </div>
+                <div className="chat-think-ends" aria-hidden="true">
+                  <span>{thought.available[0].name}</span>
+                  <span>{thought.available[thought.available.length - 1].name}</span>
                 </div>
                 {level?.description && <div className="chat-mode-desc chat-think-desc">{level.description}</div>}
               </div>

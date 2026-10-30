@@ -2116,41 +2116,84 @@ summary.chat-step-row {
 }
 
 .chat-think-seg {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 9px;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 2px;
+}
+
+.chat-think-seg::before,
+.chat-think-fill {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+}
+
+.chat-think-seg::before {
+  right: 12px;
   background: var(--border);
 }
 
+.chat-think-fill {
+  background: var(--accent);
+  transition: width 0.18s ease;
+}
+
 .chat-think-opt {
-  flex: 1 1 auto;
-  padding: 4px 8px;
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 30px;
+  padding: 0;
   border: none;
-  border-radius: 7px;
   background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: 11.5px;
-  text-align: center;
   cursor: pointer;
 }
 
-.chat-think-opt:hover {
-  color: var(--fg);
+.chat-think-opt i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border);
+  box-shadow: 0 0 0 3px var(--card-bg, var(--bg));
+  transition: all 0.15s;
+}
+
+.chat-think-opt:hover i {
+  background: var(--fg-muted);
+}
+
+.chat-think-opt.is-past i {
+  background: var(--accent);
+}
+
+.chat-think-opt.is-on i {
+  width: 15px;
+  height: 15px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--card-bg, var(--bg)), 0 0 0 4.5px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .chat-think-opt:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: -2px;
+  border-radius: 6px;
 }
 
-.chat-think-opt.is-on {
-  background: var(--card-bg);
-  color: var(--fg);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+.chat-think-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1px;
+  color: var(--fg-muted);
+  font-size: 11px;
 }
 
 .chat-think-desc {

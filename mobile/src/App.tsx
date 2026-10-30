@@ -9,7 +9,7 @@ import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { CompatBanner, IncompatibleScreen } from "./Compat";
 import { usePending } from "./pending";
-import { clearOpenRequest, requestOpenChat, useChatHandoff, useOpenRequest, useTerminalHandoff } from "./chats";
+import { clearOpenRequest, recentClearTab, requestOpenChat, useChatHandoff, useOpenRequest, useTerminalHandoff } from "./chats";
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
@@ -219,8 +219,16 @@ function AppContent() {
   }, [openPty, tabs, tab]);
   // The open chat left the desktop (closed, or turned into a terminal): back to the list.
   const chat = openChat ? chats?.find((c) => c.chatId === openChat) : undefined;
+  // A chat cleared with /clear comes back in the same tab under a new id: follow it.
   useEffect(() => {
-    if (openChat && chats && !chat) setOpenChat(null);
+    if (!openChat || !chats || chat) return;
+    const cleared = recentClearTab();
+    if (cleared) {
+      const next = chats.find((c) => c.tabId === cleared);
+      if (next) setOpenChat(next.chatId);
+      return;
+    }
+    setOpenChat(null);
   }, [openChat, chats, chat]);
   // Back from a terminal or a chat returns to the list; on the root it is left alone (the app exits).
   useBackHandler((!!tab || !!chat) && !wide, () => {

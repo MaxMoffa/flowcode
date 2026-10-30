@@ -2,6 +2,7 @@ import { memo, useMemo, useState, type ReactNode } from "react";
 import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "../../src/chat/chatModel";
 import { hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
 import type { ChatImageRef, ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
+import { ChatCompaction } from "./ChatCompaction";
 import { ChatImages, ChatUserImages } from "./ChatImage";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -368,6 +369,8 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
         </div>
       );
     }
+    case "compaction":
+      return <ChatCompaction item={item} onLink={onLink} />;
     case "stop":
       return (
         <div className="chat-stop" role="status">

@@ -1,5 +1,6 @@
-import { Suspense, useEffect, useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useI18n } from "../i18n";
 import { CLI_INFO, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
@@ -101,6 +102,19 @@ export function AgentSessionView({
     onTalked(talked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [talked]);
+  // A phone sending "/clear" for this chat.
+  const { chatId, clear: clearChat } = chat;
+  const clearRef = useRef(clearChat);
+  clearRef.current = clearChat;
+  useEffect(() => {
+    if (!chatId) return;
+    const unlisten = getCurrentWebviewWindow().listen<{ chatId: string }>("remote://chat-clear", (e) => {
+      if (e.payload.chatId === chatId) clearRef.current();
+    });
+    return () => {
+      unlisten.then((off) => off());
+    };
+  }, [chatId]);
   const { close: closeChat, restart: restartChat } = chat;
   useEffect(() => {
     onCloser({ close: closeChat, restart: restartChat });

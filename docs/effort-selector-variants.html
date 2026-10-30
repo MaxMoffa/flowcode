@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Selettore effort — 3 varianti</title>
+<style>
+  :root {
+    --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+    --border: rgba(232, 184, 128, 0.12); --fg: #e7d8c5; --muted: #a08a6f;
+    --accent: #9db984; --accent-2: #c9975a; --on-accent: #0e0a07;
+    --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 20px 64px; background: #0e0a07; color: var(--fg); font-family: var(--font); }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 14px; margin: 0 0 28px; max-width: 70ch; }
+  .variant { margin-bottom: 44px; }
+  .variant > h2 { font-size: 15px; margin: 0 0 2px; }
+  .variant > p { color: var(--muted); font-size: 13px; margin: 0 0 14px; max-width: 70ch; }
+  .row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+  .case { width: 360px; }
+  .case small { display: block; color: var(--muted); font-size: 11px; margin-bottom: 6px; letter-spacing: .04em; text-transform: uppercase; }
+  /* the model drawer body, as in the app */
+  .sheet { background: var(--bg); border: 1px solid var(--border); border-radius: 16px; padding: 12px 16px 14px; }
+  .head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; color: var(--muted); font-size: 12.5px; }
+  .head b { color: var(--fg); font-weight: 600; }
+  .desc { margin-top: 10px; color: var(--muted); font-size: 12.5px; min-height: 18px; }
+  button { font: inherit; color: inherit; }
+
+  /* A — stepper: one track, a stop per level, only the current label is written */
+  .stepper { position: relative; padding: 6px 4px 0; }
+  .stepper-track { position: relative; height: 44px; display: flex; align-items: center; justify-content: space-between; }
+  .stepper-track::before { content: ""; position: absolute; left: 14px; right: 14px; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--surface-3); }
+  .stepper-fill { position: absolute; left: 14px; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--accent); transition: width .18s ease; }
+  .stepper button.stop { position: relative; z-index: 1; width: 28px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; padding: 0; }
+  .stepper button.stop i { width: 12px; height: 12px; border-radius: 50%; background: var(--surface-3); box-shadow: 0 0 0 3px var(--bg); transition: all .15s; }
+  .stepper button.stop.past i { background: var(--accent); }
+  .stepper button.stop.on i { width: 22px; height: 22px; background: var(--accent); box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .stepper-ends { display: flex; justify-content: space-between; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+
+  /* B — one scrolling row of chips, never wraps */
+  .chips { display: flex; gap: 6px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 16px 6px; margin: 0 -16px; scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips button { flex: none; scroll-snap-align: center; min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .chips button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+  /* C — list: a row per level with a signal meter and its description */
+  .list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--surface-2); }
+  .list button { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px; border: 0; background: transparent; text-align: left; }
+  .list button + button { border-top: 1px solid var(--border); }
+  .list button.on { background: var(--surface-3); }
+  .meter { flex: none; display: flex; align-items: flex-end; gap: 2px; height: 18px; width: 30px; }
+  .meter i { flex: 1; border-radius: 1.5px; background: var(--surface-3); }
+  .list button.on .meter i { background: color-mix(in srgb, var(--fg) 18%, transparent); }
+  .meter i.f { background: var(--accent-2); }
+  .list .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .list .name { font-size: 14.5px; color: var(--fg); }
+  .list .sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list button:not(.on) .name { color: var(--muted); }
+  .list .tick { flex: none; width: 18px; color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>Selettore effort — 3 varianti</h1>
+<p class="lead">Oggi i livelli stanno in una riga che va a capo quando sono troppi o hanno nomi lunghi. Ogni variante è mostrata a 360 px con 3, 5 e 6 livelli (nomi lunghi inclusi): nessuna va a capo. Clicca per provarle.</p>
+
+<div id="app"></div>
+
+<script>
+const SETS = {
+  "3 livelli": [["Low", "Risposte rapide, poco ragionamento"], ["Medium", "Equilibrio tra velocità e profondità"], ["High", "Ragiona a lungo sui problemi difficili"]],
+  "5 livelli": [["Low", "Risposte rapide, poco ragionamento"], ["Medium", "Equilibrio tra velocità e profondità"], ["High", "Ragiona a lungo sui problemi difficili"], ["Extra high", "Ragionamento molto profondo"], ["Max", "Nessun limite al ragionamento"]],
+  "6 livelli, nomi lunghi": [["Minimal", "Quasi nessun ragionamento"], ["Low", "Risposte rapide"], ["Medium", "Equilibrio tra velocità e profondità"], ["High", "Ragiona a lungo"], ["Extra high", "Ragionamento molto profondo"], ["Ultra think", "Massimo impegno, più lento"]],
+};
+const VARIANTS = [
+  { id: "A", title: "A · Cursore a tappe", text: "Un binario con una tappa per livello: si scrive solo il nome del livello scelto (e i due estremi), quindi i nomi non occupano mai spazio. Tocco sulla tappa o trascinamento. Il più compatto: scala bene a qualsiasi numero di livelli.", render: stepper },
+  { id: "B", title: "B · Chip scorrevoli", text: "Una sola riga di chip che scorre in orizzontale, con sfumatura ai bordi e il livello scelto che si centra da solo. Mantiene i nomi sempre per intero; il costo è che gli ultimi possono richiedere uno scorrimento.", render: chips },
+  { id: "C", title: "C · Elenco con indicatore", text: "Una riga per livello, con un piccolo indicatore a barre e la descrizione sempre visibile (niente riga di descrizione separata). Occupa più altezza ma è il più leggibile e il più comodo da toccare; allineato alle righe di modelli e modalità già nel drawer.", render: list },
+];
+
+function mount() {
+  const app = document.getElementById("app");
+  for (const v of VARIANTS) {
+    const sec = document.createElement("section");
+    sec.className = "variant";
+    sec.innerHTML = `<h2>${v.title}</h2><p>${v.text}</p><div class="row"></div>`;
+    const row = sec.querySelector(".row");
+    for (const [label, levels] of Object.entries(SETS)) {
+      const c = document.createElement("div");
+      c.className = "case";
+      c.innerHTML = `<small>${label}</small><div class="sheet"></div>`;
+      v.render(c.querySelector(".sheet"), levels, Math.min(1, levels.length - 1));
+      row.appendChild(c);
+    }
+    app.appendChild(sec);
+  }
+}
+
+function frame(host, levels, cur, body, after) {
+  const draw = () => {
+    host.innerHTML = `<div class="head"><span>Livello di ragionamento</span><b>${levels[cur][0]}</b></div><div class="body"></div><div class="desc">${levels[cur][1]}</div>`;
+    body(host.querySelector(".body"), levels, cur, (i) => { cur = i; draw(); });
+    if (after) after(host, cur);
+  };
+  draw();
+}
+
+function stepper(host, levels, cur) {
+  frame(host, levels, cur, (el, lv, c, set) => {
+    const n = lv.length;
+    const pct = (c / (n - 1)) * 100;
+    el.innerHTML = `<div class="stepper"><div class="stepper-track"><div class="stepper-fill" style="width:calc((100% - 28px) * ${pct / 100})"></div>${lv.map((_, i) => `<button class="stop ${i === c ? "on" : i < c ? "past" : ""}" role="radio" aria-checked="${i === c}" aria-label="${lv[i][0]}" data-i="${i}"><i></i></button>`).join("")}</div><div class="stepper-ends"><span>${lv[0][0]}</span><span>${lv[n - 1][0]}</span></div></div>`;
+    el.querySelectorAll(".stop").forEach((b) => b.addEventListener("click", () => set(+b.dataset.i)));
+    const track = el.querySelector(".stepper-track");
+    const pick = (x) => {
+      const r = track.getBoundingClientRect();
+      const f = Math.min(1, Math.max(0, (x - r.left - 14) / (r.width - 28)));
+      const i = Math.round(f * (n - 1));
+      if (i !== c) set(i);
+    };
+    track.addEventListener("pointerdown", (e) => { track.setPointerCapture(e.pointerId); });
+    track.addEventListener("pointermove", (e) => { if (track.hasPointerCapture(e.pointerId)) pick(e.clientX); });
+  });
+}
+
+function chips(host, levels, cur) {
+  frame(host, levels, cur, (el, lv, c, set) => {
+    el.innerHTML = `<div class="chips" role="radiogroup">${lv.map((l, i) => `<button role="radio" aria-checked="${i === c}" class="${i === c ? "on" : ""}" data-i="${i}">${l[0]}</button>`).join("")}</div>`;
+    el.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => set(+b.dataset.i)));
+  }, (h, c) => {
+    const on = h.querySelector(".chips .on");
+    const box = h.querySelector(".chips");
+    box.scrollLeft = on.offsetLeft - (box.clientWidth - on.offsetWidth) / 2;
+  });
+}
+
+function list(host, levels, cur) {
+  const n = levels.length;
+  const draw = (c) => {
+    host.innerHTML = `<div class="head"><span>Livello di ragionamento</span><b>${levels[c][0]}</b></div><div class="list" role="radiogroup">${levels.map((l, i) => `<button role="radio" aria-checked="${i === c}" class="${i === c ? "on" : ""}" data-i="${i}"><span class="meter" aria-hidden="true">${levels.map((_, k) => `<i class="${k <= i ? "f" : ""}" style="height:${30 + (70 * k) / (n - 1)}%"></i>`).join("")}</span><span class="txt"><span class="name">${l[0]}</span><span class="sub">${l[1]}</span></span><span class="tick">${i === c ? "✓" : ""}</span></button>`).join("")}</div>`;
+    host.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => draw(+b.dataset.i)));
+  };
+  draw(cur);
+}
+
+mount();
+</script>
+</body>
+</html>

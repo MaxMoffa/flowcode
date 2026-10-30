@@ -14,7 +14,7 @@ import { ChatPluginView } from "./ChatPluginView";
 import { defaultModeToApply } from "./chatModeDefaults";
 import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingPermissions } from "./chatSession";
 import { useTwoFingerSwipe } from "./chatSwipe";
-import { answerChatPermission, cancelChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatPermission, cancelChat, clearChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { tapFeedback } from "./haptics";
@@ -56,6 +56,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const [draft, setDraft] = useState("");
   const cancelRename = useRef(false);
   const canRename = useSupports("chatRename");
+  const canClear = useSupports("chatClear");
   const info = useChatInfo(chatId);
   const tabId = info?.tabId;
   // While this screen is up the chat is on the user's screen, so its notifications skip the toast.
@@ -227,6 +228,12 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
     setEditing(false);
     if (label && label !== info?.label) renameChat(chatId, label);
   }
+
+  /** "/clear" is the desktop's own command, never text for the agent: a desktop that can't do it gets the text as before. */
+  const sendPrompt = (text: string) => {
+    if (canClear && text.trim() === "/clear") clearChat(chatId);
+    else sendChatPrompt(chatId, text);
+  };
 
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
 
@@ -418,7 +425,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
               {t("chatExited")}
             </div>
           ) : (
-            <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={(text) => sendChatPrompt(chatId, text)} onStop={() => cancelChat(chatId)} />
+            <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} />
           )}
         </>
       ) : (

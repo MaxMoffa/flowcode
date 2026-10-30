@@ -148,6 +148,8 @@ const EVT_TERMINAL_CHAT: &str = "remote://terminal-chat";
 const EVT_CHAT_RENAME: &str = "remote://chat-rename";
 /// `{tabId}`: a phone closed a chat tab, to the window showing it.
 const EVT_CHAT_CLOSE: &str = "remote://chat-close";
+/// `{chatId}`: a phone cleared a chat (`/clear`), to the window showing it.
+const EVT_CHAT_CLEAR: &str = "remote://chat-clear";
 /// A phone asked for a new chat tab (see `ClientMsg::NewChat`).
 const EVT_NEW_CHAT: &str = "remote://new-chat";
 /// How long the user has to confirm a new phone on the desktop. The phone
@@ -2247,6 +2249,10 @@ impl Conn {
                 let Some(chat) = self.chat(&chat_id) else { return };
                 let payload = serde_json::json!({ "tabId": chat.tab_id });
                 let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_CLOSE, payload);
+            }
+            ClientMsg::ChatClear { chat_id } => {
+                let Some(chat) = self.chat(&chat_id) else { return };
+                let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_CLEAR, serde_json::json!({ "chatId": chat_id }));
             }
             ClientMsg::Views => self.send_views(),
             ClientMsg::ViewFile { view_id, path } => {

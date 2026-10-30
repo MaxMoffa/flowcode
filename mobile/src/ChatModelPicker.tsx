@@ -14,6 +14,12 @@ const ChipIcon = ({ size = 18 }: { size?: number }) => (
   </Svg>
 );
 
+/** How far along the track the current thinking level sits, 0 to 1. */
+function thoughtFill(thought: ChatThought): number {
+  const at = thought.available.findIndex((l) => l.id === thought.currentId);
+  return thought.available.length > 1 && at > 0 ? at / (thought.available.length - 1) : 0;
+}
+
 /** Keeps the keyboard where it is while the pill is tapped. */
 const keepFocus = {
   onPointerDown: (e: React.PointerEvent) => e.preventDefault(),
@@ -128,25 +134,48 @@ export function ChatModelPicker({
                 <span>{t("chatThinkingLevel")}</span>
                 <b>{level?.name ?? thought.currentId}</b>
               </div>
-              <div className="chat-think-seg" role="radiogroup" aria-label={t("chatThinkingLevel")}>
-                {thought.available.map((l) => {
+              <div
+                className="chat-think-seg"
+                role="radiogroup"
+                aria-label={t("chatThinkingLevel")}
+                onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+                onPointerMove={(e) => {
+                  if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const n = thought.available.length;
+                  const at = Math.round(Math.min(1, Math.max(0, (e.clientX - r.left - 14) / (r.width - 28))) * (n - 1));
+                  const next = thought.available[at];
+                  if (next && next.id !== thought.currentId) {
+                    tapFeedback();
+                    onThought(next.id);
+                  }
+                }}
+              >
+                <i className="chat-think-fill" style={{ width: `calc((100% - 28px) * ${thoughtFill(thought)})` }} aria-hidden="true" />
+                {thought.available.map((l, i) => {
                   const on = l.id === thought.currentId;
+                  const past = i < thought.available.findIndex((x) => x.id === thought.currentId);
                   return (
                     <button
                       key={l.id}
                       type="button"
                       role="radio"
                       aria-checked={on}
-                      className={on ? "on" : ""}
+                      aria-label={l.name}
+                      className={on ? "on" : past ? "past" : ""}
                       onClick={() => {
                         tapFeedback();
                         if (!on) onThought(l.id);
                       }}
                     >
-                      {l.name}
+                      <i aria-hidden="true" />
                     </button>
                   );
                 })}
+              </div>
+              <div className="chat-think-ends" aria-hidden="true">
+                <span>{thought.available[0].name}</span>
+                <span>{thought.available[thought.available.length - 1].name}</span>
               </div>
               {level?.description && <div className="chat-think-desc">{level.description}</div>}
             </div>

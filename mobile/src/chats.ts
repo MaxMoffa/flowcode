@@ -231,7 +231,22 @@ export function setChatThought(chatId: string, value: string) {
     if (!ok) showToast(t("chatThoughtSendFailed"));
   });
 }
-export const renameChat = (chatId: string, label: string) => send({ t: "chatrename", chatId, label });
+/** How long after a `/clear` the chat's tab may show up under a new chat id. */
+const CLEAR_WAIT_MS = 10000;
+let clearing: { tabId: string; until: number } | null = null;
+
+/** The tab being cleared right now, if any: the chat that left its list may be coming back under a new id. */
+export const recentClearTab = (): string | null => (clearing && Date.now() < clearing.until ? clearing.tabId : null);
+
+/** `/clear`: the desktop starts a fresh conversation in the chat's tab; the chat comes back under a new id (App follows the tab). */
+export function clearChat(chatId: string) {
+  const tabId = infoOf(chatId)?.tabId;
+  if (tabId) clearing = { tabId, until: Date.now() + CLEAR_WAIT_MS };
+  void sendChecked({ t: "chatclear", chatId }).then((ok) => {
+    if (!ok) showToast(t("chatClearSendFailed"));
+  });
+}
+export const renameChat =(chatId: string, label: string) => send({ t: "chatrename", chatId, label });
 /** Asks the desktop to turn the chat's session into a terminal tab. */
 const chatToTerminal = (chatId: string) => send({ t: "chatterminal", chatId });
 

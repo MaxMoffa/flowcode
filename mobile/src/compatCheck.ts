@@ -27,10 +27,11 @@ export const CAP_LABELS = {
   chatCloseTab: "capChatCloseTab",
   chatModel: "capChatModel",
   chatThought: "capChatThought",
+  chatClear: "capChatClear",
 } as const satisfies Record<RemoteCap, string>;
 
 /** Features the UI simply hides when the desktop lacks them: not worth a compatibility notice. */
-const QUIET_CAPS: RemoteCap[] = ["chat", "agentViews", "linkPreview", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought"];
+const QUIET_CAPS: RemoteCap[] = ["chat", "agentViews", "linkPreview", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatClear"];
 
 export interface HostInfo {
   appVersion?: string;

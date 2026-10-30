@@ -1383,31 +1383,74 @@ button.chat-step-row {
 }
 
 .chat-think-seg {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 12px;
-  background: var(--surface-2);
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 2px;
+  touch-action: pan-y;
+}
+
+.chat-think-seg::before,
+.chat-think-fill {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+}
+
+.chat-think-seg::before {
+  right: 14px;
+  background: var(--surface-3);
+}
+
+.chat-think-fill {
+  background: var(--accent);
+  transition: width 0.18s ease;
 }
 
 .chat-think-seg button {
-  flex: 1 1 auto;
-  min-height: 40px;
-  padding: 0 12px;
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 44px;
+  padding: 0;
   border: 0;
-  border-radius: 9px;
   background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 14px;
 }
 
-.chat-think-seg button.on {
+.chat-think-seg button i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
   background: var(--surface-3);
-  color: var(--fg);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 3px var(--bg);
+  transition: all 0.15s;
+}
+
+.chat-think-seg button.past i {
+  background: var(--accent);
+}
+
+.chat-think-seg button.on i {
+  width: 22px;
+  height: 22px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.chat-think-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
 }
 
 .chat-think-desc {
@@ -2477,4 +2520,78 @@ button.chat-step-row {
 }
 .chat-viewer-nav.is-next {
   right: 8px;
+}
+
+/* The compaction divider: a faded line with a pill; amber, muted when the agent did it on its own, red when it failed. */
+.chat-compaction {
+  --c: var(--accent-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+}
+.chat-compaction.is-auto,
+.chat-compaction.is-cancelled { --c: var(--muted); }
+.chat-compaction.is-failed { --c: var(--danger); }
+.chat-compaction-line {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.chat-compaction-line::before,
+.chat-compaction-line::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  opacity: 0.55;
+  background: linear-gradient(90deg, transparent, var(--c) 40%, var(--c));
+}
+.chat-compaction-line::after { background: linear-gradient(270deg, transparent, var(--c) 40%, var(--c)); }
+.chat-compaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  max-width: 100%;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent);
+}
+.chat-compaction-pill svg { width: 15px; height: 15px; flex: none; }
+.chat-compaction-error { font-size: 12px; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+.chat-compaction-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--c);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  opacity: 0.85;
+}
+.chat-compaction-summary {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--glass);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.chat-compaction.is-in_progress .chat-compaction-line::before,
+.chat-compaction.is-in_progress .chat-compaction-line::after {
+  background: linear-gradient(90deg, transparent, var(--c), transparent) 0 0 / 200% 100%;
+  animation: chat-compaction-sheen 1.4s linear infinite;
+}
+.chat-compaction-spin { animation: chat-compaction-rot 0.9s linear infinite; transform-origin: center; }
+@keyframes chat-compaction-sheen { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes chat-compaction-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .chat-compaction.is-in_progress .chat-compaction-line::before,
+  .chat-compaction.is-in_progress .chat-compaction-line::after,
+  .chat-compaction-spin { animation: none; }
 }
