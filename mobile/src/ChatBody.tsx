@@ -1,7 +1,8 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
-import { lineDiff, stopKind, type ChatItem, type StopKind } from "../../src/chat/chatModel";
+import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "../../src/chat/chatModel";
 import { hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
-import type { ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
+import type { ChatImageRef, ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
+import { ChatImages, ChatUserImages } from "./ChatImage";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { t, type Key } from "./i18n";
@@ -101,6 +102,7 @@ function ToolStep({ call, index }: { call: ChatToolCall; index: number }) {
     .map((c) => (c.type === "content" && c.content.type === "text" ? (c.content.text ?? "") : ""))
     .filter(Boolean)
     .join("\n");
+  const images = toolImages(call);
   const state = call.status === "failed" ? "is-failed" : call.status === "completed" ? "is-done" : "is-live";
   const head = (
     <>
@@ -124,8 +126,23 @@ function ToolStep({ call, index }: { call: ChatToolCall; index: number }) {
       {diffs.map((d, i) => (
         <DiffCard key={i} diff={d} />
       ))}
+      {images.length > 0 && (
+        <div className="chat-step-media">
+          <ChatImages images={images} />
+        </div>
+      )}
     </div>
   );
+}
+
+/** The images the tools of a folded run produced: they stay visible without opening the steps. */
+function ToolRunImages({ calls }: { calls: ChatToolCall[] }) {
+  const images = calls.flatMap((c) => toolImages(c));
+  return images.length > 0 ? (
+    <div className="chat-step-media">
+      <ChatImages images={images} />
+    </div>
+  ) : null;
 }
 
 /** A run of the agent's tool calls on a thin rail, always folded to one row: the step count + the latest step while running, the summary once done; tap opens the numbered steps. Redrawn only when one of its calls changed (the model replaces just the changed ones). */
@@ -148,6 +165,7 @@ const ToolRun = memo(function ToolRun({ calls }: { calls: ChatToolCall[] }) {
           {live ? (last.title ?? last.kind ?? last.toolCallId) : summaryOf(calls)}
         </span>
       </button>
+      {!open && <ToolRunImages calls={calls} />}
       {open && <div className="chat-tools-list">{calls.map((c, i) => <ToolStep key={c.toolCallId} call={c} index={i + 1} />)}</div>}
     </div>
   );
@@ -297,11 +315,12 @@ function PlanCard({ plan }: { plan: ChatPlanEntry[] }) {
 }
 
 /** What an agent wrote, with a card under it for its first links; rebuilt only when the text grows. */
-const AgentText = memo(function AgentText({ text, onLink }: { text: string; onLink: (url: string) => void }) {
+const AgentText = memo(function AgentText({ text, images, onLink }: { text: string; images?: ChatImageRef[]; onLink: (url: string) => void }) {
   return (
     <div className="chat-agent">
-      <ChatMarkdown text={text} onLink={onLink} />
-      <ChatLinkPreviews text={text} onLink={onLink} />
+      {text && <ChatMarkdown text={text} onLink={onLink} />}
+      {text && <ChatLinkPreviews text={text} onLink={onLink} />}
+      {images && images.length > 0 && <ChatImages images={images} />}
     </div>
   );
 });
@@ -310,9 +329,14 @@ const AgentText = memo(function AgentText({ text, onLink }: { text: string; onLi
 const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url: string) => void }) {
   switch (item.type) {
     case "user":
-      return <div className="chat-user">{item.text}</div>;
+      return (
+        <>
+          {item.images && item.images.length > 0 && <ChatUserImages images={item.images} />}
+          {(item.text || !item.images?.length) && <div className="chat-user">{item.text}</div>}
+        </>
+      );
     case "agent":
-      return <AgentText text={item.text} onLink={onLink} />;
+      return <AgentText text={item.text} images={item.images} onLink={onLink} />;
     case "thought":
       return (
         <details className="chat-thought">

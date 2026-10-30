@@ -61,7 +61,7 @@ export function checkPath(path: string, cwd?: string | null): Promise<PathTarget
   return value;
 }
 
-const PathIcons = {
+export const PathIcons = {
   file: iconSvg(
     <>
       <path d="M6.5 3.5h7l4 4v12a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z" />

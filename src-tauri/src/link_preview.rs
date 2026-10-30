@@ -464,6 +464,21 @@ fn load(url: &str) -> Result<LinkPreview, String> {
     Ok(LinkPreview { url: url.to_string(), final_url: page.final_url, title: info.title, description: info.description, site_name: info.site_name, image, favicon })
 }
 
+const CHAT_IMAGE_TYPES: &[&str] =
+    &["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"];
+const MAX_CHAT_IMAGE_BYTES: usize = 16 * 1024 * 1024;
+
+/// A web image an agent's markdown points to: its bytes and content type.
+/// Same hardened fetch as the previews (public addresses only, on every
+/// redirect hop; size cap; timeout). Blocking.
+pub(crate) fn fetch_chat_image(url: &str) -> Result<(Vec<u8>, String), String> {
+    if url.len() > MAX_URL_LEN || split_url(url).is_none() {
+        return Err("not a web link".into());
+    }
+    let image = fetch(url, "image/*", CHAT_IMAGE_TYPES, MAX_CHAT_IMAGE_BYTES, false)?;
+    Ok((image.body, image.content_type))
+}
+
 struct CacheEntry {
     at: Instant,
     result: Result<LinkPreview, String>,
@@ -553,6 +568,16 @@ mod tests {
         use ureq::Resolver;
         for host in ["localhost:80", "LOCALHOST:443", "app.localhost:80", "printer.local:80", "db.internal:5432", "127.0.0.1:80", "[::1]:80", "10.1.2.3:8080", "[::ffff:10.0.0.1]:80"] {
             assert!(PublicOnly.resolve(host).is_err(), "{host}");
+        }
+    }
+
+    #[test]
+    fn chat_images_refuse_bad_and_local_urls() {
+        assert!(fetch_chat_image("ftp://a.b/i.png").is_err());
+        assert!(fetch_chat_image("javascript:alert(1)").is_err());
+        assert!(fetch_chat_image(&format!("https://a.b/{}", "x".repeat(MAX_URL_LEN))).is_err());
+        for url in ["http://localhost/i.png", "http://127.0.0.1/i.png", "http://10.0.0.1/i.png", "http://[::1]/i.png", "http://169.254.169.254/i.png"] {
+            assert!(fetch_chat_image(url).is_err(), "{url}");
         }
     }
 

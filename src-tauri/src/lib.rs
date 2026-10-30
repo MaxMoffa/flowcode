@@ -5,6 +5,7 @@ mod git;
 mod gpu;
 mod attention;
 mod chat;
+mod chat_images;
 mod context;
 mod dictation;
 mod newtab_background;
@@ -84,6 +85,8 @@ pub fn run() {
                     flowcode_shared::apply_window_chrome(&window);
                 }
             }
+            // Pictures of past chats; replayed history stores the ones it needs again.
+            std::thread::spawn(chat_images::purge_old);
             let remote = remote::RemoteState::load(app.handle());
             remote.autostart();
             app.manage(remote);
@@ -148,6 +151,10 @@ pub fn run() {
             chat::chat_close,
             chat::chat_adapter_ready,
             chat::chat_events,
+            chat::chat_image,
+            chat::chat_image_file,
+            chat::chat_image_path,
+            chat::chat_image_url,
             dictation::dictation_supported,
             dictation::dictation_start,
             dictation::dictation_stop,

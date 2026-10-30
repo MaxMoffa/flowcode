@@ -120,6 +120,20 @@ pub enum ClientMsg {
     ViewFile { view_id: String, path: String },
     /// The preview of a link in a chat (answered with `ServerMsg::LinkPreview`).
     LinkPreview { url: String },
+    /// An image of a chat (answered with `ServerMsg::ChatImage` chunks): a stored
+    /// one by `id`, or a file the agent mentioned by `path` (resolved in the
+    /// chat `chat_id`'s folder), or a web image by `url` (fetched by the desktop,
+    /// only if its setting allows). Exactly one of `id`, `path` and `url`.
+    ChatImage {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chat_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
     /// The phone is in the background: send only notifications until it says
     /// otherwise (`on: false`).
     Background { on: bool },
@@ -196,6 +210,19 @@ pub enum ServerMsg {
     /// Reply to `linkpreview`: what the desktop read from the page (the JSON
     /// shape of the shared `LinkPreview`), or null if there is none.
     LinkPreview { url: String, preview: Option<serde_json::Value> },
+    /// One chunk of a chat image (base64), `offset` and `total` in raw bytes,
+    /// in order. `key` is the requested `id` (else `path`), verbatim. `mime` is
+    /// known for files only. `missing`: no such image (one chunk, no data).
+    ChatImage {
+        key: String,
+        offset: u64,
+        total: u64,
+        data: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mime: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        missing: bool,
+    },
     Pong,
 }
 
@@ -543,6 +570,28 @@ mod tests {
         );
         let none = ServerMsg::LinkPreview { url: "https://a.b".into(), preview: None };
         assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "linkpreview", "url": "https://a.b", "preview": null }));
+    }
+
+    #[test]
+    fn chat_image_messages_round_trip() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatimage","chatId":"c","path":"a.png"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatImage { chat_id: Some("c".into()), id: None, path: Some("a.png".into()), url: None });
+        assert_eq!(serde_json::to_value(&msg).unwrap(), serde_json::json!({ "t": "chatimage", "chatId": "c", "path": "a.png" }));
+        let by_id: ClientMsg = serde_json::from_str(r#"{"t":"chatimage","id":"ab"}"#).unwrap();
+        assert_eq!(by_id, ClientMsg::ChatImage { chat_id: None, id: Some("ab".into()), path: None, url: None });
+        let by_url: ClientMsg = serde_json::from_str(r#"{"t":"chatimage","url":"https://a.b/i.png"}"#).unwrap();
+        assert_eq!(by_url, ClientMsg::ChatImage { chat_id: None, id: None, path: None, url: Some("https://a.b/i.png".into()) });
+        assert_eq!(serde_json::to_value(&by_url).unwrap(), serde_json::json!({ "t": "chatimage", "url": "https://a.b/i.png" }));
+        let chunk = ServerMsg::ChatImage { key: "a.png".into(), offset: 0, total: 5, data: "aGVsbG8=".into(), mime: Some("image/png".into()), missing: false };
+        assert_eq!(
+            serde_json::to_value(chunk).unwrap(),
+            serde_json::json!({ "t": "chatimage", "key": "a.png", "offset": 0, "total": 5, "data": "aGVsbG8=", "mime": "image/png" })
+        );
+        let gone = ServerMsg::ChatImage { key: "ab".into(), offset: 0, total: 0, data: String::new(), mime: None, missing: true };
+        assert_eq!(
+            serde_json::to_value(gone).unwrap(),
+            serde_json::json!({ "t": "chatimage", "key": "ab", "offset": 0, "total": 0, "data": "", "missing": true })
+        );
     }
 
     #[test]

@@ -1,11 +1,22 @@
 /** Web links in the text an agent wrote. Shared by the desktop chat and the
  * phone's (mobile/src/ChatBody.tsx), so both find the same ones. */
+import type { ChatImageRef } from "./chatTypes";
+import { fileUriPath } from "./chatModel";
 
 /** A markdown `[text](url)` to the web (one level of parentheses allowed in the url), a markdown `[text](target)` to anything else (a local file, usually), or a bare url. */
 const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s()]*(?:\([^\s()]*\)[^\s()]*)*)\)|\[([^\]\n]+)\]\(<?([^()\n<>]+?)>?\)|https?:\/\/[^\s<>"'`]+/gi;
 const TRAILING = /[.,;:!?)\]}]/;
 /** Longest url handed to the opener or the preview fetch. */
 const MAX_URL_LENGTH = 2048;
+
+/** The image a markdown `![alt](src)` points at, or null when `src` is not something to fetch as an image: a web or `data:image/` url, a `file://` url, or a path (absolute, `~/`, relative) with an image extension. */
+export function markdownImageRef(src: string): ChatImageRef | null {
+  const t = src.trim();
+  if (/^https?:\/\/[^/?#\s]+/i.test(t) || /^data:image\//i.test(t)) return { url: t };
+  if (/^file:\/\//i.test(t)) return { path: fileUriPath(t) };
+  if (!t || (/^[a-z][a-z0-9+.-]*:/i.test(t) && !/^[a-z]:[\\/]/i.test(t))) return null;
+  return /\.(?:png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(t.replace(/[?#].*$/, "")) ? { path: t } : null;
+}
 
 /** A plain piece, a web link, or a link to a local file (`path`: the target as written, a file:// url turned into its path). */
 export type LinkPart =
@@ -47,6 +58,13 @@ export function splitLinks(text: string): LinkPart[] {
   let last = 0;
   for (const m of text.matchAll(LINK_RE)) {
     const start = m.index ?? 0;
+    if (start > 0 && text[start - 1] === "!" && (m[1] !== undefined || m[3] !== undefined)) {
+      // An image (`![alt](src)`), not a link: its alt text, plain.
+      if (start > last) parts.push({ text: text.slice(last, start) });
+      parts.push({ text: m[1] ?? m[3] });
+      last = start + m[0].length;
+      continue;
+    }
     if (m[3] !== undefined) {
       // A markdown link to something not on the web: its label, linked to the file when it names one.
       const path = localTarget(m[4]);

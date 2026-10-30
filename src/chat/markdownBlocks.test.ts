@@ -173,3 +173,19 @@ describe("parseInline", () => {
     expect(parseInline("**open and `tick")).toEqual([text("**open and `tick")]);
   });
 });
+
+describe("parseInline images", () => {
+  it("reads ![alt](src), dropping a title", () => {
+    expect(parseInline("a ![cat](img/c.png) b")).toEqual([text("a "), { type: "image", alt: "cat", src: "img/c.png" }, text(" b")]);
+    expect(parseInline('![x](https://h/i.png "T")')).toEqual([{ type: "image", alt: "x", src: "https://h/i.png" }]);
+  });
+  it("allows <src> with spaces and one level of parens", () => {
+    expect(parseInline("![x](<my dir/a b.png>)")).toEqual([{ type: "image", alt: "x", src: "my dir/a b.png" }]);
+    expect(parseInline("![x](a_(1).png)")).toEqual([{ type: "image", alt: "x", src: "a_(1).png" }]);
+  });
+  it("keeps a lone ! and code spans as they are", () => {
+    expect(parseInline("wow! [a](b)")).toEqual([text("wow! "), { type: "link", raw: "[a](b)" }]);
+    expect(parseInline("![x]")).toEqual([text("![x]")]);
+    expect(parseInline("`![x](y.png)`")).toEqual([{ type: "code", text: "![x](y.png)" }]);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
+import { applyEvent, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
 
 let seq = 0;
@@ -33,16 +33,58 @@ describe("chat model", () => {
     ]);
   });
 
-  it("ignores non-text content", () => {
-    const s = run([update({ sessionUpdate: "agent_message_chunk", content: { type: "image" } })]);
+  it("ignores non-text thought content", () => {
+    const s = run([update({ sessionUpdate: "agent_thought_chunk", content: { type: "image", flowcodeImageId: "a" } })]);
     expect(s.items).toEqual([]);
   });
 
-  it("lists replayed files and images as attachments of the user item", () => {
+  it("shows an agent image, and the text after it as a new item", () => {
+    const s = run([chunk("agent_message_chunk", "ecco"), update({ sessionUpdate: "agent_message_chunk", content: { type: "image", flowcodeImageId: "a", mimeType: "image/png" } }), chunk("agent_message_chunk", "fatto")]);
+    expect(s.items).toHaveLength(2);
+    expect(s.items[0]).toMatchObject({ type: "agent", text: "ecco", images: [{ id: "a", mimeType: "image/png" }] });
+    expect(s.items[1]).toMatchObject({ type: "agent", text: "fatto" });
+    expect(s.items[1]).not.toHaveProperty("images");
+  });
+
+  it("puts a subagent's image in its own stream", () => {
+    const meta = { _meta: { claudeCode: { parentToolUseId: "t1" } } };
+    const s = run([chunk("agent_message_chunk", "main"), update({ sessionUpdate: "agent_message_chunk", content: { type: "image", flowcodeImageId: "a" }, ...meta }), update({ sessionUpdate: "agent_message_chunk", content: { type: "image", flowcodeImageId: "b" } })]);
+    expect(s.items).toHaveLength(2);
+    expect(s.items[0]).toMatchObject({ text: "main", images: [{ id: "b" }] });
+    expect(s.items[1]).toMatchObject({ text: "", parentToolUseId: "t1", images: [{ id: "a" }] });
+  });
+
+  it("lists replayed files as attachments and images as images of the user item", () => {
     const file = (content: Record<string, unknown>) => update({ sessionUpdate: "user_message_chunk", content });
-    const s = run([chunk("user_message_chunk", "guarda"), file({ type: "resource_link", name: "a.pdf", uri: "file:///a.pdf" }), file({ type: "image", data: "x" })]);
+    const s = run([chunk("user_message_chunk", "guarda"), file({ type: "resource_link", name: "a.pdf", uri: "file:///a.pdf" }), file({ type: "image", flowcodeImageId: "x", mimeType: "image/png" })]);
     expect(s.items).toHaveLength(1);
-    expect(s.items[0]).toMatchObject({ type: "user", text: "guarda", attachments: ["a.pdf", "image"] });
+    expect(s.items[0]).toMatchObject({ type: "user", text: "guarda", attachments: ["a.pdf"], images: [{ id: "x", mimeType: "image/png" }] });
+  });
+
+  it("takes the images of a user event out of its attachments", () => {
+    const ev: ChatEvent = { kind: "user", seq: next(), at: 0, text: "hi", attachments: ["a.png", "b.pdf", "a.png"], images: [{ name: "a.png", mimeType: "image/png", id: "i1" }] };
+    const s = run([ev]);
+    expect(s.items[0]).toMatchObject({ attachments: ["b.pdf", "a.png"], images: [{ id: "i1", name: "a.png", mimeType: "image/png" }] });
+    const only = run([{ kind: "user", seq: next(), at: 0, text: "", attachments: ["a.png"], images: [{ name: "a.png", mimeType: "image/png", id: "i1" }] }]);
+    expect(only.items[0]).not.toHaveProperty("attachments");
+  });
+
+  it("reads image refs from ACP blocks", () => {
+    expect(imageRef({ type: "image", flowcodeImageId: "abc", mimeType: "image/jpeg", data: "zz" })).toEqual({ id: "abc", mimeType: "image/jpeg" });
+    expect(imageRef({ type: "image", data: "QQ==" })).toEqual({ url: "data:image/png;base64,QQ==" });
+    expect(imageRef({ type: "image", data: "QQ==", mimeType: "image/gif" })).toEqual({ url: "data:image/gif;base64,QQ==", mimeType: "image/gif" });
+    expect(imageRef({ type: "image", uri: "https://x/y.png" })).toEqual({ url: "https://x/y.png" });
+    expect(imageRef({ type: "image", uri: "file:///C:/a%20b/x.png" })).toEqual({ path: "C:/a b/x.png" });
+    expect(imageRef({ type: "image", uri: "file:///home/x.png" })).toEqual({ path: "/home/x.png" });
+    expect(imageRef({ type: "image" })).toBeNull();
+    expect(imageRef({ type: "text", text: "x" })).toBeNull();
+    expect(imageRef(null)).toBeNull();
+  });
+
+  it("lists the images of a tool call once", () => {
+    const img = { type: "content" as const, content: { type: "image", flowcodeImageId: "a" } };
+    const call: ChatToolCall = { toolCallId: "t", content: [img, img, { type: "content", content: { type: "text", text: "x" } }, { type: "content", content: { type: "image", uri: "https://x/i.png" } }] };
+    expect(toolImages(call)).toEqual([{ id: "a" }, { url: "https://x/i.png" }]);
   });
 
   it("merges replayed user chunks into one item", () => {

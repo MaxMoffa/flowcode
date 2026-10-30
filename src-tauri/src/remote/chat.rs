@@ -152,13 +152,43 @@ pub(super) fn agent_name(agent: &str) -> String {
     .to_string()
 }
 
+/// Raw bytes of an image in one `chatimage` message: about 256 KiB once base64
+/// encoded, a quarter of a frame.
+const IMAGE_CHUNK_BYTES: usize = 192 * 1024;
+
+/// Queues an image as `chatimage` chunks, in order (an empty one is a single
+/// empty chunk). False when the connection is gone.
+pub(super) async fn send_image(out: &mpsc::Sender<ServerMsg>, key: &str, mime: Option<&str>, bytes: &[u8]) -> bool {
+    use base64::Engine;
+    let total = bytes.len() as u64;
+    let mut offset = 0;
+    loop {
+        let end = (offset + IMAGE_CHUNK_BYTES).min(bytes.len());
+        let msg = ServerMsg::ChatImage {
+            key: key.to_string(),
+            offset: offset as u64,
+            total,
+            data: base64::engine::general_purpose::STANDARD.encode(&bytes[offset..end]),
+            mime: mime.map(str::to_string),
+            missing: false,
+        };
+        if out.send(msg).await.is_err() {
+            return false;
+        }
+        offset = end;
+        if offset >= bytes.len() {
+            return true;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::chat::ChatBody;
 
     fn event(seq: u64, text: &str) -> ChatEvent {
-        ChatEvent { seq, at: 0, body: ChatBody::User { text: text.to_string(), attachments: Vec::new() } }
+        ChatEvent { seq, at: 0, body: ChatBody::User { text: text.to_string(), attachments: Vec::new(), images: Vec::new() } }
     }
 
     #[test]
@@ -183,5 +213,29 @@ mod tests {
     fn agents_have_display_names() {
         assert_eq!(agent_name("claude"), "Claude");
         assert_eq!(agent_name("unknown"), "unknown");
+    }
+
+    #[tokio::test]
+    async fn images_go_out_in_ordered_chunks() {
+        use base64::Engine;
+        let (tx, mut rx) = mpsc::channel(8);
+        let bytes = vec![7u8; IMAGE_CHUNK_BYTES + 10];
+        assert!(send_image(&tx, "k", Some("image/png"), &bytes).await);
+        assert!(send_image(&tx, "e", None, &[]).await);
+        drop(tx);
+        let mut got = Vec::new();
+        while let Some(ServerMsg::ChatImage { key, offset, total, data, mime, .. }) = rx.recv().await {
+            let raw = base64::engine::general_purpose::STANDARD.decode(data).unwrap();
+            got.push((key, offset, total, raw.len(), mime));
+        }
+        let png = Some("image/png".to_string());
+        assert_eq!(
+            got,
+            [
+                ("k".to_string(), 0, bytes.len() as u64, IMAGE_CHUNK_BYTES, png.clone()),
+                ("k".to_string(), IMAGE_CHUNK_BYTES as u64, bytes.len() as u64, 10, png),
+                ("e".to_string(), 0, 0, 0, None),
+            ]
+        );
     }
 }

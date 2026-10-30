@@ -1,6 +1,7 @@
 import { memo, useEffect, useState, type ReactNode } from "react";
 import { useOpenLink } from "../terminal/useOpenLink";
-import { splitLinks } from "./chatLinks";
+import { markdownImageRef, splitLinks } from "./chatLinks";
+import { ChatImageView } from "./ChatImage";
 import { parseBlocks, parseInline, type Block, type Inline } from "./markdownBlocks";
 import { useI18n } from "../i18n";
 import { ChatTable } from "./ChatTable";
@@ -95,6 +96,10 @@ function inline(tokens: Inline[], keyBase: string, open: OpenLink): ReactNode[] 
         return codeSpan(tok.text, key);
       case "link":
         return withLinks(tok.raw, key, open, (label, k) => inline(parseInline(label), k, open));
+      case "image": {
+        const ref = markdownImageRef(tok.src);
+        return ref ? <ChatImageView key={key} image={{ ...ref, name: tok.alt || undefined }} variant="single" caption={tok.alt || undefined} /> : <span key={key}>{tok.alt}</span>;
+      }
       case "strong":
         return <strong key={key}>{inline(tok.children, key, open)}</strong>;
       case "em":

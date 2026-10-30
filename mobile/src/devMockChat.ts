@@ -26,6 +26,10 @@ const infos: Info[] = [
 const update = (sessionUpdate: string, rest: Record<string, unknown>): Ev => ({ kind: "update", update: { sessionUpdate, ...rest } });
 const text = (sessionUpdate: string, chunk: string): Ev => update(sessionUpdate, { content: { type: "text", text: chunk } });
 
+const pic = (fill: string, label: string) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="${fill}"/><text x="320" y="210" font-size="40" text-anchor="middle" fill="#fff" font-family="sans-serif">${label}</text></svg>`)}`;
+const image = (sessionUpdate: string, fill: string, label: string): Ev => update(sessionUpdate, { content: { type: "image", uri: pic(fill, label), mimeType: "image/svg+xml" } });
+
 /** The scripted history of each chat; `seq` and `at` are filled in. */
 const history: Record<string, Ev[]> = {
   c1: [
@@ -64,6 +68,8 @@ const history: Record<string, Ev[]> = {
   ],
   c3: [
     { kind: "user", text: "Dammi tre nomi per l'app." },
+    update("tool_call", { toolCallId: "t9", title: "browser_take_screenshot", kind: "other", status: "completed", content: [{ type: "content", content: { type: "image", uri: pic("#4f6e3a", "screenshot"), mimeType: "image/svg+xml" } }] }),
+    image("agent_message_chunk", "#7a4f2a", "agent image"),
     text("agent_message_chunk", "Ecco tre idee:\n\n1. **Flowcode Pocket**\n2. **Tasca**\n3. **Pilota**"),
     { kind: "turnEnd", stopReason: "end_turn" },
   ],

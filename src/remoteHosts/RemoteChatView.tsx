@@ -10,6 +10,7 @@ import { AgentHeader } from "../agentViews/AgentHeader";
 import { agentView, resolveAcpView } from "../agentViews/registry";
 import { expectNewTab, sendToHost, useHost, useHostState } from "./remoteHosts";
 import { useRemoteChat } from "./useRemoteChat";
+import { RemoteChatImageProvider } from "../chat/chatImages";
 import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
 
 const isAgentCli = (v: string): v is AgentCli => (AGENT_CLIS as readonly string[]).includes(v);
@@ -43,46 +44,48 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
   }
 
   return (
-    <div className="chat-view" style={hidden ? { display: "none" } : undefined}>
-      <AgentHeader icon={agentCliIcon(agent)} title={info.label} subtitle={`${label} · ${basename(info.cwd)} · ${host?.hostName ?? ""}`} status={status} subagent={nav.sub ? subagentHeader(nav.sub, nav.back) : null}>
-        {(close) => {
-          const menuAction = (action: () => void) => {
-            close();
-            action();
-          };
-          return (
-            <>
-              <button type="button" role="menuitem" className="chat-menu-item" disabled={!canTerminal} onClick={() => menuAction(toTerminal)}>
-                <span>{t("remoteHosts.openAsTerminal")}</span>
-              </button>
-              <button type="button" role="menuitem" className="chat-menu-item" disabled={!sessionId} onClick={() => menuAction(() => sessionId && void navigator.clipboard.writeText(sessionId).catch(() => {}))}>
-                <span>{t("chat.menu.copyId")}</span>
-              </button>
-              <div className="chat-menu-sep" role="separator" />
-              <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => menuAction(chat.cancel)}>
-                <span>{t("chat.menu.stop")}</span>
-              </button>
-            </>
-          );
-        }}
-      </AgentHeader>
+    <RemoteChatImageProvider hostId={hostId} chatId={chatId}>
+      <div className="chat-view" style={hidden ? { display: "none" } : undefined}>
+        <AgentHeader icon={agentCliIcon(agent)} title={info.label} subtitle={`${label} · ${basename(info.cwd)} · ${host?.hostName ?? ""}`} status={status} subagent={nav.sub ? subagentHeader(nav.sub, nav.back) : null}>
+          {(close) => {
+            const menuAction = (action: () => void) => {
+              close();
+              action();
+            };
+            return (
+              <>
+                <button type="button" role="menuitem" className="chat-menu-item" disabled={!canTerminal} onClick={() => menuAction(toTerminal)}>
+                  <span>{t("remoteHosts.openAsTerminal")}</span>
+                </button>
+                <button type="button" role="menuitem" className="chat-menu-item" disabled={!sessionId} onClick={() => menuAction(() => sessionId && void navigator.clipboard.writeText(sessionId).catch(() => {}))}>
+                  <span>{t("chat.menu.copyId")}</span>
+                </button>
+                <div className="chat-menu-sep" role="separator" />
+                <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => menuAction(chat.cancel)}>
+                  <span>{t("chat.menu.stop")}</span>
+                </button>
+              </>
+            );
+          }}
+        </AgentHeader>
 
-      {chat.phase === "ready" ? (
-        View && (
-          <Suspense fallback={null}>
-            <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={() => {}} openSubagent={nav.sub} onOpenSubagent={nav.open} />
-          </Suspense>
-        )
-      ) : (
-        <div className="chat-column">
-          <div className="chat-content">
-            <div className="chat-state">
-              <span className="chat-spinner" aria-hidden="true" />
-              <div>{t("remoteHosts.loadingChat")}</div>
+        {chat.phase === "ready" ? (
+          View && (
+            <Suspense fallback={null}>
+              <View session={chat} agent={agent} hidden={hidden} cwd={info.cwd} title={info.label} onSwitchView={switchView} onOpenFile={() => {}} openSubagent={nav.sub} onOpenSubagent={nav.open} />
+            </Suspense>
+          )
+        ) : (
+          <div className="chat-column">
+            <div className="chat-content">
+              <div className="chat-state">
+                <span className="chat-spinner" aria-hidden="true" />
+                <div>{t("remoteHosts.loadingChat")}</div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </RemoteChatImageProvider>
   );
 }

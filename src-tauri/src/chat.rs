@@ -78,6 +78,10 @@ pub enum ChatBody {
         /// Names of the files sent along (the files themselves are not kept).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attachments: Vec<String>,
+        /// The pictures among them, stored (`chat_images`) so the UI can show
+        /// them; absent for events logged without any.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<UserImage>,
     },
     /// The agent asks for permission; answered with `chat_permission`.
     Permission { request_id: Value, tool_call: Value, options: Value },
@@ -89,6 +93,16 @@ pub enum ChatBody {
     /// Flowcode's own `_flowcode/model` (the model changed). It doesn't
     /// change the chat's status.
     Ext { method: String, params: Value },
+}
+
+/// A picture the user sent with a prompt, as the UI fetches it (`chat_image`).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct UserImage {
+    pub name: String,
+    pub mime_type: String,
+    /// Its id in the image store.
+    pub id: String,
 }
 
 /// Where a chat's turn stands - what the phones' chat list shows.
@@ -598,7 +612,7 @@ fn approx_size(value: &Value) -> usize {
 fn body_size(body: &ChatBody) -> usize {
     64 + match body {
         ChatBody::Update { update } => approx_size(update),
-        ChatBody::User { text, .. } => text.len(),
+        ChatBody::User { text, images, .. } => text.len() + images.iter().map(|i| i.name.len() + i.mime_type.len() + i.id.len()).sum::<usize>(),
         ChatBody::Permission { request_id, tool_call, options } => {
             approx_size(request_id) + approx_size(tool_call) + approx_size(options)
         }
@@ -817,6 +831,27 @@ fn attachment_block(a: &Attachment, images: bool, wsl: bool) -> Result<Value, St
     Ok(json!({ "type": "resource_link", "uri": uri, "name": a.name, "mimeType": a.mime }))
 }
 
+/// An attached picture stored for the UI to show; `None` for any other
+/// attachment, or when it can't be stored (it was sent to the agent anyway).
+fn shown_image(a: &Attachment) -> Option<UserImage> {
+    use base64::Engine;
+    if !a.mime.starts_with("image/") {
+        return None;
+    }
+    let bytes = match (&a.data, &a.path) {
+        (Some(data), _) => base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string()),
+        (None, Some(path)) => crate::chat_images::read_file(std::path::Path::new(path)),
+        _ => return None,
+    };
+    match bytes.and_then(|bytes| crate::chat_images::store(&bytes)) {
+        Ok(id) => Some(UserImage { name: a.name.clone(), mime_type: a.mime.clone(), id }),
+        Err(e) => {
+            eprintln!("could not keep {} for display: {e}", a.name);
+            None
+        }
+    }
+}
+
 /// Everything about one running agent; shared by the commands and the
 /// session's reader thread.
 struct Chat {
@@ -828,6 +863,8 @@ struct Chat {
     cwd: String,
     /// The agent runs inside WSL: it sees Linux paths, so attachments are linked as such.
     wsl: bool,
+    /// The WSL distro it runs in (`None` for a Windows chat, or when even the default one is unknown).
+    wsl_distro: Option<String>,
     profile: Option<String>,
     child: Mutex<Child>,
     writer: Mutex<ChildStdin>,
@@ -1160,9 +1197,11 @@ impl Chat {
             Incoming::Request { id, method, params } => {
                 if method == "session/request_permission" {
                     lock(&self.permissions).insert(id.to_string(), id.clone());
+                    let mut tool_call = params.get("toolCall").cloned().unwrap_or(Value::Null);
+                    crate::chat_images::stash_images(&mut tool_call);
                     self.emit(ChatBody::Permission {
                         request_id: id,
-                        tool_call: params.get("toolCall").cloned().unwrap_or(Value::Null),
+                        tool_call,
                         options: params.get("options").cloned().unwrap_or_else(|| json!([])),
                     });
                 } else {
@@ -1192,7 +1231,10 @@ impl Chat {
                         // late update can't pass it, then land after the
                         // `forget_session` that emptied the log.
                         let stale = |_| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
-                        let _ = self.emit_when(ChatBody::Update { update: update.clone() }, stale);
+                        // Pictures go to disk before the log lock is taken.
+                        let mut update = update.clone();
+                        crate::chat_images::stash_images(&mut update);
+                        let _ = self.emit_when(ChatBody::Update { update }, stale);
                     }
                 } else if method.starts_with('_') {
                     self.emit(ChatBody::Ext { method, params });
@@ -1513,7 +1555,8 @@ impl ChatState {
             blocks.push(attachment_block(attachment, images, chat.wsl)?);
         }
         let names = attachments.iter().map(|a| a.name.clone()).collect();
-        chat.emit_when(ChatBody::User { text, attachments: names }, prompt_gate)?;
+        let shown = attachments.iter().filter_map(shown_image).collect();
+        chat.emit_when(ChatBody::User { text, attachments: names, images: shown }, prompt_gate)?;
         let id = match chat.register(Pending::Prompt) {
             Ok(id) => id,
             Err(message) => {
@@ -1580,6 +1623,18 @@ impl ChatState {
     pub(crate) async fn set_thought(&self, chat_id: &str, value: String) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         crate::blocking(move || chat.set_thought(&value)).await
+    }
+
+    /// The file an image the agent mentioned by path points at, resolved in
+    /// the chat's folder and WSL distro (`chat_id` of a live chat), else only
+    /// absolute paths resolve.
+    pub(crate) fn image_file(&self, chat_id: Option<&str>, path: &str) -> Result<std::path::PathBuf, String> {
+        let chat = chat_id.map(|id| self.get(id)).transpose()?;
+        match &chat {
+            // `Some("")`: in WSL but the distro is unknown (only `/mnt` paths resolve).
+            Some(c) => crate::chat_images::resolve_file(path, Some(&c.cwd), c.wsl.then(|| c.wsl_distro.as_deref().unwrap_or(""))),
+            None => crate::chat_images::resolve_file(path, None, None),
+        }
     }
 
     fn get(&self, chat_id: &str) -> Result<Arc<Chat>, String> {
@@ -1813,6 +1868,7 @@ fn start_blocking(
         agent: agent.clone(),
         cwd: cwd.clone(),
         wsl: wsl.is_some(),
+        wsl_distro: wsl.as_ref().and_then(|w| w.distro.clone().or_else(crate::util::wsl_default_distro)),
         profile,
         child: Mutex::new(child),
         writer: Mutex::new(stdin),
@@ -1980,9 +2036,76 @@ pub fn chat_events(state: State<'_, ChatState>, chat_id: String, after_seq: u64)
     Ok(events)
 }
 
+/// The bytes of a stored chat image (an event's `flowcodeImageId` or a user
+/// image's `id`), raw.
+#[tauri::command]
+pub async fn chat_image(id: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = crate::blocking(move || crate::chat_images::read(&id)).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// The bytes of an image file the agent mentioned by path, resolved in the
+/// chat's folder (`chat_id`), raw.
+#[tauri::command]
+pub async fn chat_image_file(app: AppHandle, chat_id: Option<String>, path: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = crate::blocking(move || {
+        let file = app.state::<ChatState>().image_file(chat_id.as_deref(), &path)?;
+        crate::chat_images::read_file(&file)
+    })
+    .await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// The bytes of a web image (`https://...` in the agent's markdown), fetched by
+/// the desktop with the hardened link-preview fetch, raw. The UI gates it behind
+/// the user's setting; the command itself is not gated.
+#[tauri::command]
+pub async fn chat_image_url(url: String) -> Result<tauri::ipc::Response, String> {
+    let (bytes, _) = crate::blocking(move || crate::link_preview::fetch_chat_image(url.trim())).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// The absolute Windows path of a stored image (`id`) or of an image file the
+/// agent mentioned (`chat_id` + `path`), for "open" and "show in folder".
+#[tauri::command]
+pub async fn chat_image_path(
+    app: AppHandle,
+    id: Option<String>,
+    chat_id: Option<String>,
+    path: Option<String>,
+) -> Result<String, String> {
+    crate::blocking(move || {
+        let file = match (id, path) {
+            (Some(id), None) => crate::chat_images::path_of(&id).ok_or_else(|| "missing".to_string())?,
+            (None, Some(path)) => {
+                let file = app.state::<ChatState>().image_file(chat_id.as_deref(), &path)?;
+                if !file.is_file() {
+                    return Err("missing".into());
+                }
+                file
+            }
+            _ => return Err("give either an id or a path".into()),
+        };
+        Ok(file.to_string_lossy().into_owned())
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_events_list_their_images_only_when_there_are_some() {
+        let image = UserImage { name: "a.png".into(), mime_type: "image/png".into(), id: "ab".into() };
+        let with = ChatEvent { seq: 1, at: 2, body: ChatBody::User { text: "hi".into(), attachments: vec!["a.png".into()], images: vec![image] } };
+        assert_eq!(
+            serde_json::to_value(&with).unwrap(),
+            json!({ "seq": 1, "at": 2, "kind": "user", "text": "hi", "attachments": ["a.png"], "images": [{ "name": "a.png", "mimeType": "image/png", "id": "ab" }] })
+        );
+        let without = ChatEvent { seq: 1, at: 2, body: ChatBody::User { text: "hi".into(), attachments: Vec::new(), images: Vec::new() } };
+        assert_eq!(serde_json::to_value(&without).unwrap(), json!({ "seq": 1, "at": 2, "kind": "user", "text": "hi" }));
+    }
 
     #[cfg(windows)]
     #[test]
@@ -2176,7 +2299,7 @@ mod tests {
     #[test]
     fn status_follows_events() {
         use ChatStatus::*;
-        let user = ChatBody::User { text: "hi".into(), attachments: Vec::new() };
+        let user = ChatBody::User { text: "hi".into(), attachments: Vec::new(), images: Vec::new() };
         let update = ChatBody::Update { update: json!({ "sessionUpdate": "usage_update" }) };
         let permission = ChatBody::Permission { request_id: json!(1), tool_call: json!({}), options: json!([]) };
         let resolved = ChatBody::PermissionResolved { request_id: json!(1), option_id: None };
@@ -2283,7 +2406,7 @@ mod tests {
     #[test]
     fn the_log_merges_a_streamed_message_but_the_feed_gets_every_chunk() {
         let mut log = big_log();
-        let user = log.push(ChatBody::User { text: "q".into(), attachments: Vec::new() }, 1);
+        let user = log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new() }, 1);
         let live: Vec<ChatEvent> = ["Hel", "lo ", "wörld"]
             .iter()
             .enumerate()
@@ -2322,7 +2445,7 @@ mod tests {
     #[test]
     fn a_replay_from_inside_a_merged_run_gets_only_the_rest() {
         let mut log = big_log();
-        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new() }, 0);
+        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new() }, 0);
         for t in ["a", "bé", "c", "d"] {
             log.push(chunk("agent_message_chunk", t), 0); // seqs 2..=5
         }
@@ -2380,21 +2503,21 @@ mod tests {
     fn the_log_drops_its_oldest_past_the_caps() {
         let mut log = Log::new(3, MAX_LOG_BYTES);
         for n in 1..=5 {
-            log.push(ChatBody::User { text: n.to_string(), attachments: Vec::new() }, 0);
+            log.push(ChatBody::User { text: n.to_string(), attachments: Vec::new(), images: Vec::new() }, 0);
         }
         assert_eq!(summary(&log.after(0)), vec![(3, "3".into()), (4, "4".into()), (5, "5".into())]);
 
         // By bytes: each of these is 64 + 100 bytes, room for two.
         let mut log = Log::new(100, 400);
         for n in 1..=4u8 {
-            log.push(ChatBody::User { text: n.to_string().repeat(100), attachments: Vec::new() }, 0);
+            log.push(ChatBody::User { text: n.to_string().repeat(100), attachments: Vec::new(), images: Vec::new() }, 0);
         }
         assert_eq!(log.after(0).iter().map(|e| e.seq).collect::<Vec<_>>(), vec![3, 4]);
         assert_eq!(log.bytes, log.events.iter().map(|e| e.size).sum::<usize>());
 
         // A merged run counts its whole text against the cap.
         let mut log = Log::new(100, 400);
-        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new() }, 0);
+        log.push(ChatBody::User { text: "q".into(), attachments: Vec::new(), images: Vec::new() }, 0);
         for _ in 0..10 {
             log.push(chunk("agent_message_chunk", &"x".repeat(50)), 0);
         }
@@ -2404,7 +2527,7 @@ mod tests {
 
         // The newest entry is kept even when alone over the cap.
         let mut log = Log::new(100, 10);
-        log.push(ChatBody::User { text: "y".repeat(1000), attachments: Vec::new() }, 0);
+        log.push(ChatBody::User { text: "y".repeat(1000), attachments: Vec::new(), images: Vec::new() }, 0);
         assert_eq!(log.events.len(), 1);
     }
 
@@ -2412,7 +2535,7 @@ mod tests {
     fn a_reset_log_keeps_counting() {
         let mut log = big_log();
         log.push(chunk("agent_message_chunk", "old history"), 0);
-        log.push(ChatBody::User { text: "old".into(), attachments: Vec::new() }, 0);
+        log.push(ChatBody::User { text: "old".into(), attachments: Vec::new(), images: Vec::new() }, 0);
         log.reset();
         assert!(log.after(0).is_empty());
         assert_eq!(log.bytes, 0);
@@ -2426,7 +2549,7 @@ mod tests {
         assert_eq!(approx_size(&json!("abc")), 5);
         assert_eq!(approx_size(&json!({ "k": "v" })), 2 + 1 + 4 + 3);
         assert_eq!(approx_size(&json!([1, null])), 2 + 8 + 8);
-        assert!(body_size(&ChatBody::User { text: "x".repeat(1000), attachments: Vec::new() }) >= 1000);
+        assert!(body_size(&ChatBody::User { text: "x".repeat(1000), attachments: Vec::new(), images: Vec::new() }) >= 1000);
     }
 
     #[test]

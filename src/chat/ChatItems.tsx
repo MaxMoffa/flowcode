@@ -1,8 +1,9 @@
 import { memo, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
-import { lineDiff, stopKind, type ChatItem, type StopKind } from "./chatModel";
+import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "./chatModel";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { LinkPreviews } from "./LinkPreviews";
+import { ChatImages } from "./ChatImage";
 import { CompactionDivider } from "./CompactionDivider";
 import { UserText } from "./CommandChip";
 import { basename } from "../lib/path";
@@ -63,6 +64,7 @@ function ToolStep({ step, live, index }: { step: Extract<TimelineStep, { type: "
   const file = call.locations?.[0]?.path;
   const fileLine = call.locations?.[0]?.line ?? undefined;
   const fileName = file ? basename(file) : "";
+  const images = toolImages(call);
   const header = (
     <>
       <span className="chat-step-num">{index}</span>
@@ -90,6 +92,11 @@ function ToolStep({ step, live, index }: { step: Extract<TimelineStep, { type: "
       {diffs.map((diff, i) => (
         <DiffCard key={i} diff={diff} />
       ))}
+      {images.length > 0 && (
+        <div className="chat-step-media">
+          <ChatImages images={images} />
+        </div>
+      )}
     </div>
   );
 }
@@ -344,27 +351,39 @@ interface ChatItemViewProps {
 export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewProps) {
   const { t } = useI18n();
   switch (item.type) {
-    case "user":
+    case "user": {
+      const files = item.attachments ?? [];
       return (
-        <div className="chat-user">
-          <UserText text={item.text} />
-          {item.attachments && item.attachments.length > 0 && (
-            <div className="chat-user-files">
-              {item.attachments.map((name, i) => (
-                <span key={i} className="chat-file" title={name}>
-                  <PaperclipIcon size={11} />
-                  <span className="chat-chip-text">{name}</span>
-                </span>
-              ))}
+        <>
+          {item.images && item.images.length > 0 && <ChatImages images={item.images} variant="thumb" />}
+          {(item.text || files.length > 0) && (
+            <div className="chat-user">
+              <UserText text={item.text} />
+              {files.length > 0 && (
+                <div className="chat-user-files">
+                  {files.map((name, i) => (
+                    <span key={i} className="chat-file" title={name}>
+                      <PaperclipIcon size={11} />
+                      <span className="chat-chip-text">{name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
+        </>
       );
+    }
     case "agent":
       return (
         <>
-          <ChatMarkdown text={item.text} />
-          <LinkPreviews text={item.text} />
+          {item.text && (
+            <>
+              <ChatMarkdown text={item.text} />
+              <LinkPreviews text={item.text} />
+            </>
+          )}
+          {item.images && item.images.length > 0 && <ChatImages images={item.images} />}
         </>
       );
     case "thought":

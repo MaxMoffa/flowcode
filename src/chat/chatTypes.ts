@@ -5,7 +5,7 @@ type ChatToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" |
 type ChatToolStatus = "pending" | "in_progress" | "completed" | "failed";
 
 export type ChatToolContent =
-  | { type: "content"; content: { type: string; text?: string } }
+  | { type: "content"; content: { type: string; text?: string; mimeType?: string; data?: string; uri?: string; flowcodeImageId?: string } }
   | { type: "diff"; path: string; oldText: string | null; newText: string }
   | { type: "terminal"; terminalId: string };
 
@@ -100,13 +100,22 @@ interface EventBase {
 
 export type ChatEvent =
   | (EventBase & { kind: "update"; update: ChatUpdate })
-  | (EventBase & { kind: "user"; text: string; attachments?: string[] })
+  | (EventBase & { kind: "user"; text: string; attachments?: string[]; images?: { name: string; mimeType: string; id: string }[] })
   | (EventBase & { kind: "permission"; requestId: string; toolCall: ChatToolCall; options: ChatPermissionOption[] })
   | (EventBase & { kind: "permissionResolved"; requestId: string; optionId: string | null })
   | (EventBase & { kind: "turnEnd"; stopReason: string })
   | (EventBase & { kind: "error"; message: string })
   | (EventBase & { kind: "exit"; code: number | null })
   | (EventBase & { kind: "ext"; method: string; params: unknown });
+
+/** One image to show - exactly one of `id` (stored by the desktop, fetched by id), `path` (a file on the chat's PC, as written; resolved by the desktop against the chat's cwd/WSL), `url` (http(s) or data: url, used as is). */
+export interface ChatImageRef {
+  id?: string;
+  path?: string;
+  url?: string;
+  mimeType?: string;
+  name?: string;
+}
 
 /** A file sent with a prompt: its bytes (base64, no `data:` prefix) or a path on this PC. */
 export interface ChatAttachment {

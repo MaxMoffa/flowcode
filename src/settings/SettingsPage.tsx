@@ -122,6 +122,8 @@ export function SettingsPage({
     setConfirmLinkOpen,
     linkPreviews,
     setLinkPreviews,
+    chatWebImages,
+    setChatWebImages,
     explorerDoubleClick,
     setExplorerDoubleClick,
     newTabPage,
@@ -473,6 +475,14 @@ export function SettingsPage({
                     { value: "never", label: t("settings.linkPreviews.never") },
                   ]}
                   onChange={setLinkPreviews}
+                />
+              </SettingRow>
+              <SettingRow id="chatWebImages" label={t("settings.chatWebImages.label")} desc={t("settings.chatWebImages.desc")}>
+                <Switch
+                  checked={chatWebImages}
+                  onChange={setChatWebImages}
+                  label={t("settings.chatWebImages.label")}
+                  stateLabels={onOff}
                 />
               </SettingRow>
             </SettingsGroup>

@@ -169,6 +169,8 @@ export interface MirroredSettings {
   confirmLinkOpen: boolean;
   /** Read-only: when the desktop fetches link previews; "never" makes it refuse `linkpreview`. */
   linkPreviews: LinkPreviewMode;
+  /** Read-only: whether the desktop downloads web images for chats; absent on older desktops. */
+  chatWebImages?: boolean;
   restoreSession: boolean;
   newTabPage: boolean;
   notify: { done: boolean; input: boolean; exited: boolean; limitReset: boolean };
@@ -246,6 +248,8 @@ export type ServerMsg =
   | { t: "viewfile"; viewId: string; hash: string; path: string; offset: number; total: number; data: string }
   /** Reply to `linkpreview`; `preview` is null when there is none (or the desktop's setting is "never"). Needs the "linkPreview" cap, which is not in `RemoteCap`: an older desktop just lacks previews, nothing to warn about. */
   | { t: "linkpreview"; url: string; preview: LinkPreview | null }
+  /** One chunk of an image of a chat (reply to `chatimage`), base64; `key` is the requested `id`, else the requested `path`, verbatim. A missing or unreadable one is a single message with `total: 0, missing: true`; an empty file is one chunk with `total: 0`. Needs the "chatImage" cap, which is not in `RemoteCap`: an older desktop just shows no images. */
+  | { t: "chatimage"; key: string; offset: number; total: number; data: string; mime?: string; missing?: boolean }
   | { t: "pong" };
 
 export type ClientMsg =
@@ -293,5 +297,7 @@ export type ClientMsg =
   /** Sent by the core itself when the app goes out of sight; listed for completeness. */
   /** The preview of a link in a chat (answered with `linkpreview`). */
   | { t: "linkpreview"; url: string }
+  /** An image of a chat, by the `id` the desktop stored it under or by `path` (a file on the chat's PC, resolved against its cwd/WSL) or by web `url` (downloaded by the desktop only if its `chatWebImages` setting is on, else `missing`; the reply `key` is the url); answered with `chatimage` chunks. Needs the "chatImage" cap (not in `RemoteCap`); `url` also needs "chatWebImages". */
+  | { t: "chatimage"; chatId?: string; id?: string; path?: string; url?: string }
   | { t: "background"; on: boolean }
   | { t: "ping" };

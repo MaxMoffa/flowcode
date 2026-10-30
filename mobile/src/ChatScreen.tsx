@@ -3,6 +3,7 @@ import "./terminal.css";
 import "./chat.css";
 import type { ChatInfo } from "../../shared/remote-types";
 import { ChatBody, SubagentBody } from "./ChatBody";
+import { ChatImagesProvider } from "./ChatImage";
 import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
@@ -326,14 +327,16 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
           <div className="chat-thread-wrap">
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
-                {sub ? (
-                  <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
-                ) : (
-                  <>
-                    {model.items.length === 0 && <div className="chat-empty">{session.loaded ? t("chatEmpty") : t("loading")}</div>}
-                    <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
-                  </>
-                )}
+                <ChatImagesProvider chatId={chatId}>
+                  {sub ? (
+                    <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
+                  ) : (
+                    <>
+                      {model.items.length === 0 && <div className="chat-empty">{session.loaded ? t("chatEmpty") : t("loading")}</div>}
+                      <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
+                    </>
+                  )}
+                </ChatImagesProvider>
                 {(sub ? !!subState?.running : status === "busy") && !exited && (
                   <div className="chat-status">
                     <FrogThinking activity={runningTool} verbs={THINKING_VERBS.map((k) => t(k))} startedAt={sub ? sub.call.startedAt : model.turn?.startedAt} outChars={sub ? undefined : model.turn?.outChars} tokensLabel={(n) => t("chatTokens", { n })} tokensTitle={t("chatTokensTitle")} />

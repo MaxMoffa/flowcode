@@ -1,5 +1,6 @@
 import type {
   ChatCommand,
+  ChatImageRef,
   ChatEvent,
   ChatModelOption,
   ChatModels,
@@ -15,9 +16,9 @@ import type {
 /** One thing in the conversation, in the order it happened. */
 export type ChatItem =
   /** `local`: sent from this app (a `user` event), as opposed to history the agent replayed. */
-  | { type: "user"; id: string; text: string; local?: boolean; attachments?: string[] }
+  | { type: "user"; id: string; text: string; local?: boolean; attachments?: string[]; images?: ChatImageRef[] }
   /** `parentToolUseId`: the text is a subagent's (the Agent/Task call it runs under), not the main agent's. */
-  | { type: "agent"; id: string; text: string; parentToolUseId?: string }
+  | { type: "agent"; id: string; text: string; images?: ChatImageRef[]; parentToolUseId?: string }
   | { type: "thought"; id: string; text: string; parentToolUseId?: string }
   | { type: "tool"; id: string; call: ChatToolCall }
   | {
@@ -161,7 +162,7 @@ function appendText(state: ChatModelState, type: "user" | "agent" | "thought", t
   // Some agents (Vibe) echo the prompt back as user chunks: already shown.
   if (type === "user" && last?.type === "user" && last.local) return state;
   const items =
-    last && last.type === type
+    last && last.type === type && !(last.type === "agent" && last.images)
       ? state.items.map((item, i) => (i === at ? { ...last, text: last.text + text } : item))
       : [...state.items, { type, id: `${type}-${seq}`, text, ...(parent && type !== "user" ? { parentToolUseId: parent } : {}) } as ChatItem];
   // Only a `user` event (a prompt sent from here) starts a turn: replayed
@@ -177,18 +178,76 @@ export function streamOf(item: ChatItem): string {
   return "";
 }
 
-/** A replayed user chunk that is a file, not text: its name joins the last user item's attachments. */
+/** The ref of an ACP image block: stored by the desktop (`flowcodeImageId`), inline base64 (`data`) or a `uri` (web, data: or file://); null for anything else. */
+export function imageRef(block: unknown): ChatImageRef | null {
+  if (typeof block !== "object" || block === null) return null;
+  const b = block as Record<string, unknown>;
+  if (b.type !== "image") return null;
+  const mimeType = str(b.mimeType) ?? undefined;
+  const mime = mimeType ? { mimeType } : {};
+  const id = str(b.flowcodeImageId);
+  if (id) return { id, ...mime };
+  const data = str(b.data);
+  if (data) return { url: `data:${mimeType ?? "image/png"};base64,${data}`, ...mime };
+  const uri = str(b.uri);
+  if (!uri) return null;
+  if (/^(https?:|data:)/i.test(uri)) return { url: uri, ...mime };
+  if (/^file:\/\//i.test(uri)) return { path: fileUriPath(uri), ...mime };
+  return null;
+}
+
+/** The local path of a `file://` uri (`file:///C:/x` is `C:/x`, `file:///home/x` is `/home/x`), percent-decoded. */
+export function fileUriPath(uri: string): string {
+  let path = uri.replace(/^file:\/\//i, "");
+  if (/^\/[a-z]:/i.test(path)) path = path.slice(1);
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
+/** The images in a tool call's content (deduplicated). */
+export function toolImages(call: ChatToolCall): ChatImageRef[] {
+  const out: ChatImageRef[] = [];
+  const seen = new Set<string>();
+  for (const c of call.content ?? []) {
+    const ref = c.type === "content" ? imageRef(c.content) : null;
+    const key = ref && (ref.id ?? ref.url ?? ref.path);
+    if (ref && key && !seen.has(key)) {
+      seen.add(key);
+      out.push(ref);
+    }
+  }
+  return out;
+}
+
+/** A replayed user chunk that is a file, not text: an image joins the last user item's images, a file's name its attachments. */
 function appendAttachment(state: ChatModelState, update: ChatUpdate, seq: number): ChatModelState {
   const content = update.content as { type?: string; name?: string } | undefined;
   if (content?.type !== "image" && content?.type !== "resource_link") return state;
-  const name = content.type === "resource_link" && content.name ? content.name : "image";
+  const ref = content.type === "image" ? imageRef(content) : null;
+  if (content.type === "image" && !ref) return state;
+  const name = content.name ? content.name : "image";
   const last = state.items[state.items.length - 1];
   // Vibe echoes the prompt back: already shown.
   if (last?.type === "user" && last.local) return state;
+  const add = (item: Extract<ChatItem, { type: "user" }>) => (ref ? { ...item, images: [...(item.images ?? []), ref] } : { ...item, attachments: [...(item.attachments ?? []), name] });
   const items =
-    last?.type === "user"
-      ? [...state.items.slice(0, -1), { ...last, attachments: [...(last.attachments ?? []), name] }]
-      : [...state.items, { type: "user" as const, id: `user-${seq}`, text: "", attachments: [name] }];
+    last?.type === "user" ? [...state.items.slice(0, -1), add(last)] : [...state.items, add({ type: "user", id: `user-${seq}`, text: "" })];
+  return withItems(state, items);
+}
+
+/** An agent image: joins the last item of its stream when that is an agent item, else starts one (so the text after it renders after it). */
+function appendAgentImage(state: ChatModelState, ref: ChatImageRef, seq: number, parent?: string): ChatModelState {
+  const stream = parent ?? "";
+  let at = state.items.length - 1;
+  while (at >= 0 && streamOf(state.items[at]) !== stream) at--;
+  const last = at >= 0 ? state.items[at] : undefined;
+  const items =
+    last?.type === "agent"
+      ? state.items.map((item, i) => (i === at ? { ...last, images: [...(last.images ?? []), ref] } : item))
+      : [...state.items, { type: "agent" as const, id: `agent-${seq}`, text: "", images: [ref], ...(parent ? { parentToolUseId: parent } : {}) }];
   return withItems(state, items);
 }
 
@@ -284,7 +343,11 @@ function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number, at:
     case "agent_message_chunk":
     case "agent_thought_chunk": {
       const text = textOf(update);
-      if (text === null) return update.sessionUpdate === "user_message_chunk" ? appendAttachment(state, update, seq) : state;
+      if (text === null) {
+        if (update.sessionUpdate === "user_message_chunk") return appendAttachment(state, update, seq);
+        const ref = update.sessionUpdate === "agent_message_chunk" ? imageRef(update.content) : null;
+        return ref ? appendAgentImage(state, ref, seq, claudeMeta(update).parentToolUseId) : state;
+      }
       const type = update.sessionUpdate === "user_message_chunk" ? "user" : update.sessionUpdate === "agent_message_chunk" ? "agent" : "thought";
       return appendText(state, type, text, seq, type === "user" ? undefined : claudeMeta(update).parentToolUseId);
     }
@@ -354,11 +417,19 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
         },
       };
     }
-    case "user":
+    case "user": {
+      const images: ChatImageRef[] = (ev.images ?? []).map((m) => ({ id: m.id, mimeType: m.mimeType, name: m.name }));
+      // The event lists every file name, images included: one occurrence per image goes.
+      const attachments = [...(ev.attachments ?? [])];
+      for (const m of ev.images ?? []) {
+        const at = attachments.indexOf(m.name);
+        if (at >= 0) attachments.splice(at, 1);
+      }
       return {
-        ...withItems(state, [...state.items, { type: "user", id: `user-${ev.seq}`, text: ev.text, local: true, ...(ev.attachments?.length ? { attachments: ev.attachments } : {}) }], true),
+        ...withItems(state, [...state.items, { type: "user", id: `user-${ev.seq}`, text: ev.text, local: true, ...(attachments.length ? { attachments } : {}), ...(images.length ? { images } : {}) }], true),
         turn: { startedAt: ev.at, outChars: 0 },
       };
+    }
     case "permission":
       return withItems(state, [
         ...state.items,

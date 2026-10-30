@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewUrls, splitLinks } from "./chatLinks";
+import { markdownImageRef, previewUrls, splitLinks } from "./chatLinks";
 
 const links = (text: string) => splitLinks(text).flatMap((p) => (p.url ? [p.url] : []));
 
@@ -70,5 +70,26 @@ describe("previewUrls", () => {
 
   it("skips markdown links to local files", () => {
     expect(previewUrls("[x](C:/a.md) https://e.com", 3)).toEqual(["https://e.com"]);
+  });
+});
+
+describe("markdownImageRef", () => {
+  it("takes web, data and file urls", () => {
+    expect(markdownImageRef("https://x/y.png")).toEqual({ url: "https://x/y.png" });
+    expect(markdownImageRef("data:image/png;base64,QQ==")).toEqual({ url: "data:image/png;base64,QQ==" });
+    expect(markdownImageRef("file:///C:/a%20b/x.png")).toEqual({ path: "C:/a b/x.png" });
+  });
+  it("takes paths with an image extension", () => {
+    for (const p of ["C:\\x\\a.PNG", "C:/x/a.jpg", "/home/x/a.webp", "~/a.gif", "./a.svg?v=1", "img/a.avif#f"]) expect(markdownImageRef(p)).toEqual({ path: p });
+  });
+  it("refuses the rest", () => {
+    for (const p of ["javascript:alert(1)", "mailto:a@b.c", "ftp://x/a.png", "docs/readme.md", "a", ""]) expect(markdownImageRef(p)).toBeNull();
+  });
+});
+
+describe("images are not links", () => {
+  it("shows the alt of an image, not a link", () => {
+    expect(splitLinks("![a](https://x/y.png)")).toEqual([{ text: "!" }, { text: "a" }]);
+    expect(previewUrls("see ![a](https://x/y.png) and [b](https://z.io)", 5)).toEqual(["https://z.io"]);
   });
 });

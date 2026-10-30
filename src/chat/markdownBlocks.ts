@@ -6,6 +6,8 @@ export type Inline =
   | { type: "code"; text: string }
   /** A `[text](target)` as written; the renderer resolves it (web link, file link or label). */
   | { type: "link"; raw: string }
+  /** A `![alt](src)` as written; the renderer resolves `src`. */
+  | { type: "image"; alt: string; src: string }
   | { type: "strong" | "em" | "del"; children: Inline[] };
 
 export interface ListItem {
@@ -207,6 +209,8 @@ export function parseBlocks(text: string): Block[] {
 
 const ESCAPABLE = "\\`*_{}[]()#+-.!|~<>";
 const LINK_AT = /\[[^\]\n]+\]\((?:[^()\n]|\([^()\n]*\))+\)/y;
+/** `![alt](src)`: `src` angle-bracketed (may hold spaces) or a run without spaces (one level of parentheses); an optional ` "title"` is dropped. */
+const IMAGE_AT = /!\[([^\]\n]*)\]\((?:<([^<>\n]*)>|((?:[^()\s]|\([^()\s]*\))+))(?:[ \t]+"[^"\n]*")?\)/y;
 const URL_AT = /https?:\/\/[^\s<>"'`]+/y;
 const isSpace = (c: string | undefined) => c === undefined || /\s/.test(c);
 const isWord = (c: string | undefined) => c !== undefined && /[\p{L}\p{N}]/u.test(c);
@@ -260,7 +264,7 @@ function findClose(s: string, from: number, ch: string, n: number): number {
   return -1;
 }
 
-/** One line of text as inline tokens: `code` (wins over everything), **bold**, *italic*, ***both***, ~~strike~~, `[text](url)` links and backslash escapes. A `_` inside a word (snake_case) and a `*` with spaces around it stay plain. */
+/** One line of text as inline tokens: `code` (wins over everything), **bold**, *italic*, ***both***, ~~strike~~, `[text](url)` links, `![alt](src)` images and backslash escapes. A `_` inside a word (snake_case) and a `*` with spaces around it stay plain. */
 export function parseInline(s: string): Inline[] {
   const out: Inline[] = [];
   let buf = "";
@@ -291,6 +295,16 @@ export function parseInline(s: string): Inline[] {
       out.push({ type: "code", text: code });
       i = close + run;
       continue;
+    }
+    if (c === "!" && s[i + 1] === "[") {
+      IMAGE_AT.lastIndex = i;
+      const m = IMAGE_AT.exec(s);
+      if (m) {
+        flush();
+        out.push({ type: "image", alt: m[1], src: m[2] ?? m[3] });
+        i += m[0].length;
+        continue;
+      }
     }
     if (c === "[") {
       LINK_AT.lastIndex = i;

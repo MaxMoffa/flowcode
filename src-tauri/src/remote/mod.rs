@@ -1425,7 +1425,7 @@ async fn serve(mut guard: HandshakeGuard, connection: Connection, mut shutdown: 
 /// they wait for interactive frames (terminal output, echoes, replies to a
 /// tap) instead of delaying them. Their own order is kept.
 fn is_bulk(msg: &ServerMsg) -> bool {
-    matches!(msg, ServerMsg::ViewFile { .. } | ServerMsg::LinkPreview { .. })
+    matches!(msg, ServerMsg::ViewFile { .. } | ServerMsg::LinkPreview { .. } | ServerMsg::ChatImage { .. })
 }
 
 /// The next message to write: anything interactive in the queue first, then a
@@ -1905,6 +1905,40 @@ impl Conn {
         });
     }
 
+    /// Answers a `chatimage`: the stored image `id`, or the file `path` the
+    /// agent mentioned (resolved in the chat's folder), or the web image `url`
+    /// (only if the desktop's "chatWebImages" setting is on), as chunks - or one
+    /// `missing` message if it can't be read.
+    fn send_chat_image(&self, chat_id: Option<String>, id: Option<String>, path: Option<String>, url: Option<String>) {
+        let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let key = id.clone().or_else(|| path.clone()).or_else(|| url.clone()).unwrap_or_default();
+            let web_images = shared.settings.borrow().get("chatWebImages").and_then(|v| v.as_bool()) == Some(true);
+            let app = shared.app.clone();
+            let read = crate::blocking(move || match (id, path, url) {
+                (Some(id), _, _) => crate::chat_images::read(&id).map(|bytes| (bytes, None)),
+                (None, Some(path), _) => {
+                    let file = app.state::<ChatState>().image_file(chat_id.as_deref(), &path)?;
+                    let bytes = crate::chat_images::read_file(&file)?;
+                    Ok((bytes, Some(crate::chat_images::mime_of(&file).to_string())))
+                }
+                (None, None, Some(url)) if web_images => {
+                    crate::link_preview::fetch_chat_image(url.trim()).map(|(bytes, mime)| (bytes, Some(mime)))
+                }
+                _ => Err("no image".to_string()),
+            })
+            .await;
+            match read {
+                Ok((bytes, mime)) => {
+                    chat::send_image(&out, &key, mime.as_deref(), &bytes).await;
+                }
+                Err(_) => {
+                    let _ = out.send(ServerMsg::ChatImage { key, offset: 0, total: 0, data: String::new(), mime: None, missing: true }).await;
+                }
+            }
+        });
+    }
+
     /// Answers a `linkpreview`: the page's preview, or none if the desktop's
     /// link preview setting is "never" or the page has nothing to show.
     fn send_link_preview(&self, url: String) {
@@ -2220,6 +2254,18 @@ impl Conn {
                     self.error(tr("Richiesta non valida", "Invalid request"), None);
                 } else {
                     self.send_view_file(view_id, path);
+                }
+            }
+            ClientMsg::ChatImage { chat_id, id, path, url } => {
+                let ok = chat_id.as_ref().map_or(true, |c| c.len() <= MAX_ID_BYTES)
+                    && id.as_ref().map_or(true, |i| i.len() <= MAX_ID_BYTES)
+                    && path.as_ref().map_or(true, |p| p.len() <= 4096)
+                    && url.as_ref().map_or(true, |u| u.len() <= 2048)
+                    && [id.is_some(), path.is_some(), url.is_some()].into_iter().filter(|b| *b).count() == 1;
+                if ok {
+                    self.send_chat_image(chat_id, id, path, url);
+                } else {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
                 }
             }
             ClientMsg::LinkPreview { url } => {
