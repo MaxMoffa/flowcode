@@ -676,6 +676,8 @@ export const en: Record<MessageKey, string> = {
   "settings.remote.revoke": "Revoke",
   "settings.remote.revokeTitle": "Revoke this device?",
   "settings.remote.revokeMessage": "{name} will no longer be able to reach your terminals.",
+  "settings.remote.update": "Allow updating Flowcode from the phone",
+  "settings.remote.updateDesc": "The phone can start downloading and installing a new version. Flowcode restarts and reopens your sessions.",
   "settings.group.version": "Version and updates",
   "settings.group.maintenance": "Maintenance",
   "settings.group.credits": "Credits",

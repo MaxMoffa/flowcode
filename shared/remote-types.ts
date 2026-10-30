@@ -223,7 +223,25 @@ export type RemoteCap =
   /** `chatthought`: switching a chat's thinking level. */
   | "chatThought"
   /** `chatclear`: starting a fresh conversation in a chat tab (`/clear`). */
-  | "chatClear";
+  | "chatClear"
+  /** `updatecheck` / `updateinstall` / `update`: updating the desktop's Flowcode from the phone. */
+  | "desktopUpdate";
+
+export type DesktopUpdateState = "idle" | "checking" | "upToDate" | "available" | "installing" | "error";
+
+/** The desktop's own app update (`update` message). `allowed` = the user enabled phone updates on the desktop. */
+export interface DesktopUpdate {
+  allowed: boolean;
+  state: DesktopUpdateState;
+  version?: string;
+  currentVersion?: string;
+  notes?: string;
+  size?: number;
+  stage?: "download" | "verify" | "install";
+  downloaded?: number;
+  total?: number;
+  error?: string;
+}
 
 export type ServerMsg =
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -237,6 +255,8 @@ export type ServerMsg =
   | { t: "ls"; ptyId: string; path: string; entries: LsEntry[] }
   | { t: "file"; ptyId: string; path: string; text: string; truncated: boolean }
   | { t: "settings"; settings: MirroredSettings }
+  /** The desktop's self-update state; sent after `ready` and on every change. Needs the "desktopUpdate" cap. */
+  | { t: "update"; update: DesktopUpdate }
   | { t: "profiles"; profiles: ProfileInfo[]; defaultLoggedIn?: Record<ProfileCli, boolean> | null }
   | { t: "notify"; title: string; body: string; tabId?: string }
   /** Every chat tab of the desktop, sent on connect and whenever one changes. */
@@ -285,6 +305,10 @@ export type ClientMsg =
   | { t: "chatthought"; chatId: string; value: string }
   /** Starts a fresh conversation in the chat's tab, as `/clear` does on the desktop: the tab stays, the chat gets a new `chatId`. */
   | { t: "chatclear"; chatId: string }
+  /** Asks the desktop to check for an update of itself (answered with `update`). */
+  | { t: "updatecheck" }
+  /** Asks the desktop to download and install its update, then restart (refused with `error` unless the user allowed it). */
+  | { t: "updateinstall" }
   /** Hands the chat's session over to a desktop terminal tab (as Ctrl+` does on the desktop). */
   | { t: "chatterminal"; chatId: string }
   /** Reopens the agent running in the terminal tab of `ptyId` as a chat tab on the same session (the reverse of `chatterminal`). */

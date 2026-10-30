@@ -7,9 +7,10 @@ import { listen } from "@tauri-apps/api/event";
 import { setLanguage, t } from "./i18n";
 import { createStore, safeStorage } from "./store";
 import { hostInfoFrom, supports, type HostInfo } from "./compatCheck";
+import { normalizeDesktopUpdate } from "./desktopUpdate";
 import { normalizeLoggedIn, normalizeProfiles, normalizeSettings } from "./settingsModel";
 
-import type { Action, ChatInfo, ClientMsg, RemoteCap, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
+import type { Action, ChatInfo, ClientMsg, DesktopUpdate, RemoteCap, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
 
 // The wire types live in shared/ (also used by the desktop); screens keep importing them from here.
 export type { Action, ChatInfo, LsEntry, MirroredSettings, ProfileCli, ProfileInfo, Tab, UsageItem, UsageMetric } from "../../shared/remote-types";
@@ -42,6 +43,8 @@ interface Snapshot {
   settings: MirroredSettings | null;
   /** The desktop's account profiles besides the default; null until it sends them (older desktops never do). */
   profiles: ProfileInfo[] | null;
+  /** The desktop's own update state; null until it sends it. Kept across plain disconnects (it restarts while installing). */
+  desktopUpdate: DesktopUpdate | null;
   /** The default profile's sign-ins; null when the desktop doesn't say (older desktops). */
   defaultLoggedIn: Record<ProfileCli, boolean> | null;
   /** What the connected desktop said about itself in `ready`; null before the first one. */
@@ -91,7 +94,7 @@ export function resetSettingsCache() {
   store.set({ settings: null });
 }
 
-const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, chats: null, usage: [], actions: [], settings: loadSettings(), profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null, toast: null });
+const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, chats: null, usage: [], actions: [], settings: loadSettings(), profiles: null, desktopUpdate: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null, toast: null });
 const msgListeners = new Set<(m: ServerMsg) => void>();
 const set = store.set;
 
@@ -176,6 +179,9 @@ function handleMsg(m: ServerMsg) {
       set({ settings });
       break;
     }
+    case "update":
+      set({ desktopUpdate: normalizeDesktopUpdate(m.update) });
+      break;
     case "profiles":
       set({ profiles: normalizeProfiles(m.profiles), defaultLoggedIn: normalizeLoggedIn(m.defaultLoggedIn) });
       break;
@@ -227,13 +233,13 @@ async function wire(): Promise<void> {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
-    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, chats: null, usage: [], actions: [], settings: null, profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null } : {}) });
+    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, chats: null, usage: [], actions: [], settings: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null } : {}) });
   }));
   // Another desktop became the active one: what is shown belongs to the old one.
   unlisteners.push(await listen("remote://computer", () => {
     saveSettings(null);
     pending.clear();
-    set({ wasOnline: false, firstConnect: true, tabs: null, chats: null, usage: [], actions: [], settings: null, profiles: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null });
+    set({ wasOnline: false, firstConnect: true, tabs: null, chats: null, usage: [], actions: [], settings: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, host: null, compatDismissed: false, lastOpened: null, openTab: null });
   }));
   // The active desktop refused this phone for good; the core already moved to another saved one.
   unlisteners.push(await listen<{ host: string; message: string }>("remote://revoked", (e) => showToast(t("computerRevoked", { host: e.payload.host, message: e.payload.message }))));
@@ -326,6 +332,11 @@ export function send(msg: ClientMsg) {
 }
 
 /** Like `send`, for messages that must not vanish quietly (a chat prompt): false when the link refused it. */
+/** Asks the desktop to look for an update of itself. */
+export const desktopUpdateCheck = () => send({ t: "updatecheck" });
+/** Asks the desktop to install its update (it restarts, so the connection drops and comes back). */
+export const desktopUpdateInstall = () => send({ t: "updateinstall" });
+
 export const sendChecked = (msg: ClientMsg): Promise<boolean> => invoke("send", { msg }).then(() => true, () => false);
 
 /** The chats now, for code outside React (the chat store reconciles its subscriptions against them). */

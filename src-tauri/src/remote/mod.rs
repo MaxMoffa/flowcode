@@ -151,6 +151,10 @@ const EVT_CHAT_CLOSE: &str = "remote://chat-close";
 /// `{chatId}`: a phone cleared a chat (`/clear`), to the window showing it.
 const EVT_CHAT_CLEAR: &str = "remote://chat-clear";
 /// A phone asked for a new chat tab (see `ClientMsg::NewChat`).
+/// A phone asks the desktop to check for a new release.
+const EVT_UPDATE_CHECK: &str = "remote://update-check";
+/// A phone asks the desktop to install the release it found (only emitted when allowed).
+const EVT_UPDATE_INSTALL: &str = "remote://update-install";
 const EVT_NEW_CHAT: &str = "remote://new-chat";
 /// How long the user has to confirm a new phone on the desktop. The phone
 /// waits longer for its reply (see mobile/src-tauri/src/link.rs).
@@ -233,6 +237,8 @@ struct Shared {
     /// Latest desktop settings the frontend published for the phone to mirror
     /// (`Null` until the first publish).
     settings: watch::Sender<serde_json::Value>,
+    /// Latest update state the frontend published (`Null` until then); `allowed` is added on send.
+    update: watch::Sender<serde_json::Value>,
     /// Latest account profiles the frontend published, as `{profiles, defaultLoggedIn}` (`Null` until then).
     profiles: watch::Sender<serde_json::Value>,
     /// Desktop notifications mirrored to every connected phone.
@@ -273,6 +279,7 @@ pub struct RemoteStatus {
     running: bool,
     node_id: Option<String>,
     error: Option<String>,
+    allow_phone_update: bool,
     devices: Vec<DeviceStatus>,
 }
 
@@ -336,6 +343,7 @@ impl RemoteState {
             usage: watch::channel(Vec::new()).0,
             actions: watch::channel(Vec::new()).0,
             settings: watch::channel(serde_json::Value::Null).0,
+            update: watch::channel(serde_json::Value::Null).0,
             profiles: watch::channel(serde_json::Value::Null).0,
             notices: broadcast::channel(32).0,
             view_hashes: Mutex::new(HashMap::new()),
@@ -394,6 +402,7 @@ impl Shared {
             running: runtime.running.is_some(),
             node_id: runtime.running.as_ref().map(|r| r.node_id.clone()),
             error: runtime.error.clone(),
+            allow_phone_update: config.allow_phone_update,
             devices: config
                 .devices
                 .iter()
@@ -877,6 +886,26 @@ pub async fn remote_set_enabled(state: tauri::State<'_, RemoteState>, enabled: b
     Ok(shared.set_enabled(enabled).await)
 }
 
+/// Lets (or stops) paired phones install desktop updates; connected phones
+/// are told the new `allowed` right away.
+#[tauri::command]
+pub fn remote_set_allow_update(state: tauri::State<'_, RemoteState>, enabled: bool) -> RemoteStatus {
+    lock(&state.0.config).allow_phone_update = enabled;
+    state.0.save();
+    state.0.update.send_modify(|_| {});
+    state.0.status()
+}
+
+/// The update state the phone shows (built by the desktop frontend).
+#[tauri::command]
+pub fn remote_publish_update(state: tauri::State<'_, RemoteState>, update: serde_json::Value) -> Result<(), String> {
+    if update.to_string().len() > MAX_UPDATE_JSON_BYTES {
+        return Err(tr("Dati di aggiornamento troppo grandi", "Update data too large").to_string());
+    }
+    publish(&state.0.update, update);
+    Ok(())
+}
+
 /// A pairing code and the QR link carrying it. A code generated less than
 /// `PAIR_REUSE_MS` ago is returned again unless `force` (the "Regenerate"
 /// button) asks for a new one.
@@ -948,6 +977,22 @@ fn profiles_msg(published: &serde_json::Value) -> Option<ServerMsg> {
 #[tauri::command]
 pub fn remote_publish_actions(state: tauri::State<'_, RemoteState>, actions: Vec<Action>) {
     publish(&state.0.actions, actions);
+}
+
+const MAX_UPDATE_JSON_BYTES: usize = 64 * 1024;
+
+/// The `Update` message for a published value: forced to an object, with
+/// `allowed` set from the current consent.
+fn update_msg(update: &serde_json::Value, allowed: bool) -> Option<ServerMsg> {
+    if update.is_null() {
+        return None;
+    }
+    let mut update = match update {
+        serde_json::Value::Object(_) => update.clone(),
+        other => serde_json::json!({ "value": other }),
+    };
+    update["allowed"] = serde_json::Value::Bool(allowed);
+    Some(ServerMsg::Update { update })
 }
 
 /// Stores `value` in the watch channel, waking the connections only if it
@@ -1572,6 +1617,7 @@ async fn run_connection(
     let mut usage_rx = shared.usage.subscribe();
     let mut actions_rx = shared.actions.subscribe();
     let mut settings_rx = shared.settings.subscribe();
+    let mut update_rx = shared.update.subscribe();
     let mut profiles_rx = shared.profiles.subscribe();
     let mut notices_rx = shared.notices.subscribe();
     let mut chats_rx = shared.app.state::<ChatState>().watch_changes();
@@ -1604,6 +1650,10 @@ async fn run_connection(
     let settings = settings_rx.borrow_and_update().clone();
     if !settings.is_null() {
         conn.send(ServerMsg::Settings { settings });
+    }
+    let allowed = lock(&shared.config).allow_phone_update;
+    if let Some(msg) = update_msg(&update_rx.borrow_and_update(), allowed) {
+        conn.send(msg);
     }
     if let Some(msg) = profiles_msg(&profiles_rx.borrow_and_update()) {
         conn.send(msg);
@@ -1664,6 +1714,13 @@ async fn run_connection(
                 let settings = settings_rx.borrow_and_update().clone();
                 if !conn.background && !settings.is_null() {
                     conn.send(ServerMsg::Settings { settings });
+                }
+            }
+            Ok(()) = update_rx.changed() => {
+                let allowed = lock(&shared.config).allow_phone_update;
+                let msg = update_msg(&update_rx.borrow_and_update(), allowed);
+                if let (false, Some(msg)) = (conn.background, msg) {
+                    conn.send(msg);
                 }
             }
             Ok(()) = profiles_rx.changed() => {
@@ -1753,6 +1810,15 @@ impl Conn {
         if let Err(mpsc::error::TrySendError::Full(_)) = self.out_tx.try_send(msg) {
             self.overflow.store(true, Ordering::Relaxed);
         }
+    }
+
+    /// Tells the leader window a phone wants an update check / install.
+    fn emit_update_event(&self, event: &str) {
+        let Some(window) = self.shared.default_window() else {
+            self.error(tr("Nessuna finestra aperta", "No window is open"), None);
+            return;
+        };
+        let _ = self.shared.app.emit_to(window.as_str(), event, ());
     }
 
     fn error(&self, message: &str, pty_id: Option<String>) {
@@ -1848,6 +1914,10 @@ impl Conn {
         let settings = self.shared.settings.borrow().clone();
         if !settings.is_null() {
             self.send(ServerMsg::Settings { settings });
+        }
+        let allowed = lock(&self.shared.config).allow_phone_update;
+        if let Some(msg) = update_msg(&self.shared.update.borrow(), allowed) {
+            self.send(msg);
         }
         if let Some(msg) = profiles_msg(&self.shared.profiles.borrow()) {
             self.send(msg);
@@ -2255,6 +2325,20 @@ impl Conn {
                 let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_CLEAR, serde_json::json!({ "chatId": chat_id }));
             }
             ClientMsg::Views => self.send_views(),
+            ClientMsg::UpdateCheck => self.emit_update_event(EVT_UPDATE_CHECK),
+            ClientMsg::UpdateInstall => {
+                if !lock(&self.shared.config).allow_phone_update {
+                    self.error(
+                        tr(
+                            "Aggiornamento da telefono non consentito: attivalo nelle impostazioni di accesso remoto del desktop",
+                            "Updating from the phone is not allowed: enable it in the desktop's remote access settings",
+                        ),
+                        None,
+                    );
+                    return;
+                }
+                self.emit_update_event(EVT_UPDATE_INSTALL);
+            }
             ClientMsg::ViewFile { view_id, path } => {
                 if view_id.len() > MAX_ID_BYTES || path.len() > 1024 {
                     self.error(tr("Richiesta non valida", "Invalid request"), None);
@@ -2369,6 +2453,15 @@ mod tests {
     use super::*;
     use iroh::SecretKey;
     use std::str::FromStr;
+
+    #[test]
+    fn update_msg_forces_object_and_sets_allowed() {
+        assert!(update_msg(&serde_json::Value::Null, true).is_none());
+        let Some(ServerMsg::Update { update }) = update_msg(&serde_json::json!({ "state": "idle", "allowed": true }), false) else { panic!() };
+        assert_eq!(update, serde_json::json!({ "state": "idle", "allowed": false }));
+        let Some(ServerMsg::Update { update }) = update_msg(&serde_json::json!("x"), true) else { panic!() };
+        assert_eq!(update["allowed"], serde_json::json!(true));
+    }
 
 
 

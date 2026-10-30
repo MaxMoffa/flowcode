@@ -44,6 +44,9 @@ pub(super) struct Device {
 #[serde(rename_all = "camelCase")]
 pub(super) struct Config {
     pub(super) enabled: bool,
+    /// Whether a paired phone may install a desktop update (off by default).
+    #[serde(default)]
+    pub(super) allow_phone_update: bool,
     #[serde(default)]
     pub(super) devices: Vec<Device>,
 }

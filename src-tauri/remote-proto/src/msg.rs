@@ -118,6 +118,10 @@ pub enum ClientMsg {
     },
     /// List the agent view plugins a phone may show (answered with `ServerMsg::Views`).
     Views,
+    /// Ask the desktop to check GitHub for a newer release (answered by `ServerMsg::Update`).
+    UpdateCheck,
+    /// Install the release the desktop last found, only if the user allowed it on the desktop.
+    UpdateInstall,
     /// One file of a view plugin, answered with its `ServerMsg::ViewFile` chunks.
     ViewFile { view_id: String, path: String },
     /// The preview of a link in a chat (answered with `ServerMsg::LinkPreview`).
@@ -180,6 +184,10 @@ pub enum ServerMsg {
     /// The desktop settings the phone mirrors, as one JSON object. Sent after
     /// `ready` once the desktop has published them, and again on every change.
     Settings { settings: serde_json::Value },
+    /// The desktop's update state, as one JSON object:
+    /// `{state, version?, currentVersion?, notes?, size?, stage?, downloaded?, total?, error?, allowed}`.
+    /// `allowed` tells whether the user lets phones install updates.
+    Update { update: serde_json::Value },
     /// The account profiles, as a JSON array of
     /// `{id, name, color, loggedIn: {claude, codex, vibe, gemini}}`. Sent after `ready`
     /// once the desktop has published them, and again on every change.
@@ -416,6 +424,19 @@ mod tests {
         assert_eq!(msg, ClientMsg::Set { key: "palette".into(), value: serde_json::json!("ocean") });
         let json = serde_json::to_value(ServerMsg::Settings { settings: serde_json::json!({ "a": 1 }) }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "settings", "settings": { "a": 1 } }));
+    }
+
+    #[test]
+    fn update_messages_round_trip() {
+        assert_eq!(serde_json::to_string(&ClientMsg::UpdateCheck).unwrap(), r#"{"t":"updatecheck"}"#);
+        assert_eq!(serde_json::to_string(&ClientMsg::UpdateInstall).unwrap(), r#"{"t":"updateinstall"}"#);
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"updateinstall"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::UpdateInstall);
+        let update = serde_json::json!({ "state": "available", "version": "1.2.3", "allowed": false });
+        let json = serde_json::to_value(ServerMsg::Update { update: update.clone() }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "update", "update": update }));
+        let back: ServerMsg = serde_json::from_value(json).unwrap();
+        assert_eq!(back, ServerMsg::Update { update });
     }
 
     #[test]

@@ -677,6 +677,8 @@ export const it = {
   "settings.remote.revoke": "Revoca",
   "settings.remote.revokeTitle": "Revocare il dispositivo?",
   "settings.remote.revokeMessage": "{name} non potrà più accedere ai tuoi terminali.",
+  "settings.remote.update": "Consenti aggiornamento di Flowcode dal telefono",
+  "settings.remote.updateDesc": "Il telefono può avviare il download e l'installazione di una nuova versione. Flowcode si riavvia e riapre le sessioni.",
   "settings.group.version": "Versione e aggiornamenti",
   "settings.group.maintenance": "Manutenzione",
   "settings.group.credits": "Crediti",

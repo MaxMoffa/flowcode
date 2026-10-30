@@ -30,9 +30,12 @@ interface UpdateContextValue {
   status: UpdateStatus;
   /** Asks GitHub for a newer release. `manual` (the Settings button) always
    * shows the dialog when there is one - even for a version skipped before. */
-  check: (manual: boolean) => Promise<void>;
+  check: (manual: boolean, quiet?: boolean) => Promise<void>;
   /** Reopens the dialog for an update already found. */
   openDialog: () => void;
+  /** Installs the update found (status `available`) and opens the dialog to show progress.
+   * No-op in any other status. */
+  install: () => void;
 }
 
 const SKIPPED_VERSION_KEY = "flowcode.update.skippedVersion";
@@ -62,7 +65,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const statusRef = useRef(status);
   statusRef.current = status;
 
-  const check = useCallback(async (manual: boolean) => {
+  /** `quiet` (the phone's check): a found update doesn't open the dialog and a
+   * failure stays quiet, like the background check. */
+  const check = useCallback(async (manual: boolean, quiet = false) => {
     const current = statusRef.current.kind;
     if (current === "checking" || current === "installing") return;
     setStatus({ kind: "checking" });
@@ -73,11 +78,11 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         return;
       }
       setStatus({ kind: "available", info });
-      if (manual || readString(SKIPPED_VERSION_KEY) !== info.version) setDialogOpen(true);
+      if (!quiet && (manual || readString(SKIPPED_VERSION_KEY) !== info.version)) setDialogOpen(true);
     } catch (e) {
       // A failed background check stays quiet (offline, rate-limited...);
       // only the Settings button reports it.
-      setStatus(manual ? { kind: "error", message: String(e) } : { kind: "idle" });
+      setStatus(manual && !quiet ? { kind: "error", message: String(e) } : { kind: "idle" });
     }
   }, []);
 
@@ -87,7 +92,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [check]);
 
-  async function install(info: UpdateInfo) {
+  const runInstall = useCallback(async (info: UpdateInfo) => {
     setStatus({ kind: "installing", info, progress: null });
     const onProgress = new Channel<UpdateProgress>();
     onProgress.onmessage = (progress) => setStatus({ kind: "installing", info, progress });
@@ -97,7 +102,14 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setStatus({ kind: "error", message: String(e), info });
     }
-  }
+  }, []);
+
+  const install = useCallback(() => {
+    const current = statusRef.current;
+    if (current.kind !== "available") return;
+    setDialogOpen(true);
+    void runInstall(current.info);
+  }, [runInstall]);
 
   function skip(info: UpdateInfo) {
     writeString(SKIPPED_VERSION_KEY, info.version);
@@ -105,7 +117,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   }
 
   const openDialog = useCallback(() => setDialogOpen(true), []);
-  const value = useMemo(() => ({ status, check, openDialog }), [status, check, openDialog]);
+  const value = useMemo(() => ({ status, check, openDialog, install }), [status, check, openDialog, install]);
 
   const dialogInfo =
     status.kind === "available" || status.kind === "installing" ? status.info : status.kind === "error" ? status.info : undefined;
@@ -140,7 +152,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
                     type="button"
                     className="confirm-btn confirm-btn-primary"
                     autoFocus
-                    onClick={() => void install(dialogInfo)}
+                    onClick={() => void runInstall(dialogInfo)}
                   >
                     {status.kind === "error" ? t("update.retry") : t("update.now")}
                   </button>

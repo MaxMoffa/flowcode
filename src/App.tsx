@@ -57,6 +57,7 @@ import { consumeUpdatedVersion } from "./changelog/lastRunVersion";
 import { SettingsNav } from "./settings/SettingsNav";
 import { SettingsSectionProvider, useSettingsSection } from "./settings/SettingsSectionContext";
 import { RemoteSettingsBridge } from "./remote/RemoteSettingsBridge";
+import { RemoteUpdateBridge } from "./remote/RemoteUpdateBridge";
 import { RemotePairConfirm } from "./remote/RemotePairConfirm";
 import { ShortcutsProvider } from "./shortcuts/ShortcutsContext";
 import { MenuIcons } from "./context-menu/menuIcons";
@@ -3201,6 +3202,7 @@ export default function App() {
                   <ShortcutsProvider>
                     <Shell />
                     <RemoteSettingsBridge />
+                    <RemoteUpdateBridge />
                     <RemotePairConfirm />
                   </ShortcutsProvider>
                 </ContextMenuProvider>

@@ -28,6 +28,7 @@ interface RemoteStatus {
   nodeId: string | null;
   error: string | null;
   devices: RemoteDevice[];
+  allowPhoneUpdate: boolean;
 }
 
 interface PairInfo {
@@ -336,6 +337,14 @@ export function RemoteAccessSettings() {
     }
   }, [watching, status]);
 
+  async function setAllowUpdate(on: boolean) {
+    try {
+      setStatus(await invoke<RemoteStatus>("remote_set_allow_update", { enabled: on }));
+    } catch {
+      refresh();
+    }
+  }
+
   async function setEnabled(on: boolean) {
     try {
       setStatus(await invoke<RemoteStatus>("remote_set_enabled", { enabled: on }));
@@ -425,6 +434,16 @@ export function RemoteAccessSettings() {
               </div>
             ))}
           </div>
+        </SettingRow>
+      )}
+      {enabled && (
+        <SettingRow id="remoteUpdate" label={t("settings.remote.update")} desc={t("settings.remote.updateDesc")}>
+          <Switch
+            checked={status?.allowPhoneUpdate ?? false}
+            onChange={setAllowUpdate}
+            label={t("settings.remote.update")}
+            stateLabels={onOff}
+          />
         </SettingRow>
       )}
       {pairing && <PairDialog onClose={closePairing} />}
