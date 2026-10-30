@@ -12,16 +12,28 @@ pub const RATE: u32 = 16_000;
 /// VAD frame: 30 ms.
 const FRAME: usize = RATE as usize * 30 / 1000;
 /// Audio kept from before the speech onset, so the first syllable isn't cut.
-const PRE_ROLL_FRAMES: usize = 10;
+const PRE_ROLL_FRAMES: usize = 15;
 /// Silence that closes a phrase.
 const END_SILENCE_FRAMES: usize = 24;
 /// Less speech than this is a click or a cough, not a phrase.
 const MIN_SPEECH_FRAMES: usize = 10;
-/// A phrase is cut here even if the speaker hasn't paused (Whisper takes 30 s).
-const MAX_PHRASE_FRAMES: usize = 20 * 1000 / 30;
+/// Past this length a phrase ends at the first short pause...
+const SOFT_CUT_FRAMES: usize = 20 * 1000 / 30;
+/// ...this long (180 ms)...
+const SOFT_CUT_SILENCE_FRAMES: usize = 6;
+/// ...and here at the latest (Whisper takes 30 s), at the quietest frame of the
+/// last `CUT_SEARCH_FRAMES`, the rest carrying on in a new phrase.
+const MAX_PHRASE_FRAMES: usize = 28 * 1000 / 30;
+const CUT_SEARCH_FRAMES: usize = 3 * 1000 / 30;
 /// Speech is louder than this, and than the noise floor times `FLOOR_FACTOR`.
 const MIN_SPEECH_RMS: f32 = 0.008;
 const FLOOR_FACTOR: f32 = 3.0;
+/// Inside a phrase the bar is lowered by this much, so soft syllables and
+/// word endings don't count as the pause that closes it.
+const KEEP_FACTOR: f32 = 0.6;
+/// The noise floor never rises above this: steady quiet speech would
+/// otherwise lift it until speech no longer counts.
+const MAX_FLOOR: f32 = 0.01;
 /// How fast the noise floor follows the quiet frames.
 const FLOOR_ALPHA: f32 = 0.02;
 
@@ -87,6 +99,8 @@ struct Phrase {
     frames: usize,
     speech_frames: usize,
     silent_run: usize,
+    /// RMS of each frame since the onset.
+    levels: Vec<f32>,
 }
 
 impl Default for Segmenter {
@@ -138,15 +152,19 @@ impl Segmenter {
 
     fn step(&mut self, frame: Vec<f32>) -> Option<Vec<f32>> {
         let level = rms(&frame);
-        let speech = level > (self.floor * FLOOR_FACTOR).max(MIN_SPEECH_RMS);
+        let mut bar = (self.floor * FLOOR_FACTOR).max(MIN_SPEECH_RMS);
+        if self.phrase.is_some() {
+            bar *= KEEP_FACTOR;
+        }
+        let speech = level > bar;
         if !speech {
-            self.floor += (level - self.floor) * FLOOR_ALPHA;
+            self.floor = (self.floor + (level - self.floor) * FLOOR_ALPHA).min(MAX_FLOOR);
         }
         let Some(phrase) = &mut self.phrase else {
             if speech {
                 let mut audio: Vec<f32> = self.pre_roll.drain(..).flatten().collect();
                 audio.extend_from_slice(&frame);
-                self.phrase = Some(Phrase { audio, frames: 1, speech_frames: 1, silent_run: 0 });
+                self.phrase = Some(Phrase { audio, frames: 1, speech_frames: 1, silent_run: 0, levels: vec![level] });
             } else {
                 if self.pre_roll.len() == PRE_ROLL_FRAMES {
                     self.pre_roll.pop_front();
@@ -157,21 +175,50 @@ impl Segmenter {
         };
         phrase.audio.extend_from_slice(&frame);
         phrase.frames += 1;
+        phrase.levels.push(level);
         if speech {
             phrase.speech_frames += 1;
             phrase.silent_run = 0;
         } else {
             phrase.silent_run += 1;
         }
-        if phrase.silent_run >= END_SILENCE_FRAMES {
+        if phrase.silent_run >= END_SILENCE_FRAMES
+            || (phrase.frames >= SOFT_CUT_FRAMES && phrase.silent_run >= SOFT_CUT_SILENCE_FRAMES)
+        {
             return self.phrase.take().and_then(Self::finish);
         }
         if phrase.frames >= MAX_PHRASE_FRAMES {
-            // Speech without a pause: cut here and carry on in a new phrase.
-            let cut = std::mem::take(phrase);
-            return Self::finish(cut);
+            // Speech without a pause: cut at its quietest moment and carry on.
+            let (head, tail) = Self::split(std::mem::take(phrase));
+            *phrase = tail;
+            return Self::finish(head);
         }
         None
+    }
+
+    /// `phrase` cut after the quietest of its last `CUT_SEARCH_FRAMES` frames.
+    fn split(mut phrase: Phrase) -> (Phrase, Phrase) {
+        let n = phrase.levels.len();
+        let from = n.saturating_sub(CUT_SEARCH_FRAMES);
+        let mut quietest = from;
+        for i in from..n {
+            if phrase.levels[i] < phrase.levels[quietest] {
+                quietest = i;
+            }
+        }
+        // Frames after `quietest` are the tail's; the audio ends with them.
+        let tail_frames = n - 1 - quietest;
+        let cut = phrase.audio.len() - tail_frames * FRAME;
+        let tail_levels = phrase.levels.split_off(quietest + 1);
+        let tail = Phrase {
+            audio: phrase.audio.split_off(cut),
+            frames: tail_frames,
+            speech_frames: tail_frames,
+            silent_run: 0,
+            levels: tail_levels,
+        };
+        phrase.frames -= tail_frames;
+        (phrase, tail)
     }
 }
 
@@ -361,11 +408,46 @@ mod tests {
     }
 
     #[test]
-    fn long_speech_is_cut_at_the_cap() {
-        let phrases = run(&tone(45.0, 0.3));
+    fn long_speech_is_cut_at_the_cap_and_nothing_is_lost() {
+        let audio = tone(45.0, 0.3);
+        let phrases = run(&audio);
         assert!(phrases.len() >= 2);
         assert!(phrases.iter().all(|p| p.len() <= MAX_PHRASE_FRAMES * FRAME));
-        assert_eq!(phrases[0].len(), MAX_PHRASE_FRAMES * FRAME);
+        let total: usize = phrases.iter().map(Vec::len).sum();
+        assert_eq!(total, audio.len() / FRAME * FRAME);
+    }
+
+    #[test]
+    fn long_speech_is_cut_at_its_quietest_moment() {
+        // 26.5 s of speech with a soft dip (too short to be a pause) at 26 s.
+        let mut audio = tone(26.0, 0.3);
+        audio.extend(tone(0.06, 0.004));
+        audio.extend(tone(10.0, 0.3));
+        let phrases = run(&audio);
+        assert!(phrases.len() >= 2);
+        let first = phrases[0].len();
+        let dip = 26 * RATE as usize;
+        assert!(first >= dip && first <= dip + 4 * FRAME, "{first}");
+    }
+
+    #[test]
+    fn past_the_soft_cap_a_short_pause_ends_the_phrase() {
+        let mut audio = tone(21.0, 0.3);
+        audio.extend(silence(0.3));
+        audio.extend(tone(2.0, 0.3));
+        let phrases = run(&audio);
+        assert_eq!(phrases.len(), 2);
+        assert!(phrases[0].len() < 22 * RATE as usize);
+    }
+
+    #[test]
+    fn soft_syllables_keep_the_phrase_alive() {
+        // A long stretch at RMS 0.0075: below the onset bar, above the bar inside a phrase.
+        let mut audio = tone(1.0, 0.3);
+        audio.extend(tone(1.5, 0.0075 * std::f32::consts::SQRT_2));
+        audio.extend(tone(1.0, 0.3));
+        audio.extend(silence(2.0));
+        assert_eq!(run(&audio).len(), 1);
     }
 
     #[test]

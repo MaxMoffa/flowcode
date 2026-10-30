@@ -180,14 +180,58 @@ pub fn is_hallucination(text: &str) -> bool {
         && HALLUCINATIONS.iter().any(|h| normalized.starts_with(h))
 }
 
+/// Longest "(...)" or "*...*", in words, still taken for a sound description.
+const ANNOTATION_MAX_WORDS: usize = 3;
+
+/// `text` without the sounds Whisper describes instead of words ("[Musica]",
+/// "(risate)", "*applausi*", "♪"), with the spacing left behind tidied up.
+pub fn strip_annotations(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(c) = rest.chars().next() {
+        let close = match c {
+            '[' => Some((']', usize::MAX)),
+            '(' => Some((')', ANNOTATION_MAX_WORDS)),
+            '*' => Some(('*', ANNOTATION_MAX_WORDS)),
+            _ => None,
+        };
+        if let Some((close, max_words)) = close {
+            if let Some(end) = rest[1..].find(close) {
+                let inner = &rest[1..1 + end];
+                if inner.split_whitespace().count() <= max_words {
+                    rest = &rest[1 + end + close.len_utf8()..];
+                    out.push(' ');
+                    continue;
+                }
+            }
+        }
+        if !matches!(c, '♪' | '♫') {
+            out.push(c);
+        }
+        rest = &rest[c.len_utf8()..];
+    }
+    let mut tidy = String::with_capacity(out.len());
+    for word in out.split_whitespace() {
+        let glued = word.chars().next().is_some_and(|c| matches!(c, ',' | '.' | '!' | '?' | ';' | ':'));
+        if !tidy.is_empty() && !glued {
+            tidy.push(' ');
+        }
+        tidy.push_str(word);
+    }
+    tidy
+}
+
 /// The words in `audio` (16 kHz mono), or "" if there are none worth keeping.
 pub fn transcribe(state: &mut WhisperState, audio: &[f32], language: &str) -> Result<String, String> {
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_language(Some(language));
     params.set_n_threads(thread_count());
     params.set_no_context(true);
-    params.set_single_segment(true);
+    // Several segments: with one, whisper.cpp drops what follows an early end of text.
+    params.set_single_segment(false);
     params.set_suppress_blank(true);
+    // No "[Musica]", "(risate)", "♪": sounds aren't words.
+    params.set_suppress_nst(true);
     params.set_no_speech_thold(0.6);
     params.set_initial_prompt(initial_prompt(language));
     params.set_print_progress(false);
@@ -197,10 +241,17 @@ pub fn transcribe(state: &mut WhisperState, audio: &[f32], language: &str) -> Re
     state.full(params, audio).map_err(|e| e.to_string())?;
     let mut text = String::new();
     for segment in state.as_iter() {
-        text.push_str(&segment.to_string());
+        let piece = segment.to_string();
+        let piece = piece.trim();
+        if !piece.is_empty() {
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(piece);
+        }
     }
-    let text = text.trim();
-    Ok(if is_hallucination(text) { String::new() } else { text.to_string() })
+    let text = strip_annotations(&text);
+    Ok(if is_hallucination(&text) { String::new() } else { text })
 }
 
 #[cfg(test)]
@@ -243,6 +294,20 @@ mod tests {
         assert!(!is_hallucination("Aggiungi i sottotitoli al video"));
         assert!(!is_hallucination("Scrivi un test che stampa thank you for watching alla fine del video"));
         assert!(is_hallucination("Sottotitoli a cura di QTSS"));
+    }
+
+    #[test]
+    fn sound_descriptions_are_stripped() {
+        assert_eq!(strip_annotations("[Musica]"), "");
+        assert_eq!(strip_annotations("Apri il file [rumore di sottofondo] di Nginx."), "Apri il file di Nginx.");
+        assert_eq!(strip_annotations("Va bene (risate) allora"), "Va bene allora");
+        assert_eq!(strip_annotations("Fatto *applausi* ."), "Fatto.");
+        assert_eq!(strip_annotations("♪ la la ♪"), "la la");
+        assert_eq!(strip_annotations("ciao [musica], come va"), "ciao, come va");
+        // Longer parentheses are the speaker's, kept.
+        assert_eq!(strip_annotations("usa Docker (o Podman se preferisci)"), "usa Docker (o Podman se preferisci)");
+        assert_eq!(strip_annotations("apri ( senza chiudere"), "apri ( senza chiudere");
+        assert_eq!(strip_annotations("2 * 3 fa 6"), "2 * 3 fa 6");
     }
 
     #[test]
