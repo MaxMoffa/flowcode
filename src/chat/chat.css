@@ -806,16 +806,55 @@ th[style*="center"] .chat-table-sort {
 }
 
 .chat-thought summary {
-  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   width: fit-content;
+  padding: 2px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.chat-thought summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-thought summary:hover {
+  color: var(--fg);
+}
+
+.chat-thought-chev {
+  display: inline-block;
+  transition: transform .2s;
+}
+
+.chat-thought[open] .chat-thought-chev {
+  transform: rotate(90deg);
 }
 
 .chat-thought-text {
-  margin-top: 4px;
-  padding-left: 10px;
-  border-left: 2px solid var(--border);
+  position: relative;
+  margin: 4px 0 2px 3px;
+  padding-left: 14px;
+  padding-bottom: 12px;
+  font-style: italic;
+  line-height: 1.6;
+  max-height: 140px;
+  overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  -webkit-mask-image: linear-gradient(#000 80%, transparent);
+  mask-image: linear-gradient(#000 80%, transparent);
+}
+
+.chat-thought-text::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 1px;
+  background: linear-gradient(var(--border), transparent);
 }
 
 /* --- tool timeline ------------------------------------------------------ */
@@ -2638,6 +2677,28 @@ summary.chat-step-row {
     transform: none;
   }
 }
+
+/* --- main chat: subagent marker and tray ------------------------------- */
+.chat-submark { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:var(--fg-muted); font-size:12.5px; margin:4px 0; }
+.chat-submark > svg { color:var(--accent); flex:0 0 auto; }
+.chat-submark-text b { color:var(--fg); font-weight:600; }
+.chat-submark-tag { background:none; color:inherit; font-family:inherit; cursor:pointer; }
+.chat-submark-tag:hover { border-color:var(--accent); color:var(--fg); }
+/* Tray behind the composer: same width, tucked under its top edge and sticking out above it. */
+.chat-subtray { position:relative; z-index:0; padding:9px 16px 34px; border-radius:20px 20px 0 0; background:color-mix(in srgb, var(--fg) 5%, rgb(var(--surface-rgb))); box-shadow:0 8px 24px -12px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--fg) 16%, transparent); animation:chat-subtray-in .25s ease-out; }
+.chat-subtray-head { margin-bottom:4px; color:var(--fg-muted); font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
+.chat-subtray-row { display:flex; align-items:center; gap:9px; max-height:30px; padding:3px 0; font-size:12.5px; overflow:hidden; transition:opacity .4s, transform .4s, max-height .4s, padding .4s; }
+.chat-subtray-row.is-leaving { opacity:0; transform:translateX(10px); max-height:0; padding-top:0; padding-bottom:0; }
+.chat-subtray-dot { flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:var(--accent); animation:chat-subtray-pulse 1.2s ease-in-out infinite; }
+.chat-subtray-name { flex:0 0 auto; font-weight:600; white-space:nowrap; }
+.chat-subtray-task { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--fg-muted); }
+.chat-subtray-time { flex:0 0 auto; color:var(--fg-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+@keyframes chat-subtray-pulse { 50% { opacity:.3; } }
+@keyframes chat-subtray-in { from { opacity:0; transform:translateY(10px); } }
+.chat-composer-wrap > .chat-subtray + .chat-composer { margin-top:-24px; }
+/* The composer paints over the tray tucked under it. */
+.chat-composer { z-index:1; }
+@media (prefers-reduced-motion: reduce) { .chat-subtray, .chat-subtray-dot { animation:none; } }
 
 /* --- an open subagent's chat ------------------------------------------- */
 .chat-back {

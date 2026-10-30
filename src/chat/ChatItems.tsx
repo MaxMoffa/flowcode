@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "./chatModel";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -295,6 +295,122 @@ export const SubagentCards = memo(function SubagentCards({ items, onOpen }: { it
   // The timeline rebuilds the items on every render; their calls and steps keep their identity until they change.
 }, (a, b) => a.onOpen === b.onOpen && a.items.length === b.items.length && a.items.every((x, i) => x.call === b.items[i].call && x.steps.length === b.items[i].steps.length && x.steps.every((s, j) => s === b.items[i].steps[j])));
 
+/** In the main chat, a subagent launch as one line in the timeline: the bot, how many started, and a tag per subagent that opens its chat. */
+export function SubagentMarker({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id: string) => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="chat-submark">
+      {BOT_ICON}
+      <span className="chat-submark-text">
+        <b>{t(items.length === 1 ? "chat.subagent.launched.one" : "chat.subagent.launched.other", { count: items.length })}</b>
+      </span>
+      {items.map((item) => {
+        const { type } = subagentInfo(item.call);
+        return onOpen ? (
+          <button key={item.id} type="button" className="chat-sub-tag chat-submark-tag" title={t("chat.subagent.open")} onClick={() => onOpen(item.id)}>
+            {type ?? "agent"}
+          </button>
+        ) : (
+          <span key={item.id} className="chat-sub-tag">
+            {type ?? "agent"}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+type TrayRow = { item: SubagentItem; leaving: boolean };
+
+/** The running subagents of the main chat, as a tray behind the composer. A subagent that finishes fades out of it, then is removed. */
+export function SubagentTray({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id: string) => void }) {
+  const { t } = useI18n();
+  const [rows, setRows] = useState<TrayRow[]>([]);
+  const [, setTick] = useState(0);
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  // Merge the running items into the rows: current ones update in place, new ones are appended, the ones gone start leaving.
+  useEffect(() => {
+    setRows((prev) => {
+      const current = new Map(items.map((item) => [item.id, item]));
+      const kept = new Set<string>();
+      const next: TrayRow[] = [];
+      for (const row of prev) {
+        const fresh = current.get(row.item.id);
+        if (fresh) {
+          kept.add(row.item.id);
+          next.push({ item: fresh, leaving: false });
+        } else {
+          next.push({ item: row.item, leaving: true });
+        }
+      }
+      for (const item of items) if (!kept.has(item.id)) next.push({ item, leaving: false });
+      return next;
+    });
+  }, [items]);
+
+  // Each row that starts leaving is removed after its fade; a row that comes back cancels its removal.
+  useEffect(() => {
+    for (const row of rows) {
+      const id = row.item.id;
+      const pending = timers.current.get(id);
+      if (!row.leaving) {
+        if (pending !== undefined) {
+          clearTimeout(pending);
+          timers.current.delete(id);
+        }
+      } else if (pending === undefined) {
+        timers.current.set(
+          id,
+          setTimeout(() => {
+            timers.current.delete(id);
+            setRows((prev) => prev.filter((r) => !(r.leaving && r.item.id === id)));
+          }, 450),
+        );
+      }
+    }
+  }, [rows]);
+
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      pending.forEach((timer) => clearTimeout(timer));
+      pending.clear();
+    };
+  }, []);
+
+  const anyActive = rows.some((row) => !row.leaving);
+  // The elapsed time is refreshed once a second while something is running.
+  useEffect(() => {
+    if (!anyActive) return;
+    const interval = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(interval);
+  }, [anyActive]);
+
+  if (rows.length === 0) return null;
+  const activeCount = rows.filter((row) => !row.leaving).length;
+  return (
+    <div className="chat-subtray" role="status">
+      <div className="chat-subtray-head">{t(activeCount === 1 ? "chat.subagent.tray.one" : "chat.subagent.tray.other", { count: Math.max(0, activeCount) })}</div>
+      {rows.map(({ item, leaving }) => {
+        const { type, description } = subagentInfo(item.call);
+        const elapsed = Math.max(0, Math.floor((Date.now() - (item.call.startedAt ?? Date.now())) / 1000));
+        return (
+          <div key={item.id} className={`chat-subtray-row${leaving ? " is-leaving" : ""}`}>
+            <span className="chat-subtray-dot" aria-hidden="true" />
+            <span className="chat-subtray-name">{type ?? "agent"}</span>
+            <span className="chat-subtray-task" title={description}>
+              {description}
+            </span>
+            <span className="chat-subtray-time">{`${elapsed}s`}</span>
+            {onOpen && <OpenSubagentButton id={item.id} onOpen={onOpen} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** The words for why a turn stopped early. */
 const STOP_TEXT: Record<StopKind, Parameters<ReturnType<typeof useI18n>["t"]>[0]> = {
   maxTokens: "chat.stop.maxTokens",
@@ -389,7 +505,7 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
     case "thought":
       return (
         <details className="chat-thought">
-          <summary>{t("chat.thought")}</summary>
+          <summary><span className="chat-thought-chev" aria-hidden="true">›</span>{t("chat.thought")}</summary>
           <div className="chat-thought-text">{item.text}</div>
         </details>
       );

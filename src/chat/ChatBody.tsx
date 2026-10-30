@@ -3,7 +3,7 @@ import { useI18n } from "../i18n";
 import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
-import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, ToolGroup } from "./ChatItems";
+import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMarker, SubagentTray, ToolGroup } from "./ChatItems";
 import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
 import { CLI_INFO } from "../agents/cliInfo";
 import type { ChatAttachment, ChatCommand } from "./chatTypes";
@@ -222,6 +222,8 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   const timeline = subTimeline ?? mainTimeline ?? [];
   const pending = model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined);
   const lastSegment = timeline[timeline.length - 1];
+  // In the main chat, the subagents still running, for the tray behind the composer.
+  const runningSubs = sub ? [] : timeline.flatMap((s) => (s.type === "subagents" ? s.items.filter((i) => subagentState(i).running) : []));
   const liveGroup = (sub ? !!subState?.running : model.turnActive) && lastSegment?.type === "group" ? lastSegment : null;
   const running = liveTool(sub ? sub.children : model.items);
   const showLive = (sub ? !!subState?.running : working) && !notice && pending.length === 0;
@@ -577,7 +579,11 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
           )}
           {timeline.map((segment) =>
             segment.type === "subagents" ? (
-              <SubagentCards key={segment.id} items={segment.items} onOpen={onOpenSubagent ? openSub : undefined} />
+              sub ? (
+                <SubagentCards key={segment.id} items={segment.items} onOpen={onOpenSubagent ? openSub : undefined} />
+              ) : (
+                <SubagentMarker key={segment.id} items={segment.items} onOpen={onOpenSubagent ? openSub : undefined} />
+              )
             ) : segment.type === "group" ? (
               <ToolGroup key={segment.id} steps={segment.steps} live={segment === liveGroup} />
             ) : (
@@ -778,6 +784,7 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
                 ))}
               </div>
             )}
+            <SubagentTray items={runningSubs} onOpen={onOpenSubagent ? openSub : undefined} />
             <div className={`chat-composer${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
               {transcribing && <ComposerSweep />}
               {(listening || transcribing) && (
