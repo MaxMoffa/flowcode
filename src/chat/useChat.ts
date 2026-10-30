@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AgentCli } from "../agents/cliInfo";
 import { t } from "../i18n";
+import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { applyEvent, applyLocalError, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleChat, type ChatModelState } from "./chatModel";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
@@ -12,6 +13,10 @@ export interface QueuedMessage {
   text: string;
   attachments: ChatAttachment[];
 }
+
+// The model and thinking level the user picked last, per agent: the next new chat starts with them.
+const lastModelKey = (agent: AgentCli) => `flowcode.chatLastModel.${agent}`;
+const lastThoughtKey = (agent: AgentCli) => `flowcode.chatLastThought.${agent}`;
 
 type ChatPhase = "starting" | "ready" | "failed";
 
@@ -257,13 +262,14 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const id = chatIdRef.current;
     const before = modelsRef.current?.currentModelId ?? null;
     if (!id || modelId === before) return;
+    writeString(lastModelKey(agent), modelId);
     setModelState((m) => ({ ...m, currentModelId: modelId }));
     invoke("chat_set_model", { chatId: id, modelId }).catch((err) => {
       if (chatIdRef.current !== id) return;
       // Only undo our own guess: an event may have moved the model since.
       setModelState((m) => applyLocalError(m.currentModelId === modelId ? { ...m, currentModelId: before } : m, t("chat.model.failed", { error: String(err) })));
     });
-  }, []);
+  }, [agent]);
 
   // Likewise the thinking levels: `_flowcode/thought` says them once they change (they follow the model).
   const offeredThought = model.thought !== undefined ? model.thought : announcedThought;
@@ -276,13 +282,37 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const id = chatIdRef.current;
     const before = thoughtRef.current;
     if (!id || !before || value === before.currentId) return;
+    writeString(lastThoughtKey(agent), value);
     setModelState((m) => ({ ...m, thought: { ...before, currentId: value } }));
     invoke("chat_set_thought", { chatId: id, value }).catch((err) => {
       if (chatIdRef.current !== id) return;
       // Only undo our own guess: an event may have moved the level since.
       setModelState((m) => applyLocalError(m.thought?.currentId === value ? { ...m, thought: before } : m, t("chat.thought.failed", { error: String(err) })));
     });
-  }, []);
+  }, [agent]);
+
+  // A brand-new chat starts with the model and thinking level picked last for this agent, once. The level follows
+  // the model (a switch can reset it), so it goes second, when the wanted model is the live one.
+  const restoredRef = useRef<{ chatId: string; model: boolean; thought: boolean } | null>(null);
+  useEffect(() => {
+    if (!chatId || phase !== "ready" || resumedRef.current || loaded) return;
+    if (restoredRef.current?.chatId !== chatId) restoredRef.current = { chatId, model: false, thought: false };
+    const done = restoredRef.current;
+    const wantedModel = readString(lastModelKey(agent));
+    const switchModel = !!wantedModel && !!models && wantedModel !== models.currentModelId && models.availableModels.some((m) => m.modelId === wantedModel);
+    if (!done.model) {
+      if (!models && !thought) return;
+      done.model = true;
+      if (switchModel) {
+        setModel(wantedModel!);
+        return;
+      }
+    }
+    if (done.thought || !thought || switchModel) return;
+    done.thought = true;
+    const wantedThought = readString(lastThoughtKey(agent));
+    if (wantedThought && wantedThought !== thought.currentId && thought.available.some((l) => l.id === wantedThought)) setThought(wantedThought);
+  }, [chatId, phase, loaded, agent, models, thought, setModel, setThought]);
 
   const unqueue = useCallback((index: number) => setQueued((q) => q.filter((_, i) => i !== index)), []);
 
