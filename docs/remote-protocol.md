@@ -71,7 +71,7 @@ are not limited by that.
 | C to S | `pair {code, deviceName}` | New device: redeems the one-time code from the QR. |
 | C to S | `auth {token}` | Known device. The token must match **and** the connection's node id must be the one that paired. |
 | S to C | `paired {token, deviceName}` | Reply to `pair`. Store the token; it is never shown again. Followed by `ready`. |
-| S to C | `ready {deviceName, hostName, appVersion?, proto?, caps?}` | Handshake done. `appVersion` is the desktop's app version, `proto` its protocol revision (`proto::PROTOCOL_VERSION`, 2 today; absent = 1) and `caps` the optional features it supports (`proto::CAPABILITIES`: `rename`, `closeTab`, `profiles`, `profileLogin`, `profileAgents`, `newTabProfile`, `background`, `gemini`, `chat`, `agentViews`, `linkPreview`, `compress`, `terminalChat`, `chatRename`, `chatCloseTab`, `chatModel`, `desktopUpdate`; `desktopUpdate` is updating the desktop from the phone (`updatecheck`, `updateinstall`, `update`); `profileLogin` is signing a non-default profile in, `profileAgents` signing out and the default profile's agents, `chat` the desktop's chat tabs (the `chat*` messages, `chats`, `chatevents`), `agentViews` the view plugins (`views`, `viewfile`), `compress` deflated frames after `hello`). A desktop that sends none of them is an old one (0.9 / 0.10): the phone assumes proto 1 and what those releases had (`LEGACY_CAPS`: `profiles`, `profileLogin`, `background`), hides the matching UI and shows a dismissable banner; below its minimum proto (`MIN_DESKTOP_PROTO`) it shows a blocking "update Flowcode" screen. A new feature adds a capability here, in `RemoteCap` and in the phone's `CAP_LABELS`. Followed by `usage` and `actions` with the current values, by `settings` once the desktop has published them, and by an unsolicited `tabs` with the current list (so the phone need not wait for the reply to its `list`; a phone should still send `list` after `ready`, which an older desktop answers and a newer one answers again with the same list). |
+| S to C | `ready {deviceName, hostName, appVersion?, proto?, caps?}` | Handshake done. `appVersion` is the desktop's app version, `proto` its protocol revision (`proto::PROTOCOL_VERSION`, 2 today; absent = 1) and `caps` the optional features it supports (`proto::CAPABILITIES`: `rename`, `closeTab`, `profiles`, `profileLogin`, `profileAgents`, `newTabProfile`, `background`, `gemini`, `chat`, `agentViews`, `linkPreview`, `compress`, `terminalChat`, `chatRename`, `chatCloseTab`, `chatModel`, `desktopUpdate`, `preview`; `preview` is the in-app browser (preview streams, below); `desktopUpdate` is updating the desktop from the phone (`updatecheck`, `updateinstall`, `update`); `profileLogin` is signing a non-default profile in, `profileAgents` signing out and the default profile's agents, `chat` the desktop's chat tabs (the `chat*` messages, `chats`, `chatevents`), `agentViews` the view plugins (`views`, `viewfile`), `compress` deflated frames after `hello`). A desktop that sends none of them is an old one (0.9 / 0.10): the phone assumes proto 1 and what those releases had (`LEGACY_CAPS`: `profiles`, `profileLogin`, `background`), hides the matching UI and shows a dismissable banner; below its minimum proto (`MIN_DESKTOP_PROTO`) it shows a blocking "update Flowcode" screen. A new feature adds a capability here, in `RemoteCap` and in the phone's `CAP_LABELS`. Followed by `usage` and `actions` with the current values, by `settings` once the desktop has published them, and by an unsolicited `tabs` with the current list (so the phone need not wait for the reply to its `list`; a phone should still send `list` after `ready`, which an older desktop answers and a newer one answers again with the same list). |
 | S to C | `error {message, ptyId?, fatal}` | `fatal: true` means the server is closing the connection (bad code, bad token, too many attempts, device revoked). `message` is localized text for the user. |
 
 After a valid `pair` the desktop asks its user to confirm the new phone and
@@ -267,6 +267,26 @@ grid actually in effect, which the phone should adopt.
 - `read`: text only. A file with a NUL byte in its first 8 KiB is refused
   (`error`). Content is cut at 1 MiB and then further if its JSON-escaped form
   would not fit one frame; `truncated` says so. Invalid UTF-8 is replaced.
+
+### Preview streams
+
+With cap `preview`, the phone's in-app browser opens extra bidirectional QUIC
+streams on the authenticated connection (the first one is the control stream
+above; every later one is a preview stream, at most 64 at once). The first line
+of a stream names its target, UTF-8, ending in `
+`, at most 512 bytes
+(`proto::preview_header` / `parse_preview_header`); what follows is plain
+HTTP/1.1 in both directions. A stream with a bad line is reset.
+
+- `port N`: a raw TCP tunnel to port `N` of the desktop's loopback (`127.0.0.1`,
+  then `::1`; 3 s connect timeout). The desktop does not parse the bytes, so
+  WebSocket upgrades work too.
+- `files <ptyId>`: the desktop answers itself, from the working directory of
+  that terminal tab (unknown tab: 404). Only `GET` and `HEAD` (else 405); the
+  query string is ignored; a folder or empty path serves its `index.html`;
+  files outside the folder (`..`, symlinks) are 404; over 64 MiB is 413.
+  Replies carry `Content-Type`, `X-Content-Type-Options: nosniff` and
+  `Cache-Control: no-store`.
 
 ## Desktop as a client
 

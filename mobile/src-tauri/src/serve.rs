@@ -135,7 +135,11 @@ fn link_metrics(conn: &iroh::endpoint::Connection, last: &mut LinkCounters) -> O
 
 pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session) -> Exit {
     let (out_tx, mut out_rx) = mpsc::channel::<ClientMsg>(OUT_QUEUE);
-    remote.lock().out = Some(out_tx.clone());
+    {
+        let mut inner = remote.lock();
+        inner.out = Some(out_tx.clone());
+        inner.conn = Some(session.conn.clone());
+    }
 
     // read_frame is not cancel-safe, so it lives in its own task and the
     // select below only touches the channel.
@@ -295,6 +299,9 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
         let mut inner = remote.lock();
         if inner.out.as_ref().is_some_and(|o| o.same_channel(&out_tx)) {
             inner.out = None;
+        }
+        if inner.conn.as_ref().is_some_and(|c| c.stable_id() == session.conn.stable_id()) {
+            inner.conn = None;
         }
     }
     // Before the guard closes the connection ourselves: what QUIC saw end it.

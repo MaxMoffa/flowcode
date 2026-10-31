@@ -210,6 +210,8 @@ export type RemoteCap =
   | "chat"
   /** `views` / `viewfile`: agent view plugins installed on the desktop. */
   | "agentViews"
+  /** Extra QUIC streams opened by the phone for its in-app browser: HTTP to a desktop loopback port or to a terminal's folder (remote-proto `PreviewTarget`). */
+  | "preview"
   /** `linkpreview`: link preview cards fetched by the desktop. */
   | "linkPreview"
   /** `terminalchat`: an agent's terminal tab reopened as a chat. */

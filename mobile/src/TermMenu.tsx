@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
-import { BoltIcon, CloseIcon, FolderIcon, KeyboardIcon } from "./icons";
+import { BoltIcon, CloseIcon, FolderIcon, GlobeIcon, KeyboardIcon } from "./icons";
 
 interface Row {
   label: string;
@@ -17,6 +17,8 @@ export function TermMenu(props: {
   onClose: () => void;
   onFiles: () => void;
   onActions: () => void;
+  /** Opens the in-app browser; omitted when the desktop lacks it. */
+  onBrowser?: () => void;
   onKeyboard: () => void;
   onInterrupt: () => void;
   onCloseTab?: () => void;
@@ -32,6 +34,7 @@ export function TermMenu(props: {
     { label: props.kbOpen ? t("hideKeyboard") : t("showKeyboard"), icon: <KeyboardIcon size={18} />, run: props.onKeyboard },
     { label: t("termMenuInterrupt"), icon: <span className="tm-menu-c">^C</span>, run: props.onInterrupt, danger: true },
   ];
+  if (props.onBrowser) rows.splice(2, 0, { label: t("browser.menu"), icon: <GlobeIcon />, run: props.onBrowser });
   if (props.onCloseTab) rows.push({ label: t("closeTerminal"), icon: <CloseIcon />, run: props.onCloseTab, danger: true });
 
   return (

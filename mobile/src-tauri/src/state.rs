@@ -102,6 +102,8 @@ pub(crate) struct Inner {
     /// still the current one.
     pub(crate) generation: u64,
     pub(crate) out: Option<mpsc::Sender<ClientMsg>>,
+    /// The live connection, for the in-app browser's extra streams (`preview`).
+    pub(crate) conn: Option<iroh::endpoint::Connection>,
     pub(crate) state: StateEvent,
     /// A `flowcode://pair` link and when it arrived; see `PENDING_LINK_TTL`.
     pub(crate) pending_link: Option<(String, Instant)>,

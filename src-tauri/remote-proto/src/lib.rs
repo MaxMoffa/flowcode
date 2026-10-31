@@ -34,14 +34,60 @@ pub const PROTOCOL_VERSION: u32 = 2;
 /// Features this desktop supports, sent in `ready` as `caps`, so the phone
 /// can hide what an older desktop lacks. Keep in step with `RemoteCap` in
 /// shared/remote-types.ts and docs/remote-protocol.md.
-pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatClear", "chatImage", "chatWebImages", "desktopUpdate"];
+pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview"];
+
+/// What a preview stream is pointed at. After `auth`, the phone opens one extra
+/// bidirectional stream per HTTP connection of its in-app browser. The first
+/// line on it (`preview_header`, UTF-8, ends with `\n`, at most
+/// `PREVIEW_HEADER_MAX` bytes) names the target; what follows is plain
+/// HTTP/1.1 in both directions. `Port` is a raw tunnel to that loopback port of
+/// the desktop (so WebSocket upgrades work too); `Files` is served by the
+/// desktop itself from the working directory of that terminal tab.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreviewTarget {
+    Port(u16),
+    Files(String),
+}
+
+/// Longest first line a preview stream may start with, newline included.
+pub const PREVIEW_HEADER_MAX: usize = 512;
+
+/// The first line of a preview stream for `target`, newline included.
+pub fn preview_header(target: &PreviewTarget) -> String {
+    match target {
+        PreviewTarget::Port(port) => format!("port {port}\n"),
+        PreviewTarget::Files(pty_id) => format!("files {pty_id}\n"),
+    }
+}
+
+/// Parses a first line (with or without its newline). `None` for anything else.
+pub fn parse_preview_header(line: &str) -> Option<PreviewTarget> {
+    let line = line.trim_end_matches(['\n', '\r']);
+    let (kind, rest) = line.split_once(' ')?;
+    match kind {
+        "port" => rest.parse::<u16>().ok().filter(|p| *p != 0).map(PreviewTarget::Port),
+        "files" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::Files(rest.to_string())),
+        _ => None,
+    }
+}
 
 /// Largest `input` payload (bytes of UTF-8) a client may send in one frame.
 pub const MAX_INPUT_BYTES: usize = 64 * 1024;
 
 #[cfg(test)]
 mod tests {
-    use super::node_fingerprint;
+    use super::{node_fingerprint, parse_preview_header, preview_header, PreviewTarget};
+
+    #[test]
+    fn preview_headers_round_trip_and_refuse_junk() {
+        for target in [PreviewTarget::Port(5173), PreviewTarget::Files("pty-1".into())] {
+            assert_eq!(parse_preview_header(&preview_header(&target)), Some(target));
+        }
+        assert_eq!(parse_preview_header("port 80\r\n"), Some(PreviewTarget::Port(80)));
+        for bad in ["", "port", "port 0", "port 70000", "port x", "files", "files a b", "ftp 1", "GET / HTTP/1.1"] {
+            assert_eq!(parse_preview_header(bad), None, "{bad:?}");
+        }
+    }
 
     #[test]
     fn fingerprint_is_short_stable_and_node_specific() {

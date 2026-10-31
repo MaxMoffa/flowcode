@@ -1406,9 +1406,13 @@ name = "flowcode-mobile"
 version = "0.21.0"
 dependencies = [
  "base64 0.22.1",
+ "bytes",
  "ed25519-dalek",
  "flowcode-remote-proto",
  "futures-lite",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "iroh",
  "iroh-tickets",
  "serde",

@@ -207,6 +207,13 @@ export const GlobeIcon = () => (
   </Svg>
 );
 
+export const RefreshIcon = () => (
+  <Svg>
+    <path d="M19.500 12a7.500 7.500 0 1 1-2.200-5.300" />
+    <path d="M19.500 4.500v4h-4" />
+  </Svg>
+);
+
 export const CheckIcon = () => (
   <Svg>
     <path d="m5 12.5 4.5 4.5L19 7.5" />

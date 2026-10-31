@@ -11,6 +11,7 @@ pub mod connlog;
 #[cfg(mobile)]
 mod deeplink;
 pub mod link;
+mod preview;
 mod reconnect;
 mod secure;
 mod serve;
@@ -41,6 +42,8 @@ pub fn run() {
         // Agent-view plugin files the desktop sent, served to the sandboxed iframe
         // (tauri.conf.json's `frame-src` allows exactly this origin).
         .register_uri_scheme_protocol("flowcode-plugin", |ctx, request| view_cache::serve(ctx.app_handle(), &request))
+        // The in-app browser: pages fetched from the desktop over the link.
+        .register_asynchronous_uri_scheme_protocol("flowcode-remote", |ctx, request, responder| preview::serve(ctx.app_handle(), request, responder))
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;

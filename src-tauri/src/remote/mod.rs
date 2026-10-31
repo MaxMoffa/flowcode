@@ -16,6 +16,7 @@ mod connlog;
 mod fsbrowse;
 mod hex;
 pub(crate) mod keystore;
+mod preview;
 mod stream;
 mod views;
 
@@ -1612,6 +1613,8 @@ async fn run_connection(
     let mut writer = tokio::spawn(write_task(send, out_rx, Arc::clone(&compress)));
     let (in_tx, mut in_rx) = mpsc::channel::<ClientMsg>(IN_QUEUE);
     let reader = tokio::spawn(read_task(recv, in_tx, out_tx.clone(), compress));
+    // Every stream after the control one is a preview stream (in-app browser).
+    let previews = preview::spawn_accept_loop(connection.clone(), Arc::clone(&shared));
 
     let mut tabs_rx = shared.tabs.subscribe();
     let mut usage_rx = shared.usage.subscribe();
@@ -1761,6 +1764,7 @@ async fn run_connection(
     conn.shutdown();
     shared.release_all_sizes(conn_id);
     reader.abort();
+    previews.abort();
     shared.unregister_conn(conn_id);
     // Dropping `conn` closes the writer's channel: it flushes what is queued,
     // then finishes the stream. Give it a moment before closing the link.

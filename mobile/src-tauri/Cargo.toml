@@ -42,6 +42,11 @@ ureq = "2"
 sha2 = "0.10"
 ed25519-dalek = { version = "3", default-features = false }
 tokio = { version = "1", features = ["net", "sync", "time", "macros", "io-util", "rt", "rt-multi-thread"] }
+# In-app browser (preview.rs): HTTP/1.1 spoken over iroh streams. Already in the lock via tauri.
+hyper = { version = "1", features = ["http1", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2"

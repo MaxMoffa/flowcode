@@ -7,6 +7,7 @@ import { agentName } from "./common";
 import { t } from "./i18n";
 import { AgentLogo, AgentsIcon, BackIcon, ChevronDownIcon, CopyIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
 import { interrupt, send, showToast, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
+import { Browser } from "./Browser";
 import { TermActions } from "./TermActions";
 import { TermAgents } from "./TermAgents";
 import { TermFiles } from "./TermFiles";
@@ -37,6 +38,8 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const canBrowse = useSupports("preview");
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -216,6 +219,14 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
           setMenuOpen(false);
           setActionsOpen(true);
         }}
+        onBrowser={
+          canBrowse
+            ? () => {
+                setMenuOpen(false);
+                setBrowserOpen(true);
+              }
+            : undefined
+        }
         onKeyboard={() => {
           setMenuOpen(false);
           toggleKeyboard();
@@ -413,6 +424,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
         {embedded && keyBar}
       </div>
       {!embedded && keyBar}
+      {browserOpen && canBrowse && <Browser ptyId={ptyId} onClose={() => setBrowserOpen(false)} />}
       {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
       {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} onOpen={onSwitch} />}
       {!embedded && tab.cli && (

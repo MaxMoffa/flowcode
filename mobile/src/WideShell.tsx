@@ -16,6 +16,7 @@ import { useSheetDrag } from "./useSheetDrag";
 import { useSideWidth } from "./useSideWidth";
 import { panelsFit, setPanelMode, usePanelMode } from "./panelMode";
 import { useBigScreen, useDocked } from "./wide";
+import { Browser } from "./Browser";
 import { WideFileView } from "./WideFileView";
 import { WideFiles } from "./WideFiles";
 import { WideMenu } from "./WideMenu";
@@ -71,6 +72,8 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const chats = useRemoteSelector((r) => r.chats);
   const canRename = useSupports("rename");
   const canClose = useSupports("closeTab");
+  const canBrowse = useSupports("preview");
+  const [browserOpen, setBrowserOpen] = useState(false);
   /** The terminal tab being renamed, with its draft label. */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -322,6 +325,14 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 setMenuOpen(false);
                 setKeys((v) => !v);
               }}
+              onBrowser={
+                canBrowse
+                  ? () => {
+                      setMenuOpen(false);
+                      setBrowserOpen(true);
+                    }
+                  : undefined
+              }
               onPanels={() => {
                 setMenuOpen(false);
                 setPanelMode(panelMode === "fixed" ? "auto" : "fixed");
@@ -416,6 +427,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           </aside>
         )}
       </div>
+      {browserOpen && canBrowse && active && <Browser ptyId={active.ptyId} onClose={() => setBrowserOpen(false)} />}
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
