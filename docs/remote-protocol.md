@@ -124,6 +124,7 @@ Client messages:
 | `chatclosetab {chatId}` | Close a desktop chat tab, like `closetab` (never the last tab of its window). No reply: the next `chats` no longer lists it. Needs the `chatCloseTab` capability. |
 | `chatthought {chatId, value}` | Switch the chat's agent to another of the thinking levels it offers (`thought` of the chat in `chats`: `{currentId, available: [{id, name, description?}]}`, from the agent's `thought_level` config option; the levels depend on the model). A level the agent doesn't offer, or an agent that refuses, gets a non-fatal `error`. No reply: followers get an `ext` chat event `_flowcode/thought`, and the next `chats` shows it. Needs the `chatThought` capability. |
 | `chatclear {chatId}` | Start a fresh conversation in the chat's tab, like `/clear` on the desktop. No reply: the tab keeps its `tabId` but the chat comes back in the next `chats` under a **new** `chatId` (the old one disappears), so a client follows the tab. Needs the `chatClear` capability; an older desktop would answer `error` for the unknown message, so send `/clear` as text only there. |
+| `chatask {chatId, requestId, action, content?}` | Answer a question the agent asked (the `ask` chat event, ACP `elicitation/create` in form mode): `action` is `accept` (with `content`, the answers keyed by question), `decline` or `cancel`. Only the first answer to a `requestId` counts; a later one gets a non-fatal `error`. No cap: the desktop can't tell whether the phone knows `ask` events, so an older phone never shows the question - answer it on the desktop. |
 | `chatmodel {chatId, modelId}` | Switch the chat's agent to another of the models it offers (`models` of the chat in `chats`: `{currentModelId, availableModels: [{modelId, name, description?, group?}]}`, normalized by the desktop from ACP's `models` or its `model` config option). Allowed mid-turn: it applies from the next prompt. A model the agent doesn't offer, or an agent that refuses, gets a non-fatal `error`. No reply: followers get an `ext` chat event `_flowcode/model` with the new models, and the next `chats` shows them. Needs the `chatModel` capability. |
 | `ls {ptyId, path?}` | List a folder. |
 | `read {ptyId, path}` | Read a text file. |
@@ -273,8 +274,7 @@ grid actually in effect, which the phone should adopt.
 With cap `preview`, the phone's in-app browser opens extra bidirectional QUIC
 streams on the authenticated connection (the first one is the control stream
 above; every later one is a preview stream, at most 64 at once). The first line
-of a stream names its target, UTF-8, ending in `
-`, at most 512 bytes
+of a stream names its target, UTF-8, ending in `\n`, at most 512 bytes
 (`proto::preview_header` / `parse_preview_header`); what follows is plain
 HTTP/1.1 in both directions. A stream with a bad line is reset.
 

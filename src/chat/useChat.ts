@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AgentCli } from "../agents/cliInfo";
-import { openCommandTarget, routeAgentOpen, toolCommand } from "../browser/agentOpen";
+import { commandCwd, openCommandTarget, routeAgentOpen, toolCommand } from "../browser/agentOpen";
 import { t } from "../i18n";
 import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
@@ -110,11 +110,13 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       const update = ev.update as Record<string, unknown>;
       const id = update.toolCallId;
       if ((update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") || typeof id !== "string" || followed.has(id)) return;
+      // Only once the command ran: a denied or failed one opened nothing.
+      if (update.status !== "completed") return;
       const command = toolCommand(update);
       const target = command && openCommandTarget(command);
       if (!target) return;
       followed.add(id);
-      void routeAgentOpen(target, cwd, distro);
+      void routeAgentOpen(target, commandCwd(command, cwd), distro);
     };
 
     // Deferred a tick: React StrictMode mounts, unmounts and mounts again at

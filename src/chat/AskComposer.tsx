@@ -17,11 +17,18 @@ interface AskComposerProps {
 export function AskComposer({ item, onAnswer, autoFocus }: AskComposerProps) {
   // A question the schema couldn't be read for still shows its message, with a way to skip it.
   const questions: AskQuestion[] = item.questions.length ? item.questions : [{ key: "question_0", text: item.message, multi: false, options: [] }];
-  const skip = () => onAnswer(item.requestId, "decline");
+  // The first answer wins: a second one (double click, Enter then click) would reach the backend as an unknown request.
+  const answered = useRef(false);
+  const answer: Answer = (requestId, action, content) => {
+    if (answered.current) return;
+    answered.current = true;
+    onAnswer(requestId, action, content);
+  };
+  const skip = () => answer(item.requestId, "decline");
   return questions.length === 1 ? (
-    <AskList question={questions[0]} autoFocus={autoFocus} onSkip={skip} onSend={(a) => onAnswer(item.requestId, "accept", buildAskContent(questions, [a]))} />
+    <AskList question={questions[0]} autoFocus={autoFocus} onSkip={skip} onSend={(a) => answer(item.requestId, "accept", buildAskContent(questions, [a]))} />
   ) : (
-    <AskSteps questions={questions} autoFocus={autoFocus} onSkip={skip} onSend={(a) => onAnswer(item.requestId, "accept", buildAskContent(questions, a))} />
+    <AskSteps questions={questions} autoFocus={autoFocus} onSkip={skip} onSend={(a) => answer(item.requestId, "accept", buildAskContent(questions, a))} />
   );
 }
 

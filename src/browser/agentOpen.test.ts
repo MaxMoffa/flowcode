@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openCommandTarget, toolCommand } from "./agentOpen";
+import { commandCwd, openCommandTarget, toolCommand } from "./agentOpen";
 
 describe("openCommandTarget", () => {
   it("finds the artifact a Windows start opens", () => {
@@ -19,6 +19,19 @@ describe("openCommandTarget", () => {
     expect(openCommandTarget("start notepad.exe")).toBeNull();
     expect(openCommandTarget("cat report.html")).toBeNull();
     expect(openCommandTarget("restart report.html")).toBeNull();
+  });
+
+  it("ignores an opener word inside a quoted argument", () => {
+    expect(openCommandTarget('git commit -m "open x.html"')).toBeNull();
+    expect(openCommandTarget("echo 'start report.html'")).toBeNull();
+  });
+});
+
+describe("commandCwd", () => {
+  it("follows a leading cd", () => {
+    expect(commandCwd("cd out && open a.html", "/p")).toBe("/p/out");
+    expect(commandCwd('cd "/abs/dir"; open a.html', "/p")).toBe("/abs/dir");
+    expect(commandCwd("open a.html", "/p")).toBe("/p");
   });
 });
 

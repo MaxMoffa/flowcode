@@ -1219,7 +1219,8 @@ impl Chat {
                         tool_call,
                         options: params.get("options").cloned().unwrap_or_else(|| json!([])),
                     });
-                } else if method == "elicitation/create" && params.get("mode").and_then(Value::as_str) == Some("form") {
+                } else if method == "elicitation/create" && params.get("mode").and_then(Value::as_str).unwrap_or("form") == "form" {
+                    // A missing mode means form.
                     lock(&self.asks).insert(id.to_string(), id.clone());
                     self.emit(ChatBody::Ask {
                         request_id: id,
