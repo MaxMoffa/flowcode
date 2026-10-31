@@ -30,7 +30,7 @@ interface AgentHistoryPanelProps {
   chatTabs: ChatTab[];
   getPtyId: (tabId: string) => string | null;
   onOpenTab: (tabId: string) => void;
-  onResume: (cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string) => void;
+  onResume: (cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number) => void;
   onNewSession: (cli: AgentCli, cwd: string) => void;
 }
 
@@ -255,7 +255,7 @@ export function AgentHistoryPanel({
                   title={`${titleOf(row)}\n${row.cwd}`}
                   onClick={() => {
                     if (row.tabId) onOpenTab(row.tabId);
-                    else onResume(row.cwd, row.sessionId, row.cli, row.wslDistro ?? undefined, row.profile ?? undefined);
+                    else onResume(row.cwd, row.sessionId, row.cli, row.wslDistro ?? undefined, row.profile ?? undefined, row.at > 0 ? row.at : undefined);
                   }}
                 >
                   <span className="agent-history-icon">{agentCliIcon(row.cli)}</span>

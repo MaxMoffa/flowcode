@@ -15,7 +15,9 @@ import { ChatPluginView } from "./ChatPluginView";
 import { defaultModeToApply } from "./chatModeDefaults";
 import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingAsks, pendingPermissions } from "./chatSession";
 import { useTwoFingerSwipe } from "./chatSwipe";
-import { answerChatAsk, answerChatPermission, cancelChat, clearChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { eventsActivity } from "../../src/chat/cacheWarning";
+import { useCacheWarning } from "../../src/chat/useCacheWarning";
+import { answerChatAsk, answerChatPermission, cancelChat, clearChat, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { tapFeedback } from "./haptics";
@@ -71,6 +73,15 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   const chatsKnown = useRemoteSelector((s) => s.chats !== null);
   const language = useRemoteSelector((s) => s.settings?.resolvedLanguage);
   const stored = useChatSession(chatId);
+  // A chat that opens within the clear window of its own tab is the fresh conversation a /clear made.
+  const [cleared, setCleared] = useState(() => !!tabId && recentClearTab() === tabId);
+  // Taken once: the window is used up, and the flag drops when the scene is over.
+  useEffect(() => {
+    if (!cleared) return;
+    consumeClear();
+    const id = window.setTimeout(() => setCleared(false), 3500);
+    return () => window.clearTimeout(id);
+  }, [cleared]);
   const session = useMemo(() => stored ?? emptySession(), [stored]);
   const { model } = session;
   // An open subagent: its own chat replaces the conversation until Back (header, Android button, Escape).
@@ -112,6 +123,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
 
   const status = info ? chatStatus(info, model) : "idle";
   const exited = status === "exited";
+  // The agent is starting: the frog floats in its pond.
+  const starting = status === "starting";
   const working = status === "busy" || status === "waiting";
   // An agent that is gone can't take an answer: no request is offered once the chat has exited.
   const pending = exited ? [] : pendingPermissions(model);
@@ -125,6 +138,15 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
   );
   // The open question takes the composer's place (the composer stays mounted, hidden, so its draft survives).
   const openAsk = exited ? undefined : pendingAsks(model)[0];
+  // A Claude chat idle past the prompt cache's lifetime: the next message re-reads everything uncached.
+  const activity = useMemo(() => eventsActivity(session.events), [session.events]);
+  const cacheWarning = useCacheWarning({
+    agent: info?.agent ?? "",
+    idle: !sub && session.loaded && status === "idle" && pending.length === 0 && !openAsk && session.queued.length === 0,
+    items: model.items,
+    lastActivityAt: activity.at,
+    usageTokens: activity.tokens,
+  });
   const answerAsk = useCallback(
     (requestId: string, action: "accept" | "decline", content?: Record<string, unknown>) =>
       answerChatAsk(chatId, requestId, action, content).then((ok) => {
@@ -351,7 +373,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
                     <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
                   ) : (
                     <>
-                      {model.items.length === 0 && !session.loaded && <div className="chat-empty">{t("loading")}</div>}
+                      {model.items.length === 0 && !session.loaded && !starting && <div className="chat-empty">{t("loading")}</div>}
                       <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
                     </>
                   )}
@@ -400,7 +422,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
                 )}
               </div>
             </div>
-            {!sub && session.loaded && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && <ChatEmptyFrog />}
+            {!sub && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && (session.loaded || starting) && <ChatEmptyFrog starting={starting} cleared={cleared} />}
             {!atBottom && (
               <button
                 type="button"
@@ -437,6 +459,14 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
             </div>
           ) : (
             <>
+              {cacheWarning.show && !openAsk && (
+                <div className="chat-sub-foot" role="status">
+                  <span>{t("chatCacheExpired")}</span>
+                  <button type="button" onClick={cacheWarning.dismiss}>
+                    {t("chatCacheDismiss")}
+                  </button>
+                </div>
+              )}
               {openAsk && <AskPanel ask={openAsk} agent={agentName(info.agent)} onAnswer={answerAsk} />}
               <div className="chat-ask-keep" hidden={!!openAsk}>
                 <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} />

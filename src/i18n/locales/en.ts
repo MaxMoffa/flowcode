@@ -1164,6 +1164,7 @@ export const en: Record<MessageKey, string> = {
   "chat.dictate.transcribing": "transcribing…",
   "chat.dictate.transcribingLabel": "Transcribing…",
   "chat.dictate.noVoice": "No voice detected: check your microphone.",
+  "chat.cacheExpired": "The prompt cache has probably expired: your next message re-processes the whole conversation and uses noticeably more of your session limit. Use /clear to start fresh or /compact to summarise first.",
   "chat.dictate.ready": "Dictation ready: click the microphone.",
   "chat.dictate.downloadingTip": "Downloading the dictation model… {percent}%",
   "chat.dictate.model.base.name": "Light",

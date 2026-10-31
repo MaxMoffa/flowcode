@@ -25,6 +25,8 @@ interface AgentSessionViewProps {
   resumeSessionId?: string;
   /** The resumed session must load: fail rather than start a fresh one (a terminal handing its agent over). */
   strictResume?: boolean;
+  /** When the tab's conversation last had real activity (ms epoch), for a resumed chat: the replayed events only carry the load time. */
+  lastActiveAt?: number;
   /** The registered view the session is shown with (absent: the default). */
   viewId?: string;
   /** Another tab is in front: the view stays mounted (the agent keeps running). */
@@ -37,7 +39,7 @@ interface AgentSessionViewProps {
   /** Whether the session has a conversation to resume: true once the first prompt was sent, false when a resume fell back to a fresh session. */
   onTalked: (talked: boolean) => void;
   /** The view hands over how to end its agent (null when it goes): the terminal taking the session over waits for it. */
-  onCloser: (closer: { close: () => Promise<void>; restart: () => void } | null) => void;
+  onCloser: (closer: { close: () => Promise<void>; restart: () => void; clear: () => void } | null) => void;
   /** Opens the session in a terminal tab: resumes `sessionId`, or starts a fresh one when it is null (nothing was said yet, so there is nothing on disk to resume). */
   onSwitchToTerminal: (sessionId: string | null) => void;
   /** Opens a file of the project in an editor tab. */
@@ -55,6 +57,7 @@ export function AgentSessionView({
   profileId,
   resumeSessionId,
   strictResume,
+  lastActiveAt,
   viewId,
   hidden,
   title,
@@ -69,8 +72,10 @@ export function AgentSessionView({
 }: AgentSessionViewProps) {
   const { t, language } = useI18n();
   const views = useAgentViews();
-  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, onSessionId, onStatus });
+  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, initialActivityAt: lastActiveAt, onSessionId, onStatus });
   const { model, phase, error, sessionId } = chat;
+  // A new chat starting shows the conversation (the frog's pond); a resumed one waits behind the spinner.
+  const showView = phase === "ready" || (phase === "starting" && !chat.resumed);
   const label = CLI_INFO[agent].label;
   const folder = basename(cwd);
   const subtitle = title === label ? folder : `${label} · ${folder}`;
@@ -117,10 +122,10 @@ export function AgentSessionView({
   }, [chatId]);
   const { close: closeChat, restart: restartChat } = chat;
   useEffect(() => {
-    onCloser({ close: closeChat, restart: restartChat });
+    onCloser({ close: closeChat, restart: restartChat, clear: clearChat });
     return () => onCloser(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [closeChat, restartChat]);
+  }, [closeChat, restartChat, clearChat]);
   /** Switching needs the session id only when there is a conversation to resume, and never mid-turn: the terminal would resume a session the agent is still writing. */
   // Not while starting either: the agent is still being spawned (and, resumed, loading the session), and the terminal would race it for the session.
   const canSwitch = phase !== "starting" && !working && (!talked || !!sessionId);
@@ -209,7 +214,7 @@ export function AgentSessionView({
             }}
           </AgentHeader>
 
-          {phase === "ready" ? (
+          {showView ? (
             View && (
               <Suspense fallback={null}>
                 <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.sub} onOpenSubagent={nav.open} />

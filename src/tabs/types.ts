@@ -82,6 +82,8 @@ export interface ChatTab {
   /** The folder the sidebar explorer browses while this chat is in front;
    * absent = `cwd`. Not saved. */
   explorerPath?: string;
+  /** When the conversation last had real activity (ms epoch): a turn started or ended here, or the history said so for a session resumed from it. Saved; drives the "prompt cache expired" notice. */
+  lastActiveAt?: number;
 }
 
 export interface EditorTab {

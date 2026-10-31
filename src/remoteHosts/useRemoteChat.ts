@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { applyEvents, canDispatch, chatModels, chatModes, chatThought, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
 import { t } from "../i18n";
+import { eventsActivity } from "../chat/cacheWarning";
 import { applyLocalError, isAgentBusy } from "../chat/chatModel";
 import type { ChatSession } from "../chat/useChat";
 import { claimBusyRefusal, onHostMessages, sendToHost, setPromptInFlight, useHost, useHostState } from "./remoteHosts";
@@ -129,6 +130,8 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   // Likewise nothing runs here to close: the remote PC owns the agent.
   const close = useCallback(async () => {}, []);
 
+  const activity = useMemo(() => eventsActivity(session.events), [session.events]);
+
   return {
     model,
     phase: session.loaded ? "ready" : "starting",
@@ -144,7 +147,10 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     canAttach: false,
     resumed: true,
     loaded: true,
+    clearCount: 0,
     sessionId: info?.sessionId,
+    lastActivityAt: activity.at,
+    usageTokens: activity.tokens,
     send,
     cancel,
     answerPermission,

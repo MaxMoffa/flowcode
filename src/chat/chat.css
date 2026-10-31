@@ -212,6 +212,23 @@
   mask-image: linear-gradient(to top, transparent 18px, #000 18px);
 }
 
+/* A copy of the cleared conversation, melting away over the empty one. */
+.chat-column.chat-dissolve {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  animation: chat-dissolve 450ms ease-in forwards;
+}
+
+@keyframes chat-dissolve {
+  to {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(8px);
+  }
+}
+
 .chat-content {
   flex: 1 0 auto;
   width: 100%;

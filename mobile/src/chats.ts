@@ -241,6 +241,10 @@ let clearing: { tabId: string; until: number } | null = null;
 /** The tab being cleared right now, if any: the chat that left its list may be coming back under a new id. */
 export const recentClearTab = (): string | null => (clearing && Date.now() < clearing.until ? clearing.tabId : null);
 
+export const consumeClear = () => {
+  clearing = null;
+};
+
 /** `/clear`: the desktop starts a fresh conversation in the chat's tab; the chat comes back under a new id (App follows the tab). */
 export function clearChat(chatId: string) {
   const tabId = infoOf(chatId)?.tabId;

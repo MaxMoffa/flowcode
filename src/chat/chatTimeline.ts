@@ -127,8 +127,9 @@ export interface SubagentState {
 
 export function subagentState(item: SubagentItem): SubagentState {
   const { call, steps } = item;
-  const running = call.status !== "completed" && call.status !== "failed";
   const open = steps.filter((s) => s.call.status !== "completed" && s.call.status !== "failed");
+  // A finished subagent woken by a message keeps its launch call completed but starts new steps: it runs again while one is open.
+  const running = (call.status !== "completed" && call.status !== "failed") || open.length > 0;
   const seconds = !running && call.startedAt !== undefined && call.endedAt !== undefined && call.endedAt - call.startedAt >= 1000 ? Math.round((call.endedAt - call.startedAt) / 1000) : null;
   return {
     running,

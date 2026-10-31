@@ -4,6 +4,7 @@ import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
 import { AskComposer } from "./AskComposer";
+import { useCacheWarning } from "./useCacheWarning";
 import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMarker, SubagentTray, ToolGroup } from "./ChatItems";
 import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
 import { CLI_INFO } from "../agents/cliInfo";
@@ -121,6 +122,20 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
       }) + (notice.detail ? ` (${notice.detail})` : "")
     : "";
 
+  // The frog plays its clear scene when the conversation was cleared since this view last saw it filled (or opened).
+  const clearSeen = useRef(chat.clearCount);
+  const cleared = chat.clearCount > clearSeen.current;
+  const filled = model.items.length > 0 || working || queued.length > 0;
+  const prevCount = useRef(chat.clearCount);
+  useEffect(() => {
+    // The render of a clear still holds the old conversation: that is not "seen filled".
+    if (prevCount.current !== chat.clearCount) {
+      prevCount.current = chat.clearCount;
+      return;
+    }
+    if (filled) clearSeen.current = chat.clearCount;
+  }, [filled, chat.clearCount]);
+
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -231,6 +246,15 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   const running = liveTool(sub ? sub.children : model.items);
   const showLive = (sub ? !!subState?.running : working) && !notice && pending.length === 0 && !openAsk;
   const liveText = running && isGuardianReview(running) ? t("chat.guardian.checking") : (running?.title ?? running?.kind ?? null);
+
+  // A Claude chat idle past the prompt cache's lifetime: the next message re-reads everything uncached.
+  const cacheWarning = useCacheWarning({
+    agent,
+    idle: !sub && phase === "ready" && status === "idle" && pending.length === 0 && !openAsk && queued.length === 0,
+    items: model.items,
+    lastActivityAt: chat.lastActivityAt,
+    usageTokens: chat.usageTokens,
+  });
 
   // Follow the conversation while the reader is at its end.
   useLayoutEffect(() => {
@@ -344,17 +368,43 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
 
   /** "/clear": a new conversation in this tab (the running turn, if any, ends with the old agent). */
   function runClear() {
-    if (!chat.clear) return;
+    chat.clear?.();
+  }
+  // The old conversation melts away: this runs in the clear's commit, while the DOM still shows it,
+  // so a copy of the column is laid over it and fades out on its own.
+  const dissolveSeen = useRef(chat.clearCount);
+  useLayoutEffect(() => {
+    if (dissolveSeen.current === chat.clearCount) return;
+    dissolveSeen.current = chat.clearCount;
+    const column = columnRef.current;
+    const wrap = column?.parentElement;
+    if (!column || !wrap || model.items.length === 0 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const copy = column.cloneNode(true) as HTMLElement;
+    copy.removeAttribute("id");
+    copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+    copy.classList.add("chat-dissolve");
+    copy.setAttribute("aria-hidden", "true");
+    copy.inert = true;
+    wrap.appendChild(copy);
+    copy.scrollTop = column.scrollTop;
+    const remove = () => copy.remove();
+    copy.addEventListener("animationend", remove, { once: true });
+    window.setTimeout(remove, 700);
+  }, [chat.clearCount, model.items.length]);
+  // Whoever clears the conversation (the composer, the sidebar, the phone), the composer starts over.
+  const clearReset = useRef(chat.clearCount);
+  useEffect(() => {
+    if (clearReset.current === chat.clearCount) return;
+    clearReset.current = chat.clearCount;
     setDraft("");
     setPickedCommand(null);
     setChipSelected(false);
     setAttachments([]);
     setAttachError(null);
     dictation.discard();
-    chat.clear();
     followRef.current = true;
     setAtBottom(true);
-  }
+  }, [chat.clearCount, dictation]);
 
   function jumpToEnd() {
     const column = columnRef.current;
@@ -369,6 +419,7 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
 
   function submit() {
     autoSendRef.current = false;
+    if (phase !== "ready") return;
     if (!draft.trim() && attachments.length === 0 && !pickedCommand) return;
     const isClear = pickedCommand ? pickedCommand.kind === "flowcode" && pickedCommand.command.name === "clear" : draft.trim() === "/clear";
     if (chat.clear && attachments.length === 0 && isClear) {
@@ -762,6 +813,14 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
                 </button>
               </div>
             )}
+            {cacheWarning.show && !draft && (
+              <div className="chat-notice" role="status">
+                <span className="chat-notice-text">{t("chat.cacheExpired")}</span>
+                <button type="button" className="chat-chip-remove" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={cacheWarning.dismiss}>
+                  {"×"}
+                </button>
+              </div>
+            )}
             {attachError && (
               <div className="chat-notice" role="alert">
                 <span className="chat-notice-text">{attachError}</span>
@@ -944,8 +1003,8 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
         )}
       </div>
       </div>
-      {!sub && phase === "ready" && status !== "exited" && !working && model.items.length === 0 && queued.length === 0 && !model.plan?.length && (
-        <ChatEmptyFrog hidden={hidden} />
+      {!sub && (phase === "ready" || phase === "starting") && status !== "exited" && !working && model.items.length === 0 && queued.length === 0 && !model.plan?.length && (
+        <ChatEmptyFrog key={chat.clearCount} hidden={hidden} starting={phase === "starting"} cleared={cleared} />
       )}
       {!atBottom && (
         <button type="button" className={"chat-jump" + (working ? " is-busy" : "")} aria-label={t("chat.jumpToEnd")} title={t("chat.jumpToEnd")} onClick={jumpToEnd}>

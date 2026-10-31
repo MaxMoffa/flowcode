@@ -6,7 +6,8 @@ import { openCommandTarget, routeAgentOpen, toolCommand } from "../browser/agent
 import { t } from "../i18n";
 import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
-import { applyEvent, applyLocalError, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleChat, type ChatModelState } from "./chatModel";
+import { NO_ACTIVITY, resumedActivity, trackActivity, type ChatActivity } from "./cacheWarning";
+import { applyEvent,applyLocalError, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleChat, type ChatModelState } from "./chatModel";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 
 /** A message waiting for the agent to be idle. */
@@ -29,6 +30,8 @@ interface UseChatOptions {
   resumeSessionId?: string;
   /** The resumed session must load: fail rather than start a fresh one (a terminal handing its agent over). */
   strictResume?: boolean;
+  /** When the resumed conversation last had real activity (ms epoch); unknown (absent) counts as long ago. Read once per start. */
+  initialActivityAt?: number;
   /** The agent's session id, once it is up (the terminal can resume it). */
   onSessionId: (sessionId: string) => void;
   /** The chat's status; `error` is why it failed to start, when it did. */
@@ -42,7 +45,7 @@ interface ChatEventPayload {
 
 /** Runs one agent behind a chat: starts it on mount, keeps the conversation
  * model fed from the backend's events, closes it on unmount. */
-export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, onSessionId, onStatus }: UseChatOptions) {
+export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
   const [model, setModelState] = useState<ChatModelState>(initialChat);
   const [phase, setPhase] = useState<ChatPhase>("starting");
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +62,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   const [loaded, setLoaded] = useState(false);
   // Bumped by `restart` to run the start effect again.
   const [attempt, setAttempt] = useState(0);
+  /** How many times the conversation was cleared: the empty chat's frog plays its clear scene for each. */
+  const [clearCount, setClearCount] = useState(0);
 
   const chatIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | undefined>(resumeSessionId);
@@ -79,9 +84,14 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   // `lastSeq` when the last message was handed to the agent: until a newer
   // event arrives its turn hasn't started, so the queue must not send another.
   const sentAtSeqRef = useRef<number | null>(null);
+  // When the chat last did anything and how big the agent says its context is, from the raw events (the model keeps neither). Read at render: the model changes with it.
+  const activityRef = useRef<ChatActivity>(NO_ACTIVITY);
+  const initialActivityRef = useRef(initialActivityAt);
+  initialActivityRef.current = initialActivityAt;
 
   useEffect(() => {
     let cancelled = false;
+    activityRef.current = NO_ACTIVITY;
     let unlisten: (() => void) | null = null;
     let startedId: string | null = null;
     // Messages queued before a restart stay queued: they go out once the new agent is idle.
@@ -146,6 +156,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
             if (e.payload.chatId !== started.chatId) return;
             if (buffer) buffer.push(e.payload.event);
             else {
+              activityRef.current = trackActivity(activityRef.current, e.payload.event);
               setModelState((m) => applyEvent(m, e.payload.event));
               followOpenCommand(e.payload.event);
             }
@@ -159,6 +170,9 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           if (cancelled) return;
           const events = mergeReplay(past, buffer);
           buffer = null;
+          const replayedActivity = events.reduce(trackActivity, activityRef.current);
+          // A loaded session replays old history stamped with the load time: its real time is the one known from before.
+          activityRef.current = started.loaded ? resumedActivity(replayedActivity, initialActivityRef.current) : replayedActivity;
           // A resumed session replays its history with no turn running; settling leaves "starting".
           setModelState((m) => {
             const replayed = events.reduce(applyEvent, m);
@@ -352,6 +366,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     talkedRef.current = false;
     sessionIdRef.current = undefined;
     resumedRef.current = false;
+    setClearCount((n) => n + 1);
     setAttempt((n) => n + 1);
   }, []);
 
@@ -365,7 +380,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, answerAsk, setMode, setModel, setThought, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, setMode, setModel, setThought, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */

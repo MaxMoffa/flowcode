@@ -1172,6 +1172,7 @@ export const it = {
   "chat.dictate.transcribing": "trascrivo…",
   "chat.dictate.transcribingLabel": "Trascrivo…",
   "chat.dictate.noVoice": "Nessuna voce rilevata: controlla il microfono.",
+  "chat.cacheExpired": "La cache del prompt è probabilmente scaduta: il prossimo messaggio rielabora tutta la conversazione e consuma molto più del limite di sessione. Usa /clear per ripartire da zero o /compact per riassumere prima.",
   "chat.dictate.ready": "Dettatura pronta: clicca il microfono.",
   "chat.dictate.downloadingTip": "Scarico il modello di dettatura… {percent}%",
   "chat.dictate.model.base.name": "Leggero",

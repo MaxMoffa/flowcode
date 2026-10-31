@@ -160,7 +160,21 @@ function withItems(state: ChatModelState, items: ChatItem[], turnActive = state.
  * replay of a resumed session's history as over. */
 export function settleChat(state: ChatModelState): ChatModelState {
   if (state.status === "exited") return state;
-  return { ...state, turnActive: false, turn: null, status: statusOf(state.items, false, "idle") };
+  return { ...state, items: closeWokenSteps(state.items), turnActive: false, turn: null, status: statusOf(state.items, false, "idle") };
+}
+
+/** The tool calls still open under a subagent whose launch already finished (it was woken by a message and its turn is over): marked completed, so it does not stay "running". */
+function closeWokenSteps(items: ChatItem[]): ChatItem[] {
+  const done = new Set<string>();
+  for (const i of items) if (i.type === "tool" && (i.call.status === "completed" || i.call.status === "failed")) done.add(i.id);
+  let changed = false;
+  const next = items.map((i) => {
+    const parent = i.type === "tool" ? i.call.parentToolUseId : undefined;
+    if (i.type !== "tool" || !parent || !done.has(parent) || i.call.status === "completed" || i.call.status === "failed") return i;
+    changed = true;
+    return { ...i, call: { ...i.call, status: "completed" as const } };
+  });
+  return changed ? next : items;
 }
 
 /** Appends `text` to the last item when it has `type`, else starts a new one. */
@@ -464,7 +478,8 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
     case "turnEnd": {
       // Finishing and a cancel the user asked for need no word; anything else (a length or step limit, a refusal) is said.
       const reason = typeof ev.stopReason === "string" ? ev.stopReason : "";
-      const items = !reason || QUIET_STOPS.has(reason) ? state.items : [...state.items, { type: "stop" as const, id: `stop-${ev.seq}`, reason }];
+      const closed = closeWokenSteps(state.items);
+      const items = !reason || QUIET_STOPS.has(reason) ? closed : [...closed, { type: "stop" as const, id: `stop-${ev.seq}`, reason }];
       return { ...withItems(state, items, false), notice: null, turn: null };
     }
     case "error": {
@@ -480,15 +495,16 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
     case "exit": {
       // Nobody is left to answer an open permission request: it reads as cancelled (the backend says so too, this is in case it didn't).
       // Same for an open question.
-      const items = state.items.some((i) => (i.type === "permission" || i.type === "ask") && i.resolved === undefined)
-        ? state.items.map((i) =>
+      const woken = closeWokenSteps(state.items);
+      const items = woken.some((i) => (i.type === "permission" || i.type === "ask") && i.resolved === undefined)
+        ? woken.map((i) =>
             i.type === "permission" && i.resolved === undefined
               ? { ...i, resolved: null }
               : i.type === "ask" && i.resolved === undefined
                 ? { ...i, resolved: { action: "cancel" as const } }
                 : i,
           )
-        : state.items;
+        : woken;
       return { ...state, items, turnActive: false, status: "exited", notice: null, turn: null };
     }
     default:

@@ -493,6 +493,7 @@ function Shell() {
               viewId: t.viewId,
               // No saved session (or not restoring it): a fresh chat, nothing to resume yet.
               talked: keepChat && t.sessionId ? undefined : false,
+              lastActiveAt: keepChat ? t.lastActiveAt : undefined,
             });
           }
         } else if (t.kind === "editor") {
@@ -593,7 +594,7 @@ function Shell() {
           if (t.kind === "chat") {
             // A session nobody spoke to isn't on the agent's disk: resuming it after a restart would fail, so it isn't saved.
             const sessionId = restoreContentRef.current && t.talked !== false ? t.sessionId : undefined;
-            return { kind: "chat", agent: t.agent, cwd: t.cwd, label: t.label, profileId: t.profileId, sessionId, viewId: t.viewId };
+            return { kind: "chat", agent: t.agent, cwd: t.cwd, label: t.label, profileId: t.profileId, sessionId, viewId: t.viewId, lastActiveAt: sessionId ? t.lastActiveAt : undefined };
           }
           if (t.kind === "editor") return { kind: "editor", path: t.path, label: t.label };
           if (t.kind === "changelog") return { kind: "changelog" };
@@ -772,7 +773,7 @@ function Shell() {
   /** The phone asked to hand a chat tab over to a terminal / for a new chat tab. */
   const remoteChatTerminalRef = useRef<(tabId: string) => void>(() => {});
   /** How to end each chat tab's agent (see AgentSessionView `onCloser`), so a terminal resuming its session starts only once it is gone. */
-  const chatClosersRef = useRef(new Map<string, { close: () => Promise<void>; restart: () => void }>());
+  const chatClosersRef = useRef(new Map<string, { close: () => Promise<void>; restart: () => void; clear: () => void }>());
   const switchingChatsRef = useRef(new Set<string>());
   const remoteTerminalChatRef = useRef<(ptyId: string) => void>(() => {});
   const remoteChatRenameRef = useRef<(tabId: string, label: string) => void>(() => {});
@@ -1079,9 +1080,9 @@ function Shell() {
 
   /** A saved session picked in the Agents sidebar: resumed in the default
    * agent view - a chat tab, or a terminal (always, for one inside WSL). */
-  function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string) {
+  function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number) {
     if (!wslDistro && defaultOpensChat()) {
-      void openChatTab(cli, cwd, { profileId, resume: { sessionId } });
+      void openChatTab(cli, cwd, { profileId, resume: { sessionId, lastActiveAt } });
       return;
     }
     void openAgentSession(cwd, sessionId, cli, wslDistro, profileId);
@@ -2233,13 +2234,13 @@ function Shell() {
   async function openChatTab(
     cli: AgentCli,
     cwd: string,
-    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string }; replaceTabId?: string; at?: number } = {},
+    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number } = {},
   ): Promise<boolean> {
     const { profileId, viewId, resume, replaceTabId, at } = opts;
     if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
-    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false };
+    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false, lastActiveAt: resume?.lastActiveAt };
     setTabs((prev) => {
       const next = insertTabAt(prev, tab, replaceTabId ? prev.findIndex((t) => t.id === replaceTabId) : at);
       return replaceTabId ? next.filter((t) => t.id !== replaceTabId) : next;
@@ -2325,7 +2326,8 @@ function Shell() {
     switchingChatsRef.current.add(tabId);
     const cli = session.cli as AgentCli;
     const sessionId = session.session_id;
-    const resume = { sessionId, label: tab.label, handoffFrom: tabId };
+    // The terminal's agent was just in use.
+    const resume = { sessionId, label: tab.label, handoffFrom: tabId, lastActiveAt: Date.now() };
     void (async () => {
       try {
         // An agent nobody prompted yet has no transcript to load (the chat would fail and the terminal be
@@ -2598,7 +2600,12 @@ function Shell() {
                   getPtyId={(id) => termRefs.current.get(id)?.getPtyId() ?? null}
                   onOpenTab={selectTab}
                   onResume={resumeAgentSession}
-                  onNewSession={(cli, cwd) => void launchAgentInNewTab(cli, cwd)}
+                  onNewSession={(cli, cwd) => {
+                    // A chat in front starts its new conversation in place, like "/clear".
+                    const closer = frontTab?.kind === "chat" ? chatClosersRef.current.get(frontTab.id) : undefined;
+                    if (closer) closer.clear();
+                    else void launchAgentInNewTab(cli, cwd);
+                  }}
                 />
               )
             : undefined
@@ -2996,6 +3003,7 @@ function Shell() {
                       profileId={tab.profileId}
                       resumeSessionId={tab.sessionId}
                       strictResume={!!tab.handoffFrom}
+                      lastActiveAt={tab.lastActiveAt}
                       viewId={tab.viewId}
                       hidden={tab.id !== activeTabId}
                       title={tab.label}
@@ -3005,7 +3013,12 @@ function Shell() {
                       }}
                       onStatus={(status, error) => {
                         if (status === "exited" && tab.handoffFrom) failHandoff(tab.id, error);
-                        else patchChatTab(tab.id, { status });
+                        else {
+                          // Real activity: a turn starting, or ending (busy/waiting -> idle). Starting up and replaying a resumed history is not.
+                          const working = (s: string | undefined) => s === "busy" || s === "waiting";
+                          const active = working(status) || (status === "idle" && working(tab.status));
+                          patchChatTab(tab.id, active ? { status, lastActiveAt: Date.now() } : { status });
+                        }
                       }}
                       onViewChange={(viewId) => patchChatTab(tab.id, { viewId })}
                       onTalked={(talked) => {

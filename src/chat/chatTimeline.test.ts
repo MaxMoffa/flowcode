@@ -89,6 +89,29 @@ describe("chat timeline", () => {
       expect(segments[0].type === "group" && segments[0].steps).toHaveLength(1);
     });
 
+    it("counts a finished subagent woken by a message as running while its new steps are open", () => {
+      seq = 0;
+      const events: ChatEvent[] = [launch("s1", "Explore", "code", 1000), step("a1", "s1", "completed"), finish("s1", "completed", "report", 3000), step("a2", "s1", "in_progress")];
+      const state = events.reduce(applyEvent, settleChat(initialChat()));
+      const sub = findSubagent(state.items, "s1")!;
+      expect(subagentState(sub)).toMatchObject({ running: true, seconds: null });
+      expect(subagentState(sub).current?.toolCallId).toBe("a2");
+      // Its last step ends: finished again.
+      const done = applyEvent(state, { kind: "update", seq: ++seq, at: 0, update: { sessionUpdate: "tool_call_update", toolCallId: "a2", status: "completed" } });
+      expect(subagentState(findSubagent(done.items, "s1")!).running).toBe(false);
+    });
+
+    it("closes the open steps of a finished subagent when the turn ends, the chat settles or the agent exits", () => {
+      seq = 0;
+      const events: ChatEvent[] = [launch("s1", "Explore", "code", 1000), finish("s1", "completed", "report", 3000), step("a2", "s1", "in_progress")];
+      const open = events.reduce(applyEvent, settleChat(initialChat()));
+      const running = (s: typeof open) => subagentState(findSubagent(s.items, "s1")!).running;
+      expect(running(open)).toBe(true);
+      expect(running(applyEvent(open, { kind: "turnEnd", seq: 99, at: 0, stopReason: "cancelled" } as ChatEvent))).toBe(false);
+      expect(running(settleChat(open))).toBe(false);
+      expect(running(applyEvent(open, { kind: "exit", seq: 99, at: 0 } as ChatEvent))).toBe(false);
+    });
+
     it("leaves tool calls with an unknown parent where they are", () => {
       const items = [tool("t1", "read"), { type: "tool", id: "x", call: { toolCallId: "x", parentToolUseId: "ghost" } } as ChatItem];
       expect(nestSubagents(items)).toEqual(items);

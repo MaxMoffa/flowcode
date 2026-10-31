@@ -9,9 +9,19 @@
   pointer-events: none;
 }
 
+/* The ripples of the start and clear scenes: over the whole area, under the frog. */
+.chat-empty-frog .chat-empty-frog-rings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 .chat-empty-frog canvas {
   display: block;
   pointer-events: auto;
+  position: relative;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }

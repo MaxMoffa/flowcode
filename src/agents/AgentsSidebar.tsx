@@ -66,7 +66,7 @@ interface AgentsSidebarProps {
    * `vibe --resume <sessionId>`) - used for a background/saved session with
    * no local tab of its own to switch to. `profileId` is the account profile
    * that owns the session, so it resumes under the same account. */
-  onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex" | "vibe" | "gemini", wslDistro?: string, profileId?: string) => void;
+  onOpenSession: (cwd: string, sessionId: string, cli: "claude" | "codex" | "vibe" | "gemini", wslDistro?: string, profileId?: string, lastActiveAt?: number) => void;
   /** The shell id the active tab runs (see `tabShell` in App.tsx), so an
    * agent started in the project folder lands in the same kind of terminal. */
   projectShell?: string;
@@ -628,7 +628,7 @@ export function AgentsSidebar({
             profile={profileOf(s.profile)}
             chip={{ kind: "saved", label: t("agents.status.saved") }}
             hint={t("agents.hint.resume")}
-            onOpen={() => onOpenSession(s.cwd, s.sessionId, s.cli, s.wslDistro ?? undefined, s.profile ?? undefined)}
+            onOpen={() => onOpenSession(s.cwd, s.sessionId, s.cli, s.wslDistro ?? undefined, s.profile ?? undefined, s.startedAt ?? undefined)}
           />
         ))}
         {listedSavedSessions.length > SAVED_SESSIONS_SHOWN && (
