@@ -92,6 +92,15 @@ pub enum ClientMsg {
     ChatCancel { chat_id: String },
     /// Answer an agent's permission request; `option_id: None` cancels it.
     ChatPermission { chat_id: String, request_id: serde_json::Value, option_id: Option<String> },
+    /// Answer an agent's form question (`Ask`): `action` is `accept` (with
+    /// the form's `content`), `decline` or `cancel`.
+    ChatAsk {
+        chat_id: String,
+        request_id: serde_json::Value,
+        action: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<serde_json::Value>,
+    },
     ChatMode { chat_id: String, mode_id: String },
     /// Switch the chat's agent to another of the models it offers (`ChatInfo::models`).
     ChatModel { chat_id: String, model_id: String },

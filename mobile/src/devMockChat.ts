@@ -1,5 +1,6 @@
-// DEV ONLY: chat sessions for the mock. Three chats - one waiting for a
-// permission (with a diff and a plan in its history), one busy, one idle -
+// DEV ONLY: chat sessions for the mock. Four chats - one waiting for a
+// permission (with a diff and a plan in its history), one waiting for an
+// answer to a question (then to a two-question form), one busy, one idle -
 // that answer the chat messages the way the desktop does, in miniature.
 import { emit } from "@tauri-apps/api/event";
 
@@ -19,6 +20,7 @@ type Ev = Record<string, unknown> & { kind: string };
 
 const infos: Info[] = [
   { chatId: "c1", tabId: "tc1", window: WINDOW, label: "Banner di riconnessione", agent: "claude", cwd: "C:/Users/massi/Progetti/flowcode", sessionId: "7f3c9e2a-41d0-4b6e-9a3a-2f6d1c8e5b10", status: "waiting", modes },
+  { chatId: "c4", tabId: "tc4", window: WINDOW, label: "Scelta del database", agent: "claude", cwd: "C:/Users/massi/Progetti/api", sessionId: "d4a1c3f0-5b7e-42a9-8c16-9e0b7f2a6d41", status: "waiting", modes },
   { chatId: "c2", tabId: "tc2", window: WINDOW, label: "Documentazione API", agent: "codex", cwd: "C:/Users/massi/api", sessionId: "b21e07aa-91c4-48e3-8d0f-3a7c55d0e9f2", status: "busy" },
   { chatId: "c3", tabId: "tc3", window: "w2", label: "Idee", agent: "gemini", cwd: "C:/Users/massi/Progetti/docs", sessionId: "0c5a8d41-6e2b-4f7a-b3c9-e84d1a27f6b3", status: "idle" },
 ];
@@ -29,6 +31,17 @@ const text = (sessionUpdate: string, chunk: string): Ev => update(sessionUpdate,
 const pic = (fill: string, label: string) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="${fill}"/><text x="320" y="210" font-size="40" text-anchor="middle" fill="#fff" font-family="sans-serif">${label}</text></svg>`)}`;
 const image = (sessionUpdate: string, fill: string, label: string): Ev => update(sessionUpdate, { content: { type: "image", uri: pic(fill, label), mimeType: "image/svg+xml" } });
+
+/** The form schema of the agent's questions (an ACP elicitation, as AskUserQuestion is sent). */
+const askSchema = (qs: { header: string; text: string; multi?: boolean; options: [string, string?][] }[]) => ({
+  type: "object",
+  properties: Object.fromEntries(
+    qs.map((q, n) => {
+      const opts = q.options.map(([label, description]) => ({ const: label, title: label, ...(description ? { description } : {}) }));
+      return [`question_${n}`, { title: q.header, description: q.text, ...(q.multi ? { type: "array", items: { anyOf: opts } } : { type: "string", oneOf: opts }) }];
+    }),
+  ),
+});
 
 /** The scripted history of each chat; `seq` and `at` are filled in. */
 const history: Record<string, Ev[]> = {
@@ -65,6 +78,11 @@ const history: Record<string, Ev[]> = {
     { kind: "user", text: "Scrivi la documentazione dell'endpoint /orders." },
     text("agent_message_chunk", "Leggo i controller degli ordini per elencare i parametri."),
     update("tool_call", { toolCallId: "t1", title: "grep -r \"orders\" src/", kind: "search", status: "in_progress" }),
+  ],
+  c4: [
+    { kind: "user", text: "Aggiungi la persistenza alle API degli ordini." },
+    text("agent_message_chunk", "Prima di scrivere codice mi serve una scelta."),
+    { kind: "ask", requestId: "q1", message: "Quale database vuoi usare?", schema: askSchema([{ header: "Database", text: "Quale database vuoi usare?", options: [["SQLite (Recommended)", "Un file, nessun server"], ["PostgreSQL", "Server dedicato, più scalabile"], ["MySQL"]] }]) },
   ],
   c3: [
     { kind: "user", text: "Dammi tre nomi per l'app." },
@@ -131,7 +149,7 @@ export const mockViews = [
   },
 ];
 
-export function chatMock(msg: { t?: string; chatId?: string; text?: string; afterSeq?: number; optionId?: string | null; requestId?: string; cli?: string; modeId?: string } | undefined) {
+export function chatMock(msg: { t?: string; chatId?: string; text?: string; afterSeq?: number; optionId?: string | null; requestId?: string; action?: string; content?: Record<string, unknown>; cli?: string; modeId?: string } | undefined) {
   if (!msg?.t) return;
   init();
   const { chatId = "" } = msg;
@@ -154,6 +172,24 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
       later(700, () => push(chatId, [update("tool_call", { toolCallId: "t3", title: "npm run build", kind: "execute", status: "completed", content: [{ type: "content", content: { type: "text", text: "vite v5 building...\n✓ 142 modules transformed.\nbuilt in 2.31s" } }] })]));
       later(1300, () => push(chatId, [text("agent_message_chunk", "\n\nLa build passa: il banner sparisce appena il collegamento torna online."), { kind: "turnEnd", stopReason: "end_turn" }]));
       later(1400, () => setStatus(chatId, "idle"));
+      break;
+    case "chatask":
+      push(chatId, [{ kind: "askResolved", requestId: msg.requestId, action: msg.action, ...(msg.content ? { content: msg.content } : {}) }]);
+      if (msg.requestId === "q1" && msg.action === "accept") {
+        // The first answer brings a two-question form (a single and a multi-select one).
+        later(500, () =>
+          push(chatId, [
+            { kind: "ask", requestId: "q2", message: "Due domande sul progetto", schema: askSchema([
+              { header: "ORM", text: "Quale ORM preferisci?", options: [["Prisma (Recommended)", "Schema dichiarativo"], ["Drizzle"], ["Nessuno", "Query scritte a mano"]] },
+              { header: "Estensioni", text: "Quali funzioni servono?", multi: true, options: [["Migrazioni"], ["Seed di prova", "Dati di esempio per i test"], ["Backup notturno"]] },
+            ]) },
+          ]),
+        );
+      } else {
+        setStatus(chatId, "busy");
+        later(700, () => push(chatId, [text("agent_message_chunk", "Va bene, procedo."), { kind: "turnEnd", stopReason: "end_turn" }]));
+        later(800, () => setStatus(chatId, "idle"));
+      }
       break;
     case "chatcancel":
       push(chatId, [{ kind: "turnEnd", stopReason: "cancelled" }]);

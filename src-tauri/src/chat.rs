@@ -86,6 +86,11 @@ pub enum ChatBody {
     /// The agent asks for permission; answered with `chat_permission`.
     Permission { request_id: Value, tool_call: Value, options: Value },
     PermissionResolved { request_id: Value, option_id: Option<String> },
+    /// The agent asks the user a question (ACP `elicitation/create`, form
+    /// mode); answered with `chat_ask`.
+    Ask { request_id: Value, message: String, schema: Value, tool_call_id: Option<String> },
+    /// `action` is "accept", "decline" or "cancel".
+    AskResolved { request_id: Value, action: String, content: Option<Value> },
     TurnEnd { stop_reason: String },
     Error { message: String },
     Exit { code: Option<i32> },
@@ -619,6 +624,12 @@ fn body_size(body: &ChatBody) -> usize {
         ChatBody::PermissionResolved { request_id, option_id } => {
             approx_size(request_id) + option_id.as_ref().map_or(0, String::len)
         }
+        ChatBody::Ask { request_id, message, schema, tool_call_id } => {
+            approx_size(request_id) + message.len() + approx_size(schema) + tool_call_id.as_ref().map_or(0, String::len)
+        }
+        ChatBody::AskResolved { request_id, action, content } => {
+            approx_size(request_id) + action.len() + content.as_ref().map_or(0, approx_size)
+        }
         ChatBody::TurnEnd { stop_reason } => stop_reason.len(),
         ChatBody::Error { message } => message.len(),
         ChatBody::Exit { .. } => 0,
@@ -879,6 +890,9 @@ struct Chat {
     /// Permission requests the agent is waiting on: the JSON text of the
     /// request id (a usable map key) -> the id itself.
     permissions: Mutex<HashMap<String, Value>>,
+    /// Form questions (`elicitation/create`) the agent is waiting on, keyed
+    /// like `permissions`. They count as open permissions for the status.
+    asks: Mutex<HashMap<String, Value>>,
     log: Mutex<Log>,
     /// Every event, as `emit` logs it, for the phones following this chat.
     feed: broadcast::Sender<ChatEvent>,
@@ -928,7 +942,7 @@ impl Chat {
             let mut status = lock(&self.status);
             let before = *status;
             allow(before)?;
-            let permissions_pending = !lock(&self.permissions).is_empty();
+            let permissions_pending = !lock(&self.permissions).is_empty() || !lock(&self.asks).is_empty();
             *status = next_status(before, &body, permissions_pending);
             (before, *status)
         };
@@ -1003,6 +1017,7 @@ impl Chat {
             ChatBody::Permission { tool_call, .. } => {
                 AlertKind::Permission { tool: tool_call.get("title").and_then(Value::as_str).unwrap_or_default().to_string() }
             }
+            ChatBody::Ask { message, .. } => AlertKind::Permission { tool: message.chars().take(120).collect() },
             ChatBody::TurnEnd { stop_reason } if stop_reason != "cancelled" => AlertKind::Done,
             _ => return,
         };
@@ -1204,6 +1219,18 @@ impl Chat {
                         tool_call,
                         options: params.get("options").cloned().unwrap_or_else(|| json!([])),
                     });
+                } else if method == "elicitation/create" && params.get("mode").and_then(Value::as_str) == Some("form") {
+                    lock(&self.asks).insert(id.to_string(), id.clone());
+                    self.emit(ChatBody::Ask {
+                        request_id: id,
+                        message: params.get("message").and_then(Value::as_str).unwrap_or_default().to_string(),
+                        schema: params.get("requestedSchema").cloned().unwrap_or(Value::Null),
+                        tool_call_id: params.get("toolCallId").and_then(Value::as_str).map(str::to_string),
+                    });
+                } else if method == "elicitation/create" {
+                    // Only the form mode was advertised; decline anything else.
+                    let reply = json!({ "jsonrpc": "2.0", "id": id, "result": { "action": "decline" } });
+                    let _ = self.replies.try_send(reply);
                 } else {
                     // No fs or terminal capability was advertised. Answered
                     // by the writer thread (see `replies`).
@@ -1258,10 +1285,34 @@ impl Chat {
         sent
     }
 
+    /// Answers a pending form question: `action` is "accept" (with the
+    /// form's `content`), "decline" or "cancel". Errs if there is no such
+    /// question (any more).
+    fn resolve_ask(&self, request_id: &Value, action: &str, content: Option<Value>) -> Result<(), String> {
+        if !matches!(action, "accept" | "decline" | "cancel") {
+            return Err(format!("invalid ask action: {action}"));
+        }
+        let id = lock(&self.asks)
+            .remove(&request_id.to_string())
+            .ok_or_else(|| "unknown ask request".to_string())?;
+        let content = if action == "accept" { content } else { None };
+        let mut result = json!({ "action": action });
+        if let Some(content) = &content {
+            result["content"] = content.clone();
+        }
+        let sent = self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+        self.emit(ChatBody::AskResolved { request_id: id, action: action.to_string(), content });
+        sent
+    }
+
     fn cancel_permissions(&self) {
         let ids: Vec<Value> = lock(&self.permissions).values().cloned().collect();
         for id in ids {
             let _ = self.resolve_permission(&id, None);
+        }
+        let ids: Vec<Value> = lock(&self.asks).values().cloned().collect();
+        for id in ids {
+            let _ = self.resolve_ask(&id, "cancel", None);
         }
     }
 
@@ -1293,6 +1344,10 @@ impl Chat {
         let permissions = std::mem::take(&mut *lock(&self.permissions));
         for request_id in permissions.into_values() {
             self.emit(ChatBody::PermissionResolved { request_id, option_id: None });
+        }
+        let asks = std::mem::take(&mut *lock(&self.asks));
+        for request_id in asks.into_values() {
+            self.emit(ChatBody::AskResolved { request_id, action: "cancel".to_string(), content: None });
         }
         for pending in drained.into_values() {
             match pending {
@@ -1598,6 +1653,11 @@ impl ChatState {
         self.get(chat_id)?.resolve_permission(request_id, option_id)
     }
 
+    /// Answers a form question (`Ask`) of a chat.
+    pub(crate) fn ask(&self, chat_id: &str, request_id: &Value, action: &str, content: Option<Value>) -> Result<(), String> {
+        self.get(chat_id)?.resolve_ask(request_id, action, content)
+    }
+
     /// Waits for the agent's answer, so it runs on the blocking pool. Agents
     /// only send `current_mode_update` for switches of their own, so once
     /// one is accepted it is logged as one: every view (the window, the
@@ -1792,7 +1852,7 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
         json!({
             "protocolVersion": 1,
             // `session.compaction`: the adapters send `compaction_update` events (not a generic tool call) only to clients that declare it.
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "session": { "compaction": {} }, "_meta": { "subagent-transcript": true } },
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "session": { "compaction": {} }, "elicitation": { "form": {} }, "_meta": { "subagent-transcript": true } },
             "clientInfo": { "name": "flowcode", "version": env!("CARGO_PKG_VERSION") },
         }),
         SETUP_TIMEOUT,
@@ -1876,6 +1936,7 @@ fn start_blocking(
         next_id: AtomicU64::new(1),
         pending: Mutex::new(HashMap::new()),
         permissions: Mutex::new(HashMap::new()),
+        asks: Mutex::new(HashMap::new()),
         log: Mutex::new(Log::new(MAX_LOG_EVENTS, MAX_LOG_BYTES)),
         feed: broadcast::channel(FEED_CAPACITY).0,
         status: Mutex::new(ChatStatus::Starting),
@@ -1994,6 +2055,17 @@ pub async fn chat_permission(
     option_id: Option<String>,
 ) -> Result<(), String> {
     crate::blocking(move || app.state::<ChatState>().permission(&chat_id, &request_id, option_id.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn chat_ask(
+    app: AppHandle,
+    chat_id: String,
+    request_id: Value,
+    action: String,
+    content: Option<Value>,
+) -> Result<(), String> {
+    crate::blocking(move || app.state::<ChatState>().ask(&chat_id, &request_id, &action, content)).await
 }
 
 #[tauri::command]
@@ -2294,6 +2366,30 @@ mod tests {
 
     fn big_log() -> Log {
         Log::new(MAX_LOG_EVENTS, MAX_LOG_BYTES)
+    }
+
+    #[test]
+    fn ask_events_serialize_and_wait() {
+        use ChatStatus::*;
+        let ask = ChatBody::Ask {
+            request_id: json!(3),
+            message: "Pick".into(),
+            schema: json!({ "type": "object", "properties": {} }),
+            tool_call_id: Some("t1".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&ask).unwrap(),
+            json!({ "kind": "ask", "requestId": 3, "message": "Pick", "schema": { "type": "object", "properties": {} }, "toolCallId": "t1" })
+        );
+        let resolved = ChatBody::AskResolved { request_id: json!(3), action: "accept".into(), content: Some(json!({ "a": "b" })) };
+        assert_eq!(
+            serde_json::to_value(&resolved).unwrap(),
+            json!({ "kind": "askResolved", "requestId": 3, "action": "accept", "content": { "a": "b" } })
+        );
+        // An open ask makes a turn wait, like an open permission.
+        assert_eq!(next_status(Busy, &ask, true), Waiting);
+        assert_eq!(next_status(Waiting, &resolved, false), Busy);
+        assert_eq!(next_status(Idle, &ask, true), Idle);
     }
 
     #[test]

@@ -127,6 +127,25 @@ describe("chat model", () => {
     expect(s.status).toBe("idle");
   });
 
+  it("goes waiting while a question is open, then records the answer", () => {
+    const schema = { properties: { question_0: { type: "string", oneOf: [{ const: "A", title: "A" }] } } };
+    let s = run([{ kind: "user", seq: next(), at: 0, text: "fai" }]);
+    s = run([{ kind: "ask", seq: next(), at: 0, requestId: "q1", message: "Quale?", schema }], s);
+    expect(s.status).toBe("waiting");
+    expect(s.items.find((i) => i.type === "ask")).toMatchObject({ id: "ask-q1", questions: [{ key: "question_0", text: "Quale?" }] });
+    s = run([{ kind: "askResolved", seq: next(), at: 0, requestId: "q1", action: "accept", content: { question_0: "A" } }], s);
+    expect(s.status).toBe("busy");
+    expect(s.items.find((i) => i.type === "ask")).toMatchObject({ resolved: { action: "accept", content: { question_0: "A" } } });
+  });
+
+  it("marks a question still open at exit as cancelled", () => {
+    const s = run([
+      { kind: "ask", seq: next(), at: 0, requestId: "q", message: "?", schema: {} },
+      { kind: "exit", seq: next(), at: 0, code: null },
+    ]);
+    expect(s.items.find((i) => i.type === "ask")).toMatchObject({ resolved: { action: "cancel" } });
+  });
+
   it("exits for good", () => {
     const s = run([{ kind: "exit", seq: next(), at: 0, code: 1 }, chunk("agent_message_chunk", "late")]);
     expect(s.status).toBe("exited");

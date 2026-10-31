@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
+import { AskComposer } from "./AskComposer";
 import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMarker, SubagentTray, ToolGroup } from "./ChatItems";
 import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
 import { CLI_INFO } from "../agents/cliInfo";
@@ -221,12 +222,14 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   const subTimeline = useMemo(() => (sub ? subagentTimeline(sub) : null), [sub]);
   const timeline = subTimeline ?? mainTimeline ?? [];
   const pending = model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined);
+  // The agent's open question: it takes the composer's place until answered.
+  const openAsk = model.items.find((i): i is Extract<typeof i, { type: "ask" }> => i.type === "ask" && i.resolved === undefined);
   const lastSegment = timeline[timeline.length - 1];
   // In the main chat, the subagents still running, for the tray behind the composer.
   const runningSubs = sub ? [] : timeline.flatMap((s) => (s.type === "subagents" ? s.items.filter((i) => subagentState(i).running) : []));
   const liveGroup = (sub ? !!subState?.running : model.turnActive) && lastSegment?.type === "group" ? lastSegment : null;
   const running = liveTool(sub ? sub.children : model.items);
-  const showLive = (sub ? !!subState?.running : working) && !notice && pending.length === 0;
+  const showLive = (sub ? !!subState?.running : working) && !notice && pending.length === 0 && !openAsk;
   const liveText = running && isGuardianReview(running) ? t("chat.guardian.checking") : (running?.title ?? running?.kind ?? null);
 
   // Follow the conversation while the reader is at its end.
@@ -785,7 +788,9 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
               </div>
             )}
             <SubagentTray items={runningSubs} onOpen={onOpenSubagent ? openSub : undefined} />
-            <div className={`chat-composer${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
+            {/* The textarea stays mounted (hidden) so a half-typed message survives the question. */}
+            {openAsk && <AskComposer key={openAsk.id} item={openAsk} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
+            <div className={`chat-composer${openAsk ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
               {transcribing && <ComposerSweep />}
               {(listening || transcribing) && (
                 <div className="chat-listening" aria-live="polite">

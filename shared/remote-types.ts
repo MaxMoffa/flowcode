@@ -298,6 +298,8 @@ export type ClientMsg =
   | { t: "chatcancel"; chatId: string }
   /** Answers an agent's permission request; `optionId: null` cancels it. */
   | { t: "chatpermission"; chatId: string; requestId: unknown; optionId: string | null }
+  /** Answers an agent's question (`ask` event): `accept` with the form `content`, `decline` (skip) or `cancel`. */
+  | { t: "chatask"; chatId: string; requestId: unknown; action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> }
   | { t: "chatmode"; chatId: string; modeId: string }
   /** Switches the chat's agent to another model it offers (`ChatInfo.models`). */
   | { t: "chatmodel"; chatId: string; modelId: string }

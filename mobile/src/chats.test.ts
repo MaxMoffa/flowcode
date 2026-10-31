@@ -88,6 +88,18 @@ describe("following a chat", () => {
     expect(link.sent).toEqual([{ t: "chatclose", chatId: "c1" }]);
   });
 
+  it("says the open question in the list row and sends the answer checked", async () => {
+    ready();
+    chats([info("waiting")]);
+    const ask = { seq: 1, at: 0, kind: "ask", requestId: "q1", message: "Which database?", schema: {} };
+    say({ t: "chatevents", chatId: "c1", events: [ask], replay: true });
+    expect(chatsModule.pendingPermissionTitle(getChatSession("c1"), info("waiting"))).toBe("Which database?");
+    expect(await chatsModule.answerChatAsk("c1", "q1", "accept", { question_0: "SQLite" })).toBe(true);
+    expect(link.sent[link.sent.length - 1]).toEqual({ t: "chatask", chatId: "c1", requestId: "q1", action: "accept", content: { question_0: "SQLite" } });
+    link.online = false;
+    expect(await chatsModule.answerChatAsk("c1", "q1", "decline")).toBe(false);
+  });
+
   it("does not open the same chat twice, or one the desktop no longer lists", () => {
     ready();
     chats([info("idle")]);

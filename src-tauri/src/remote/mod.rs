@@ -2246,6 +2246,17 @@ impl Conn {
                     self.error(tr("Richiesta non valida", "Invalid request"), None);
                 }
             }
+            ClientMsg::ChatAsk { chat_id, request_id, action, content } => {
+                let short = chat_id.len() <= MAX_ID_BYTES
+                    && action.len() <= MAX_ID_BYTES
+                    && request_id.to_string().len() <= MAX_ID_BYTES
+                    && content.as_ref().is_none_or(|c| c.to_string().len() <= proto::MAX_INPUT_BYTES);
+                if short {
+                    self.spawn_chat(move |chats| chats.ask(&chat_id, &request_id, &action, content));
+                } else {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                }
+            }
             ClientMsg::ChatMode { chat_id, mode_id } => {
                 if chat_id.len() > MAX_ID_BYTES || mode_id.is_empty() || mode_id.len() > MAX_ID_BYTES {
                     self.error(tr("Richiesta non valida", "Invalid request"), None);

@@ -103,6 +103,9 @@ export type ChatEvent =
   | (EventBase & { kind: "user"; text: string; attachments?: string[]; images?: { name: string; mimeType: string; id: string }[] })
   | (EventBase & { kind: "permission"; requestId: string; toolCall: ChatToolCall; options: ChatPermissionOption[] })
   | (EventBase & { kind: "permissionResolved"; requestId: string; optionId: string | null })
+  /** The agent asks the user questions (AskUserQuestion, as an ACP elicitation): `schema` is the form schema, see `parseAskQuestions`. */
+  | (EventBase & { kind: "ask"; requestId: string; message: string; schema: unknown; toolCallId?: string })
+  | (EventBase & { kind: "askResolved"; requestId: string; action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> })
   | (EventBase & { kind: "turnEnd"; stopReason: string })
   | (EventBase & { kind: "error"; message: string })
   | (EventBase & { kind: "exit"; code: number | null })

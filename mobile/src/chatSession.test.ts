@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { ChatInfo } from "../../shared/remote-types";
-import { MAX_ITEMS, MAX_RAW_EVENTS, applyEvents, canDispatch, chatModels, chatModes, chatStatus, chatThought, emptySession, forceNeedsCancel, forceQueued, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued } from "./chatSession";
+import { MAX_ITEMS, MAX_RAW_EVENTS, applyEvents, canDispatch, chatModels, chatModes, chatStatus, chatThought, emptySession, forceNeedsCancel, forceQueued, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued } from "./chatSession";
 
 const user = (seq: number, text = `m${seq}`): ChatEvent => ({ seq, at: 0, kind: "user", text });
 const chunk = (seq: number, text: string): ChatEvent => ({ seq, at: 0, kind: "update", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
@@ -173,6 +173,21 @@ describe("status, permissions and modes", () => {
     expect(pendingPermissions(s.model)).toHaveLength(1);
     const answered = applyEvents(s, [{ seq: 2, at: 0, kind: "permissionResolved", requestId: "r1", optionId: "ok" }], live);
     expect(pendingPermissions(answered.model)).toHaveLength(0);
+  });
+
+  it("an open question is pending and waiting until it is answered or the agent exits", () => {
+    const schema = { type: "object", properties: { question_0: { title: "DB", type: "string", oneOf: [{ const: "SQLite (Recommended)", title: "SQLite (Recommended)" }, { const: "PostgreSQL", title: "PostgreSQL" }] } } };
+    const ask: ChatEvent = { seq: 1, at: 0, kind: "ask", requestId: "q1", message: "Which database?", schema };
+    const s = applyEvents(emptySession(), [ask], replay);
+    expect(chatStatus(info("busy"), s.model)).toBe("waiting");
+    expect(pendingAsks(s.model)).toHaveLength(1);
+    expect(pendingAsks(s.model)[0].questions[0].options.map((o) => o.label)).toEqual(["SQLite", "PostgreSQL"]);
+    expect(pendingPermissions(s.model)).toHaveLength(0);
+    const answered = applyEvents(s, [{ seq: 2, at: 0, kind: "askResolved", requestId: "q1", action: "accept", content: { question_0: "SQLite" } }], live);
+    expect(pendingAsks(answered.model)).toHaveLength(0);
+    expect(chatStatus(undefined, answered.model)).not.toBe("waiting");
+    const gone = applyEvents(s, [{ seq: 2, at: 0, kind: "exit", code: 0 }], live);
+    expect(pendingAsks(gone.model)).toHaveLength(0);
   });
 
   it("takes the desktop's word for the rest, and exited wins", () => {

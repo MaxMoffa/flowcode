@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
+import { askSummary } from "./askQuestions";
 import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "./chatModel";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { LinkPreviews } from "./LinkPreviews";
@@ -523,6 +524,15 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
       );
     case "compaction":
       return <CompactionDivider item={item} />;
+    case "ask": {
+      if (!item.resolved) return null;
+      const text = item.resolved.action === "accept" ? askSummary(item.questions, item.resolved.content) : "";
+      return (
+        <div className="chat-ask-answer" role="status">
+          {text ? t("chat.ask.answered", { answer: text }) : t(item.resolved.action === "decline" ? "chat.ask.skipped" : "chat.ask.cancelled")}
+        </div>
+      );
+    }
     default:
       // Tool calls and permission requests are drawn by the timeline; a kind added later is skipped.
       return null;

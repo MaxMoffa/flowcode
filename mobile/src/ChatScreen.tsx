@@ -9,12 +9,13 @@ import { FrogThinking } from "../../shared/FrogThinking";
 import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
+import { AskPanel } from "./ChatAsk";
 import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
 import { defaultModeToApply } from "./chatModeDefaults";
-import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingPermissions } from "./chatSession";
+import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingAsks, pendingPermissions } from "./chatSession";
 import { useTwoFingerSwipe } from "./chatSwipe";
-import { answerChatPermission, cancelChat, clearChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatAsk, answerChatPermission, cancelChat, clearChat, forceChatPrompt, lastChatViews, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { tapFeedback } from "./haptics";
@@ -118,6 +119,16 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
     (requestId: string, optionId: string | null) =>
       answerChatPermission(chatId, requestId, optionId).then((ok) => {
         if (!ok) showToast(t("chatPermSendFailed"));
+        return ok;
+      }),
+    [chatId],
+  );
+  // The open question takes the composer's place (the composer stays mounted, hidden, so its draft survives).
+  const openAsk = exited ? undefined : pendingAsks(model)[0];
+  const answerAsk = useCallback(
+    (requestId: string, action: "accept" | "decline", content?: Record<string, unknown>) =>
+      answerChatAsk(chatId, requestId, action, content).then((ok) => {
+        if (!ok) showToast(t("chatAskSendFailed"));
         return ok;
       }),
     [chatId],
@@ -425,7 +436,12 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
               {t("chatExited")}
             </div>
           ) : (
-            <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} />
+            <>
+              {openAsk && <AskPanel ask={openAsk} agent={agentName(info.agent)} onAnswer={answerAsk} />}
+              <div className="chat-ask-keep" hidden={!!openAsk}>
+                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} />
+              </div>
+            </>
           )}
         </>
       ) : (

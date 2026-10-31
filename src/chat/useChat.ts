@@ -241,6 +241,11 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     if (id) invoke("chat_permission", { chatId: id, requestId, optionId }).catch((err) => failed(id, err));
   }, [failed]);
 
+  const answerAsk = useCallback((requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => {
+    const id = chatIdRef.current;
+    if (id) invoke("chat_ask", { chatId: id, requestId, action, content }).catch((err) => failed(id, err));
+  }, [failed]);
+
   const setMode = useCallback((modeId: string) => {
     const id = chatIdRef.current;
     if (!id) return;
@@ -340,7 +345,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, setMode, setModel, setThought, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, queued, canAttach: true, resumed: resumedRef.current, loaded, sessionId: sessionIdRef.current, send, cancel, answerPermission, answerAsk, setMode, setModel, setThought, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */

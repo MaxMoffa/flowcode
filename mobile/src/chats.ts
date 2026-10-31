@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { Tab } from "./remote";
 import { isAgentBusy } from "../../src/chat/chatModel";
-import { applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
+import { applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
 import { t } from "./i18n";
 import { currentChats, onMessage, send, sendChecked, showToast, useRemoteSelector } from "./remote";
 import type { ChatInfo, ServerMsg } from "../../shared/remote-types";
@@ -218,6 +218,9 @@ export function forceChatPrompt(chatId: string, index: number) {
 export const cancelChat = (chatId: string) => send({ t: "chatcancel", chatId });
 /** Answers a permission request; false when the link refused it, so the caller can offer the buttons again. */
 export const answerChatPermission = (chatId: string, requestId: string, optionId: string | null): Promise<boolean> => sendChecked({ t: "chatpermission", chatId, requestId, optionId });
+/** Answers the agent's question: `accept` with the answers, or `decline` to skip it; false when the link refused it, so the caller can offer the question again. */
+export const answerChatAsk = (chatId: string, requestId: string, action: "accept" | "decline", content?: Record<string, unknown>): Promise<boolean> =>
+  sendChecked({ t: "chatask", chatId, requestId, action, ...(content ? { content } : {}) });
 export const setChatMode = (chatId: string, modeId: string) => send({ t: "chatmode", chatId, modeId });
 /** Switches the chat's model; the desktop's `_flowcode/model` event shows it, a refusal arrives as an error toast. */
 export function setChatModel(chatId: string, modelId: string) {
@@ -255,7 +258,9 @@ export const pendingPermissionTitle = (session: ChatSession | undefined, info?: 
   // An agent that is gone asks nothing any more, even before its `exit` event marked the requests cancelled.
   if (!session || chatStatus(info, session.model) === "exited") return undefined;
   const first = pendingPermissions(session.model)[0];
-  return first ? (first.toolCall.title ?? first.toolCall.kind) : undefined;
+  if (first) return first.toolCall.title ?? first.toolCall.kind;
+  // An open question reads as the question itself.
+  return pendingAsks(session.model)[0]?.message || undefined;
 };
 
 /** The view each chat was last shown with, so leaving a chat and coming back keeps a plugin view. */

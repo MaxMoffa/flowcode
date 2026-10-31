@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
+import { askSummary } from "../../src/chat/askQuestions";
 import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "../../src/chat/chatModel";
 import { hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
 import type { ChatImageRef, ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
@@ -366,6 +367,16 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
               <span className="chat-step-title">{open ? t("chatAsks", { title }) : `${option ? t("chatPermAnswered", { option: option.name }) : t("chatPermCancelled")} · ${title}`}</span>
             </div>
           </div>
+        </div>
+      );
+    }
+    case "ask": {
+      // The open question is answered from the panel in the composer's place; once answered it is a line in the conversation.
+      if (!item.resolved) return null;
+      const answer = item.resolved.action === "accept" ? askSummary(item.questions, item.resolved.content) : "";
+      return (
+        <div className="chat-ask-answer" role="status">
+          {answer ? t("chatAskAnswered", { answer }) : t(item.resolved.action === "decline" ? "chatAskSkipped" : "chatAskCancelled")}
         </div>
       );
     }

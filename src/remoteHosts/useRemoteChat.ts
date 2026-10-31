@@ -93,6 +93,10 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   );
   const cancel = useCallback(() => void sendToHost(hostId, { t: "chatcancel", chatId }), [hostId, chatId]);
   const answerPermission = useCallback((requestId: string, optionId: string | null) => void sendToHost(hostId, { t: "chatpermission", chatId, requestId, optionId }), [hostId, chatId]);
+  const answerAsk = useCallback(
+    (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void sendToHost(hostId, { t: "chatask", chatId, requestId, action, content }),
+    [hostId, chatId],
+  );
   const setMode = useCallback((modeId: string) => void sendToHost(hostId, { t: "chatmode", chatId, modeId }), [hostId, chatId]);
   /** The remote says the outcome: its `_flowcode/model` event, or a refusal as a host error (shown as the window's notice, see `onRemoteNotice`, not in this chat). A link that refused the message gets a local error here. */
   const setModel = useCallback(
@@ -144,6 +148,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     send,
     cancel,
     answerPermission,
+    answerAsk,
     setMode,
     setModel,
     setThought,

@@ -122,6 +122,11 @@ export function pendingPermissions(model: ChatModelState) {
   return model.items.flatMap((i) => (i.type === "permission" && i.resolved === undefined ? [i] : []));
 }
 
+/** The questions (AskUserQuestion) waiting for an answer, oldest first. */
+export function pendingAsks(model: ChatModelState) {
+  return model.items.flatMap((i) => (i.type === "ask" && i.resolved === undefined ? [i] : []));
+}
+
 /** The ACP `modes` the desktop announced, checked; the live mode (from events) wins over the announced one. */
 export function chatModes(info: ChatInfo | undefined, model: ChatModelState): ChatModes | null {
   const m = info?.modes as Partial<ChatModes> | null | undefined;

@@ -12,6 +12,7 @@ import type {
   ChatToolCall,
   ChatUpdate,
 } from "./chatTypes";
+import { parseAskQuestions, type AskQuestion } from "./askQuestions";
 
 /** One thing in the conversation, in the order it happened. */
 export type ChatItem =
@@ -29,6 +30,16 @@ export type ChatItem =
       options: ChatPermissionOption[];
       /** Unset while it waits for an answer; the chosen option id after it, null if cancelled. */
       resolved?: string | null;
+    }
+  /** The agent's questions (AskUserQuestion), answered in the composer. */
+  | {
+      type: "ask";
+      id: string;
+      requestId: string;
+      message: string;
+      questions: AskQuestion[];
+      /** Unset while it waits for an answer; how it ended after it (`cancel`: nobody could answer). */
+      resolved?: { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
     }
   /** `local`: raised here (a send or an answer the backend refused), not an event of the agent's stream. */
   | { type: "error"; id: string; message: string; local?: boolean }
@@ -137,7 +148,7 @@ const PROGRESS_UPDATES = new Set(["agent_message_chunk", "agent_thought_chunk", 
 
 function statusOf(items: ChatItem[], turnActive: boolean, current: ChatStatus): ChatStatus {
   if (current === "exited" || current === "starting") return current;
-  if (items.some((i) => i.type === "permission" && i.resolved === undefined)) return "waiting";
+  if (items.some((i) => (i.type === "permission" || i.type === "ask") && i.resolved === undefined)) return "waiting";
   return turnActive ? "busy" : "idle";
 }
 
@@ -440,6 +451,16 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
         state,
         state.items.map((i) => (i.type === "permission" && i.requestId === ev.requestId ? { ...i, resolved: ev.optionId } : i)),
       );
+    case "ask":
+      return withItems(state, [
+        ...state.items,
+        { type: "ask", id: `ask-${ev.requestId}`, requestId: ev.requestId, message: ev.message, questions: parseAskQuestions(ev.schema, ev.message) },
+      ]);
+    case "askResolved":
+      return withItems(
+        state,
+        state.items.map((i) => (i.type === "ask" && i.requestId === ev.requestId ? { ...i, resolved: { action: ev.action, ...(ev.content ? { content: ev.content } : {}) } } : i)),
+      );
     case "turnEnd": {
       // Finishing and a cancel the user asked for need no word; anything else (a length or step limit, a refusal) is said.
       const reason = typeof ev.stopReason === "string" ? ev.stopReason : "";
@@ -458,8 +479,15 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
     }
     case "exit": {
       // Nobody is left to answer an open permission request: it reads as cancelled (the backend says so too, this is in case it didn't).
-      const items = state.items.some((i) => i.type === "permission" && i.resolved === undefined)
-        ? state.items.map((i) => (i.type === "permission" && i.resolved === undefined ? { ...i, resolved: null } : i))
+      // Same for an open question.
+      const items = state.items.some((i) => (i.type === "permission" || i.type === "ask") && i.resolved === undefined)
+        ? state.items.map((i) =>
+            i.type === "permission" && i.resolved === undefined
+              ? { ...i, resolved: null }
+              : i.type === "ask" && i.resolved === undefined
+                ? { ...i, resolved: { action: "cancel" as const } }
+                : i,
+          )
         : state.items;
       return { ...state, items, turnActive: false, status: "exited", notice: null, turn: null };
     }

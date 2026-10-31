@@ -145,6 +145,7 @@ pub fn run() {
             chat::chat_prompt,
             chat::chat_cancel,
             chat::chat_permission,
+            chat::chat_ask,
             chat::chat_set_mode,
             chat::chat_set_model,
             chat::chat_set_thought,

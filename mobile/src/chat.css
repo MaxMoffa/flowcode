@@ -1188,6 +1188,236 @@ button.chat-step-row {
   opacity: 0.5;
 }
 
+/* ---- the agent's question (in the composer's place) --------------------------- */
+
+.chat-ask-keep {
+  display: contents;
+}
+
+.chat-ask-keep[hidden] {
+  display: none;
+}
+
+.chat-ask {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--chat-col);
+  max-height: 70%;
+  margin: 0 auto;
+  padding: 14px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  border-top: 1px solid var(--wait-border);
+  background: var(--wait-bg);
+}
+
+.chat-ask-tag {
+  color: var(--wait);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chat-ask-q {
+  font-size: 16px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.chat-ask-hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chat-ask-hint.is-inline {
+  margin-left: 6px;
+}
+
+.chat-ask-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-ask-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 15px;
+  text-align: left;
+}
+
+.chat-ask-opt.is-sel {
+  border-color: var(--wait);
+  background: color-mix(in srgb, var(--wait) 14%, transparent);
+}
+
+.chat-ask-opt:disabled {
+  opacity: 0.5;
+}
+
+.chat-ask-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat-ask-txt b {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.chat-ask-txt small {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.chat-ask-chk {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 7px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.chat-ask-opt.is-sel .chat-ask-chk {
+  border-color: var(--wait);
+  background: var(--wait);
+  color: var(--on-accent);
+}
+
+.chat-ask-badge {
+  align-self: flex-start;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--wait-bg);
+  color: var(--wait);
+  font-size: 12px;
+}
+
+.chat-ask-opt.is-other b {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.chat-ask-free {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
+.chat-ask-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-ask-btn {
+  flex: 1 1 0;
+  height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 24px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 15px;
+}
+
+.chat-ask-btn.is-ghost {
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.chat-ask-btn.is-primary {
+  flex-grow: 1.4;
+  border-color: transparent;
+  background: var(--wait);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.chat-ask-btn:disabled {
+  opacity: 0.5;
+}
+
+.chat-ask-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-ask-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.chat-ask-dot.is-on {
+  background: var(--wait);
+}
+
+.chat-ask-dot.is-ok {
+  background: color-mix(in srgb, var(--wait) 50%, transparent);
+}
+
+.chat-ask-steps .chat-ask-hint {
+  margin-left: 4px;
+}
+
+.chat-ask-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-ask-review > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+}
+
+.chat-ask-review span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chat-ask-review b {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The trace an answered question leaves in the conversation. */
+.chat-ask-answer {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
 /* ---- status line and composer ------------------------------------------------- */
 
 .chat-status {

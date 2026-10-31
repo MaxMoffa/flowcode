@@ -178,6 +178,8 @@ export function buildTimeline(items: ChatItem[]): TimelineSegment[] {
       continue;
     }
     if (item.type === "permission" && item.resolved === undefined) continue;
+    // An open question is the composer; once answered it is a line in the transcript.
+    if (item.type === "ask" && item.resolved === undefined) continue;
     if (item.type === "tool" || item.type === "permission") {
       const step = item as TimelineStep;
       const last = segments[segments.length - 1];
