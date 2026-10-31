@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
-import { AgentsSidebar } from "./agents/AgentsSidebar";
+import { AgentInsightPanel } from "./agents/AgentInsightPanel";
 import { openFileInPreview, setBrowserOpen, toggleBrowser, useBrowser } from "./browser/browserStore";
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
@@ -282,7 +282,7 @@ function Shell() {
   const { mode, toggleTheme, setMode } = useTheme();
   const notificationSettings = useNotificationSettings();
   const autoResumeEnabled = useAutoResumeSettings().enabled;
-  const { sessions: agentSessions, refresh: refreshAgentSessions } = useAgentSessions(
+  const { sessions: agentSessions } = useAgentSessions(
     Object.values(notificationSettings).some(Boolean) || autoResumeEnabled,
   );
   const {
@@ -773,7 +773,7 @@ function Shell() {
   /** The phone asked to hand a chat tab over to a terminal / for a new chat tab. */
   const remoteChatTerminalRef = useRef<(tabId: string) => void>(() => {});
   /** How to end each chat tab's agent (see AgentSessionView `onCloser`), so a terminal resuming its session starts only once it is gone. */
-  const chatClosersRef = useRef(new Map<string, { close: () => Promise<void>; restart: () => void; clear: () => void }>());
+  const chatClosersRef = useRef(new Map<string, { close: () => Promise<void>; restart: () => void; clear: () => void; compact: () => void }>());
   const switchingChatsRef = useRef(new Set<string>());
   const remoteTerminalChatRef = useRef<(ptyId: string) => void>(() => {});
   const remoteChatRenameRef = useRef<(tabId: string, label: string) => void>(() => {});
@@ -1913,9 +1913,6 @@ function Shell() {
   // is in front: with Settings or the changelog showing, the last terminal's
   // folder may not even be a project open in this window - and the new tab
   // page (a terminal tab with no shell yet) isn't one either.
-  // The new tab page still gets the panel's "+" (it launches an agent in the
-  // folder picked there), just not the project scope.
-  const agentsTerminal = activeTerminal?.id === activeTabId ? activeTerminal : undefined;
   // The agent CLI running in each terminal tab, for its logo and status in
   // the tab strip - matched by pty id, same as the Agents panel does.
   const tabAgentsRef = useRef(new Map<string, TabAgent>());
@@ -1939,7 +1936,12 @@ function Shell() {
   // The active tab's agent, for the usage popovers' context section.
   const activeAgentSession = activeTerminal ? sessionByTab.get(activeTerminal.id) : undefined;
   const frontChat = tabs.find((t): t is ChatTab => t.id === activeTabId && t.kind === "chat");
-  useActiveAgentSync(activeAgentSession, activeTerminal?.label, frontChat);
+  useActiveAgentSync(
+    activeAgentSession,
+    activeTerminal?.label,
+    frontChat,
+    activeTerminal && { id: activeTerminal.id, cwd: activeTerminal.cwd ?? "" },
+  );
   useEffect(watchLimitResets, []);
   useUsageWatch(allPluginsRef, quickActionIds);
   const doneTabIds = useAgentNotifications(tabAgents, {
@@ -2378,10 +2380,6 @@ function Shell() {
     showPluginToast(detail ? `${t("agents.handoff.failed")} ${detail}` : t("agents.handoff.failed"));
   }
 
-  /** Opens a plain terminal tab in `cwd` - a worktree from the Agents panel. */
-  function openFolderTab(cwd: string) {
-    addTab(cwd);
-  }
 
   /** Types the CLI's launch command into `tabId` when a shell is at its
    * prompt there, or runs it in a new tab alongside when something else
@@ -3136,27 +3134,9 @@ function Shell() {
             />
             <div className="panel-card">
               <div className="panel-card-content" style={{ width: agentsResize.width - 2 }}>
-                <AgentsSidebar
-                  windowLabel={appWindow.label}
-                  tabs={terminalTabs}
-                  chatTabs={chatTabs}
-                  activeTabId={activeTabId}
-                  projectCwd={
-                    agentsTerminal
-                      ? agentsTerminal.cwd || agentsTerminal.explorerPath || (agentsTerminal.newTab ? homeDir || undefined : undefined)
-                      : undefined
-                  }
-                  newTabPage={!!agentsTerminal?.newTab}
-                  projectWslDistro={agentsTerminal?.wslDistro ?? undefined}
-                  sessions={agentSessions}
-                  refreshSessions={refreshAgentSessions}
-                  getPtyId={(tabId) => termRefs.current.get(tabId)?.getPtyId() ?? null}
-                  onOpenTab={selectTab}
-                  onOpenSession={resumeAgentSession}
-                  projectShell={agentsTerminal ? tabShell(agentsTerminal) : undefined}
-                  onLaunchAgent={(cli, cwd, shell, profileId) => void launchAgentInNewTab(cli, cwd, shell, profileId)}
-                  onOpenFolder={openFolderTab}
+                <AgentInsightPanel
                   onClose={() => setAgentsSidebarOpen(false)}
+                  onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.id)?.compact() : undefined}
                 />
               </div>
             </div>

@@ -11,6 +11,7 @@ export function useActiveAgentSync(
   activeAgentSession: AgentSession | undefined,
   tabLabel: string | undefined,
   chatTab?: ChatTab,
+  terminalTab?: { id: string; cwd: string },
 ) {
   const [aaCli, aaId, aaProfile, aaWsl, aaLabel, aaPty, aaStatus] = chatTab
     ? [chatTab.agent as string, chatTab.sessionId ?? null, chatTab.profileId ?? null, false, chatTab.label, "", chatTab.status ?? null]
@@ -23,11 +24,25 @@ export function useActiveAgentSync(
         activeAgentSession?.pty_id ?? "",
         activeAgentSession?.status ?? null,
       ];
+  const aaKind = chatTab ? "chat" : "terminal";
+  const aaTabId = chatTab ? chatTab.id : (terminalTab?.id ?? null);
+  const aaCwd = chatTab ? chatTab.cwd : (terminalTab?.cwd ?? "");
   useEffect(() => {
     setActiveAgent(
       aaCli
-        ? { cli: aaCli, sessionId: aaId, profile: aaProfile, wsl: aaWsl, tabLabel: aaLabel, ptyId: aaPty, status: aaStatus }
+        ? {
+            cli: aaCli,
+            sessionId: aaId,
+            profile: aaProfile,
+            wsl: aaWsl,
+            tabLabel: aaLabel,
+            ptyId: aaPty,
+            status: aaStatus,
+            kind: aaKind,
+            tabId: aaTabId,
+            cwd: aaCwd,
+          }
         : null,
     );
-  }, [aaCli, aaId, aaProfile, aaWsl, aaLabel, aaPty, aaStatus]);
+  }, [aaCli, aaId, aaProfile, aaWsl, aaLabel, aaPty, aaStatus, aaKind, aaTabId, aaCwd]);
 }

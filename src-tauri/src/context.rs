@@ -127,13 +127,13 @@ fn codex_context(path: &Path) -> Option<AgentContext> {
     Some(AgentContext { used, window: window?, window_estimated: false, model })
 }
 
-fn plain_id(id: &str) -> bool {
+pub(crate) fn plain_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// `<claude dir>/projects/<encoded cwd>/<id>.jsonl`, found by looking in every
 /// project folder rather than re-deriving how Claude Code encodes the cwd.
-fn find_claude_transcript(claude_dir: &Path, id: &str) -> Option<PathBuf> {
+pub(crate) fn find_claude_transcript(claude_dir: &Path, id: &str) -> Option<PathBuf> {
     let name = format!("{id}.jsonl");
     std::fs::read_dir(claude_dir.join("projects"))
         .ok()?

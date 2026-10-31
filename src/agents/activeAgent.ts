@@ -13,6 +13,12 @@ interface ActiveAgent {
   ptyId: string;
   /** "busy" / "waiting" / "idle", when the CLI reports it. */
   status: string | null;
+  /** Where the agent runs: a chat tab or a terminal tab. */
+  kind: "chat" | "terminal";
+  /** The tab it runs in. */
+  tabId: string | null;
+  /** The tab's working directory ("" when unknown). */
+  cwd: string;
 }
 
 const same = (a: ActiveAgent | null, b: ActiveAgent | null) =>
@@ -25,10 +31,14 @@ const same = (a: ActiveAgent | null, b: ActiveAgent | null) =>
     a.wsl === b.wsl &&
     a.tabLabel === b.tabLabel &&
     a.ptyId === b.ptyId &&
-    a.status === b.status);
+    a.status === b.status &&
+    a.kind === b.kind &&
+    a.tabId === b.tabId &&
+    a.cwd === b.cwd);
 
 // App knows the active tab, the popovers live in portals far from it.
 const store = createStore<ActiveAgent | null>(null, same);
 
 export const setActiveAgent = store.set;
+export type { ActiveAgent };
 export const useActiveAgent = store.use;

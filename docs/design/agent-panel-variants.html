@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — pannello agente: 3 varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:rgba(14,10,7,.82); --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.12);
+  --accent:#9db984; --accent-2:#c9975a; --danger:#d97a6c; --warn:#e0b252;
+  --hover:rgba(232,184,128,.07); --sel:rgba(139,168,118,.22); --track:rgba(232,184,128,.10); --r:6px;
+  --c-sys:#8d7bb8; --c-tools:#c9975a; --c-mcp:#5fa3a3; --c-skill:#d0709a; --c-mem:#e0b252; --c-msg:#9db984; --c-free:rgba(232,184,128,.08);
+}
+body.light{
+  --bg:#efe6d6; --surface:rgba(250,244,232,.9); --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.16);
+  --accent:#4f6e3a; --accent-2:#a8702f; --danger:#b5483a; --warn:#a67a14;
+  --hover:rgba(140,88,32,.055); --sel:rgba(79,110,58,.16); --track:rgba(120,80,36,.10);
+  --c-sys:#6c5a9a; --c-tools:#a8702f; --c-mcp:#2f7f7f; --c-skill:#b04a78; --c-mem:#a67a14; --c-msg:#4f6e3a; --c-free:rgba(120,80,36,.07);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:12.5px/1.4 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px} .sub{color:var(--fg-muted);margin:0 0 16px;max-width:760px}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:22px;flex-wrap:wrap}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:var(--r);padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--sel);border-color:transparent}
+.bar .sp{flex:1}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(300px,340px));gap:28px;align-items:start}
+.col h2{font-size:13px;margin:0 0 2px} .col p.d{margin:0 0 10px;color:var(--fg-muted);min-height:54px}
+.panel{width:100%;height:760px;background:var(--surface);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+.head{height:38px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--border);font-weight:600}
+.head .x{margin-left:auto;color:var(--fg-muted)}
+.chip{font-weight:500;font-size:11px;color:var(--fg-muted);border:1px solid var(--border);border-radius:999px;padding:1px 8px}
+.chip.live{color:var(--accent);border-color:transparent;background:var(--sel)}
+.body{flex:1;overflow:auto;padding:10px}
+.sec{margin-bottom:14px}
+.sec>.t{display:flex;align-items:center;gap:6px;color:var(--fg-muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.sec>.t b{margin-left:auto;color:var(--fg);text-transform:none;letter-spacing:0;font-weight:600}
+.card{border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--hover)}
+.btn{background:var(--sel);color:var(--fg);border:0;border-radius:var(--r);padding:6px 10px;cursor:pointer;font:inherit;font-weight:600}
+.btn.ghost{background:transparent;border:1px solid var(--border);font-weight:500}
+.btn.full{width:100%}
+.row{display:flex;align-items:center;gap:8px;padding:5px 2px}
+.row .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .v{color:var(--fg-muted);font-variant-numeric:tabular-nums}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.ok{background:var(--accent)} .bad{background:var(--danger)} .mid{background:var(--warn)}
+.sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+.stack{display:flex;height:14px;border-radius:5px;overflow:hidden;background:var(--c-free);gap:1px}
+.stack i{display:block;height:100%}
+.meter{height:6px;background:var(--track);border-radius:3px;overflow:hidden} .meter i{display:block;height:100%;background:var(--accent)}
+.meter.warn i{background:var(--warn)}
+.muted{color:var(--fg-muted)}
+.big{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kv .card{padding:8px}.kv .card .k{color:var(--fg-muted);font-size:11px}.kv .card .val{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--fg-muted);gap:10px;padding:30px}
+.empty svg{opacity:.5}
+.seg{display:flex;background:var(--track);border-radius:8px;padding:2px;margin-bottom:10px}
+.seg span{flex:1;text-align:center;padding:5px 0;border-radius:6px;cursor:pointer;color:var(--fg-muted)}
+.seg span.on{background:var(--surface);color:var(--fg);font-weight:600;box-shadow:0 0 0 1px var(--border)}
+.pane{display:none}.pane.on{display:block}
+.spark{display:flex;align-items:flex-end;gap:2px;height:46px}
+.spark i{flex:1;background:var(--accent);border-radius:2px 2px 0 0;opacity:.75;min-height:2px}
+.spark i.hi{background:var(--warn);opacity:1}
+.badge{font-size:10px;padding:1px 6px;border-radius:4px;background:var(--track);color:var(--fg-muted)}
+.est{display:none;margin:0 0 10px;padding:6px 8px;border-radius:var(--r);background:var(--track);color:var(--fg-muted);font-size:11px}
+body[data-state=terminal] .est{display:block}
+/* states */
+.s-empty,.s-live{display:none}
+body[data-state=empty] .s-empty{display:flex}
+body[data-state=chat] .s-live,body[data-state=terminal] .s-live{display:block}
+.ring{--p:59;width:104px;height:104px;border-radius:50%;background:conic-gradient(var(--warn) calc(var(--p)*1%),var(--track) 0);display:grid;place-items:center;flex:0 0 auto}
+.ring div{width:82px;height:82px;border-radius:50%;background:var(--bg);display:grid;place-items:center;text-align:center;line-height:1.15}
+.ring b{font-size:20px}
+.hint{font-size:11px;color:var(--fg-muted)}
+.tip{display:flex;gap:8px;align-items:flex-start;padding:8px;border-radius:var(--r);background:rgba(224,178,82,.12);color:var(--fg);font-size:11.5px}
+</style>
+</head>
+<body data-state="chat">
+<h1>Pannello agente (icona robot) — 3 varianti</h1>
+<p class="sub">Il pannello segue l'agente <b>attivo</b>: nessun agente aperto → pagina vuota; chat o terminale → spaccato del contesto, consumi e strumenti disponibili, con "Compatta". Cambia stato e tema qui sotto: tutte e tre le varianti reagiscono. Dati d'esempio.</p>
+<div class="bar">
+  <button data-s="empty">Nessun agente</button>
+  <button data-s="chat" class="on">Chat (Claude)</button>
+  <button data-s="terminal">Terminale (Codex)</button>
+  <span class="sp"></span>
+  <button id="theme">Tema chiaro / scuro</button>
+</div>
+
+<div class="grid">
+
+<!-- ========== VARIANTE A ========== -->
+<div class="col">
+  <h2>A · Cruscotto unico</h2>
+  <p class="d">Tutto in una colonna scorrevole: anello del contesto in cima, barra a segmenti per categoria, poi consumi, MCP e skill. Densità media, nessun clic per vedere i numeri.</p>
+  <div class="panel">
+    <div class="head">Agente <span class="chip live s-live" data-chip></span><span class="x">✕</span></div>
+    <div class="body">
+      <div class="empty s-empty">
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M9.5 16.5h5"/></svg>
+        <b>Nessun agente aperto</b>
+        <span>Apri una chat o avvia un agente nel terminale: qui vedrai contesto, consumi e strumenti.</span>
+      </div>
+      <div class="s-live">
+        <div class="est">Terminale: valori stimati dal log di sessione, non esatti.</div>
+        <div class="card" style="display:flex;gap:14px;align-items:center">
+          <div class="ring"><div><span><b>59%</b><br><span class="hint">118k / 200k</span></span></div></div>
+          <div style="flex:1">
+            <div class="muted">Contesto occupato</div>
+            <div class="hint" style="margin:2px 0 8px">Auto-compattazione stimata tra ~22 messaggi</div>
+            <button class="btn full">Compatta contesto</button>
+          </div>
+        </div>
+        <div class="sec" style="margin-top:14px"><div class="t">Dove va il contesto</div>
+          <div class="stack"><i style="width:2%;background:var(--c-sys)"></i><i style="width:6%;background:var(--c-tools)"></i><i style="width:4.5%;background:var(--c-mcp)"></i><i style="width:1%;background:var(--c-skill)"></i><i style="width:1%;background:var(--c-mem)"></i><i style="width:39%;background:var(--c-msg)"></i></div>
+          <div style="margin-top:6px">
+            <div class="row"><span class="sw" style="background:var(--c-msg)"></span><span class="n">Messaggi</span><span class="v">78,6k · 39%</span></div>
+            <div class="row"><span class="sw" style="background:var(--c-tools)"></span><span class="n">Strumenti nativi</span><span class="v">11,4k · 6%</span></div>
+            <div class="row"><span class="sw" style="background:var(--c-mcp)"></span><span class="n">Tool MCP</span><span class="v">8,9k · 4%</span></div>
+            <div class="row"><span class="sw" style="background:var(--c-sys)"></span><span class="n">Prompt di sistema</span><span class="v">3,2k · 2%</span></div>
+            <div class="row"><span class="sw" style="background:var(--c-skill)"></span><span class="n">Skill</span><span class="v">2,1k · 1%</span></div>
+            <div class="row"><span class="sw" style="background:var(--c-mem)"></span><span class="n">CLAUDE.md / memoria</span><span class="v">1,8k · 1%</span></div>
+          </div>
+        </div>
+        <div class="sec"><div class="t">Consumi sessione <b>$4,82</b></div>
+          <div class="kv">
+            <div class="card"><div class="k">Input</div><div class="val">412k</div></div>
+            <div class="card"><div class="k">Output</div><div class="val">38k</div></div>
+            <div class="card"><div class="k">Cache letta</div><div class="val">2,1M</div></div>
+            <div class="card"><div class="k">Cache hit</div><div class="val">84%</div></div>
+          </div>
+          <div class="spark" style="margin-top:10px"><i style="height:20%"></i><i style="height:28%"></i><i style="height:35%"></i><i style="height:30%"></i><i style="height:48%"></i><i style="height:42%"></i><i style="height:60%"></i><i style="height:55%"></i><i class="hi" style="height:92%"></i><i style="height:50%"></i><i style="height:58%"></i><i style="height:66%"></i></div>
+          <div class="hint">Token per turno (picco: lettura di 14 file)</div>
+        </div>
+        <div class="sec"><div class="t">Server MCP <b>3</b></div>
+          <div class="row"><span class="dot ok"></span><span class="n">context7</span><span class="v">12 tool · 4,1k</span></div>
+          <div class="row"><span class="dot ok"></span><span class="n">playwright</span><span class="v">21 tool · 6,2k</span></div>
+          <div class="row"><span class="dot bad"></span><span class="n">figma</span><span class="v">non autorizzato</span></div>
+        </div>
+        <div class="sec"><div class="t">Skill <b>7</b></div>
+          <div class="row"><span class="n">caveman</span><span class="v">0,4k</span></div>
+          <div class="row"><span class="n">flowcode-plugin</span><span class="v">0,3k</span></div>
+          <div class="row"><span class="n muted">+ 5 altre</span><span class="v">1,4k</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== VARIANTE B ========== -->
+<div class="col">
+  <h2>B · A schede</h2>
+  <p class="d">Intestazione fissa con contesto e "Compatta" sempre visibili; sotto tre schede (Contesto · Consumi · Strumenti). Più pulita, più spazio per ogni vista, ma un clic in più.</p>
+  <div class="panel">
+    <div class="head">Agente <span class="chip live s-live" data-chip></span><span class="x">✕</span></div>
+    <div class="empty s-empty">
+      <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M9.5 16.5h5"/></svg>
+      <b>Nessun agente aperto</b>
+      <span>Apri una chat o avvia un agente nel terminale.</span>
+    </div>
+    <div class="s-live" style="flex:1;display:none;overflow:auto" id="bLive">
+      <div style="padding:10px 10px 0">
+        <div class="est">Terminale: valori stimati dal log di sessione.</div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="big">59%</span><span class="muted">118k di 200k token</span><button class="btn ghost" style="margin-left:auto">Compatta</button></div>
+        <div class="meter warn" style="margin:8px 0 12px"><i style="width:59%"></i></div>
+        <div class="seg" data-seg><span class="on" data-p="b1">Contesto</span><span data-p="b2">Consumi</span><span data-p="b3">Strumenti</span></div>
+      </div>
+      <div style="padding:0 10px 10px">
+        <div class="pane on" id="b1">
+          <div class="stack" style="margin-bottom:8px"><i style="width:2%;background:var(--c-sys)"></i><i style="width:6%;background:var(--c-tools)"></i><i style="width:4.5%;background:var(--c-mcp)"></i><i style="width:1%;background:var(--c-skill)"></i><i style="width:1%;background:var(--c-mem)"></i><i style="width:39%;background:var(--c-msg)"></i></div>
+          <div class="row"><span class="sw" style="background:var(--c-msg)"></span><span class="n">Messaggi</span><span class="v">78,6k</span></div>
+          <div class="row"><span class="sw" style="background:var(--c-tools)"></span><span class="n">Strumenti nativi</span><span class="v">11,4k</span></div>
+          <div class="row"><span class="sw" style="background:var(--c-mcp)"></span><span class="n">Tool MCP</span><span class="v">8,9k</span></div>
+          <div class="row"><span class="sw" style="background:var(--c-sys)"></span><span class="n">Prompt di sistema</span><span class="v">3,2k</span></div>
+          <div class="row"><span class="sw" style="background:var(--c-skill)"></span><span class="n">Skill</span><span class="v">2,1k</span></div>
+          <div class="row"><span class="sw" style="background:var(--c-mem)"></span><span class="n">CLAUDE.md / memoria</span><span class="v">1,8k</span></div>
+          <div class="row"><span class="sw" style="background:var(--c-free);border:1px solid var(--border)"></span><span class="n muted">Libero</span><span class="v">82k</span></div>
+          <div class="tip" style="margin-top:10px">⚠ I messaggi pesano il 66% del contesto usato. Compattando recuperi ~50k token.</div>
+        </div>
+        <div class="pane" id="b2">
+          <div class="card" style="display:flex;justify-content:space-between;align-items:center"><span class="muted">Costo stimato</span><span class="big" style="font-size:20px">$4,82</span></div>
+          <div class="sec" style="margin-top:12px"><div class="t">Ripartizione token</div>
+            <div class="row"><span class="n">Input</span><span class="v">412k</span></div>
+            <div class="row"><span class="n">Output</span><span class="v">38k</span></div>
+            <div class="row"><span class="n">Cache scritta</span><span class="v">120k</span></div>
+            <div class="row"><span class="n">Cache letta</span><span class="v">2,1M</span></div>
+            <div class="row"><span class="n">Cache hit</span><span class="v">84%</span></div>
+          </div>
+          <div class="sec"><div class="t">Per turno</div>
+            <div class="spark"><i style="height:20%"></i><i style="height:28%"></i><i style="height:35%"></i><i style="height:30%"></i><i style="height:48%"></i><i style="height:42%"></i><i style="height:60%"></i><i style="height:55%"></i><i class="hi" style="height:92%"></i><i style="height:50%"></i><i style="height:58%"></i><i style="height:66%"></i></div>
+          </div>
+          <div class="sec"><div class="t">Strumenti più pesanti</div>
+            <div class="row"><span class="n">Read</span><span class="v">31k</span></div>
+            <div class="row"><span class="n">Bash</span><span class="v">18k</span></div>
+            <div class="row"><span class="n">mcp__playwright</span><span class="v">9k</span></div>
+          </div>
+        </div>
+        <div class="pane" id="b3">
+          <div class="sec"><div class="t">Server MCP <b>3</b></div>
+            <div class="row"><span class="dot ok"></span><span class="n">context7</span><span class="v">12 tool</span></div>
+            <div class="row"><span class="dot ok"></span><span class="n">playwright</span><span class="v">21 tool</span></div>
+            <div class="row"><span class="dot bad"></span><span class="n">figma</span><span class="v">da autorizzare</span></div>
+          </div>
+          <div class="sec"><div class="t">Skill <b>7</b></div>
+            <div class="row"><span class="n">caveman</span><span class="badge">utente</span></div>
+            <div class="row"><span class="n">flowcode-plugin</span><span class="badge">progetto</span></div>
+            <div class="row"><span class="n">code-review</span><span class="badge">utente</span></div>
+            <div class="row"><span class="n">simplify</span><span class="badge">utente</span></div>
+          </div>
+          <div class="sec"><div class="t">Subagent <b>2</b></div>
+            <div class="row"><span class="dot ok"></span><span class="n">Explore</span><span class="v">in corso</span></div>
+            <div class="row"><span class="dot mid"></span><span class="n">Plan</span><span class="v">in attesa</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== VARIANTE C ========== -->
+<div class="col">
+  <h2>C · Mappa e semaforo</h2>
+  <p class="d">Stile "sala controllo": un solo blocco a mattonelle (treemap) mostra chi consuma di più; sotto, avvisi azionabili (cosa tagliare) e liste compatte a fisarmonica. Più visivo, meno numeri a prima vista.</p>
+  <div class="panel">
+    <div class="head">Agente <span class="chip live s-live" data-chip></span><span class="x">✕</span></div>
+    <div class="body">
+      <div class="empty s-empty">
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M9.5 16.5h5"/></svg>
+        <b>Nessun agente aperto</b>
+        <span>Quando apri un agente, qui compare la mappa del suo contesto.</span>
+      </div>
+      <div class="s-live">
+        <div class="est">Terminale: valori stimati dal log di sessione.</div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="big">118k</span><span class="muted">/ 200k · <b style="color:var(--warn)">59%</b></span></div>
+        <div style="display:grid;grid-template-columns:2.2fr 1fr;grid-template-rows:96px 56px;gap:3px;margin:8px 0 10px">
+          <div style="grid-row:1/3;background:var(--c-msg);opacity:.85;border-radius:6px;padding:8px;color:#10130c"><b>Messaggi</b><br>78,6k</div>
+          <div style="background:var(--c-tools);opacity:.85;border-radius:6px;padding:6px;color:#1a1008;font-size:11px"><b>Nativi</b><br>11,4k</div>
+          <div style="background:var(--c-mcp);opacity:.85;border-radius:6px;padding:6px;color:#071414;font-size:11px"><b>MCP</b> 8,9k</div>
+        </div>
+        <div class="stack" style="height:6px;margin-bottom:4px"><i style="width:59%;background:var(--warn)"></i></div>
+        <div class="hint" style="margin-bottom:10px">Sistema 3,2k · Skill 2,1k · Memoria 1,8k</div>
+        <div style="display:flex;gap:6px;margin-bottom:12px"><button class="btn" style="flex:1">Compatta</button><button class="btn ghost" style="flex:1">Compatta con istruzioni…</button></div>
+
+        <div class="sec"><div class="t">Suggerimenti</div>
+          <div class="tip" style="margin-bottom:6px">🟡 <span><b>playwright</b> occupa 6,2k ma non è stato usato in questa sessione.</span></div>
+          <div class="tip">🟡 <span>Cache hit al 84%: sotto la media del progetto (91%).</span></div>
+        </div>
+        <div class="sec"><div class="t">Consumi <b>$4,82</b></div>
+          <div class="kv">
+            <div class="card"><div class="k">Input / Output</div><div class="val">412k / 38k</div></div>
+            <div class="card"><div class="k">Cache</div><div class="val">2,1M letti</div></div>
+          </div>
+        </div>
+        <div class="sec"><div class="t">Collegato</div>
+          <div class="card" style="padding:4px 10px">
+            <div class="row"><span>▸</span><span class="n">Server MCP</span><span class="v">2 attivi · 1 errore</span></div>
+            <div class="row"><span>▸</span><span class="n">Skill</span><span class="v">7</span></div>
+            <div class="row"><span>▸</span><span class="n">Subagent</span><span class="v">2</span></div>
+            <div class="row"><span>▸</span><span class="n">Hook e plugin</span><span class="v">4</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+<script>
+const chips={chat:"Claude · Opus 5.5 · chat",terminal:"Codex · terminale"};
+function setState(s){
+  document.body.dataset.state=s;
+  document.querySelectorAll('.bar [data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+  document.querySelectorAll('[data-chip]').forEach(c=>c.textContent=chips[s]||"");
+  document.getElementById('bLive').style.display = s==='empty'?'none':'block';
+}
+document.querySelectorAll('.bar [data-s]').forEach(b=>b.onclick=()=>setState(b.dataset.s));
+document.getElementById('theme').onclick=()=>document.body.classList.toggle('light');
+document.querySelectorAll('[data-seg] span').forEach(s=>s.onclick=()=>{
+  s.parentElement.querySelectorAll('span').forEach(x=>x.classList.toggle('on',x===s));
+  ['b1','b2','b3'].forEach(id=>document.getElementById(id).classList.toggle('on',id===s.dataset.p));
+});
+setState('chat');
+</script>
+</body>
+</html>

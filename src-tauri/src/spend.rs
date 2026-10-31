@@ -64,7 +64,7 @@ struct Call {
 }
 
 /// A hash of a message's `id:requestId`, never 0 (see `Call::key`).
-fn call_key(id: &str, request: &str) -> u64 {
+pub(crate) fn call_key(id: &str, request: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     id.hash(&mut hasher);
@@ -165,6 +165,33 @@ fn codex_price(model: &str) -> Option<Price> {
         return by_prefix(OPENAI_PRICES, base);
     }
     by_prefix(OPENAI_PRICES, &model)
+}
+
+/// USD list price of one Claude call (`None`: unknown model); the cache write
+/// is split by TTL like in `parse_claude_line`. Used by agent_insight.rs.
+pub(crate) fn claude_cost(
+    model: &str,
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    write_5m: u64,
+    write_1h: u64,
+) -> Option<f64> {
+    claude_price(model).map(|p| {
+        (input as f64 * p.input
+            + output as f64 * p.output
+            + cache_read as f64 * p.cache_read
+            + write_5m as f64 * p.cache_write
+            + write_1h as f64 * p.input * 2.0)
+            / 1_000_000.0
+    })
+}
+
+/// USD list price of Codex usage (`None`: unknown model); `input` is the
+/// uncached part, `cached` is billed at the cache-read rate.
+pub(crate) fn codex_cost(model: &str, input: u64, cached: u64, output: u64) -> Option<f64> {
+    codex_price(model)
+        .map(|p| (input as f64 * p.input + cached as f64 * p.cache_read + output as f64 * p.output) / 1_000_000.0)
 }
 
 /// Milliseconds since the epoch of an RFC 3339 timestamp

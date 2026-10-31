@@ -6,6 +6,7 @@ mod gpu;
 mod attention;
 mod chat;
 mod chat_images;
+mod agent_insight;
 mod context;
 mod dictation;
 mod newtab_background;
@@ -233,6 +234,8 @@ pub fn run() {
             profiles::profile_logout,
             spend::cli_spend,
             context::agent_context,
+            agent_insight::agent_tools,
+            agent_insight::agent_session_usage,
             plugins::cli_billing_mode,
             view_plugins::view_plugins_list,
             view_plugins::view_plugin_install,
