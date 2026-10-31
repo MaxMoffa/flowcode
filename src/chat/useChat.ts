@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AgentCli } from "../agents/cliInfo";
+import { openCommandTarget, routeAgentOpen, toolCommand } from "../browser/agentOpen";
 import { t } from "../i18n";
 import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
@@ -91,6 +92,21 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     setLoaded(false);
     sentAtSeqRef.current = null;
 
+    // An agent command that opens a page or artifact in the system (live events only, never a replay): shown in the Browser panel as the settings say.
+    const followed = new Set<string>();
+    let distro: string | null = null;
+    const followOpenCommand = (ev: ChatEvent) => {
+      if (ev.kind !== "update") return;
+      const update = ev.update as Record<string, unknown>;
+      const id = update.toolCallId;
+      if ((update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") || typeof id !== "string" || followed.has(id)) return;
+      const command = toolCommand(update);
+      const target = command && openCommandTarget(command);
+      if (!target) return;
+      followed.add(id);
+      void routeAgentOpen(target, cwd, distro);
+    };
+
     // Deferred a tick: React StrictMode mounts, unmounts and mounts again at
     // once, and the first round must not spawn an agent of its own.
     const timer = setTimeout(() => {
@@ -116,7 +132,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           talkedRef.current = started.loaded;
           setLoaded(started.loaded);
           setChatId(started.chatId);
-          setWslDistro(started.wslDistro ?? null);
+          distro = started.wslDistro ?? null;
+          setWslDistro(distro);
           setModes(started.modes);
           setAnnouncedModels(started.models ?? null);
           setAnnouncedThought(started.thought ?? null);
@@ -128,7 +145,10 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           const stop = await listen<ChatEventPayload>("chat-event", (e) => {
             if (e.payload.chatId !== started.chatId) return;
             if (buffer) buffer.push(e.payload.event);
-            else setModelState((m) => applyEvent(m, e.payload.event));
+            else {
+              setModelState((m) => applyEvent(m, e.payload.event));
+              followOpenCommand(e.payload.event);
+            }
           });
           if (cancelled) {
             stop();
