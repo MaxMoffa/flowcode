@@ -510,3 +510,85 @@
     transform: translateX(250%);
   }
 }
+
+/* ---- update page ------------------------------------------------------------ */
+
+/* Phone: the whole screen. Wide layouts keep the centred dialog. */
+.nts.upd-full {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.nts.upd-full:not(.as-panel) {
+  top: 0;
+  max-height: none;
+  border-radius: 0;
+  border-top: 0;
+}
+
+.nts.upd-full.as-panel {
+  height: min(640px, calc(100% - 48px));
+}
+
+.upd-hero {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: calc(40px + var(--safe-t, 0px)) 20px 16px;
+  background: linear-gradient(color-mix(in srgb, var(--accent) 16%, transparent), transparent);
+}
+
+.upd-kicker {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.upd-version {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.upd-x {
+  position: absolute;
+  top: calc(12px + var(--safe-t, 0px));
+  right: 14px;
+}
+
+/* The only scrolling area: the notes lose their own cap here. */
+.upd-body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 20px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.upd-body .upd-notes {
+  max-height: none;
+  overflow: visible;
+}
+
+.upd-bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px calc(16px + var(--safe-b));
+  border-top: 1px solid var(--border);
+  background: var(--glass-strong, #1b140e);
+}
+
+.upd-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 8px;
+}
+
+.upd-actions > :only-child {
+  grid-column: 1 / -1;
+}

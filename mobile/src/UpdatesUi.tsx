@@ -1,8 +1,9 @@
 import { Markdown } from "../../src/changelog/markdown";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { t } from "./i18n";
+import { CloseIcon } from "./icons";
 import { desktopUpdateCheck, desktopUpdateInstall, useRemoteSelector, useSupports } from "./remote";
 import { Group } from "./SettingsControls";
 import { checkForUpdates, dismissUpdateSheet, errorText, formatBytes, installUpdate, updates, type UpdateInfo, type UpdateProgress } from "./updates";
@@ -31,17 +32,21 @@ function ProgressBar({ progress, size }: { progress: UpdateProgress | null; size
   );
 }
 
-/** Release notes, the install progress, the outcome message and the install button: shared by the sheet and the Settings section. */
-function InstallArea({ info }: { info: UpdateInfo }) {
+function UpdateNotes({ info }: { info: UpdateInfo }) {
+  if (!info.notes.trim()) return null;
+  return (
+    <div className="upd-notes">
+      <Markdown source={info.notes.trim()} />
+    </div>
+  );
+}
+
+/** The install progress, the outcome message and the install button. */
+function InstallActions({ info, children }: { info: UpdateInfo; children?: ReactNode }) {
   const { busy, progress, error, notice, canInstall } = updates.use();
   const installing = busy === "installing";
   return (
     <>
-      {info.notes.trim() && (
-        <div className="upd-notes">
-          <Markdown source={info.notes.trim()} />
-        </div>
-      )}
       {installing && <ProgressBar progress={progress} size={info.size} />}
       {error && (
         <p className="prof-note" role="alert">
@@ -51,11 +56,26 @@ function InstallArea({ info }: { info: UpdateInfo }) {
       {notice === "needsPermission" && <p className="prof-note">{t("updNeedsPermission")}</p>}
       {notice === "started" && <p className="prof-note">{t("updStarted")}</p>}
       {!canInstall && <p className="prof-note">{t("updAndroidOnly")}</p>}
-      {canInstall && !installing && (
-        <button type="button" className="btn primary big" onClick={() => void installUpdate()}>
-          {error || notice === "needsPermission" ? t("updRetry") : t("updInstall")}
-        </button>
+      {!installing && (
+        <div className="upd-actions">
+          {children}
+          {canInstall && (
+            <button type="button" className="btn primary big" onClick={() => void installUpdate()}>
+              {error || notice === "needsPermission" ? t("updRetry") : t("updInstall")}
+            </button>
+          )}
+        </div>
       )}
+    </>
+  );
+}
+
+/** Release notes, then the install actions: used by the Settings section. */
+function InstallArea({ info }: { info: UpdateInfo }) {
+  return (
+    <>
+      <UpdateNotes info={info} />
+      <InstallActions info={info} />
     </>
   );
 }
@@ -184,7 +204,7 @@ export function UpdatesPage() {
   );
 }
 
-/** The bottom sheet that offers a found update once per app start. */
+/** The full-screen page that offers a found update once per app start: only the notes scroll, the actions stay pinned at the bottom. */
 export function UpdateSheet() {
   const { info, busy } = updates.use();
   const installing = busy === "installing";
@@ -196,16 +216,27 @@ export function UpdateSheet() {
   useEscape(true, close);
   if (!info) return null;
   return (
-    <AdaptiveSheet open family="nts" variant="dialog" onClose={close} dragEnabled={!installing} label={t("updSheetTitle")}>
-      <div className="nts-grab" aria-hidden="true" />
-      <h2>{t("updSheetTitle")}</h2>
-      <p className="prof-note">{t("updSheetBody", { version: info.version, current: info.currentVersion })}</p>
-      <InstallArea info={info} />
-      {!installing && (
-        <button type="button" className="btn ghost" onClick={close}>
-          {t("updLater")}
-        </button>
-      )}
+    <AdaptiveSheet open family="nts" variant="dialog" onClose={close} dragEnabled={false} panelClass="upd-full" label={t("updSheetTitle")}>
+      <header className="upd-hero">
+        <span className="upd-kicker">{t("updSheetTitle")}</span>
+        <span className="upd-version">{info.version}</span>
+        <span className="prof-note">{t("updSheetBody", { version: info.version, current: info.currentVersion })}</span>
+        {!installing && (
+          <button type="button" className="tm-btn upd-x" aria-label={t("closeViewer")} onClick={close}>
+            <CloseIcon />
+          </button>
+        )}
+      </header>
+      <div className="upd-body">
+        <UpdateNotes info={info} />
+      </div>
+      <div className="upd-bar">
+        <InstallActions info={info}>
+          <button type="button" className="btn ghost" onClick={close}>
+            {t("updLater")}
+          </button>
+        </InstallActions>
+      </div>
     </AdaptiveSheet>
   );
 }
