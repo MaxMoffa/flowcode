@@ -1153,8 +1153,6 @@ export const en: Record<MessageKey, string> = {
   "chat.subagent.task": "Task from {agent}",
   "chat.subagent.launched.one": "{count} subagent started",
   "chat.subagent.launched.other": "{count} subagents started",
-  "chat.subagent.tray.one": "{count} subagent active",
-  "chat.subagent.tray.other": "{count} subagents active",
   "chat.permission.needed": "Permission needed",
   "chat.dictate.escHint": "Esc to stop",
   "chat.plan.title": "Plan",

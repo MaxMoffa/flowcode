@@ -1161,8 +1161,6 @@ export const it = {
   "chat.subagent.task": "Compito da {agent}",
   "chat.subagent.launched.one": "{count} subagent avviato",
   "chat.subagent.launched.other": "{count} subagent avviati",
-  "chat.subagent.tray.one": "{count} subagent attivo",
-  "chat.subagent.tray.other": "{count} subagent attivi",
   "chat.permission.needed": "Serve un permesso",
   "chat.dictate.escHint": "Esc per fermare",
   "chat.plan.title": "Piano",

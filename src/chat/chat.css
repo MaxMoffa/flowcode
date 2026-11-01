@@ -3127,7 +3127,6 @@ summary.chat-step-row {
 .chat-submark-tag:hover { border-color:var(--accent); color:var(--fg); }
 /* Tray behind the composer: same width, tucked under its top edge and sticking out above it. */
 .chat-subtray { position:relative; z-index:0; padding:9px 16px 34px; border-radius:20px 20px 0 0; background:color-mix(in srgb, var(--fg) 5%, rgb(var(--surface-rgb))); box-shadow:0 8px 24px -12px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--fg) 16%, transparent); animation:chat-subtray-in .25s ease-out; }
-.chat-subtray-head { margin-bottom:4px; color:var(--fg-muted); font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
 .chat-subtray-row { display:flex; align-items:center; gap:9px; max-height:30px; padding:3px 0; font-size:12.5px; overflow:hidden; transition:opacity .4s, transform .4s, max-height .4s, padding .4s; }
 .chat-subtray-row.is-leaving { opacity:0; transform:translateX(10px); max-height:0; padding-top:0; padding-bottom:0; }
 .chat-subtray-dot { flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:var(--accent); animation:chat-subtray-pulse 1.2s ease-in-out infinite; }

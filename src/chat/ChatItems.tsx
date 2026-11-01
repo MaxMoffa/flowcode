@@ -325,7 +325,6 @@ type TrayRow = { item: SubagentItem; leaving: boolean };
 
 /** The running subagents of the main chat, as a tray behind the composer. A subagent that finishes fades out of it, then is removed. */
 export function SubagentTray({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id: string) => void }) {
-  const { t } = useI18n();
   const [rows, setRows] = useState<TrayRow[]>([]);
   const [, setTick] = useState(0);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -389,10 +388,8 @@ export function SubagentTray({ items, onOpen }: { items: SubagentItem[]; onOpen?
   }, [anyActive]);
 
   if (rows.length === 0) return null;
-  const activeCount = rows.filter((row) => !row.leaving).length;
   return (
     <div className="chat-subtray" role="status">
-      <div className="chat-subtray-head">{t(activeCount === 1 ? "chat.subagent.tray.one" : "chat.subagent.tray.other", { count: Math.max(0, activeCount) })}</div>
       {rows.map(({ item, leaving }) => {
         const { type, description } = subagentInfo(item.call);
         const elapsed = Math.max(0, Math.floor((Date.now() - (item.call.startedAt ?? Date.now())) / 1000));
