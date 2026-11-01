@@ -13,6 +13,7 @@ import type {
   ChatUpdate,
 } from "./chatTypes";
 import { parseAskQuestions, type AskQuestion } from "./askQuestions";
+import { closeCodexSubagents, isCodexSubagentLaunch, updateCodexSubagents } from "./codexSubagents";
 
 /** One thing in the conversation, in the order it happened. */
 export type ChatItem =
@@ -281,8 +282,9 @@ function textOf(update: ChatUpdate): string | null {
   return content?.type === "text" && typeof content.text === "string" ? content.text : null;
 }
 
-/** Whether a tool call launches a subagent (Claude's Agent/Task tool). */
+/** Whether a tool call launches a Claude or Codex subagent. */
 export function isSubagentLaunch(call: ChatToolCall): boolean {
+  if (isCodexSubagentLaunch(call)) return true;
   if (call.toolName === "Agent" || call.toolName === "Task") return true;
   const input = call.rawInput as { subagent_type?: unknown } | null | undefined;
   return !!input && typeof input === "object" && typeof input.subagent_type === "string";
@@ -312,14 +314,14 @@ function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): Chat
     }
     const call = merged as unknown as ChatToolCall;
     // A subagent launch is timed: from its first event to its final status.
-    if (isSubagentLaunch(call)) {
+    if (isSubagentLaunch(call) && !isCodexSubagentLaunch(call)) {
       if (call.startedAt === undefined) call.startedAt = at;
       if ((call.status === "completed" || call.status === "failed") && call.endedAt === undefined) call.endedAt = at;
     }
     items[index] = { ...prev, call };
   }
   // Like text: a tool call alone (replayed history) doesn't start a turn.
-  return withItems(state, items);
+  return withItems(state, updateCodexSubagents(items, patch.toolCallId, at));
 }
 
 type CompactionItem = Extract<ChatItem, { type: "compaction" }>;
@@ -478,7 +480,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
     case "turnEnd": {
       // Finishing and a cancel the user asked for need no word; anything else (a length or step limit, a refusal) is said.
       const reason = typeof ev.stopReason === "string" ? ev.stopReason : "";
-      const closed = closeWokenSteps(state.items);
+      const closed = closeWokenSteps(reason === "cancelled" ? closeCodexSubagents(state.items, ev.at) : state.items);
       const items = !reason || QUIET_STOPS.has(reason) ? closed : [...closed, { type: "stop" as const, id: `stop-${ev.seq}`, reason }];
       return { ...withItems(state, items, false), notice: null, turn: null };
     }
@@ -495,7 +497,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
     case "exit": {
       // Nobody is left to answer an open permission request: it reads as cancelled (the backend says so too, this is in case it didn't).
       // Same for an open question.
-      const woken = closeWokenSteps(state.items);
+      const woken = closeWokenSteps(closeCodexSubagents(state.items, ev.at));
       const items = woken.some((i) => (i.type === "permission" || i.type === "ask") && i.resolved === undefined)
         ? woken.map((i) =>
             i.type === "permission" && i.resolved === undefined

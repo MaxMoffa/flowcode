@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useState } from "react";
+import { SubagentTray as SharedSubagentTray } from "../../shared/SubagentTray";
 import { useI18n } from "../i18n";
 import { askSummary } from "./askQuestions";
 import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "./chatModel";
@@ -321,92 +322,10 @@ export function SubagentMarker({ items, onOpen }: { items: SubagentItem[]; onOpe
   );
 }
 
-type TrayRow = { item: SubagentItem; leaving: boolean };
-
-/** The running subagents of the main chat, as a tray behind the composer. A subagent that finishes fades out of it, then is removed. */
+/** The shared running-subagent tray, with desktop translations. */
 export function SubagentTray({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id: string) => void }) {
-  const [rows, setRows] = useState<TrayRow[]>([]);
-  const [, setTick] = useState(0);
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-
-  // Merge the running items into the rows: current ones update in place, new ones are appended, the ones gone start leaving.
-  useEffect(() => {
-    setRows((prev) => {
-      const current = new Map(items.map((item) => [item.id, item]));
-      const kept = new Set<string>();
-      const next: TrayRow[] = [];
-      for (const row of prev) {
-        const fresh = current.get(row.item.id);
-        if (fresh) {
-          kept.add(row.item.id);
-          next.push({ item: fresh, leaving: false });
-        } else {
-          next.push({ item: row.item, leaving: true });
-        }
-      }
-      for (const item of items) if (!kept.has(item.id)) next.push({ item, leaving: false });
-      return next;
-    });
-  }, [items]);
-
-  // Each row that starts leaving is removed after its fade; a row that comes back cancels its removal.
-  useEffect(() => {
-    for (const row of rows) {
-      const id = row.item.id;
-      const pending = timers.current.get(id);
-      if (!row.leaving) {
-        if (pending !== undefined) {
-          clearTimeout(pending);
-          timers.current.delete(id);
-        }
-      } else if (pending === undefined) {
-        timers.current.set(
-          id,
-          setTimeout(() => {
-            timers.current.delete(id);
-            setRows((prev) => prev.filter((r) => !(r.leaving && r.item.id === id)));
-          }, 450),
-        );
-      }
-    }
-  }, [rows]);
-
-  useEffect(() => {
-    const pending = timers.current;
-    return () => {
-      pending.forEach((timer) => clearTimeout(timer));
-      pending.clear();
-    };
-  }, []);
-
-  const anyActive = rows.some((row) => !row.leaving);
-  // The elapsed time is refreshed once a second while something is running.
-  useEffect(() => {
-    if (!anyActive) return;
-    const interval = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(interval);
-  }, [anyActive]);
-
-  if (rows.length === 0) return null;
-  return (
-    <div className="chat-subtray" role="status">
-      {rows.map(({ item, leaving }) => {
-        const { type, description } = subagentInfo(item.call);
-        const elapsed = Math.max(0, Math.floor((Date.now() - (item.call.startedAt ?? Date.now())) / 1000));
-        return (
-          <div key={item.id} className={`chat-subtray-row${leaving ? " is-leaving" : ""}`}>
-            <span className="chat-subtray-dot" aria-hidden="true" />
-            <span className="chat-subtray-name">{type ?? "agent"}</span>
-            <span className="chat-subtray-task" title={description}>
-              {description}
-            </span>
-            <span className="chat-subtray-time">{`${elapsed}s`}</span>
-            {onOpen && <OpenSubagentButton id={item.id} onOpen={onOpen} />}
-          </div>
-        );
-      })}
-    </div>
-  );
+  const { t } = useI18n();
+  return <SharedSubagentTray items={items} onOpen={onOpen} openLabel={t("chat.subagent.open")} />;
 }
 
 /** The words for why a turn stopped early. */

@@ -6,6 +6,7 @@ import { ChatBody, SubagentBody } from "./ChatBody";
 import { ChatImagesProvider } from "./ChatImage";
 import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
+import { SubagentTray } from "../../shared/SubagentTray";
 import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
@@ -29,7 +30,7 @@ import { openLink, TermLink } from "./TermLink";
 import { useTerminalViewport } from "./termViewport";
 import { useReadyViews, viewFits, viewLabel } from "./viewCache";
 import { useWide } from "./wide";
-import { findSubagent, isGuardianReview, subagentInfo, subagentState } from "../../src/chat/chatTimeline";
+import { findSubagent, isGuardianReview, nestSubagents, subagentInfo, subagentState } from "../../src/chat/chatTimeline";
 
 /** Distance from the end of the thread that still counts as "at the bottom". */
 const BOTTOM_SLACK = 80;
@@ -123,6 +124,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
 
   const status = info ? chatStatus(info, model) : "idle";
   const exited = status === "exited";
+  const runningSubs = useMemo(() => sub || exited ? [] : nestSubagents(model.items).flatMap((item) =>
+    item.type === "subagent" && subagentState(item).running ? [item] : []), [model.items, sub, exited]);
   // The agent is starting: the frog floats in its pond.
   const starting = status === "starting";
   const working = status === "busy" || status === "waiting";
@@ -474,7 +477,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
               )}
               {openAsk && <AskPanel ask={openAsk} agent={agentName(info.agent)} onAnswer={answerAsk} />}
               <div className="chat-ask-keep" hidden={!!openAsk}>
-                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} />
+                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubagent} openLabel={t("chatSubOpen")} />} />
               </div>
             </>
           )}

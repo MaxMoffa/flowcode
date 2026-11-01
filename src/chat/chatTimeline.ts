@@ -72,8 +72,9 @@ export function nestSubagents(items: ChatItem[]): Array<ChatItem | SubagentItem>
 /** The subagent's own words for the user: its type and what it was asked, from the launch call. */
 export function subagentInfo(call: ChatToolCall): { type: string | null; description: string } {
   const input = (call.rawInput && typeof call.rawInput === "object" ? call.rawInput : {}) as Record<string, unknown>;
-  const type = typeof input.subagent_type === "string" && input.subagent_type !== "" ? input.subagent_type : null;
-  const description = typeof input.description === "string" && input.description !== "" ? input.description : (call.title ?? call.toolCallId);
+  const role = input.subagent_type ?? input.agent_type;
+  const type = call.subagentName ?? (typeof role === "string" && role !== "" ? role : null);
+  const description = typeof input.description === "string" && input.description !== "" ? input.description : subagentPrompt(call) || (call.title ?? call.toolCallId);
   return { type, description };
 }
 
@@ -85,7 +86,8 @@ export function findSubagent(items: ChatItem[], id: string): SubagentItem | null
 /** The task the subagent was given (the launch call's prompt); empty when unknown. */
 export function subagentPrompt(call: ChatToolCall): string {
   const input = (call.rawInput && typeof call.rawInput === "object" ? call.rawInput : {}) as Record<string, unknown>;
-  return typeof input.prompt === "string" ? input.prompt.trim() : "";
+  const prompt = input.prompt ?? input.message;
+  return typeof prompt === "string" ? prompt.trim() : "";
 }
 
 /** A subagent's own chat as a list of items: what it said and did, then its final report as the last message once it finished (unless it already said the same). */

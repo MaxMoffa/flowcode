@@ -2,13 +2,94 @@ import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./chatModel";
 import { applyEvent, initialChat, settleChat } from "./chatModel";
 import type { ChatEvent } from "./chatTypes";
-import { buildTimeline, findSubagent, subagentTimeline, liveTool, nestSubagents, subagentInfo, subagentReport, subagentState, summarizeSteps } from "./chatTimeline";
+import { buildTimeline, findSubagent, subagentTimeline, liveTool, nestSubagents, subagentInfo, subagentPrompt, subagentReport, subagentState, summarizeSteps } from "./chatTimeline";
 
 const tool = (id: string, kind: string, status?: string): ChatItem =>
   ({ type: "tool", id, call: { toolCallId: id, kind, status } }) as ChatItem;
 const agent = (id: string): ChatItem => ({ type: "agent", id, text: "x" });
 const perm = (id: string, resolved?: string | null): ChatItem =>
   ({ type: "permission", id, requestId: id, toolCall: { toolCallId: "t" }, options: [], resolved }) as ChatItem;
+
+describe("Codex subagents", () => {
+  const update = (seq: number, toolCallId: string, fields: Record<string, unknown>): ChatEvent => ({
+    kind: "update", seq, at: seq * 1000,
+    update: { sessionUpdate: "tool_call_update", toolCallId, ...fields },
+  });
+  const spawn = (seq: number, id: string, thread: string): ChatEvent => update(seq, id, {
+    sessionUpdate: "tool_call", title: "spawnAgent", status: "in_progress", kind: "other",
+    rawInput: { prompt: `Inspect ${thread}`, senderThreadId: "root", receiverThreadIds: [], agentsStates: {} },
+  });
+  const spawned = (seq: number, id: string, thread: string): ChatEvent => update(seq, id, {
+    status: "completed", rawInput: { prompt: `Inspect ${thread}`, senderThreadId: "root", receiverThreadIds: [thread], agentsStates: { [thread]: { status: "running" } }, status: "completed" },
+  });
+
+  it("shows parallel launches and keeps them running after spawn returns", () => {
+    const state = [spawn(1, "s1", "a"), spawned(2, "s1", "a"), spawn(3, "s2", "b"), spawned(4, "s2", "b")].reduce(applyEvent, settleChat(initialChat()));
+    const subs = buildTimeline(state.items).flatMap((s) => s.type === "subagents" ? s.items : []);
+    expect(subs.map((s) => s.id)).toEqual(["s1", "s2"]);
+    expect(subs.every((s) => subagentState(s).running)).toBe(true);
+    expect(subagentInfo(subs[0].call).description).toBe("Inspect a");
+    expect(subagentPrompt(subs[0].call)).toBe("Inspect a");
+    expect(subagentReport(subs[0].call)).toBe("");
+  });
+
+  it("finishes only the reported child and uses its report, not the spawn prompt", () => {
+    const state = [spawn(1, "s1", "a"), spawned(2, "s1", "a"), spawn(3, "s2", "b"), spawned(4, "s2", "b"), update(5, "wait", {
+      title: "wait", status: "completed", rawInput: { senderThreadId: "root", receiverThreadIds: ["a", "b"], agentsStates: { a: { status: "completed", message: "Found the cause" }, b: { status: "running" } } },
+    })].reduce(applyEvent, settleChat(initialChat()));
+    expect(subagentState(findSubagent(state.items, "s1")!)).toMatchObject({ running: false, failed: false, seconds: 4 });
+    expect(subagentReport(findSubagent(state.items, "s1")!.call)).toBe("Found the cause");
+    expect(subagentState(findSubagent(state.items, "s2")!).running).toBe(true);
+    expect(findSubagent(state.items, "wait")).toBeNull();
+  });
+
+  it("links activity to its launch and supports failure and resume", () => {
+    let state = [spawn(1, "s1", "a"), spawned(2, "s1", "a"), update(3, "activity", {
+      title: "Start subagent reviewer", status: "completed", rawInput: { agentThreadId: "a", agentPath: "/root/reviewer", activityKind: "started" },
+    }), update(4, "wait", {
+      title: "wait", status: "completed", rawInput: { agentsStates: { a: { status: "errored", message: "Failed to read" } } },
+    })].reduce(applyEvent, settleChat(initialChat()));
+    const failed = findSubagent(state.items, "s1")!;
+    expect(failed.steps.map((s) => s.id)).toEqual(["activity"]);
+    expect(subagentInfo(failed.call).type).toBe("reviewer");
+    expect(subagentState(failed)).toMatchObject({ running: false, failed: true });
+    state = applyEvent(state, update(5, "resume", { title: "resumeAgent", status: "completed", rawInput: { agentsStates: { a: { status: "running" } } } }));
+    expect(subagentState(findSubagent(state.items, "s1")!)).toMatchObject({ running: true, seconds: null });
+    expect(subagentReport(findSubagent(state.items, "s1")!.call)).toBe("");
+  });
+
+  it("keeps the report when a later completion activity has no message", () => {
+    const state = [spawn(1, "s1", "a"), spawned(2, "s1", "a"), update(3, "wait", {
+      title: "wait", status: "completed", rawInput: { agentsStates: { a: { status: "completed", message: "Final report" } } },
+    }), update(4, "activity", {
+      title: "Complete subagent reviewer", status: "completed", rawInput: { agentThreadId: "a", agentPath: "/root/reviewer", activityKind: "completed" },
+    })].reduce(applyEvent, settleChat(initialChat()));
+    expect(subagentReport(findSubagent(state.items, "s1")!.call)).toBe("Final report");
+    expect(findSubagent(state.items, "s1")!.call.endedAt).toBe(3000);
+  });
+
+  it("nests a child launched by a known Codex subagent", () => {
+    const state = [spawn(1, "s1", "a"), spawned(2, "s1", "a"), update(3, "s2", {
+      title: "spawnAgent", status: "completed", rawInput: { senderThreadId: "a", receiverThreadIds: ["b"], agentsStates: { b: { status: "running" } } },
+    })].reduce(applyEvent, settleChat(initialChat()));
+    expect(nestSubagents(state.items).map((s) => s.id)).toEqual(["s1"]);
+    expect(findSubagent(state.items, "s2")).not.toBeNull();
+  });
+
+  it("ends a spawn that fails before a child thread exists", () => {
+    const state = [spawn(1, "s1", "a"), update(2, "s1", { status: "failed", content: [{ type: "content", content: { type: "text", text: "No slots available" } }] })].reduce(applyEvent, settleChat(initialChat()));
+    expect(subagentState(findSubagent(state.items, "s1")!)).toMatchObject({ running: false, failed: true, seconds: 1 });
+    expect(subagentReport(findSubagent(state.items, "s1")!.call)).toBe("No slots available");
+  });
+
+  it("removes running Codex children after cancellation or process exit", () => {
+    const state = [spawn(1, "s1", "a"), spawned(2, "s1", "a")].reduce(applyEvent, settleChat(initialChat()));
+    for (const event of [{ kind: "turnEnd", stopReason: "cancelled" }, { kind: "exit", code: 1 }] as const) {
+      const closed = applyEvent(state, { ...event, seq: 3, at: 3000 });
+      expect(subagentState(findSubagent(closed.items, "s1")!).running).toBe(false);
+    }
+  });
+});
 
 describe("chat timeline", () => {
   it("groups consecutive tool calls and keeps messages apart", () => {

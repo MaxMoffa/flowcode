@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { ChatModels, ChatModes, ChatThought } from "../../src/chat/chatTypes";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
@@ -67,6 +67,7 @@ interface ChatComposerProps {
   onThought?: (value: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
+  subagentTray?: ReactNode;
 }
 
 /**
@@ -80,6 +81,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   chatId,
   agent,
   busy,
+  subagentTray,
   modes,
   onMode,
   models = null,
@@ -145,6 +147,7 @@ ${latest.current}` : added);
           </button>
         </div>
       )}
+      {subagentTray}
       <div className={"chat-card" + (listening ? " is-listening" : "")}>
         {listening && (
           <div className="chat-listening" aria-live="polite">
