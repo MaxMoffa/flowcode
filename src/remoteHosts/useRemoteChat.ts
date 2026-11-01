@@ -142,6 +142,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     chatId,
     // A remote PC's agent runs on that PC, never in a WSL distro of this one.
     wslDistro: null,
+    profileId: null,
     queued: useMemo(() => session.queued.map((text) => ({ text, attachments: [] })), [session.queued]),
     // The remote protocol carries text only.
     canAttach: false,

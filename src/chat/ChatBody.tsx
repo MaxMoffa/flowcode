@@ -60,6 +60,11 @@ function readAttachment(file: File): Promise<ChatAttachment> {
   });
 }
 
+/** A context size as "118k" (rounded), or the plain number under a thousand. */
+function formatCacheTokens(n: number): string {
+  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+}
+
 function formatTimer(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
@@ -254,7 +259,13 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
     items: model.items,
     lastActivityAt: chat.lastActivityAt,
     usageTokens: chat.usageTokens,
+    sessionId: chat.sessionId,
+    profileId: chat.profileId,
+    wslDistro: chat.wslDistro,
+    local: !!chat.clear,
+    chatId: chat.chatId ?? "",
   });
+  const showCacheCard = cacheWarning.show && !draft;
 
   // Follow the conversation while the reader is at its end.
   useLayoutEffect(() => {
@@ -813,14 +824,6 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
                 </button>
               </div>
             )}
-            {cacheWarning.show && !draft && (
-              <div className="chat-notice" role="status">
-                <span className="chat-notice-text">{t("chat.cacheExpired")}</span>
-                <button type="button" className="chat-chip-remove" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={cacheWarning.dismiss}>
-                  {"×"}
-                </button>
-              </div>
-            )}
             {attachError && (
               <div className="chat-notice" role="alert">
                 <span className="chat-notice-text">{attachError}</span>
@@ -849,7 +852,39 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
             <SubagentTray items={runningSubs} onOpen={onOpenSubagent ? openSub : undefined} />
             {/* The textarea stays mounted (hidden) so a half-typed message survives the question. */}
             {openAsk && <AskComposer key={openAsk.id} item={openAsk} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
-            <div className={`chat-composer${openAsk ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
+            {/* The expired-cache card takes the composer's place (the composer stays mounted, hidden). */}
+            {showCacheCard && !openAsk && (
+              <div className="chat-cache-card" role="status">
+                <button type="button" className="chat-cache-x" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={cacheWarning.dismiss}>
+                  {"✕"}
+                </button>
+                <span className="chat-cache-ico" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+                    <path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5" />
+                  </svg>
+                </span>
+                <div className="chat-cache-title">{t("chat.cache.title")}</div>
+                <div className="chat-cache-text">
+                  {t(cacheWarning.tokens === null ? "chat.cache.bodyNoTokens" : "chat.cache.body", {
+                    min: Math.max(1, Math.round(cacheWarning.idleMs / 60_000)),
+                    tokens: cacheWarning.tokens === null ? "" : formatCacheTokens(cacheWarning.tokens),
+                  })
+                    .split("**")
+                    .map((part, i) => (i % 2 === 1 ? <b key={i}>{part}</b> : part))}
+                </div>
+                <div className="chat-cache-actions">
+                  {chat.clear && (
+                    <button type="button" className="chat-cache-btn is-main" onClick={runClear}>
+                      {t("chat.cache.clear")}
+                    </button>
+                  )}
+                  <button type="button" className="chat-cache-btn" onClick={cacheWarning.dismiss}>
+                    {t("chat.cache.keep")}
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className={`chat-composer${openAsk || showCacheCard ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
               {transcribing && <ComposerSweep />}
               {(listening || transcribing) && (
                 <div className="chat-listening" aria-live="polite">

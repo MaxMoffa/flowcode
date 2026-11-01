@@ -4,7 +4,7 @@ import type { ChatEvent } from "./chatTypes";
 export const CACHE_IDLE_MS = 5 * 60_000;
 
 /** Below this context size (tokens, from the agent's `usage_update`) re-reading the conversation is cheap: no warning. */
-export const CACHE_MIN_TOKENS = 20_000;
+export const CACHE_MIN_TOKENS = 40_000;
 
 /** Without a usage figure, a conversation needs at least this many items (with a user message) to be worth warning about. */
 export const CACHE_MIN_ITEMS = 4;
@@ -30,11 +30,11 @@ export function trackActivity(prev: ChatActivity, ev: ChatEvent): ChatActivity {
 
 /**
  * The activity of a resumed chat once its history replayed: the replayed events all carry the load time, not the
- * time things happened, so the time is the one known from before (`knownAt`); unknown counts as long ago (0), so
- * the notice shows at once. The context size still comes from the replay.
+ * time things happened, so the time is the one known from before (`knownAt`); unknown stays unknown (null), so no
+ * notice until something real says when the chat last worked. The context size still comes from the replay.
  */
 export function resumedActivity(replayed: ChatActivity, knownAt: number | undefined): ChatActivity {
-  return { at: knownAt ?? 0, tokens: replayed.tokens };
+  return { at: knownAt ?? null, tokens: replayed.tokens };
 }
 
 /** The activity of a whole list of events. */
@@ -54,12 +54,14 @@ export function cacheWarningDelay(opts: {
   lastActivityAt: number | null;
   now: number;
   usageTokens?: number | null;
+  /** The cache's lifetime (5 min or 1 h, read from the transcript); defaults to CACHE_IDLE_MS. */
+  ttlMs?: number;
 }): number | null {
-  const { agent, idle, items, lastActivityAt, now, usageTokens } = opts;
+  const { agent, idle, items, lastActivityAt, now, usageTokens, ttlMs } = opts;
   if (agent !== "claude" || !idle || lastActivityAt === null) return null;
   if (!items.some((i) => i.type === "user")) return null;
   if (typeof usageTokens === "number") {
     if (usageTokens < CACHE_MIN_TOKENS) return null;
   } else if (items.length < CACHE_MIN_ITEMS) return null;
-  return Math.max(0, lastActivityAt + CACHE_IDLE_MS - now);
+  return Math.max(0, lastActivityAt + (ttlMs ?? CACHE_IDLE_MS) - now);
 }

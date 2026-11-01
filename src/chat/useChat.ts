@@ -382,7 +382,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, setMode, setModel, setThought, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, setMode, setModel, setThought, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */

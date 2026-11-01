@@ -24,6 +24,11 @@ describe("cacheWarningDelay", () => {
     expect(cacheWarningDelay({ ...base, usageTokens: 5_000 })).toBeNull();
     expect(cacheWarningDelay({ ...base, usageTokens: 50_000, items: [{ type: "user" }] })).toBe(0);
   });
+  it("honours a custom cache lifetime", () => {
+    const hour = 60 * 60_000;
+    expect(cacheWarningDelay({ ...base, ttlMs: hour })).toBe(hour - CACHE_IDLE_MS - 1);
+    expect(cacheWarningDelay({ ...base, ttlMs: hour, now: base.lastActivityAt + hour + 1 })).toBe(0);
+  });
   it("falls back to the item count without usage", () => {
     expect(cacheWarningDelay({ ...base, items: [{ type: "user" }, { type: "agent" }] })).toBeNull();
   });
@@ -46,9 +51,10 @@ describe("resumedActivity", () => {
   it("uses the known time instead of the replay's load time", () => {
     expect(resumedActivity(replayed, 1_000)).toEqual({ at: 1_000, tokens: 40_000 });
   });
-  it("counts an unknown time as long ago, so the notice shows at once", () => {
+  it("keeps an unknown time unknown, so no notice", () => {
     const a = resumedActivity(replayed, undefined);
-    expect(cacheWarningDelay({ ...base, lastActivityAt: a.at, usageTokens: a.tokens, now: 9_000_000 })).toBe(0);
+    expect(a.at).toBeNull();
+    expect(cacheWarningDelay({ ...base, lastActivityAt: a.at, usageTokens: a.tokens, now: 9_000_000 })).toBeNull();
   });
   it("lets a later live event take over", () => {
     const a = trackActivity(resumedActivity(replayed, 1_000), { seq: 9, at: 5_000, kind: "exit", code: 0 });

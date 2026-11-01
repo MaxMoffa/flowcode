@@ -236,6 +236,7 @@ pub fn run() {
             context::agent_context,
             agent_insight::agent_tools,
             agent_insight::agent_session_usage,
+            agent_insight::chat_cache_info,
             plugins::cli_billing_mode,
             view_plugins::view_plugins_list,
             view_plugins::view_plugin_install,

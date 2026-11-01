@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — avviso cache: 3 varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --warn:#e0b252; --ice:#8fc3d6; --danger:#d97a6c;
+  --hover:rgba(232,184,128,.07); --track:rgba(232,184,128,.10);
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --warn:#a67a14; --ice:#2f7f9a; --danger:#b5483a;
+  --hover:rgba(140,88,32,.06); --track:rgba(120,80,36,.10);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:820px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(320px,380px));gap:28px;align-items:start}
+.col h2{font-size:13px;margin:0 0 2px}
+.col p.d{margin:0 0 10px;color:var(--fg-muted);min-height:58px}
+.chat{height:520px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--bg) 70%,#000 6%);display:flex;flex-direction:column;overflow:hidden}
+.msgs{flex:1;overflow:hidden;padding:14px;display:flex;flex-direction:column;gap:10px;mask-image:linear-gradient(#000 70%,transparent)}
+.m{max-width:88%;padding:8px 11px;border-radius:12px;background:var(--hover);color:var(--fg-muted)}
+.m.u{align-self:flex-end;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--fg)}
+.foot{padding:0 12px 12px}
+
+/* composer: stessa pelle di .chat-composer (raggio 24, rialzato, anello 1px) */
+.cmp{padding:14px 12px 10px 18px;border-radius:24px;background:color-mix(in srgb,var(--fg) 7%,var(--surface));
+  box-shadow:0 10px 30px -14px rgba(0,0,0,.5),0 0 0 1px color-mix(in srgb,var(--fg) 24%,transparent)}
+.cmp .in{min-height:44px;color:var(--fg-muted);font-size:14.5px}
+.cmp .tools{display:flex;gap:8px;align-items:center;color:var(--fg-muted);font-size:12px}
+.cmp .tools .go{margin-left:auto;width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700}
+
+/* pulsanti */
+.b{font:inherit;font-weight:600;border-radius:999px;padding:8px 16px;border:0;cursor:pointer;color:var(--fg);background:var(--track)}
+.b.main{background:var(--accent);color:var(--accent-ink)}
+.b.ghost{background:transparent;box-shadow:inset 0 0 0 1px var(--border);font-weight:500}
+.b small{display:block;font-weight:400;font-size:11px;opacity:.8}
+
+/* shell comune delle varianti: il box che SOSTITUISCE il composer */
+.warn{border-radius:24px;background:color-mix(in srgb,var(--fg) 7%,var(--surface));
+  box-shadow:0 10px 30px -14px rgba(0,0,0,.5),0 0 0 1.5px color-mix(in srgb,var(--ice) 55%,transparent);position:relative;overflow:hidden}
+.ico{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--ice) 18%,transparent);color:var(--ice);flex:0 0 auto}
+.ttl{font-weight:700;font-size:15px}
+.txt{color:var(--fg-muted)}
+.txt b{color:var(--fg);font-weight:600}
+
+/* A · grande, centrata */
+.a{padding:20px 20px 16px;text-align:center}
+.a .ico{margin:0 auto 10px;width:44px;height:44px}
+.a .txt{margin:6px 0 16px}
+.a .acts{display:flex;gap:8px;justify-content:center}
+.a .x{position:absolute;top:10px;right:14px;color:var(--fg-muted);cursor:pointer}
+
+/* B · due scelte affiancate con il costo */
+.bb{padding:16px}
+.bb .hd{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+.bb .hd .t{flex:1}
+.bb .age{font-size:11px;color:var(--ice);font-variant-numeric:tabular-nums}
+.choices{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ch{border-radius:16px;padding:12px;text-align:left;cursor:pointer;border:0;font:inherit;color:var(--fg);background:var(--hover);box-shadow:inset 0 0 0 1px var(--border)}
+.ch.rec{background:color-mix(in srgb,var(--accent) 16%,transparent);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.ch .h{font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.ch .cost{margin-top:8px;font-size:11px;color:var(--fg-muted);font-variant-numeric:tabular-nums}
+.ch .cost b{color:var(--fg)}
+.meter{height:5px;border-radius:3px;background:var(--track);overflow:hidden;margin-top:4px}
+.meter i{display:block;height:100%}
+
+/* C · una riga, alta quanto il composer vuoto, con bozza ancora visibile */
+.c{padding:10px 10px 10px 14px;display:flex;align-items:center;gap:10px;border-radius:999px}
+.c .ico{width:28px;height:28px}
+.c .t{flex:1;min-width:0;font-size:12.5px;line-height:1.3}
+.c .t b{display:block;font-size:13px}
+.c .acts{display:flex;gap:6px;flex:0 0 auto}
+.c .b{padding:6px 12px;font-size:12px}
+.hist{margin:8px 6px 0;font-size:11px;color:var(--fg-muted);text-align:center}
+
+.done{padding:18px;text-align:center;color:var(--fg-muted)}
+.notes{margin-top:30px;max-width:820px;border-top:1px solid var(--border);padding-top:14px}
+.notes h3{font-size:14px;margin:0 0 6px}
+.notes li{margin-bottom:4px}
+code{background:var(--track);padding:0 4px;border-radius:4px}
+</style>
+</head>
+<body>
+<h1>Avviso cache scaduta — 3 varianti</h1>
+<p class="sub">Il box di input diventa l'avviso: stesso posto, stessa pelle del composer, due azioni — <b>Nuova chat</b> (<code>/clear</code>) o <b>Continua</b> (chiude l'avviso e si prosegue). Clicca i pulsanti per vedere l'esito. Dati d'esempio: chat ferma da 12 min, 118k token di contesto.</p>
+<div class="bar">
+  <button id="theme">Tema chiaro / scuro</button>
+  <button id="reset">Ripristina avvisi</button>
+</div>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="snow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5"/></symbol>
+</defs></svg>
+
+<div class="grid">
+
+<!-- A -->
+<div class="col" data-v="a">
+  <h2>A · Box grande, centrato</h2>
+  <p class="d">Il composer si trasforma in una scheda: icona, titolo, una frase, due pulsanti pill. Massima chiarezza, occupa più altezza.</p>
+  <div class="chat"><div class="msgs"><div class="m u">sistema il parsing dei link</div><div class="m">Fatto: ho spostato la regex in <code>fileLinks.tsx</code> e aggiunto i test.</div><div class="m u">ora il tema chiaro</div><div class="m">Sistemato anche quello.</div></div>
+    <div class="foot slot">
+      <div class="warn a">
+        <span class="x" data-act="cont" title="Chiudi">✕</span>
+        <div class="ico"><svg width="22" height="22"><use href="#snow"/></svg></div>
+        <div class="ttl">La cache del prompt è scaduta</div>
+        <div class="txt">Chat ferma da <b>12 min</b>. Il prossimo messaggio rielabora <b>118k token</b> senza cache e pesa molto sul limite di sessione.</div>
+        <div class="acts">
+          <button class="b main" data-act="clear">Nuova chat</button>
+          <button class="b ghost" data-act="cont">Continua questa</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- B -->
+<div class="col" data-v="b">
+  <h2>B · Due scelte con il costo</h2>
+  <p class="d">Il box mette a confronto le due strade: cosa costa ripartire da zero e cosa costa continuare. Consiglia la prima, ma decidi con i numeri davanti.</p>
+  <div class="chat"><div class="msgs"><div class="m u">sistema il parsing dei link</div><div class="m">Fatto: ho spostato la regex in <code>fileLinks.tsx</code> e aggiunto i test.</div><div class="m u">ora il tema chiaro</div><div class="m">Sistemato anche quello.</div></div>
+    <div class="foot slot">
+      <div class="warn bb">
+        <div class="hd"><div class="ico"><svg width="20" height="20"><use href="#snow"/></svg></div><div class="t"><div class="ttl">Cache scaduta</div><div class="txt">Ferma da 12 min · conversazione da rileggere</div></div><span class="age">12:04</span></div>
+        <div class="choices">
+          <button class="ch rec" data-act="clear">
+            <div class="h">↺ Nuova chat</div>
+            <div class="txt">Riparti da zero con <code>/clear</code>.</div>
+            <div class="cost"><b>~0 token</b> riletti<div class="meter"><i style="width:2%;background:var(--accent)"></i></div></div>
+          </button>
+          <button class="ch" data-act="cont">
+            <div class="h">→ Continua</div>
+            <div class="txt">Tieni il contesto attuale.</div>
+            <div class="cost"><b>~118k token</b> senza cache<div class="meter"><i style="width:59%;background:var(--warn)"></i></div></div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- C -->
+<div class="col" data-v="c">
+  <h2>C · Riga sottile</h2>
+  <p class="d">Pillola alta quanto il composer vuoto: testo breve a sinistra, due pulsanti a destra. Meno invasiva; se hai già scritto una bozza resta visibile sotto.</p>
+  <div class="chat"><div class="msgs"><div class="m u">sistema il parsing dei link</div><div class="m">Fatto: ho spostato la regex in <code>fileLinks.tsx</code> e aggiunto i test.</div><div class="m u">ora il tema chiaro</div><div class="m">Sistemato anche quello.</div></div>
+    <div class="foot slot">
+      <div class="warn c">
+        <div class="ico"><svg width="16" height="16"><use href="#snow"/></svg></div>
+        <div class="t"><b>Cache scaduta · 118k token</b><span class="txt">Il prossimo messaggio li rilegge tutti.</span></div>
+        <div class="acts">
+          <button class="b main" data-act="clear">Nuova chat</button>
+          <button class="b ghost" data-act="cont">Continua</button>
+        </div>
+      </div>
+      <div class="hist">La chat attuale resta nello storico.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="notes">
+  <h3>Comportamento (da sistemare insieme al nuovo aspetto)</h3>
+  <ul>
+    <li><b>Perché riappare:</b> la chiusura è legata all'istante dell'ultima attività; qualsiasi evento (anche non legato al turno) lo sposta e l'avviso torna eleggibile. In più la chiusura vive nello stato dell'hook e si perde al rimontaggio (cambio tab).</li>
+    <li><b>Perché troppo spesso:</b> soglia di soli 20k token e riapertura di chat ripristinate con orario ignoto (conta come "scaduta da sempre").</li>
+    <li><b>Proposta:</b> "Continua" = silenzio finché non c'è un nuovo <i>turno utente</i> seguito da un'altra pausa &gt; 5 min; stato salvato per chat (non nell'hook); soglia alzata (es. 40–50k) e nessun avviso su chat ripristinate finché non c'è nuova attività.</li>
+  </ul>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const orig=$$('.slot').map(e=>e.innerHTML);
+$('#theme').onclick=()=>document.body.classList.toggle('light');
+$('#reset').onclick=()=>$$('.slot').forEach((e,i)=>e.innerHTML=orig[i]);
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]'); if(!b) return;
+  const slot=b.closest('.slot'), clear=b.dataset.act==='clear';
+  slot.innerHTML=`<div class="cmp"><div class="in">${clear?'Nuova chat — scrivi un messaggio…':'Avviso chiuso — scrivi un messaggio…'}</div><div class="tools"><span>＋</span><span>Claude · Opus</span><span class="go">↑</span></div></div>`;
+});
+</script>
+</body>
+</html>

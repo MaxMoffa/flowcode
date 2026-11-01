@@ -535,9 +535,158 @@ pub async fn agent_session_usage(
     crate::blocking(move || read_usage(&app, &cli, &session_id, profile)).await
 }
 
+/// Prompt-cache lifetime of a Claude session and when it last called the model.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheInfo {
+    /// How long the prompt cache lives after a call: 1 h when the session writes 1-hour cache entries, else 5 min.
+    pub ttl_ms: u64,
+    /// `timestamp` (ISO-8601 string, as in the transcript) of the last main-context model call; None if none found.
+    pub last_call_at: Option<String>,
+}
+
+const CACHE_TTL_5M: u64 = 300_000;
+const CACHE_TTL_1H: u64 = 3_600_000;
+/// Transcript tail scanned for cache info.
+const CACHE_TAIL: u64 = 1024 * 1024;
+
+/// Scans transcript lines from the end: the last main-context model call gives
+/// `last_call_at`, the last cache write gives the TTL.
+fn cache_info_from_tail(text: &str) -> CacheInfo {
+    let mut last_call_at: Option<String> = None;
+    let mut ttl_ms: Option<u64> = None;
+    for raw in text.lines().rev() {
+        if last_call_at.is_some() && ttl_ms.is_some() {
+            break;
+        }
+        let Ok(line) = serde_json::from_str::<serde_json::Value>(raw) else { continue };
+        if line.get("type").and_then(|t| t.as_str()) != Some("assistant")
+            || line.get("isSidechain").and_then(|s| s.as_bool()) == Some(true)
+        {
+            continue;
+        }
+        let Some(message) = line.get("message") else { continue };
+        let Some(usage) = message.get("usage") else { continue };
+        let model = message.get("model").and_then(|m| m.as_str()).unwrap_or_default();
+        if model.is_empty() || model.starts_with('<') {
+            continue;
+        }
+        if last_call_at.is_none() {
+            last_call_at = line.get("timestamp").and_then(|t| t.as_str()).map(str::to_string);
+        }
+        if ttl_ms.is_none() {
+            let creation = usage.get("cache_creation");
+            let w1h = num(creation.and_then(|b| b.get("ephemeral_1h_input_tokens")));
+            let w5m = num(creation.and_then(|b| b.get("ephemeral_5m_input_tokens")));
+            if w1h > 0 {
+                ttl_ms = Some(CACHE_TTL_1H);
+            } else if w5m > 0 || num(usage.get("cache_creation_input_tokens")) > 0 {
+                ttl_ms = Some(CACHE_TTL_5M);
+            }
+        }
+    }
+    CacheInfo { ttl_ms: ttl_ms.unwrap_or(CACHE_TTL_5M), last_call_at }
+}
+
+fn read_cache_info(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    profile: Option<String>,
+    wsl_distro: Option<String>,
+) -> Result<CacheInfo, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    // The id ends up in a path.
+    if !crate::context::plain_id(session_id) {
+        return Err("invalid session id".into());
+    }
+    let dir = match wsl_distro.as_deref().filter(|d| !d.is_empty()) {
+        Some(distro) => {
+            let home = crate::util::wsl_home(distro).ok_or("WSL distro not running")?;
+            crate::util::wsl_unc(distro, &format!("{home}/.claude"))
+        }
+        None => match crate::profiles::dirs(app, profile.as_deref()) {
+            Some(d) => d.claude,
+            None => return Err(format!("unknown profile {profile:?}")),
+        },
+    };
+    let Some(path) = crate::context::find_claude_transcript(&dir, session_id) else {
+        return Err(format!("no transcript for claude session {session_id}"));
+    };
+    let mut file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    let start = len.saturating_sub(CACHE_TAIL);
+    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    file.take(CACHE_TAIL).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&buf);
+    // A cut tail starts mid-line: drop the partial first line.
+    let text = if start > 0 {
+        text.split_once('\n').map(|(_, rest)| rest).unwrap_or("")
+    } else {
+        &text
+    };
+    Ok(cache_info_from_tail(text))
+}
+
+/// Cache lifetime and last model call of a Claude session, read from the end
+/// of its transcript.
+#[tauri::command]
+pub async fn chat_cache_info(
+    app: tauri::AppHandle,
+    session_id: String,
+    profile: Option<String>,
+    wsl_distro: Option<String>,
+) -> Result<CacheInfo, String> {
+    crate::blocking(move || read_cache_info(&app, &session_id, profile, wsl_distro)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn asst(ts: &str, side: bool, model: &str, usage: &str) -> String {
+        format!(
+            r#"{{"type":"assistant","isSidechain":{side},"timestamp":"{ts}","message":{{"model":"{model}","usage":{usage}}}}}"#
+        )
+    }
+
+    #[test]
+    fn cache_ttl_1h_write() {
+        let t = asst("t1", false, "claude-x", r#"{"cache_creation_input_tokens":10,"cache_creation":{"ephemeral_1h_input_tokens":10,"ephemeral_5m_input_tokens":0}}"#);
+        assert_eq!(cache_info_from_tail(&t), CacheInfo { ttl_ms: 3_600_000, last_call_at: Some("t1".into()) });
+    }
+
+    #[test]
+    fn cache_ttl_5m_only() {
+        let t = asst("t1", false, "claude-x", r#"{"cache_creation":{"ephemeral_5m_input_tokens":7}}"#);
+        assert_eq!(cache_info_from_tail(&t).ttl_ms, 300_000);
+    }
+
+    #[test]
+    fn cache_last_read_only_uses_earlier_write() {
+        let t = [
+            asst("t1", false, "claude-x", r#"{"cache_creation":{"ephemeral_1h_input_tokens":5}}"#),
+            asst("t2", false, "claude-x", r#"{"cache_read_input_tokens":99}"#),
+        ]
+        .join("\n");
+        assert_eq!(cache_info_from_tail(&t), CacheInfo { ttl_ms: 3_600_000, last_call_at: Some("t2".into()) });
+    }
+
+    #[test]
+    fn cache_ignores_sidechain_and_synthetic() {
+        let t = [
+            asst("t1", false, "claude-x", r#"{"cache_creation_input_tokens":3}"#),
+            asst("t2", true, "claude-x", r#"{"cache_creation":{"ephemeral_1h_input_tokens":5}}"#),
+            asst("t3", false, "<synthetic>", r#"{"cache_creation":{"ephemeral_1h_input_tokens":5}}"#),
+        ]
+        .join("\n");
+        assert_eq!(cache_info_from_tail(&t), CacheInfo { ttl_ms: 300_000, last_call_at: Some("t1".into()) });
+    }
+
+    #[test]
+    fn cache_no_lines() {
+        assert_eq!(cache_info_from_tail(""), CacheInfo { ttl_ms: 300_000, last_call_at: None });
+    }
 
     fn json(text: &str) -> serde_json::Value {
         serde_json::from_str(text).unwrap()
