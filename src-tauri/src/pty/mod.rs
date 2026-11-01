@@ -66,6 +66,20 @@ enum PtyOp {
 /// queue without limit. Past it, `write` fails instead.
 const MAX_QUEUED_WRITE: usize = 4 * 1024 * 1024;
 
+fn queue_write(ops: &std::sync::mpsc::Sender<PtyOp>, queued: &AtomicUsize, data: &str) -> Result<(), String> {
+    // Reserve before sending: the writer can consume the message at once.
+    // A checked sum also rejects one oversized paste into an empty queue.
+    queued
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bytes| {
+            bytes.checked_add(data.len()).filter(|&total| total <= MAX_QUEUED_WRITE)
+        })
+        .map_err(|_| "pty busy".to_string())?;
+    ops.send(PtyOp::Write(data.to_owned())).map_err(|_| {
+        queued.fetch_sub(data.len(), Ordering::Relaxed);
+        "pty session ended".to_string()
+    })
+}
+
 /// How long a session may stay between windows before it is considered
 /// abandoned - a move takes milliseconds.
 const DETACHED_GRACE: Duration = Duration::from_secs(30);
@@ -208,14 +222,7 @@ impl PtyState {
     pub fn write(&self, id: &str, data: &str) -> Result<(), String> {
         let sessions = lock(&self.0);
         let session = sessions.get(id).ok_or("unknown pty session")?;
-        if session.queued.load(Ordering::Relaxed) > MAX_QUEUED_WRITE {
-            return Err("pty busy".to_string());
-        }
-        session.queued.fetch_add(data.len(), Ordering::Relaxed);
-        session.ops.send(PtyOp::Write(data.to_owned())).map_err(|_| {
-            session.queued.fetch_sub(data.len(), Ordering::Relaxed);
-            "pty session ended".to_string()
-        })
+        queue_write(&session.ops, &session.queued, data)
     }
 
     /// Queues a resize of a session's pty - the desktop terminal's fit and a
@@ -506,13 +513,12 @@ pub fn pty_spawn(
     let master = Arc::new(Mutex::new(pair.master));
     let (ops, ops_rx) = std::sync::mpsc::channel();
     let queued = Arc::new(AtomicUsize::new(0));
-    spawn_writer(writer, Arc::clone(&master), ops_rx, Arc::clone(&queued));
     lock(&state.0).insert(
         id.clone(),
         PtySession {
-            master,
+            master: Arc::clone(&master),
             ops,
-            queued,
+            queued: Arc::clone(&queued),
             killer: child.clone_killer(),
             pid: child.process_id(),
             sink: Arc::clone(&sink),
@@ -523,6 +529,22 @@ pub fn pty_spawn(
             rows,
         },
     );
+
+    // A window can disappear during warmup or spawn, before its Destroyed
+    // handler has any session to remove. Insert first, then check Tauri's
+    // window map, as chat_start does: either this check or kill_owned_by
+    // catches a closed owner. No I/O threads have started yet on this path.
+    if app.get_webview_window(window.label()).is_none() {
+        let orphan = lock(&state.0).remove(&id);
+        let _ = child.kill();
+        drop(reader);
+        drop(writer);
+        drop(orphan);
+        drop(master);
+        let _ = child.wait();
+        return Err("window_closed".into());
+    }
+    spawn_writer(writer, master, ops_rx, queued);
 
     let session_id = id.clone();
     std::thread::spawn(move || {
@@ -736,6 +758,35 @@ fn process_stem(process: &sysinfo::Process) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_queue_caps_the_sum_and_rejects_oversized_pastes() {
+        let (ops, received) = std::sync::mpsc::channel();
+        let queued = AtomicUsize::new(0);
+        assert_eq!(queue_write(&ops, &queued, &"x".repeat(MAX_QUEUED_WRITE + 1)), Err("pty busy".into()));
+        assert_eq!(queued.load(Ordering::Relaxed), 0);
+        assert!(received.try_recv().is_err());
+
+        queued.store(MAX_QUEUED_WRITE - 1, Ordering::Relaxed);
+        assert_eq!(queue_write(&ops, &queued, "xx"), Err("pty busy".into()));
+        assert_eq!(queued.load(Ordering::Relaxed), MAX_QUEUED_WRITE - 1);
+        queue_write(&ops, &queued, "x").unwrap();
+        assert_eq!(queued.load(Ordering::Relaxed), MAX_QUEUED_WRITE);
+        assert!(matches!(received.try_recv(), Ok(PtyOp::Write(data)) if data == "x"));
+
+        queued.store(usize::MAX, Ordering::Relaxed);
+        assert_eq!(queue_write(&ops, &queued, "x"), Err("pty busy".into()));
+        assert_eq!(queued.load(Ordering::Relaxed), usize::MAX);
+    }
+
+    #[test]
+    fn input_queue_rolls_back_reservation_when_writer_is_gone() {
+        let (ops, received) = std::sync::mpsc::channel();
+        drop(received);
+        let queued = AtomicUsize::new(7);
+        assert_eq!(queue_write(&ops, &queued, "hello"), Err("pty session ended".into()));
+        assert_eq!(queued.load(Ordering::Relaxed), 7);
+    }
 
     #[test]
     fn a_remote_subscriber_that_stops_reading_is_flagged_not_buffered() {

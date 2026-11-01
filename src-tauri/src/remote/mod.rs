@@ -17,6 +17,7 @@ mod fsbrowse;
 mod hex;
 pub(crate) mod keystore;
 mod preview;
+mod prompts;
 mod stream;
 mod views;
 
@@ -250,6 +251,7 @@ struct Shared {
     notices: broadcast::Sender<ServerMsg>,
     /// view id -> hash of its package, as the last listing worked it out.
     view_hashes: Mutex<HashMap<String, String>>,
+    prompt_receipts: prompts::PromptReceipts,
     /// pty id -> phones sizing it, oldest first (the last one wins).
     sizing: Mutex<HashMap<String, Vec<SizeClaim>>>,
     /// pty id -> (release id, size) for a pty whose last phone let go less
@@ -352,6 +354,7 @@ impl RemoteState {
             profiles: watch::channel(serde_json::Value::Null).0,
             notices: broadcast::channel(32).0,
             view_hashes: Mutex::new(HashMap::new()),
+            prompt_receipts: prompts::PromptReceipts::default(),
             sizing: Mutex::new(HashMap::new()),
             pending_release: Mutex::new(HashMap::new()),
             release_seq: AtomicU64::new(0),
@@ -1527,6 +1530,17 @@ fn append_frame(buf: &mut Vec<u8>, msg: &ServerMsg, compress: bool) {
     }
 }
 
+fn append_waiting_frames(out_rx: &mut mpsc::Receiver<ServerMsg>, bulk: &mut VecDeque<ServerMsg>, buf: &mut Vec<u8>, compress: bool) {
+    // Bulk frames do not grow buf, so they need their own stop condition.
+    while buf.len() < WRITE_BATCH && bulk.len() < BULK_HELD {
+        match out_rx.try_recv() {
+            Ok(msg) if is_bulk(&msg) => bulk.push_back(msg),
+            Ok(msg) => append_frame(buf, &msg, compress),
+            Err(_) => break,
+        }
+    }
+}
+
 /// The single writer: it owns the send half, every producer queues into the
 /// channel. Frames already queued are written together in one go. Ends when
 /// the channel closes (after flushing what is queued) or the link breaks.
@@ -1540,13 +1554,7 @@ async fn write_task(mut send: SendStream, mut out_rx: mpsc::Receiver<ServerMsg>,
         buf.clear();
         append_frame(&mut buf, &msg, compress);
         // Interactive frames that queued up meanwhile ride along; bulk ones keep waiting their turn.
-        while buf.len() < WRITE_BATCH {
-            match out_rx.try_recv() {
-                Ok(msg) if is_bulk(&msg) => bulk.push_back(msg),
-                Ok(msg) => append_frame(&mut buf, &msg, compress),
-                Err(_) => break,
-            }
-        }
+        append_waiting_frames(&mut out_rx, &mut bulk, &mut buf, compress);
         if buf.is_empty() {
             continue;
         }
@@ -1989,10 +1997,10 @@ impl Conn {
     /// agent mentioned (resolved in the chat's folder), or the web image `url`
     /// (only if the desktop's "chatWebImages" setting is on), as chunks - or one
     /// `missing` message if it can't be read.
-    fn send_chat_image(&self, chat_id: Option<String>, id: Option<String>, path: Option<String>, url: Option<String>) {
+    fn send_chat_image(&self, chat_id: Option<String>, id: Option<String>, path: Option<String>, url: Option<String>, request_id: Option<String>) {
         let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
         tauri::async_runtime::spawn(async move {
-            let key = id.clone().or_else(|| path.clone()).or_else(|| url.clone()).unwrap_or_default();
+            let key = request_id.or_else(|| id.clone()).or_else(|| path.clone()).or_else(|| url.clone()).unwrap_or_default();
             let web_images = shared.settings.borrow().get("chatWebImages").and_then(|v| v.as_bool()) == Some(true);
             let app = shared.app.clone();
             let read = crate::blocking(move || match (id, path, url) {
@@ -2108,6 +2116,29 @@ impl Conn {
             if let Err(message) = result {
                 let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
             }
+        });
+    }
+
+    /// A receipt survives the connection, so a retry cannot start a second turn.
+    fn prompt(&self, chat_id: String, text: String, request_id: Option<String>) {
+        let Some(device) = lock(&self.shared.conns).get(&self.id).map(|c| c.device_id.clone()) else { return };
+        let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let result = if text.len() > proto::MAX_INPUT_BYTES || text.trim().is_empty() || chat_id.len() > MAX_ID_BYTES {
+                Err(tr("Messaggio non valido", "Invalid message").to_string())
+            } else {
+                let (app, id, message) = (shared.app.clone(), chat_id.clone(), text.clone());
+                let work = || crate::blocking(move || app.state::<ChatState>().prompt(&id, message, Vec::new()));
+                match request_id.as_deref() {
+                    Some(id) => shared.prompt_receipts.run(&device, &chat_id, id, &text, work).await,
+                    None => work().await,
+                }
+            };
+            let reply = match request_id {
+                Some(request_id) => Some(ServerMsg::ChatPromptAck { chat_id, request_id, message: result.err() }),
+                None => result.err().map(|message| ServerMsg::Error { message, pty_id: None, fatal: false }),
+            };
+            if let Some(reply) = reply { let _ = out.send(reply).await; }
         });
     }
 
@@ -2292,15 +2323,7 @@ impl Conn {
                     task.abort();
                 }
             }
-            ClientMsg::ChatPrompt { chat_id, text } => {
-                if text.len() > proto::MAX_INPUT_BYTES {
-                    self.error(tr("Messaggio troppo lungo", "Message too large"), None);
-                } else if chat_id.len() > MAX_ID_BYTES {
-                    self.error(tr("Chat non trovata", "Chat not found"), None);
-                } else if !text.trim().is_empty() {
-                    self.spawn_chat(move |chats| chats.prompt(&chat_id, text, Vec::new()));
-                }
-            }
+            ClientMsg::ChatPrompt { chat_id, text, request_id } => self.prompt(chat_id, text, request_id),
             ClientMsg::ChatCancel { chat_id } => {
                 if chat_id.len() > MAX_ID_BYTES {
                     self.error(tr("Chat non trovata", "Chat not found"), None);
@@ -2429,14 +2452,15 @@ impl Conn {
                     self.send_view_file(view_id, path);
                 }
             }
-            ClientMsg::ChatImage { chat_id, id, path, url } => {
+            ClientMsg::ChatImage { chat_id, id, path, url, request_id } => {
                 let ok = chat_id.as_ref().map_or(true, |c| c.len() <= MAX_ID_BYTES)
                     && id.as_ref().map_or(true, |i| i.len() <= MAX_ID_BYTES)
                     && path.as_ref().map_or(true, |p| p.len() <= 4096)
                     && url.as_ref().map_or(true, |u| u.len() <= 2048)
+                    && request_id.as_ref().is_none_or(|r| !r.is_empty() && r.len() <= MAX_ID_BYTES)
                     && [id.is_some(), path.is_some(), url.is_some()].into_iter().filter(|b| *b).count() == 1;
                 if ok {
-                    self.send_chat_image(chat_id, id, path, url);
+                    self.send_chat_image(chat_id, id, path, url, request_id);
                 } else {
                     self.error(tr("Richiesta non valida", "Invalid request"), None);
                 }
@@ -2567,6 +2591,22 @@ mod tests {
 
     fn view_file(path: &str) -> ServerMsg {
         ServerMsg::ViewFile { view_id: "v".into(), hash: "h".into(), path: path.into(), offset: 0, total: 0, data: String::new() }
+    }
+
+    #[tokio::test]
+    async fn interactive_write_batch_does_not_drain_unbounded_bulk_frames() {
+        let (tx, mut rx) = mpsc::channel(BULK_HELD + 10);
+        for i in 0..BULK_HELD + 10 {
+            tx.send(view_file(&i.to_string())).await.unwrap();
+        }
+        let mut bulk = VecDeque::new();
+        let mut buf = Vec::new();
+        append_frame(&mut buf, &ServerMsg::Pong, false);
+        let first_len = buf.len();
+        append_waiting_frames(&mut rx, &mut bulk, &mut buf, false);
+        assert_eq!(bulk.len(), BULK_HELD);
+        assert_eq!(rx.len(), 10);
+        assert_eq!(buf.len(), first_len);
     }
 
     #[tokio::test]

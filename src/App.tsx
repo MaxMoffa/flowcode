@@ -2,7 +2,7 @@ import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type Re
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo, listen } from "@tauri-apps/api/event";
+import { emitTo } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentInsightPanel } from "./agents/AgentInsightPanel";
@@ -14,7 +14,6 @@ import { HostSelector, MonitorIcon } from "./remoteHosts/HostSelector";
 import { PairHostDialog } from "./remoteHosts/PairHostDialog";
 import { isSafeSessionId } from "./agents/sessionId";
 import { RemoteTabStrip } from "./remoteHosts/RemoteTabStrip";
-import { RemoteWorkspace } from "./remoteHosts/RemoteWorkspace";
 import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setActiveHost, useActiveHost, useHosts } from "./remoteHosts/remoteHosts";
 import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
@@ -25,7 +24,9 @@ import { loadPluginViews } from "./agentViews/pluginViews";
 import { defaultAgentView, defaultOpensChat } from "./agentViews/defaultView";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
 import { shellStartKey, TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
-import { loadSession, saveWindowSession, type SavedTab, type SavedWindow } from "./session/session";
+import { loadSession, type SavedWindow } from "./session/session";
+import { useWindowSession } from "./session/useWindowSession";
+import { prepareEditorClose } from "./editor/closeEditors";
 import { UpdateProvider } from "./update/UpdateContext";
 import {
   defaultWslDistro,
@@ -49,9 +50,8 @@ import { tabAgentOf, useAgentSessions, type AgentSession, type TabAgent } from "
 import { cliInstallCommand } from "./cli/cliInstallCommands";
 import { useShortcuts } from "./shortcuts/useShortcuts";
 import { ContextMenuProvider, useOpenContextMenu, useContextMenu, type ContextMenuItem } from "./context-menu/ContextMenuContext";
-import { ConfirmDialogProvider, useConfirmDialog } from "./dialog/ConfirmDialogContext";
+import { ConfirmDialogProvider, useConfirmChoice, useConfirmDialog } from "./dialog/ConfirmDialogContext";
 import { FileLinkActionsContext, FileLinkCwdContext, type FileLinkActions } from "./lib/fileLinks";
-import { SettingsPage } from "./settings/SettingsPage";
 import { ChangelogNav, ChangelogPage, ChangelogProvider, WhatsNewPage } from "./changelog/ChangelogPage";
 import { consumeUpdatedVersion } from "./changelog/lastRunVersion";
 import { SettingsNav } from "./settings/SettingsNav";
@@ -107,7 +107,7 @@ import {
   labelForCwd,
   looksLikeExecutablePath,
 } from "./terminal/tabTitle";
-import { takeWindowInit, tabStripDropIndex, type CursorTarget, type TabTransfer } from "./tabs/transfer";
+import { takeWindowInit, packTabTransfer, tabStripDropIndex, type CursorTarget, type TabTransfer } from "./tabs/transfer";
 import { newTabId } from "./tabs/tabId";
 import { isDialogTab, listedTabs, makeTermTab, patchTermTab } from "./tabs/tabState";
 import "./App.css";
@@ -133,6 +133,8 @@ const DiffView = lazy(() => import("./git/DiffView").then((m) => ({ default: m.D
 const TerminalAgentHeader = lazy(() => import("./agentViews/TerminalAgentHeader").then((m) => ({ default: m.TerminalAgentHeader })));
 const AgentSessionView = lazy(() => import("./agentViews/AgentSessionView").then((m) => ({ default: m.AgentSessionView })));
 const EditorView = lazy(() => import("./editor/EditorView").then((m) => ({ default: m.EditorView })));
+const SettingsPage = lazy(() => import("./settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const RemoteWorkspace = lazy(() => import("./remoteHosts/RemoteWorkspace").then((m) => ({ default: m.RemoteWorkspace })));
 const BrowserPanel = lazy(() => import("./browser/BrowserPanel").then((m) => ({ default: m.BrowserPanel })));
 const WelcomeFlow = lazy(() => import("./welcome/WelcomeFlow").then((m) => ({ default: m.WelcomeFlow })));
 
@@ -289,6 +291,7 @@ function Shell() {
   const pendingEditorContentRef = useRef(new Map<string, string>());
   const pluginBtnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirmDialog();
+  const chooseClose = useConfirmChoice();
   const { t, language } = useI18n();
   const openMenu = useOpenContextMenu();
   const activeHost = useActiveHost();
@@ -561,104 +564,42 @@ function Shell() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!sessionChecked) return;
-    async function snapshot(): Promise<SavedWindow> {
-      const { tabs, activeTabId } = latestRef.current;
-      // A virgin terminal (opened, never typed into or used) isn't worth
-      // bringing back. A restored one left untouched is saved with the very
-      // content it was restored with, not a fresh serialize - otherwise
-      // every restart would append the new shell's prompt below it again.
-      const kept = tabs.filter((t) => {
-        // A diff is a view of the repository current state: nothing to restore.
-        if (t.kind === "diff") return false;
-        if (isDialogTab(t)) return false;
-        if (t.kind !== "terminal") return true;
-        return restoredTabIdsRef.current.has(t.id) || !!termRefs.current.get(t.id)?.wasUsed();
-      });
-      // Where an extra window reopens next time (the main one keeps its
-      // default placement). Not while minimized: Windows parks a minimized
-      // window far off-screen.
-      let bounds: SavedWindow["bounds"];
-      if (!isMainWindow && !(await appWindow.isMinimized().catch(() => false))) {
-        const geometry = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]).catch(() => null);
-        if (geometry) {
-          const [pos, size] = geometry;
-          bounds = { x: pos.x, y: pos.y, width: size.width, height: size.height };
-        }
-      }
-      return {
-        bounds,
-        activeIndex: Math.max(0, kept.findIndex((t) => t.id === activeTabId)),
-        tabs: kept.map((t): SavedTab => {
-          if (t.kind === "terminal") {
-            const term = termRefs.current.get(t.id);
-            return {
-              kind: "terminal",
-              cwd: t.cwd,
-              label: t.label,
-              customLabel: t.customLabel,
-              notifyMuted: t.notifyMuted,
-              shell: tabShell(t),
-              profileId: t.profileId,
-              content: !restoreContentRef.current
-                ? undefined
-                : term?.wasUsed()
-                  ? term.serialize()
-                  : restoredContentRef.current.get(t.id),
-            };
-          }
-          if (t.kind === "chat") {
-            // A session nobody spoke to isn't on the agent's disk: resuming it after a restart would fail, so it isn't saved.
-            const sessionId = restoreContentRef.current && t.talked !== false ? t.sessionId : undefined;
-            return { kind: "chat", agent: t.agent, cwd: t.cwd, label: t.label, profileId: t.profileId, sessionId, viewId: t.viewId, lastActiveAt: sessionId ? t.lastActiveAt : undefined };
-          }
-          if (t.kind === "editor") return { kind: "editor", path: t.path, label: t.label };
-          if (t.kind === "changelog") return { kind: "changelog" };
-          if (t.kind === "whatsNew") return { kind: "whatsNew", version: t.version };
-          return { kind: "settings" };
-        }),
-      };
-    }
-    // Setting off: overwrite with an empty session rather than leave a stale
-    // one around for whenever it's switched back on. Each window reports
-    // only its own part; the backend writes the file (see session.rs).
-    // The periodic save is skipped while nothing changed since the last one
-    // that went through; a close or a flush request always writes.
-    let lastSaved: string | null = null;
-    const persist = async (flushGen?: number, periodic = false) => {
-      // Nothing to look at while the window is hidden, nothing changed and no
-      // agent is printing: skip the serialize of every terminal.
-      const anyTabBusy = latestRef.current.tabs.some((t) => t.kind === "terminal" && t.busy);
-      if (periodic && document.hidden && !sessionDirtyRef.current && !anyTabBusy) return;
-      sessionDirtyRef.current = false;
-      const snap = restoreSessionRef.current ? await snapshot() : null;
-      const json = JSON.stringify(snap);
-      if (periodic && json === lastSaved) return;
-      const saved = await saveWindowSession(snap, flushGen).then(
-        () => true,
-        () => false,
-      );
-      if (saved) lastSaved = json;
-    };
-    // Right away too, so a freshly opened window is part of the session
-    // from the start.
-    void persist();
-    // Periodic too, not just on close - a crash or a killed process never
-    // gets a close event.
-    const timer = setInterval(() => void persist(undefined, true), 15000);
-    const unlisten = appWindow.onCloseRequested(async () => {
-      await persist();
-    });
-    // The backend asking every window for its latest state - right before
-    // quitting for an update (see updater.rs).
-    const unlistenFlush = listen<number>("session:flush", (e) => void persist(e.payload));
-    return () => {
-      clearInterval(timer);
-      unlisten.then((off) => off());
-      unlistenFlush.then((off) => off());
-    };
-  }, [sessionChecked]);
+  useWindowSession({
+    ready: sessionChecked,
+    window: appWindow,
+    main: isMainWindow,
+    dirty: sessionDirtyRef,
+    onError: (error) => window.alert(t("app.sessionSaveFailed", { error: String(error) })),
+    restore: () => restoreSessionRef.current,
+    state: () => ({
+      ...latestRef.current,
+      restoreContent: restoreContentRef.current,
+      dirtyEditors: latestRef.current.tabs.some((tab) => tab.kind === "editor" && (editorRefs.current.get(tab.id)?.isDirty() ?? pendingEditorContentRef.current.has(tab.id))),
+      restoredTabIds: restoredTabIdsRef.current,
+      terminals: termRefs.current,
+      restoredContent: restoredContentRef.current,
+      shellOf: tabShell,
+    }),
+    prepareClose: () => prepareEditorClose(
+      () => latestRef.current.tabs.flatMap((tab) => {
+        if (tab.kind !== "editor") return [];
+        const pending = pendingEditorContentRef.current.get(tab.id);
+        const handle = editorRefs.current.get(tab.id) ?? (pending !== undefined ? {
+          isDirty: () => true, getContent: () => pending, save: async () => false,
+        } : undefined);
+        return handle ? [{ id: tab.id, label: tab.label, handle }] : [];
+      }),
+      async (editor) => {
+        const choice = await chooseClose({
+          title: t("app.unsaved.title"),
+          message: t("app.unsaved.windowMessage", { name: editor.label }),
+          confirmLabel: t("app.unsaved.save"),
+          alternativeLabel: t("app.unsaved.confirm"),
+        });
+        return choice === "confirm" ? "save" : choice === "alternative" ? "discard" : "cancel";
+      },
+    ),
+  });
 
   useEffect(() => {
     if (!homeDir || !startPathChecked || !sessionChecked) return;
@@ -1449,17 +1390,14 @@ function Shell() {
    * this detaches its running session from this window (see
    * `TerminalHandle.release`). `null` when it can't move (a terminal whose
    * shell hasn't started yet). */
-  async function packTab(tab: AppTab): Promise<TabTransfer | null> {
-    if (tab.kind === "terminal") {
-      const moved = await termRefs.current.get(tab.id)?.release();
-      if (!moved) return null;
-      return { tab, terminal: { ...moved, shell: tabShell(tab), fontSize: tabFontSizeOverrides[tab.id] } };
-    }
-    if (tab.kind === "editor") {
-      const handle = editorRefs.current.get(tab.id);
-      return { tab, editor: handle ? { content: handle.getContent(), dirty: handle.isDirty() } : undefined };
-    }
-    return { tab };
+  function packTab(tab: AppTab): Promise<TabTransfer | null> {
+    return packTabTransfer(tab, {
+      terminal: termRefs.current.get(tab.id),
+      editor: editorRefs.current.get(tab.id),
+      pendingEditorContent: pendingEditorContentRef.current.get(tab.id),
+      shell: tab.kind === "terminal" ? tabShell(tab) : undefined,
+      fontSize: tabFontSizeOverrides[tab.id],
+    });
   }
 
   /** Takes a moved-away tab out of this window without closing anything -
@@ -1556,6 +1494,10 @@ function Shell() {
   async function closeTab(id: string) {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
+    if (latestRef.current.tabs.length === 1) {
+      void appWindow.close();
+      return;
+    }
     if (tab.kind !== "terminal") {
       const handle = editorRefs.current.get(id);
       if (handle?.isDirty()) {
@@ -1846,6 +1788,7 @@ function Shell() {
   }
 
   function handleDirtyChange(id: string, dirty: boolean) {
+    sessionDirtyRef.current = true;
     setDirtyIds((prev) => {
       const has = prev.has(id);
       if (dirty === has) return prev;
@@ -2904,7 +2847,7 @@ function Shell() {
             />
           </div>
         )}
-        {activeHost !== LOCAL_HOST && <RemoteWorkspace key={activeHost} hostId={activeHost} />}
+        {activeHost !== LOCAL_HOST && <Suspense key={activeHost} fallback={null}><RemoteWorkspace hostId={activeHost} /></Suspense>}
         {/* Hidden, never unmounted: the local terminals keep running. */}
         <div className="terminal-stack" style={activeHost !== LOCAL_HOST ? { display: "none" } : undefined}>
           {homeDir &&
@@ -3082,8 +3025,8 @@ function Shell() {
                 return <WhatsNewPage key={tab.id} version={tab.version} onOpenChangelog={openChangelog} />;
               }
               return (
+                <Suspense key={tab.id} fallback={null}>
                 <SettingsPage
-                  key={tab.id}
                   quickActionIds={quickActionIds}
                   onToggleQuickAction={toggleQuickAction}
                   sidebarMode={sidebarMode}
@@ -3096,6 +3039,7 @@ function Shell() {
                   onOpenShortcutsGuide={() => setShortcutsDialogOpen(true)}
                   onProfileLogin={loginProfile}
                 />
+                </Suspense>
               );
             })}
         </div>

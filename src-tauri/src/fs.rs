@@ -28,6 +28,14 @@ fn sort_entries(entries: &mut [FsEntry]) {
     entries.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
 }
 
+/// Show a local directory link as a folder, without probing a remote link
+/// merely because its parent was opened in the explorer.
+fn entry_is_dir(entry: &std::fs::DirEntry) -> bool {
+    entry.file_type().is_ok_and(|kind| {
+        kind.is_dir() || (kind.is_symlink() && links_stay_local(&entry.path()) && entry.path().is_dir())
+    })
+}
+
 fn already_exists() -> String {
     tr("Esiste già un file o una cartella con questo nome", "A file or folder with this name already exists").to_string()
 }
@@ -82,7 +90,7 @@ pub async fn read_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FsE
             .filter_map(|entry| entry.ok())
             .filter(|entry| show_hidden || !entry.file_name().to_string_lossy().starts_with('.'))
             .map(|entry| {
-                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                let is_dir = entry_is_dir(&entry);
                 FsEntry::new(&entry.path(), is_dir)
             })
             .collect();
@@ -135,7 +143,7 @@ fn search_dir_recursive(dir: &Path, walk: &SearchWalk, results: &mut Vec<FsEntry
         if !walk.show_hidden && name.starts_with('.') {
             continue;
         }
-        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let is_dir = entry_is_dir(&entry);
         if is_dir && SEARCH_IGNORE_DIRS.contains(&name.as_str()) {
             continue;
         }
@@ -143,7 +151,9 @@ fn search_dir_recursive(dir: &Path, walk: &SearchWalk, results: &mut Vec<FsEntry
         if name.to_lowercase().contains(walk.query) {
             results.push(FsEntry::new(&path, is_dir));
         }
-        if is_dir {
+        // Links are navigable in the explorer, but a recursive search must
+        // not follow them into cycles or outside the chosen tree.
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             search_dir_recursive(&path, walk, results);
         }
     }
@@ -335,33 +345,121 @@ pub fn rename_entry(path: String, new_name: String) -> Result<FsEntry, String> {
     let src = Path::new(&path);
     let parent = src.parent().ok_or("cannot rename the root directory")?;
     let dest = parent.join(validate_name(&new_name)?);
-    // A case-only rename ("readme.md" -> "README.md") points at the same
-    // entry on a case-insensitive filesystem, where `exists()` would wrongly
-    // refuse it.
-    let case_only = dest.to_string_lossy().eq_ignore_ascii_case(&src.to_string_lossy());
-    if !case_only && dest.exists() {
-        return Err(already_exists());
+    if std::fs::symlink_metadata(&dest).is_ok() && src != dest {
+        // A case-only rename is allowed only when the directory contains
+        // one matching entry. On a case-sensitive filesystem a.txt and
+        // A.txt can be distinct, even when both symlinks resolve to the same
+        // target. Canonicalizing would confuse those entries too.
+        let name = src.file_name().ok_or("cannot rename the root directory")?;
+        let case_only = dest.file_name().is_some_and(|other| other.eq_ignore_ascii_case(name));
+        let mut matching = 0;
+        if case_only {
+            for entry in std::fs::read_dir(parent).map_err(|e| e.to_string())? {
+                if entry.map_err(|e| e.to_string())?.file_name().eq_ignore_ascii_case(name) {
+                    matching += 1;
+                }
+            }
+        }
+        if !case_only || matching != 1 {
+            return Err(already_exists());
+        }
     }
     std::fs::rename(src, &dest).map_err(|e| e.to_string())?;
     Ok(FsEntry::new(&dest, dest.is_dir()))
 }
 
 fn copy_dir_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
+    let root = std::fs::canonicalize(src)?;
+    let parent = dest.parent().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "destination has no parent"))?;
+    let name = dest.file_name().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "destination has no name"))?;
+    if std::fs::canonicalize(parent)?.join(name).starts_with(&root) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "destination is inside the source tree"));
+    }
+    // Only a successfully created destination belongs to this call. In
+    // particular, a concurrent duplicate must never delete another copy.
     std::fs::create_dir(dest)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let dest_path = dest.join(entry.file_name());
-        // `file_type()` doesn't follow symlinks: resolve them with `metadata`
-        // so a symlinked folder is copied as a folder, not handed to `fs::copy`.
-        let file_type = entry.file_type()?;
-        let is_dir = if file_type.is_symlink() { std::fs::metadata(entry.path())?.is_dir() } else { file_type.is_dir() };
-        if is_dir {
-            copy_dir_recursive(&entry.path(), &dest_path)?;
-        } else {
-            std::fs::copy(entry.path(), &dest_path)?;
+    let result = copy_dir_contents(src, dest, &root, &mut std::collections::HashSet::new());
+    if result.is_err() {
+        discard_copy(dest);
+    }
+    result
+}
+
+fn discard_copy(path: &Path) {
+    // Copied read-only files block removal on Windows. Clear that attribute
+    // only inside the new copy; never follow a link during rollback.
+    #[cfg(windows)]
+    fn clear_readonly(path: &Path) {
+        let Ok(entries) = std::fs::read_dir(path) else { return };
+        for entry in entries.filter_map(Result::ok) {
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else { continue };
+            if meta.file_type().is_symlink() {
+                continue;
+            }
+            if meta.is_dir() {
+                clear_readonly(&entry.path());
+            } else if meta.permissions().readonly() {
+                let mut permissions = meta.permissions();
+                permissions.set_readonly(false);
+                let _ = std::fs::set_permissions(entry.path(), permissions);
+            }
         }
     }
-    Ok(())
+    #[cfg(windows)]
+    clear_readonly(path);
+    let _ = std::fs::remove_dir_all(path);
+}
+
+/// Copies local links as their contents only when they stay within the
+/// chosen root. The active ancestry, rather than every visited folder,
+/// rejects cycles while allowing two independent links to one child.
+fn copy_dir_contents(src: &Path, dest: &Path, root: &Path, ancestors: &mut std::collections::HashSet<PathBuf>) -> std::io::Result<()> {
+    let real = std::fs::canonicalize(src)?;
+    if !real.starts_with(root) || !ancestors.insert(real.clone()) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "directory link leaves the source tree or creates a cycle"));
+    }
+    let result = (|| {
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let path = entry.path();
+            let dest_path = dest.join(entry.file_name());
+            let file_type = entry.file_type()?;
+            let is_dir = if file_type.is_symlink() {
+                if !links_stay_local(&path) || !std::fs::canonicalize(&path)?.starts_with(root) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "symbolic link leaves the source tree"));
+                }
+                std::fs::metadata(&path)?.is_dir()
+            } else {
+                file_type.is_dir()
+            };
+            if is_dir {
+                std::fs::create_dir(&dest_path)?;
+                copy_dir_contents(&path, &dest_path, root, ancestors)?;
+            } else {
+                copy_file_new(&path, &dest_path)?;
+            }
+        }
+        Ok(())
+    })();
+    ancestors.remove(&real);
+    result
+}
+
+/// A duplicate always creates a new entry: fs::copy would overwrite a file
+/// or follow a dangling destination link created by another call meanwhile.
+fn copy_file_new(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if !std::fs::metadata(src)?.is_file() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "only regular files can be copied"));
+    }
+    let mut input = std::fs::File::open(src)?;
+    let mut output = std::fs::OpenOptions::new().write(true).create_new(true).open(dest)?;
+    let result = std::io::copy(&mut input, &mut output)
+        .and_then(|_| output.set_permissions(input.metadata()?.permissions()));
+    drop(output);
+    if result.is_err() {
+        let _ = std::fs::remove_file(dest);
+    }
+    result
 }
 
 /// Picks "name copy.ext", then "name copy 2.ext", "name copy 3.ext", ... in `parent`.
@@ -372,7 +470,7 @@ fn unique_copy_path(parent: &Path, stem: &str, ext: Option<&str>) -> PathBuf {
     };
     let mut candidate = suffixed(format!("{stem} copy"));
     let mut n = 2;
-    while candidate.exists() {
+    while std::fs::symlink_metadata(&candidate).is_ok() {
         candidate = suffixed(format!("{stem} copy {n}"));
         n += 1;
     }
@@ -393,7 +491,7 @@ pub async fn duplicate_entry(path: String) -> Result<FsEntry, String> {
             let stem = src.file_stem().and_then(|n| n.to_str()).unwrap_or("file");
             let ext = src.extension().and_then(|n| n.to_str());
             let dest = unique_copy_path(parent, stem, ext);
-            std::fs::copy(src, &dest).map_err(|e| e.to_string())?;
+            copy_file_new(src, &dest).map_err(|e| e.to_string())?;
             Ok(FsEntry::new(&dest, false))
         }
     })
@@ -704,6 +802,158 @@ pub async fn path_kind(path: String, cwd: Option<String>) -> Option<PathTarget> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!("flowcode-fs-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            discard_copy(&self.0);
+        }
+    }
+
+    fn directory_link(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).unwrap();
+            true
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir(target, link).is_ok()
+                || std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(link)
+                    .arg(target)
+                    .output()
+                    .is_ok_and(|o| o.status.success())
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (target, link);
+            false
+        }
+    }
+
+    #[test]
+    fn rename_never_replaces_an_existing_entry() {
+        let scratch = Scratch::new();
+        let a = scratch.0.join("a.txt");
+        let b = scratch.0.join("b.txt");
+        std::fs::write(&a, "source").unwrap();
+        std::fs::write(&b, "destination").unwrap();
+        assert!(rename_entry(a.to_string_lossy().into_owned(), "b.txt".into()).is_err());
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "source");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "destination");
+        assert!(rename_entry(a.to_string_lossy().into_owned(), "A.txt".into()).is_ok());
+        assert_eq!(std::fs::read_to_string(scratch.0.join("A.txt")).unwrap(), "source");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn duplicate_rejects_special_files_before_opening_or_creating_a_copy() {
+        let scratch = Scratch::new();
+        let dest = scratch.0.join("special copy");
+        assert_eq!(copy_file_new(Path::new("/dev/null"), &dest).unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn rename_preserves_distinct_case_variants_when_supported() {
+        use std::io::Write;
+        let scratch = Scratch::new();
+        let a = scratch.0.join("a.txt");
+        let upper = scratch.0.join("A.txt");
+        std::fs::write(&a, "source").unwrap();
+        let mut file = match std::fs::OpenOptions::new().write(true).create_new(true).open(&upper) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return, // Case-insensitive volume.
+            Err(e) => panic!("could not create case variant: {e}"),
+        };
+        file.write_all(b"destination").unwrap();
+        drop(file);
+        assert!(rename_entry(a.to_string_lossy().into_owned(), "A.txt".into()).is_err());
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "source");
+        assert_eq!(std::fs::read_to_string(&upper).unwrap(), "destination");
+    }
+
+    #[test]
+    fn copy_directory_materializes_local_child_links() {
+        let scratch = Scratch::new();
+        let source = scratch.0.join("source");
+        std::fs::create_dir_all(source.join("real")).unwrap();
+        std::fs::write(source.join("real").join("a.txt"), "hello").unwrap();
+        if !directory_link(&source.join("real"), &source.join("link")) {
+            return;
+        }
+        let entry = std::fs::read_dir(&source).unwrap().map(Result::unwrap).find(|e| e.file_name() == "link").unwrap();
+        assert!(entry_is_dir(&entry));
+        let dest = scratch.0.join("copy");
+        copy_dir_recursive(&source, &dest).unwrap();
+        assert_eq!(std::fs::read_to_string(dest.join("link").join("a.txt")).unwrap(), "hello");
+        assert!(!std::fs::symlink_metadata(dest.join("link")).unwrap().file_type().is_symlink());
+        assert!(copy_dir_recursive(&source, &dest).is_err());
+        assert_eq!(std::fs::read_to_string(dest.join("real").join("a.txt")).unwrap(), "hello");
+    }
+
+    #[test]
+    fn copy_directory_rejects_cycles_and_cleans_its_partial_copy() {
+        let scratch = Scratch::new();
+        let source = scratch.0.join("source");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("a.txt"), "hello").unwrap();
+        #[cfg(windows)]
+        {
+            let path = source.join("a.txt");
+            let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+            permissions.set_readonly(true);
+            std::fs::set_permissions(path, permissions).unwrap();
+        }
+        if !directory_link(&source, &source.join("loop")) {
+            return;
+        }
+        let dest = scratch.0.join("copy");
+        assert!(copy_dir_recursive(&source, &dest).is_err());
+        assert!(!dest.exists(), "a failed copy must leave no partial directory");
+        assert_eq!(std::fs::read_to_string(source.join("a.txt")).unwrap(), "hello");
+    }
+
+    #[test]
+    fn copy_directory_rejects_links_outside_its_root_and_nested_destinations() {
+        let scratch = Scratch::new();
+        let source = scratch.0.join("source");
+        let outside = scratch.0.join("outside");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("private.txt"), "outside").unwrap();
+        assert!(copy_dir_recursive(&source, &source.join("nested-copy")).is_err());
+        assert!(!source.join("nested-copy").exists());
+        if !directory_link(&outside, &source.join("outside")) {
+            return;
+        }
+        let dest = scratch.0.join("copy");
+        assert!(copy_dir_recursive(&source, &dest).is_err());
+        assert!(!dest.exists());
+        assert_eq!(std::fs::read_to_string(outside.join("private.txt")).unwrap(), "outside");
+    }
+
+    #[test]
+    fn copy_file_never_replaces_a_destination() {
+        let scratch = Scratch::new();
+        let source = scratch.0.join("a.txt");
+        let dest = scratch.0.join("b.txt");
+        std::fs::write(&source, "source").unwrap();
+        std::fs::write(&dest, "destination").unwrap();
+        assert!(copy_file_new(&source, &dest).is_err());
+        assert_eq!(std::fs::read_to_string(dest).unwrap(), "destination");
+    }
 
     #[test]
     fn text_sniff() {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import { THEME_TOKENS, createBridgeHost, type BridgeSource, type ViewStatus, type ViewTheme } from "../../shared/agentViewBridge";
 import type { ChatInfo, ViewPackage } from "../../shared/remote-types";
@@ -51,7 +51,19 @@ function bottomInset(): number {
  * by ChatScreen around this. A view that never says hello is declared
  * unresponsive and the user is offered the chat back.
  */
-export function ChatPluginView({ pkg, info, session, onSwitchView }: { pkg: ViewPackage; info: ChatInfo; session: ChatSession; onSwitchView: (viewId: string) => void }) {
+interface ChatPluginViewProps {
+  pkg: ViewPackage;
+  info: ChatInfo;
+  session: ChatSession;
+  onSwitchView: (viewId: string) => void;
+}
+
+export function ChatPluginView(props: ChatPluginViewProps) {
+  const key = JSON.stringify([props.info.chatId, props.pkg.id, props.pkg.hash, props.pkg.entry]);
+  return <SessionChatPluginView key={key} {...props} />;
+}
+
+function SessionChatPluginView({ pkg, info, session, onSwitchView }: ChatPluginViewProps) {
   const language = useRemoteSelector((s) => s.settings?.resolvedLanguage);
   const settings = useRemoteSelector((s) => s.settings);
   const local = phoneTheme.use();
@@ -81,7 +93,8 @@ export function ChatPluginView({ pkg, info, session, onSwitchView }: { pkg: View
     currentModelId: latest.current.canSetModel ? (chatModels(latest.current.info, latest.current.session.model)?.currentModelId ?? null) : null,
   });
 
-  useEffect(() => {
+  // A cached iframe can say hello immediately after mounting.
+  useLayoutEffect(() => {
     const bottom = bottomInset();
     const source: BridgeSource<ChatEvent> = {
       device: latest.current.wide ? "tablet" : "phone",

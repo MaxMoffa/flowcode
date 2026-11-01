@@ -173,15 +173,28 @@ pub(crate) fn resolve_file(path: &str, cwd: Option<&str>, wsl_distro: Option<&st
     } else if !is_windows_absolute(&path) && !path.starts_with('/') {
         let cwd = cwd.ok_or_else(|| "relative path without a folder".to_string())?;
         let base = if linux(cwd) { from_wsl_path(cwd, distro)? } else { cwd.to_string() };
-        path = format!("{}\\{}", base.trim_end_matches(['\\', '/']), path.replace('/', "\\"));
+        if is_windows_absolute(&base) {
+            // WSL targets and Windows paths keep Windows separators even in
+            // cross-platform tests; native POSIX paths must keep their own.
+            path = format!("{}\\{}", base.trim_end_matches(['\\', '/']), path.replace('/', "\\"));
+        } else {
+            return Ok(Path::new(&base).join(path));
+        }
     }
     Ok(PathBuf::from(path))
 }
 
-/// The bytes of an image file; not directories, not files over 32 MiB.
+/// The bytes of a local image file; not directories or files over 32 MiB.
 pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>, String> {
+    // Images mentioned in agent output load automatically. Check the path
+    // before any stat can authenticate to a remote UNC share, including one
+    // reached through a local symlink or junction. Local WSL shares remain
+    // available under the same policy as other file links.
+    if !crate::fs::is_local_path(path, false) || !crate::fs::links_stay_local(path) {
+        return Err("not a local file".into());
+    }
     let meta = std::fs::metadata(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    if meta.is_dir() {
+    if !meta.is_file() {
         return Err("not a file".into());
     }
     if meta.len() > MAX_FILE_BYTES {
@@ -294,6 +307,72 @@ mod tests {
         assert_eq!(p("file:///C:/my%20dir/x.webp", None, None).unwrap(), "C:/my dir/x.webp");
         assert_eq!(p("file:///mnt/c/x.png", None, Some("Ubuntu")).unwrap(), r"C:\x.png");
         assert_eq!(p("notes.txt", Some(r"C:\proj"), None), Err("not an image".into()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_file_references_keep_posix_separators() {
+        assert_eq!(resolve_file("shots/a.png", Some("/home/me"), None).unwrap(), Path::new("/home/me/shots/a.png"));
+        assert_eq!(resolve_file("shots/a.png", Some("/home/me/"), None).unwrap(), Path::new("/home/me/shots/a.png"));
+        assert_eq!(resolve_file("file:///home/me/my%20shots/a.png", None, None).unwrap(), Path::new("/home/me/my shots/a.png"));
+    }
+
+    #[test]
+    fn local_image_files_can_be_read() {
+        let dir = std::env::temp_dir().join(format!("flowcode-image-read-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let image = dir.join("image.png");
+        std::fs::write(&image, [1u8, 2, 3]).unwrap();
+        assert_eq!(read_file(&image).unwrap(), [1u8, 2, 3]);
+        assert_eq!(read_file(&dir), Err("not a file".into()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn image_files_refuse_network_and_device_paths_before_reading() {
+        for path in [
+            r"\\attacker.invalid\share\image.png",
+            "//attacker.invalid/share/image.png",
+            r"\\?\UNC\attacker.invalid\share\image.png",
+            r"\\.\pipe\image.png",
+            r"\\?\GLOBALROOT\Device\image.png",
+        ] {
+            assert_eq!(read_file(Path::new(path)), Err("not a local file".into()), "{path:?}");
+        }
+        // The allowlist is lexical: these checks never access WSL itself.
+        assert!(crate::fs::is_local_path(Path::new(r"\\wsl.localhost\Ubuntu\image.png"), false));
+        assert!(crate::fs::is_local_path(Path::new(r"\\wsl$\Ubuntu\image.png"), false));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn image_files_refuse_symlinks_to_network_shares() {
+        let dir = std::env::temp_dir().join(format!("flowcode-image-link-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let link = dir.join("image.png");
+        // Creating a symlink requires Developer Mode or extra privileges on
+        // Windows. The direct UNC test always runs, regardless of that grant.
+        if std::os::windows::fs::symlink_file(r"\\attacker.invalid\share\image.png", &link).is_ok() {
+            assert_eq!(read_file(&link), Err("not a local file".into()));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn image_files_can_follow_local_symlinks_but_refuse_cycles() {
+        let dir = std::env::temp_dir().join(format!("flowcode-image-link-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let image = dir.join("image.png");
+        let link = dir.join("link.png");
+        let cycle = dir.join("cycle.png");
+        std::fs::write(&image, [4u8, 5, 6]).unwrap();
+        std::os::unix::fs::symlink("image.png", &link).unwrap();
+        std::os::unix::fs::symlink("cycle.png", &cycle).unwrap();
+        assert_eq!(read_file(&link).unwrap(), [4u8, 5, 6]);
+        assert_eq!(read_file(&cycle), Err("not a local file".into()));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -267,6 +267,7 @@ export interface DesktopUpdate {
 }
 
 export type ServerMsg =
+  | { t: "chatpromptack"; chatId: string; requestId: string; message?: string }
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
   | { t: "error"; message: string; ptyId?: string; fatal: boolean }
   | { t: "tabs"; tabs: Tab[] }
@@ -319,7 +320,7 @@ export type ClientMsg =
   /** Follows a chat: the desktop answers with its events after `afterSeq`, then streams new ones. */
   | { t: "chatopen"; chatId: string; afterSeq: number }
   | { t: "chatclose"; chatId: string }
-  | { t: "chatprompt"; chatId: string; text: string }
+  | { t: "chatprompt"; chatId: string; text: string; requestId?: string }
   | { t: "chatcancel"; chatId: string }
   /** Answers an agent's permission request; `optionId: null` cancels it. */
   | { t: "chatpermission"; chatId: string; requestId: unknown; optionId: string | null }
@@ -355,6 +356,6 @@ export type ClientMsg =
   /** The preview of a link in a chat (answered with `linkpreview`). */
   | { t: "linkpreview"; url: string }
   /** An image of a chat, by the `id` the desktop stored it under or by `path` (a file on the chat's PC, resolved against its cwd/WSL) or by web `url` (downloaded by the desktop only if its `chatWebImages` setting is on, else `missing`; the reply `key` is the url); answered with `chatimage` chunks. Needs the "chatImage" cap (not in `RemoteCap`); `url` also needs "chatWebImages". */
-  | { t: "chatimage"; chatId?: string; id?: string; path?: string; url?: string }
+  | { t: "chatimage"; chatId?: string; id?: string; path?: string; url?: string; requestId?: string }
   | { t: "background"; on: boolean }
   | { t: "ping" };

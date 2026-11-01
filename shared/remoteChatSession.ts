@@ -2,7 +2,7 @@
 // own reducer, src/chat/chatModel.ts) plus what only the phone keeps: the raw
 // events for plugin views and the messages waiting to be sent. Pure functions,
 // so the resume-after-reconnect and queue rules are testable without a link.
-import { applyEvent, forceCancels, initialChat, liveModels, liveThought, normalizeModels, normalizeThought, settleChat, type ChatModelState } from "../src/chat/chatModel";
+import { applyEvent, applyLocalError, isAgentBusy, isAgentExited, forceCancels, initialChat, liveModels, liveThought, normalizeModels, normalizeThought, settleChat, type ChatModelState } from "../src/chat/chatModel";
 import type { ChatEvent, ChatModels, ChatModes, ChatStatus, ChatThought } from "../src/chat/chatTypes";
 import type { ChatInfo } from "./remote-types";
 
@@ -22,11 +22,19 @@ export interface ChatSession {
   sentAtSeq: number | null;
   /** The message last handed to the agent, until its `user` event shows it arrived: what a refusal that names no chat (`agent_busy`) puts back. */
   sentText: string | null;
+  /** Stable across reconnects until the server acknowledges this delivery. */
+  sentRequestId: string | null;
+  /** An old server cannot prove delivery: keep the text visible for manual retry. */
+  deliveryUncertain: boolean;
+  /** Local attempt identity, including sends to legacy servers. */
+  deliveryVersion: number;
   /** The desktop answered `chatopen` (even with nothing): the conversation shown is complete up to now. */
   loaded: boolean;
 }
 
-export const emptySession = (): ChatSession => ({ model: initialChat(), events: [], queued: [], sentAtSeq: null, sentText: null, loaded: false });
+export const emptySession = (): ChatSession => ({ model: initialChat(), events: [], queued: [], sentAtSeq: null, sentText: null, sentRequestId: null, deliveryUncertain: false, deliveryVersion: 0, loaded: false });
+
+export const promptRequestId = () => `${Date.now()}-${crypto.randomUUID()}`;
 
 function isChatEvent(v: unknown): v is ChatEvent {
   return typeof v === "object" && v !== null && typeof (v as ChatEvent).seq === "number" && typeof (v as ChatEvent).kind === "string";
@@ -53,8 +61,12 @@ export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay
   if (opts.replay) model = opts.busy ? (model.status === "starting" ? { ...model, status: "busy", turnActive: true, turn: model.turn ?? { startedAt: Date.now(), outChars: 0 } } : model) : settleChat(model);
   const events = fresh.length === 0 ? session.events : [...session.events, ...fresh].slice(-MAX_RAW_EVENTS);
   // The sent message's own `user` event (or the agent's end) settles it: nothing left to put back.
-  const landed = session.sentText !== null && fresh.some((e) => (e.kind === "user" && e.seq > (session.sentAtSeq ?? -Infinity)) || e.kind === "exit");
-  return { ...session, model, events, loaded: session.loaded || opts.replay, sentText: landed ? null : session.sentText };
+  const landed = session.sentRequestId === null && session.sentText !== null && fresh.some((e) => (e.kind === "user" && e.text === session.sentText && e.seq > (session.sentAtSeq ?? -Infinity)) || e.kind === "exit");
+  const next = { ...session, model, events, loaded: session.loaded || opts.replay, sentText: landed ? null : session.sentText };
+  if (opts.replay && next.sentText !== null && next.sentRequestId === null) {
+    return { ...next, queued: [next.sentText, ...next.queued], sentText: null, sentAtSeq: null, deliveryUncertain: true };
+  }
+  return next;
 }
 
 /**
@@ -73,21 +85,22 @@ export function chatStatus(info: ChatInfo | undefined, model: ChatModelState): C
 
 /** The agent can take a message now: idle, and the last one sent has started its turn. */
 export function canDispatch(session: ChatSession, status: ChatStatus): boolean {
-  if (status !== "idle" || session.queued.length === 0) return false;
+  if (status !== "idle" || session.queued.length === 0 || session.sentText !== null || session.deliveryUncertain) return false;
   return session.sentAtSeq === null || session.model.lastSeq > session.sentAtSeq;
 }
 
 /** Takes the next queued message out; the caller sends it. */
-export function takeQueued(session: ChatSession): { session: ChatSession; text: string } | null {
+export function takeQueued(session: ChatSession, requestId: string | null = null): { session: ChatSession; text: string } | null {
   const [text, ...rest] = session.queued;
   if (text === undefined) return null;
-  return { text, session: { ...session, queued: rest, sentAtSeq: session.model.lastSeq, sentText: text } };
+  return { text, session: { ...session, queued: rest, sentAtSeq: session.model.lastSeq, sentText: text, sentRequestId: requestId, deliveryVersion: session.deliveryVersion + 1 } };
 }
 
 /** The send never left the phone: back to the front of the queue, as if untouched. */
-export function putBack(session: ChatSession, text: string, sentAt: number): ChatSession {
+export function putBack(session: ChatSession, text: string, sentAt: number, version = session.deliveryVersion): ChatSession {
   const mine = session.sentAtSeq === sentAt;
-  return { ...session, queued: [text, ...session.queued], sentAtSeq: mine ? null : session.sentAtSeq, sentText: mine ? null : session.sentText };
+  if (!mine || session.sentText !== text || session.deliveryVersion !== version) return session;
+  return { ...session, queued: [text, ...session.queued], sentAtSeq: null, sentText: null, sentRequestId: null };
 }
 
 /**
@@ -98,7 +111,21 @@ export function putBack(session: ChatSession, text: string, sentAt: number): Cha
  */
 export function requeueRefused(session: ChatSession): ChatSession | null {
   if (session.sentText === null) return null;
-  return { ...session, queued: [session.sentText, ...session.queued], sentText: null, sentAtSeq: session.model.lastSeq };
+  return { ...session, queued: [session.sentText, ...session.queued], sentText: null, sentRequestId: null, sentAtSeq: session.sentAtSeq ?? session.model.lastSeq };
+}
+
+/** Correlated replies never consume another chat's pending text. */
+export function acknowledgePrompt(session: ChatSession, requestId: string, message?: string): ChatSession {
+  if (session.sentRequestId !== requestId) return session;
+  if (!message) return { ...session, sentText: null, sentRequestId: null };
+  const next = requeueRefused(session) ?? session;
+  const retryAfterTurn = isAgentBusy(message) || isAgentExited(message);
+  return { ...next, deliveryUncertain: !retryAfterTurn, model: retryAfterTurn ? next.model : applyLocalError(next.model, message) };
+}
+
+export function pauseUnconfirmedPrompt(session: ChatSession): ChatSession {
+  if (session.sentText === null) return session;
+  return { ...session, queued: [session.sentText, ...session.queued], sentText: null, sentRequestId: null, sentAtSeq: null, deliveryUncertain: true };
 }
 
 /** The chat a refusal naming no chat belongs to: the one message still waiting for its `user` event. Null when none or several are (it can't be told). */
@@ -111,7 +138,7 @@ export function refusedChat(sessions: Record<string, ChatSession>): string | nul
 export function forceQueued(session: ChatSession, index: number): ChatSession {
   if (index < 0 || index >= session.queued.length) return session;
   const queued = [session.queued[index], ...session.queued.filter((_, i) => i !== index)];
-  return { ...session, queued, sentAtSeq: null };
+  return { ...session, queued, sentAtSeq: null, deliveryUncertain: false };
 }
 
 /** "Send now" also cancels: a turn runs, or the last message is still on its way (sent, its `user` event not seen yet). */

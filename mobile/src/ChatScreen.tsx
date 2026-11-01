@@ -146,6 +146,11 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
     items: model.items,
     lastActivityAt: activity.at,
     usageTokens: activity.tokens,
+    sessionId: info?.sessionId,
+    profileId: null,
+    wslDistro: null,
+    local: false,
+    chatId,
   });
   const answerAsk = useCallback(
     (requestId: string, action: "accept" | "decline", content?: Record<string, unknown>) =>

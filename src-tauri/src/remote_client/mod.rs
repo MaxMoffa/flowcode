@@ -26,13 +26,13 @@ use flowcode_remote_proto::{ClientMsg, PairingTicket, ServerMsg};
 use iroh::Endpoint;
 use link::{LinkError, Session};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use store::{Codec, OpenError, Pairing};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tokio::sync::{mpsc, Notify};
 
 /// Messages waiting for a link; `remote_host_send` refuses more ("busy")
@@ -142,9 +142,11 @@ struct Conn {
     log: Arc<connlog::ConnLog>,
     /// Latest message of each replayable kind (see `cache_kind`).
     cache: Vec<(&'static str, ServerMsg)>,
-    /// How many windows have each pty / chat open on this link.
-    ptys: HashMap<String, u32>,
-    chats: HashMap<String, u32>,
+    /// References to each stream, counted separately for every window.
+    ptys: StreamOwners,
+    chats: StreamOwners,
+    /// Final closes waiting for room in the bounded outbound queue.
+    pending_closes: HashSet<Stream>,
 }
 
 impl Conn {
@@ -159,6 +161,7 @@ impl Conn {
             cache: Vec::new(),
             ptys: HashMap::new(),
             chats: HashMap::new(),
+            pending_closes: HashSet::new(),
         }
     }
 
@@ -166,6 +169,7 @@ impl Conn {
     fn clear_streams(&mut self) {
         self.ptys.clear();
         self.chats.clear();
+        self.pending_closes.clear();
     }
 }
 
@@ -193,25 +197,127 @@ fn cache_put(cache: &mut Vec<(&'static str, ServerMsg)>, msg: &ServerMsg) {
     }
 }
 
-/// One more window has `id` open.
-fn track_open(map: &mut HashMap<String, u32>, id: &str) {
-    *map.entry(id.to_string()).or_insert(0) += 1;
+type StreamOwners = HashMap<String, HashMap<String, u32>>;
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum Stream {
+    Pty(String),
+    Chat(String),
+}
+
+impl Stream {
+    fn close_message(&self) -> ClientMsg {
+        match self {
+            Self::Pty(id) => ClientMsg::Close { pty_id: id.clone() },
+            Self::Chat(id) => ClientMsg::ChatClose { chat_id: id.clone() },
+        }
+    }
+
+    fn is_open(&self, conn: &Conn) -> bool {
+        match self {
+            Self::Pty(id) => conn.ptys.contains_key(id),
+            Self::Chat(id) => conn.chats.contains_key(id),
+        }
+    }
+}
+
+struct DeferredClose {
+    out: mpsc::Sender<ClientMsg>,
+    stream: Stream,
+}
+
+/// Multiple views in one window can follow the same stream.
+fn track_open(map: &mut StreamOwners, window: &str, id: &str) {
+    *map.entry(id.to_string()).or_default().entry(window.to_string()).or_insert(0) += 1;
 }
 
 /// One window closed `id`. True when it was the last one, i.e. the server
 /// should hear about it; false (and nothing changes) when none was open.
-fn track_close(map: &mut HashMap<String, u32>, id: &str) -> bool {
-    match map.get_mut(id) {
-        None => false,
-        Some(count) if *count > 1 => {
-            *count -= 1;
+fn track_close(map: &mut StreamOwners, window: &str, id: &str) -> bool {
+    let Some(owners) = map.get_mut(id) else { return false };
+    let Some(count) = owners.get_mut(window) else { return false };
+    if *count > 1 {
+        *count -= 1;
+        return false;
+    }
+    owners.remove(window);
+    if !owners.is_empty() {
+        return false;
+    }
+    map.remove(id);
+    true
+}
+
+/// Drops all of a destroyed window's references; returns streams nobody else follows.
+fn forget_owner(map: &mut StreamOwners, window: &str) -> Vec<String> {
+    let mut closed = Vec::new();
+    map.retain(|id, owners| {
+        owners.remove(window);
+        if owners.is_empty() {
+            closed.push(id.clone());
             false
-        }
-        Some(_) => {
-            map.remove(id);
+        } else {
             true
         }
+    });
+    closed
+}
+
+fn queue_error(error: mpsc::error::TrySendError<ClientMsg>) -> String {
+    match error {
+        mpsc::error::TrySendError::Full(_) => "busy".to_string(),
+        mpsc::error::TrySendError::Closed(_) => "not connected".to_string(),
     }
+}
+
+/// A close cannot be discarded when the queue is full: no later unmount will
+/// retry it. Only one bounded-queue waiter is needed for each closed stream.
+fn queue_close(conn: &mut Conn, stream: Stream) -> Option<DeferredClose> {
+    if conn.pending_closes.contains(&stream) {
+        return None;
+    }
+    let out = conn.out.as_ref()?;
+    match out.try_send(stream.close_message()) {
+        Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => None,
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            conn.pending_closes.insert(stream.clone());
+            Some(DeferredClose { out: out.clone(), stream })
+        }
+    }
+}
+
+fn complete_close(conn: &mut Conn, out: &mpsc::Sender<ClientMsg>, stream: Stream, permit: mpsc::OwnedPermit<ClientMsg>) {
+    if !conn.out.as_ref().is_some_and(|current| current.same_channel(out)) {
+        return;
+    }
+    conn.pending_closes.remove(&stream);
+    // A new viewer may have opened while the queue was full. Sending
+    // its old close now would tear down that viewer's live stream.
+    if !stream.is_open(conn) {
+        permit.send(stream.close_message());
+    }
+}
+
+/// Called under the connection lock, so queue order and ownership order agree.
+fn send_owned(conn: &mut Conn, window: &str, msg: ClientMsg) -> Result<Option<DeferredClose>, String> {
+    match &msg {
+        ClientMsg::Close { pty_id } => {
+            return Ok(track_close(&mut conn.ptys, window, pty_id).then(|| queue_close(conn, Stream::Pty(pty_id.clone()))).flatten());
+        }
+        ClientMsg::ChatClose { chat_id } => {
+            return Ok(track_close(&mut conn.chats, window, chat_id).then(|| queue_close(conn, Stream::Chat(chat_id.clone()))).flatten());
+        }
+        _ => {}
+    }
+    let out = conn.out.as_ref().ok_or_else(|| "not connected".to_string())?;
+    out.try_send(msg.clone()).map_err(queue_error)?;
+    // A failed enqueue never creates a reference that the server did not see.
+    match &msg {
+        ClientMsg::Open { pty_id, .. } => track_open(&mut conn.ptys, window, pty_id),
+        ClientMsg::ChatOpen { chat_id, .. } => track_open(&mut conn.chats, window, chat_id),
+        _ => {}
+    }
+    Ok(None)
 }
 
 // ---- state -----------------------------------------------------------------
@@ -256,6 +362,37 @@ impl RemoteClients {
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Conn>> {
         self.conns.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Releases streams even when a webview was destroyed without React cleanup.
+    pub fn forget_window(self: &Arc<Self>, window: &str) {
+        let mut pending = Vec::new();
+        {
+            let mut conns = self.lock();
+            for (id, conn) in conns.iter_mut() {
+                let streams = forget_owner(&mut conn.ptys, window).into_iter().map(Stream::Pty)
+                    .chain(forget_owner(&mut conn.chats, window).into_iter().map(Stream::Chat));
+                for stream in streams {
+                    if let Some(close) = queue_close(conn, stream) {
+                        pending.push((id.clone(), close));
+                    }
+                }
+            }
+        }
+        for (id, close) in pending {
+            self.defer_close(id, close);
+        }
+    }
+
+    fn defer_close(self: &Arc<Self>, id: String, close: DeferredClose) {
+        let clients = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            let DeferredClose { out, stream } = close;
+            let Ok(permit) = out.clone().reserve_owned().await else { return };
+            let mut conns = clients.lock();
+            let Some(conn) = conns.get_mut(&id) else { return };
+            complete_close(conn, &out, stream, permit);
+        });
     }
 
     fn key_path(&self) -> PathBuf {
@@ -532,7 +669,7 @@ pub fn remote_host_forget(app: AppHandle, clients: State<'_, Arc<RemoteClients>>
 }
 
 #[tauri::command]
-pub fn remote_host_send(clients: State<'_, Arc<RemoteClients>>, id: String, msg: serde_json::Value) -> Result<(), String> {
+pub fn remote_host_send(window: Window, clients: State<'_, Arc<RemoteClients>>, id: String, msg: serde_json::Value) -> Result<(), String> {
     let msg: ClientMsg = serde_json::from_value(msg).map_err(|e| format!("invalid message: {e}"))?;
     // Handshake messages are the Rust side's business only.
     if matches!(msg, ClientMsg::Pair { .. } | ClientMsg::Auth { .. }) {
@@ -541,47 +678,18 @@ pub fn remote_host_send(clients: State<'_, Arc<RemoteClients>>, id: String, msg:
     // Several windows may view the same stream: every open is forwarded (each
     // opener needs the snapshot), but the server only hears about the close
     // of the last one.
-    let out = {
+    let pending = {
         let mut conns = clients.lock();
+        if window.app_handle().get_webview_window(window.label()).is_none() {
+            return Err("window closed".into());
+        }
         let conn = conns.get_mut(&id).ok_or_else(|| "not connected".to_string())?;
-        let out = conn.out.clone().ok_or_else(|| "not connected".to_string())?;
-        let forward = match &msg {
-            ClientMsg::Open { pty_id, .. } => {
-                track_open(&mut conn.ptys, pty_id);
-                true
-            }
-            ClientMsg::Close { pty_id } => track_close(&mut conn.ptys, pty_id),
-            ClientMsg::ChatOpen { chat_id, .. } => {
-                track_open(&mut conn.chats, chat_id);
-                true
-            }
-            ClientMsg::ChatClose { chat_id } => track_close(&mut conn.chats, chat_id),
-            _ => true,
-        };
-        if !forward {
-            return Ok(());
-        }
-        out
+        send_owned(conn, window.label(), msg)?
     };
-    out.try_send(msg.clone()).map_err(|e| {
-        // The open never reached the server: undo its count.
-        let mut conns = clients.lock();
-        if let Some(conn) = conns.get_mut(&id) {
-            match &msg {
-                ClientMsg::Open { pty_id, .. } => {
-                    track_close(&mut conn.ptys, pty_id);
-                }
-                ClientMsg::ChatOpen { chat_id, .. } => {
-                    track_close(&mut conn.chats, chat_id);
-                }
-                _ => {}
-            }
-        }
-        match e {
-            mpsc::error::TrySendError::Full(_) => "busy".to_string(),
-            mpsc::error::TrySendError::Closed(_) => "not connected".to_string(),
-        }
-    })
+    if let Some(close) = pending {
+        clients.defer_close(id, close);
+    }
+    Ok(())
 }
 
 /// The latest replayable messages of a host, for a window that mounts (or
@@ -604,20 +712,109 @@ mod tests {
     #[test]
     fn opens_are_counted_and_only_the_last_close_counts() {
         let mut map = HashMap::new();
-        track_open(&mut map, "p1");
-        track_open(&mut map, "p1");
-        assert!(!track_close(&mut map, "p1"));
-        assert!(track_close(&mut map, "p1"));
+        track_open(&mut map, "main", "p1");
+        track_open(&mut map, "main", "p1");
+        track_open(&mut map, "other", "p1");
+        assert!(!track_close(&mut map, "main", "p1"));
+        assert!(!track_close(&mut map, "other", "p1"));
+        assert!(track_close(&mut map, "main", "p1"));
         assert!(map.is_empty());
     }
 
     #[test]
     fn closing_something_not_open_is_a_no_op() {
         let mut map = HashMap::new();
-        assert!(!track_close(&mut map, "ghost"));
-        track_open(&mut map, "a");
-        assert!(!track_close(&mut map, "b"));
-        assert_eq!(map["a"], 1);
+        assert!(!track_close(&mut map, "main", "ghost"));
+        track_open(&mut map, "main", "a");
+        assert!(!track_close(&mut map, "main", "b"));
+        assert!(!track_close(&mut map, "other", "a"));
+        assert_eq!(map["a"]["main"], 1);
+    }
+
+    #[test]
+    fn destroying_a_window_releases_all_its_references_but_keeps_other_viewers() {
+        let mut map = HashMap::new();
+        track_open(&mut map, "main", "shared");
+        track_open(&mut map, "main", "shared");
+        track_open(&mut map, "other", "shared");
+        track_open(&mut map, "main", "private");
+        assert_eq!(forget_owner(&mut map, "main"), vec!["private"]);
+        assert_eq!(map["shared"]["other"], 1);
+        assert_eq!(map["shared"].len(), 1);
+        assert_eq!(forget_owner(&mut map, "other"), vec!["shared"]);
+        assert!(map.is_empty());
+        assert!(forget_owner(&mut map, "main").is_empty());
+    }
+
+    fn queued_conn(capacity: usize) -> (Conn, mpsc::Sender<ClientMsg>, mpsc::Receiver<ClientMsg>) {
+        let (out, recv) = mpsc::channel(capacity);
+        let mut conn = Conn::new(HostInfo {
+            id: "host".into(), host_name: "PC".into(), device_name: "me".into(),
+            status: HostStatus::Online, error: None, caps: vec![], app_version: None,
+        });
+        conn.out = Some(out.clone());
+        (conn, out, recv)
+    }
+
+    #[test]
+    fn failed_opens_never_change_stream_ownership() {
+        let (mut conn, out, mut recv) = queued_conn(1);
+        out.try_send(ClientMsg::Ping).unwrap();
+        let msg = ClientMsg::Open { pty_id: "p".into(), cols: None, rows: None };
+        assert_eq!(send_owned(&mut conn, "main", msg.clone()).err().as_deref(), Some("busy"));
+        assert!(conn.ptys.is_empty());
+        assert_eq!(recv.try_recv().unwrap(), ClientMsg::Ping);
+        assert!(send_owned(&mut conn, "main", msg).is_ok());
+        assert_eq!(conn.ptys["p"]["main"], 1);
+    }
+
+    #[test]
+    fn only_a_final_owned_close_is_forwarded() {
+        let (mut conn, _, mut recv) = queued_conn(4);
+        let msg = ClientMsg::ChatOpen { chat_id: "c".into(), after_seq: 0 };
+        send_owned(&mut conn, "main", msg.clone()).unwrap();
+        send_owned(&mut conn, "other", msg).unwrap();
+        recv.try_recv().unwrap();
+        recv.try_recv().unwrap();
+        send_owned(&mut conn, "ghost", ClientMsg::ChatClose { chat_id: "c".into() }).unwrap();
+        send_owned(&mut conn, "main", ClientMsg::ChatClose { chat_id: "c".into() }).unwrap();
+        assert!(recv.try_recv().is_err());
+        send_owned(&mut conn, "other", ClientMsg::ChatClose { chat_id: "c".into() }).unwrap();
+        assert_eq!(recv.try_recv().unwrap(), ClientMsg::ChatClose { chat_id: "c".into() });
+        assert!(conn.chats.is_empty());
+    }
+
+    #[test]
+    fn a_full_queue_defers_the_final_close_until_room_is_available() {
+        let (mut conn, out, mut recv) = queued_conn(1);
+        track_open(&mut conn.ptys, "main", "p");
+        out.try_send(ClientMsg::Ping).unwrap();
+        let close = send_owned(&mut conn, "main", ClientMsg::Close { pty_id: "p".into() }).unwrap().unwrap();
+        assert!(conn.ptys.is_empty());
+        assert!(conn.pending_closes.contains(&Stream::Pty("p".into())));
+        recv.try_recv().unwrap();
+        let permit = out.clone().try_reserve_owned().unwrap();
+        complete_close(&mut conn, &close.out, close.stream, permit);
+        assert_eq!(recv.try_recv().unwrap(), ClientMsg::Close { pty_id: "p".into() });
+        assert!(conn.pending_closes.is_empty());
+    }
+
+    #[test]
+    fn a_deferred_close_does_not_close_a_reopened_stream_or_a_new_link() {
+        let (mut conn, out, mut recv) = queued_conn(2);
+        let stream = Stream::Chat("c".into());
+        conn.pending_closes.insert(stream.clone());
+        track_open(&mut conn.chats, "other", "c");
+        complete_close(&mut conn, &out, stream.clone(), out.clone().try_reserve_owned().unwrap());
+        assert!(recv.try_recv().is_err());
+        assert!(conn.pending_closes.is_empty());
+
+        conn.clear_streams();
+        let (replacement, mut replacement_recv) = mpsc::channel(1);
+        conn.out = Some(replacement);
+        complete_close(&mut conn, &out, stream, out.clone().try_reserve_owned().unwrap());
+        assert!(recv.try_recv().is_err());
+        assert!(replacement_recv.try_recv().is_err());
     }
 
     #[test]

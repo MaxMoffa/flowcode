@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EditorView, lineNumbers } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { syntaxHighlighting } from "@codemirror/language";
 import { unifiedMergeView } from "@codemirror/merge";
 import { FileTypeIcon } from "../sidebar/fileIcons";
@@ -105,6 +105,8 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
 
   useEffect(() => {
     if (!sides || !hostRef.current) return;
+    const language = new Compartment();
+    let active = true;
     const view = new EditorView({
       parent: hostRef.current,
       state: EditorState.create({
@@ -112,15 +114,19 @@ export function DiffView({ root, path, staged, hidden }: DiffViewProps) {
         extensions: [
           lineNumbers(),
           EditorState.readOnly.of(true),
-          languageFor(name) ?? [],
+          language.of([]),
           syntaxHighlighting(cmHighlightStyle),
           cmChromeTheme,
           unifiedMergeView({ original: sides.original, mergeControls: false }),
         ],
       }),
     });
+    void languageFor(name).then((extension) => {
+      if (active) view.dispatch({ effects: language.reconfigure(extension ?? []) });
+    }).catch(() => {});
     view.scrollDOM.scrollTop = scrollTopRef.current;
     return () => {
+      active = false;
       // A hidden (display:none) view reports 0 - keep the last real position.
       if (view.scrollDOM.clientHeight > 0) scrollTopRef.current = view.scrollDOM.scrollTop;
       view.destroy();

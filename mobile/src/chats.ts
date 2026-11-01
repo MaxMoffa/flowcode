@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { Tab } from "./remote";
 import { isAgentBusy } from "../../src/chat/chatModel";
-import { applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
+import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
 import { t } from "./i18n";
 import { currentChats, onMessage, send, sendChecked, showToast, useRemoteSelector } from "./remote";
 import type { ChatInfo, ServerMsg } from "../../shared/remote-types";
@@ -95,15 +95,17 @@ export function useFollowChat(chatId: string) {
 }
 
 /** Hands the next queued message to the agent when it can take one; a send that never left the phone goes back in the queue. */
+let promptReceipts = false;
+
 function pump(chatId: string) {
   const session = store.get().sessions[chatId];
   if (!session || !canDispatch(session, chatStatus(infoOf(chatId), session.model))) return;
-  const taken = takeQueued(session);
+  const taken = takeQueued(session, promptReceipts ? promptRequestId() : null);
   if (!taken) return;
   const sentAt = taken.session.sentAtSeq ?? -1;
   patchSession(chatId, () => taken.session);
-  void sendChecked({ t: "chatprompt", chatId, text: taken.text }).then((ok) => {
-    if (!ok) patchSession(chatId, (s) => putBack(s, taken.text, sentAt));
+  void sendChecked({ t: "chatprompt", chatId, text: taken.text, ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
+    if (!ok) patchSession(chatId, (s) => putBack(s, taken.text, sentAt, taken.session.deliveryVersion));
   });
 }
 
@@ -116,6 +118,11 @@ function onChatEvents(chatId: string, events: unknown[], replay: boolean) {
   patchSession(chatId, () => applyEvents(before, events, { replay, busy: status === "busy" || status === "waiting" }));
   const listeners = eventListeners.get(chatId);
   if (listeners) for (const event of fresh) listeners.forEach((l) => l(event));
+  const current = store.get().sessions[chatId];
+  if (replay && current?.sentText && current.sentRequestId && promptReceipts) {
+    void sendChecked({ t: "chatprompt", chatId, text: current.sentText, requestId: current.sentRequestId });
+  }
+  if (current?.deliveryUncertain && !before.deliveryUncertain) showToast(t("chatDeliveryUncertain"));
   pump(chatId);
   // The sent message may have arrived, or the queue emptied: a chat kept followed for them can be let go.
   syncFollows();
@@ -154,6 +161,8 @@ function onChatList(chats: ChatInfo[]) {
 function onChatMsg(m: ServerMsg) {
   switch (m.t) {
     case "ready":
+      promptReceipts = !!m.caps?.includes("chatPromptAck");
+      if (!promptReceipts) store.set({ sessions: Object.fromEntries(Object.entries(store.get().sessions).map(([id, s]) => [id, s.sentRequestId ? pauseUnconfirmedPrompt(s) : s])) });
       opened.clear();
       awaitingChats = true;
       if (m.hostName !== lastHost) {
@@ -168,8 +177,13 @@ function onChatMsg(m: ServerMsg) {
     case "chatevents":
       onChatEvents(m.chatId, m.events, m.replay);
       break;
+    case "chatpromptack":
+      patchSession(m.chatId, (s) => acknowledgePrompt(s, m.requestId, m.message));
+      pump(m.chatId);
+      syncFollows();
+      break;
     case "error":
-      if (isAgentBusy(m.message)) onRefusedBusy();
+      if (!promptReceipts && isAgentBusy(m.message)) onRefusedBusy();
       break;
   }
 }

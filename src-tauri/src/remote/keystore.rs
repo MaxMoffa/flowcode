@@ -16,26 +16,55 @@ use crate::util::decode_hex;
 /// login, so a copy of the file is useless elsewhere); an older plain-hex
 /// file is converted on first read.
 pub(super) fn load_or_create_key(path: &Path) -> Result<SecretKey, String> {
-    if let Ok(text) = std::fs::read_to_string(path) {
-        let text = text.trim();
-        let (bytes, sealed) = match text.strip_prefix(SEALED_PREFIX) {
-            Some(blob) => (decode_hex(blob).and_then(|b| unseal(&b)).and_then(|k| decode_key(&String::from_utf8(k).ok()?)), true),
-            None => (decode_key(text), false),
+    load_or_create_key_with(path, SEALING, &seal, &unseal)
+}
+
+/// Keep the key lifecycle testable without an interactive Windows profile.
+/// Failure to read or decrypt an existing identity is not proof of corruption:
+/// leave it untouched so a later attempt can recover the same pairing.
+fn load_or_create_key_with(
+    path: &Path,
+    sealing: bool,
+    protect: &dyn Fn(&[u8]) -> Option<Vec<u8>>,
+    open: &dyn Fn(&[u8]) -> Option<Vec<u8>>,
+) -> Result<SecretKey, String> {
+    let stored = match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("cannot read the node key (will retry): {e}")),
+    };
+    if let Some(stored) = stored {
+        let text = std::str::from_utf8(&stored).ok().map(str::trim);
+        let (bytes, sealed) = match text.and_then(|t| t.strip_prefix(SEALED_PREFIX)) {
+            Some(blob) => {
+                if !sealing {
+                    return Err("cannot open the node key: no secure store is available".into());
+                }
+                let bytes = match decode_hex(blob).filter(|b| !b.is_empty()) {
+                    Some(blob) => {
+                        let plain = open(&blob).ok_or("cannot open the node key (will retry)")?;
+                        std::str::from_utf8(&plain).ok().and_then(decode_key)
+                    }
+                    // Invalid hex is corrupt content, not a DPAPI failure.
+                    None => None,
+                };
+                (bytes, true)
+            }
+            None => (text.and_then(decode_key), false),
         };
         if let Some(bytes) = bytes {
-            if !sealed && SEALING {
-                if let Err(e) = write_key(path, &bytes) {
-                    eprintln!("remote: cannot protect the node key: {e}");
-                }
+            if !sealed && sealing {
+                // An unsuccessful migration must neither overwrite the old
+                // identity nor let remote access run with plaintext secrets.
+                write_key(path, &bytes, sealing, protect)?;
             }
             return Ok(SecretKey::from_bytes(&bytes));
         }
-        // An unreadable key is replaced: paired phones then fail to auth and
-        // must be paired again, which is better than not starting at all.
+        // A decoded value with an invalid shape is definitively corrupt.
         eprintln!("remote: {} is corrupt, generating a new node key", path.display());
     }
     let key = SecretKey::generate();
-    write_key(path, &key.to_bytes()).map_err(|e| e.to_string())?;
+    write_key(path, &key.to_bytes(), sealing, protect)?;
     Ok(key)
 }
 
@@ -49,18 +78,20 @@ const SEALED_PREFIX: &str = "dpapi1:";
 /// Whether this platform seals the key file (see `seal`).
 const SEALING: bool = cfg!(windows);
 
-fn write_key(path: &Path, key: &[u8; 32]) -> std::io::Result<()> {
+fn write_key(path: &Path, key: &[u8; 32], sealing: bool, protect: &dyn Fn(&[u8]) -> Option<Vec<u8>>) -> Result<(), String> {
     let hex = to_hex(key);
-    let content = match seal(hex.as_bytes()) {
-        Some(blob) => format!("{SEALED_PREFIX}{}", to_hex(&blob)),
-        None => hex,
+    let content = if sealing {
+        let blob = protect(hex.as_bytes()).filter(|b| !b.is_empty()).ok_or("cannot protect the node key (will retry)")?;
+        format!("{SEALED_PREFIX}{}", to_hex(&blob))
+    } else {
+        hex
     };
-    write_private(path, content.as_bytes())
+    write_private(path, content.as_bytes()).map_err(|e| format!("cannot save the node key: {e}"))
 }
 
 /// Encrypts `plain` for the current Windows user (DPAPI). `None` where there
-/// is no such facility - or if it failed, in which case the key is kept
-/// readable the way it always was rather than lost.
+/// is no such facility or if it failed. Callers that require protection must
+/// return an error rather than writing plaintext.
 #[cfg(windows)]
 pub(crate) fn seal(plain: &[u8]) -> Option<Vec<u8>> {
     dpapi(plain, true)
@@ -163,17 +194,105 @@ mod tests {
     use super::super::scratch;
     use super::*;
 
+    fn protect_for_test(plain: &[u8]) -> Option<Vec<u8>> {
+        Some(plain.iter().map(|b| b ^ 0xa5).collect())
+    }
+
+    fn load_for_test(path: &Path) -> Result<SecretKey, String> {
+        load_or_create_key_with(path, true, &protect_for_test, &protect_for_test)
+    }
+
     #[test]
     fn node_key_survives_a_reload() {
-        let dir = std::env::temp_dir().join(format!("flowcode-key-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = scratch("key");
         let path = dir.join("remote-node.key");
-        let first = load_or_create_key(&path).unwrap();
-        let second = load_or_create_key(&path).unwrap();
+        let first = load_for_test(&path).unwrap();
+        let second = load_for_test(&path).unwrap();
         assert_eq!(first.public(), second.public());
         std::fs::write(&path, "garbage").unwrap();
-        assert_ne!(load_or_create_key(&path).unwrap().public(), first.public());
+        assert_ne!(load_for_test(&path).unwrap().public(), first.public());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sealed_keys_and_plaintext_migration_keep_the_same_identity() {
+        let dir = scratch("key-migration");
+        let path = dir.join("remote-node.key");
+        let key = load_for_test(&path).unwrap();
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.starts_with(SEALED_PREFIX));
+        assert!(!on_disk.contains(&to_hex(&key.to_bytes())));
+        assert_eq!(load_for_test(&path).unwrap().public(), key.public());
+        std::fs::write(&path, to_hex(&key.to_bytes())).unwrap();
+        assert_eq!(load_for_test(&path).unwrap().public(), key.public());
+        assert!(std::fs::read_to_string(&path).unwrap().starts_with(SEALED_PREFIX));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn protection_failure_never_writes_plaintext_or_replaces_a_legacy_key() {
+        let dir = scratch("key-protect-failure");
+        let path = dir.join("remote-node.key");
+        assert!(load_or_create_key_with(&path, true, &|_| None, &protect_for_test).is_err());
+        assert!(!path.exists());
+        let old = "42".repeat(32);
+        std::fs::write(&path, &old).unwrap();
+        assert!(load_or_create_key_with(&path, true, &|_| None, &protect_for_test).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        assert_eq!(load_for_test(&path).unwrap().to_bytes(), [0x42; 32]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn opening_failure_preserves_the_sealed_key_for_a_retry() {
+        let dir = scratch("key-open-failure");
+        let path = dir.join("remote-node.key");
+        let key = load_for_test(&path).unwrap();
+        let stored = std::fs::read(&path).unwrap();
+        assert!(load_or_create_key_with(&path, true, &protect_for_test, &|_| None).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), stored);
+        assert!(load_or_create_key_with(&path, false, &|_| None, &|_| None).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), stored);
+        assert_eq!(load_for_test(&path).unwrap().public(), key.public());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn migration_write_failure_keeps_the_legacy_identity() {
+        let dir = scratch("key-write-failure");
+        let path = dir.join("remote-node.key");
+        let old = "12".repeat(32);
+        std::fs::write(&path, &old).unwrap();
+        // A directory at the temporary path forces an I/O failure on every
+        // platform without depending on user permissions or filesystem mode.
+        let temp = path.with_file_name(format!("remote-node.key.tmp-{}", std::process::id()));
+        std::fs::create_dir(&temp).unwrap();
+        assert!(load_for_test(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        std::fs::remove_dir(&temp).unwrap();
+        assert_eq!(load_for_test(&path).unwrap().to_bytes(), [0x12; 32]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn read_errors_leave_the_existing_path_untouched() {
+        let dir = scratch("key-read-failure");
+        let path = dir.join("remote-node.key");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("keep"), "unchanged").unwrap();
+        assert!(load_for_test(&path).is_err());
+        assert_eq!(std::fs::read_to_string(path.join("keep")).unwrap(), "unchanged");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn platforms_without_protection_keep_their_plaintext_format() {
+        let dir = scratch("key-plain");
+        let path = dir.join("remote-node.key");
+        let key = load_or_create_key_with(&path, false, &|_| None, &|_| None).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), to_hex(&key.to_bytes()));
+        assert_eq!(load_or_create_key_with(&path, false, &|_| None, &|_| None).unwrap().public(), key.public());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -189,6 +308,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    #[ignore = "requires an interactive Windows user profile with DPAPI available"]
     fn node_key_is_sealed_on_windows_and_a_plain_one_migrates() {
         let dir = scratch("seal");
         let path = dir.join("remote-node.key");

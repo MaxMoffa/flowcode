@@ -40,8 +40,13 @@ export const en: Record<MessageKey, string> = {
   "app.removeShortcut": "Remove from shortcuts",
   "app.moreOptions": "More options",
   "app.openFailed": "Couldn't open {name}: {error}",
+  "chat.deliveryUncertain": "Delivery was not confirmed after reconnecting. Your message is queued: use Send now to retry.",
   "app.unsaved.title": "Unsaved changes",
   "app.unsaved.message": "\"{name}\" has unsaved changes. Close anyway?",
+  "app.unsaved.save": "Save and close",
+  "app.unsaved.windowMessage": "\"{name}\" has unsaved changes. Save them before closing?",
+  "app.sessionSaveFailed": "Could not save the session. The window stays open. {error}",
+  "terminal.inputFailed": "Input not sent ({bytes} bytes): {error}",
   "app.unsaved.confirm": "Close without saving",
   "app.cli.notInstalled.title": "{name} is not installed",
   "app.cli.notInstalled.message":

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
+use flowcode_shared::i18n::tr;
 
 #[derive(Default)]
 pub struct SessionStore {
@@ -28,8 +29,11 @@ struct Inner {
     /// Window label -> that window's snapshot, in the order windows first
     /// reported (the main window always first - see `write`).
     windows: Vec<(String, Value)>,
-    /// Window label -> latest `flush_all` round it has answered.
+    /// Window label -> latest `flush_all` round persisted successfully.
     acks: HashMap<String, u64>,
+    /// Unsaved editor buffers, even when session restore is disabled. A
+    /// missing entry means this frontend has not reported its editor state.
+    dirty_editors: HashMap<String, bool>,
     /// Hash of what `session.json` was last written with - an unchanged
     /// snapshot (the periodic save with nothing new) skips the disk.
     last_written: Option<u64>,
@@ -44,11 +48,11 @@ impl SessionStore {
     /// (the app is quitting with it) or the app is exiting for an update.
     pub fn forget_window(&self, app: &AppHandle, label: &str) {
         let others_open = app.webview_windows().keys().any(|l| l != label);
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.forget_live_window(label);
         if self.quitting.load(Ordering::SeqCst) || !others_open {
             return;
         }
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        inner.acks.remove(label);
         let before = inner.windows.len();
         inner.windows.retain(|(l, _)| l != label);
         if inner.windows.len() != before {
@@ -56,6 +60,64 @@ impl SessionStore {
             let _ = write(app, Some(windows), last_written);
         }
     }
+}
+
+impl Inner {
+    fn forget_live_window(&mut self, label: &str) {
+        self.acks.remove(label);
+        self.dirty_editors.remove(label);
+    }
+}
+
+/// Acknowledgements describe a durable write, rather than merely receipt of
+/// the IPC request. Keep the write injected so failure ordering can be tested
+/// without a native app or a real user config directory.
+fn put_snapshot(
+    inner: &mut Inner,
+    label: &str,
+    snapshot: Option<Value>,
+    flush_gen: Option<u64>,
+    dirty_editors: Option<bool>,
+    persist: impl FnOnce(Option<&[(String, Value)]>, &mut Option<u64>) -> Result<(), String>,
+) -> Result<(), String> {
+    match dirty_editors {
+        Some(dirty) => { inner.dirty_editors.insert(label.to_string(), dirty); }
+        None => { inner.dirty_editors.remove(label); }
+    }
+    let enabled = snapshot.is_some();
+    match snapshot {
+        None => inner.windows.clear(),
+        Some(snapshot) => match inner.windows.iter_mut().find(|(l, _)| l == label) {
+            Some(entry) => entry.1 = snapshot,
+            None => inner.windows.push((label.to_string(), snapshot)),
+        },
+    }
+    persist(enabled.then_some(inner.windows.as_slice()), &mut inner.last_written)?;
+    if let Some(generation) = flush_gen {
+        inner.acks.entry(label.to_string()).and_modify(|latest| *latest = (*latest).max(generation)).or_insert(generation);
+    }
+    Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum FlushStatus {
+    Pending,
+    UnknownEditors,
+    DirtyEditors,
+    Ready,
+}
+
+fn flush_status(inner: &Inner, live: &[String], generation: u64) -> FlushStatus {
+    if live.iter().any(|label| !inner.acks.get(label).is_some_and(|ack| *ack >= generation)) {
+        return FlushStatus::Pending;
+    }
+    if live.iter().any(|label| !inner.dirty_editors.contains_key(label)) {
+        return FlushStatus::UnknownEditors;
+    }
+    if live.iter().any(|label| inner.dirty_editors.get(label) == Some(&true)) {
+        return FlushStatus::DirtyEditors;
+    }
+    FlushStatus::Ready
 }
 
 fn write(app: &AppHandle, windows: Option<&[(String, Value)]>, last_written: &mut Option<u64>) -> Result<(), String> {
@@ -120,52 +182,105 @@ pub fn session_put(
     store: State<'_, SessionStore>,
     snapshot: Option<Value>,
     flush_gen: Option<u64>,
+    dirty_editors: Option<bool>,
 ) -> Result<(), String> {
     let label = window.label().to_string();
     let mut inner = store.inner.lock().unwrap_or_else(|e| e.into_inner());
-    let inner = &mut *inner;
-    if let Some(generation) = flush_gen {
-        inner.acks.insert(label.clone(), generation);
+    // A queued IPC request must not reinsert a window after Destroyed has
+    // removed it from the saved session and live editor bookkeeping.
+    if app.get_webview_window(&label).is_none() {
+        return Err("window_closed".into());
     }
-    match snapshot {
-        None => {
-            inner.windows.clear();
-            write(&app, None, &mut inner.last_written)
-        }
-        Some(snapshot) => {
-            match inner.windows.iter_mut().find(|(l, _)| *l == label) {
-                Some(entry) => entry.1 = snapshot,
-                None => inner.windows.push((label, snapshot)),
-            }
-            write(&app, Some(&inner.windows), &mut inner.last_written)
-        }
-    }
+    put_snapshot(&mut inner, &label, snapshot, flush_gen, dirty_editors, |windows, last_written| write(&app, windows, last_written))
 }
 
 /// Asks every window to report its latest state now (`session:flush`) and
 /// waits - briefly - for all of them to answer. Used right before the app
 /// exits for an update, so the relaunched version restores everything as it
 /// was a moment ago rather than as of the last periodic save.
-pub async fn flush_all(app: &AppHandle) {
+pub async fn flush_all(app: &AppHandle) -> Result<(), String> {
     let store = app.state::<SessionStore>();
     let generation = store.flush_gen.fetch_add(1, Ordering::SeqCst) + 1;
-    let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
-    let _ = app.emit("session:flush", generation);
+    app.emit("session:flush", generation).map_err(|e| format!("{}: {e}", tr("Impossibile richiedere il salvataggio delle finestre.", "Couldn't request the windows' session state.")))?;
     let app = app.clone();
-    let _ = crate::blocking(move || {
+    crate::blocking(move || {
         let store = app.state::<SessionStore>();
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline {
-            let done = {
+            // New windows must answer too; a window closed during the flush
+            // no longer needs an acknowledgement.
+            let live: Vec<String> = app.webview_windows().keys().cloned().collect();
+            let status = {
                 let inner = store.inner.lock().unwrap_or_else(|e| e.into_inner());
-                labels.iter().all(|l| inner.acks.get(l).is_some_and(|g| *g >= generation))
+                flush_status(&inner, &live, generation)
             };
-            if done {
-                break;
+            match status {
+                FlushStatus::Ready => return Ok(()),
+                FlushStatus::DirtyEditors => return Err(tr("Salva o chiudi i file modificati in tutte le finestre prima di aggiornare.", "Save or close the edited files in every window before updating.").to_string()),
+                FlushStatus::UnknownEditors => return Err(tr("Una finestra non è pronta per l'aggiornamento. Attendi che finisca di caricarsi e riprova.", "A window isn't ready to update. Wait for it to finish loading and try again.").to_string()),
+                FlushStatus::Pending => {}
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        Ok(())
+        Err(tr("Impossibile salvare tutte le finestre: aggiornamento annullato. Riprova tra poco.", "Couldn't save every window: update cancelled. Try again shortly.").to_string())
     })
-    .await;
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_flush_requires_fresh_successful_writes_from_every_live_window() {
+        let mut inner = Inner::default();
+        let live = vec!["main".into(), "other".into()];
+        put_snapshot(&mut inner, "main", Some(serde_json::json!({ "tabs": [] })), Some(2), Some(false), |_, _| Ok(())).unwrap();
+        assert_eq!(flush_status(&inner, &live, 2), FlushStatus::Pending);
+        put_snapshot(&mut inner, "other", None, Some(1), Some(false), |_, _| Ok(())).unwrap();
+        assert_eq!(flush_status(&inner, &live, 2), FlushStatus::Pending);
+        put_snapshot(&mut inner, "other", None, Some(2), Some(false), |_, _| Ok(())).unwrap();
+        assert_eq!(flush_status(&inner, &live, 2), FlushStatus::Ready);
+        assert_eq!(flush_status(&inner, &["main".into(), "new-window".into()], 2), FlushStatus::Pending);
+        assert_eq!(flush_status(&inner, &["main".into()], 2), FlushStatus::Ready);
+    }
+
+    #[test]
+    fn a_failed_write_never_acknowledges_the_flush() {
+        let mut inner = Inner::default();
+        inner.acks.insert("main".into(), 1);
+        let result = put_snapshot(&mut inner, "main", None, Some(2), Some(true), |_, _| Err("disk full".into()));
+        assert_eq!(result, Err("disk full".into()));
+        assert_eq!(inner.acks.get("main"), Some(&1));
+        assert_eq!(inner.dirty_editors.get("main"), Some(&true));
+        assert_eq!(flush_status(&inner, &["main".into()], 2), FlushStatus::Pending);
+    }
+
+    #[test]
+    fn disabled_restore_still_reports_dirty_editors_and_missing_state_blocks_update() {
+        let mut inner = Inner::default();
+        let live = vec!["main".into()];
+        put_snapshot(&mut inner, "main", None, Some(1), Some(true), |windows, _| {
+            assert!(windows.is_none());
+            Ok(())
+        }).unwrap();
+        assert_eq!(flush_status(&inner, &live, 1), FlushStatus::DirtyEditors);
+        put_snapshot(&mut inner, "main", None, Some(2), None, |_, _| Ok(())).unwrap();
+        assert_eq!(flush_status(&inner, &live, 2), FlushStatus::UnknownEditors);
+        put_snapshot(&mut inner, "main", None, Some(3), Some(false), |_, _| Ok(())).unwrap();
+        assert_eq!(flush_status(&inner, &live, 3), FlushStatus::Ready);
+    }
+
+    #[test]
+    fn old_rounds_do_not_rewind_acknowledgements_and_closed_windows_forget_live_state() {
+        let mut inner = Inner::default();
+        let snapshot = serde_json::json!({ "tabs": [] });
+        put_snapshot(&mut inner, "main", Some(snapshot.clone()), Some(3), Some(true), |_, _| Ok(())).unwrap();
+        put_snapshot(&mut inner, "main", Some(snapshot), Some(2), Some(true), |_, _| Ok(())).unwrap();
+        assert_eq!(inner.acks.get("main"), Some(&3));
+        inner.forget_live_window("main");
+        assert!(!inner.acks.contains_key("main"));
+        assert!(!inner.dirty_editors.contains_key("main"));
+        assert_eq!(inner.windows.len(), 1, "the last window's saved snapshot survives closing");
+    }
 }

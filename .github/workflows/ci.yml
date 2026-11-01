@@ -19,9 +19,9 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      # `npm run build` is `tsc && vite build` - typecheck and bundle in one
-      # step.
+      # Typecheck both frontends, then build each application.
       - run: npm run build
+      - run: npm run mobile:vite:build
       # Pure-logic tests (vitest): the phone's shell quoting / key encoding /
       # settings normalisation and the desktop's setting validators.
       - run: npm test
@@ -74,3 +74,7 @@ jobs:
           workspaces: src-tauri
       - run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo check --manifest-path mobile/src-tauri/Cargo.toml --all-targets
+        if: runner.os == 'Windows'
+      - run: cargo test --manifest-path mobile/src-tauri/Cargo.toml
+        if: runner.os == 'Windows'

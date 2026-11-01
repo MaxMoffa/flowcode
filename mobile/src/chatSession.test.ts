@@ -85,7 +85,7 @@ describe("the send queue", () => {
     expect(session.queued).toEqual(["b"]);
     // Idle again, but nothing newer than the sent one: the agent has not started its turn.
     expect(canDispatch(session, "idle")).toBe(false);
-    const started = applyEvents(session, [user(2), chunk(3, "x"), turnEnd(4)], live);
+    const started = applyEvents(session, [user(2, "a"), chunk(3, "x"), turnEnd(4)], live);
     expect(canDispatch(started, "idle")).toBe(true);
   });
 
@@ -278,6 +278,6 @@ describe("forceNeedsCancel", () => {
     const sent = takeQueued({ ...idle, queued: ["a", "b"] })!.session;
     expect(forceNeedsCancel(sent, "idle")).toBe(true);
     // Its `user` event arrived: no longer in flight.
-    expect(forceNeedsCancel(applyEvents(sent, [user(3), turnEnd(4)], live), "idle")).toBe(false);
+    expect(forceNeedsCancel(applyEvents(sent, [user(3, "a"), turnEnd(4)], live), "idle")).toBe(false);
   });
 });

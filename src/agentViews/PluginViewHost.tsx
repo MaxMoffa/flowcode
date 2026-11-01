@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../i18n";
@@ -33,6 +33,15 @@ interface PluginViewHostProps extends AgentViewProps {
  * it: permission requests from the agent, the "agent closed" state, a view
  * that never starts. */
 export function PluginViewHost(props: PluginViewHostProps) {
+  const { chatId } = props.session;
+  // The page says hello only once. Start it with a live session, and give a
+  // replacement session its own page, port and handshake timeout.
+  if (!chatId) return null;
+  const key = JSON.stringify([chatId, props.manifest.id, props.manifest.entry, props.rev ?? 0]);
+  return <SessionPluginViewHost key={key} {...props} />;
+}
+
+function SessionPluginViewHost(props: PluginViewHostProps) {
   const { manifest, rev, session, agent, cwd, title, hidden, onSwitchView, onOpenFile } = props;
   const { t, language } = useI18n();
   const { theme, paletteId, contrast, glassOpacity } = useTheme();
@@ -65,7 +74,9 @@ export function PluginViewHost(props: PluginViewHostProps) {
     currentModelId: latest.current.currentModelId,
   });
 
-  useEffect(() => {
+  // Register before the iframe can deliver its first message, including when
+  // the plugin page is already in the webview's cache.
+  useLayoutEffect(() => {
     if (!chatId) return;
     const source: BridgeSource<ChatEvent> = {
       device: "desktop",

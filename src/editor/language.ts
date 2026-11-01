@@ -1,105 +1,71 @@
 import type { Extension } from "@codemirror/state";
-import { StreamLanguage } from "@codemirror/language";
-import { javascript } from "@codemirror/lang-javascript";
-import { json } from "@codemirror/lang-json";
-import { css } from "@codemirror/lang-css";
-import { html } from "@codemirror/lang-html";
-import { markdown } from "@codemirror/lang-markdown";
-import { python } from "@codemirror/lang-python";
-import { rust } from "@codemirror/lang-rust";
-import { sql } from "@codemirror/lang-sql";
-import { yaml } from "@codemirror/lang-yaml";
-import { shell } from "@codemirror/legacy-modes/mode/shell";
-import { go } from "@codemirror/legacy-modes/mode/go";
-import { c, cpp, java, csharp, kotlin } from "@codemirror/legacy-modes/mode/clike";
-import { ruby } from "@codemirror/legacy-modes/mode/ruby";
-import { lua } from "@codemirror/legacy-modes/mode/lua";
-import { toml } from "@codemirror/legacy-modes/mode/toml";
-import { properties } from "@codemirror/legacy-modes/mode/properties";
-import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
-import { swift } from "@codemirror/legacy-modes/mode/swift";
-import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
-import { xml } from "@codemirror/legacy-modes/mode/xml";
+import { StreamLanguage, type StreamParser } from "@codemirror/language";
 import { extOf } from "../lib/path";
 
+/** Legacy modes share CodeMirror's stream parser, itself loaded on demand. */
+function stream<State>(parser: Promise<StreamParser<State>>): Promise<Extension> {
+  return parser.then((mode) => StreamLanguage.define(mode));
+}
 
-/** Best-effort CodeMirror language for a filename, by extension. Returns
- * null for formats with no available grammar (plain text, no highlighting). */
-export function languageFor(name: string): Extension | null {
-  if (/^dockerfile(\.\w+)?$/i.test(name)) return StreamLanguage.define(dockerFile);
+// Literal imports let Vite build a separate chunk for each requested grammar.
+const loaders = {
+  javascript: () => import("@codemirror/lang-javascript").then(({ javascript }) => javascript({ jsx: true })),
+  typescript: () => import("@codemirror/lang-javascript").then(({ javascript }) => javascript({ typescript: true })),
+  tsx: () => import("@codemirror/lang-javascript").then(({ javascript }) => javascript({ jsx: true, typescript: true })),
+  json: () => import("@codemirror/lang-json").then(({ json }) => json()),
+  css: () => import("@codemirror/lang-css").then(({ css }) => css()),
+  html: () => import("@codemirror/lang-html").then(({ html }) => html()),
+  markdown: () => import("@codemirror/lang-markdown").then(({ markdown }) => markdown()),
+  python: () => import("@codemirror/lang-python").then(({ python }) => python()),
+  rust: () => import("@codemirror/lang-rust").then(({ rust }) => rust()),
+  sql: () => import("@codemirror/lang-sql").then(({ sql }) => sql()),
+  yaml: () => import("@codemirror/lang-yaml").then(({ yaml }) => yaml()),
+  shell: () => stream(import("@codemirror/legacy-modes/mode/shell").then(({ shell }) => shell)),
+  powershell: () => stream(import("@codemirror/legacy-modes/mode/powershell").then(({ powerShell }) => powerShell)),
+  go: () => stream(import("@codemirror/legacy-modes/mode/go").then(({ go }) => go)),
+  c: () => stream(import("@codemirror/legacy-modes/mode/clike").then(({ c }) => c)),
+  cpp: () => stream(import("@codemirror/legacy-modes/mode/clike").then(({ cpp }) => cpp)),
+  java: () => stream(import("@codemirror/legacy-modes/mode/clike").then(({ java }) => java)),
+  csharp: () => stream(import("@codemirror/legacy-modes/mode/clike").then(({ csharp }) => csharp)),
+  kotlin: () => stream(import("@codemirror/legacy-modes/mode/clike").then(({ kotlin }) => kotlin)),
+  ruby: () => stream(import("@codemirror/legacy-modes/mode/ruby").then(({ ruby }) => ruby)),
+  lua: () => stream(import("@codemirror/legacy-modes/mode/lua").then(({ lua }) => lua)),
+  toml: () => stream(import("@codemirror/legacy-modes/mode/toml").then(({ toml }) => toml)),
+  properties: () => stream(import("@codemirror/legacy-modes/mode/properties").then(({ properties }) => properties)),
+  dockerfile: () => stream(import("@codemirror/legacy-modes/mode/dockerfile").then(({ dockerFile }) => dockerFile)),
+  swift: () => stream(import("@codemirror/legacy-modes/mode/swift").then(({ swift }) => swift)),
+  xml: () => stream(import("@codemirror/legacy-modes/mode/xml").then(({ xml }) => xml)),
+} satisfies Record<string, () => Promise<Extension>>;
 
+type Grammar = keyof typeof loaders;
+
+const grammars: Record<string, Grammar> = {
+  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
+  ts: "typescript", tsx: "tsx", json: "json",
+  css: "css", scss: "css", sass: "css", less: "css",
+  html: "html", htm: "html", xml: "xml", svg: "xml",
+  md: "markdown", mdx: "markdown", py: "python", rs: "rust", sql: "sql",
+  yaml: "yaml", yml: "yaml", sh: "shell", bash: "shell", zsh: "shell", fish: "shell",
+  ps1: "powershell", go: "go", c: "c", h: "c", cpp: "cpp", cc: "cpp", hpp: "cpp",
+  java: "java", cs: "csharp", kt: "kotlin", rb: "ruby", lua: "lua", toml: "toml",
+  ini: "properties", conf: "properties", cfg: "properties", env: "properties", swift: "swift",
+};
+
+const cache = new Map<Grammar, Promise<Extension>>();
+
+/** Loads only this filename's grammar. Concurrent requests share one promise;
+ * failures are forgotten so a later open or rename can retry. Plain text
+ * resolves to null without downloading a grammar. */
+export function languageFor(name: string): Promise<Extension | null> {
   const ext = extOf(name);
-  switch (ext) {
-    case "js":
-    case "jsx":
-    case "mjs":
-    case "cjs":
-      return javascript({ jsx: true });
-    case "ts":
-      return javascript({ typescript: true });
-    case "tsx":
-      return javascript({ jsx: true, typescript: true });
-    case "json":
-      return json();
-    case "css":
-    case "scss":
-    case "sass":
-    case "less":
-      return css();
-    case "html":
-    case "htm":
-      return html();
-    case "xml":
-    case "svg":
-      return StreamLanguage.define(xml);
-    case "md":
-    case "mdx":
-      return markdown();
-    case "py":
-      return python();
-    case "rs":
-      return rust();
-    case "sql":
-      return sql();
-    case "yaml":
-    case "yml":
-      return yaml();
-    case "sh":
-    case "bash":
-    case "zsh":
-    case "fish":
-      return StreamLanguage.define(shell);
-    case "ps1":
-      return StreamLanguage.define(powerShell);
-    case "go":
-      return StreamLanguage.define(go);
-    case "c":
-    case "h":
-      return StreamLanguage.define(c);
-    case "cpp":
-    case "cc":
-    case "hpp":
-      return StreamLanguage.define(cpp);
-    case "java":
-      return StreamLanguage.define(java);
-    case "cs":
-      return StreamLanguage.define(csharp);
-    case "kt":
-      return StreamLanguage.define(kotlin);
-    case "rb":
-      return StreamLanguage.define(ruby);
-    case "lua":
-      return StreamLanguage.define(lua);
-    case "toml":
-      return StreamLanguage.define(toml);
-    case "ini":
-    case "conf":
-    case "cfg":
-    case "env":
-      return StreamLanguage.define(properties);
-    case "swift":
-      return StreamLanguage.define(swift);
-    default:
-      return null;
-  }
+  const grammar = /^dockerfile(\.\w+)?$/i.test(name) ? "dockerfile" : Object.prototype.hasOwnProperty.call(grammars, ext) ? grammars[ext] : undefined;
+  if (!grammar) return Promise.resolve(null);
+  const known = cache.get(grammar);
+  if (known) return known;
+  const pending = loaders[grammar]().catch((error: unknown) => {
+    if (cache.get(grammar) === pending) cache.delete(grammar);
+    throw error;
+  });
+  cache.set(grammar, pending);
+  return pending;
 }

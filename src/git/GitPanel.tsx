@@ -97,7 +97,13 @@ function dirOf(path: string): string {
   return i === -1 ? "" : path.slice(0, i);
 }
 
-export function GitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }: GitPanelProps) {
+/** A repository owns its state and pending actions. Changing folders unmounts
+ * the old owner, so a late commit/stage/refresh cannot update the next one. */
+export function GitPanel(props: GitPanelProps) {
+  return <RepositoryGitPanel key={props.cwd} {...props} />;
+}
+
+function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }: GitPanelProps) {
   const { t } = useI18n();
   const confirm = useConfirmDialog();
   // undefined: still resolving, null: not in a repository.

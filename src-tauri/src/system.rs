@@ -167,15 +167,15 @@ fn openable_path(path: &str) -> Result<std::path::PathBuf, String> {
     Ok(strip_verbatim(real))
 }
 
-/// `\?\C:\x` -> `C:\x`, `\?\UNC\srv\share\x` -> `\srv\share\x`: what
+/// `\\?\C:\x` -> `C:\x`, `\\?\UNC\srv\share\x` -> `\\srv\share\x`: what
 /// `canonicalize` returns on Windows, turned back into the form every app
 /// handed the path by ShellExecute understands.
 fn strip_verbatim(path: std::path::PathBuf) -> std::path::PathBuf {
     let Some(s) = path.to_str() else { return path };
-    if let Some(rest) = s.strip_prefix(r"\?\UNC\") {
-        return std::path::PathBuf::from(format!(r"\{rest}"));
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return std::path::PathBuf::from(format!(r"\\{rest}"));
     }
-    match s.strip_prefix(r"\?\") {
+    match s.strip_prefix(r"\\?\") {
         Some(rest) if rest.as_bytes().get(1) == Some(&b':') => std::path::PathBuf::from(rest),
         _ => path,
     }
@@ -378,9 +378,12 @@ mod tests {
 
     #[test]
     fn verbatim_prefix_is_stripped() {
-        assert_eq!(strip_verbatim(PathBuf::from(r"\?\C:\a\b.pdf")), PathBuf::from(r"C:\a\b.pdf"));
-        assert_eq!(strip_verbatim(PathBuf::from(r"\?\UNC\wsl.localhost\U\a")), PathBuf::from(r"\wsl.localhost\U\a"));
-        assert_eq!(strip_verbatim(PathBuf::from(r"\?\GLOBALROOT\x")), PathBuf::from(r"\?\GLOBALROOT\x"));
+        assert_eq!(strip_verbatim(PathBuf::from(r"\\?\C:\a\b.pdf")), PathBuf::from(r"C:\a\b.pdf"));
+        assert_eq!(strip_verbatim(PathBuf::from(r"\\?\UNC\wsl.localhost\U\a")), PathBuf::from(r"\\wsl.localhost\U\a"));
+        assert_eq!(strip_verbatim(PathBuf::from(r"\\?\GLOBALROOT\x")), PathBuf::from(r"\\?\GLOBALROOT\x"));
+        assert_eq!(strip_verbatim(PathBuf::from(r"C:\a\b.pdf")), PathBuf::from(r"C:\a\b.pdf"));
+        assert_eq!(strip_verbatim(PathBuf::from(r"\\server\share\a")), PathBuf::from(r"\\server\share\a"));
+        assert_eq!(strip_verbatim(PathBuf::from(r"\?\C:\a")), PathBuf::from(r"\?\C:\a"));
         assert_eq!(strip_verbatim(PathBuf::from("/home/a")), PathBuf::from("/home/a"));
     }
 
@@ -392,13 +395,13 @@ mod tests {
         std::fs::write(dir.join("doc.pdf"), "x").unwrap();
         std::fs::write(dir.join("run.bat"), "x").unwrap();
         let doc = openable_path(&dir.join("doc.pdf").to_string_lossy()).unwrap();
-        assert!(doc.ends_with("doc.pdf") && !doc.to_string_lossy().starts_with(r"\?\"));
+        assert!(doc.ends_with("doc.pdf") && !doc.to_string_lossy().starts_with(r"\\?\"));
         assert!(openable_path(&dir.join("run.bat").to_string_lossy()).is_err());
         assert!(openable_path(&dir.join("missing.pdf").to_string_lossy()).is_err());
         #[cfg(windows)]
         {
-            assert!(openable_path(r"\attacker.invalid\share\a.pdf").is_err());
-            assert!(openable_path(r"\.\pipe\x").is_err());
+            assert!(openable_path(r"\\attacker.invalid\share\a.pdf").is_err());
+            assert!(openable_path(r"\\.\pipe\x").is_err());
             // A link with an innocent name to a program: judged by its target.
             if std::os::windows::fs::symlink_file(dir.join("run.bat"), dir.join("notes.txt")).is_ok() {
                 assert!(openable_path(&dir.join("notes.txt").to_string_lossy()).is_err());

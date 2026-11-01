@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { TerminalTransfer } from "../terminal/Terminal";
+import type { TerminalHandle, TerminalTransfer } from "../terminal/terminalTypes";
+import type { EditorHandle } from "../editor/EditorView";
 import type { SavedWindow } from "../session/session";
 import type { AppTab } from "./types";
 
@@ -13,6 +14,26 @@ export interface TabTransfer {
   /** Where it was dropped in the receiving window (CSS px), when it was
    * dropped onto one - picks its slot in that window's tab strip. */
   drop?: { x: number; y: number };
+}
+
+/** Detach the owned resources before moving a tab. Pending editor buffers count as edits too. */
+export async function packTabTransfer(tab: AppTab, resources: {
+  terminal?: Pick<TerminalHandle, "release">;
+  editor?: Pick<EditorHandle, "getContent" | "isDirty">;
+  pendingEditorContent?: string;
+  shell?: string;
+  fontSize?: number;
+}): Promise<TabTransfer | null> {
+  if (tab.kind === "terminal") {
+    const moved = await resources.terminal?.release();
+    return moved ? { tab, terminal: { ...moved, shell: resources.shell, fontSize: resources.fontSize } } : null;
+  }
+  if (tab.kind === "editor") {
+    const editor = resources.editor;
+    const pending = resources.pendingEditorContent;
+    return { tab, editor: editor ? { content: editor.getContent(), dirty: editor.isDirty() } : pending !== undefined ? { content: pending, dirty: true } : undefined };
+  }
+  return { tab };
 }
 
 /** What a window opened by `window_open` (src-tauri/src/windows.rs) starts

@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { markdownImageRef, splitLinks } from "../../src/chat/chatLinks";
-import { parseBlocks, parseInline, type Block, type Inline } from "../../src/chat/markdownBlocks";
+import { renderMarkdown } from "../../shared/Markdown";
 import { ChatImageView } from "./ChatImage";
 import { ChatTable } from "./ChatTable";
 import { t } from "./i18n";
@@ -38,124 +38,16 @@ function withLinks(text: string, keyBase: string, onLink: OnLink, label: (text: 
   });
 }
 
-/** Inline tokens as React nodes: formatting, `code`, links, and the text between them with its bare urls linked. */
-function inline(tokens: Inline[], keyBase: string, onLink: OnLink): ReactNode[] {
-  return tokens.map((tok, i) => {
-    const key = `${keyBase}-${i}`;
-    switch (tok.type) {
-      case "text":
-        return withLinks(tok.text, key, onLink);
-      case "code":
-        return <code key={key}>{tok.text}</code>;
-      case "link":
-        return withLinks(tok.raw, key, onLink, (label, k) => inline(parseInline(label), k, onLink));
-      case "image": {
-        const ref = markdownImageRef(tok.src);
-        return ref ? <ChatImageView key={key} image={ref} variant="single" caption={tok.alt || undefined} /> : <span key={key}>{tok.alt}</span>;
-      }
-      case "strong":
-        return <strong key={key}>{inline(tok.children, key, onLink)}</strong>;
-      case "em":
-        return <em key={key}>{inline(tok.children, key, onLink)}</em>;
-      case "del":
-        return <del key={key}>{inline(tok.children, key, onLink)}</del>;
-    }
-  });
-}
-
-/** Lines joined with <br />, each through `inline`. */
-function lines(rows: string[], keyBase: string, onLink: OnLink): ReactNode[] {
-  const out: ReactNode[] = [];
-  rows.forEach((row, i) => {
-    if (i > 0) out.push(<br key={`${keyBase}-br${i}`} />);
-    out.push(...inline(parseInline(row), `${keyBase}-${i}`, onLink));
-  });
-  return out;
-}
-
-/** A fenced block: the language and a Copy button over the code. */
-function CodeBlock({ lang, text }: { lang: string; text: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1400);
-    return () => clearTimeout(timer);
-  }, [copied]);
-  return (
-    <div className="chat-code">
-      <div className="chat-code-bar">
-        <span className="chat-code-lang">{lang}</span>
-        <button
-          type="button"
-          className="chat-table-btn"
-          onClick={() =>
-            navigator.clipboard.writeText(text).then(
-              () => setCopied(true),
-              () => {},
-            )
-          }
-        >
-          {copied ? t("chatTableCopied") : t("chatCodeCopy")}
-        </button>
-      </div>
-      <pre>
-        <code>{text}</code>
-      </pre>
-    </div>
-  );
-}
-
-/** A list item's blocks; a task item's checkbox leads its first paragraph. */
-function item(it: { checked: boolean | null; blocks: Block[] }, keyBase: string, onLink: OnLink): ReactNode {
-  if (it.checked === null) return blocks(it.blocks, keyBase, onLink);
-  const box = <input key={`${keyBase}-box`} type="checkbox" checked={it.checked} disabled readOnly />;
-  const [first, ...rest] = it.blocks;
-  if (first?.type === "paragraph") {
-    return [<p key={`${keyBase}-p`}>{[box, ...lines(first.lines, `${keyBase}-p`, onLink)]}</p>, ...blocks(rest, keyBase, onLink, 1)];
-  }
-  return [box, ...blocks(it.blocks, keyBase, onLink)];
-}
-
-function blocks(list: Block[], keyBase: string, onLink: OnLink, offset = 0): ReactNode[] {
-  return list.map((b, n) => {
-    const key = `${keyBase}-${n + offset}`;
-    switch (b.type) {
-      case "paragraph":
-        return <p key={key}>{lines(b.lines, key, onLink)}</p>;
-      case "heading": {
-        // Levels 1-3 are three sizes; 4-6 share the small one.
-        const Tag = b.level <= 3 ? (`h${b.level + 1}` as "h2" | "h3" | "h4") : "h5";
-        return (
-          <Tag key={key} className={`chat-h chat-h${Math.min(b.level, 4)}`}>
-            {inline(parseInline(b.text), key, onLink)}
-          </Tag>
-        );
-      }
-      case "code":
-        return <CodeBlock key={key} lang={b.lang} text={b.text} />;
-      case "table":
-        return <ChatTable key={key} table={b.table} cell={(text, cellKey) => inline(parseInline(text), `${key}-${cellKey}`, onLink)} />;
-      case "list": {
-        const Tag = b.ordered ? "ol" : "ul";
-        return (
-          <Tag key={key} start={b.ordered && b.start !== 1 ? b.start : undefined}>
-            {b.items.map((it, i) => (
-              <li key={i} className={it.checked === null ? undefined : "chat-task"}>
-                {item(it, `${key}-${i}`, onLink)}
-              </li>
-            ))}
-          </Tag>
-        );
-      }
-      case "blockquote":
-        return <blockquote key={key}>{blocks(b.blocks, key, onLink)}</blockquote>;
-      case "hr":
-        return <hr key={key} />;
-    }
-  });
-}
-
-/** The light markdown of an agent's reply, like the desktop chat's: fenced code (with copy), headings, nested bullet, numbered and task lists, quotes, rules, tables, `code`, **bold**, *italic*, ~~strike~~ and links, with single line breaks kept. Built as React nodes (never as HTML); an unclosed fence, as the agent is still typing it, runs to the end. */
+/** Markdown with the phone's link sheet and image provider. */
 export function ChatMarkdown({ text, onLink }: { text: string; onLink: OnLink }) {
-  return <div className="chat-md">{blocks(parseBlocks(text), "b", onLink)}</div>;
+  return <div className="chat-md">{renderMarkdown(text, {
+    text: (text, key, label) => withLinks(text, key, onLink, label),
+    code: (text, key) => <code key={key}>{text}</code>,
+    image: (src, alt, key) => {
+      const ref = markdownImageRef(src);
+      return ref ? <ChatImageView key={key} image={ref} variant="single" caption={alt || undefined} /> : <span key={key}>{alt}</span>;
+    },
+    table: (table, cell, key) => <ChatTable key={key} table={table} cell={cell} />,
+    copyLabels: { copy: t("chatCodeCopy"), copied: t("chatTableCopied") },
+  })}</div>;
 }

@@ -38,8 +38,13 @@ export const it = {
   "app.removeShortcut": "Rimuovi dagli shortcut",
   "app.moreOptions": "Altre opzioni",
   "app.openFailed": "Impossibile aprire {name}: {error}",
+  "chat.deliveryUncertain": "Consegna non confermata dopo la riconnessione. Il messaggio resta in coda: usa Invia ora per riprovare.",
   "app.unsaved.title": "Modifiche non salvate",
   "app.unsaved.message": "\"{name}\" ha modifiche non salvate. Chiudere comunque?",
+  "app.unsaved.save": "Salva e chiudi",
+  "app.unsaved.windowMessage": "\"{name}\" contiene modifiche non salvate. Salvarle prima di chiudere?",
+  "app.sessionSaveFailed": "Impossibile salvare la sessione. La finestra resta aperta. {error}",
+  "terminal.inputFailed": "Input non inviato ({bytes} byte): {error}",
   "app.unsaved.confirm": "Chiudi senza salvare",
   "app.cli.notInstalled.title": "{name} non è installato",
   "app.cli.notInstalled.message":

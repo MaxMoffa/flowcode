@@ -571,7 +571,7 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel
     let _ = on_progress.send(UpdateProgress::Install);
     // Every window writes its tabs out first - the relaunched version
     // restores them (see session.rs).
-    crate::session::flush_all(app).await;
+    crate::session::flush_all(app).await?;
     launch_installer(&installer, &install_dir)?;
     // The installer runs from the work dir: it has to stay.
     work_guard.0 = None;

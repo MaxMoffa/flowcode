@@ -28,7 +28,8 @@ function goToLine(view: CMEditorView, line: number) {
 
 export interface EditorHandle {
   isDirty: () => boolean;
-  save: () => void;
+  /** Resolves true only when the current buffer is clean after saving. */
+  save: () => Promise<boolean>;
   /** Current buffer text, for building the "jump to symbol" sidebar outline. */
   getContent: () => string;
   /** Moves the cursor to (and centers the view on) a 1-indexed line. */
@@ -58,7 +59,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   // become unreachable); only a failed load replaces it.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(initialContent !== undefined);
   const [saving, setSaving] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
@@ -69,7 +70,11 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   const lintCompartment = useRef<Compartment | null>(null);
   const originalRef = useRef("");
   const pathRef = useRef(path);
-  const dirtyRef = useRef(false);
+  // A moved buffer already belongs to the user while its disk baseline is
+  // loading. Window-close checks must not treat it as a clean empty editor.
+  const dirtyRef = useRef(initialContent !== undefined);
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null);
+  const renameInFlightRef = useRef(false);
   const initialPathRef = useRef(path);
   const initialContentRef = useRef(initialContent);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -82,50 +87,76 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
   pathRef.current = path;
 
   useEffect(() => {
+    let active = true;
     invoke<string>("read_text_file", { path: initialPathRef.current })
       .then((text) => {
+        if (!active) return;
         originalRef.current = text;
         setContent(initialContentRef.current ?? text);
       })
-      .catch((e) => setLoadError(String(e)));
+      .catch((e) => {
+        if (active) setLoadError(String(e));
+      });
+    // StrictMode replays this effect. Its first, slower read must not reset
+    // the live editor after the second read has loaded and editing began.
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const performSave = useCallback(async () => {
+  const performSave = useCallback((): Promise<boolean> => {
+    if (saveInFlightRef.current) return saveInFlightRef.current;
     const view = cmViewRef.current;
-    if (!view) return;
+    if (!view || renameInFlightRef.current) return Promise.resolve(false);
     const text = view.state.doc.toString();
-    if (text === originalRef.current) return;
-    setSaving(true);
-    try {
-      // An agent (or another tool) may have rewritten the file since it was
-      // loaded or last saved: don't clobber that without asking.
-      const onDisk = await invoke<string>("read_text_file", { path: pathRef.current }).catch(() => null);
-      if (onDisk !== null && onDisk !== originalRef.current) {
-        const { t: tr, confirm: ask } = promptRef.current;
-        const overwrite = await ask({
-          title: tr("editor.changedOnDisk.title"),
-          message: tr("editor.changedOnDisk.body"),
-          confirmLabel: tr("editor.changedOnDisk.overwrite"),
-          danger: true,
-        });
-        if (!overwrite) return;
+    const original = originalRef.current;
+    const targetPath = pathRef.current;
+    if (text === original) return Promise.resolve(true);
+    const isCurrent = () => cmViewRef.current === view && pathRef.current === targetPath && !renameInFlightRef.current;
+    const save = async (): Promise<boolean> => {
+      setSaving(true);
+      try {
+        // Keep one snapshot throughout the read, confirmation and write. A
+        // rename must never redirect this save to a different path.
+        const onDisk = await invoke<string>("read_text_file", { path: targetPath }).catch(() => null);
+        if (!isCurrent() || originalRef.current !== original) return false;
+        if (onDisk !== null && onDisk !== original) {
+          const { t: tr, confirm: ask } = promptRef.current;
+          const overwrite = await ask({
+            title: tr("editor.changedOnDisk.title"),
+            message: tr("editor.changedOnDisk.body"),
+            confirmLabel: tr("editor.changedOnDisk.overwrite"),
+            danger: true,
+          });
+          if (!overwrite || !isCurrent() || originalRef.current !== original) return false;
+        }
+        await invoke("write_text_file", { path: targetPath, contents: text });
+        if (!isCurrent()) return false;
+        originalRef.current = text;
+        setSaveError(null);
+        // Typing during the write keeps the new edits dirty. A window close
+        // waiting on save must not treat that older snapshot as all saved.
+        const stillDirty = view.state.doc.toString() !== text;
+        if (stillDirty !== dirtyRef.current) {
+          dirtyRef.current = stillDirty;
+          setDirty(stillDirty);
+          onDirtyChangeRef.current?.(stillDirty);
+        }
+        return !stillDirty;
+      } catch (e) {
+        if (isCurrent()) setSaveError(String(e));
+        return false;
+      } finally {
+        setSaving(false);
       }
-      await invoke("write_text_file", { path: pathRef.current, contents: text });
-      originalRef.current = text;
-      setSaveError(null);
-      // The user may have typed while the write was in flight: only mark clean
-      // if the buffer still matches what was written.
-      const stillDirty = (cmViewRef.current?.state.doc.toString() ?? text) !== text;
-      if (stillDirty !== dirtyRef.current) {
-        dirtyRef.current = stillDirty;
-        setDirty(stillDirty);
-        onDirtyChangeRef.current?.(stillDirty);
-      }
-    } catch (e) {
-      setSaveError(String(e));
-    } finally {
-      setSaving(false);
-    }
+    };
+    const pending = save();
+    saveInFlightRef.current = pending;
+    const clear = () => {
+      if (saveInFlightRef.current === pending) saveInFlightRef.current = null;
+    };
+    void pending.then(clear, clear);
+    return pending;
   }, []);
 
   // A clean buffer follows the file when it changes on disk (an agent edited
@@ -138,12 +169,13 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     let checking = false;
     const syncFromDisk = async () => {
       const view = cmViewRef.current;
-      if (checking || !view || dirtyRef.current || hiddenRef.current) return;
+      if (checking || !view || dirtyRef.current || hiddenRef.current || saveInFlightRef.current || renameInFlightRef.current) return;
       checking = true;
+      const readPath = pathRef.current;
       try {
-        const onDisk = await invoke<string>("read_text_file", { path: pathRef.current });
+        const onDisk = await invoke<string>("read_text_file", { path: readPath });
         // Typing while the read was in flight makes the buffer dirty: keep it.
-        if (onDisk === originalRef.current || dirtyRef.current || cmViewRef.current !== view) return;
+        if (onDisk === originalRef.current || dirtyRef.current || cmViewRef.current !== view || pathRef.current !== readPath || saveInFlightRef.current || renameInFlightRef.current) return;
         // originalRef first: the update listener then sees a clean buffer.
         originalRef.current = onDisk;
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: onDisk } });
@@ -174,7 +206,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     () => ({
       isDirty: () => dirtyRef.current,
       save: performSave,
-      getContent: () => cmViewRef.current?.state.doc.toString() ?? content ?? "",
+      getContent: () => cmViewRef.current?.state.doc.toString() ?? content ?? initialContentRef.current ?? "",
       scrollToLine: (line: number) => {
         const view = cmViewRef.current;
         // Still loading the file: moved there once it is shown.
@@ -209,7 +241,7 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
             },
           },
         ]),
-        langComp.of(languageFor(basename(pathRef.current)) ?? []),
+        langComp.of([]),
         lintComp.of(buildLinter(basename(pathRef.current))),
         lintGutter(),
         syntaxHighlighting(cmHighlightStyle),
@@ -242,11 +274,10 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
       goToLine(view, pendingLineRef.current);
       pendingLineRef.current = null;
     }
-    if (content !== originalRef.current) {
-      dirtyRef.current = true;
-      setDirty(true);
-      onDirtyChangeRef.current?.(true);
-    }
+    const initiallyDirty = content !== originalRef.current;
+    dirtyRef.current = initiallyDirty;
+    setDirty(initiallyDirty);
+    onDirtyChangeRef.current?.(initiallyDirty);
 
     return () => {
       view.destroy();
@@ -260,13 +291,18 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     const langComp = languageCompartment.current;
     const lintComp = lintCompartment.current;
     if (!view || !langComp || !lintComp) return;
+    let active = true;
     view.dispatch({
       effects: [
-        langComp.reconfigure(languageFor(basename(path)) ?? []),
+        langComp.reconfigure([]),
         lintComp.reconfigure(buildLinter(basename(path))),
       ],
     });
-  }, [path]);
+    void languageFor(basename(path)).then((language) => {
+      if (active && cmViewRef.current === view) view.dispatch({ effects: langComp.reconfigure(language ?? []) });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [path, content]);
 
   useEffect(() => {
     if (renaming) {
@@ -292,15 +328,23 @@ export const EditorView = forwardRef<EditorHandle, EditorViewProps>(({ path, hid
     const trimmed = renameDraft.trim();
     setRenaming(false);
     if (!trimmed || trimmed === basename(path)) return;
+    // A rename waits for the current save. New saves cannot recreate the old
+    // name while rename_entry is in flight.
+    if (saveInFlightRef.current) await saveInFlightRef.current;
+    if (pathRef.current !== path) return;
+    renameInFlightRef.current = true;
     // Invalid names (separators, "..") are rejected by rename_entry itself.
     try {
       const entry = await invoke<{ name: string; path: string; is_dir: boolean }>("rename_entry", {
         path,
         newName: trimmed,
       });
+      pathRef.current = entry.path;
       onRenamed?.(entry.path);
     } catch (e) {
       window.alert(t("files.error.rename", { error: String(e) }));
+    } finally {
+      renameInFlightRef.current = false;
     }
   }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { applyEvents, canDispatch, chatModels, chatModes, chatThought, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
+import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents, canDispatch, chatModels, chatModes, chatThought, chatStatus, emptySession, forceNeedsCancel, forceQueued, putBack, requeueRefused, takeQueued, type ChatSession as RemoteSession } from "../../shared/remoteChatSession";
 import { t } from "../i18n";
 import { eventsActivity } from "../chat/cacheWarning";
 import { applyLocalError, isAgentBusy } from "../chat/chatModel";
@@ -18,6 +18,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const host = useHost(hostId);
   const online = host?.status === "online";
   // A remote that can't switch models shows no choice.
+  const promptReceipts = !!host?.caps.includes("chatPromptAck");
   const canSetModel = !!host?.caps.includes("chatModel");
   const onlineRef = useRef(online);
   onlineRef.current = online;
@@ -39,14 +40,14 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   const pump = useCallback(() => {
     const s = sessionRef.current;
     if (!onlineRef.current || !canDispatch(s, chatStatus(infoRef.current, s.model))) return;
-    const taken = takeQueued(s);
+    const taken = takeQueued(s, promptReceipts ? promptRequestId() : null);
     if (!taken) return;
     const sentAt = taken.session.sentAtSeq ?? -1;
     update(() => taken.session);
-    void sendToHost(hostId, { t: "chatprompt", chatId, text: taken.text }).then((ok) => {
-      if (!ok) update((cur) => putBack(cur, taken.text, sentAt));
+    void sendToHost(hostId, { t: "chatprompt", chatId, text: taken.text, ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
+      if (!ok) update((cur) => putBack(cur, taken.text, sentAt, taken.session.deliveryVersion));
     });
-  }, [hostId, chatId, update]);
+  }, [hostId, chatId, update, promptReceipts]);
 
   // Follow the chat while this view is mounted and the link is up; a new link forgot every stream, so ask again from where we are.
   useEffect(() => {
@@ -59,19 +60,32 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     () =>
       onHostMessages(hostId, (msgs) => {
         for (const m of msgs) {
+          if (m.t === "chatpromptack" && m.chatId === chatId) {
+            update((s) => acknowledgePrompt(s, m.requestId, m.message));
+            continue;
+          }
           // The remote refused our prompt because its agent was still working: back to the queue, sent after the turn.
           // Other errors are shown by the window's notice (remoteHosts.ts `onRemoteNotice`), not here.
-          if (m.t === "error" && isAgentBusy(m.message) && claimBusyRefusal(hostId, sender)) {
+          if (m.t === "error" && !promptReceipts && isAgentBusy(m.message) && claimBusyRefusal(hostId, sender)) {
             update((s) => requeueRefused(s) ?? s);
             continue;
           }
           if (m.t !== "chatevents" || m.chatId !== chatId) continue;
           const status = infoRef.current?.status;
-          update((s) => applyEvents(s, m.events, { replay: m.replay, busy: status === "busy" || status === "waiting" }));
+          const wasUncertain = sessionRef.current.deliveryUncertain;
+          update((s) => {
+            const next = applyEvents(s, m.events, { replay: m.replay, busy: status === "busy" || status === "waiting" });
+            return m.replay && !promptReceipts && next.sentRequestId ? pauseUnconfirmedPrompt(next) : next;
+          });
+          const pending = sessionRef.current;
+          if (m.replay && promptReceipts && pending.sentText && pending.sentRequestId) {
+            void sendToHost(hostId, { t: "chatprompt", chatId, text: pending.sentText, requestId: pending.sentRequestId });
+          }
+          if (pending.deliveryUncertain && !wasUncertain) update((s) => ({ ...s, model: applyLocalError(s.model, t("chat.deliveryUncertain")) }));
         }
         pump();
       }),
-    [hostId, chatId, sender, update, pump],
+    [hostId, chatId, sender, update, pump, promptReceipts],
   );
 
   // The remote's status changed (a turn ended, the link came back): the queue may be able to move.

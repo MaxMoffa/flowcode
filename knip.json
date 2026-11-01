@@ -1,5 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["scripts/codex-status-check.mjs"],
+  "entry": ["src/main.tsx", "mobile/src/main.tsx", "sdk/agent-view/index.ts", "scripts/*.mjs"],
   "ignore": ["docs/**"]
 }

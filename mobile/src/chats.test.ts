@@ -117,6 +117,52 @@ describe("following a chat", () => {
 });
 
 describe("the send queue", () => {
+  it("retries an unacknowledged prompt with the same receipt after reconnect", async () => {
+    const modernReady = () => say({ t: "ready", deviceName: "Phone", hostName: "PC", caps: ["chat", "chatPromptAck"] });
+    modernReady();
+    chats([info("idle")]);
+    const stop = followChat("c1");
+    say({ t: "chatevents", chatId: "c1", events: [], replay: true });
+    sendChatPrompt("c1", "A");
+    sendChatPrompt("c1", "B");
+    await Promise.resolve();
+    const first = prompts()[0] as Extract<ClientMsg, { t: "chatprompt" }>;
+    expect(first.requestId).toMatch(/^\d+-/);
+    modernReady();
+    chats([info("idle")]);
+    say({ t: "chatevents", chatId: "c1", events: [], replay: true });
+    expect(prompts()).toEqual([first, first]);
+    say({ t: "chatpromptack", chatId: "c1", requestId: first.requestId! });
+    say({ t: "chatevents", chatId: "c1", events: [{ seq: 1, at: 0, kind: "user", text: "A" }, { seq: 2, at: 0, kind: "turnEnd", stopReason: "end_turn" }], replay: false });
+    expect(prompts()).toHaveLength(3);
+    expect(prompts()[2]).toMatchObject({ text: "B", requestId: expect.any(String) });
+    expect((prompts()[2] as ClientMsg & { requestId: string }).requestId).not.toBe(first.requestId);
+    stop();
+  });
+  it("requeues only the chat named by a correlated refusal", async () => {
+    say({ t: "ready", deviceName: "Phone", hostName: "PC", caps: ["chat", "chatPromptAck"] });
+    chats([info("idle"), info("idle", { chatId: "c2", tabId: "t2" })]);
+    sendChatPrompt("c1", "A");
+    sendChatPrompt("c2", "B");
+    await Promise.resolve();
+    const second = prompts()[1] as Extract<ClientMsg, { t: "chatprompt" }>;
+    say({ t: "chatpromptack", chatId: "c2", requestId: second.requestId!, message: "agent_busy" });
+    expect(getChatSession("c2")?.queued).toEqual(["B"]);
+    expect(getChatSession("c1")?.sentText).toBe("A");
+  });
+  it("preserves an uncertain delivery to an old server without retrying automatically", async () => {
+    ready();
+    chats([info("idle")]);
+    sendChatPrompt("c1", "A");
+    await Promise.resolve();
+    ready();
+    chats([info("idle")]);
+    say({ t: "chatevents", chatId: "c1", events: [], replay: true });
+    expect(getChatSession("c1")?.queued).toEqual(["A"]);
+    expect(getChatSession("c1")?.deliveryUncertain).toBe(true);
+    expect(prompts()).toHaveLength(1);
+    expect(link.toasts).toHaveLength(1);
+  });
   it("holds a message while the agent works and sends it when it is idle", async () => {
     ready();
     chats([info("busy")]);

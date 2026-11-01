@@ -7,7 +7,7 @@ import { useContextMenu } from "../context-menu/ContextMenuContext";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
-import { attachPty, detachPty, forgetPty, killPty, resizePty, spawnPty, writePty } from "./ptyClient";
+import { attachPty, detachPty, forgetPty, killPty, MAX_PTY_QUEUED_BYTES, onPtyWriteError, ptyInputBytes, resizePty, spawnPty, writePty, type PtyWriteError } from "./ptyClient";
 import { useTheme } from "../themes/ThemeContext";
 import { findPalette, resolveTerminalPalette } from "../themes/palettes";
 import { useTerminalSettings } from "./TerminalSettingsContext";
@@ -705,6 +705,18 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
 
     let disposed = false;
     const mountGen = ++mountGenRef.current;
+    let unlistenWriteError: (() => void) | undefined;
+    const showWriteError = (error: PtyWriteError) => {
+      if (disposed) return;
+      finishNav();
+      lineBufferRef.current = "";
+      const message = error.message.replace(/[\x00-\x1f\x7f]/g, "").slice(0, 1000);
+      term.write(`\r\n[${t("terminal.inputFailed", { bytes: error.unsentBytes, error: message })}]\r\n`);
+    };
+    const watchWriteErrors = (id: string) => {
+      unlistenWriteError?.();
+      unlistenWriteError = onPtyWriteError(id, showWriteError);
+    };
 
     // Any parsed output or reflow makes the cached session snapshot stale.
     const cache = serializeCacheRef.current;
@@ -766,12 +778,24 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     // and flushed instead of vanishing (the first tab of a cold start is the
     // one that has a startup long enough to type into).
     const pendingInput: string[] = [];
+    let pendingInputBytes = 0;
+    const flushPendingInput = (id: string) => {
+      const input = pendingInput.splice(0);
+      pendingInputBytes = 0;
+      for (const data of input) writePty(id, data);
+    };
     const dataDisposable = term.onData((data) => {
       if (!TERMINAL_REPORT.test(data)) usedRef.current = true;
       const id = ptyIdRef.current;
       // Still queued input goes first, so nothing typed now overtakes it.
       if (!id || pendingInput.length > 0) {
+        const bytes = ptyInputBytes(data);
+        if (pendingInputBytes + bytes > MAX_PTY_QUEUED_BYTES) {
+          showWriteError({ kind: "overflow", message: "PTY input queue exceeds 8 MiB", unsentBytes: bytes });
+          return;
+        }
         pendingInput.push(data);
+        pendingInputBytes += bytes;
         return;
       }
       // An Enter whose line the host takes over (an agent CLI opened as a
@@ -812,6 +836,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
       // (`ptySizeRef` starts at 0x0, so it always sends), which also has a
       // full-screen program redraw itself for the new size.
       term.write(attached.snapshot);
+      watchWriteErrors(attached.ptyId);
       void attachPty(attached.ptyId, {
         onOutput: (data, seq) => {
           lastSeqRef.current = seq;
@@ -842,7 +867,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
             if (disposed) return;
             if (size && size.cols > 0 && size.rows > 0) applySizeOverride(size);
             refit();
-            for (const data of pendingInput.splice(0)) writePty(attached.ptyId, data);
+            flushPendingInput(attached.ptyId);
           });
         })
         .catch((e) => {
@@ -975,6 +1000,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         return;
       }
       ptyIdRef.current = id;
+      watchWriteErrors(id);
       onPtyReadyRef.current?.();
       ptySizeRef.current = { cols: term.cols, rows: term.rows };
 
@@ -986,7 +1012,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
         // The pty was sized from whatever xterm measured at mount; if the
         // container hadn't been laid out yet that was a placeholder.
         refit();
-        for (const data of pendingInput.splice(0)) writePty(id, data);
+        flushPendingInput(id);
         // Windows retitling (cmd.exe/PowerShell never do it on their own)
         // is set up at spawn time - see pty.rs's pty_spawn.
         // The start input waits for the prompt (see sendStartInput): a
@@ -1075,6 +1101,9 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
 
     return () => {
       disposed = true;
+      unlistenWriteError?.();
+      pendingInput.length = 0;
+      pendingInputBytes = 0;
       removeServersOfTab(tabId);
       resizeObserver.disconnect();
       unsubscribeDragEnd();

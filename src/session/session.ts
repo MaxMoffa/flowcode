@@ -67,6 +67,6 @@ export async function loadSession(): Promise<SavedWindow[] | null> {
 /** Reports this window's part of the session - `null` (session restore
  * switched off) clears the whole file. `flushGen` answers a `session:flush`
  * request from the backend. */
-export function saveWindowSession(snapshot: SavedWindow | null, flushGen?: number): Promise<void> {
-  return invoke<void>("session_put", { snapshot, flushGen: flushGen ?? null });
+export function saveWindowSession(snapshot: SavedWindow | null, flushGen?: number, dirtyEditors = false): Promise<void> {
+  return invoke<void>("session_put", { snapshot, flushGen: flushGen ?? null, dirtyEditors });
 }

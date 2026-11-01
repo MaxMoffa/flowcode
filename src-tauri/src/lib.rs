@@ -113,6 +113,7 @@ pub fn run() {
                 // left to show them in.
                 app.state::<PtyState>().kill_owned_by(label);
                 app.state::<chat::ChatState>().kill_owned_by(label);
+                app.state::<std::sync::Arc<remote_client::RemoteClients>>().forget_window(label);
                 app.state::<dictation::DictationState>().forget(label);
                 app.state::<session::SessionStore>().forget_window(app, label);
                 app.state::<windows::WindowInits>().forget(label);

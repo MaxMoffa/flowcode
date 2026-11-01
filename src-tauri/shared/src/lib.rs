@@ -462,11 +462,19 @@ mod tests {
 
     #[test]
     fn a_hung_child_is_killed() {
-        #[cfg(target_os = "windows")]
-        let command = "ping -n 20 127.0.0.1";
-        #[cfg(not(target_os = "windows"))]
-        let command = "sleep 20";
-        let err = run_command_blocking_timeout(command, &[], std::time::Duration::from_millis(200)).unwrap_err();
+        // Use this test binary as the child: ping/sleep may be missing from
+        // PATH, or fail immediately in an isolated build environment.
+        if std::env::var_os("FLOWCODE_TIMEOUT_TEST_CHILD").is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(20));
+            return;
+        }
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", "tests::a_hung_child_is_killed"])
+            .env("FLOWCODE_TIMEOUT_TEST_CHILD", "1")
+            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        #[cfg(windows)]
+        command.creation_flags(CREATE_NO_WINDOW);
+        let err = wait_with_timeout(command.spawn().unwrap(), std::time::Duration::from_millis(200)).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
     }
 }

@@ -88,7 +88,12 @@ pub enum ClientMsg {
     ChatOpen { chat_id: String, after_seq: u64 },
     ChatClose { chat_id: String },
     /// A prompt for the chat's agent, at most `MAX_INPUT_BYTES`.
-    ChatPrompt { chat_id: String, text: String },
+    ChatPrompt {
+        chat_id: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
+    },
     ChatCancel { chat_id: String },
     /// Answer an agent's permission request; `option_id: None` cancels it.
     ChatPermission { chat_id: String, request_id: serde_json::Value, option_id: Option<String> },
@@ -149,6 +154,9 @@ pub enum ClientMsg {
     /// chat `chat_id`'s folder), or a web image by `url` (fetched by the desktop,
     /// only if its setting allows). Exactly one of `id`, `path` and `url`.
     ChatImage {
+        /// With chatImageRequestId, echoed as the reply key.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chat_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,6 +175,13 @@ pub enum ClientMsg {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "t", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum ServerMsg {
+    /// Only sent for a prompt carrying requestId; old clients never receive it.
+    ChatPromptAck {
+        chat_id: String,
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
     /// Reply to `pair`. The token is shown to the phone once; keep it.
     Paired { token: String, device_name: String },
     /// Reply to a successful `auth` (or to `pair`, right after `paired`).
@@ -433,6 +448,17 @@ pub struct LsEntry {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn prompt_receipts_and_image_ids_expand_the_old_protocol() {
+        let legacy: super::ClientMsg = serde_json::from_str(r#"{"t":"chatprompt","chatId":"c","text":"hello"}"#).unwrap();
+        assert!(matches!(legacy, super::ClientMsg::ChatPrompt { request_id: None, .. }));
+        let modern: super::ClientMsg = serde_json::from_str(r#"{"t":"chatprompt","chatId":"c","text":"hello","requestId":"123-id"}"#).unwrap();
+        assert!(matches!(modern, super::ClientMsg::ChatPrompt { request_id: Some(id), .. } if id == "123-id"));
+        let image: super::ClientMsg = serde_json::from_str(r#"{"t":"chatimage","chatId":"c","path":"a.png","requestId":"image-id"}"#).unwrap();
+        assert!(matches!(image, super::ClientMsg::ChatImage { request_id: Some(id), .. } if id == "image-id"));
+        let ack = super::ServerMsg::ChatPromptAck { chat_id: "c".into(), request_id: "123-id".into(), message: None };
+        assert_eq!(serde_json::to_value(ack).unwrap(), serde_json::json!({"t":"chatpromptack","chatId":"c","requestId":"123-id"}));
+    }
     use super::*;
 
     #[test]
@@ -656,12 +682,12 @@ mod tests {
     #[test]
     fn chat_image_messages_round_trip() {
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatimage","chatId":"c","path":"a.png"}"#).unwrap();
-        assert_eq!(msg, ClientMsg::ChatImage { chat_id: Some("c".into()), id: None, path: Some("a.png".into()), url: None });
+        assert_eq!(msg, ClientMsg::ChatImage { request_id: None, chat_id: Some("c".into()), id: None, path: Some("a.png".into()), url: None });
         assert_eq!(serde_json::to_value(&msg).unwrap(), serde_json::json!({ "t": "chatimage", "chatId": "c", "path": "a.png" }));
         let by_id: ClientMsg = serde_json::from_str(r#"{"t":"chatimage","id":"ab"}"#).unwrap();
-        assert_eq!(by_id, ClientMsg::ChatImage { chat_id: None, id: Some("ab".into()), path: None, url: None });
+        assert_eq!(by_id, ClientMsg::ChatImage { request_id: None, chat_id: None, id: Some("ab".into()), path: None, url: None });
         let by_url: ClientMsg = serde_json::from_str(r#"{"t":"chatimage","url":"https://a.b/i.png"}"#).unwrap();
-        assert_eq!(by_url, ClientMsg::ChatImage { chat_id: None, id: None, path: None, url: Some("https://a.b/i.png".into()) });
+        assert_eq!(by_url, ClientMsg::ChatImage { request_id: None, chat_id: None, id: None, path: None, url: Some("https://a.b/i.png".into()) });
         assert_eq!(serde_json::to_value(&by_url).unwrap(), serde_json::json!({ "t": "chatimage", "url": "https://a.b/i.png" }));
         let chunk = ServerMsg::ChatImage { key: "a.png".into(), offset: 0, total: 5, data: "aGVsbG8=".into(), mime: Some("image/png".into()), missing: false };
         assert_eq!(
