@@ -135,6 +135,15 @@ pub enum ClientMsg {
     ViewFile { view_id: String, path: String },
     /// The preview of a link in a chat (answered with `ServerMsg::LinkPreview`).
     LinkPreview { url: String },
+    /// The agent panel data (context, usage, tools) of a terminal tab (`pty_id`)
+    /// or of a chat (`chat_id`), answered with `ServerMsg::AgentInsight`.
+    /// Exactly one of the two.
+    AgentInsight {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pty_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chat_id: Option<String>,
+    },
     /// An image of a chat (answered with `ServerMsg::ChatImage` chunks): a stored
     /// one by `id`, or a file the agent mentioned by `path` (resolved in the
     /// chat `chat_id`'s folder), or a web image by `url` (fetched by the desktop,
@@ -229,6 +238,20 @@ pub enum ServerMsg {
     /// Reply to `linkpreview`: what the desktop read from the page (the JSON
     /// shape of the shared `LinkPreview`), or null if there is none.
     LinkPreview { url: String, preview: Option<serde_json::Value> },
+    /// Reply to `agentinsight`. `key` is the requested `pty_id` / `chat_id`,
+    /// verbatim. `usage` and `tools` are the JSON of the desktop's
+    /// `SessionUsage` / `AgentTools`; each is left out when it can't be read.
+    AgentInsight {
+        key: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cli: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<TabContext>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tools: Option<serde_json::Value>,
+    },
     /// One chunk of a chat image (base64), `offset` and `total` in raw bytes,
     /// in order. `key` is the requested `id` (else `path`), verbatim. `mime` is
     /// known for files only. `missing`: no such image (one chunk, no data).
@@ -602,6 +625,32 @@ mod tests {
         );
         let none = ServerMsg::LinkPreview { url: "https://a.b".into(), preview: None };
         assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "linkpreview", "url": "https://a.b", "preview": null }));
+    }
+
+    #[test]
+    fn agent_insight_messages_round_trip() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"agentinsight","ptyId":"p1"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::AgentInsight { pty_id: Some("p1".into()), chat_id: None });
+        assert_eq!(serde_json::to_value(&msg).unwrap(), serde_json::json!({ "t": "agentinsight", "ptyId": "p1" }));
+        let chat: ClientMsg = serde_json::from_str(r#"{"t":"agentinsight","chatId":"c1"}"#).unwrap();
+        assert_eq!(chat, ClientMsg::AgentInsight { pty_id: None, chat_id: Some("c1".into()) });
+        let reply = ServerMsg::AgentInsight {
+            key: "p1".into(),
+            cli: Some("claude".into()),
+            context: Some(TabContext { used: 10, window: 100, model: Some("m".into()) }),
+            usage: Some(serde_json::json!({ "input": 1 })),
+            tools: Some(serde_json::json!({ "mcp": [] })),
+        };
+        assert_eq!(
+            serde_json::to_value(reply).unwrap(),
+            serde_json::json!({
+                "t": "agentinsight", "key": "p1", "cli": "claude",
+                "context": { "used": 10, "window": 100, "model": "m" },
+                "usage": { "input": 1 }, "tools": { "mcp": [] }
+            })
+        );
+        let none = ServerMsg::AgentInsight { key: "p1".into(), cli: None, context: None, usage: None, tools: None };
+        assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "agentinsight", "key": "p1" }));
     }
 
     #[test]

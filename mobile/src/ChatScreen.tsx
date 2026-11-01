@@ -507,7 +507,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
         }
         onStop={working ? () => cancelChat(chatId) : undefined}
       />
-      {!embedded && onSwitch && <TermAgents activePty="" open={agentsOpen} onClose={closeAgents} onOpen={onSwitch} />}
+      {!embedded && onSwitch && <TermAgents activePty="" chatId={chatId} open={agentsOpen} onClose={closeAgents} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>
   );

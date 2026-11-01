@@ -87,6 +87,25 @@ export interface UsageMetric {
   sessions?: number;
 }
 
+/** An agent's session token usage (Rust `SessionUsage`). */
+export interface AgentSessionUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  turns: number[];
+  cost: number | null;
+  model: string | null;
+}
+
+/** What an agent is configured with in its folder (Rust `AgentTools`). */
+export interface AgentToolsInfo {
+  mcp: { name: string; scope: string; transport: string; target: string }[];
+  skills: { name: string; scope: string; estTokens: number }[];
+  memoryChars: number;
+  memoryFiles: string[];
+}
+
 export interface UsageItem {
   pluginId: string;
   label: string;
@@ -214,6 +233,8 @@ export type RemoteCap =
   | "preview"
   /** `linkpreview`: link preview cards fetched by the desktop. */
   | "linkPreview"
+  /** `agentinsight`: an agent's context, session usage and tools, for the phone's agent panel. */
+  | "agentInsight"
   /** `terminalchat`: an agent's terminal tab reopened as a chat. */
   | "terminalChat"
   /** `chatrename`: renaming a chat tab. */
@@ -272,6 +293,8 @@ export type ServerMsg =
   | { t: "viewfile"; viewId: string; hash: string; path: string; offset: number; total: number; data: string }
   /** Reply to `linkpreview`; `preview` is null when there is none (or the desktop's setting is "never"). Needs the "linkPreview" cap, which is not in `RemoteCap`: an older desktop just lacks previews, nothing to warn about. */
   | { t: "linkpreview"; url: string; preview: LinkPreview | null }
+  /** Reply to `agentinsight`; `key` is the requested `ptyId` or `chatId` verbatim. Each part is null/absent when the desktop cannot read it (no session yet, an agent it cannot inspect, WSL...). Needs the "agentInsight" cap. */
+  | { t: "agentinsight"; key: string; cli?: string | null; context?: { used: number; window: number; model?: string } | null; usage?: AgentSessionUsage | null; tools?: AgentToolsInfo | null }
   /** One chunk of an image of a chat (reply to `chatimage`), base64; `key` is the requested `id`, else the requested `path`, verbatim. A missing or unreadable one is a single message with `total: 0, missing: true`; an empty file is one chunk with `total: 0`. Needs the "chatImage" cap, which is not in `RemoteCap`: an older desktop just shows no images. */
   | { t: "chatimage"; key: string; offset: number; total: number; data: string; mime?: string; missing?: boolean }
   | { t: "pong" };
@@ -327,6 +350,8 @@ export type ClientMsg =
   /** Asks for one file of a view plugin; answered with its `viewfile` chunks. */
   | { t: "viewfile"; viewId: string; path: string }
   /** Sent by the core itself when the app goes out of sight; listed for completeness. */
+  /** The context, session usage and tools of the agent in a terminal tab (`ptyId`) or a chat (`chatId`), exactly one of the two; answered with `agentinsight`. Needs the "agentInsight" cap. */
+  | { t: "agentinsight"; ptyId?: string; chatId?: string }
   /** The preview of a link in a chat (answered with `linkpreview`). */
   | { t: "linkpreview"; url: string }
   /** An image of a chat, by the `id` the desktop stored it under or by `path` (a file on the chat's PC, resolved against its cwd/WSL) or by web `url` (downloaded by the desktop only if its `chatWebImages` setting is on, else `missing`; the reply `key` is the url); answered with `chatimage` chunks. Needs the "chatImage" cap (not in `RemoteCap`); `url` also needs "chatWebImages". */

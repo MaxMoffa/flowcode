@@ -426,7 +426,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
       {!embedded && keyBar}
       {browserOpen && canBrowse && <Browser ptyId={ptyId} onClose={() => setBrowserOpen(false)} />}
       {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
-      {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} onOpen={onSwitch} />}
+      {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} />}
       {!embedded && tab.cli && (
         <ChatMenu
           open={titleMenuOpen}

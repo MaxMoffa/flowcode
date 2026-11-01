@@ -240,7 +240,7 @@ fn memory_of(candidates: &[PathBuf]) -> (u64, Vec<String>) {
     (chars, files)
 }
 
-fn read_tools(app: &tauri::AppHandle, cli: &str, cwd: &str, profile: Option<String>) -> Result<AgentTools, String> {
+pub(crate) fn read_tools(app: &tauri::AppHandle, cli: &str, cwd: &str, profile: Option<String>) -> Result<AgentTools, String> {
     let mut tools = AgentTools::default();
     if cli != "claude" && cli != "codex" {
         return Ok(tools);
@@ -487,7 +487,7 @@ fn codex_usage(path: &Path) -> Result<SessionUsage, String> {
 type ResultCache = HashMap<PathBuf, (u64, SessionUsage)>;
 static RESULTS: LazyLock<Mutex<ResultCache>> = LazyLock::new(Default::default);
 
-fn read_usage(
+pub(crate) fn read_usage(
     app: &tauri::AppHandle,
     cli: &str,
     session_id: &str,

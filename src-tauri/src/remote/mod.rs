@@ -107,6 +107,10 @@ const MAX_CHAT_SUBS: usize = 16;
 const MAX_ID_BYTES: usize = 128;
 /// Longest URL a phone may ask a preview of.
 const LINK_URL_MAX_BYTES: usize = 2048;
+/// An `agentinsight` reply's tools beyond this many bytes lose their long lists.
+const AGENT_INSIGHT_TOOLS_MAX_BYTES: usize = 256 * 1024;
+/// Entries kept of the `mcp` and `skills` lists of a too big reply.
+const AGENT_INSIGHT_LIST_KEEP: usize = 200;
 /// Largest `linkpreview` reply, JSON bytes: under a frame, with room for the envelope.
 const LINK_PREVIEW_MAX_BYTES: usize = 900 * 1024;
 /// How long a pty keeps the phone's size after the last phone stopped sizing
@@ -2028,6 +2032,70 @@ impl Conn {
         });
     }
 
+    /// Answers an `agentinsight`: the context, usage and tools of a terminal
+    /// tab's agent (`pty_id`) or of a chat's (`chat_id`). What can't be read is
+    /// left out.
+    fn send_agent_insight(&self, pty_id: Option<String>, chat_id: Option<String>) {
+        let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let key = pty_id.clone().or_else(|| chat_id.clone()).unwrap_or_default();
+            // (cli, session id, profile, folder, inside WSL)
+            let target: Option<(String, Option<String>, Option<String>, String, bool)> = if let Some(pty) = pty_id {
+                let sessions = crate::agents::collect_agent_sessions(&shared.app).await.unwrap_or_default();
+                sessions.into_iter().find(|s| s.pty_id == pty).map(|s| {
+                    let wsl = s.wsl_distro.is_some();
+                    let cwd = s.cwd.clone().or_else(|| s.tab_cwd.clone()).unwrap_or_default();
+                    (s.cli.clone(), s.session_id.clone(), s.profile.clone(), cwd, wsl)
+                })
+            } else {
+                let chats = shared.app.state::<ChatState>().list();
+                chats
+                    .into_iter()
+                    .find(|c| Some(c.chat_id.as_str()) == chat_id.as_deref())
+                    .map(|c| (c.agent.clone(), c.session_id.clone(), c.profile.clone(), c.cwd.clone(), false))
+            };
+            let Some((cli, session_id, profile, cwd, wsl)) = target else {
+                let _ = out.send(ServerMsg::AgentInsight { key, cli: None, context: None, usage: None, tools: None }).await;
+                return;
+            };
+            let app = shared.app.clone();
+            let read_cli = cli.clone();
+            let read = crate::blocking(move || {
+                let reads_session = matches!(read_cli.as_str(), "claude" | "codex") && !wsl;
+                let session = if reads_session { session_id } else { None };
+                let context = session.as_deref().and_then(|id| {
+                    crate::context::read_context(&app, &read_cli, id, profile.clone())
+                        .ok()
+                        .flatten()
+                        .map(|c| TabContext { used: c.used, window: c.window, model: c.model })
+                });
+                let usage = session
+                    .as_deref()
+                    .and_then(|id| crate::agent_insight::read_usage(&app, &read_cli, id, profile.clone()).ok())
+                    .and_then(|u| serde_json::to_value(u).ok());
+                let tools = if wsl {
+                    None
+                } else {
+                    crate::agent_insight::read_tools(&app, &read_cli, &cwd, profile).ok().and_then(|t| serde_json::to_value(t).ok())
+                };
+                Ok((context, usage, tools))
+            })
+            .await;
+            let (context, usage, mut tools) = read.unwrap_or((None, None, None));
+            // A reply is one frame: the long lists are cut if it would not fit.
+            if let Some(value) = tools.as_mut() {
+                if serde_json::to_string(value).map_or(false, |text| text.len() > AGENT_INSIGHT_TOOLS_MAX_BYTES) {
+                    for list in ["skills", "mcp"] {
+                        if let Some(items) = value.get_mut(list).and_then(|v| v.as_array_mut()) {
+                            items.truncate(AGENT_INSIGHT_LIST_KEEP);
+                        }
+                    }
+                }
+            }
+            let _ = out.send(ServerMsg::AgentInsight { key, cli: Some(cli), context, usage, tools }).await;
+        });
+    }
+
     /// Runs a call on a chat on the blocking pool (it writes to the agent) and
     /// reports a failure to the phone.
     fn spawn_chat<F>(&self, work: F)
@@ -2378,6 +2446,13 @@ impl Conn {
                     self.error(tr("Richiesta non valida", "Invalid request"), None);
                 } else {
                     self.send_link_preview(url);
+                }
+            }
+            ClientMsg::AgentInsight { pty_id, chat_id } => {
+                if pty_id.is_some() == chat_id.is_some() {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                } else {
+                    self.send_agent_insight(pty_id, chat_id);
                 }
             }
             ClientMsg::Set { key, value } => {

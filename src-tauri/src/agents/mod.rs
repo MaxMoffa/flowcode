@@ -77,15 +77,15 @@ pub struct AgentSession {
     started_at: Option<u64>,
     /// Set when the agent runs inside WSL: the distro, and the agent's own
     /// (Linux) working directory - `pid` is then a Linux pid.
-    wsl_distro: Option<String>,
-    cwd: Option<String>,
+    pub(crate) wsl_distro: Option<String>,
+    pub(crate) cwd: Option<String>,
     /// The window and tab showing this session, as that window last reported
     /// them (see windows.rs's `window_report_tabs`) - any window's Agents
     /// panel can list, and jump to, an agent in another window.
     window: Option<String>,
     tab_id: Option<String>,
     tab_label: Option<String>,
-    tab_cwd: Option<String>,
+    pub(crate) tab_cwd: Option<String>,
     /// The agent's own session, when it can be read (Claude Code's registry
     /// entry - see `claude_registry_entry` - a Codex live thread, or the Vibe
     /// session last written in its folder - see `vibe::live_session_in`): its id,

@@ -131,7 +131,7 @@ export async function chatMockConnect() {
   await emit("remote://msgs", [{ t: "chats", chats: infos }]);
 }
 
-export const chatMockCaps = ["chat", "agentViews"];
+export const chatMockCaps = ["chat", "agentViews", "agentInsight"];
 
 export const mockViews = [
   {
@@ -149,7 +149,7 @@ export const mockViews = [
   },
 ];
 
-export function chatMock(msg: { t?: string; chatId?: string; text?: string; afterSeq?: number; optionId?: string | null; requestId?: string; action?: string; content?: Record<string, unknown>; cli?: string; modeId?: string } | undefined) {
+export function chatMock(msg: { t?: string; chatId?: string; text?: string; afterSeq?: number; optionId?: string | null; requestId?: string; action?: string; content?: Record<string, unknown>; cli?: string; modeId?: string; ptyId?: string } | undefined) {
   if (!msg?.t) return;
   init();
   const { chatId = "" } = msg;
@@ -195,6 +195,30 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
       push(chatId, [{ kind: "turnEnd", stopReason: "cancelled" }]);
       setStatus(chatId, "idle");
       break;
+    case "agentinsight": {
+      const key = msg.chatId ?? msg.ptyId ?? "";
+      const reply = {
+        t: "agentinsight",
+        key,
+        cli: "claude",
+        context: { used: 152000, window: 200000, model: "claude-opus-4-5-20251101" },
+        usage: { input: 42000, output: 18000, cacheRead: 640000, cacheWrite: 90000, turns: [8000, 21000, 14000, 52000, 30000, 12000, 26000], cost: null, model: "claude-opus-4-5-20251101" },
+        tools: {
+          mcp: [
+            { name: "playwright", scope: "user", transport: "stdio", target: "npx @playwright/mcp" },
+            { name: "notion", scope: "project", transport: "http", target: "https://mcp.notion.com" },
+          ],
+          skills: [
+            { name: "caveman", scope: "user", estTokens: 900 },
+            { name: "flowcode-plugin", scope: "project", estTokens: 1400 },
+          ],
+          memoryChars: 6400,
+          memoryFiles: ["C:/Users/massi/.claude/CLAUDE.md"],
+        },
+      };
+      later(80, () => void emit("remote://msgs", [reply]));
+      break;
+    }
     case "chatmode": {
       const info = infos.find((i) => i.chatId === chatId);
       if (info?.modes && msg.modeId) (info.modes as typeof modes).currentModeId = msg.modeId;
