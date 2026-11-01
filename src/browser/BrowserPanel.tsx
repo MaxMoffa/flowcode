@@ -185,6 +185,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       busy = true;
       try {
         const mtime = await invoke<number | null>("preview_file_mtime", { path: filePath });
+        // A file missing mid-write says nothing: wait for it to come back.
+        if (mtime == null) return;
         if (last !== undefined && mtime !== last) {
           setLoading(true);
           post({ type: "reload" });

@@ -304,7 +304,8 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   }, [draft, phase, hidden, subId]);
 
   useEffect(() => {
-    if (!hidden && !subId) inputRef.current?.focus();
+    // Not while the Browser panel's page has the focus: the keys would stop scrolling it.
+    if (!hidden && !subId && document.activeElement?.tagName !== "IFRAME") inputRef.current?.focus();
   }, [hidden, phase, subId]);
 
   // The "/" menu: client-side commands first (ours wins over an agent command of the same name), then the agent's.

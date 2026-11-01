@@ -104,15 +104,20 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
     // An agent command that opens a page or artifact in the system (live events only, never a replay): shown in the Browser panel as the settings say.
     const followed = new Set<string>();
+    // The command arrives with an earlier update than the one that completes it.
+    const commands = new Map<string, string>();
     let distro: string | null = null;
     const followOpenCommand = (ev: ChatEvent) => {
       if (ev.kind !== "update") return;
       const update = ev.update as Record<string, unknown>;
       const id = update.toolCallId;
       if ((update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") || typeof id !== "string" || followed.has(id)) return;
+      const seen = toolCommand(update);
+      if (seen) commands.set(id, seen);
       // Only once the command ran: a denied or failed one opened nothing.
       if (update.status !== "completed") return;
-      const command = toolCommand(update);
+      const command = seen ?? commands.get(id) ?? null;
+      commands.delete(id);
       const target = command && openCommandTarget(command);
       if (!target) return;
       followed.add(id);

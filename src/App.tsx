@@ -215,6 +215,23 @@ function Shell() {
   const sessionDirtyRef = useRef(true);
   if (latestRef.current.tabs !== tabs || latestRef.current.activeTabId !== activeTabId) sessionDirtyRef.current = true;
   latestRef.current = { tabs, activeTabId, activeTerminalId };
+  // Each tab keeps which side panels were open in it (not their widths): leaving a tab saves them, coming back restores them.
+  // A tab not seen before inherits the file/agents panels as they are but starts without the Browser, which belongs to the tab that opened it.
+  const panelsByTabRef = useRef(new Map<string, { sidebarCollapsed: boolean; agentsSidebarOpen: boolean; browserOpen: boolean }>());
+  const panelsNowRef = useRef({ sidebarCollapsed, agentsSidebarOpen, browserOpen });
+  panelsNowRef.current = { sidebarCollapsed, agentsSidebarOpen, browserOpen };
+  const panelsTabRef = useRef(activeTabId);
+  useEffect(() => {
+    const previous = panelsTabRef.current;
+    if (previous === activeTabId) return;
+    panelsTabRef.current = activeTabId;
+    const map = panelsByTabRef.current;
+    map.set(previous, panelsNowRef.current);
+    const next = map.get(activeTabId) ?? { ...panelsNowRef.current, browserOpen: false };
+    setSidebarCollapsed(next.sidebarCollapsed);
+    setAgentsSidebarOpen(next.agentsSidebarOpen);
+    setBrowserOpen(next.browserOpen);
+  }, [activeTabId, setSidebarCollapsed, setAgentsSidebarOpen]);
   // The tab strip, the shortcuts and the phone's list leave out the new tab dialog.
   const stripTabs = useMemo(() => listedTabs(tabs), [tabs]);
   const [{ layout: newTabLayoutId }] = useNewTabSettings();

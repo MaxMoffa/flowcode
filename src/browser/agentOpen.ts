@@ -5,7 +5,7 @@ import { isLocalUrl, isPreviewableFile, normalizeLocalUrl, openFileInPreview, op
 
 // A shell command that hands something to the OS opener: `start`, `open`, `xdg-open`, `explorer`, `Start-Process`...
 // The opener must be a command of its own (start of line, after `;` `&` `|` `(`, or opening a `-Command "..."` / `-c '...'` script), not a word inside a quoted argument like `git commit -m "open x.html"`.
-const OPENER_RE = /(?:^|[;&|(\n]|-(?:Command|c|lc)\s+["'])\s*(?:cmd(?:\.exe)?\s+\/c\s+)?(?:sudo\s+)?(?:start|open|xdg-open|wslview|explorer(?:\.exe)?|Start-Process|Invoke-Item|ii)\s+([^;&|\r\n]+)/gi;
+const OPENER_RE = /(?:^|[;&|(\n]|-(?:Command|c|lc)\s+["'])\s*(?:cmd(?:\.exe)?\s+\/c\s+)?(?:sudo\s+)?(?:start|open|xdg-open|wslview|explorer(?:\.exe)?|Start-Process|Invoke-Item|ii|python3?\s+-m\s+webbrowser|(?:google-chrome|chrome|msedge|firefox)(?:\.exe)?)\s+([^;&|\r\n]+)/gi;
 const TOKEN_RE = /"([^"]*)"|'([^']*)'|(\S+)/g;
 const CD_RE = /^\s*cd\s+(?:\/d\s+)?(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))\s*(?:&&|;)/;
 

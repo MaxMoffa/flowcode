@@ -168,6 +168,33 @@ fn file_response(kind: &str, body: Vec<u8>) -> Response<Vec<u8>> {
         .unwrap_or_default()
 }
 
+/// The Windows default scrollbar is a chunky light-grey bar; a previewed page
+/// gets the app's thin one instead. Translucent grey, so it reads on light and
+/// dark pages alike (the app's own colours aren't reachable from the page).
+const SCROLLBAR_STYLE: &str = "<style data-flowcode>::-webkit-scrollbar{width:10px;height:10px}\
+::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}\
+::-webkit-scrollbar-thumb{background-color:rgba(128,128,128,.4);border-radius:5px;border:2px solid transparent;background-clip:padding-box}\
+::-webkit-scrollbar-thumb:hover{background-color:rgba(128,128,128,.7)}</style>";
+
+/// Puts `SCROLLBAR_STYLE` right after the opening `<head>` (or `<html>`) tag.
+/// Never before a doctype: that would drop the page into quirks mode. A page
+/// with neither tag is left as it is.
+fn inject_scrollbar_style(mut body: Vec<u8>) -> Vec<u8> {
+    let after_open_tag = |body: &[u8], tag: &[u8]| -> Option<usize> {
+        // The tag name must end there: `<head` is not `<header>`.
+        let start = (0..body.len().saturating_sub(tag.len())).find(|&i| {
+            body[i..i + tag.len()].eq_ignore_ascii_case(tag) && matches!(body[i + tag.len()], b'>' | b' ' | b'\t' | b'\r' | b'\n')
+        })?;
+        let end = body[start..].iter().position(|&b| b == b'>')?;
+        Some(start + end + 1)
+    };
+    let Some(at) = after_open_tag(&body, b"<head").or_else(|| after_open_tag(&body, b"<html")) else {
+        return body;
+    };
+    body.splice(at..at, SCROLLBAR_STYLE.bytes());
+    body
+}
+
 fn status_response(status: StatusCode) -> Response<Vec<u8>> {
     Response::builder().status(status).header("Content-Type", "text/plain").body(Vec::new()).unwrap_or_default()
 }
@@ -200,7 +227,11 @@ pub fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         "host/host.js" => host_response("text/javascript; charset=utf-8", HOST_JS),
         _ => match resolve_preview_file(app, &path) {
             Some((rel, file)) => match std::fs::read(file) {
-                Ok(body) => file_response(content_type(&rel), body),
+                Ok(body) => {
+                    let kind = content_type(&rel);
+                    let body = if kind.starts_with("text/html") { inject_scrollbar_style(body) } else { body };
+                    file_response(kind, body)
+                }
                 Err(_) => status_response(StatusCode::NOT_FOUND),
             },
             None => status_response(StatusCode::NOT_FOUND),

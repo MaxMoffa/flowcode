@@ -31,6 +31,11 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
     let raf = 0;
     let next = 0;
     function onMove(e: PointerEvent) {
+      // The button was released before these listeners existed (a quick click): end the drag instead of following the mouse.
+      if (e.buttons === 0) {
+        onUp();
+        return;
+      }
       const delta = e.clientX - startXRef.current;
       const signedDelta = handleSide === "right" ? delta : -delta;
       next = Math.max(min, Math.min(max, startWidthRef.current + signedDelta));
