@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — avviso aggiornamento mobile: 3 varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --warn:#e0b252; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.07);
+  --sheet:#1b140e;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --warn:#a67a14; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.06);
+  --sheet:#f8f1e3;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:860px}
+.sub code{background:var(--track);padding:1px 5px;border-radius:4px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track)}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(300px,340px));gap:32px;align-items:start}
+.col h2{font-size:13px;margin:0 0 2px}
+.col p.d{margin:0 0 10px;color:var(--fg-muted);min-height:76px}
+
+/* telefono */
+.phone{position:relative;height:640px;border:1px solid var(--border);border-radius:30px;overflow:hidden;background:var(--bg);
+  box-shadow:0 0 0 6px color-mix(in srgb,var(--fg) 8%,transparent)}
+.app{position:absolute;inset:0;padding:44px 16px 0;display:flex;flex-direction:column;gap:10px}
+.app .row{height:54px;border-radius:14px;background:var(--hover)}
+.app .row.s{height:36px;width:60%}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.5)}
+.sheet,.full{position:absolute;display:flex;flex-direction:column;background:var(--sheet);color:var(--fg)}
+.grab{width:38px;height:4px;border-radius:4px;background:var(--surface3);margin:10px auto 0;flex:none}
+
+/* pezzi comuni */
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--fg-muted)}
+.chip b{color:var(--fg)}
+.chip .arrow{color:var(--accent)}
+.tt{margin:0;font-size:18px;font-weight:700}
+.notes{font-size:14px;line-height:1.5;overflow-y:auto;overscroll-behavior:contain}
+.notes h4{margin:14px 0 4px;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
+.notes h4:first-child{margin-top:0}
+.notes ul{margin:4px 0;padding-left:20px}
+.notes li{margin:3px 0}
+.btn{font:inherit;font-weight:600;border:0;border-radius:999px;padding:12px 18px;cursor:pointer;color:var(--fg);background:var(--track);text-align:center}
+.btn.main{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;box-shadow:inset 0 0 0 1px var(--border);font-weight:500}
+.btn.text{background:transparent;font-weight:500;color:var(--fg-muted)}
+.track{height:6px;border-radius:6px;background:var(--track);overflow:hidden}
+.track i{display:block;height:100%;width:42%;background:var(--accent);border-radius:6px}
+.prog{display:none;flex-direction:column;gap:6px;font-size:12px;color:var(--fg-muted)}
+body.inst .prog{display:flex}
+body.inst .cta{display:none}
+.fade{position:relative}
+.fade::after{content:"";position:absolute;left:0;right:0;bottom:0;height:22px;background:linear-gradient(transparent,var(--sheet));pointer-events:none}
+
+/* A · foglio con corpo scorrevole e footer fisso */
+.a{left:0;right:0;bottom:0;max-height:86%;border-radius:24px 24px 0 0;border-top:1px solid var(--border)}
+.a .hd{padding:6px 18px 10px;display:flex;flex-direction:column;gap:6px;flex:none}
+.a .body{flex:1;min-height:0;padding:0 18px;display:flex;flex-direction:column}
+.a .notes{flex:1;min-height:0}
+.a .foot{flex:none;padding:12px 18px 18px;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--border);background:var(--sheet)}
+
+/* B · foglio basso: riassunto, note a richiesta */
+.b{left:0;right:0;bottom:0;border-radius:24px 24px 0 0;border-top:1px solid var(--border);padding:0 18px 18px;gap:12px}
+.b .top{display:flex;gap:12px;align-items:center;margin-top:6px}
+.b .ico{width:44px;height:44px;border-radius:14px;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);display:grid;place-items:center;font-size:20px;flex:none}
+.b .top .t{flex:1;min-width:0}
+.b .hl{display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:16px;background:var(--hover);box-shadow:inset 0 0 0 1px var(--border);font-size:13.5px}
+.b .hl div{display:flex;gap:8px}
+.b .hl div::before{content:"•";color:var(--accent)}
+.b .more{align-self:flex-start;background:none;border:0;color:var(--accent);font:inherit;font-weight:600;padding:0;cursor:pointer}
+.b .acts{display:grid;grid-template-columns:1fr 2fr;gap:8px}
+.b .over{position:absolute;inset:0;background:var(--sheet);display:none;flex-direction:column;border-radius:24px 24px 0 0}
+.b .over.show{display:flex}
+.b .over .hh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.b .over .hh b{flex:1}
+.b .over .notes{padding:14px 18px;flex:1}
+
+/* C · schermo intero con barra azioni fissa */
+.c{inset:0}
+.c .hero{padding:48px 20px 16px;background:linear-gradient(color-mix(in srgb,var(--accent) 16%,transparent),transparent);display:flex;flex-direction:column;gap:8px;flex:none}
+.c .ver{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.c .x{position:absolute;top:14px;right:16px;width:32px;height:32px;border-radius:50%;background:var(--track);display:grid;place-items:center;color:var(--fg-muted)}
+.c .notes{flex:1;min-height:0;padding:4px 20px 8px}
+.c .bar2{flex:none;padding:12px 16px 18px;display:grid;grid-template-columns:1fr 1.6fr;gap:8px;background:var(--sheet);border-top:1px solid var(--border)}
+.c .bar2 .prog{grid-column:1/-1}
+body.inst .c .bar2 .cta{display:none}
+
+.note{margin-top:22px;color:var(--fg-muted);max-width:860px}
+</style>
+</head>
+<body>
+<h1>Avviso aggiornamento — mobile</h1>
+<p class="sub">Oggi <code>UpdateSheet</code> è un <code>.nts</code> con <code>max-height:85%</code> ma senza corpo scorrevole: titolo, testo, note (<code>40vh</code> con scroll proprio), pulsante e "Più tardi" sono tutti figli diretti e quello che eccede viene tagliato, quindi i pulsanti restano fuori schermo. Le tre varianti tengono sempre visibili le azioni. Le note qui sono lunghe apposta: scorri dentro i telefoni.</p>
+<div class="bar">
+  <button id="th">Tema chiaro</button>
+  <button id="in">Mostra installazione in corso</button>
+</div>
+
+<div class="grid">
+
+<div class="col">
+  <h2>A · Foglio con footer fisso</h2>
+  <p class="d">Correzione minima: stesso foglio di oggi, ma titolo in alto, note che occupano lo spazio rimasto e scorrono da sole, azioni in un footer che non si muove mai.</p>
+  <div class="phone">
+    <div class="app"><div class="row s"></div><div class="row"></div><div class="row"></div><div class="row"></div></div>
+    <div class="scrim"></div>
+    <div class="sheet a">
+      <div class="grab"></div>
+      <div class="hd">
+        <h3 class="tt">Aggiornamento disponibile</h3>
+        <div class="chip">0.23.0 <span class="arrow">→</span> <b>0.24.0</b> · 38 MB</div>
+      </div>
+      <div class="body fade"><div class="notes" data-notes></div></div>
+      <div class="foot">
+        <div class="prog"><div class="track"><i></i></div>Download 16 MB di 38 MB</div>
+        <button class="btn main cta">Installa aggiornamento</button>
+        <button class="btn text cta">Più tardi</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="col">
+  <h2>B · Riassunto, note a richiesta</h2>
+  <p class="d">Il foglio non scorre mai: tre novità in evidenza, "Tutte le novità" apre le note complete a pieno foglio con il suo scroll. Azioni sempre sopra la piega.</p>
+  <div class="phone" id="pb">
+    <div class="app"><div class="row s"></div><div class="row"></div><div class="row"></div><div class="row"></div></div>
+    <div class="scrim"></div>
+    <div class="sheet b">
+      <div class="grab"></div>
+      <div class="top">
+        <div class="ico">↑</div>
+        <div class="t"><h3 class="tt">Flowcode 0.24.0</h3><div class="chip">Hai la 0.23.0 · 38 MB</div></div>
+      </div>
+      <div class="hl">
+        <div>Pannello browser con scrollbar a tema</div>
+        <div>Pannelli laterali separati per ogni tab</div>
+        <div>Avviso cache scaduta come card nel composer</div>
+      </div>
+      <button class="more" onclick="document.querySelector('#pb .over').classList.add('show')">Tutte le novità ›</button>
+      <div class="prog"><div class="track"><i></i></div>Download 16 MB di 38 MB</div>
+      <div class="acts cta"><button class="btn ghost">Più tardi</button><button class="btn main">Installa</button></div>
+      <div class="over">
+        <div class="hh"><b>Novità della 0.24.0</b><button class="btn text" style="padding:6px 10px" onclick="document.querySelector('#pb .over').classList.remove('show')">Chiudi</button></div>
+        <div class="notes" data-notes></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="col">
+  <h2>C · Schermo intero</h2>
+  <p class="d">Per gli aggiornamenti importanti: pagina intera con versione in grande, note che scorrono e barra azioni ancorata in basso. Nessun problema di altezza, più spazio per leggere.</p>
+  <div class="phone">
+    <div class="app"><div class="row s"></div><div class="row"></div></div>
+    <div class="full c">
+      <div class="x">✕</div>
+      <div class="hero">
+        <div class="chip">Aggiornamento disponibile</div>
+        <div class="ver">0.24.0</div>
+        <div class="chip">dalla 0.23.0 · 38 MB</div>
+      </div>
+      <div class="notes" data-notes></div>
+      <div class="bar2">
+        <div class="prog"><div class="track"><i></i></div>Download 16 MB di 38 MB</div>
+        <button class="btn ghost cta">Più tardi</button>
+        <button class="btn main cta">Installa</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<p class="note">Implementazione prevista (qualunque variante): <code>UpdateSheet</code> avvolge titolo/testo/note in un contenitore <code>flex:1; min-height:0; overflow-y:auto</code> e sposta pulsante e "Più tardi" in un footer <code>flex:none</code>; <code>.upd-notes</code> perde il suo <code>max-height:40vh</code> dentro il foglio, così c'è un solo scroll. La pagina Impostazioni &gt; Aggiornamenti non cambia.</p>
+
+<script>
+const NOTES = `
+<h4>Novità</h4><ul>
+<li>Pannello browser: scrollbar sottile a tema.</li>
+<li>Ogni tab ricorda quali pannelli laterali erano aperti.</li>
+<li>Avviso cache scaduta: ora è una card che sostituisce il composer.</li>
+<li>Il comando di apertura dell'agente è ricordato tra gli aggiornamenti dei tool.</li></ul>
+<h4>Miglioramenti</h4><ul>
+<li>Il ricaricamento automatico ignora un file mancante a metà scrittura.</li>
+<li>Il composer non ruba più il focus a una pagina in cornice.</li>
+<li>La soglia dell'avviso cache sale a 40k token.</li>
+<li>Una chat ripresa con tempo ignoto non avvisa subito.</li></ul>
+<h4>Correzioni</h4><ul>
+<li>Il trascinamento del ridimensionamento termina se il pulsante era già rilasciato.</li>
+<li>python -m webbrowser conta come apertura del browser.</li>
+<li>L'avviso viene tenuto per sessione fino a una nuova chiamata al modello.</li>
+<li>Correzioni minori di layout nel pannello agente.</li></ul>`;
+document.querySelectorAll('[data-notes]').forEach(n => n.innerHTML = NOTES);
+const th = document.getElementById('th'), ins = document.getElementById('in');
+th.onclick = () => { document.body.classList.toggle('light'); th.textContent = document.body.classList.contains('light') ? 'Tema scuro' : 'Tema chiaro'; };
+ins.onclick = () => { document.body.classList.toggle('inst'); ins.classList.toggle('on'); };
+</script>
+</body>
+</html>
