@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { RemoteImageLoaderLease } from "./remoteImageLoader";
 import type { ImageUrlCache } from "../../shared/imageUrlCache";
 
@@ -18,8 +18,8 @@ type StateListener = (event: { payload: { id: string; status: "connecting" | "on
 let retain: typeof import("./remoteImageLoader").retainRemoteImageLoader;
 let messages: Map<string, Set<Messages>>;
 let stateListeners: Set<StateListener>;
-let offMessages: ReturnType<typeof vi.fn>;
-let offState: ReturnType<typeof vi.fn>;
+let offMessages: Mock<(id: string) => void>;
+let offState: Mock<() => void>;
 let leases: RemoteImageLoaderLease[];
 let caches: ImageUrlCache[];
 
