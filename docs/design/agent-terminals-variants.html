@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per vedere i terminali avviati dagli agenti in Flowcode.">
+  <title>Flowcode — terminali degli agenti · 3 varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #17120e; --panel: #211a14; --raised: #2a221b; --terminal: #130f0c;
+      --fg: #e7d8c5; --muted: #ad967c; --dim: #7f6e5d; --line: #3a2f25;
+      --accent: #a5bd8f; --accent-bg: #30382a; --danger: #e18b7c; --warning: #d4af6e;
+      --hover: #ffffff07; --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eee6d9; --panel: #fffaf1; --raised: #f0e8da; --terminal: #f6efe3;
+      --fg: #3a2b17; --muted: #806a50; --dim: #99856c; --line: #dfd3c2;
+      --accent: #4f6e3a; --accent-bg: #e5ebdc; --danger: #b34837; --warning: #96701c;
+      --hover: #57371007;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 "Segoe UI", system-ui, sans-serif; }
+    button, input, select { font: inherit; color: inherit; }
+    button, select { cursor: pointer; }
+    button { border: 0; background: none; }
+    button:disabled { cursor: default; opacity: .45; }
+    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 3px;
+    }
+    button, select { transition: background .16s, color .16s; }
+    button:hover:not(:disabled) { background: var(--hover); }
+    .page { max-width: 1320px; margin: auto; padding: 30px 38px 24px; }
+    .intro { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+    .eyebrow { font-size: 10px; letter-spacing: .13em; color: var(--muted); margin-bottom: 7px; }
+    h1 { font-size: clamp(21px, 2.5vw, 30px); font-weight: 550; letter-spacing: -.035em; margin: 0 0 5px; }
+    .intro p { margin: 0; color: var(--muted); }
+    .prototype { color: var(--muted); font-size: 11px; text-align: right; padding-top: 4px; white-space: nowrap; }
+    .prototype b { display: block; color: var(--accent); font-weight: 500; margin-bottom: 3px; }
+    .toolbar { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .variants { display: flex; gap: 4px; padding: 4px; background: var(--terminal); border: 1px solid var(--line); border-radius: 10px; }
+    .variants button { padding: 9px 15px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 11px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--raised); color: var(--fg); box-shadow: 0 1px 2px #0002; }
+    .controls { display: flex; gap: 8px; align-items: center; }
+    .controls label { display: flex; gap: 7px; align-items: center; color: var(--muted); font-size: 11px; }
+    select { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 6px 9px; max-width: 155px; font-size: 12px; }
+    .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 5px; color: var(--muted); flex-shrink: 0; }
+    svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .window { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 70px -40px #0009; }
+    .chrome { height: 42px; display: flex; align-items: center; gap: 14px; padding: 0 13px; background: var(--raised); border-bottom: 1px solid var(--line); }
+    .brand { font-weight: 600; font-size: 12px; letter-spacing: -.03em; display: flex; gap: 7px; align-items: center; }
+    .brand svg { color: var(--accent); }
+    .tab { align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 18px; background: var(--panel); border-bottom: 2px solid var(--accent); font-size: 11px; }
+    .tab .dot { width: 5px; height: 5px; }
+    .chrome-end { display: flex; align-items: center; gap: 15px; margin-left: auto; color: var(--dim); font-size: 12px; }
+    .workspace { display: flex; height: 620px; }
+    .explorer { width: 158px; padding: 19px 15px; background: color-mix(in srgb, var(--bg) 55%, var(--panel)); border-right: 1px solid var(--line); flex-shrink: 0; }
+    .explorer-head { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-bottom: 18px; }
+    .tree { display: grid; gap: 10px; font: 11px/1.5 var(--mono); color: var(--muted); }
+    .tree span:nth-child(n+3) { padding-left: 13px; }
+    .tree b { color: var(--fg); font-weight: 500; }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+    .chat-heading { display: flex; align-items: center; gap: 10px; padding: 15px 24px 12px; font-size: 11px; color: var(--muted); }
+    .chat-heading b { font-weight: 500; color: var(--fg); }
+    .chat-heading .branch { margin-left: auto; display: flex; align-items: center; gap: 6px; font: 10px var(--mono); }
+    .conversation { flex: 1; min-height: 0; overflow: auto; padding: 4px 32px 18px; }
+    .message { max-width: 650px; margin: 0 auto 19px; }
+    .message.user { background: var(--raised); border-radius: 12px 12px 3px 12px; padding: 10px 14px; margin-left: auto; margin-right: 0; max-width: 78%; font-size: 12px; }
+    .author { font-weight: 600; font-size: 12px; display: flex; align-items: center; gap: 8px; margin: 13px 0 8px; }
+    .author svg { color: var(--accent); width: 14px; height: 14px; }
+    .message p { margin: 0 0 11px; color: var(--fg); font-size: 12px; line-height: 1.7; }
+    .activity { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; padding: 8px 0; }
+    .activity code { color: var(--fg); font: 11px var(--mono); }
+    .activity .check { color: var(--accent); }
+    .thinking { display: flex; align-items: center; gap: 9px; font-size: 11px; color: var(--muted); margin: 18px 0 0; }
+    .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+    .dot.running { animation: pulse 1.7s ease-in-out infinite; }
+    .dot.failed { background: var(--danger); }
+    .dot.completed { background: var(--dim); }
+    .composer-area { padding: 10px 24px 17px; flex-shrink: 0; }
+    .composer { padding: 15px 17px 10px; background: var(--raised); border-radius: 21px; border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); position: relative; }
+    .composer-placeholder { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+    .composer-tools { display: flex; align-items: center; gap: 13px; color: var(--muted); font-size: 10px; }
+    .send { margin-left: auto; width: 25px; height: 25px; border-radius: 50%; background: var(--accent); color: var(--bg); display: grid; place-items: center; }
+    .composer-note { text-align: center; color: var(--dim); font-size: 9px; margin-top: 7px; }
+    .terminal-toggle { display: flex; align-items: center; gap: 7px; padding: 6px 9px; color: var(--muted); font-size: 11px; border-radius: 5px; }
+    .terminal-toggle .count { color: var(--accent); font-variant-numeric: tabular-nums; }
+    .terminal-toggle[aria-expanded="true"] { color: var(--fg); background: var(--accent-bg); }
+    .dock-bar { display: flex; align-items: center; padding: 7px 19px; border-top: 1px solid var(--line); }
+    .dock-bar .aside { margin-left: auto; color: var(--dim); font-size: 10px; }
+    .dock { height: 268px; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--terminal); flex-shrink: 0; }
+    .panel-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; min-height: 39px; border-bottom: 1px solid var(--line); }
+    .panel-head b { font-weight: 500; font-size: 11px; }
+    .panel-head .label { margin-left: auto; color: var(--dim); font-size: 10px; }
+    .panel-head .icon-button { width: 23px; height: 23px; }
+    .panel-body { display: flex; flex: 1; min-height: 0; }
+    .process-list { width: 230px; border-right: 1px solid var(--line); overflow: auto; padding: 6px; flex-shrink: 0; }
+    .process { width: 100%; text-align: left; padding: 9px 10px; border-radius: 5px; display: grid; grid-template-columns: 7px minmax(0,1fr) auto; gap: 9px; align-items: center; margin-bottom: 3px; }
+    .process[aria-pressed="true"] { background: var(--accent-bg); }
+    .process .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); }
+    .process .owner { display: block; color: var(--muted); font-size: 10px; margin-top: 3px; }
+    .process .time { align-self: start; color: var(--dim); font: 9px var(--mono); padding-top: 2px; }
+    .output { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--terminal); }
+    .output-head { display: flex; gap: 8px; align-items: center; padding: 9px 13px; color: var(--muted); font-size: 10px; }
+    .output-head .command { color: var(--fg); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); }
+    .output-head .spacer { flex: 1; }
+    .output-head button { display: flex; align-items: center; gap: 5px; padding: 4px 6px; color: var(--muted); font-size: 10px; border-radius: 4px; white-space: nowrap; }
+    .output-head button svg { width: 12px; height: 12px; }
+    .output-head button.danger { color: var(--danger); }
+    .output pre { margin: 0; padding: 6px 14px 13px; flex: 1; min-height: 0; overflow: auto; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.8 var(--mono); tab-size: 2; }
+    .output-foot { padding: 6px 13px; display: flex; gap: 9px; align-items: center; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; }
+    .output-foot button { margin-left: auto; font-size: 9px; color: var(--muted); border-radius: 3px; padding: 1px 4px; }
+    .output-foot button[aria-pressed="true"] { color: var(--accent); }
+    .status.failed { color: var(--danger); }
+    .status.completed { color: var(--accent); }
+    .side-panel { width: 362px; border-left: 1px solid var(--line); display: flex; flex-direction: column; background: var(--terminal); flex-shrink: 0; }
+    .side-context { padding: 17px 16px 13px; background: var(--panel); border-bottom: 1px solid var(--line); }
+    .side-context .kicker { color: var(--muted); font-size: 10px; margin-bottom: 6px; }
+    .side-context b { font-size: 15px; font-weight: 500; }
+    .side-context p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+    .side-tabs { display: flex; gap: 16px; color: var(--muted); padding: 10px 15px 0; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 11px; }
+    .side-tabs span { padding-bottom: 9px; }
+    .side-tabs .selected { color: var(--fg); border-bottom: 2px solid var(--accent); }
+    .filters { padding: 9px 12px; display: flex; align-items: center; gap: 6px; }
+    .filters button { font-size: 10px; color: var(--muted); padding: 4px 7px; border-radius: 4px; }
+    .filters button[aria-pressed="true"] { background: var(--raised); color: var(--fg); }
+    .side-panel .process-list { width: auto; max-height: 170px; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 7px 7px; }
+    .side-panel .output-head { flex-wrap: wrap; }
+    .side-panel .output-head .command { flex-basis: 100%; margin-bottom: 2px; }
+    .side-panel .output { min-height: 180px; }
+    .tray { margin: 0 12px -19px; padding: 8px 13px 26px; border: 1px solid var(--line); background: var(--terminal); border-radius: 15px 15px 0 0; }
+    .tray-top { display: flex; align-items: center; gap: 7px; color: var(--muted); padding: 2px 2px 5px; font-size: 10px; }
+    .tray-top .icon-button { margin-left: auto; width: 20px; height: 20px; }
+    .tray .process { padding: 5px 6px; margin-bottom: 1px; grid-template-columns: 7px 78px minmax(0,1fr) auto; gap: 8px; font-size: 10px; }
+    .tray .process .owner { margin: 0; color: var(--fg); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tray .process .name { color: var(--muted); font-size: 10px; }
+    .tray .process[aria-pressed="true"] .name { color: var(--fg); }
+    .tray .process svg { width: 11px; height: 11px; color: var(--muted); }
+    .peek { margin: 0 12px 8px; background: var(--terminal); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; height: 239px; display: flex; flex-direction: column; }
+    .peek .output { min-height: 0; }
+    .tray-area .composer { z-index: 1; }
+    .empty { margin: auto; padding: 25px; text-align: center; color: var(--muted); }
+    .empty svg { width: 26px; height: 26px; margin-bottom: 8px; opacity: .6; }
+    .empty b { display: block; color: var(--fg); font-weight: 500; font-size: 12px; }
+    .empty p { font-size: 11px; max-width: 270px; margin: 5px auto 0; }
+    .no-matches { color: var(--muted); font-size: 11px; padding: 20px 10px; text-align: center; }
+    .explanation { display: grid; grid-template-columns: 1fr auto; gap: 24px; margin-top: 18px; align-items: start; }
+    .explanation h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+    .explanation p { color: var(--muted); margin: 0; font-size: 12px; max-width: 700px; }
+    .keys { display: flex; gap: 7px; align-items: center; color: var(--dim); font-size: 10px; padding-top: 3px; }
+    kbd { font: 10px var(--mono); padding: 2px 5px; border: 1px solid var(--line); border-radius: 3px; }
+    .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 9px 17px; border-radius: 8px; font-size: 12px; z-index: 3; }
+    .toast:empty { display: none; }
+    @keyframes pulse { 50% { opacity: .3; } }
+    @media (min-width: 1500px) { .workspace { height: 680px; } }
+    @media (max-width: 1050px) {
+      .page { padding: 22px; } .explorer { width: 130px; } .side-panel { width: 320px; }
+      .conversation { padding-inline: 23px; } .prototype { display: none; }
+    }
+    @media (max-width: 760px) {
+      .page { padding: 17px 12px; } .intro { margin-bottom: 17px; } .intro p { font-size: 12px; }
+      .toolbar { gap: 12px; } .variants { width: 100%; } .variants button { flex: 1; padding: 9px 6px; font-size: 11px; }
+      .variants button span { margin-right: 4px; } .controls { width: 100%; } .controls label { flex: 1; }
+      .controls select { min-width: 0; max-width: 140px; } .explorer { display: none; }
+      .workspace { height: 700px; } .chrome { gap: 5px; } .tab { padding-inline: 9px; } .chrome-end { gap: 8px; }
+      .conversation { padding-inline: 18px; } .chat-heading { padding-inline: 16px; } .composer-area { padding-inline: 13px; }
+      .process-list { width: 145px; } .process { padding-inline: 6px; gap: 6px; } .process .time { display: none; }
+      .output-head { flex-wrap: wrap; } .dock .output-head .command { flex-basis: 100%; } .dock .output-head .spacer { display: none; }
+      .side-panel { position: absolute; inset: 0 0 0 auto; width: min(360px, 100%); box-shadow: -20px 0 45px -25px #0009; z-index: 2; }
+      .main.has-side { min-height: 0; } .dock-bar .aside { display: none; } .explanation { grid-template-columns: 1fr; gap: 8px; }
+      .explanation .keys { display: none; } .peek { margin-inline: 0; } .tray { margin-inline: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="intro">
+      <div>
+        <div class="eyebrow">FLOWCODE / STUDIO INTERFACCIA</div>
+        <h1>Terminali avviati dagli agenti</h1>
+        <p>Comando, agente responsabile e output aggiornato. Tre modi per tenerli a vista.</p>
+      </div>
+      <div class="prototype"><b>Anteprima interattiva</b>Dati dimostrativi · nessun comando reale</div>
+    </header>
+    <div class="toolbar">
+      <nav class="variants" aria-label="Varianti dell’interfaccia">
+        <button type="button" data-variant="dock" aria-pressed="true"><span>01</span>Cassetto</button>
+        <button type="button" data-variant="side" aria-pressed="false"><span>02</span>Pannello agente</button>
+        <button type="button" data-variant="tray" aria-pressed="false"><span>03</span>Nel composer</button>
+      </nav>
+      <div class="controls">
+        <label>Agente <select id="provider"><option>Claude Code</option><option>Codex</option><option>Gemini CLI</option><option>Mistral Vibe</option></select></label>
+        <label>Stato <select id="scenario"><option value="running">In esecuzione</option><option value="completed">Tutti conclusi</option><option value="failed">Errore</option><option value="empty">Nessun terminale</option></select></label>
+        <button type="button" id="theme" class="icon-button" aria-label="Attiva tema chiaro" title="Cambia tema"></button>
+      </div>
+    </div>
+    <section class="window" aria-label="Anteprima Flowcode">
+      <div class="chrome">
+        <div class="brand" id="brand"></div>
+        <div class="tab"><span class="dot"></span>Terminali degli agenti <span style="color:var(--dim)">×</span></div>
+        <div class="chrome-end" aria-hidden="true"><span>⌕</span><span>▦</span><span>−</span><span>□</span><span>×</span></div>
+      </div>
+      <div class="workspace" id="workspace"></div>
+    </section>
+    <footer class="explanation">
+      <div><h2 id="variant-title"></h2><p id="variant-description"></p></div>
+      <div class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> cambia variante <span>·</span><kbd>Esc</kbd> chiudi output</div>
+    </footer>
+    <p style="font-size:10px;color:var(--dim);margin:15px 0 0">Prototipo: seleziona un processo, apri o chiudi l’output, cambia agente e stato. “Ferma” agisce solo sui dati d’esempio.</p>
+  </main>
+  <div class="toast" role="status" aria-live="polite" id="toast"></div>
+  <script>
+    const icons = {
+      terminal: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg>',
+      branch: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M6 7v10m12-10c0 6-12 2-12 8"/></svg>',
+      robot: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 7V3m-4 10h1m6 0h1m-7 3h6"/></svg>',
+      close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M7 17 17 7"/></svg>',
+      copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M15 8V4H4v11h4"/></svg>',
+      stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+      open: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 18 12-12M7 6h11v11"/></svg>',
+      sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/></svg>',
+      moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10Z"/></svg>',
+    };
+    const variants = {
+      dock: { title: '01 / Cassetto — lo spazio per lavorare', description: 'Un elenco di processi a sinistra, l’output a destra. Si apre sotto la conversazione e si richiude in una riga. Ideale per seguire log lunghi senza perdere il punto della chat.' },
+      side: { title: '02 / Pannello agente — tutto nello stesso posto', description: 'I terminali diventano una sezione del pannello agente, accanto a contesto e consumi. La conversazione resta visibile. Su una finestra stretta il pannello si sovrappone alla chat.' },
+      tray: { title: '03 / Nel composer — continuità con i subagenti', description: 'Processi e responsabili restano dietro il composer, come i subagenti già presenti in Flowcode. Un clic apre l’output sopra la lista. Ingombro minimo quando non serve leggere i log.' },
+    };
+    const seed = () => [
+      { id: 'server', command: 'npm run dev', owner: 'Agente principale', status: 'running', elapsed: '1m 24s', output: '> flowcode@0.25.0 dev\n> vite\n\n  VITE v8.3.0  ready in 312 ms\n\n  ➜  Local:   http://localhost:1420/\n\n  14:32:08 [vite] page reload src/App.tsx\n  14:32:12 [vite] hmr update /src/chat/chat.css' },
+      { id: 'tests', command: 'npm run test -- chat', owner: 'Subagente · Verifica', status: 'running', elapsed: '18s', output: '> flowcode@0.25.0 test\n> vitest run chat\n\n RUN  v4.1.11  /workspace/flowcode\n\n ✓ chatModel.test.ts (38 tests) 29ms\n ✓ chatTimeline.test.ts (24 tests) 12ms\n ✓ chatLinks.test.ts (17 tests) 8ms\n\n In esecuzione: commandMenu.test.ts…' },
+      { id: 'git', command: 'git status --short', owner: 'Subagente · Revisione', status: 'completed', elapsed: '0.3s', output: '$ git status --short\n M src/chat/ChatBody.tsx\n M src/chat/chat.css\n?? src/chat/AgentTerminals.tsx\n\nProcesso terminato con codice 0.' },
+    ];
+    let variant = new URLSearchParams(location.search).get('variant');
+    if (!(variant in variants)) variant = 'dock';
+    let provider = 'Claude Code', scenario = 'running', jobs = seed(), selected = 'server', opened = true, peek = true, filter = 'all';
+    let follow = true, liveLine = 0, toastTimer;
+    const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    const count = () => jobs.filter(job => job.status === 'running').length;
+    const statusText = job => job.status === 'running' ? 'In esecuzione' : job.status === 'failed' ? 'Errore · codice 1' : job.stopped ? 'Fermato dall’utente' : 'Concluso · codice 0';
+    function statusLabel(job) { return job.status === 'running' ? 'In esecuzione' : statusText(job); }
+    const current = () => jobs.find(job => job.id === selected) || jobs[0];
+    const iconButton = (action, icon, label) => `<button type="button" class="icon-button" data-action="${action}" aria-label="${label}" title="${label}">${icons[icon]}</button>`;
+    function terminalToggle() {
+      return `<button type="button" class="terminal-toggle" data-action="toggle" aria-expanded="${opened}">${icons.terminal}Terminali <span class="count">${count() ? `${count()} attivi` : jobs.length}</span></button>`;
+    }
+    function empty() {
+      return `<div class="empty">${icons.terminal}<b>Nessun terminale avviato</b><p>Qui vedrai i comandi eseguiti dall’agente e dai suoi subagenti, con il relativo output.</p></div>`;
+    }
+    function processes(compact = false) {
+      const visible = jobs.filter(job => filter === 'all' || job.status === filter);
+      if (!visible.length) return '<div class="no-matches">Nessun processo in questo stato.</div>';
+      return visible.map(job => `<button type="button" class="process" data-job="${job.id}" aria-pressed="${selected === job.id}" aria-label="${escape(job.command)}, ${escape(job.owner)}, ${statusLabel(job)}">
+        <span class="dot ${job.status}"></span>
+        ${compact ? `<span class="owner">${job.owner.replace('Subagente · ', '').replace('Agente principale', 'Principale')}</span><span class="name">${escape(job.command)}</span>${icons.open}` : `<span><span class="name">${escape(job.command)}</span><span class="owner">${escape(job.owner)}</span></span><span class="time">${job.elapsed}</span>`}
+      </button>`).join('');
+    }
+    function output() {
+      const job = current();
+      if (!job) return empty();
+      return `<section class="output" aria-label="Output di ${escape(job.command)}">
+        <div class="output-head"><span class="command">${escape(job.command)}</span><span class="spacer"></span>
+          <button type="button" data-action="copy" title="Copia tutto l’output">${icons.copy}Copia</button>
+          ${job.status === 'running' ? `<button type="button" class="danger" data-action="stop">${icons.stop}Ferma</button>` : ''}
+        </div>
+        <pre tabindex="0" aria-label="Output del terminale" id="terminal-output">${escape(job.output)}</pre>
+        <div class="output-foot"><span class="dot ${job.status}"></span><span class="status ${job.status}">${statusLabel(job)}</span><span>· ${escape(job.owner)}</span>
+          <button type="button" data-action="follow" aria-pressed="${follow}">${follow ? 'Segui output ↓' : 'Riprendi output ↓'}</button>
+        </div>
+      </section>`;
+    }
+    function composer() {
+      return `<div class="composer"><div class="composer-placeholder">Scrivi a ${escape(provider)}…</div>
+        <div class="composer-tools"><span>＋</span><span>Modalità automatica⌄</span><span>${escape(provider)}⌄</span><span class="send" aria-hidden="true">↑</span></div></div>
+        <div class="composer-note">Anteprima · nessun comando reale viene eseguito</div>`;
+    }
+    function conversation() {
+      return `<div class="chat-heading"><b>flowcode</b><span>/</span><span>Sessione con ${escape(provider)}</span><span class="branch">${icons.branch}main</span></div>
+        <div class="conversation"><div class="message user">Avvia l’anteprima e controlla che le modifiche alla chat passino i test.</div>
+          <div class="message"><div class="author">${icons.robot}${escape(provider)}</div>
+            <p>Avvio l’anteprima e affido i test a un subagente. Puoi seguire i terminali mentre continuo a lavorare.</p>
+            <div class="activity"><span class="check">✓</span>Modificato <code>ChatBody.tsx</code><span>+28 −4</span></div>
+            <div class="activity"><span class="check">✓</span>Verifica e revisione assegnate a 2 subagenti</div>
+            <div class="thinking"><span class="dot ${count() ? 'running' : 'completed'}"></span>${count() ? 'Controllo l’interfaccia e attendo i risultati…' : jobs.some(job => job.status === 'failed') ? 'Un processo ha restituito un errore. Puoi aprire il suo output.' : jobs.length ? 'Verifiche concluse. L’output dei terminali resta consultabile.' : 'I terminali appariranno quando l’agente esegue un comando.'}</div>
+          </div>
+        </div>`;
+    }
+    function dock() {
+      return `<div class="dock-bar">${terminalToggle()}<span class="aside">Agente principale e subagenti</span></div>
+        ${opened ? `<section class="dock" aria-label="Terminali degli agenti"><div class="panel-head">${icons.terminal}<b>Terminali</b><span class="label">${count()} in esecuzione · ${jobs.length} totali</span>${iconButton('toggle', 'close', 'Chiudi pannello terminali')}</div>
+          <div class="panel-body">${jobs.length ? `<div class="process-list" aria-label="Processi">${processes()}</div>${output()}` : empty()}</div></section>` : ''}`;
+    }
+    function side() {
+      return `<aside class="side-panel" aria-label="Pannello agente"><div class="panel-head">${icons.robot}<b>Agente</b><span class="label">${escape(provider)}</span>${iconButton('toggle', 'close', 'Chiudi pannello agente')}</div>
+        <div class="side-context"><div class="kicker">SESSIONE ATTIVA</div><b>Terminali dell’agente</b><p>${count()} in esecuzione · processi principali e delegati</p></div>
+        <div class="side-tabs"><span>Contesto</span><span>Consumi</span><span class="selected">Terminali ${jobs.length}</span></div>
+        ${jobs.length ? `<div class="filters" aria-label="Filtra processi">${[['all','Tutti'],['running','Attivi'],['completed','Conclusi'],['failed','Errori']].map(([id,label])=>`<button type="button" data-filter="${id}" aria-pressed="${filter===id}">${label}</button>`).join('')}</div>
+          <div class="process-list" aria-label="Processi">${processes()}</div>${output()}` : empty()}
+      </aside>`;
+    }
+    function tray() {
+      return `${opened && peek && jobs.length ? `<section class="peek" aria-label="Output selezionato"><div class="panel-head">${icons.terminal}<b>${escape(current().owner)}</b><span class="label">Output</span>${iconButton('peek', 'close', 'Chiudi output')}</div>${output()}</section>` : ''}
+        ${opened ? `<section class="tray" aria-label="Terminali nel composer"><div class="tray-top">${icons.terminal}<span>Terminali <b>${count() ? `· ${count()} attivi` : `· ${jobs.length}`}</b></span>${iconButton('toggle', 'close', 'Nascondi terminali')}</div>${jobs.length ? processes(true) : '<div style="font-size:11px;color:var(--muted);padding:5px">Nessun terminale avviato</div>'}</section>` : ''}${composer()}`;
+    }
+    function render() {
+      document.querySelectorAll('[data-variant]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.variant === variant)));
+      document.getElementById('variant-title').textContent = variants[variant].title;
+      document.getElementById('variant-description').textContent = variants[variant].description;
+      document.getElementById('brand').innerHTML = `${icons.terminal}flowcode`;
+      document.getElementById('theme').innerHTML = document.documentElement.dataset.theme === 'light' ? icons.moon : icons.sun;
+      document.getElementById('workspace').innerHTML = `<aside class="explorer" aria-label="Progetto"><div class="explorer-head">PROGETTO <span>⌄</span></div><div class="tree"><b>⌄ flowcode</b><b>⌄ src</b><span>⌄ chat</span><span>ChatBody.tsx</span><span>chat.css</span><span>⌄ agents</span><span>⌄ plugins</span><span>App.tsx</span><b>› shared</b><b>› docs</b><b>package.json</b></div></aside>
+        <div class="main${variant === 'side' ? ' has-side' : ''}">${conversation()}
+          ${variant === 'dock' ? `${dock()}<div class="composer-area">${composer()}</div>` : variant === 'tray' ? `<div class="dock-bar">${terminalToggle()}<span class="aside">Output a portata di clic</span></div><div class="composer-area tray-area">${tray()}</div>` : `<div class="dock-bar">${terminalToggle()}</div><div class="composer-area">${composer()}</div>`}
+        </div>${variant === 'side' && opened ? side() : ''}`;
+      document.querySelectorAll('#terminal-output').forEach(pre => { if (follow) pre.scrollTop = pre.scrollHeight; });
+    }
+    function notify(message) {
+      clearTimeout(toastTimer);
+      document.getElementById('toast').textContent = message;
+      toastTimer = setTimeout(() => document.getElementById('toast').textContent = '', 2600);
+    }
+    function changeVariant(value) {
+      variant = value; opened = true; peek = true; filter = 'all';
+      render();
+    }
+    document.addEventListener('click', async event => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      if (button.dataset.variant) return changeVariant(button.dataset.variant);
+      if (button.dataset.job) { selected = button.dataset.job; peek = true; render(); return; }
+      if (button.dataset.filter) { filter = button.dataset.filter; render(); return; }
+      const action = button.dataset.action;
+      if (action === 'toggle') { opened = !opened; render(); }
+      else if (action === 'peek') { peek = false; render(); }
+      else if (action === 'follow') { follow = !follow; render(); }
+      else if (action === 'stop') {
+        const job = current();
+        job.status = 'completed'; job.stopped = true;
+        job.output += '\n\nProcesso fermato dall’utente (simulazione).';
+        render(); notify('Processo dimostrativo fermato');
+      } else if (action === 'copy') {
+        try { await navigator.clipboard.writeText(current().output); notify('Output copiato'); }
+        catch {
+          const text = document.createElement('textarea'); text.value = current().output;
+          document.body.append(text); text.select();
+          const copied = document.execCommand('copy'); text.remove();
+          notify(copied ? 'Output copiato' : 'Seleziona il testo del terminale per copiarlo');
+        }
+      }
+    });
+    document.getElementById('provider').addEventListener('change', event => { provider = event.target.value; render(); });
+    document.getElementById('scenario').addEventListener('change', event => {
+      scenario = event.target.value; jobs = scenario === 'empty' ? [] : seed();
+      if (scenario === 'completed') jobs.forEach(job => {
+        job.status = 'completed'; job.output += '\n\nProcesso terminato con codice 0.';
+      });
+      if (scenario === 'failed') {
+        jobs[1].status = 'failed'; jobs[1].output = '> vitest run chat\n\n FAIL  chatModel.test.ts > terminal output\n\nAssertionError: expected "completed", received "in_progress"\n\n  expected: completed\n  received: in_progress\n\n Tests  1 failed | 78 passed\n\nProcesso terminato con codice 1.';
+      }
+      selected = scenario === 'failed' ? 'tests' : 'server'; opened = true; peek = true; filter = 'all'; render();
+    });
+    document.getElementById('theme').addEventListener('click', () => {
+      const light = document.documentElement.dataset.theme !== 'light';
+      document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      document.getElementById('theme').setAttribute('aria-label', `Attiva tema ${light ? 'scuro' : 'chiaro'}`);
+      render();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.target.closest('input, select, textarea, [contenteditable]')) return;
+      if (event.key === 'Escape') { if (variant === 'tray' && peek) peek = false; else opened = false; render(); }
+      else if (['1', '2', '3'].includes(event.key)) changeVariant(['dock','side','tray'][Number(event.key)-1]);
+    });
+    setInterval(() => {
+      if (scenario !== 'running' || document.hidden) return;
+      const server = jobs.find(job => job.id === 'server' && job.status === 'running');
+      if (!server) return;
+      server.output += `\n  14:32:${String(15 + (++liveLine % 45)).padStart(2, '0')} [vite] hmr update /src/chat/ChatBody.tsx`;
+      const lines = server.output.split('\n');
+      if (lines.length > 50) server.output = lines.slice(-50).join('\n');
+      const pre = document.getElementById('terminal-output');
+      if (pre && current().id === 'server') {
+        pre.textContent = server.output;
+        if (follow) pre.scrollTop = pre.scrollHeight;
+      }
+    }, 4500);
+    render();
+  </script>
+</body>
+</html>
