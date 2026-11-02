@@ -7,15 +7,33 @@ import { useEffect, useRef } from "react";
 
 interface Entry {
   call: () => void;
+  pushed: boolean;
 }
 
 const stack: Entry[] = [];
-/** popstate events caused by our own `history.back()` clean-ups. */
-let ignore = 0;
+let popping = false;
+let pendingPops = 0;
+
+/** A closing menu must finish its Back before a newly opened Browser pushes its entry. */
+function flushHistory() {
+  if (popping) return;
+  if (pendingPops > 0) {
+    pendingPops--;
+    popping = true;
+    history.back();
+    return;
+  }
+  for (const entry of stack) {
+    if (entry.pushed) continue;
+    history.pushState({ flowcodeBack: true }, "");
+    entry.pushed = true;
+  }
+}
 
 window.addEventListener("popstate", () => {
-  if (ignore > 0) {
-    ignore--;
+  if (popping) {
+    popping = false;
+    flushHistory();
     return;
   }
   stack.pop()?.call();
@@ -27,16 +45,16 @@ export function useBackHandler(active: boolean, onBack: () => void): void {
   cb.current = onBack;
   useEffect(() => {
     if (!active) return;
-    const entry: Entry = { call: () => cb.current() };
+    const entry: Entry = { call: () => cb.current(), pushed: false };
     stack.push(entry);
-    history.pushState({ flowcodeBack: true }, "");
+    flushHistory();
     return () => {
       // Closed by something other than Back: drop the entry we pushed.
       const i = stack.indexOf(entry);
       if (i === -1) return;
       stack.splice(i, 1);
-      ignore++;
-      history.back();
+      if (entry.pushed) pendingPops++;
+      flushHistory();
     };
   }, [active]);
 }

@@ -1698,6 +1698,16 @@ impl ChatState {
         }
     }
 
+    /// The authenticated preview server scopes every chat file to this folder.
+    pub(crate) fn preview_root(&self, chat_id: &str) -> Result<std::path::PathBuf, String> {
+        let chat = self.get(chat_id)?;
+        #[cfg(target_os = "windows")]
+        if chat.wsl && chat.cwd.starts_with('/') {
+            return crate::chat_images::from_wsl_path(&chat.cwd, chat.wsl_distro.as_deref().unwrap_or("")).map(std::path::PathBuf::from);
+        }
+        Ok(std::path::PathBuf::from(&chat.cwd))
+    }
+
     fn get(&self, chat_id: &str) -> Result<Arc<Chat>, String> {
         lock(&self.sessions).get(chat_id).map(|s| Arc::clone(&s.chat)).ok_or_else(|| "unknown chat".to_string())
     }

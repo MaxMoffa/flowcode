@@ -17,6 +17,7 @@ import { useSideWidth } from "./useSideWidth";
 import { panelsFit, setPanelMode, usePanelMode } from "./panelMode";
 import { useBigScreen, useDocked } from "./wide";
 import { Browser } from "./Browser";
+import { useChatBrowser } from "./useChatBrowser";
 import { WideFileView } from "./WideFileView";
 import { WideFiles } from "./WideFiles";
 import { WideMenu } from "./WideMenu";
@@ -73,7 +74,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const canRename = useSupports("rename");
   const canClose = useSupports("closeTab");
   const canBrowse = useSupports("preview");
-  const [browserOpen, setBrowserOpen] = useState(false);
+  const { opened: browserOpen, setOpened: setBrowserOpen, page: browserPage, chatId: browserChatId } = useChatBrowser(doc === null ? activeChat : null);
   /** The terminal tab being renamed, with its draft label. */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -391,7 +392,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           ) : activeChat ? (
             <div style={{ display: shown ? "none" : "contents" }}>
               <Suspense fallback={<div className="screen" />}>
-                <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} embedded />
+                <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} embedded onBrowser={() => setBrowserOpen(true)} />
               </Suspense>
             </div>
           ) : !shown && tabs !== null && tabs.length === 0 && !chats?.length ? (
@@ -427,7 +428,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           </aside>
         )}
       </div>
-      {browserOpen && canBrowse && active && <Browser ptyId={active.ptyId} onClose={() => setBrowserOpen(false)} />}
+      {browserOpen && canBrowse && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} initialPage={browserPage} onClose={() => setBrowserOpen(false)} />}
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />

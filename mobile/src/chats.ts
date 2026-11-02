@@ -43,7 +43,7 @@ let awaitingChats = true;
 let lastHost: string | undefined;
 /** The agent session each chat ran when last seen: a different one means the history started over. */
 const sessionIds = new Map<string, string>();
-const eventListeners = new Map<string, Set<(event: ChatEvent) => void>>();
+const eventListeners = new Map<string, Set<(event: ChatEvent, replay: boolean) => void>>();
 
 const infoOf = (chatId: string): ChatInfo | undefined => currentChats()?.find((c) => c.chatId === chatId);
 
@@ -117,7 +117,7 @@ function onChatEvents(chatId: string, events: unknown[], replay: boolean) {
   const status = infoOf(chatId)?.status;
   patchSession(chatId, () => applyEvents(before, events, { replay, busy: status === "busy" || status === "waiting" }));
   const listeners = eventListeners.get(chatId);
-  if (listeners) for (const event of fresh) listeners.forEach((l) => l(event));
+  if (listeners) for (const event of fresh) listeners.forEach((l) => l(event, replay));
   const current = store.get().sessions[chatId];
   if (replay && current?.sentText && current.sentRequestId && promptReceipts) {
     void sendChecked({ t: "chatprompt", chatId, text: current.sentText, requestId: current.sentRequestId });
@@ -200,7 +200,7 @@ export const getChatSession = (chatId: string): ChatSession | undefined => store
 export const rawChatEvents = (chatId: string): ChatEvent[] => store.get().sessions[chatId]?.events ?? [];
 
 /** New events as they arrive; the caller replays `rawChatEvents` and drops what it already has by `seq`. */
-export function onNewChatEvents(chatId: string, listener: (event: ChatEvent) => void): () => void {
+export function onNewChatEvents(chatId: string, listener: (event: ChatEvent, replay: boolean) => void): () => void {
   let set = eventListeners.get(chatId);
   if (!set) eventListeners.set(chatId, (set = new Set()));
   set.add(listener);

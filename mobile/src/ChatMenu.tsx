@@ -2,7 +2,7 @@ import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
-import { AgentLogo, ChatIcon, CheckIcon, CloseIcon, CopyIcon, PencilIcon, StopIcon, TerminalIcon } from "./icons";
+import { AgentLogo, ChatIcon, CheckIcon, CloseIcon, CopyIcon, GlobeIcon, PencilIcon, StopIcon, TerminalIcon } from "./icons";
 
 /** A way to look at the session: the built-in chat, a plugin's view or the terminal. */
 export interface ViewChoice {
@@ -30,6 +30,7 @@ export function ChatMenu(props: {
   onRename?: () => void;
   onCopyId?: () => void;
   onStop?: () => void;
+  onBrowser?: () => void;
   /** The stop button's label, when "Stop the agent" doesn't fit (a terminal interrupts). */
   stopLabel?: string;
   /** Whether to mention the two-finger swipe (a terminal has none). */
@@ -86,6 +87,12 @@ export function ChatMenu(props: {
           ))}
         </div>
         <div className="chat-menu-group">
+          {props.onBrowser && (
+            <button type="button" onClick={close(props.onBrowser)}>
+              <GlobeIcon />
+              <span>{t("browser.menu")}</span>
+            </button>
+          )}
           {props.onRename && (
             <button type="button" onClick={close(props.onRename)}>
               <PencilIcon />

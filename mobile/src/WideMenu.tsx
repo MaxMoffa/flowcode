@@ -42,7 +42,7 @@ export function WideMenu(props: {
     { label: t("newTerminal"), icon: <PlusIcon />, run: props.onNewTerminal },
     { label: t("keyBar"), icon: <KeyboardIcon size={18} />, run: props.onKeys, disabled: props.noTerminal, value: props.keys ? t("keyBarOn") : t("keyBarOff") },
     { label: t("interruptCtrlC"), icon: <StopIcon />, run: props.onInterrupt, disabled: props.noTerminal, danger: true, sepAfter: true },
-    ...(props.onBrowser ? [{ label: t("browser.menu"), icon: <GlobeIcon />, run: props.onBrowser, disabled: props.noTerminal }] : []),
+    ...(props.onBrowser ? [{ label: t("browser.menu"), icon: <GlobeIcon />, run: props.onBrowser }] : []),
     { label: props.pinned ? t("floatPanels") : t("pinPanels"), icon: <PinIcon />, run: props.onPanels },
     { label: t("switchComputer"), icon: <MonitorIcon />, run: props.onComputers },
     { label: t("navSettings"), icon: <SlidersIcon />, run: props.onSettings },

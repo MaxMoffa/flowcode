@@ -34,7 +34,7 @@ pub const PROTOCOL_VERSION: u32 = 2;
 /// Features this desktop supports, sent in `ready` as `caps`, so the phone
 /// can hide what an older desktop lacks. Keep in step with `RemoteCap` in
 /// shared/remote-types.ts and docs/remote-protocol.md.
-pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview", "agentInsight", "chatPromptAck", "chatImageRequestId"];
+pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview", "chatPreview", "agentInsight", "chatPromptAck", "chatImageRequestId"];
 
 /// What a preview stream is pointed at. After `auth`, the phone opens one extra
 /// bidirectional stream per HTTP connection of its in-app browser. The first
@@ -42,11 +42,14 @@ pub const CAPABILITIES: &[&str] = &["rename", "profiles", "profileLogin", "profi
 /// `PREVIEW_HEADER_MAX` bytes) names the target; what follows is plain
 /// HTTP/1.1 in both directions. `Port` is a raw tunnel to that loopback port of
 /// the desktop (so WebSocket upgrades work too); `Files` is served by the
-/// desktop itself from the working directory of that terminal tab.
+/// desktop itself from the working directory of that terminal tab. `ChatFiles`
+/// uses the same confined file server, rooted in a chat's working directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreviewTarget {
     Port(u16),
     Files(String),
+    /// Files under a chat's working folder; requires `chatPreview`.
+    ChatFiles(String),
 }
 
 /// Longest first line a preview stream may start with, newline included.
@@ -57,6 +60,7 @@ pub fn preview_header(target: &PreviewTarget) -> String {
     match target {
         PreviewTarget::Port(port) => format!("port {port}\n"),
         PreviewTarget::Files(pty_id) => format!("files {pty_id}\n"),
+        PreviewTarget::ChatFiles(chat_id) => format!("chatfiles {chat_id}\n"),
     }
 }
 
@@ -67,6 +71,7 @@ pub fn parse_preview_header(line: &str) -> Option<PreviewTarget> {
     match kind {
         "port" => rest.parse::<u16>().ok().filter(|p| *p != 0).map(PreviewTarget::Port),
         "files" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::Files(rest.to_string())),
+        "chatfiles" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::ChatFiles(rest.to_string())),
         _ => None,
     }
 }
@@ -80,11 +85,11 @@ mod tests {
 
     #[test]
     fn preview_headers_round_trip_and_refuse_junk() {
-        for target in [PreviewTarget::Port(5173), PreviewTarget::Files("pty-1".into())] {
+        for target in [PreviewTarget::Port(5173), PreviewTarget::Files("pty-1".into()), PreviewTarget::ChatFiles("chat-1".into())] {
             assert_eq!(parse_preview_header(&preview_header(&target)), Some(target));
         }
         assert_eq!(parse_preview_header("port 80\r\n"), Some(PreviewTarget::Port(80)));
-        for bad in ["", "port", "port 0", "port 70000", "port x", "files", "files a b", "ftp 1", "GET / HTTP/1.1"] {
+        for bad in ["", "port", "port 0", "port 70000", "port x", "files", "files a b", "chatfiles", "chatfiles ", "chatfiles a b", "ftp 1", "GET / HTTP/1.1"] {
             assert_eq!(parse_preview_header(bad), None, "{bad:?}");
         }
     }

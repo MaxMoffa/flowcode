@@ -1,11 +1,14 @@
 // Addresses of the in-app browser: what the user types becomes a "page", and a
 // page becomes the URL of the iframe, served by the `flowcode-remote` scheme
 // (`/p/<port>/...` is a loopback port of the desktop, `/f/<ptyId>/...` a file
-// of that terminal's working folder).
+// of that terminal's working folder, `/c/<chatId>/...` a file of a chat).
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { pluginFileUrl } from "../../shared/agentViewBridge";
 
-export type Page = { kind: "port"; port: number; path: string } | { kind: "file"; ptyId: string; path: string };
+export type Page =
+  | { kind: "port"; port: number; path: string }
+  | { kind: "file"; ptyId: string; path: string }
+  | { kind: "chatFile"; chatId: string; path: string };
 
 const HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -19,8 +22,8 @@ function portPage(port: string, rest: string): Page | null {
   return { kind: "port", port: n, path: rest === "" || rest[0] !== "/" ? "/" + rest : rest };
 }
 
-/** What the user typed in the address field; null when it is neither a loopback address nor (with a terminal) a relative file. */
-export function parseTyped(input: string, ptyId: string | null): Page | null {
+/** A loopback address, or a relative file when a chat or terminal provides its root. */
+export function parseTyped(input: string, ptyId: string | null, chatId: string | null = null): Page | null {
   let s = input.trim().replace(/^:(?=\d)/, "");
   if (!s) return null;
   const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(s);
@@ -41,10 +44,12 @@ export function parseTyped(input: string, ptyId: string | null): Page | null {
     // http://localhost/x (no port) is not served: the tunnel needs a port.
     return null;
   }
-  if (!ptyId) return null;
+  if (!ptyId && !chatId) return null;
   const path = s.replace(/^\.?\//, "");
   if (!path || path.startsWith("/") || path.split(/[/\\]/).includes("..")) return null;
-  return { kind: "file", ptyId, path: path.replace(/\\/g, "/") };
+  return chatId
+    ? { kind: "chatFile", chatId, path: path.replace(/\\/g, "/") }
+    : { kind: "file", ptyId: ptyId!, path: path.replace(/\\/g, "/") };
 }
 
 /** The iframe URL of a page. `base` builds the scheme URL of a path (injectable for tests). */
@@ -56,7 +61,9 @@ export function pageSrc(page: Page, base: (path: string) => string = (p) => conv
   }
   const [pathPart, ...q] = page.path.split("?");
   const query = q.length ? "?" + q.join("?") : "";
-  return pluginFileUrl(base("f"), `${page.ptyId}/${pathPart.replace(/^\/+/, "")}`) + query;
+  const prefix = page.kind === "chatFile" ? "c" : "f";
+  const id = page.kind === "chatFile" ? page.chatId : page.ptyId;
+  return pluginFileUrl(base(prefix), `${id}/${pathPart.replace(/^\/+/, "")}`) + query;
 }
 
 /** A short label for the address field. */

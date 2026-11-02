@@ -1,5 +1,6 @@
 import { createStore } from "../lib/externalStore";
 import { readBool, writeBool } from "../lib/storage";
+export { isPreviewableFile } from "../../shared/agentOpen";
 
 const BROWSER_OPEN_KEY = "flowcode.browserOpen";
 
@@ -180,14 +181,6 @@ export function normalizeTypedUrl(text: string): string | null {
   } catch {
     return null;
   }
-}
-
-const PREVIEWABLE = new Set(["html", "htm", "svg", "pdf", "png", "jpg", "jpeg", "gif", "webp", "mp4", "webm"]);
-
-export function isPreviewableFile(path: string): boolean {
-  const dot = path.lastIndexOf(".");
-  if (dot < 0 || /[\\/]/.test(path.slice(dot))) return false;
-  return PREVIEWABLE.has(path.slice(dot + 1).toLowerCase());
 }
 
 // CSI sequences (colours, cursor moves) and OSC ones (titles, hyperlinks).

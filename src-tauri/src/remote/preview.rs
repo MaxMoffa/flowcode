@@ -78,6 +78,10 @@ async fn serve_stream(shared: &Shared, mut send: iroh::endpoint::SendStream, mut
             let root = shared.app.state::<crate::windows::WindowTabs>().cwd_of(&pty_id).map(PathBuf::from);
             serve_files(tokio::io::join(recv, send), root).await;
         }
+        PreviewTarget::ChatFiles(chat_id) => {
+            let root = shared.app.state::<crate::chat::ChatState>().preview_root(&chat_id).ok();
+            serve_files(tokio::io::join(recv, send), root).await;
+        }
     }
 }
 

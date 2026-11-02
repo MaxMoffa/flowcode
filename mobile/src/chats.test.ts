@@ -50,6 +50,20 @@ beforeEach(async () => {
 });
 
 describe("following a chat", () => {
+  it("tells preview listeners which events are replayed and never delivers duplicates", () => {
+    ready();
+    chats([info("idle")]);
+    const listener = vi.fn();
+    const off = chatsModule.onNewChatEvents("c1", listener);
+    const first = ev(1, "a");
+    const second = ev(2, "b");
+    say({ t: "chatevents", chatId: "c1", events: [first], replay: true });
+    say({ t: "chatevents", chatId: "c1", events: [first, second], replay: false });
+    expect(listener.mock.calls).toEqual([[first, true], [second, false]]);
+    off();
+    say({ t: "chatevents", chatId: "c1", events: [ev(3, "c")], replay: false });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
   it("opens it from the start, resumes from the last event after a reconnect, and closes it when left", () => {
     ready();
     chats([info("idle")]);

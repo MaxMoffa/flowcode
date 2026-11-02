@@ -13,6 +13,8 @@ import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu"
 import { AskPanel } from "./ChatAsk";
 import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
+import { Browser } from "./Browser";
+import { useChatBrowser } from "./useChatBrowser";
 import { defaultModeToApply } from "./chatModeDefaults";
 import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingAsks, pendingPermissions } from "./chatSession";
 import { useTwoFingerSwipe } from "./chatSwipe";
@@ -44,7 +46,9 @@ const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ??
 /** Chats whose default mode was already tried, so it is applied at most once per chat. */
 const defaultModeTried = new Set<string>();
 
-export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean }) {
+export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onBrowser }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean; onBrowser?: () => void }) {
+  const browser = useChatBrowser(embedded ? null : chatId);
+  const canBrowse = useSupports("preview");
   const screenRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -504,6 +508,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
         views={choices}
         view={shown}
         onView={pick}
+        onBrowser={canBrowse ? onBrowser ?? (() => browser.setOpened(true)) : undefined}
         onCopyId={info.sessionId ? copyId : undefined}
         onRename={
           canRename
@@ -516,6 +521,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded }: {
         onStop={working ? () => cancelChat(chatId) : undefined}
       />
       {!embedded && onSwitch && <TermAgents activePty="" chatId={chatId} open={agentsOpen} onClose={closeAgents} />}
+      {browser.opened && canBrowse && !embedded && <Browser ptyId={null} chatId={browser.chatId} initialPage={browser.page} onClose={() => browser.setOpened(false)} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>
   );

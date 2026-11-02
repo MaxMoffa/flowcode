@@ -125,7 +125,7 @@ fn percent_decode(text: &str) -> String {
 
 /// A Linux path as Windows sees it: `/mnt/c/a` -> `C:\a`, anything else lives
 /// in the distro (`\\wsl.localhost\<distro>\...`). `distro` empty: unknown.
-fn from_wsl_path(posix: &str, distro: &str) -> Result<String, String> {
+pub(crate) fn from_wsl_path(posix: &str, distro: &str) -> Result<String, String> {
     if let Some(rest) = posix.strip_prefix("/mnt/") {
         let (drive, tail) = rest.split_once('/').unwrap_or((rest, ""));
         if drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {

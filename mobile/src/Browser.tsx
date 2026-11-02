@@ -13,11 +13,12 @@ const LOAD_TIMEOUT_MS = 20_000;
  * files, in an iframe. Back/forward walk the pages typed in the address field;
  * navigation inside the page is not tracked (the iframe is cross-origin to us),
  * so Back leaves the page that was last typed, not the last link followed.
- * `ptyId` lets relative file names resolve against that terminal's folder.
+ * `chatId` or `ptyId` scopes relative files to that session's project folder.
  */
-export function Browser({ ptyId, onClose }: { ptyId: string | null; onClose: () => void }) {
-  const [pages, setPages] = useState<Page[]>([]);
-  const [index, setIndex] = useState(-1);
+export function Browser({ ptyId, chatId = null, initialPage = null, onClose }: { ptyId: string | null; chatId?: string | null; initialPage?: Page | null; onClose: () => void }) {
+  const [pages, setPages] = useState<Page[]>(() => initialPage ? [initialPage] : []);
+  const [index, setIndex] = useState(initialPage ? 0 : -1);
+  const previousPage = useRef(initialPage);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const [bad, setBad] = useState(false);
@@ -27,6 +28,15 @@ export function Browser({ ptyId, onClose }: { ptyId: string | null; onClose: () 
 
   useBackHandler(true, onClose);
   useEscape(true, onClose);
+
+  useEffect(() => {
+    if (!initialPage || initialPage === previousPage.current) return;
+    previousPage.current = initialPage;
+    setPages((previous) => [...previous.slice(0, index + 1), initialPage]);
+    setIndex(index + 1);
+    setEditing(false);
+    setBad(false);
+  }, [initialPage, index]);
 
   // A new load (page or reload) shows the bar until `onLoad` or the timeout.
   useEffect(() => {
@@ -39,7 +49,7 @@ export function Browser({ ptyId, onClose }: { ptyId: string | null; onClose: () 
   const inputRef = useRef<HTMLInputElement>(null);
 
   function go() {
-    const next = parseTyped(draft, ptyId);
+    const next = parseTyped(draft, ptyId, chatId);
     if (!next) {
       setBad(true);
       return;

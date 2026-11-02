@@ -231,6 +231,8 @@ export type RemoteCap =
   | "agentViews"
   /** Extra QUIC streams opened by the phone for its in-app browser: HTTP to a desktop loopback port or to a terminal's folder (remote-proto `PreviewTarget`). */
   | "preview"
+  /** Preview files rooted in a chat's working folder, without a terminal. */
+  | "chatPreview"
   /** `linkpreview`: link preview cards fetched by the desktop. */
   | "linkPreview"
   /** `agentinsight`: an agent's context, session usage and tools, for the phone's agent panel. */

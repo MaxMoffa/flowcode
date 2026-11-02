@@ -5,7 +5,8 @@
 //! so the desktop only tunnels bytes (or serves a terminal's folder itself).
 //!
 //! URLs: `/p/<port>/<rest>` is a dev server on the desktop's loopback,
-//! `/f/<pty_id>/<rest>` the files of a terminal tab. Anything else (a page
+//! `/f/<pty_id>/<rest>` the files of a terminal tab, `/c/<chat_id>/<rest>`
+//! the files of a chat. Anything else (a page
 //! asking for root-absolute `/assets/app.js`) is placed by its `Referer`.
 
 use crate::state::Remote;
@@ -40,7 +41,7 @@ impl Route {
     fn host(&self) -> String {
         match &self.target {
             PreviewTarget::Port(port) => format!("localhost:{port}"),
-            PreviewTarget::Files(_) => "localhost".into(),
+            PreviewTarget::Files(_) | PreviewTarget::ChatFiles(_) => "localhost".into(),
         }
     }
 }
@@ -62,6 +63,7 @@ fn split_prefix(path: &str) -> Option<(PreviewTarget, &str)> {
             Some((PreviewTarget::Port(port), tail))
         }
         "f" if !id.is_empty() => Some((PreviewTarget::Files(id.to_string()), tail)),
+        "c" if !id.is_empty() => Some((PreviewTarget::ChatFiles(id.to_string()), tail)),
         _ => None,
     }
 }
@@ -101,6 +103,7 @@ fn prefix_of(target: &PreviewTarget) -> String {
     match target {
         PreviewTarget::Port(port) => format!("/p/{port}"),
         PreviewTarget::Files(pty_id) => format!("/f/{pty_id}"),
+        PreviewTarget::ChatFiles(chat_id) => format!("/c/{chat_id}"),
     }
 }
 
@@ -346,5 +349,15 @@ mod tests {
     fn hosts_match_what_dev_servers_accept() {
         assert_eq!(Route { target: PreviewTarget::Port(8080), upstream: "/".into() }.host(), "localhost:8080");
         assert_eq!(Route { target: PreviewTarget::Files("t".into()), upstream: "/".into() }.host(), "localhost");
+        assert_eq!(Route { target: PreviewTarget::ChatFiles("c".into()), upstream: "/".into() }.host(), "localhost");
+    }
+
+    #[test]
+    fn chat_files_keep_their_root_for_pages_assets_and_redirects() {
+        let target = PreviewTarget::ChatFiles("chat-1".into());
+        assert_eq!(route("/c/chat-1/docs/report.html?v=2", None), Some(Route { target: target.clone(), upstream: "/docs/report.html?v=2".into() }));
+        assert_eq!(route("/assets/app.js", Some("http://flowcode-remote.localhost/c/chat-1/docs/report.html")), Some(Route { target: target.clone(), upstream: "/assets/app.js".into() }));
+        assert_eq!(rewrite_location("/docs/next.html", &target), "/c/chat-1/docs/next.html");
+        assert_eq!(route("/c/", None), None);
     }
 }
