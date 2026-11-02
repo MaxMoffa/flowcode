@@ -34,6 +34,15 @@ const BUILTIN_ICONS: Record<string, ReactNode> = {
       <line x1="9.5" y1="4.5" x2="9.5" y2="19.5" />
     </svg>
   ),
+  toggleAgentsSidebar: (
+    <svg {...svgProps} strokeWidth={1.7}>
+      <rect x="4" y="7" width="16" height="12" rx="4" />
+      <path d="M12 7V4" />
+      <circle cx="12" cy="3.5" r="0.6" />
+      <circle cx="9" cy="13" r="0.8" />
+      <circle cx="15" cy="13" r="0.8" />
+    </svg>
+  ),
   browser: (
     <svg {...svgProps} strokeWidth={1.7}>
       <circle cx="12" cy="12" r="8.5" />

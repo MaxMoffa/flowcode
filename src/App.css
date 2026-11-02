@@ -161,6 +161,29 @@
   color: var(--on-danger);
 }
 
+.quick-action {
+  flex: 0 0 auto;
+  user-select: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+.quick-actions.is-reordering .icon-button {
+  cursor: grabbing;
+}
+
+body:has(.quick-actions.is-reordering) .plugin-usage-popover {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.quick-action.is-dragging {
+  border-radius: var(--radius-ctl);
+  outline: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-elevated));
+  opacity: 0.8;
+}
+
 .app-body {
   position: relative;
   flex: 1;

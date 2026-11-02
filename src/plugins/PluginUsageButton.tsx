@@ -13,6 +13,7 @@ interface PluginUsageButtonProps {
   plugin: PluginDef;
   icon: ReactNode;
   onRun: () => void;
+  active?: boolean;
 }
 
 /** A quick-action icon button - for a plugin with a known usage fetcher
@@ -24,7 +25,7 @@ interface PluginUsageButtonProps {
  * plugin" menu - see PluginMenu.tsx, which shares useUsageState/
  * UsagePopoverContent/usagePopoverPosition with this component so both
  * stay in sync instead of drifting into two different caches/looks. */
-export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProps) {
+export function PluginUsageButton({ plugin, icon, onRun, active }: PluginUsageButtonProps) {
   useI18n();
   const [profile, setProfile, profileReady] = useUsageProfile(plugin.id);
   const { fetcher, usage, loading, load } = useUsageState(plugin.id, profile, profileReady);
@@ -34,7 +35,14 @@ export function PluginUsageButton({ plugin, icon, onRun }: PluginUsageButtonProp
 
   if (!fetcher) {
     return (
-      <button type="button" className="icon-button" aria-label={plugin.label} title={plugin.label} onClick={onRun}>
+      <button
+        type="button"
+        className={"icon-button" + (active ? " is-active" : "")}
+        aria-pressed={active}
+        aria-label={plugin.label}
+        title={plugin.label}
+        onClick={onRun}
+      >
         {icon}
       </button>
     );

@@ -64,6 +64,7 @@ import { MenuIcons } from "./context-menu/menuIcons";
 import { ShortcutsDialog } from "./shortcuts/ShortcutsDialog";
 import { PluginMenu } from "./plugins/PluginMenu";
 import { PluginUsageButton } from "./plugins/PluginUsageButton";
+import { moveShortcut, useQuickActionReorder } from "./plugins/useQuickActionReorder";
 import { PluginToast } from "./plugins/PluginToast";
 import { PluginDialog } from "./plugins/PluginDialog";
 import { builtinPlugins, examplePlugins } from "./plugins/registry";
@@ -180,6 +181,9 @@ function Shell() {
     writeString,
   );
   const [quickActionIds, setQuickActionIds] = usePersistentState<string[]>(QUICK_ACTIONS_KEY, readQuickActions, writeJson);
+  const quickActionReorder = useQuickActionReorder(quickActionIds, (id, target) =>
+    setQuickActionIds((previous) => moveShortcut(previous, id, target)),
+  );
   const [favoritesButtonVisible, setFavoritesButtonVisible] = usePersistentState(
     FAVORITES_BUTTON_VISIBLE_KEY,
     readTrue,
@@ -2697,18 +2701,32 @@ function Shell() {
   const headerTools = (
     <>
       {quickActionIds.length > 0 && (
-        <div className="quick-actions">
-          {quickActionIds.map((id) => {
+        <div
+          className={"quick-actions" + (quickActionReorder.draggingId ? " is-reordering" : "")}
+          aria-label={t("app.reorderShortcuts")}
+          onClickCapture={quickActionReorder.onClickCapture}
+          onDragStart={(e) => e.preventDefault()}
+        >
+          {quickActionReorder.ids.map((id) => {
             const plugin = allPlugins.find((p) => p.id === id);
             if (!plugin) return null;
             return (
               <div
                 key={id}
-                onContextMenu={(e) =>
-                  openMenu(e, [{ label: t("app.removeShortcut"), icon: MenuIcons.trash, danger: true, onSelect: () => toggleQuickAction(id) }])
-                }
+                data-shortcut-id={id}
+                className={"quick-action" + (quickActionReorder.draggingId === id ? " is-dragging" : "")}
+                onPointerDown={(e) => quickActionReorder.onPointerDown(e, id)}
+                onContextMenu={(e) => {
+                  if (quickActionReorder.draggingId) e.preventDefault();
+                  else openMenu(e, [{ label: t("app.removeShortcut"), icon: MenuIcons.trash, danger: true, onSelect: () => toggleQuickAction(id) }]);
+                }}
               >
-                <PluginUsageButton plugin={plugin} icon={pluginIconNode(plugin)} onRun={() => runPlugin(plugin)} />
+                <PluginUsageButton
+                  plugin={plugin}
+                  icon={pluginIconNode(plugin)}
+                  active={plugin.action === "toggleAgentsSidebar" ? agentsSidebarOpen : undefined}
+                  onRun={() => runPlugin(plugin)}
+                />
               </div>
             );
           })}
@@ -2739,22 +2757,6 @@ function Shell() {
         onClick={(e) => openMenu(e, moreMenuItems())}
       >
         {Icons.kebab}
-      </button>
-      <button
-        type="button"
-        className={"icon-button" + (agentsSidebarOpen ? " is-active" : "")}
-        aria-pressed={agentsSidebarOpen}
-        aria-label={t("app.toggleAgents")}
-        title={t("app.toggleAgents")}
-        onClick={() => setAgentsSidebarOpen((o) => !o)}
-      >
-        <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="4" y="7" width="16" height="12" rx="4" />
-          <path d="M12 7V4" />
-          <circle cx="12" cy="3.5" r="0.6" />
-          <circle cx="9" cy="13" r="0.8" />
-          <circle cx="15" cy="13" r="0.8" />
-        </svg>
       </button>
     </>
   );
