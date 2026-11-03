@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive: card dei terminali sotto il composer e navigazione dei subagenti con le frecce.">
+  <title>Flowcode — terminali sotto il composer · 3 varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #17120e; --panel: #211a14; --raised: #2a221b; --terminal: #130f0c;
+      --fg: #e7d8c5; --muted: #ad967c; --dim: #7f6e5d; --line: #3a2f25;
+      --accent: #a5bd8f; --accent-bg: #30382a; --danger: #e18b7c; --warning: #d4af6e;
+      --hover: #ffffff0a; --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eee6d9; --panel: #fffaf1; --raised: #f0e8da; --terminal: #f6efe3;
+      --fg: #3a2b17; --muted: #806a50; --dim: #99856c; --line: #dfd3c2;
+      --accent: #4f6e3a; --accent-bg: #e5ebdc; --danger: #b34837; --warning: #96701c;
+      --hover: #57371009;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 "Segoe UI", system-ui, sans-serif; }
+    button, textarea, select { font: inherit; color: inherit; }
+    button, select { cursor: pointer; }
+    button { border: 0; background: none; padding: 0; text-align: left; }
+    button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    kbd { font: 10px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); background: var(--raised); }
+    .page { max-width: 1100px; margin: auto; padding: 28px 32px 24px; }
+    .eyebrow { font-size: 10px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(21px, 2.4vw, 28px); font-weight: 550; letter-spacing: -.035em; margin: 0 0 4px; }
+    .lead { margin: 0 0 20px; color: var(--muted); max-width: 760px; }
+    .toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+    .variants { display: flex; gap: 4px; padding: 4px; background: var(--terminal); border: 1px solid var(--line); border-radius: 10px; }
+    .variants button { padding: 8px 14px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+    .variants button:hover { background: var(--hover); }
+    .variants button span { margin-right: 8px; opacity: .6; font: 11px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--raised); color: var(--fg); box-shadow: 0 1px 2px #0002; }
+    .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .controls label { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11px; }
+    select { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 5px 8px; font-size: 12px; }
+    .icon-btn { width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 5px; color: var(--muted); }
+    .icon-btn:hover { background: var(--hover); color: var(--fg); }
+
+    .window { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 70px -40px #0009; }
+    .chrome { height: 38px; display: flex; align-items: center; gap: 14px; padding: 0 13px; background: var(--raised); border-bottom: 1px solid var(--line); font-size: 12px; }
+    .chrome b { font-weight: 600; letter-spacing: -.03em; }
+    .chrome .tab { align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--panel); border-bottom: 2px solid var(--accent); font-size: 11px; }
+    .main { position: relative; height: 640px; display: flex; flex-direction: column; overflow: hidden; }
+    .conversation { flex: 1; min-height: 0; overflow: auto; padding: 18px 32px 12px; }
+    .message { max-width: 660px; margin: 0 auto 16px; font-size: 12px; line-height: 1.7; }
+    .message.user { background: var(--raised); border-radius: 12px 12px 3px 12px; padding: 9px 14px; margin-right: 0; margin-left: auto; max-width: 74%; }
+    .author { font-weight: 600; display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .author svg { color: var(--accent); }
+    .message p { margin: 0 0 8px; }
+    .activity { color: var(--muted); font-size: 11px; display: flex; gap: 8px; padding: 3px 0; }
+    .activity .ok { color: var(--accent); }
+    code { font: 11px var(--mono); color: var(--fg); }
+    .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+    .dot.running { animation: pulse 1.7s ease-in-out infinite; }
+    .dot.failed { background: var(--danger); }
+    .dot.completed { background: var(--dim); }
+    @keyframes pulse { 50% { opacity: .3; } }
+
+    /* ---- stack: composer + card sopra/sotto ---- */
+    .stack { position: relative; padding: 6px 24px 14px; flex-shrink: 0; }
+    .composer { position: relative; z-index: 2; background: var(--raised); border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); border-radius: 20px; padding: 12px 16px 9px; transition: border-color .15s; }
+    .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+    .composer textarea { display: block; width: 100%; resize: none; border: 0; outline: 0; background: none; font-size: 12px; line-height: 1.6; height: 22px; padding: 0; margin-bottom: 8px; }
+    .composer textarea::placeholder { color: var(--muted); }
+    .tools { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 10px; }
+    .send { margin-left: auto; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--bg); display: grid; place-items: center; font-size: 12px; }
+    .chip { display: inline-flex; gap: 5px; align-items: center; padding: 2px 8px; border-radius: 99px; background: var(--terminal); border: 1px solid var(--line); }
+    .chip.hot { color: var(--accent); }
+
+    /* card a una riga, "disallineata": più stretta del composer, infilata sotto/sopra */
+    .rail { position: relative; z-index: 1; margin: 0 26px; background: var(--terminal); border: 1px solid var(--line); }
+    .rail.down { margin-top: -12px; padding-top: 12px; border-radius: 0 0 14px 14px; border-top: 0; }
+    .rail.up { margin-bottom: -12px; padding-bottom: 12px; border-radius: 14px 14px 0 0; border-bottom: 0; }
+    .rail-row { width: 100%; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; color: var(--muted); font-size: 11px; border-radius: inherit; }
+    .rail-row:hover { color: var(--fg); }
+    .rail-row .count { color: var(--fg); font-variant-numeric: tabular-nums; }
+    .rail-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rail-row .live { font: 10px var(--mono); color: var(--dim); }
+    .rail-row .chev { transition: transform .18s; }
+    .rail-row[aria-expanded="true"] .chev { transform: rotate(180deg); }
+    .rail.focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+    .rail.focus .rail-row { color: var(--fg); }
+    .rows { max-height: 150px; overflow: auto; padding: 0 6px 6px; border-top: 1px solid var(--line); padding-top: 5px; }
+    .row { width: 100%; display: grid; grid-template-columns: 7px minmax(0,1.2fr) minmax(0,1fr) auto; gap: 9px; align-items: center; padding: 6px 8px; border-radius: 6px; font-size: 10px; color: var(--muted); }
+    .row:hover { background: var(--hover); }
+    .row.sel { background: var(--accent-bg); color: var(--fg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent); }
+    .row .cmd { font: 11px var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .own, .row .last { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .last { font: 10px var(--mono); color: var(--dim); }
+    .row .time { font: 9px var(--mono); color: var(--dim); }
+    .row .enter { display: none; }
+    .row.sel .enter { display: inline; }
+    .acc { margin: 2px 4px 6px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
+
+    /* variante A: tray subagenti a righe, sopra il composer */
+    .subtray { position: relative; z-index: 1; margin: 0 26px -12px; padding: 6px 6px 18px; background: var(--terminal); border: 1px solid var(--line); border-bottom: 0; border-radius: 14px 14px 0 0; }
+    .subtray .head { display: flex; gap: 7px; align-items: center; padding: 2px 8px 4px; font-size: 10px; color: var(--muted); }
+    .subtray .row { grid-template-columns: 7px 92px minmax(0,1fr) auto; }
+    .subtray .row .cmd { font: 500 11px "Segoe UI", system-ui, sans-serif; }
+
+    /* variante B: picker flottante */
+    .picker, .popover { position: absolute; z-index: 5; left: 24px; right: 24px; bottom: calc(100% - 4px); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 40px -18px #000c; overflow: hidden; animation: rise .14s ease-out; }
+    @keyframes rise { from { opacity: 0; transform: translateY(5px); } }
+    .picker .head, .popover .head { display: flex; gap: 8px; align-items: center; padding: 9px 14px; font-size: 10px; color: var(--muted); border-bottom: 1px solid var(--line); }
+    .picker .head .grow, .popover .head .grow { flex: 1; }
+    .picker .rows { border: 0; max-height: 190px; padding: 6px; }
+    .picker .row { grid-template-columns: 7px 100px minmax(0,1fr) auto; padding: 8px 10px; }
+    .picker .row .cmd { font: 500 11px "Segoe UI", system-ui, sans-serif; }
+    .popover { height: 250px; display: flex; flex-direction: column; }
+
+    /* output */
+    .output { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+    .output pre { margin: 0; padding: 10px 14px; flex: 1; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.7 var(--mono); color: var(--fg); max-height: 150px; }
+    .popover .output pre, .drawer .output pre { max-height: none; }
+    .output-foot { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-top: 1px solid var(--line); font-size: 10px; color: var(--muted); }
+    .output-foot .danger { margin-left: auto; color: var(--danger); font-size: 10px; }
+    .status.running { color: var(--accent); } .status.failed { color: var(--danger); }
+
+    /* drawer */
+    .drawer { position: absolute; z-index: 8; top: 0; right: 0; bottom: 0; width: 340px; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -20px 0 40px -28px #000c; display: flex; flex-direction: column; animation: slide .18s ease-out; }
+    @keyframes slide { from { transform: translateX(24px); opacity: 0; } }
+    .drawer .head { display: flex; gap: 8px; align-items: center; padding: 11px 14px; border-bottom: 1px solid var(--line); font-size: 12px; }
+    .drawer .head b { font-weight: 550; } .drawer .head .grow { flex: 1; }
+    .drawer .body { padding: 14px; overflow: auto; flex: 1; font-size: 12px; display: flex; flex-direction: column; }
+    .drawer .kicker { font-size: 10px; letter-spacing: .1em; color: var(--muted); margin-bottom: 6px; }
+    .drawer ol { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 7px; color: var(--muted); font-size: 11px; }
+    .drawer li { display: flex; gap: 8px; } .drawer li .ok { color: var(--accent); }
+    .drawer .output { margin: 0 -14px -14px; border-top: 1px solid var(--line); background: var(--bg); }
+
+    /* guida */
+    .hint { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; min-height: 34px; padding: 9px 4px 0; color: var(--muted); font-size: 11px; }
+    .hint .zone { color: var(--accent); font-weight: 500; }
+    .explain { margin-top: 12px; display: grid; gap: 4px; }
+    .explain h2 { font-size: 13px; margin: 0; font-weight: 600; }
+    .explain p { margin: 0; color: var(--muted); font-size: 12px; max-width: 800px; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 15px; border-radius: 8px; font-size: 12px; z-index: 20; }
+    .toast:empty { display: none; }
+    @media (max-width: 760px) {
+      .page { padding: 16px 12px; } .drawer { width: 100%; } .conversation { padding-inline: 16px; }
+      .stack { padding-inline: 12px; } .picker, .popover { left: 12px; right: 12px; } .rail, .subtray { margin-inline: 16px; }
+      .row .own, .row .last { display: none; } .row { grid-template-columns: 7px 1fr auto !important; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">FLOWCODE / STUDIO INTERFACCIA</div>
+  <h1>Terminali sotto il composer · subagenti con le frecce</h1>
+  <p class="lead">Card a una riga, infilata sotto il box di input: il composer si alza quando compare. <kbd>↓</kbd> dal box la espande, <kbd>↑</kbd> scorre i subagenti, <kbd>↵</kbd> apre. Il focus è già nel box: prova da tastiera.</p>
+
+  <div class="toolbar">
+    <nav class="variants" aria-label="Varianti">
+      <button type="button" data-variant="a" aria-pressed="true"><span>01</span>Linguetta</button>
+      <button type="button" data-variant="b" aria-pressed="false"><span>02</span>Riga viva + picker</button>
+      <button type="button" data-variant="c" aria-pressed="false"><span>03</span>Sandwich</button>
+    </nav>
+    <div class="controls">
+      <label>Terminali <select id="nterm"><option value="0">0</option><option value="1">1</option><option value="3" selected>3</option><option value="6">6</option></select></label>
+      <label>Subagenti <select id="nsub"><option value="0">0</option><option value="1">1</option><option value="3" selected>3</option></select></label>
+      <button type="button" id="theme" class="icon-btn" aria-label="Cambia tema"></button>
+    </div>
+  </div>
+
+  <section class="window" aria-label="Anteprima Flowcode">
+    <div class="chrome"><b>flowcode</b><div class="tab"><span class="dot"></span>Chat · Claude Code</div></div>
+    <div class="main" id="main">
+      <div class="conversation">
+        <div class="message user">Avvia l’anteprima e fai verificare le modifiche alla chat a un subagente.</div>
+        <div class="message"><div class="author" id="author"></div>
+          <p>Avvio il dev server e delego test e revisione. Puoi seguire terminali e subagenti qui sotto mentre lavoro.</p>
+          <div class="activity"><span class="ok">✓</span>Modificato <code>ChatBody.tsx</code> +28 −4</div>
+          <div class="activity"><span class="ok">✓</span>Avviato <code>npm run dev</code> in background</div>
+          <div class="activity"><span class="dot running" style="margin-top:6px"></span>Attendo i risultati dei subagenti…</div>
+        </div>
+      </div>
+      <div class="stack" id="stack">
+        <div id="float"></div>
+        <div id="above"></div>
+        <div class="composer">
+          <textarea id="input" rows="1" placeholder="Scrivi a Claude Code…  (↑ subagenti · ↓ terminali)" aria-controls="above below" aria-label="Messaggio"></textarea>
+          <div class="tools"><span>＋</span><span>Modalità automatica ⌄</span><span>Claude Code ⌄</span><span id="chips"></span><span class="send" aria-hidden="true">↑</span></div>
+        </div>
+        <div id="below"></div>
+      </div>
+      <div id="drawer"></div>
+    </div>
+  </section>
+  <div class="hint" id="hint"></div>
+  <div class="explain"><h2 id="vt"></h2><p id="vd"></p></div>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+const I = {
+  term: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg>',
+  bot: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 7V3m-4 10h1m6 0h1m-7 3h6"/></svg>',
+  down: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
+  up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>',
+  close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M7 17 17 7"/></svg>',
+  sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/></svg>',
+  moon: '<svg viewBox="0 0 24 24"><path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10Z"/></svg>',
+};
+const V = {
+  a: ['01 / Linguetta — il pattern già noto, specchiato', 'I subagenti restano nel tray a righe dietro il composer (come oggi). I terminali sono una linguetta a una riga sotto il box, più stretta del composer. ↑ evidenzia le righe dei subagenti, ↓ espande la linguetta, l’output si apre a fisarmonica sotto la riga.'],
+  b: ['02 / Riga viva + picker — poco ingombro finché non serve', 'La linguetta mostra l’ultima riga di output del processo più recente (come l’indicatore di Claude Code da terminale). I subagenti non occupano spazio: ↑ apre un picker sopra il composer, come il menu degli slash. L’output di un terminale si apre in un pannello sopra il box.'],
+  c: ['03 / Sandwich — simmetrico, una riga sopra e una sotto', 'Subagenti sopra e terminali sotto sono due card identiche a una riga che incorniciano il composer. ↑ trasforma la riga dei subagenti in un selettore (‹ 2/3 ›), ↵ apre. Subagenti e terminali si aprono nello stesso drawer laterale.'],
+};
+const seedJobs = () => [
+  { id: 't1', cmd: 'npm run dev', own: 'Agente principale', st: 'running', el: '1m 24s', out: '> flowcode@0.25.0 dev\n> vite\n\n  VITE v8.3.0  ready in 312 ms\n\n  ➜  Local:   http://localhost:1420/\n  14:32:08 [vite] page reload src/App.tsx' },
+  { id: 't2', cmd: 'npm run test -- chat', own: 'Verifica', st: 'running', el: '18s', out: '> vitest run chat\n\n ✓ chatModel.test.ts (38 tests) 29ms\n ✓ chatTimeline.test.ts (24 tests) 12ms\n\n In esecuzione: commandMenu.test.ts…' },
+  { id: 't3', cmd: 'git status --short', own: 'Revisione', st: 'completed', el: '0.3s', out: '$ git status --short\n M src/chat/ChatBody.tsx\n M src/chat/chat.css\n\nProcesso terminato con codice 0.' },
+  { id: 't4', cmd: 'cargo check', own: 'Verifica', st: 'running', el: '42s', out: '    Checking flowcode v0.25.0\n    Finished dev [unoptimized] in 41.8s' },
+  { id: 't5', cmd: 'npm run lint', own: 'Revisione', st: 'failed', el: '6s', out: '> eslint src\n\nsrc/chat/ChatBody.tsx\n  88:7  error  unused variable "peek"\n\nProcesso terminato con codice 1.' },
+  { id: 't6', cmd: 'tail -f logs/app.log', own: 'Agente principale', st: 'running', el: '3m 02s', out: '[info] session started\n[info] watcher ready' },
+];
+const allSubs = [
+  { id: 's1', name: 'Verifica', task: 'Esegue i test della chat e i controlli di tipo', st: 'running', steps: ['Letto chatModel.test.ts', 'Avviato npm run test -- chat', 'Attende il risultato di cargo check'] },
+  { id: 's2', name: 'Revisione', task: 'Controlla il diff e cerca regressioni', st: 'running', steps: ['Letto git diff', 'Trovato 1 warning di lint', 'Sta riesaminando ChatBody.tsx'] },
+  { id: 's3', name: 'Esplora', task: 'Cerca dove nascono i terminali in background', st: 'completed', steps: ['Cercato "background" in src/chat', 'Trovato AgentTerminals.tsx', 'Completato · 3 file letti'] },
+];
+const S = { v: new URLSearchParams(location.search).get('variant') || 'a', zone: 'input', idx: 0, exp: false, out: null, drawer: null, nterm: 3, nsub: 3, jobs: seedJobs() };
+if (!V[S.v]) S.v = 'a';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const jobs = () => S.jobs.slice(0, S.nterm);
+const subs = () => allSubs.slice(0, S.nsub);
+const nRun = a => a.filter(x => x.st === 'running').length;
+const last = j => j.out.trim().split('\n').pop().trim();
+const stText = j => j.st === 'running' ? 'In esecuzione' : j.st === 'failed' ? 'Errore · codice 1' : 'Concluso · codice 0';
+const termsLabel = () => `<span class="count">${jobs().length} ${jobs().length === 1 ? 'terminale' : 'terminali'}</span>${nRun(jobs()) ? ` · ${nRun(jobs())} ${nRun(jobs()) === 1 ? 'attivo' : 'attivi'}` : ' · conclusi'}`;
+
+function outputHtml(j) {
+  return `<section class="output" aria-label="Output di ${esc(j.cmd)}"><pre tabindex="0" id="pre-${j.id}">${esc(j.out)}</pre>
+    <div class="output-foot"><span class="dot ${j.st}"></span><span class="status ${j.st}">${stText(j)}</span><span>· ${esc(j.own)}</span>${j.st === 'running' ? `<button type="button" class="danger" data-act="stop" data-id="${j.id}">Ferma</button>` : ''}</div></section>`;
+}
+function termRows() {
+  return jobs().map((j, i) => {
+    const sel = S.zone === 'term' && S.idx === i;
+    return `<button type="button" role="option" id="term-${i}" class="row${sel ? ' sel' : ''}" data-act="termrow" data-i="${i}" aria-selected="${sel}">
+      <span class="dot ${j.st}"></span><span class="cmd">${esc(j.cmd)}</span>
+      ${S.v === 'b' ? `<span class="last">${esc(last(j))}</span>` : `<span class="own">${esc(j.own)}</span>`}
+      <span class="time">${sel ? '↵ output' : j.el}</span></button>${S.out === j.id && S.v === 'a' ? `<div class="acc">${outputHtml(j)}</div>` : ''}`;
+  }).join('');
+}
+function subRowsHtml(cls) {
+  return subs().map((s, i) => {
+    const sel = S.zone === 'sub' && S.idx === i;
+    return `<button type="button" role="option" id="sub-${i}" class="row${sel ? ' sel' : ''}" data-act="subrow" data-i="${i}" aria-selected="${sel}">
+      <span class="dot ${s.st}"></span><span class="cmd">${s.name}</span><span class="own">${s.task}</span><span class="time">${sel ? '↵ apri' : s.st === 'running' ? 'attivo' : 'concluso'}</span></button>`;
+  }).join('');
+}
+function renderAbove() {
+  const ss = subs(); if (!ss.length) return '';
+  if (S.v === 'a') return `<section class="subtray" aria-label="Subagenti"><div class="head">${I.bot}<span>Subagenti · ${nRun(ss)} ${nRun(ss) === 1 ? 'attivo' : 'attivi'}</span></div><div role="listbox" aria-label="Subagenti">${subRowsHtml()}</div></section>`;
+  if (S.v === 'c') {
+    const f = S.zone === 'sub', s = ss[Math.min(S.idx, ss.length - 1)];
+    return `<section class="rail up${f ? ' focus' : ''}" aria-label="Subagenti"><button type="button" class="rail-row" data-act="${f ? 'subrow' : 'entersub'}" data-i="${S.idx}">${I.bot}
+      ${f ? `<span class="dot ${s.st}"></span><span class="count">${s.name}</span><span class="grow">${s.task}</span><span>${S.idx + 1}/${ss.length}</span><kbd>↑</kbd><kbd>↓</kbd><kbd>↵</kbd>`
+          : `<span class="grow"><span class="count">${ss.length} ${ss.length === 1 ? 'subagente' : 'subagenti'}</span> · ${nRun(ss)} ${nRun(ss) === 1 ? 'attivo' : 'attivi'}</span><kbd>↑</kbd>`}</button></section>`;
+  }
+  return '';
+}
+function renderBelow() {
+  const js = jobs(); if (!js.length) return '';
+  const live = S.v === 'b' ? (js.find(j => j.st === 'running') || js[0]) : null;
+  const f = S.zone === 'term';
+  return `<section class="rail down${f ? ' focus' : ''}" aria-label="Terminali in background">
+    <button type="button" class="rail-row" data-act="toggle" aria-expanded="${S.exp}" aria-haspopup="listbox">${I.term}<span>${termsLabel()}</span>
+      ${live && !S.exp ? `<span class="grow live">${esc(live.cmd)} › ${esc(last(live))}</span>` : '<span class="grow"></span>'}<kbd>↓</kbd>${I.down}</button>
+    ${S.exp ? `<div class="rows" role="listbox" aria-label="Terminali">${termRows()}</div>` : ''}</section>`;
+}
+function renderFloat() {
+  if (S.v === 'b' && S.zone === 'sub' && subs().length) {
+    return `<section class="picker" aria-label="Subagenti"><div class="head">${I.bot}<span class="grow">Subagenti · ${nRun(subs())} attivi</span><kbd>↑↓</kbd> naviga <kbd>↵</kbd> apri <kbd>esc</kbd> chiudi</div><div class="rows" role="listbox">${subRowsHtml()}</div></section>`;
+  }
+  if (S.v === 'b' && S.out) {
+    const j = S.jobs.find(x => x.id === S.out); if (!j) return '';
+    return `<section class="popover" aria-label="Output"><div class="head">${I.term}<b style="color:var(--fg);font:11px var(--mono)">${esc(j.cmd)}</b><span class="grow"></span><button type="button" class="icon-btn" style="width:22px;height:22px" data-act="closeout" aria-label="Chiudi output">${I.close}</button></div>${outputHtml(j)}</section>`;
+  }
+  return '';
+}
+function renderDrawer() {
+  const d = S.drawer; if (!d) return '';
+  if (d.kind === 'sub') {
+    const s = allSubs.find(x => x.id === d.id);
+    return `<aside class="drawer" aria-label="Subagente ${s.name}"><div class="head">${I.bot}<b>${s.name}</b><span class="status ${s.st}" style="font-size:10px">${s.st === 'running' ? 'in esecuzione' : 'concluso'}</span><span class="grow"></span><button type="button" class="icon-btn" data-act="closedrawer" aria-label="Chiudi">${I.close}</button></div>
+      <div class="body"><div class="kicker">COMPITO</div>${s.task}<div class="kicker" style="margin-top:16px">ATTIVITÀ</div><ol>${s.steps.map(t => `<li><span class="ok">✓</span>${t}</li>`).join('')}</ol></div></aside>`;
+  }
+  const j = S.jobs.find(x => x.id === d.id);
+  return `<aside class="drawer" aria-label="Output ${esc(j.cmd)}"><div class="head">${I.term}<b style="font:12px var(--mono)">${esc(j.cmd)}</b><span class="grow"></span><button type="button" class="icon-btn" data-act="closedrawer" aria-label="Chiudi">${I.close}</button></div><div class="body">${outputHtml(j)}</div></aside>`;
+}
+function hint() {
+  const z = S.zone, K = t => `<kbd>${t}</kbd>`;
+  const txt = z === 'sub' ? `<span class="zone">Subagenti</span> ${K('↑')} ${K('↓')} scorri ${K('↵')} apri ${K('esc')} torna al box`
+    : z === 'term' ? `<span class="zone">Terminali</span> ${K('↑')} ${K('↓')} scorri ${K('↵')} output ${K('esc')} chiudi`
+    : `<span class="zone">Box di input</span> ${K('↑')} subagenti ${K('↓')} terminali ${K('esc')} chiude pannelli`;
+  $('hint').innerHTML = txt;
+}
+function render() {
+  document.querySelectorAll('[data-variant]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.variant === S.v)));
+  $('vt').textContent = V[S.v][0]; $('vd').textContent = V[S.v][1];
+  $('author').innerHTML = I.bot + 'Claude Code';
+  $('theme').innerHTML = document.documentElement.dataset.theme === 'light' ? I.moon : I.sun;
+  $('above').innerHTML = renderAbove(); $('below').innerHTML = renderBelow();
+  $('float').innerHTML = renderFloat(); $('drawer').innerHTML = renderDrawer();
+  $('chips').innerHTML = S.v === 'b' && subs().length ? `<span class="chip${S.zone === 'sub' ? ' hot' : ''}">${I.bot}${subs().length} ${subs().length === 1 ? 'subagente' : 'subagenti'} <kbd>↑</kbd></span>` : '';
+  const act = S.zone === 'sub' ? 'sub-' + S.idx : S.zone === 'term' && S.exp ? 'term-' + S.idx : '';
+  act ? $('input').setAttribute('aria-activedescendant', act) : $('input').removeAttribute('aria-activedescendant');
+  document.querySelectorAll('.row.sel').forEach(r => r.scrollIntoView({ block: 'nearest' }));
+  hint();
+}
+function notify(m) { const t = $('toast'); t.textContent = m; clearTimeout(notify.t); notify.t = setTimeout(() => t.textContent = '', 2200); }
+function toInput() { S.zone = 'input'; $('input').focus(); }
+function openSub(i) { const s = subs()[i]; if (s) { S.drawer = { kind: 'sub', id: s.id }; S.out = S.v === 'b' ? null : S.out; } }
+function openTerm(i) {
+  const j = jobs()[i]; if (!j) return;
+  if (S.v === 'c') S.drawer = { kind: 'term', id: j.id };
+  else S.out = S.out === j.id ? null : j.id;
+}
+function clampIdx(i) { return Math.max(0, Math.min(i, (S.zone === 'sub' ? subs() : jobs()).length - 1)); }
+
+$('input').addEventListener('keydown', e => {
+  const ta = e.target, z = S.zone;
+  if (e.key === 'Escape') {
+    if (S.drawer) S.drawer = null;
+    else if (S.out) S.out = null;
+    else if (z !== 'input') { S.zone = 'input'; if (z === 'term') S.exp = false; }
+    else if (S.exp) S.exp = false;
+    else return;
+    e.preventDefault(); return render();
+  }
+  if (z === 'input') {
+    if (e.key === 'ArrowUp' && ta.selectionStart === 0 && ta.selectionEnd === 0 && subs().length) { S.zone = 'sub'; S.idx = S.v === 'c' ? 0 : subs().length - 1; S.out = null; }
+    else if (e.key === 'ArrowDown' && ta.selectionEnd === ta.value.length && jobs().length) { S.zone = 'term'; S.exp = true; S.idx = 0; }
+    else if (e.key === 'Enter' && !e.shiftKey) { if (ta.value.trim()) notify('Messaggio simulato: ' + ta.value.trim().slice(0, 40)); ta.value = ''; }
+    else return;
+    e.preventDefault(); return render();
+  }
+  if (z === 'sub') {
+    const n = subs().length;
+    if (e.key === 'ArrowUp') S.idx = S.v === 'c' ? (S.idx - 1 + n) % n : clampIdx(S.idx - 1);
+    else if (e.key === 'ArrowDown') { if (S.v === 'c') S.idx = (S.idx + 1) % n; else if (S.idx + 1 >= n) S.zone = 'input'; else S.idx++; }
+    else if (e.key === 'Enter') openSub(S.idx);
+    else { if (e.key.length === 1 || e.key === 'Backspace') S.zone = 'input'; else return; if (S.zone === 'input') return render(); }
+  } else {
+    if (e.key === 'ArrowDown') S.idx = clampIdx(S.idx + 1);
+    else if (e.key === 'ArrowUp') { if (S.idx === 0) { S.zone = 'input'; S.exp = false; S.out = null; } else S.idx--; }
+    else if (e.key === 'Enter') openTerm(S.idx);
+    else { if (e.key.length === 1 || e.key === 'Backspace') { S.zone = 'input'; return render(); } return; }
+  }
+  e.preventDefault(); render();
+});
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.variant) { Object.assign(S, { v: b.dataset.variant, zone: 'input', idx: 0, exp: false, out: null, drawer: null }); render(); return $('input').focus(); }
+  const i = Number(b.dataset.i);
+  switch (b.dataset.act) {
+    case 'toggle': S.exp = !S.exp; if (!S.exp) { S.out = null; if (S.zone === 'term') S.zone = 'input'; } else { S.zone = 'term'; S.idx = 0; } break;
+    case 'termrow': S.zone = 'term'; S.idx = i; openTerm(i); break;
+    case 'subrow': S.zone = 'sub'; S.idx = i; openSub(i); break;
+    case 'entersub': S.zone = 'sub'; S.idx = 0; break;
+    case 'closeout': S.out = null; break;
+    case 'closedrawer': S.drawer = null; break;
+    case 'stop': { const j = S.jobs.find(x => x.id === b.dataset.id); j.st = 'completed'; j.out += '\n\nProcesso fermato dall’utente (simulazione).'; notify('Processo dimostrativo fermato'); break; }
+    default: return;
+  }
+  render(); $('input').focus();
+});
+$('nterm').addEventListener('change', e => { S.nterm = Number(e.target.value); S.exp = false; S.out = null; if (S.zone === 'term') S.zone = 'input'; render(); });
+$('nsub').addEventListener('change', e => { S.nsub = Number(e.target.value); if (S.zone === 'sub') S.zone = 'input'; render(); });
+$('theme').addEventListener('click', () => { const l = document.documentElement.dataset.theme !== 'light'; document.documentElement.dataset.theme = l ? 'light' : 'dark'; render(); });
+document.addEventListener('keydown', e => { if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return; if (['1', '2', '3'].includes(e.key)) { S.v = 'abc'[e.key - 1]; S.zone = 'input'; S.exp = false; S.out = null; S.drawer = null; render(); $('input').focus(); } });
+
+// output dal vivo: aggiorna senza ricreare il box di input
+let tick = 0;
+setInterval(() => {
+  if (document.hidden) return;
+  const j = S.jobs[0]; if (j.st !== 'running') return;
+  j.out += `\n  14:32:${String(10 + (++tick % 50)).padStart(2, '0')} [vite] hmr update /src/chat/ChatBody.tsx`;
+  const l = j.out.split('\n'); if (l.length > 40) j.out = l.slice(-40).join('\n');
+  render(); document.querySelectorAll('.output pre').forEach(p => p.scrollTop = p.scrollHeight);
+}, 3500);
+render(); $('input').focus();
+</script>
+</body>
+</html>

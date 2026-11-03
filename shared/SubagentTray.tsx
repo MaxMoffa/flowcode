@@ -7,7 +7,7 @@ const LEAVE_GRACE_MS = 2500;
 type TrayRow ={ item: SubagentItem; leaving: boolean };
 
 /** Running children behind the composer, shared by desktop and mobile. */
-export function SubagentTray({ items, onOpen, openLabel }: { items: SubagentItem[]; onOpen?: (id: string) => void; openLabel: string }) {
+export function SubagentTray({ items, onOpen, openLabel, selectedId = null }: { items: SubagentItem[]; onOpen?: (id: string) => void; openLabel: string; /** The row the keyboard is on (desktop). */ selectedId?: string | null }) {
   const [rows, setRows] = useState<TrayRow[]>([]);
   const [, setTick] = useState(0);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -95,7 +95,7 @@ export function SubagentTray({ items, onOpen, openLabel }: { items: SubagentItem
           const { type, description } = subagentInfo(item.call);
           const elapsed = Math.max(0, Math.floor((Date.now() - (item.call.startedAt ?? Date.now())) / 1000));
           return (
-            <div key={item.id} className={`chat-subtray-row${leaving ? " is-leaving" : ""}`}>
+            <div key={item.id} className={`chat-subtray-row${leaving ? " is-leaving" : ""}${selectedId === item.id ? " is-selected" : ""}`}>
               <span className="chat-subtray-dot" aria-hidden="true" />
               <span className="chat-subtray-name">{type ?? "agent"}</span>
               <span className="chat-subtray-task" title={description}>{description}</span>

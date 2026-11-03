@@ -305,7 +305,7 @@ function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): Chat
   const index = state.items.findIndex((i) => i.type === "tool" && i.id === patch.toolCallId);
   const items = [...state.items];
   if (index < 0) {
-    items.push({ type: "tool", id: patch.toolCallId, call: isSubagentLaunch(patch) ? { ...patch, startedAt: at } : patch });
+    items.push({ type: "tool", id: patch.toolCallId, call: isSubagentLaunch(patch) || patch.kind === "execute" ? { ...patch, startedAt: at } : patch });
   } else {
     const prev = items[index] as Extract<ChatItem, { type: "tool" }>;
     const merged = { ...prev.call } as Record<string, unknown>;
@@ -313,6 +313,8 @@ function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): Chat
       if (value !== undefined && value !== null) merged[key] = value;
     }
     const call = merged as unknown as ChatToolCall;
+    // A command is timed from its first event (the background terminals show how long it runs).
+    if (call.kind === "execute" && call.startedAt === undefined) call.startedAt = at;
     // A subagent launch is timed: from its first event to its final status.
     if (isSubagentLaunch(call) && !isCodexSubagentLaunch(call)) {
       if (call.startedAt === undefined) call.startedAt = at;

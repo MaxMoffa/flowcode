@@ -1508,6 +1508,7 @@ button.chat-step-row {
 .chat-subtray-time { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chat-subtray .chat-subcard-open { width: 44px; height: 40px; }
 .chat-subtray + .chat-card { z-index: 1; }
+.chat-card:has(+ .chat-termcard) { z-index: 1; }
 @keyframes chat-subtray-pulse { 50% { opacity: .3; } }
 @keyframes chat-subtray-in { from { opacity: 0; transform: translateY(10px); } }
 @media (prefers-reduced-motion: reduce) {
@@ -2869,3 +2870,19 @@ button.chat-step-row {
   .chat-compaction.is-in_progress .chat-compaction-line::after,
   .chat-compaction-spin { animation: none; }
 }
+
+/* Background terminals: a one-line card as wide as the message card, tucked under its bottom edge. */
+.chat-termcard { position: relative; z-index: 0; margin-top: -24px; padding-top: 24px; border-radius: 0 0 22px 22px; background: color-mix(in srgb, var(--fg) 5%, var(--surface)); box-shadow: 0 0 0 1px var(--border-strong); animation: chat-termcard-in .25s ease-out; }
+@keyframes chat-termcard-in { from { opacity: 0; transform: translateY(-10px); } }
+.chat-termcard-head { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 0 16px; border: 0; border-radius: inherit; background: none; color: var(--muted); font: inherit; font-size: 13px; text-align: left; }
+.chat-termcard-count { font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+.chat-termcard-hint { flex: 1; }
+.chat-termcard-chev { flex: none; margin-left: auto; transform: rotate(180deg); transition: transform .18s; }
+.chat-termcard-head[aria-expanded="true"] .chat-termcard-chev { transform: none; }
+.chat-termcard-list { max-height: min(260px, 35dvh); overflow-y: auto; overscroll-behavior: contain; padding: 4px 8px 8px; border-top: 1px solid var(--border); }
+.chat-termcard-row { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 0 8px; border: 0; border-radius: 10px; background: none; color: var(--muted); font: inherit; font-size: 12.5px; text-align: left; }
+.chat-termcard-row:active { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.chat-termcard-cmd { flex: 0 1 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 12px; color: var(--fg); }
+.chat-termcard-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-termcard-out { margin: 2px 0 8px; padding: 8px 10px; max-height: 180px; overflow: auto; border-radius: 10px; background: color-mix(in srgb, var(--fg) 4%, var(--surface)); box-shadow: 0 0 0 1px var(--border); color: var(--fg); font-family: ui-monospace, monospace; font-size: 11.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .chat-termcard { animation: none; } .chat-termcard-chev { transition: none; } }

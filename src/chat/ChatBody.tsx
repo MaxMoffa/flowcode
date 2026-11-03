@@ -6,6 +6,8 @@ import type { AgentViewProps } from "../agentViews/types";
 import { AskComposer } from "./AskComposer";
 import { useCacheWarning } from "./useCacheWarning";
 import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMarker, SubagentTray, ToolGroup } from "./ChatItems";
+import { BackgroundTerminalsCard } from "../../shared/BackgroundTerminalsCard";
+import { backgroundTerminals } from "./backgroundTerminals";
 import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
 import { CLI_INFO } from "../agents/cliInfo";
 import type { ChatAttachment, ChatCommand } from "./chatTypes";
@@ -243,7 +245,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     }
   }, [subId]);
 
-  const mainTimeline = useMemo(() => (sub ? null : buildTimeline(model.items)), [sub, model.items]);
+  const mainTimeline = useMemo(() => (sub ? null : buildTimeline(model.items)), [sub, model.items, agent]);
   const subTimeline = useMemo(() => (sub ? subagentTimeline(sub) : null), [sub]);
   const timeline = subTimeline ?? mainTimeline ?? [];
   const pending = model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined);
@@ -343,6 +345,35 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   useEffect(() => {
     setActiveIndex(0);
   }, [suggestionKey]);
+
+  // Arrow keys in the composer walk the subagent tray (up) and the background terminals under it (down).
+  const terminals = useMemo(() => (sub ? [] : backgroundTerminals(model.items, agent).filter((term) => term.running)), [sub, model.items]);
+  const [navZone, setNavZone] = useState<"input" | "sub" | "term">("input");
+  const [navIndex, setNavIndex] = useState(0);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [termOutId, setTermOutId] = useState<string | null>(null);
+  useEffect(() => {
+    if (navZone === "sub" && runningSubs.length === 0) setNavZone("input");
+    if (terminals.length === 0) {
+      if (navZone === "term") setNavZone("input");
+      setTermsOpen(false);
+      setTermOutId(null);
+    }
+  }, [navZone, runningSubs.length, terminals.length]);
+  const termLabels = useMemo(
+    () => ({
+      count: (count: number) => t(count === 1 ? "chat.term.count.one" : "chat.term.count.other", { count }),
+      hint: t("chat.term.hint"),
+      hintOpen: t("chat.term.hintOpen"),
+      noOutput: t("chat.term.noOutput"),
+    }),
+    [t],
+  );
+  const closeTerms = () => {
+    setTermsOpen(false);
+    setTermOutId(null);
+    setNavZone((zone) => (zone === "term" ? "input" : zone));
+  };
   useEffect(() => {
     if (menuOpen) document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" });
   }, [menuOpen, active, listId]);
@@ -576,6 +607,47 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
       if (e.key === "Escape" && !listening) {
         e.preventDefault();
         setDismissedFor(draft);
+        return;
+      }
+    }
+    if (!e.nativeEvent.isComposing && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && !listening && !transcribing) {
+      if (navZone === "sub") {
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") e.preventDefault();
+        if (e.key === "ArrowUp") setNavIndex(Math.max(0, navIndex - 1));
+        else if (e.key === "ArrowDown") {
+          if (navIndex + 1 >= runningSubs.length) setNavZone("input");
+          else setNavIndex(navIndex + 1);
+        } else if (e.key === "Enter") {
+          const target = runningSubs[navIndex];
+          setNavZone("input");
+          if (target && onOpenSubagent) openSub(target.id);
+        } else if (e.key === "Escape") setNavZone("input");
+        else setNavZone("input"); // any other key goes back to typing
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") return;
+      } else if (navZone === "term") {
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") e.preventDefault();
+        if (e.key === "ArrowDown") setNavIndex(Math.min(terminals.length - 1, navIndex + 1));
+        else if (e.key === "ArrowUp") {
+          if (navIndex === 0) closeTerms();
+          else setNavIndex(navIndex - 1);
+        } else if (e.key === "Enter") {
+          const target = terminals[navIndex];
+          if (target) setTermOutId(termOutId === target.id ? null : target.id);
+        } else if (e.key === "Escape") {
+          if (termOutId) setTermOutId(null);
+          else closeTerms();
+        } else setNavZone("input");
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") return;
+      } else if (e.key === "ArrowUp" && runningSubs.length > 0 && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+        e.preventDefault();
+        setNavZone("sub");
+        setNavIndex(runningSubs.length - 1);
+        return;
+      } else if (e.key === "ArrowDown" && terminals.length > 0 && e.currentTarget.selectionStart === draft.length && e.currentTarget.selectionEnd === draft.length) {
+        e.preventDefault();
+        setTermsOpen(true);
+        setNavZone("term");
+        setNavIndex(0);
         return;
       }
     }
@@ -873,7 +945,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 ))}
               </div>
             )}
-            <SubagentTray items={runningSubs} onOpen={onOpenSubagent ? openSub : undefined} />
+            <SubagentTray items={runningSubs} onOpen={onOpenSubagent ? openSub : undefined} selectedId={navZone === "sub" ? (runningSubs[navIndex]?.id ?? null) : null} />
             {/* The textarea stays mounted (hidden) so a half-typed message survives the question. */}
             {openAsk && <AskComposer key={openAsk.id} item={openAsk} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
             {/* The expired-cache card takes the composer's place (the composer stays mounted, hidden). */}
@@ -947,7 +1019,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                   className="chat-input"
                   rows={1}
                   aria-label={t("chat.composer.label")}
-                  aria-activedescendant={menuOpen ? `${listId}-${active}` : undefined}
+                  aria-activedescendant={menuOpen ? `${listId}-${active}` : navZone === "term" && termsOpen ? `${listId}-term-${navIndex}` : undefined}
                   placeholder={
                     listening || transcribing
                       ? ""
@@ -1058,6 +1130,21 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 )}
               </div>
             </div>
+            <BackgroundTerminalsCard
+              terminals={terminals}
+              expanded={termsOpen}
+              onToggle={() => (termsOpen ? closeTerms() : setTermsOpen(true))}
+              selected={navZone === "term" ? navIndex : -1}
+              openId={termOutId}
+              onRow={(i) => {
+                setNavZone("term");
+                setNavIndex(i);
+                setTermOutId(termOutId === terminals[i]?.id ? null : (terminals[i]?.id ?? null));
+                inputRef.current?.focus();
+              }}
+              idPrefix={listId}
+              labels={termLabels}
+            />
           </div>
         )}
       </div>

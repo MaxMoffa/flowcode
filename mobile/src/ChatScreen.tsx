@@ -7,6 +7,7 @@ import { ChatImagesProvider } from "./ChatImage";
 import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
 import { SubagentTray } from "../../shared/SubagentTray";
+import { BackgroundTerminals } from "./BackgroundTerminals";
 import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
@@ -499,7 +500,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                 </ChatPondEnd>
               )}
               <div className="chat-ask-keep" hidden={!!openAsk || showLimit}>
-                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubagent} openLabel={t("chatSubOpen")} />} />
+                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubagent} openLabel={t("chatSubOpen")} />} terminalsCard={sub || exited ? null : <BackgroundTerminals items={model.items} agent={info?.agent ?? ""} />} />
               </div>
             </>
           )}
