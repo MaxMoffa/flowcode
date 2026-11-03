@@ -3,6 +3,7 @@
 //! frontend opts in and falls back to the raw text on any `Err`.
 
 use crate::agents::ProbePids;
+#[cfg(target_os = "windows")]
 use flowcode_shared::CREATE_NO_WINDOW;
 use std::io::Write;
 use std::process::{Command, Stdio};
