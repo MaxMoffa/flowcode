@@ -214,15 +214,8 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .term-tab.attn-busy {
-    border-color: color-mix(in srgb, var(--ansi-bright-blue) 65%, transparent);
-  }
-
-  .term-tab-sweep {
-    display: none;
-  }
-}
+/* No prefers-reduced-motion rule on purpose: it is the only cue that an agent is working, and some Windows
+   machines report reduced motion without the user having asked for it. */
 
 .term-tab.attn-done {
   border-color: color-mix(in srgb, var(--ansi-bright-green) 65%, transparent);

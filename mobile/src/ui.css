@@ -1379,11 +1379,7 @@ button.set-row.danger {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .tr-sweep {
-    display: none;
-  }
-}
+/* No prefers-reduced-motion rule on purpose: the sweep is the only busy cue (see the desktop tab strip). */
 
 .tr-body {
   flex: 1;

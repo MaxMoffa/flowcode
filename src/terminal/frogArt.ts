@@ -200,7 +200,8 @@ export function drawFrog(canvas: HTMLCanvasElement, pose: FrogPose, width: numbe
     canvas.width = w;
     canvas.height = h;
   }
-  const ctx = canvas.getContext("2d")!;
+  // Software canvas: a GPU-accelerated one redrawn every frame comes out blank on some WebKitGTK drivers.
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   ctx.clearRect(0, 0, w, h);
   const { width: cols, height: rows } = FROG_PIXELS;
   // In the colors of the palette where the canvas is.

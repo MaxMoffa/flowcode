@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { subagentInfo, type SubagentItem } from "../src/chat/chatTimeline";
 
-type TrayRow = { item: SubagentItem; leaving: boolean };
+/** How long a subagent missing from the running list keeps its row before leaving. */
+const LEAVE_GRACE_MS = 2500;
+
+type TrayRow ={ item: SubagentItem; leaving: boolean };
 
 /** Running children behind the composer, shared by desktop and mobile. */
 export function SubagentTray({ items, onOpen, openLabel }: { items: SubagentItem[]; onOpen?: (id: string) => void; openLabel: string }) {
   const [rows, setRows] = useState<TrayRow[]>([]);
   const [, setTick] = useState(0);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const graceTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
     setRows((prev) => {
@@ -18,9 +22,28 @@ export function SubagentTray({ items, onOpen, openLabel }: { items: SubagentItem
         const fresh = current.get(row.item.id);
         if (fresh) {
           kept.add(row.item.id);
+          const grace = graceTimers.current.get(row.item.id);
+          if (grace !== undefined) {
+            clearTimeout(grace);
+            graceTimers.current.delete(row.item.id);
+          }
           next.push({ item: fresh, leaving: false });
+        } else if (row.leaving) {
+          next.push(row);
         } else {
-          next.push({ item: row.item, leaving: true });
+          // Gone from the running list: a subagent between two steps looks finished for a moment,
+          // so the row stays for a grace period before it leaves.
+          const id = row.item.id;
+          if (!graceTimers.current.has(id)) {
+            graceTimers.current.set(
+              id,
+              setTimeout(() => {
+                graceTimers.current.delete(id);
+                setRows((cur) => cur.map((r) => (r.item.id === id ? { ...r, leaving: true } : r)));
+              }, LEAVE_GRACE_MS),
+            );
+          }
+          next.push(row);
         }
       }
       for (const item of items) if (!kept.has(item.id)) next.push({ item, leaving: false });
@@ -48,9 +71,12 @@ export function SubagentTray({ items, onOpen, openLabel }: { items: SubagentItem
 
   useEffect(() => {
     const pending = timers.current;
+    const grace = graceTimers.current;
     return () => {
       pending.forEach((timer) => clearTimeout(timer));
       pending.clear();
+      grace.forEach((timer) => clearTimeout(timer));
+      grace.clear();
     };
   }, []);
 
