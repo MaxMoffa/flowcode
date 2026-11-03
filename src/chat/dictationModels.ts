@@ -121,7 +121,7 @@ function subscribe(listener: () => void) {
 }
 
 /** Re-reads the installed models and the running download from the backend. */
-export async function refreshModels(): Promise<void> {
+async function refreshModels(): Promise<void> {
   try {
     const payload = await invoke<{ models: DictationModel[]; dir: string; downloading: DownloadProgress | null }>("dictation_models");
     setState(applyModels(state, payload));
@@ -276,7 +276,7 @@ const SPACE_TAP_KEY = "flowcode.dictation.spaceTap";
 const SPACE_HOLD_KEY = "flowcode.dictation.spaceHold";
 let shortcuts = { tap: readBool(SPACE_TAP_KEY, true), hold: readBool(SPACE_HOLD_KEY, true) };
 
-export const getDictationShortcuts = (): { tap: boolean; hold: boolean } => shortcuts;
+const getDictationShortcuts = (): { tap: boolean; hold: boolean } => shortcuts;
 
 export function setDictationSpaceTap(on: boolean) {
   shortcuts = { ...shortcuts, tap: on };

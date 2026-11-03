@@ -10,7 +10,7 @@ export type Inline =
   | { type: "image"; alt: string; src: string }
   | { type: "strong" | "em" | "del"; children: Inline[] };
 
-export interface ListItem {
+interface ListItem {
   /** A task item (`- [ ]`, `- [x]`): whether it is ticked; null for a plain item. */
   checked: boolean | null;
   blocks: Block[];

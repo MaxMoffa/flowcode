@@ -20,9 +20,6 @@ interface Ctx {
 }
 const ChatImagesContext = createContext<Ctx>({ open: () => {} });
 
-/** The id of the chat whose images are drawn below. */
-export const useChatId = () => useContext(ChatImagesContext).chatId;
-
 /** The host of a web address (the address itself when it doesn't parse). */
 const hostOf = (url: string) => {
   try {

@@ -15,12 +15,6 @@ export interface GitWorktree {
   flowcode: boolean;
 }
 
-/** What `git_worktree_remove` leaves behind. */
-export interface WorktreeRemoval {
-  /** The branch, when it was kept because it has unmerged commits. */
-  branch_kept: string | null;
-}
-
 /** The main working tree's root of the repository `path` is in; `null` when
  * it isn't in one, is a WSL path, or git is missing. */
 export function gitRepoRoot(path: string): Promise<string | null> {
@@ -30,17 +24,6 @@ export function gitRepoRoot(path: string): Promise<string | null> {
 /** Every working tree of the repository, the main one first. */
 export function gitWorktrees(repoRoot: string): Promise<GitWorktree[]> {
   return invoke<GitWorktree[]>("git_worktrees", { repoRoot });
-}
-
-/** Creates a fresh worktree (and branch) named after `label`. */
-export function gitWorktreeAdd(repoRoot: string, label: string): Promise<GitWorktree> {
-  return invoke<GitWorktree>("git_worktree_add", { repoRoot, label });
-}
-
-/** Removes a worktree. Rejects with git's message - "contains modified or
- * untracked files" when it has changes and `force` is off. */
-export function gitWorktreeRemove(repoRoot: string, path: string, force: boolean): Promise<WorktreeRemoval> {
-  return invoke<WorktreeRemoval>("git_worktree_remove", { repoRoot, path, force });
 }
 
 /** Whether worktrees can be offered for a folder: the git commands run on

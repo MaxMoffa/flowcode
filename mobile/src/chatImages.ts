@@ -21,7 +21,7 @@ onMessage((message) => {
 });
 
 const keyOf = (ref: ChatImageRef, chatId?: string) => ref.id ? `id:${ref.id}` : ref.path ? `path:${chatId ?? ""}:${ref.path}` : ref.url ? `url:${ref.url}` : null;
-export const isWebImage = (ref: ChatImageRef) => !!ref.url && /^https?:\/\//i.test(ref.url);
+const isWebImage = (ref: ChatImageRef) => !!ref.url && /^https?:\/\//i.test(ref.url);
 const MIMES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml", avif: "image/avif", ico: "image/x-icon" };
 const mimeFromPath = (path?: string) => MIMES[(path?.split(/[?#]/)[0].split(".").pop() ?? "").toLowerCase()] ?? "image/png";
 

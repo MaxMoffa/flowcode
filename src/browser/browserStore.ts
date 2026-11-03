@@ -9,7 +9,7 @@ export type PreviewPage =
   | { id: string; kind: "file"; path: string };
 
 /** A dev server a terminal printed an address for. */
-export interface DetectedServer {
+interface DetectedServer {
   url: string;
   port: number;
   tabId: string;

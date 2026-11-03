@@ -1,22 +1,3 @@
-/** One entry from `claude agents --json` - see src-tauri/src/agents.rs. Far
- * richer than the process-tree guess (a real session id, working directory
- * and busy/idle status) and not limited to this app's own terminals - a
- * background/headless run or a session in a completely different terminal
- * window shows up here too. Claude-specific: there's no Codex equivalent. */
-export interface ClaudeAgentEntry {
-  pid: number;
-  cwd: string;
-  kind: string;
-  startedAt: number | null;
-  sessionId: string;
-  name: string;
-  status: string;
-  /** The terminal app it runs in, when recognizable. */
-  hostApp: string | null;
-  /** The account profile it belongs to - `null` for the default one. */
-  profile: string | null;
-}
-
 /** One saved Codex CLI session read directly off disk - see
  * `list_codex_sessions` in src-tauri/src/agents.rs for why this is the best
  * Codex can offer: unlike Claude there's no live registry, so this only
@@ -56,9 +37,6 @@ export interface VibeSessionEntry {
   /** The account profile it belongs to - `null` for the default one. */
   profile: string | null;
 }
-
-/** A row of the "saved" list - either CLI's, newest first. */
-export type SavedSession = { cli: "codex" | "vibe"; cwd: string; sessionId: string; startedAt: number | null; wslDistro: string | null; name: string | null; profile: string | null };
 
 /** One saved Claude Code conversation, read off its transcript on disk - see
  * `list_claude_sessions` in src-tauri. Unlike `ClaudeAgentEntry` it covers

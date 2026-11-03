@@ -27,14 +27,14 @@ interface Ctx {
 }
 
 /** "1.2M" / "850K" / "920" tokens. */
-export function formatTokens(n: number): string {
+function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
   return String(n);
 }
 
 /** "claude-opus-4-5-20251101" -> "Claude Opus 4.5"; other ids as they are. */
-export function modelDisplayName(id: string): string {
+function modelDisplayName(id: string): string {
   const claude = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/);
   if (claude) {
     const [, family, major, minor] = claude;

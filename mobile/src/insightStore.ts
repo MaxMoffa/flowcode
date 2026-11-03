@@ -32,7 +32,7 @@ export function insightKey(target: InsightTarget): string {
 }
 
 /** Asks the desktop for a terminal's or a chat's agent insight (answered with `agentinsight`). */
-export function requestAgentInsight(target: InsightTarget) {
+function requestAgentInsight(target: InsightTarget) {
   send(target.chatId ? { t: "agentinsight", chatId: target.chatId } : { t: "agentinsight", ptyId: target.ptyId });
 }
 

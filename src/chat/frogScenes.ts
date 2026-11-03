@@ -29,7 +29,7 @@ export interface SceneFrame {
 
 export const RING_SQUASH = 0.55;
 /** How long the clear scene lasts. */
-export const CLEAR_MS = 3000;
+const CLEAR_MS = 3000;
 /** How long the load scene goes on after the agent is ready. */
 export const RISE_TAIL_MS = 1700;
 

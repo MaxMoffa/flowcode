@@ -4,10 +4,10 @@ import type { ChatEvent } from "./chatTypes";
 export const CACHE_IDLE_MS = 5 * 60_000;
 
 /** Below this context size (tokens, from the agent's `usage_update`) re-reading the conversation is cheap: no warning. */
-export const CACHE_MIN_TOKENS = 40_000;
+const CACHE_MIN_TOKENS = 40_000;
 
 /** Without a usage figure, a conversation needs at least this many items (with a user message) to be worth warning about. */
-export const CACHE_MIN_ITEMS = 4;
+const CACHE_MIN_ITEMS = 4;
 
 /** When the chat last did anything (event time, ms) and the context size the agent last reported; null when unknown. */
 export interface ChatActivity {

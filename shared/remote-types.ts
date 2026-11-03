@@ -3,7 +3,7 @@
 // bridge). Types only, no runtime imports. The Rust source of truth is
 // src-tauri/remote-proto/src/msg.rs (serde camelCase); keep the two in step.
 
-export type AgentStatus = "busy" | "idle" | "waiting";
+type AgentStatus = "busy" | "idle" | "waiting";
 
 /** How full an agent's context window is (tokens). */
 interface TabContext {

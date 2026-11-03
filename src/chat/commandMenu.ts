@@ -15,7 +15,7 @@ export interface MenuEntry {
   also: string[];
 }
 
-export const KIND_ORDER: CommandKind[] = ["flowcode", "command", "skill", "plugin", "mcp"];
+const KIND_ORDER: CommandKind[] = ["flowcode", "command", "skill", "plugin", "mcp"];
 
 /** Built-ins of Claude Code and Codex: the agents don't say which commands are theirs, skills look the same. */
 const AGENT_COMMANDS = new Set([
@@ -73,7 +73,7 @@ export function displayName(entry: MenuEntry): string {
 const range = (start: number, n: number) => Array.from({ length: n }, (_, i) => start + i);
 
 /** Fuzzy score: base prefix > word start > substring > subsequence > description; `hits` index the display name. */
-export function match(entry: MenuEntry, query: string): { score: number; hits: number[] } | null {
+function match(entry: MenuEntry, query: string): { score: number; hits: number[] } | null {
   const q = query.toLowerCase().replace(/^\$/, "");
   if (!q) return { score: 1, hits: [] };
   const target = displayName(entry).toLowerCase();

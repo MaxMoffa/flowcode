@@ -3,7 +3,7 @@ import { readBool, readEnum, writeBool, writeString } from "../lib/storage";
 
 /** Where a kind of link opens: the in-app browser, the system one, or after asking. */
 export type Target = "app" | "system" | "ask";
-export const TARGETS: readonly Target[] = ["app", "system", "ask"];
+const TARGETS: readonly Target[] = ["app", "system", "ask"];
 
 export interface BrowserSettings {
   /** localhost and detected dev servers. */

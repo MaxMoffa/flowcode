@@ -44,7 +44,7 @@ interface Snapshot {
 const EMPTY_STATE: HostState = { tabs: [], chats: [], settings: null, activeKey: null };
 
 /** How long after "new terminal"/"new chat" the first tab to appear is taken as the new one. */
-export const NEW_TAB_WAIT_MS = 10_000;
+const NEW_TAB_WAIT_MS = 10_000;
 
 const ptyKey = (ptyId: string) => `pty:${ptyId}`;
 const chatKey = (chatId: string) => `chat:${chatId}`;

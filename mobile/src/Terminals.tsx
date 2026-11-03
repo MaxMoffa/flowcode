@@ -142,7 +142,7 @@ export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void):
 }
 
 /** The row at the top of the list while the desktop opens a requested terminal or chat; a muted notice if it never answers. */
-export function PendingRow({ pending }: { pending: Pending | null }) {
+function PendingRow({ pending }: { pending: Pending | null }) {
   if (!pending) return null;
   return (
     <section className="tr-group">

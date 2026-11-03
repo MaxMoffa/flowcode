@@ -24,7 +24,7 @@ export interface SubagentItem {
 }
 
 /** One pass over the conversation: the main flow with every subagent folded in (its tool calls leave the flow and become the `steps` of its launch call, which turns into a `subagent` item; tool calls whose launch is unknown, and every other agent's, stay as they are), plus every subagent by launch id, nested ones included. */
-export function indexSubagents(items: ChatItem[]): { flow: Array<ChatItem | SubagentItem>; byId: Map<string, SubagentItem> } {
+function indexSubagents(items: ChatItem[]): { flow: Array<ChatItem | SubagentItem>; byId: Map<string, SubagentItem> } {
   const tools = new Map<string, ToolItem>();
   for (const item of items) if (item.type === "tool") tools.set(item.id, item);
   // A child may follow a launch that isn't marked as one (no tool name yet): any known tool call can be a parent.
@@ -147,7 +147,7 @@ export type StepCategory = "read" | "search" | "edit" | "execute" | "fetch" | "o
 
 export const STEP_CATEGORIES: StepCategory[] = ["read", "search", "edit", "execute", "fetch", "other"];
 
-export function categoryOf(call: ChatToolCall): StepCategory {
+function categoryOf(call: ChatToolCall): StepCategory {
   switch (call.kind) {
     case "read":
       return "read";

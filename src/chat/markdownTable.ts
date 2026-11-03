@@ -2,7 +2,7 @@
  * delimiter row (`| --- | :-: |`), then body rows up to the first line
  * without a pipe. */
 
-export type CellAlign = "left" | "center" | "right" | undefined;
+type CellAlign = "left" | "center" | "right" | undefined;
 
 export interface MdTable {
   header: string[];

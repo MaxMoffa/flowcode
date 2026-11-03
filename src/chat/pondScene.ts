@@ -3,7 +3,7 @@
 import { FROG_PIXELS, REST_POSE, frogPalette, frogPixels, type FrogPose } from "../terminal/frogArt";
 
 /** CSS px per frog pixel; everything on the scene is snapped to this grid. */
-export const PX = 4;
+const PX = 4;
 const COLS = FROG_PIXELS.width;
 const ROWS = FROG_PIXELS.height;
 const FROG_W = COLS * PX;
@@ -11,12 +11,12 @@ const FROG_H = ROWS * PX;
 /** The ripples' flattening: the pond is seen from the side. */
 const SQUASH = 0.32;
 /** The sinking scene stops animating after this long (s), holding its last frame. */
-export const SETTLE_S = 12;
+const SETTLE_S = 12;
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** The frog with its top left at (left, top), without the rows that fall below `cut` (a y on the canvas). */
-export function paintFrog(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, pose: FrogPose, left: number, top: number, cut = Infinity) {
+function paintFrog(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, pose: FrogPose, left: number, top: number, cut = Infinity) {
   const pixels = frogPixels(pose, COLS, ROWS, canvas);
   for (let r = 0; r < ROWS; r++) {
     if (top + (r + 1) * PX > cut) break;
@@ -30,7 +30,7 @@ export function paintFrog(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEleme
 }
 
 /** A ripple as squares of the grid, centered on (cx, cy). */
-export function paintRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, alpha: number, color: string) {
+function paintRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, alpha: number, color: string) {
   if (alpha <= 0) return;
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
@@ -49,7 +49,7 @@ export function paintRing(ctx: CanvasRenderingContext2D, cx: number, cy: number,
 }
 
 /** One frame of the scene `kind` at `t` seconds on a `w` x `h` canvas. `still`: the final frame of the reduced-motion version. */
-export function paintScene(canvas: HTMLCanvasElement, kind: PondKind, t: number, w: number, h: number, still: boolean, fly: string) {
+function paintScene(canvas: HTMLCanvasElement, kind: PondKind, t: number, w: number, h: number, still: boolean, fly: string) {
   const dpr = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d")!;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

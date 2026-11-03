@@ -138,12 +138,6 @@ export async function logoutProfile(id: string | null, cli: keyof LoginState): P
   }
 }
 
-/** `id` null clears the folder's default (back to the default profile). */
-export async function setProjectDefaultProfile(path: string, id: string | null): Promise<void> {
-  await invoke("profile_set_project_default", { path, id });
-  await refreshProfiles();
-}
-
 /** The profile a project folder (or a parent of it) is set to use, if any. */
 export function profileForPath(path: string): Promise<string | null> {
   return invoke<string | null>("profile_for_path", { path }).catch(() => null);
