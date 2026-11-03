@@ -26,14 +26,6 @@ pub struct GitWorktree {
     pub flowcode: bool,
 }
 
-#[derive(serde::Serialize)]
-pub struct WorktreeRemoval {
-    /// The branch left in place because it has commits not merged anywhere
-    /// (`git branch -d` refused). We never force-delete: those commits would
-    /// become unreachable.
-    pub branch_kept: Option<String>,
-}
-
 /// One changed file in `git status`.
 #[derive(serde::Serialize, Clone, Debug, PartialEq)]
 pub struct GitChange {
@@ -148,18 +140,6 @@ fn unsupported(path: &str) -> bool {
     cfg!(windows) && path.starts_with('/')
 }
 
-/// Path form used only to compare two paths: native separators, no trailing
-/// separator, and case-insensitive on Windows.
-fn comparable(p: &str) -> String {
-    let n = native_path(p);
-    let n = n.trim_end_matches(['/', '\\']);
-    if cfg!(windows) {
-        n.to_lowercase()
-    } else {
-        n.to_string()
-    }
-}
-
 /// Parses `git worktree list --porcelain`: blocks separated by blank lines.
 /// Bare and prunable (directory gone) entries are skipped, since neither can
 /// host an agent; the first remaining entry is the main working tree.
@@ -209,27 +189,6 @@ fn parse_worktrees(porcelain: &str) -> Vec<GitWorktree> {
 
 fn list_worktrees(repo_root: &str) -> Result<Vec<GitWorktree>, String> {
     Ok(parse_worktrees(&git(repo_root, &["worktree", "list", "--porcelain"])?))
-}
-
-/// Folder-name-safe version of the agent label: `[a-z0-9-]`, no repeated or
-/// edge dashes, capped, plus a random suffix so two agents with the same label
-/// never collide on the directory or the branch.
-fn slugify(label: &str) -> String {
-    let mut slug = String::new();
-    for c in label.to_lowercase().chars() {
-        let c = if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' { c } else { '-' };
-        if c == '-' && slug.ends_with('-') {
-            continue;
-        }
-        slug.push(c);
-    }
-    let mut slug: String = slug.trim_matches('-').chars().take(24).collect();
-    slug = slug.trim_end_matches('-').to_string();
-    if slug.is_empty() {
-        slug = "agent".to_string();
-    }
-    let id = uuid::Uuid::new_v4().simple().to_string();
-    format!("{slug}-{}", &id[..6])
 }
 
 /// The main working tree of the repository `path` is in. Run from inside a
@@ -631,86 +590,6 @@ pub async fn git_worktrees(repo_root: String) -> Result<Vec<GitWorktree>, String
     crate::blocking(move || list_worktrees(&repo_root)).await
 }
 
-/// Creates a worktree on a fresh `flowcode/<slug>` branch off the main
-/// checkout's current HEAD. It lives in a `<repo>.worktrees` folder *next to*
-/// the repository rather than inside it, so an agent working in the main
-/// checkout never sees (or indexes, or greps through) the other agents' trees.
-#[tauri::command]
-pub async fn git_worktree_add(repo_root: String, label: String) -> Result<GitWorktree, String> {
-    if unsupported(&repo_root) {
-        return Err("WSL folders aren't supported yet".to_string());
-    }
-    crate::blocking(move || {
-        let slug = slugify(&label);
-        let root = Path::new(&repo_root);
-        let name = root
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .ok_or_else(|| "Can't locate the repository folder".to_string())?;
-        let parent = root.parent().ok_or_else(|| "Can't locate the repository folder".to_string())?;
-        let container = parent.join(format!("{name}.worktrees"));
-        std::fs::create_dir_all(&container).map_err(|e| e.to_string())?;
-        let target = container.join(&slug);
-        let target_str = target.to_string_lossy().to_string();
-        let branch = format!("{BRANCH_PREFIX}{slug}");
-        git(&repo_root, &["worktree", "add", "-b", &branch, &target_str])?;
-        let head = git(&target_str, &["rev-parse", "HEAD"])?;
-        Ok(GitWorktree {
-            path: native_path(&target_str),
-            branch: Some(branch),
-            head,
-            is_main: false,
-            flowcode: true,
-        })
-    })
-    .await
-}
-
-/// Removes a worktree and, if Flowcode created its branch, the branch too - but
-/// only when `git branch -d` agrees it is fully merged. An unmerged branch is
-/// reported back instead of deleted so the agent's commits aren't lost. A
-/// worktree with local changes makes git refuse unless `force` is set; that
-/// message is passed through untouched for the UI to recognise.
-#[tauri::command]
-pub async fn git_worktree_remove(
-    repo_root: String,
-    path: String,
-    force: bool,
-) -> Result<WorktreeRemoval, String> {
-    if unsupported(&repo_root) || unsupported(&path) {
-        return Err("WSL folders aren't supported yet".to_string());
-    }
-    crate::blocking(move || {
-        let wanted = comparable(&path);
-        let target = list_worktrees(&repo_root)?
-            .into_iter()
-            .find(|w| comparable(&w.path) == wanted);
-        let Some(target) = target else {
-            return Err("That path isn't a worktree of this repository".to_string());
-        };
-        if target.is_main {
-            return Err("That's the main working tree".to_string());
-        }
-        let mut args = vec!["worktree", "remove"];
-        if force {
-            args.push("--force");
-        }
-        args.push("--");
-        args.push(&path);
-        git(&repo_root, &args)?;
-
-        let mut branch_kept = None;
-        if let Some(branch) = target.branch.filter(|b| b.starts_with(BRANCH_PREFIX)) {
-            if git(&repo_root, &["branch", "-d", &branch]).is_err() {
-                branch_kept = Some(branch);
-            }
-        }
-        let _ = git(&repo_root, &["worktree", "prune"]);
-        Ok(WorktreeRemoval { branch_kept })
-    })
-    .await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,10 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn slug_and_unsupported() {
-        let s = slugify("  Claude Code!! #1 ");
-        assert!(s.starts_with("claude-code-1-") && s.len() == "claude-code-1-".len() + 6, "{s}");
-        assert!(slugify("???").starts_with("agent-"));
+    fn unsupported_paths() {
         assert!(unsupported("\\\\wsl.localhost\\Ubuntu\\home"));
         assert!(unsupported("//WSL$/Ubuntu/home"));
         assert!(!unsupported("C:\\dev"));

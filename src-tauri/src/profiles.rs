@@ -216,7 +216,7 @@ fn login_state(d: &ProfileDirs, use_keyring: bool) -> LoginState {
 }
 
 /// Folder-name-safe id stem: lowercase ascii alphanumerics and single dashes,
-/// capped at 20 chars (same rules as git.rs's `slugify`, minus its suffix).
+/// capped at 20 chars.
 fn slug(name: &str) -> String {
     let mut slug = String::new();
     for c in name.to_lowercase().chars() {
@@ -452,28 +452,6 @@ pub async fn profile_delete(app: AppHandle, id: String, delete_files: bool) -> R
             }
         }
         Ok(())
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn profile_set_project_default(app: AppHandle, path: String, id: Option<String>) -> Result<(), String> {
-    crate::blocking(move || {
-        let _guard = lock(&STORE_LOCK);
-        let mut store = load(&app);
-        let key = norm_key(&path);
-        match id {
-            None => {
-                store.project_defaults.remove(&key);
-            }
-            Some(id) => {
-                if !store.profiles.iter().any(|p| p.id == id) {
-                    return Err("Unknown profile".to_string());
-                }
-                store.project_defaults.insert(key, id);
-            }
-        }
-        save(&app, &store)
     })
     .await
 }
