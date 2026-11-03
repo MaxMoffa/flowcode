@@ -628,3 +628,46 @@ describe("subagent tool calls", () => {
   });
 });
 
+
+describe("native subagents (ACP subagent_update)", () => {
+  const at = (u: Record<string, unknown>, t: number): ChatEvent => ({ kind: "update", seq: next(), at: t, update: { sessionUpdate: "x", ...u } });
+  const started = (): ChatModelState =>
+    run([
+      at({ sessionUpdate: "subagent_update", sessionId: "kid", title: "general-purpose", description: "Reply hello", state: { state: "running" } }, 100),
+      at({ sessionUpdate: "session_message", messageId: "L", senderSessionId: "main", recipientSessionId: "kid", content: [{ type: "text", text: "say hello" }] }, 110),
+    ]);
+
+  it("builds the launch from subagent_update + the session_message that names its id", () => {
+    const state = started();
+    expect(tool(state, "L")).toMatchObject({
+      toolName: "Agent", status: "in_progress", title: "Reply hello", startedAt: 110, subagentSessionId: "kid",
+      rawInput: { subagent_type: "general-purpose", prompt: "say hello" },
+    });
+    expect(state.nativeSubagents).toEqual({});
+  });
+
+  it("shows nothing before the launch id is known, and ignores the child's copy of the message", () => {
+    const pending = run([at({ sessionUpdate: "subagent_update", sessionId: "kid", title: "t", state: { state: "running" } }, 1)]);
+    expect(pending.items).toEqual([]);
+    const first = started();
+    const state = run([at({ sessionUpdate: "session_message", messageId: "L", senderSessionId: "main", recipientSessionId: "kid", content: [] }, 2)], first);
+    expect(state.items.filter((i) => i.type === "tool")).toHaveLength(1);
+  });
+
+  it("completes on idle, re-opens when woken and takes the reply as the report", () => {
+    let state = started();
+    state = run([at({ sessionUpdate: "subagent_update", sessionId: "kid", state: { state: "idle", stopReason: "end_turn" } }, 500)], state);
+    expect(tool(state, "L")).toMatchObject({ status: "completed", endedAt: 500 });
+    state = run([at({ sessionUpdate: "subagent_update", sessionId: "kid", state: { state: "running" } }, 600)], state);
+    expect(tool(state, "L")?.status).toBe("in_progress");
+    expect(tool(state, "L")?.endedAt).toBeUndefined();
+    state = run(
+      [
+        at({ sessionUpdate: "session_message", messageId: "L:reply", senderSessionId: "kid", recipientSessionId: "main", content: [{ type: "text", text: "hello" }] }, 700),
+        at({ sessionUpdate: "subagent_update", sessionId: "kid", state: { state: "failed" } }, 800),
+      ],
+      state,
+    );
+    expect(tool(state, "L")).toMatchObject({ status: "failed", content: [{ content: { text: "hello" } }] });
+  });
+});

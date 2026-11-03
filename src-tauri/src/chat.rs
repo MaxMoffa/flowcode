@@ -915,6 +915,8 @@ struct Chat {
     /// whatever history it still streams (a timed-out load may go on) is
     /// dropped. Set under the log lock, and checked under it (`emit_when`).
     stale_session: Mutex<Option<String>>,
+    /// Native subagents (`subagent_update`): each child session id, with the launch id (the `session_message` that opens it) once known.
+    children: Mutex<HashMap<String, Option<String>>>,
     /// The agent announced it takes image blocks in a prompt (`promptCapabilities.image`).
     prompt_images: AtomicBool,
 }
@@ -1246,6 +1248,7 @@ impl Chat {
             Incoming::Notification { method, params } => {
                 if method == "session/update" {
                     if let Some(update) = params.get("update") {
+                        log_native_subagent(&self.id.to_string(), &params, update);
                         if update.get("sessionUpdate").and_then(Value::as_str) == Some("config_option_update")
                             && !self.is_stale(&params)
                         {
@@ -1259,6 +1262,9 @@ impl Chat {
                         let stale = |_| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
                         // Pictures go to disk before the log lock is taken.
                         let mut update = update.clone();
+                        if !route_child_update(&mut lock(&self.children), &params, &mut update) {
+                            return;
+                        }
                         crate::chat_images::stash_images(&mut update);
                         let _ = self.emit_when(ChatBody::Update { update }, stale);
                     }
@@ -1854,18 +1860,88 @@ fn new_session(chat: &Chat, cwd: &str) -> Result<(Value, String, bool), String> 
     Ok((result, session_id, false))
 }
 
+/// Native subagents run in their own sessions, whose updates arrive on the same stream. Tracks the children and tells whether `update`
+/// (of `params`) is kept: the child's own session chatter (config, mode, commands, usage, plan, its copy of the prompt message) would
+/// overwrite the main chat's, so it is dropped; what stays (its tool calls and text) gets the launch id as `parentToolUseId` when the
+/// adapter didn't say it, so it nests under the subagent.
+fn route_child_update(children: &mut HashMap<String, Option<String>>, params: &Value, update: &mut Value) -> bool {
+    const CHATTER: [&str; 8] = [
+        "config_option_update", "current_mode_update", "available_commands_update", "usage_update", "plan", "session_info_update", "session_message", "compaction_update",
+    ];
+    let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("").to_string();
+    let session = params.get("sessionId").and_then(Value::as_str).unwrap_or("");
+    let is_child = children.contains_key(session);
+    if kind == "subagent_update" {
+        if let Some(child) = update.get("sessionId").and_then(Value::as_str) {
+            children.entry(child.to_string()).or_insert(None);
+        }
+        return true;
+    }
+    if kind == "session_message" {
+        if is_child {
+            return false;
+        }
+        let to = update.get("recipientSessionId").and_then(Value::as_str);
+        let id = update.get("messageId").and_then(Value::as_str);
+        if let (Some(to), Some(id)) = (to, id) {
+            if let Some(launch @ None) = children.get_mut(to) {
+                *launch = Some(id.to_string());
+            }
+        }
+        return true;
+    }
+    if !is_child {
+        return true;
+    }
+    if CHATTER.contains(&kind.as_str()) {
+        return false;
+    }
+    if let Some(Some(launch)) = children.get(session) {
+        let meta = &mut update["_meta"]["claudeCode"];
+        if meta.get("parentToolUseId").and_then(Value::as_str).is_none() {
+            meta["parentToolUseId"] = Value::String(launch.clone());
+        }
+    }
+    true
+}
+
+/// Whether the native-subagents experiment is on (`FLOWCODE_NATIVE_SUBAGENTS=1`).
+fn native_subagents_enabled() -> bool {
+    std::env::var("FLOWCODE_NATIVE_SUBAGENTS").is_ok_and(|v| v == "1")
+}
+
+/// Experiment: prints the native subagent updates (`subagent_*`, `session_message`) verbatim to stderr,
+/// with the session they arrive on, to learn their real shape before modelling them.
+fn log_native_subagent(chat_id: &str, params: &Value, update: &Value) {
+    if !native_subagents_enabled() {
+        return;
+    }
+    let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+    if kind.starts_with("subagent_") || kind == "session_message" || kind.starts_with("async_task_") {
+        let session = params.get("sessionId").and_then(Value::as_str).unwrap_or("?");
+        eprintln!("[native-subagents] chat {chat_id} session {session}: {update}");
+    }
+}
+
 /// `initialize`, then `session/load` or `session/new`; `strict` refuses a
 /// fresh session when the resume can't load. Otherwise a load that fails
 /// (the session is gone, the agent can't read it...) falls back to a new
 /// session (`loaded` false, its new id) rather than failing the chat; the
 /// history the failed load had already replayed is dropped with it.
 fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool, gate: &mut Option<StartGate>) -> Result<(Value, String, bool), String> {
+    // Experiment: `FLOWCODE_NATIVE_SUBAGENTS=1` declares `subagents` (ACP RFD #1992), so the adapters send
+    // `subagent_update` / `session_message` instead of only the Agent tool call. See `log_native_subagent`.
+    let mut capabilities = json!({ "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "session": { "compaction": {} }, "elicitation": { "form": {} }, "_meta": { "subagent-transcript": true } });
+    // Claude only: Codex then sends no launch message (its tool calls vanish) and puts the child's model options on the main stream.
+    if native_subagents_enabled() && chat.agent == "claude" {
+        capabilities["subagents"] = json!({});
+    }
     let init = chat.request(
         "initialize",
         json!({
             "protocolVersion": 1,
             // `session.compaction`: the adapters send `compaction_update` events (not a generic tool call) only to clients that declare it.
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "session": { "compaction": {} }, "elicitation": { "form": {} }, "_meta": { "subagent-transcript": true } },
+            "clientCapabilities": capabilities,
             "clientInfo": { "name": "flowcode", "version": env!("CARGO_PKG_VERSION") },
         }),
         SETUP_TIMEOUT,
@@ -2017,6 +2093,7 @@ fn start_once(
         models: Mutex::new(None),
         thought: Mutex::new(None),
         stale_session: Mutex::new(None),
+        children: Mutex::new(HashMap::new()),
         prompt_images: AtomicBool::new(false),
     });
     {
@@ -2233,6 +2310,32 @@ pub async fn chat_image_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn child_session_updates_are_filtered_and_nested_under_the_launch() {
+        let mut children = HashMap::new();
+        let main = json!({ "sessionId": "main" });
+        let child = json!({ "sessionId": "kid" });
+        let mut announce = json!({ "sessionUpdate": "subagent_update", "sessionId": "kid", "state": { "state": "running" } });
+        assert!(route_child_update(&mut children, &main, &mut announce));
+        let mut prompt = json!({ "sessionUpdate": "session_message", "messageId": "L", "recipientSessionId": "kid" });
+        assert!(route_child_update(&mut children, &main, &mut prompt));
+        // The child's copy of the prompt, and its own config/mode chatter, would clobber the main chat's.
+        let mut copy = json!({ "sessionUpdate": "session_message", "messageId": "L", "recipientSessionId": "kid" });
+        assert!(!route_child_update(&mut children, &child, &mut copy));
+        let mut config = json!({ "sessionUpdate": "config_option_update" });
+        assert!(!route_child_update(&mut children, &child, &mut config));
+        // Its work stays, nested under the launch id when the adapter didn't name it.
+        let mut tool = json!({ "sessionUpdate": "tool_call", "toolCallId": "t" });
+        assert!(route_child_update(&mut children, &child, &mut tool));
+        assert_eq!(tool["_meta"]["claudeCode"]["parentToolUseId"], "L");
+        let mut named = json!({ "sessionUpdate": "tool_call", "_meta": { "claudeCode": { "parentToolUseId": "X" } } });
+        assert!(route_child_update(&mut children, &child, &mut named));
+        assert_eq!(named["_meta"]["claudeCode"]["parentToolUseId"], "X");
+        // The main session is untouched.
+        let mut main_config = json!({ "sessionUpdate": "config_option_update" });
+        assert!(route_child_update(&mut children, &main, &mut main_config));
+    }
 
     #[test]
     fn user_events_list_their_images_only_when_there_are_some() {

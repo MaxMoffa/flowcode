@@ -69,6 +69,8 @@ export interface ChatModelState {
   notice: { kind: "retrying"; category: string; detail: string } | null;
   /** The running turn: when it started (event time, ms) and how much text the agent streamed in it, for the "thinking" line. Null between turns. */
   turn: { startedAt: number; outChars: number } | null;
+  /** Native ACP subagents announced (`subagent_update`) whose launch id (the `session_message` that follows) isn't known yet, by child session id. */
+  nativeSubagents?: Record<string, { title?: string; description?: string }>;
 }
 
 export function initialChat(): ChatModelState {
@@ -326,6 +328,62 @@ function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): Chat
   return withItems(state, updateCodexSubagents(items, patch.toolCallId, at));
 }
 
+type ToolItem = Extract<ChatItem, { type: "tool" }>;
+
+const launchOfChild = (state: ChatModelState, sessionId: string): ToolItem | undefined =>
+  state.items.find((i): i is ToolItem => i.type === "tool" && i.call.subagentSessionId === sessionId);
+
+/**
+ * Native ACP subagents (RFD #1992; the adapter sends them when the client declares `subagents`): there is no Agent tool call, so the launch
+ * item is built from the events. `subagent_update` announces the child session (title, description) and its state; the `session_message`
+ * that follows carries the launch id (`messageId`, the one the child's tool calls name as `parentToolUseId`) and the prompt; the child's
+ * `<id>:reply` message is its report. `running` / `idle` are the launch's in_progress / completed, so a woken subagent re-opens.
+ */
+function applyNativeSubagent(state: ChatModelState, update: ChatUpdate, at: number): ChatModelState {
+  if (update.sessionUpdate === "subagent_update") {
+    const child = str(update.sessionId);
+    if (!child) return state;
+    const phase = str((update.state as { state?: unknown } | undefined)?.state);
+    const launch = launchOfChild(state, child);
+    if (!launch) {
+      const known = state.nativeSubagents?.[child];
+      const title = str(update.title) ?? known?.title ?? undefined;
+      const description = str(update.description) ?? known?.description ?? undefined;
+      return { ...state, nativeSubagents: { ...state.nativeSubagents, [child]: { title, description } } };
+    }
+    const status = phase === "running" ? "in_progress" : phase === "idle" ? "completed" : phase ? "failed" : undefined;
+    if (!status || launch.call.status === status) return state;
+    const call: ChatToolCall = { ...launch.call, status, endedAt: status === "in_progress" ? undefined : launch.call.endedAt ?? at };
+    return withItems(state, state.items.map((i) => (i === launch ? { ...launch, call } : i)));
+  }
+  const to = str(update.recipientSessionId);
+  const from = str(update.senderSessionId);
+  const id = str(update.messageId);
+  const blocks = Array.isArray(update.content) ? (update.content as { type?: string; text?: string }[]) : [];
+  const text = blocks.map((b) => (b?.type === "text" && typeof b.text === "string" ? b.text : "")).join("");
+  const pending = to ? state.nativeSubagents?.[to] : undefined;
+  if (to && id && pending && !launchOfChild(state, to)) {
+    const { [to]: _announced, ...rest } = state.nativeSubagents ?? {};
+    const launched = upsertTool(
+      { ...state, nativeSubagents: rest },
+      {
+        sessionUpdate: "tool_call", toolCallId: id, kind: "think", status: "in_progress", subagentSessionId: to,
+        title: pending.description ?? pending.title ?? "Subagent",
+        rawInput: { description: pending.description, subagent_type: pending.title ?? "general-purpose", prompt: text },
+        _meta: { claudeCode: { toolName: "Agent" } },
+      },
+      at,
+    );
+    return launched;
+  }
+  const launch = from && id?.endsWith(":reply") ? launchOfChild(state, from) : undefined;
+  if (launch && text) {
+    const call: ChatToolCall = { ...launch.call, content: [{ type: "content", content: { type: "text", text } }] };
+    return withItems(state, state.items.map((i) => (i === launch ? { ...launch, call } : i)));
+  }
+  return state;
+}
+
 type CompactionItem = Extract<ChatItem, { type: "compaction" }>;
 
 const COMPACTION_DONE = new Set(["completed", "failed", "cancelled"]);
@@ -383,6 +441,9 @@ function applyUpdate(state: ChatModelState, update: ChatUpdate, seq: number, at:
     case "tool_call":
     case "tool_call_update":
       return upsertTool(state, update, at);
+    case "subagent_update":
+    case "session_message":
+      return applyNativeSubagent(state, update, at);
     case "compaction_update":
     case "compaction_summary_chunk":
       return applyCompaction(state, update, at);

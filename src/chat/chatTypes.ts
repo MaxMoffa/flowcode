@@ -27,6 +27,8 @@ export interface ChatToolCall {
   parentToolUseId?: string;
   /** Claude's ACP adapter (`_meta.claudeCode.toolName`): the SDK tool name, "Agent" or "Task" for a subagent launch. */
   toolName?: string;
+  /** Native ACP subagents (`subagent_update`): the id of the child session this launch stands for. */
+  subagentSessionId?: string;
   /** Codex's child name, reported by its activity events. */
   subagentName?: string;
   /** Subagent launches only: when the call first appeared and when it finished (event time, ms). */
