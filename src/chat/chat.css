@@ -212,6 +212,14 @@
   mask-image: linear-gradient(to top, transparent 18px, #000 18px);
 }
 
+/* The mask makes the column its own stacking context, so the commands menu inside it
+   can't rise above the empty-chat frog (a later, positioned sibling). Lift the whole
+   column while the menu is open. */
+.chat-column-wrap:has(.chat-commands) > .chat-column {
+  position: relative;
+  z-index: 3;
+}
+
 /* A copy of the cleared conversation, melting away over the empty one. */
 .chat-column.chat-dissolve {
   position: absolute;
