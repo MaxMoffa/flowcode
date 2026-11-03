@@ -79,6 +79,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   onSessionIdRef.current = onSessionId;
   // The start in flight (resolves once the agent is up or failed): `close` waits for it, so an agent still starting is never left behind.
   const startRef = useRef<Promise<void> | null>(null);
+  // The previous agent being closed (a restart, /clear, a changed agent or folder): the next start waits for it, so two agents never start or end side by side on the same state (Codex's sqlite store, a session).
+  const teardownRef = useRef<Promise<void>>(Promise.resolve());
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
   // `lastSeq` when the last message was handed to the agent: until a newer
@@ -129,6 +131,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const timer = setTimeout(() => {
       startRef.current = (async () => {
         try {
+          await teardownRef.current;
+          if (cancelled) return;
           const started = await invoke<ChatStartResult>("chat_start", {
             agent,
             cwd,
@@ -139,10 +143,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
             shell: getConfiguredShell(),
           });
           startedId = started.chatId;
-          if (cancelled) {
-            invoke("chat_close", { chatId: started.chatId }).catch(() => {});
-            return;
-          }
+          // Cancelled meanwhile: the cleanup closes it (it waits for this start).
+          if (cancelled) return;
           chatIdRef.current = started.chatId;
           sessionIdRef.current = started.sessionId;
           // A resume that fell back to a new session (`loaded: false`) has nothing on disk yet either.
@@ -198,7 +200,14 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       cancelled = true;
       clearTimeout(timer);
       unlisten?.();
-      if (startedId) invoke("chat_close", { chatId: startedId }).catch(() => {});
+      // An agent still starting is closed once it is up; the next start waits for that.
+      const pending = startRef.current;
+      startRef.current = null;
+      const closing = (async () => {
+        await pending?.catch(() => {});
+        if (startedId) await invoke("chat_close", { chatId: startedId }).catch(() => {});
+      })();
+      teardownRef.current = closing;
       chatIdRef.current = null;
       setChatId(null);
       setWslDistro(null);

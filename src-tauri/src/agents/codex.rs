@@ -40,6 +40,17 @@ pub(super) fn rollout_turn_open(path: &Path) -> Option<bool> {
     open
 }
 
+/// Whether the rollout holds a conversation. Codex creates the file when the
+/// session opens, with only its `session_meta` and settings: a session nobody
+/// prompted has nothing `codex resume` or an ACP `session/load` could open.
+pub(crate) fn rollout_has_turn(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    // A turn's first events come right after the meta line; a bounded look is enough.
+    BufReader::new(file).split(b'\n').take(200).map_while(Result::ok).any(|line| {
+        has_bytes(&line, br#""type":"task_started""#) || has_bytes(&line, br#""type":"user_message""#) || has_bytes(&line, br#""type":"turn_context""#)
+    })
+}
+
 /// What a rollout's `session_meta` says - read once per file (it never
 /// changes), since live threads are looked up on every poll.
 #[derive(Clone)]

@@ -1828,11 +1828,12 @@ fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, w
 /// Whether a non-`strict` resume whose `session/load` failed with `error`
 /// goes on with a new session. Not when the agent wants a sign-in: a new
 /// session would fail the same way, and the view must offer the login.
+/// Nor when another client still holds the session: a new session would silently replace the conversation.
 fn falls_back(strict: bool, error: &str) -> bool {
-    !strict && !error.starts_with("auth_required")
+    !strict && !error.starts_with("auth_required") && !session_in_use(error)
 }
 
-/// Attempts (after the first) a strict `session/load` makes while another process still holds the session.
+/// Attempts (after the first) a `session/load` makes while another process still holds the session.
 const LOAD_RETRIES: u32 = 6;
 const LOAD_RETRY_DELAY: Duration = Duration::from_millis(500);
 
@@ -1877,9 +1878,9 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
     match resume.filter(|id| can_load && !id.is_empty()) {
         Some(session_id) => {
             let mut loaded = Err(String::new());
-            // A terminal that just handed its session over may still be letting go of it
-            // (Codex: "already has an active writer"): a strict resume tries again briefly.
-            for attempt in 0..=if strict { LOAD_RETRIES } else { 0 } {
+            // A terminal that just handed its session over, or the agent a restart replaces, may still
+            // be letting go of it (Codex: "already has an active writer"): a resume tries again briefly.
+            for attempt in 0..=LOAD_RETRIES {
                 if attempt > 0 {
                     std::thread::sleep(LOAD_RETRY_DELAY);
                 }
@@ -1910,8 +1911,54 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
     }
 }
 
+/// Whether an agent failed to start because another process was using its
+/// state store at the same time (Codex: "failed to initialize sqlite state
+/// runtime" while another Codex process migrates or still releases
+/// `~/.codex`). It goes away by itself, so the start is tried again.
+fn transient_start_failure(error: &str) -> bool {
+    let error = error.to_lowercase();
+    error.contains("state runtime") || error.contains("sqlite") || error.contains("database is locked")
+}
+
+/// Attempts (after the first) a start makes when the agent trips over a busy state store.
+const START_RETRIES: u32 = 3;
+
+/// Starts that touch Codex's shared state store one at a time: several Codex
+/// processes initializing `~/.codex` together (a restored window opening many
+/// chats, a restart racing the agent it replaces) make some of them fail.
+fn start_gate(agent: &str) -> Option<std::sync::MutexGuard<'static, ()>> {
+    static CODEX: Mutex<()> = Mutex::new(());
+    (agent == "codex").then(|| lock(&CODEX))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn start_blocking(
+    app: AppHandle,
+    owner: String,
+    agent: String,
+    cwd: String,
+    profile: Option<String>,
+    resume: Option<String>,
+    strict: bool,
+    shell: Option<String>,
+) -> Result<(Arc<Chat>, ChatStarted), String> {
+    let _gate = start_gate(&agent);
+    let mut attempt = 0;
+    loop {
+        let started = start_once(app.clone(), owner.clone(), agent.clone(), cwd.clone(), profile.clone(), resume.clone(), strict, shell.clone());
+        match started {
+            Err(e) if attempt < START_RETRIES && transient_start_failure(&e) => {
+                attempt += 1;
+                eprintln!("chat: {agent} could not start ({e}); trying again ({attempt}/{START_RETRIES})");
+                std::thread::sleep(Duration::from_millis(700 * u64::from(attempt)));
+            }
+            other => return other,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn start_once(
     app: AppHandle,
     owner: String,
     agent: String,
@@ -2482,6 +2529,14 @@ mod tests {
         assert!(!falls_back(true, "Session not found"));
         assert!(!falls_back(false, "auth_required: Authentication required"));
         assert!(!falls_back(true, "auth_required: Authentication required"));
+        assert!(!falls_back(false, "thread already has an active writer"));
+    }
+
+    #[test]
+    fn a_busy_state_store_is_a_transient_start_failure() {
+        assert!(transient_start_failure(r"Error: failed to initialize sqlite state runtime under C:\Users\x\.codex"));
+        assert!(transient_start_failure("database is locked"));
+        assert!(!transient_start_failure("auth_required: sign in"));
     }
 
     #[test]

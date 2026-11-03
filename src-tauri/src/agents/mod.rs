@@ -208,7 +208,8 @@ pub async fn end_pty_agent(app: tauri::AppHandle, pty_id: String) -> Result<(), 
 /// `codex resume` / an ACP `session/load` can open. A session nobody has
 /// prompted yet (a fresh chat, or a terminal agent just started) has none, and
 /// resuming it fails: the terminal/chat switch starts a fresh agent instead.
-/// Agents other than Claude and Codex report `true` (not checked).
+/// Codex writes the rollout file as soon as the session opens, so for it the
+/// file must also hold a turn. Agents other than Claude and Codex report `true` (not checked).
 #[tauri::command]
 pub async fn agent_session_saved(app: tauri::AppHandle, cli: String, session_id: String, profile: Option<String>) -> Result<bool, String> {
     if !is_safe_session_id(&session_id) {
@@ -220,7 +221,7 @@ pub async fn agent_session_saved(app: tauri::AppHandle, cli: String, session_id:
             "claude" => std::fs::read_dir(dirs.claude.join("projects"))
                 .map(|folders| folders.flatten().any(|f| f.path().join(format!("{session_id}.jsonl")).is_file()))
                 .unwrap_or(false),
-            "codex" => codex::find_codex_rollout(&dirs.codex.join("sessions"), &session_id).is_some(),
+            "codex" => codex::find_codex_rollout(&dirs.codex.join("sessions"), &session_id).is_some_and(|path| codex::rollout_has_turn(&path)),
             _ => true,
         })
     })
