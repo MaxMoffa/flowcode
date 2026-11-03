@@ -68,6 +68,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # The mobile crate embeds mobile/dist, separate from the desktop dist/.
+      - run: npm run mobile:vite:build
+        if: runner.os == 'Windows'
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
