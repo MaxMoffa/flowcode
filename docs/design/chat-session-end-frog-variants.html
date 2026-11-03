@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte per il messaggio della rana in chat quando la sessione finisce o i crediti finiscono.">
+  <title>Flowcode — fine sessione / crediti finiti · 3 varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #17120e; --panel: #211a14; --raised: #2a221b; --surface: #1c1611;
+      --fg: #e7d8c5; --muted: #ad967c; --dim: #7f6e5d; --line: #3a2f25;
+      --accent: #a5bd8f; --accent-bg: #30382a; --warning: #d4af6e; --warning-bg: #3a2f1d;
+      --water: #a5bd8f; --hover: #ffffff07;
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eee6d9; --panel: #fffaf1; --raised: #f0e8da; --surface: #f7f0e4;
+      --fg: #3a2b17; --muted: #806a50; --dim: #99856c; --line: #dfd3c2;
+      --accent: #4f6e3a; --accent-bg: #e5ebdc; --warning: #96701c; --warning-bg: #f3e8cf;
+      --water: #4f6e3a; --hover: #57371007;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 "Segoe UI", system-ui, sans-serif; }
+    button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; transition: background .16s, color .16s, border-color .16s; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .page { max-width: 1120px; margin: auto; padding: 30px 38px 40px; }
+    .eyebrow { font-size: 10px; letter-spacing: .13em; color: var(--muted); margin-bottom: 7px; }
+    h1 { font-size: clamp(21px, 2.5vw, 30px); font-weight: 550; letter-spacing: -.035em; margin: 0 0 5px; }
+    .intro p { margin: 0 0 22px; color: var(--muted); max-width: 720px; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .seg { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+    .seg button { padding: 8px 14px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+    .seg button span { margin-right: 7px; opacity: .6; font: 11px var(--mono); }
+    .seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); box-shadow: 0 1px 2px #0002; }
+    .seg button:hover:not([aria-pressed="true"]) { background: var(--hover); }
+    .spacer { flex: 1; }
+    .replay { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .replay:hover { color: var(--fg); }
+
+    /* The mock chat */
+    .window { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 70px -40px #0009; }
+    .chrome { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: var(--raised); border-bottom: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+    .chrome b { color: var(--fg); font-weight: 600; letter-spacing: -.02em; }
+    .chrome .status { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+    .chrome .status i { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+    .chat { position: relative; height: 600px; display: flex; flex-direction: column; }
+    .transcript { flex: 1; overflow: hidden; padding: 26px 0 10px; }
+    .col { max-width: 680px; margin: 0 auto; padding: 0 24px; }
+    .msg-user { margin-left: auto; width: fit-content; max-width: 75%; background: var(--raised); padding: 9px 13px; border-radius: 14px; margin-bottom: 18px; }
+    .msg-agent { color: var(--fg); margin-bottom: 14px; }
+    .msg-agent p { margin: 0 0 8px; }
+    .tool { font: 11.5px var(--mono); color: var(--muted); padding: 6px 10px; border-left: 2px solid var(--line); margin: 6px 0 12px; }
+    .footer { padding: 12px 0 18px; }
+    .composer { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 12px 14px; color: var(--dim); display: flex; justify-content: space-between; }
+    .composer.is-off { opacity: .45; }
+
+    .btn { padding: 7px 13px; border-radius: 8px; font-size: 12px; border: 1px solid var(--line); color: var(--fg); background: var(--panel); }
+    .btn:hover { background: var(--raised); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; }
+    .btn.primary:hover { filter: brightness(1.08); }
+    .btn.ghost { border-color: transparent; background: none; color: var(--muted); }
+    .btn.ghost:hover { color: var(--fg); background: var(--hover); }
+    .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+    .count { font: 600 12px var(--mono); color: var(--warning); }
+    canvas.frog { display: block; image-rendering: pixelated; }
+
+    /* ── A · Cartolina: a card replaces the composer ── */
+    .card-a { display: flex; gap: 18px; align-items: center; padding: 16px 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+    .card-a .frog-box { position: relative; flex-shrink: 0; width: 120px; height: 96px; display: grid; place-items: end center; }
+    .card-a h3 { margin: 0 0 3px; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+    .card-a p { margin: 0 0 11px; color: var(--muted); font-size: 12.5px; }
+    .card-a .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .card-a.is-credits { border-color: color-mix(in srgb, var(--warning) 35%, var(--line)); }
+    .zz { position: absolute; left: 92px; top: 14px; font: 700 12px var(--mono); color: var(--accent); opacity: 0; animation: zz 2.4s ease-out infinite; }
+    .zz:nth-child(3) { animation-delay: .8s; font-size: 10px; }
+    .zz:nth-child(4) { animation-delay: 1.6s; font-size: 9px; }
+    @keyframes zz { 0% { transform: translate(0,10px); opacity: 0 } 25% { opacity: .9 } 100% { transform: translate(14px,-22px); opacity: 0 } }
+    .jar { position: absolute; right: -2px; bottom: 2px; width: 26px; height: 32px; border: 2px solid var(--muted); border-top-width: 4px; border-radius: 3px 3px 7px 7px; opacity: .8; }
+    .jar::after { content: ""; position: absolute; left: 4px; right: 4px; bottom: 3px; height: 2px; background: var(--dim); border-radius: 1px; }
+    .jar-label { position: absolute; right: -6px; bottom: 38px; font: 9px var(--mono); color: var(--warning); white-space: nowrap; }
+
+    /* ── B · Bigliettino: the frog writes the last message in the transcript ── */
+    .note-b { display: flex; gap: 12px; align-items: flex-end; margin: 10px 0 6px; animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+    .note-b .avatar { flex-shrink: 0; width: 60px; display: grid; place-items: end center; }
+    .bubble { position: relative; background: var(--accent-bg); border-radius: 16px 16px 16px 4px; padding: 12px 15px 13px; max-width: 470px; }
+    .bubble .who { font: 10.5px var(--mono); color: var(--accent); letter-spacing: .02em; margin-bottom: 3px; }
+    .bubble p { margin: 0 0 10px; }
+    .bubble .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .bubble .bar { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--warning) 20%, transparent); margin: 2px 0 10px; overflow: hidden; }
+    .bubble .bar i { display: block; height: 100%; background: var(--warning); border-radius: 2px; transition: width 1s linear; }
+    .bubble .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .note-b.is-credits .bubble { background: var(--warning-bg); }
+    .note-b.is-credits .who { color: var(--warning); }
+    .typing { display: inline-flex; gap: 3px; }
+    .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: dot 1s infinite; }
+    .typing i:nth-child(2) { animation-delay: .15s } .typing i:nth-child(3) { animation-delay: .3s }
+    @keyframes dot { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+
+    /* ── C · Stagno: the frog's own scene takes the composer's place ── */
+    .pond-c { position: relative; height: 270px; border-radius: 18px; overflow: hidden; background: linear-gradient(to bottom, transparent 0 64%, color-mix(in srgb, var(--water) 10%, transparent) 64%); border: 1px solid var(--line); animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+    .pond-c canvas.scene { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+    .pond-c .text { position: absolute; left: 0; right: 0; top: 18px; text-align: center; }
+    .pond-c h3 { margin: 0 0 2px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+    .pond-c p { margin: 0; color: var(--muted); font-size: 12.5px; }
+    .pond-c .actions { position: absolute; left: 0; right: 0; bottom: 14px; display: flex; justify-content: center; gap: 8px; align-items: center; }
+    .pond-c .actions .btn { backdrop-filter: blur(6px); }
+
+    @keyframes rise { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+    .notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+    .notes div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; color: var(--muted); font-size: 12px; }
+    .notes div.on { border-color: var(--accent); }
+    .notes b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="intro">
+    <div class="eyebrow">CHAT · FINE SESSIONE</div>
+    <h1>La rana saluta: sessione finita o crediti esauriti</h1>
+    <p>Oggi al posto del composer compare solo “L'agente si è chiuso” + Riavvia. Tre modi di farlo dire alla rana, ognuno con i due casi: sessione chiusa e crediti/limite d'uso finiti (con conto alla rovescia al reset).</p>
+  </div>
+
+  <div class="toolbar">
+    <div class="seg" id="variants">
+      <button data-v="a" aria-pressed="true"><span>A</span>Cartolina</button>
+      <button data-v="b" aria-pressed="false"><span>B</span>Bigliettino</button>
+      <button data-v="c" aria-pressed="false"><span>C</span>Stagno</button>
+    </div>
+    <div class="seg" id="cases">
+      <button data-c="ended" aria-pressed="true">Sessione finita</button>
+      <button data-c="credits" aria-pressed="false">Crediti finiti</button>
+    </div>
+    <div class="spacer"></div>
+    <button class="replay" id="replay">↻ Rigioca</button>
+    <div class="seg" id="theme">
+      <button data-t="dark" aria-pressed="true">Scuro</button>
+      <button data-t="light" aria-pressed="false">Chiaro</button>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="chrome"><b>Claude Code</b> · flowcode <span class="status"><i></i><span id="status-text">Chiuso</span></span></div>
+    <div class="chat">
+      <div class="transcript">
+        <div class="col">
+          <div class="msg-user">Sistema il test di remoteImageLoader che rompe la build tsc</div>
+          <div class="msg-agent">
+            <div class="tool">Read src/chat/remoteImageLoader.test.ts</div>
+            <div class="tool">Edit src/chat/remoteImageLoader.test.ts (+6 −2)</div>
+            <p>Fatto: i mock ora sono tipizzati con <code>vi.fn&lt;Loader&gt;()</code>, quindi <code>tsc --noEmit</code> passa. Ho lanciato anche i test: 42 verdi.</p>
+          </div>
+          <div id="inline"></div>
+        </div>
+      </div>
+      <div class="footer"><div class="col" id="footer"></div></div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div data-n="a"><b>A · Cartolina</b>Card al posto del composer, come quella della cache. Rana che dorme (zZ) o col barattolo di mosche vuoto. Sobria, zero ingombro nel transcript.</div>
+    <div data-n="b"><b>B · Bigliettino</b>La rana “scrive” l'ultimo messaggio nel transcript, con i puntini prima. Resta nella cronologia; il composer resta visibile ma spento. Barra del reset nel caso crediti.</div>
+    <div data-n="c"><b>C · Stagno</b>Riusa la scena dello stagno della chat vuota: la rana affonda con le onde (fine sessione) o aspetta su una ninfea senza mosche (crediti). La più scenica.</div>
+  </div>
+</div>
+
+<script>
+// ── The Flowcode frog, ported from src/terminal/frogArt.ts ──
+const FROG_BOX = { x: 130, y: 205, width: 764, height: 650 };
+const COLS = 30, ROWS = 24;
+function hexToHsl(hex) {
+  const m = hex.trim().match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i); if (!m) return null;
+  const [r, g, b] = m.slice(1).map(c => parseInt(c, 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min, s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function hslToHex([h, s, l]) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const m = l - c / 2;
+  return "#" + [r, g, b].map(v => Math.round((v + m) * 255).toString(16).padStart(2, "0")).join("");
+}
+function palette() {
+  const [h, s, l] = hexToHsl(getComputedStyle(document.documentElement).getPropertyValue("--accent")) ?? [95, .3, .65];
+  return { green: hslToHex([h, s, l]), dark: hslToHex([h, s, Math.max(.1, l * .35)]), white: "#ebebeb" };
+}
+const REST = { lookX: 0, lookY: 6, lid: 0, scaleX: 1, scaleY: 1, rotate: 0, lift: 0, cursor: true };
+function frogPixel(px, py, pose, pal) {
+  const ox = 512, oy = 830, a = (-pose.rotate * Math.PI) / 180;
+  const dx = px - ox, dy = py - pose.lift - oy;
+  const x = ox + (dx * Math.cos(a) - dy * Math.sin(a)) / pose.scaleX;
+  const y = oy + (dx * Math.sin(a) + dy * Math.cos(a)) / pose.scaleY;
+  const seg = (ax, ay, bx, by) => { const sx = bx - ax, sy = by - ay; const t = Math.max(0, Math.min(1, ((x - ax) * sx + (y - ay) * sy) / (sx * sx + sy * sy))); return Math.hypot(x - (ax + t * sx), y - (ay + t * sy)); };
+  for (const cx of [340, 684]) {
+    if (pose.lid > 0 && Math.hypot(x - cx, y - 393) <= 89 && y <= 304 + 178 * pose.lid) return pal.green;
+    if (Math.hypot(x - (cx + 14 + pose.lookX), y - 378 - pose.lookY) <= 16) return pal.white;
+    if (Math.hypot(x - (cx + pose.lookX), y - 393 - pose.lookY) <= 45) return pal.dark;
+    if (Math.hypot(x - cx, y - 393) <= 85) return pal.white;
+  }
+  const strokes = [[396, 575, 472, 632], [472, 632, 396, 689]];
+  if (pose.cursor) strokes.push([526, 689, 636, 689]);
+  if (strokes.some(s => seg(...s) <= 24)) return pal.dark;
+  const body = Math.hypot(x - 340, y - 400) <= 135 || Math.hypot(x - 684, y - 400) <= 135 || ((x - 512) / 360) ** 2 + ((y - 610) / 220) ** 2 <= 1;
+  return body ? pal.green : null;
+}
+/** Draws the frog at (left, top) on ctx with `px` CSS px per frog pixel, cut below `waterline` (0-1) if given. */
+function paintFrog(ctx, pose, left, top, px, waterline = null) {
+  const pal = palette();
+  for (let r = 0; r < ROWS; r++) {
+    if (waterline !== null && (r + 1) / ROWS > waterline) break;
+    const y = FROG_BOX.y + ((r + .5) * FROG_BOX.height) / ROWS;
+    for (let c = 0; c < COLS; c++) {
+      const col = frogPixel(FROG_BOX.x + ((c + .5) * FROG_BOX.width) / COLS, y, pose, pal);
+      if (!col) continue;
+      ctx.fillStyle = col;
+      ctx.fillRect(Math.round(left + c * px), Math.round(top + r * px), Math.ceil(px), Math.ceil(px));
+    }
+  }
+}
+function frogCanvas(px) {
+  const c = document.createElement("canvas"); c.className = "frog";
+  const dpr = devicePixelRatio || 1;
+  c.style.width = COLS * px + "px"; c.style.height = ROWS * px + "px";
+  c.width = COLS * px * dpr; c.height = ROWS * px * dpr;
+  c.draw = pose => { const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, COLS * px, ROWS * px); paintFrog(ctx, pose, 0, 0, px); };
+  return c;
+}
+
+// ── State ──
+const state = { v: "a", c: "ended" };
+let stop = () => {};
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let resetAt = Date.now() + (2 * 3600 + 14 * 60 + 37) * 1000;
+const fmt = ms => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 3600)}h ${String(Math.floor(s / 60) % 60).padStart(2, "0")}m ${String(s % 60).padStart(2, "0")}s`; };
+const resetClock = () => new Date(resetAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+
+const COPY = {
+  ended: {
+    a: { title: "La rana è andata a dormire", body: "La sessione con Claude Code si è chiusa. La conversazione resta qui: riavvia per riprendere da dove eri." },
+    b: "Per oggi chiudo gli occhi: la sessione è finita. Tutto quello che ci siamo detti resta qui sopra — svegliami quando vuoi ripartire.",
+    c: { title: "Sessione finita", body: "La rana è tornata nello stagno. Riavviala per riprendere." },
+  },
+  credits: {
+    a: { title: "Niente più mosche", body: "Hai esaurito il limite d'uso del piano. La rana riprende a cacciare alle " },
+    b: "Barattolo vuoto: ho finito le mosche (il limite d'uso del tuo piano). Riapro gli occhi appena si ricarica.",
+    c: { title: "Crediti finiti", body: "La rana aspetta le mosche sulla ninfea. Si ricarica alle " },
+  },
+};
+
+// Little helpers to wire a live countdown into any element.
+function ticker(fn) { fn(); const id = setInterval(fn, 1000); return () => clearInterval(id); }
+
+function render() {
+  stop(); const stops = [];
+  const inline = document.getElementById("inline"), footer = document.getElementById("footer");
+  inline.innerHTML = ""; footer.innerHTML = "";
+  document.getElementById("status-text").textContent = state.c === "ended" ? "Chiuso" : "Limite raggiunto";
+  document.querySelectorAll(".notes div").forEach(n => n.classList.toggle("on", n.dataset.n === state.v));
+  const credits = state.c === "credits";
+
+  if (state.v === "a") {
+    const cp = COPY[state.c].a;
+    footer.innerHTML = `<div class="card-a ${credits ? "is-credits" : ""}">
+      <div class="frog-box"></div>
+      <div><h3>${cp.title}</h3><p>${cp.body}${credits ? `<b>${resetClock()}</b> · tra <span class="count"></span>.` : ""}</p>
+      <div class="actions">${credits
+        ? `<button class="btn primary">Avvisami al reset</button><button class="btn">Cambia agente</button><button class="btn ghost">Vedi utilizzo</button>`
+        : `<button class="btn primary">Riavvia</button><button class="btn">Nuova chat</button><button class="btn ghost">Copia riepilogo</button>`}</div></div></div>`;
+    const box = footer.querySelector(".frog-box");
+    const frog = frogCanvas(3.2); box.append(frog);
+    if (credits) {
+      box.insertAdjacentHTML("beforeend", `<div class="jar"></div><div class="jar-label">0 mosche</div>`);
+      let t0 = performance.now(), raf;
+      const loop = () => { const t = (performance.now() - t0) / 1000;
+        const look = Math.sin(t * .9) > .3 ? 26 : -4; // glances at the empty jar
+        const blink = (t % 3.6) > 3.45 ? 1 : .35;
+        frog.draw({ ...REST, lookX: look, lookY: 22, lid: blink, scaleY: .96, cursor: Math.floor(t * 2) % 2 === 0 });
+        if (!reduced) raf = requestAnimationFrame(loop); };
+      loop(); stops.push(() => cancelAnimationFrame(raf));
+      stops.push(ticker(() => footer.querySelector(".count").textContent = fmt(resetAt - Date.now())));
+    } else {
+      box.insertAdjacentHTML("beforeend", `<span class="zz">z</span><span class="zz">z</span><span class="zz">Z</span>`);
+      let t0 = performance.now(), raf;
+      const loop = () => { const t = (performance.now() - t0) / 1000;
+        const breath = Math.sin(t * 1.6);
+        frog.draw({ ...REST, lid: Math.min(1, t / .9), scaleY: 1 + breath * .025, scaleX: 1 - breath * .012, cursor: false, rotate: 3 });
+        if (!reduced) raf = requestAnimationFrame(loop); };
+      loop(); stops.push(() => cancelAnimationFrame(raf));
+    }
+  }
+
+  if (state.v === "b") {
+    footer.innerHTML = `<div class="composer is-off"><span>${credits ? "In pausa fino alle " + resetClock() : "Sessione chiusa — riavvia per scrivere"}</span><span>⏎</span></div>`;
+    const wrap = document.createElement("div");
+    wrap.className = "note-b" + (credits ? " is-credits" : "");
+    wrap.innerHTML = `<div class="avatar"></div><div class="bubble"><div class="who">${credits ? "rana · crediti finiti" : "rana · fine sessione"}</div><div class="content"><span class="typing"><i></i><i></i><i></i></span></div></div>`;
+    inline.append(wrap);
+    const frog = frogCanvas(2); wrap.querySelector(".avatar").append(frog);
+    let t0 = performance.now(), raf;
+    const loop = () => { const t = (performance.now() - t0) / 1000;
+      const lid = credits ? ((t % 4) > 3.85 ? 1 : .2) : Math.min(.85, Math.max(0, (t - 1.6) / 1.2));
+      frog.draw({ ...REST, lookX: credits ? -10 : 0, lookY: credits ? 20 : 6, lid, cursor: Math.floor(t * 2) % 2 === 0 });
+      if (!reduced) raf = requestAnimationFrame(loop); };
+    loop(); stops.push(() => cancelAnimationFrame(raf));
+    const write = () => {
+      const content = wrap.querySelector(".content");
+      content.innerHTML = `<p>${COPY[state.c].b}</p>` + (credits
+        ? `<div class="meta"><span>Reset alle ${resetClock()}</span><span class="count"></span></div><div class="bar"><i></i></div>
+           <div class="actions"><button class="btn primary">Avvisami al reset</button><button class="btn">Cambia agente</button></div>`
+        : `<div class="actions"><button class="btn primary">Svegliala</button><button class="btn">Nuova chat</button></div>`);
+      if (credits) {
+        const total = 5 * 3600 * 1000;
+        stops.push(ticker(() => { const left = resetAt - Date.now();
+          content.querySelector(".count").textContent = "tra " + fmt(left);
+          content.querySelector(".bar i").style.width = (100 * (1 - left / total)).toFixed(2) + "%"; }));
+      }
+    };
+    if (reduced) write(); else { const id = setTimeout(write, 1100); stops.push(() => clearTimeout(id)); }
+  }
+
+  if (state.v === "c") {
+    const cp = COPY[state.c].c;
+    footer.innerHTML = `<div class="pond-c"><canvas class="scene"></canvas>
+      <div class="text"><h3>${cp.title}</h3><p>${cp.body}${credits ? `<b>${resetClock()}</b> · <span class="count"></span>` : ""}</p></div>
+      <div class="actions">${credits
+        ? `<button class="btn primary">Avvisami al reset</button><button class="btn">Cambia agente</button>`
+        : `<button class="btn primary">Ripescala</button><button class="btn">Nuova chat</button>`}</div></div>`;
+    if (credits) stops.push(ticker(() => footer.querySelector(".count").textContent = "tra " + fmt(resetAt - Date.now())));
+    const canvas = footer.querySelector("canvas.scene"), pond = footer.querySelector(".pond-c");
+    const dpr = devicePixelRatio || 1, PX = 4;
+    let t0 = performance.now(), raf;
+    const loop = () => {
+      const w = pond.clientWidth, h = pond.clientHeight;
+      if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+      const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+      const t = (performance.now() - t0) / 1000;
+      const water = Math.round(h * .64 / PX) * PX;
+      const fw = COLS * PX, fh = ROWS * PX, left = Math.round((w - fw) / 2 / PX) * PX;
+      const green = palette().green;
+      // pixel ripples on the grid
+      const ring = (cx, cy, r, alpha) => { ctx.globalAlpha = alpha; ctx.fillStyle = green; const n = Math.max(14, Math.round(r * 1.6)), seen = new Set();
+        for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; const gx = Math.round((cx + Math.cos(a) * r) / PX), gy = Math.round((cy + Math.sin(a) * r * .32) / PX);
+          if (seen.has(gx + "," + gy)) continue; seen.add(gx + "," + gy); ctx.fillRect(gx * PX, gy * PX, PX, PX); } ctx.globalAlpha = 1; };
+      if (credits) {
+        // a lily pad, the frog on it, a fly that never comes close
+        ctx.fillStyle = green; ctx.globalAlpha = .28;
+        for (let gx = -16; gx <= 16; gx++) for (let gy = -3; gy <= 3; gy++) { if ((gx / 16) ** 2 + (gy / 3.2) ** 2 > 1 || (gx > 2 && gx < 7 && gy < 0)) continue; ctx.fillRect(left + fw / 2 + gx * PX, water + gy * PX, PX, PX); }
+        ctx.globalAlpha = 1;
+        const bob = Math.round(Math.sin(t * 1.4) * 1.2) * PX;
+        const flyX = w / 2 + Math.cos(t * .7) * (w * .36), flyY = h * .3 + Math.sin(t * 2.1) * 14;
+        const look = Math.max(-28, Math.min(28, (flyX - w / 2) / 6));
+        paintFrog(ctx, { ...REST, lookX: look, lookY: (flyY - water) / 8, lid: .25, cursor: Math.floor(t * 2) % 2 === 0 }, left, water - fh + PX * 2 + bob, PX);
+        ring(fw / 2 + left, water + PX, (t * 40) % 160 + 40, Math.max(0, .35 - ((t * 40) % 160) / 460));
+        // the fly, far and faint: credits are out
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--dim"); ctx.globalAlpha = .7;
+        ctx.fillRect(Math.round(flyX / 2) * 2, Math.round(flyY / 2) * 2, 3, 3);
+        ctx.globalAlpha = Math.sin(t * 30) > 0 ? .5 : .2; ctx.fillRect(Math.round(flyX / 2) * 2 - 2, Math.round(flyY / 2) * 2 - 2, 2, 2); ctx.fillRect(Math.round(flyX / 2) * 2 + 3, Math.round(flyY / 2) * 2 - 2, 2, 2);
+        ctx.globalAlpha = 1;
+      } else {
+        // the frog sinks: down to its eyes, a last blink, then under; ripples keep going
+        const sink = reduced ? 1 : Math.min(1, Math.max(0, (t - .6) / 2.4));
+        const ease = sink * sink * (3 - 2 * sink);
+        const top = water - fh + PX * 2 + Math.round(ease * (fh + PX * 2) / PX) * PX;
+        const cut = (water - top) / fh;
+        if (cut > 0) paintFrog(ctx, { ...REST, lid: Math.min(1, t / 2.2), lookY: 14, cursor: false }, left, top, PX, Math.min(1, cut));
+        for (let k = 0; k < 3; k++) { const p = ((t + k * 1.2) % 3.6) / 3.6; ring(left + fw / 2, water + PX, 30 + p * (w * .42), (1 - p) * .45 * (t > .6 ? 1 : 0)); }
+        // bubbles
+        if (sink >= 1) { const b = (t * .8) % 1; ctx.fillStyle = green; ctx.globalAlpha = 1 - b; ctx.fillRect(left + fw / 2 + 2 * PX, water - Math.round(b * 5) * PX, PX, PX); ctx.globalAlpha = 1; }
+      }
+      if (!reduced) raf = requestAnimationFrame(loop);
+    };
+    loop(); stops.push(() => cancelAnimationFrame(raf));
+  }
+
+  stop = () => stops.forEach(f => f());
+}
+
+function bindSeg(id, key, attr) {
+  document.getElementById(id).addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    document.querySelectorAll(`#${id} button`).forEach(x => x.setAttribute("aria-pressed", x === b));
+    if (key) { state[key] = b.dataset[attr]; render(); }
+  });
+}
+bindSeg("variants", "v", "v");
+bindSeg("cases", "c", "c");
+document.getElementById("theme").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#theme button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  document.documentElement.dataset.theme = b.dataset.t; render();
+});
+document.getElementById("replay").addEventListener("click", render);
+document.addEventListener("click", e => { const b = e.target.closest(".btn"); if (b && /Avvisami/.test(b.textContent)) b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); });
+render();
+</script>
+</body>
+</html>

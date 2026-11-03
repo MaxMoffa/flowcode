@@ -14,6 +14,9 @@ import { CommandChip, KindIcon, UserText } from "./CommandChip";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { FrogThinking } from "../../shared/FrogThinking";
 import { ChatEmptyFrog } from "./ChatEmptyFrog";
+import { ChatPondEnd } from "./ChatPondEnd";
+import { limitOf } from "./chatLimit";
+import { accountBlockedUntil } from "../notifications/limitResetWatcher";
 import { sweepDashes } from "../../shared/busySweep";
 import { appendDictation, spaceRelease, TRANSCRIBING_MARKER, useDictation } from "./useDictation";
 import { getDictationAutoSend, useDictationShortcuts } from "./dictationModels";
@@ -244,6 +247,19 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
   const pending = model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined);
   // The agent's open question: it takes the composer's place until answered.
   const openAsk = model.items.find((i): i is Extract<typeof i, { type: "ask" }> => i.type === "ask" && i.resolved === undefined);
+  // The plan's usage limit, reached in this turn: the frog's pond stands in for the composer until the reset (or "write anyway").
+  const limit = useMemo(() => (sub ? null : limitOf(model.items)), [sub, model.items]);
+  const [dismissedLimitId, setDismissedLimitId] = useState<string | null>(null);
+  const limitResetAt = limit ? (limit.at ?? accountBlockedUntil(CLI_INFO[agent].pluginId, chat.profileId ?? undefined) ?? null) : null;
+  const [limitNow, setLimitNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!limit) return;
+    setLimitNow(Date.now());
+    const id = window.setInterval(() => setLimitNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, [limit]);
+  const showLimit =
+    !!limit && phase === "ready" && status === "idle" && !working && pending.length === 0 && !openAsk && limit.id !== dismissedLimitId && (limitResetAt === null || limitResetAt > limitNow);
   const lastSegment = timeline[timeline.length - 1];
   // In the main chat, the subagents still running, for the tray behind the composer.
   const runningSubs = sub ? [] : timeline.flatMap((s) => (s.type === "subagents" ? s.items.filter((i) => subagentState(i).running) : []));
@@ -730,12 +746,17 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
             </div>
           </div>
         ) : phase === "ready" && status === "exited" ? (
-          <div className="chat-exited">
-            <span>{t("chat.exited")}</span>
+          <ChatPondEnd kind="ended" resetAt={null} hidden={hidden}>
             <button type="button" className="chat-btn is-primary" onClick={chat.restart}>
-              {t("chat.restart")}
+              {t("chat.pond.ended.restart")}
             </button>
-          </div>
+          </ChatPondEnd>
+        ) : showLimit ? (
+          <ChatPondEnd kind="limit" resetAt={limitResetAt} hidden={hidden}>
+            <button type="button" className="chat-btn" onClick={() => setDismissedLimitId(limit.id)}>
+              {t("chat.pond.limit.write")}
+            </button>
+          </ChatPondEnd>
         ) : (
           <div className="chat-composer-wrap">
             {pending.map((item) => (
