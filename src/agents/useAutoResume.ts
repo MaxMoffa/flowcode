@@ -5,9 +5,13 @@ import type { TabAgent } from "./agentSessions";
 import type { TermTab } from "../tabs/types";
 import type { TerminalHandle } from "../terminal/Terminal";
 import { t } from "../i18n";
-import { accountBlockedUntil, parseResetTimeGuarded } from "../notifications/limitResetWatcher";
+import { accountBlockedUntil } from "../notifications/limitResetWatcher";
+import { detectLimit } from "./limitText";
 import { CLI_INFO, cliName } from "./cliInfo";
 import { autoResumeMessage, getAutoResumeSettings } from "./autoResumeSettings";
+
+// Kept here for the importers that predate limitText.
+export { detectLimit };
 
 const CHECK_MS = 30_000;
 /** Let the account's own usage refresh catch up before typing: the reset
@@ -17,27 +21,9 @@ const GRACE_MS = 60_000;
 const LATE_MS = 15 * 60_000;
 const SCREEN_LINES = 20;
 
-// Claude Code: "You've hit your limit · resets 3pm"; Codex: "You've hit your
-// usage limit. ... or try again at Oct 20th, 2026 3:45 PM." The terminal wraps
-// these, so spaces and the reset's own text may span lines.
-const LIMIT_RE = /hit\s+your\s+(?:session\s+|weekly\s+|usage\s+)?limit/gi;
-const RESETS_RE = /resets\s+(.+?)(?:\n|$)/i;
-const TRY_AGAIN_RE = /try\s+again\s+at\s+([^.]{1,48})/i;
 /** Codex's status line / notice for a goal (/goal) it paused at the limit. */
 const GOAL_PAUSED_RE = /goal[^\n]{0,40}paused|paused[^\n]{0,40}\/goal/i;
 
-/** Reads a usage-limit notice off the screen text (its last occurrence - older
- * ones may still be scrolled in). `at` is the reset time, null when the notice
- * doesn't say, says it in a way parseResetTime can't read, or is a stale
- * dateless one (see parseResetTimeGuarded). */
-export function detectLimit(text: string, now = new Date()): { at: number | null } | null {
-  let last = -1;
-  for (const m of text.matchAll(LIMIT_RE)) last = m.index ?? last;
-  if (last < 0) return null;
-  const rest = text.slice(last);
-  const when = rest.match(RESETS_RE)?.[1] ?? rest.match(TRY_AGAIN_RE)?.[1]?.replace(/\s+/g, " ");
-  return { at: when ? parseResetTimeGuarded(when, now) : null };
-}
 
 /** What to type at the reset: a Codex goal paused by the limit is resumed with
  * its own command, anything else gets the "continue" message. */

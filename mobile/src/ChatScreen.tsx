@@ -11,6 +11,7 @@ import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
 import { AskPanel } from "./ChatAsk";
+import { ChatPondEnd } from "./ChatPondEnd";
 import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
 import { Browser } from "./Browser";
@@ -32,6 +33,7 @@ import { openLink, TermLink } from "./TermLink";
 import { useTerminalViewport } from "./termViewport";
 import { useReadyViews, viewFits, viewLabel } from "./viewCache";
 import { useWide } from "./wide";
+import { limitOf } from "../../src/chat/chatLimit";
 import { findSubagent, isGuardianReview, nestSubagents, subagentInfo, subagentState } from "../../src/chat/chatTimeline";
 
 /** Distance from the end of the thread that still counts as "at the bottom". */
@@ -145,6 +147,17 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   );
   // The open question takes the composer's place (the composer stays mounted, hidden, so its draft survives).
   const openAsk = exited ? undefined : pendingAsks(model)[0];
+  // The plan's usage limit, reached in this turn: the pond stands in for the composer until the reset (or "write anyway").
+  const limit = useMemo(() => (sub ? null : limitOf(model.items)), [sub, model.items]);
+  const [dismissedLimitId, setDismissedLimitId] = useState<string | null>(null);
+  const [limitNow, setLimitNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!limit) return;
+    setLimitNow(Date.now());
+    const id = window.setInterval(() => setLimitNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, [limit]);
+  const showLimit = !!limit && status === "idle" && !working && pending.length === 0 && !openAsk && limit.id !== dismissedLimitId && (limit.at === null || limit.at > limitNow);
   // A Claude chat idle past the prompt cache's lifetime: the next message re-reads everything uncached.
   const activity = useMemo(() => eventsActivity(session.events), [session.events]);
   const cacheWarning = useCacheWarning({
@@ -466,12 +479,10 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
               </button>
             </div>
           ) : exited ? (
-            <div className="chat-ended" role="status">
-              {t("chatExited")}
-            </div>
+            <ChatPondEnd kind="ended" resetAt={null} />
           ) : (
             <>
-              {cacheWarning.show && !openAsk && (
+              {cacheWarning.show && !openAsk && !showLimit && (
                 <div className="chat-sub-foot" role="status">
                   <span>{t("chatCacheExpired")}</span>
                   <button type="button" onClick={cacheWarning.dismiss}>
@@ -480,7 +491,14 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                 </div>
               )}
               {openAsk && <AskPanel ask={openAsk} agent={agentName(info.agent)} onAnswer={answerAsk} />}
-              <div className="chat-ask-keep" hidden={!!openAsk}>
+              {showLimit && (
+                <ChatPondEnd kind="limit" resetAt={limit.at}>
+                  <button type="button" onClick={() => setDismissedLimitId(limit.id)}>
+                    {t("pondLimitWrite")}
+                  </button>
+                </ChatPondEnd>
+              )}
+              <div className="chat-ask-keep" hidden={!!openAsk || showLimit}>
                 <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubagent} openLabel={t("chatSubOpen")} />} />
               </div>
             </>

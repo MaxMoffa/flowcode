@@ -1,4 +1,4 @@
-import { detectLimit } from "../agents/useAutoResume";
+import { detectLimit } from "../agents/limitText";
 import type { ChatItem } from "./chatModel";
 
 /** The usage-limit notice in the current turn (after the last user message), if any: the item that carries it and the reset time it names (null when it doesn't say). */

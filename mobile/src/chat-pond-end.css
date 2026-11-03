@@ -1,0 +1,80 @@
+.chat-pond-end {
+  position: relative;
+  flex: none;
+  height: 230px;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  /* Water below the line (64% of the height, as the scene draws it). */
+  background: linear-gradient(to bottom, transparent 0 64%, color-mix(in srgb, var(--accent) 10%, transparent) 64%);
+  animation: chat-pond-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.chat-pond-end-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.chat-pond-end-text {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  padding: 0 16px;
+  text-align: center;
+}
+
+.chat-pond-end-text h3 {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.chat-pond-end-text p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.chat-pond-end-actions {
+  position: absolute;
+  bottom: calc(12px + var(--safe-b));
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.chat-pond-end-actions button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--glass-strong);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13.5px;
+  backdrop-filter: blur(6px);
+}
+
+@keyframes chat-pond-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-pond-end {
+    animation: none;
+  }
+}

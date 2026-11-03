@@ -1,7 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: vi.fn() }));
+import { describe, expect, it } from "vitest";
 
 import type { ChatItem } from "./chatModel";
 import { limitOf } from "./chatLimit";
