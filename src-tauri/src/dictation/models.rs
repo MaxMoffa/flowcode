@@ -21,7 +21,7 @@ pub struct Model {
 }
 
 /// ggerganov/whisper.cpp on Hugging Face. In the order a session prefers.
-pub const CATALOG: [Model; 3] = [
+pub const CATALOG: [Model; 4] = [
     Model {
         id: "small-q5",
         file: "ggml-small-q5_1.bin",
@@ -41,6 +41,13 @@ pub const CATALOG: [Model; 3] = [
         file: "ggml-base.bin",
         size: 147_951_465,
         sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+        recommended: false,
+    },
+    Model {
+        id: "turbo-q5",
+        file: "ggml-large-v3-turbo-q5_0.bin",
+        size: 574_041_195,
+        sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
         recommended: false,
     },
 ];

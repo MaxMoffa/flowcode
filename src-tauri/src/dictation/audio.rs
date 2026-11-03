@@ -13,8 +13,8 @@ pub const RATE: u32 = 16_000;
 const FRAME: usize = RATE as usize * 30 / 1000;
 /// Audio kept from before the speech onset, so the first syllable isn't cut.
 const PRE_ROLL_FRAMES: usize = 15;
-/// Silence that closes a phrase.
-const END_SILENCE_FRAMES: usize = 24;
+/// Silence that closes a phrase (900 ms).
+const END_SILENCE_FRAMES: usize = 30;
 /// Less speech than this is a click or a cough, not a phrase.
 const MIN_SPEECH_FRAMES: usize = 10;
 /// Past this length a phrase ends at the first short pause...

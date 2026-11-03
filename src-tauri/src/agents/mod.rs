@@ -38,6 +38,16 @@ use self::wsl::{find_wsl_client, wsl_agents, wsl_codex_sessions_root, wsl_live_t
 #[derive(Default)]
 pub struct ProbePids(Mutex<HashSet<u32>>);
 
+impl ProbePids {
+    /// Registers the pid of another throwaway one-shot agent run (e.g. dictation cleanup).
+    pub fn track(&self, pid: u32) {
+        lock(&self.0).insert(pid);
+    }
+    pub fn untrack(&self, pid: u32) {
+        lock(&self.0).remove(&pid);
+    }
+}
+
 /// Binary names this recognizes as "an AI coding agent" - matched against a
 /// descendant process's own name, not the shell's, so a plain shell with no
 /// agent running in it just doesn't show up. Only what's honestly knowable

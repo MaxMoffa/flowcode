@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { createCleanupQueue } from "./cleanupQueue";
 import {
   downloadPercent,
+  getCleanupAgent,
+  getCleanupModel,
+  getDictationCleanup,
   ensureModelsLoaded,
   dictationLanguageParam,
   getDictationLanguages,
@@ -79,8 +83,10 @@ function newSessionToken(): string {
  * the flushed last phrase still lands. The session ends when `active` turns
  * false or the component unmounts. `onEnd(heard)` runs once a session of this
  * chat has ended without error, after its last phrase was committed (not when
- * `discard` disowns it): `heard` tells whether it picked up any speech. */
-export function useDictation(onFinal: (text: string) => void, active: boolean, onEnd?: (heard: boolean) => void) {
+ * `discard` disowns it): `heard` tells whether it picked up any speech.
+ * `vocabulary` is a list of terms that help the recognizer (sent with each
+ * session, read at start, so changing it doesn't re-create `start`). */
+export function useDictation(onFinal: (text: string) => void, active: boolean, onEnd?: (heard: boolean) => void, vocabulary?: string) {
   const [supported, setSupported] = useState(false);
   const [state, setState] = useState<DictationState>("idle");
   const [partial, setPartial] = useState("");
@@ -101,6 +107,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
   onFinalRef.current = onFinal;
   const onEndRef = useRef(onEnd);
   onEndRef.current = onEnd;
+  const vocabularyRef = useRef(vocabulary);
+  vocabularyRef.current = vocabulary;
   // The session this chat started and hasn't seen end yet.
   const sessionRef = useRef<string | null>(null);
   // The phrase being heard, not yet settled.
@@ -108,12 +116,49 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
   // Whether the session heard anything, to tell a silent one from one that just ran out.
   const heardRef = useRef(false);
 
+  // Settled phrases waiting to be cleaned up by a model, in order (only used while cleanup is on).
+  const queueRef = useRef<ReturnType<typeof createCleanupQueue> | null>(null);
+  queueRef.current ??= createCleanupQueue(
+    (text) => {
+      const agent = getCleanupAgent();
+      return invoke<string>("dictation_cleanup", {
+        agent,
+        model: getCleanupModel(agent) || undefined,
+        text,
+        vocabulary: vocabularyRef.current?.slice(0, 300) || undefined,
+      });
+    },
+    (text) => {
+      onFinalRef.current(text);
+      if (queueRef.current!.size() <= 1) setPartial("");
+    },
+  );
+
+  /** Hands a settled phrase to the chat, through the cleanup queue when it is on. */
+  const commit = useCallback((text: string) => {
+    if (getDictationCleanup() && text.trim()) queueRef.current!.push(text);
+    else onFinalRef.current(text);
+  }, []);
+
   /** Commits the unsettled phrase, if any. */
   const flushPending = useCallback(() => {
     const text = pendingRef.current;
     pendingRef.current = "";
-    setPartial("");
-    if (text.trim()) onFinalRef.current(text);
+    if (!text.trim()) {
+      setPartial("");
+      return;
+    }
+    // While the cleanup works the raw phrase stays on screen.
+    if (getDictationCleanup()) setPartial(text);
+    else setPartial("");
+    commit(text);
+  }, [commit]);
+
+  /** Runs `after` once the cleanup queue is empty; the state reads "transcribing" meanwhile. */
+  const afterCleanup = useCallback((after: () => void) => {
+    const queue = queueRef.current!;
+    if (queue.size() > 0) setState("transcribing");
+    queue.whenIdle(after);
   }, []);
 
   useEffect(() => {
@@ -136,8 +181,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
         if (!isOwnEvent(sessionRef.current, e.payload)) return;
         heardRef.current = true;
         pendingRef.current = "";
-        setPartial("");
-        onFinalRef.current(e.payload.text);
+        setPartial(getDictationCleanup() && e.payload.text.trim() ? e.payload.text : "");
+        commit(e.payload.text);
       }),
       listen<Own & { value: number }>("dictation://level", (e) => {
         if (!isOwnEvent(sessionRef.current, e.payload) || stateRef.current !== "listening") return;
@@ -152,9 +197,12 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
           setError(e.payload.message ?? null);
           setState("error");
         } else {
-          setState("idle");
-          if (e.payload.reason === "silence" && !heardRef.current) setNoVoice(true);
-          onEndRef.current?.(heardRef.current);
+          const reason = e.payload.reason;
+          afterCleanup(() => {
+            setState("idle");
+            if (reason === "silence" && !heardRef.current) setNoVoice(true);
+            onEndRef.current?.(heardRef.current);
+          });
         }
       }),
     ]);
@@ -162,11 +210,13 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
       cancelled = true;
       unlisten.then((fns) => fns.forEach((fn) => fn()));
     };
-  }, [flushPending]);
+  }, [flushPending, commit, afterCleanup]);
 
   const start = useCallback(async () => {
     // A session still winding down gives up what it heard first.
     flushPending();
+    // A new session no longer waits for the old one to finish (its phrases still land).
+    queueRef.current!.cancelWaiters();
     // Known to have no model: ask for one rather than start and fail.
     const known = modelsRef.current;
     if (known.loaded && !hasInstalledModel(known.models)) {
@@ -185,6 +235,7 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
         session: token,
         language: dictationLanguageParam(getDictationLanguages()),
         model: modelForSession(modelsRef.current.models, getSelectedModel()),
+        vocabulary: vocabularyRef.current?.slice(0, 300) || undefined,
       });
     } catch (e) {
       if (sessionRef.current === token) sessionRef.current = null;
@@ -214,12 +265,14 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
           if (sessionRef.current === token) {
             sessionRef.current = null;
             flushPending();
-            setState((s) => (s === "transcribing" ? "idle" : s));
-            onEndRef.current?.(heardRef.current);
+            afterCleanup(() => {
+              setState((s) => (s === "transcribing" ? "idle" : s));
+              onEndRef.current?.(heardRef.current);
+            });
           }
         }, 1000);
       });
-  }, [flushPending]);
+  }, [flushPending, afterCleanup]);
 
   /**
    * For a message being sent: ends the session at once and disowns it, so
@@ -231,6 +284,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
   const discard = useCallback((): string => {
     const heard = pendingRef.current;
     pendingRef.current = "";
+    // Phrases still being cleaned up are disowned with the session.
+    queueRef.current!.discard();
     // Only a session still listening is stopped: one already winding down stops on its own, and the recognizer may meanwhile serve another chat.
     const listening = stateRef.current === "listening" && sessionRef.current !== null;
     sessionRef.current = null;
@@ -279,6 +334,7 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
     if (!active) stop();
   }, [active, stop]);
   useEffect(() => stop, [stop]);
+  useEffect(() => () => queueRef.current?.discard(), []);
 
   return {
     supported,

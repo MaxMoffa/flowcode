@@ -221,9 +221,65 @@ pub fn strip_annotations(text: &str) -> String {
     tidy
 }
 
+/// How much of the text dictated so far is fed back as context, in characters.
+const CONTEXT_TAIL_CHARS: usize = 200;
+
+/// The last ~`CONTEXT_TAIL_CHARS` characters of `context`, cut on a char
+/// boundary and starting at a whole word.
+fn context_tail(context: &str) -> &str {
+    let context = context.trim();
+    let total = context.chars().count();
+    if total <= CONTEXT_TAIL_CHARS {
+        return context;
+    }
+    let start = context.char_indices().nth(total - CONTEXT_TAIL_CHARS).map_or(0, |(i, _)| i);
+    // Cut mid-word: skip to the first whole word (unless the cut fell on a space).
+    let cut_mid_word = !context[..start].ends_with(char::is_whitespace) && !context[start..].starts_with(char::is_whitespace);
+    let tail = &context[start..];
+    if cut_mid_word {
+        match tail.find(char::is_whitespace) {
+            Some(i) => tail[i..].trim_start(),
+            None => "",
+        }
+    } else {
+        tail.trim_start()
+    }
+}
+
+/// The initial prompt: the language's base vocabulary, the user's own
+/// `vocabulary`, then the tail of the `context` dictated just before.
+fn build_prompt(language: &str, vocabulary: &str, context: &str) -> String {
+    let mut prompt = initial_prompt(language).to_string();
+    let vocabulary = vocabulary.trim();
+    if !vocabulary.is_empty() {
+        prompt.push(' ');
+        prompt.push_str(vocabulary);
+    }
+    let tail = context_tail(context);
+    if !tail.is_empty() {
+        prompt.push(' ');
+        prompt.push_str(tail);
+    }
+    prompt
+}
+
 /// The words in `audio` (16 kHz mono), or "" if there are none worth keeping.
-pub fn transcribe(state: &mut WhisperState, audio: &[f32], language: &str) -> Result<String, String> {
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+/// `context` is what was dictated just before (it steers spelling and style),
+/// `vocabulary` the user's own terms; `beam` trades speed for accuracy.
+pub fn transcribe(
+    state: &mut WhisperState,
+    audio: &[f32],
+    language: &str,
+    context: &str,
+    vocabulary: &str,
+    beam: bool,
+) -> Result<String, String> {
+    let strategy = if beam {
+        SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 }
+    } else {
+        SamplingStrategy::Greedy { best_of: 1 }
+    };
+    let mut params = FullParams::new(strategy);
     params.set_language(Some(language));
     params.set_n_threads(thread_count());
     params.set_no_context(true);
@@ -233,7 +289,7 @@ pub fn transcribe(state: &mut WhisperState, audio: &[f32], language: &str) -> Re
     // No "[Musica]", "(risate)", "♪": sounds aren't words.
     params.set_suppress_nst(true);
     params.set_no_speech_thold(0.6);
-    params.set_initial_prompt(initial_prompt(language));
+    params.set_initial_prompt(&build_prompt(language, vocabulary, context));
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_special(false);
@@ -318,6 +374,43 @@ mod tests {
         assert!(initial_prompt("auto").starts_with("Nginx"));
     }
 
+    #[test]
+    fn the_prompt_adds_vocabulary_and_context() {
+        let base = initial_prompt("it");
+        assert_eq!(build_prompt("it", "", ""), base);
+        assert_eq!(build_prompt("it", "  ", "  \n "), base);
+        assert_eq!(build_prompt("it", "Flowcode", ""), format!("{base} Flowcode"));
+        assert_eq!(build_prompt("it", "", "ciao a tutti"), format!("{base} ciao a tutti"));
+        assert_eq!(build_prompt("it", "Flowcode", "ciao"), format!("{base} Flowcode ciao"));
+    }
+
+    #[test]
+    fn the_context_tail_is_cut_on_whole_words() {
+        let short = "una frase breve";
+        assert_eq!(context_tail(short), short);
+        let long = "parola ".repeat(60);
+        let tail = context_tail(&long);
+        assert!(tail.chars().count() <= CONTEXT_TAIL_CHARS);
+        assert!(tail.chars().count() > CONTEXT_TAIL_CHARS - 10);
+        assert!(tail.starts_with("parola"));
+        assert!(tail.ends_with("parola"));
+        // A single huge word has no whole word to start from.
+        assert_eq!(context_tail(&"x".repeat(500)), "");
+    }
+
+    #[test]
+    fn the_context_tail_respects_multibyte_chars() {
+        let long = "è già così perché ".repeat(30);
+        let tail = context_tail(&long);
+        assert!(tail.chars().count() <= CONTEXT_TAIL_CHARS);
+        assert!(tail.starts_with(|c: char| !c.is_whitespace()));
+        assert!(long.contains(tail));
+        let emoji = "😀 ".repeat(150);
+        let tail = context_tail(&emoji);
+        assert!(tail.chars().count() <= CONTEXT_TAIL_CHARS);
+        assert!(tail.starts_with('😀'));
+    }
+
     /// Run by hand: `FLOWCODE_WHISPER_MODEL=<ggml .bin> FLOWCODE_WHISPER_WAV=<16 kHz
     /// mono 16-bit wav> cargo test --release transcribes_a_wav -- --ignored --nocapture`
     #[test]
@@ -334,7 +427,7 @@ mod tests {
         let mut state = new_state(&context).unwrap();
         println!("load {:?}", started.elapsed());
         let started = std::time::Instant::now();
-        let text = transcribe(&mut state, &audio, "it").unwrap();
+        let text = transcribe(&mut state, &audio, "it", "", "", true).unwrap();
         println!("transcribe {:?}: {text}", started.elapsed());
         assert!(!text.is_empty());
     }

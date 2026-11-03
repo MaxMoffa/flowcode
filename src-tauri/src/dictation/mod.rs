@@ -19,6 +19,7 @@
 //! `done` ("installed", "cancelled" or "error", plus `message`).
 
 mod audio;
+pub mod cleanup;
 mod engine;
 mod models;
 
@@ -38,6 +39,10 @@ const LEVEL_EVERY: Duration = Duration::from_millis(50);
 const PREVIEW_EVERY: Duration = Duration::from_millis(700);
 /// ...and only once it has grown by this much (400 ms of audio) since the last.
 const PREVIEW_MIN_NEW: usize = 6_400;
+/// The user's vocabulary hint is cut to this many characters.
+const VOCABULARY_MAX_CHARS: usize = 300;
+/// How much of the phrases settled so far is kept as context, in characters.
+const CONTEXT_KEEP_CHARS: usize = 400;
 
 /// What the worker is given to transcribe.
 enum Piece {
@@ -155,7 +160,9 @@ pub async fn dictation_delete_model(
 /// use (else the best installed one); with none installed this fails with
 /// "model-missing". `language` is a code ("it"), a BCP 47 tag ("it-IT") or a
 /// comma-separated list of them ("it,en"), among which Whisper picks; none or
-/// "auto" lets it detect among all. Resolves once the microphone is listening
+/// "auto" lets it detect among all. `vocabulary` is the user's own terms (names,
+/// jargon) handed to Whisper as a hint; trimmed and cut to 300 characters.
+/// Resolves once the microphone is listening
 /// and the model loaded, or with why it couldn't.
 #[tauri::command]
 pub async fn dictation_start(
@@ -164,6 +171,7 @@ pub async fn dictation_start(
     language: Option<String>,
     session: Option<String>,
     model: Option<String>,
+    vocabulary: Option<String>,
 ) -> Result<(), String> {
     let _gate = state.gate.lock().await;
     let app = window.app_handle().clone();
@@ -187,6 +195,7 @@ pub async fn dictation_start(
         window,
         token,
         languages: engine::language_codes(language.as_deref()),
+        vocabulary: vocabulary.unwrap_or_default().trim().chars().take(VOCABULARY_MAX_CHARS).collect(),
         model_id,
         model_path,
         contexts: state.contexts.clone(),
@@ -226,6 +235,8 @@ struct Job {
     window: WebviewWindow,
     token: String,
     languages: Vec<String>,
+    /// The user's own terms, already sanitised.
+    vocabulary: String,
     model_id: String,
     model_path: std::path::PathBuf,
     contexts: engine::ContextCache,
@@ -270,6 +281,8 @@ fn work(
     let mut previewed = false;
     // The language picked for the current phrase's previews.
     let mut detected: Option<String> = None;
+    // What the finished phrases said, steering the next transcriptions.
+    let mut last_final = String::new();
     for piece in pieces {
         if abort.load(Ordering::Relaxed) {
             break;
@@ -282,7 +295,7 @@ fn work(
                 busy.store(true, Ordering::SeqCst);
                 let language =
                     detected.get_or_insert_with(|| engine::pick_language(&mut state, &audio, &job.languages)).clone();
-                let heard = engine::transcribe(&mut state, &audio, &language);
+                let heard = engine::transcribe(&mut state, &audio, &language, &last_final, &job.vocabulary, false);
                 busy.store(false, Ordering::SeqCst);
                 if let Ok(text) = heard {
                     if !text.is_empty() && !abort.load(Ordering::Relaxed) {
@@ -299,10 +312,21 @@ fn work(
                     job.emit("dictation://partial", json!({ "text": "…" }));
                 }
                 let language = engine::pick_language(&mut state, &audio, &job.languages);
-                let heard = engine::transcribe(&mut state, &audio, &language);
+                let heard = engine::transcribe(&mut state, &audio, &language, &last_final, &job.vocabulary, true);
                 busy.store(false, Ordering::SeqCst);
                 match heard {
-                    Ok(text) if !text.is_empty() => job.emit("dictation://final", json!({ "text": text })),
+                    Ok(text) if !text.is_empty() => {
+                        if !last_final.is_empty() {
+                            last_final.push(' ');
+                        }
+                        last_final.push_str(&text);
+                        let total = last_final.chars().count();
+                        if total > CONTEXT_KEEP_CHARS {
+                            let start = last_final.char_indices().nth(total - CONTEXT_KEEP_CHARS).map_or(0, |(i, _)| i);
+                            last_final.drain(..start);
+                        }
+                        job.emit("dictation://final", json!({ "text": text }));
+                    }
                     // Nothing settled: clear the preview or the "…" marker.
                     Ok(_) => job.emit("dictation://partial", json!({ "text": "" })),
                     Err(message) => {

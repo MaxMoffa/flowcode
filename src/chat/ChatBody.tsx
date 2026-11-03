@@ -118,7 +118,7 @@ function ComposerSweep() {
 
 /** The built-in "chat" view: the conversation as a timeline (messages, tool
  * activity on a rail, permission requests) and a floating composer under it. */
-export default function ChatBody({ session: chat, agent, hidden, openSubagent: sub = null, onOpenSubagent }: AgentViewProps) {
+export default function ChatBody({ session: chat, agent, hidden, cwd, openSubagent: sub = null, onOpenSubagent }: AgentViewProps) {
   const { t } = useI18n();
   const { model, phase, queued } = chat;
   const status = model.status;
@@ -168,6 +168,8 @@ export default function ChatBody({ session: chat, agent, hidden, openSubagent: s
       // Not when the session ended because this view was hidden or a subagent opened over it.
       if (dictatedRef.current && getDictationAutoSend() && !hidden && !sub) autoSendRef.current = true;
     },
+    // The project's folder name: a hint for the recognizer (names of this project's tech).
+    cwd.split(/[\\/]/).filter(Boolean).pop(),
   );
   const dictationStateRef = useRef(dictation.state);
   dictationStateRef.current = dictation.state;

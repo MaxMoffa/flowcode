@@ -3,7 +3,18 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import {
+  CLEANUP_AGENTS,
+  CLEANUP_MODEL_MAX,
+  CLEANUP_MODEL_PRESETS,
+  type CleanupAgent,
   COMMON_DICTATION_LANGUAGES,
+  isValidCleanupModel,
+  setCleanupAgent,
+  setCleanupModel,
+  setDictationCleanup,
+  useCleanupAgent,
+  useCleanupModel,
+  useDictationCleanup,
   WHISPER_LANGUAGES,
   cancelDownload,
   deleteModel,
@@ -34,10 +45,79 @@ import "./dictation-settings.css";
 const MODEL_METERS: Record<string, { speed: number; precision: number }> = {
   "small-q5": { speed: 4, precision: 4 },
   small: { speed: 3, precision: 5 },
+  "turbo-q5": { speed: 2, precision: 5 },
   base: { speed: 5, precision: 3 },
 };
 
 type LanguageMode = "auto" | "pick";
+
+const OTHER = "__other__";
+
+/** Model choice of the cleanup agent: default, the agent's presets, or free text. */
+function CleanupModelPicker({ agent }: { agent: CleanupAgent }) {
+  const { t } = useI18n();
+  const model = useCleanupModel(agent);
+  const presets = CLEANUP_MODEL_PRESETS[agent];
+  const isCustom = model !== "" && !presets.includes(model);
+  const [other, setOther] = useState(isCustom);
+  const [draft, setDraft] = useState(model);
+  // Another agent has its own model: re-derive the picker from it.
+  useEffect(() => {
+    setOther(model !== "" && !presets.includes(model));
+    setDraft(model);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent]);
+  const invalid = other && draft.trim() !== "" && !isValidCleanupModel(draft.trim());
+
+  function onSelect(value: string) {
+    if (value === OTHER) {
+      setOther(true);
+      setDraft(isCustom ? model : "");
+      return;
+    }
+    setOther(false);
+    setCleanupModel(agent, value);
+  }
+
+  function onDraft(value: string) {
+    setDraft(value);
+    // An empty or invalid name is not saved: the agent's default stays in use.
+    setCleanupModel(agent, value.trim());
+  }
+
+  return (
+    <>
+      <select
+        className="dictation-settings-select"
+        value={other ? OTHER : model}
+        onChange={(e) => onSelect(e.target.value)}
+        aria-label={t("settings.dictation.cleanup.model.label")}
+      >
+        <option value="">{t("settings.dictation.cleanup.model.default")}</option>
+        {presets.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+        <option value={OTHER}>{t("settings.dictation.cleanup.model.other")}</option>
+      </select>
+      {other && (
+        <input
+          type="text"
+          className="dictation-settings-model-input"
+          value={draft}
+          spellCheck={false}
+          autoComplete="off"
+          aria-invalid={invalid}
+          placeholder={t("settings.dictation.cleanup.model.custom")}
+          aria-label={t("settings.dictation.cleanup.model.custom")}
+          onChange={(e) => onDraft(e.target.value)}
+        />
+      )}
+      {invalid && <p className="dictation-settings-invalid">{t("settings.dictation.cleanup.model.invalid", { max: CLEANUP_MODEL_MAX })}</p>}
+    </>
+  );
+}
 
 function Meter({ label, value }: { label: string; value: number }) {
   return (
@@ -63,6 +143,8 @@ export function DictationSettings() {
   const languages = useDictationLanguages();
   const autoSend = useDictationAutoSend();
   const shortcuts = useDictationShortcuts();
+  const cleanup = useDictationCleanup();
+  const cleanupAgent = useCleanupAgent();
   const [query, setQuery] = useState("");
   const lastPick = useRef<readonly string[]>([]);
   useEffect(ensureModelsLoaded, []);
@@ -374,6 +456,45 @@ export function DictationSettings() {
             <kbd className="dictation-settings-kbd">{t("settings.dictation.autoSend.key")}</kbd>
             <Switch checked={autoSend} onChange={setDictationAutoSend} label={t("settings.dictation.autoSend.label")} />
           </SettingRow>
+        </div>
+      </div>
+
+      {/* Cleanup with a model */}
+      <div className="dictation-settings-section">
+        <div className="dictation-settings-head">
+          <span className="dictation-settings-title">
+            {t("settings.dictation.cleanup.title")}
+            <span className="dictation-settings-badge is-inline">alpha</span>
+          </span>
+          <span className="dictation-settings-aside">{t("settings.dictation.cleanup.aside")}</span>
+        </div>
+        <div className="settings-card dictation-settings-cleanup">
+          <SettingRow id="dictationCleanup" label={t("settings.dictation.cleanup.label")} desc={t("settings.dictation.cleanup.desc")}>
+            <Switch checked={cleanup} onChange={setDictationCleanup} label={t("settings.dictation.cleanup.label")} />
+          </SettingRow>
+          {cleanup && (
+            <>
+              <SettingRow
+                id="dictationCleanupAgent"
+                label={t("settings.dictation.cleanup.agent.label")}
+                desc={t("settings.dictation.cleanup.agent.desc")}
+              >
+                <Segmented<CleanupAgent>
+                  value={cleanupAgent}
+                  options={CLEANUP_AGENTS.map((a) => ({ value: a, label: a === "claude" ? "Claude" : "Codex" }))}
+                  onChange={setCleanupAgent}
+                  ariaLabel={t("settings.dictation.cleanup.agent.label")}
+                />
+              </SettingRow>
+              <SettingRow
+                id="dictationCleanupModel"
+                label={t("settings.dictation.cleanup.model.label")}
+                desc={t("settings.dictation.cleanup.model.desc")}
+              >
+                <CleanupModelPicker agent={cleanupAgent} />
+              </SettingRow>
+            </>
+          )}
         </div>
       </div>
     </section>

@@ -306,10 +306,84 @@ export function setDictationAutoSend(on: boolean) {
 
 export const useDictationAutoSend = (): boolean => useSyncExternalStore(subscribePrefs, getDictationAutoSend);
 
+// --- cleanup of the dictated text through an agent's model (opt-in) --------
+
+export type CleanupAgent = "claude" | "codex";
+export const CLEANUP_AGENTS: readonly CleanupAgent[] = ["claude", "codex"];
+
+/** Known model aliases per agent; empty = only the agent's default (free text still allowed). */
+export const CLEANUP_MODEL_PRESETS: Record<CleanupAgent, readonly string[]> = {
+  claude: ["haiku", "sonnet", "opus"],
+  codex: [],
+};
+
+/** Same character set and length the backend accepts. */
+export const CLEANUP_MODEL_MAX = 64;
+const CLEANUP_MODEL_RE = /^[A-Za-z0-9._:/\-[\]]+$/;
+
+/** Whether `model` is acceptable as a model name (empty is not: it means "default"). */
+export function isValidCleanupModel(model: string): boolean {
+  return model.length > 0 && model.length <= CLEANUP_MODEL_MAX && CLEANUP_MODEL_RE.test(model);
+}
+
+/** `raw` trimmed, or "" (the agent's default) when it is not a valid model name. */
+export function sanitizeCleanupModel(raw: string | null | undefined): string {
+  const model = (raw ?? "").trim();
+  return isValidCleanupModel(model) ? model : "";
+}
+
+const CLEANUP_KEY = "flowcode.dictation.cleanup";
+const CLEANUP_AGENT_KEY = "flowcode.dictation.cleanup.agent";
+const cleanupModelKey = (agent: CleanupAgent) => `flowcode.dictation.cleanup.model.${agent}`;
+
+const readCleanupAgent = (): CleanupAgent => (readString(CLEANUP_AGENT_KEY) === "codex" ? "codex" : "claude");
+
+let cleanup = {
+  enabled: readBool(CLEANUP_KEY, false),
+  agent: readCleanupAgent(),
+  models: {
+    claude: sanitizeCleanupModel(readString(cleanupModelKey("claude"))),
+    codex: sanitizeCleanupModel(readString(cleanupModelKey("codex"))),
+  } as Record<CleanupAgent, string>,
+};
+
+export const getDictationCleanup = (): boolean => cleanup.enabled;
+export const getCleanupAgent = (): CleanupAgent => cleanup.agent;
+/** The chosen model of `agent`; "" = the agent's default. */
+export const getCleanupModel = (agent: CleanupAgent = cleanup.agent): string => cleanup.models[agent];
+
+export function setDictationCleanup(on: boolean) {
+  cleanup = { ...cleanup, enabled: on };
+  writeBool(CLEANUP_KEY, on);
+  notifyPrefs();
+}
+
+export function setCleanupAgent(agent: CleanupAgent) {
+  cleanup = { ...cleanup, agent };
+  writeString(CLEANUP_AGENT_KEY, agent);
+  notifyPrefs();
+}
+
+/** Stores the model of `agent`; an invalid name is stored as "" (default). */
+export function setCleanupModel(agent: CleanupAgent, model: string) {
+  const value = sanitizeCleanupModel(model);
+  cleanup = { ...cleanup, models: { ...cleanup.models, [agent]: value } };
+  if (value) writeString(cleanupModelKey(agent), value);
+  else removeKey(cleanupModelKey(agent));
+  notifyPrefs();
+}
+
+export const useDictationCleanup = (): boolean => useSyncExternalStore(subscribePrefs, getDictationCleanup);
+export const useCleanupAgent = (): CleanupAgent => useSyncExternalStore(subscribePrefs, getCleanupAgent);
+/** The model of the chosen agent, re-rendering on any preference change. */
+export const useCleanupModel = (agent: CleanupAgent): string =>
+  useSyncExternalStore(subscribePrefs, () => getCleanupModel(agent));
+
 const MODEL_TEXT: Record<string, { name: MessageKey; desc: MessageKey }> = {
   base: { name: "chat.dictate.model.base.name", desc: "chat.dictate.model.base.desc" },
   "small-q5": { name: "chat.dictate.model.smallQ5.name", desc: "chat.dictate.model.smallQ5.desc" },
   small: { name: "chat.dictate.model.small.name", desc: "chat.dictate.model.small.desc" },
+  "turbo-q5": { name: "chat.dictate.model.turboQ5.name", desc: "chat.dictate.model.turboQ5.desc" },
 };
 
 /** A model's display name; an id this build does not know shows as itself. */
