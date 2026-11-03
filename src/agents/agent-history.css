@@ -142,9 +142,20 @@
 }
 
 .agent-history-footer {
+  position: relative;
   flex: 0 0 auto;
   padding: 8px;
   border-top: 1px solid var(--border);
+}
+
+/* One bordered button: "New session" with the caret inside its right edge. */
+.agent-history-split {
+  display: flex;
+  width: 100%;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  overflow: hidden;
 }
 
 .agent-history-new {
@@ -152,10 +163,9 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  width: 100%;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-ctl);
+  flex: 1;
+  min-width: 0;
+  border: 0;
   background: transparent;
   color: var(--fg);
   font: inherit;
@@ -163,6 +173,98 @@
   cursor: pointer;
 }
 
-.agent-history-new:hover {
+.agent-history-caret {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.agent-history-new:hover,
+.agent-history-caret:hover,
+.agent-history-caret[aria-expanded="true"] {
   background: var(--sidebar-hover);
+}
+
+.agent-history-new:focus-visible,
+.agent-history-caret:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.agent-history-newmenu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% - 4px);
+  z-index: 20;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--menu-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  backdrop-filter: var(--menu-backdrop);
+  -webkit-backdrop-filter: var(--menu-backdrop);
+}
+
+.agent-history-newmenu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 6px;
+  color: var(--fg-muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent-history-newmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-history-newmenu-item:hover,
+.agent-history-newmenu-item:focus-visible {
+  background: var(--sidebar-hover);
+  outline: none;
+}
+
+.agent-history-newmenu-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.agent-history-newmenu-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.agent-history-newmenu-check {
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.agent-history-newmenu-empty {
+  padding: 6px 8px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
 }

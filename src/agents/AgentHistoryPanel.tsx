@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatTab, TermTab } from "../tabs/types";
 import { agentCliIcon } from "../plugins/icons";
@@ -8,6 +8,10 @@ import type { AgentSession } from "./agentSessions";
 import { gitRepoRoot, gitWorktrees, isWorktreeCapable, type GitWorktree } from "./git";
 import { inProject, keepIfSame } from "./agentScope";
 import { AGENT_CLIS, CLI_INFO, type AgentCli } from "./cliInfo";
+import { useAvailableClis } from "./useAvailableClis";
+import { useProfiles } from "../profiles/profiles";
+import { ProfileSelect } from "../profiles/ProfileSelect";
+import { useOutsideClose } from "../hooks/useOutsideClose";
 import type { ClaudeSessionEntry, CodexSessionEntry, VibeSessionEntry } from "./entryTypes";
 import "./agent-history.css";
 
@@ -31,7 +35,10 @@ interface AgentHistoryPanelProps {
   getPtyId: (tabId: string) => string | null;
   onOpenTab: (tabId: string) => void;
   onResume: (cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number) => void;
-  onNewSession: (cli: AgentCli, cwd: string) => void;
+  /** `profileId`: the account profile the session runs under (`undefined` = default). */
+  onNewSession: (cli: AgentCli, cwd: string, profileId: string | undefined) => void;
+  /** The active tab's profile: where the "New session" menu starts. */
+  currentProfileId?: string;
 }
 
 interface HistoryRow {
@@ -65,8 +72,18 @@ export function AgentHistoryPanel({
   onOpenTab,
   onResume,
   onNewSession,
+  currentProfileId,
 }: AgentHistoryPanelProps) {
   const { t, language } = useI18n();
+  const { profiles } = useProfiles();
+  const [profileId, setProfileId] = useState<string | undefined>(currentProfileId);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const footerRef = useRef<HTMLDivElement>(null);
+  const availableClis = useAvailableClis(profiles.find((p) => p.id === profileId));
+  // Following the active tab: another agent tab brings its own profile.
+  useEffect(() => setProfileId(currentProfileId), [currentProfileId]);
+  // The profile list is portaled to the body, so it counts as inside.
+  useOutsideClose(menuOpen, [footerRef], () => setMenuOpen(false), { escape: true, ignore: (el) => !!el.closest("[data-profile-select-menu]") });
   const [query, setQuery] = useState("");
   const [claude, setClaude] = useState<ClaudeSessionEntry[]>([]);
   const [codex, setCodex] = useState<CodexSessionEntry[]>([]);
@@ -278,13 +295,57 @@ export function AgentHistoryPanel({
           </section>
         ))}
       </div>
-      <div className="agent-history-footer">
-        <button type="button" className="agent-history-new" onClick={() => onNewSession(currentCli, projectCwd)}>
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-            <path d="M8 3v10M3 8h10" />
-          </svg>
-          {t("history.new")}
-        </button>
+      <div className="agent-history-footer" ref={footerRef}>
+        {menuOpen && (
+          <div className="agent-history-newmenu" role="menu">
+            <div className="agent-history-newmenu-head">
+              <span>{t("history.newWith")}</span>
+              <ProfileSelect value={profileId} onChange={(next) => setProfileId(next)} />
+            </div>
+            {availableClis.length === 0 && <div className="agent-history-newmenu-empty">{t("history.noAgents")}</div>}
+            {availableClis.map((cli) => (
+              <button
+                key={cli}
+                type="button"
+                role="menuitem"
+                className="agent-history-newmenu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onNewSession(cli, projectCwd, profileId);
+                }}
+              >
+                <span className="agent-history-newmenu-icon">{agentCliIcon(cli)}</span>
+                <span>{CLI_INFO[cli].label}</span>
+                {cli === currentCli && profileId === currentProfileId && (
+                  <svg className="agent-history-newmenu-check" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3.5 8.5l3 3 6-7" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="agent-history-split">
+          <button type="button" className="agent-history-new" onClick={() => onNewSession(currentCli, projectCwd, profileId)}>
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+            {t("history.new")}
+          </button>
+          <button
+            type="button"
+            className="agent-history-caret"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label={t("history.newPick")}
+            title={t("history.newPick")}
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
+              <path d="M4 6h8l-4 5z" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );

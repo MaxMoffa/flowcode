@@ -1924,13 +1924,14 @@ function Shell() {
   // agent detected in it. Gives the sidebar its History tab.
   const historyAgent =
     frontTab?.kind === "chat"
-      ? { cwd: frontTab.cwd, cli: frontTab.agent, sessionId: frontTab.sessionId, wslDistro: undefined as string | undefined }
+      ? { cwd: frontTab.cwd, cli: frontTab.agent, sessionId: frontTab.sessionId, wslDistro: undefined as string | undefined, profileId: frontTab.profileId }
       : activeTerminal && frontTab?.id === activeTerminal.id && activeAgentSession && (AGENT_CLIS as readonly string[]).includes(activeAgentSession.cli)
         ? {
             cwd: activeAgentSession.cwd ?? activeTerminal.cwd,
             cli: activeAgentSession.cli as AgentCli,
             sessionId: activeAgentSession.session_id ?? undefined,
             wslDistro: activeAgentSession.wsl_distro ?? undefined,
+            profileId: activeTerminal.profileId,
           }
         : undefined;
 
@@ -2562,11 +2563,14 @@ function Shell() {
                   getPtyId={(id) => termRefs.current.get(id)?.getPtyId() ?? null}
                   onOpenTab={selectTab}
                   onResume={resumeAgentSession}
-                  onNewSession={(cli, cwd) => {
-                    // A chat in front starts its new conversation in place, like "/clear".
-                    const closer = frontTab?.kind === "chat" ? chatClosersRef.current.get(frontTab.id) : undefined;
+                  currentProfileId={historyAgent.profileId}
+                  onNewSession={(cli, cwd, profileId) => {
+                    // A chat in front starts its new conversation in place, like "/clear" -
+                    // unless another agent or profile was picked.
+                    const same = cli === historyAgent.cli && profileId === historyAgent.profileId;
+                    const closer = same && frontTab?.kind === "chat" ? chatClosersRef.current.get(frontTab.id) : undefined;
                     if (closer) closer.clear();
-                    else void launchAgentInNewTab(cli, cwd);
+                    else void launchAgentInNewTab(cli, cwd, undefined, profileId);
                   }}
                 />
               )
