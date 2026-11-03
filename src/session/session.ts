@@ -21,7 +21,7 @@ export type SavedTab =
        * verbatim into the new terminal. */
       content?: string;
     }
-  | { kind: "chat"; agent: string; cwd: string; label: string; profileId?: string; sessionId?: string; viewId?: string; lastActiveAt?: number }
+  | { kind: "chat"; agent: string; cwd: string; label: string; profileId?: string; sessionId?: string; viewId?: string; shell?: string; lastActiveAt?: number }
   | { kind: "editor"; path: string; label: string }
   | { kind: "settings" }
   | { kind: "changelog" }

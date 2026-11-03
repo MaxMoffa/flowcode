@@ -72,6 +72,9 @@ export interface ChatTab {
   /** The agent view the chat is shown with (see src/agentViews); absent = the
    * default. */
   viewId?: string;
+  /** The shell id the chat's agent runs where (`wsl`, `wsl:<distro>`; `host` = on this PC, never WSL): a session lives
+   * in the environment that saved it. Absent (older tabs) = the configured shell. */
+  shell?: string;
   status?: ChatStatus;
   /** `false` while a chat that started fresh has had no prompt sent: its session
    * isn't on disk, so a switch to the terminal starts a new one instead of

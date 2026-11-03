@@ -30,6 +30,8 @@ interface UseChatOptions {
   resumeSessionId?: string;
   /** The resumed session must load: fail rather than start a fresh one (a terminal handing its agent over). */
   strictResume?: boolean;
+  /** The shell id the agent runs where (`wsl`, `wsl:<distro>`, `host`); absent = the configured shell. */
+  shell?: string;
   /** When the resumed conversation last had real activity (ms epoch); unknown (absent) counts as long ago. Read once per start. */
   initialActivityAt?: number;
   /** The agent's session id, once it is up (the terminal can resume it). */
@@ -45,7 +47,7 @@ interface ChatEventPayload {
 
 /** Runs one agent behind a chat: starts it on mount, keeps the conversation
  * model fed from the backend's events, closes it on unmount. */
-export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
+export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
   const [model, setModelState] = useState<ChatModelState>(initialChat);
   const [phase, setPhase] = useState<ChatPhase>("starting");
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +83,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   const startRef = useRef<Promise<void> | null>(null);
   // The previous agent being closed (a restart, /clear, a changed agent or folder): the next start waits for it, so two agents never start or end side by side on the same state (Codex's sqlite store, a session).
   const teardownRef = useRef<Promise<void>>(Promise.resolve());
+  // `close` ended the agent for good (a terminal takes the session over): what is sent meanwhile waits in the queue, for a restart.
+  const closedRef = useRef(false);
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
   // `lastSeq` when the last message was handed to the agent: until a newer
@@ -98,6 +102,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     let startedId: string | null = null;
     // Messages queued before a restart stay queued: they go out once the new agent is idle.
     const resumeId = talkedRef.current ? sessionIdRef.current : undefined;
+    closedRef.current = false;
     setModelState(initialChat());
     setPhase("starting");
     setError(null);
@@ -140,7 +145,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
             resumeSessionId: resumeId ?? null,
             strictResume: strictResume ?? false,
             // The chat runs where the user's terminal runs (inside WSL when the default shell is WSL).
-            shell: getConfiguredShell(),
+            shell: shell ?? getConfiguredShell(),
           });
           startedId = started.chatId;
           // Cancelled meanwhile: the cleanup closes it (it waits for this start).
@@ -250,8 +255,9 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   const send = useCallback(
     (text: string, attachments: ChatAttachment[] = []) => {
       const trimmed = text.trim();
-      if ((!trimmed && attachments.length === 0) || !chatIdRef.current) return;
-      if (modelRef.current.status === "idle" && sentAtSeqRef.current === null) dispatch(trimmed, attachments);
+      if ((!trimmed && attachments.length === 0) || (!chatIdRef.current && !closedRef.current)) return;
+      if (closedRef.current) setQueued((q) => [...q, { text: trimmed, attachments }]);
+      else if (modelRef.current.status === "idle" && sentAtSeqRef.current === null) dispatch(trimmed, attachments);
       else setQueued((q) => [...q, { text: trimmed, attachments }]);
     },
     [dispatch],
@@ -260,6 +266,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   // The turn is over: send the next queued message.
   useEffect(() => {
     if (model.status !== "idle") return;
+    if (closedRef.current) return;
     if (sentAtSeqRef.current !== null && model.lastSeq <= sentAtSeqRef.current) return;
     sentAtSeqRef.current = null;
     if (queued.length === 0) return;
@@ -390,8 +397,10 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
    * about to resume the same session must never run beside it. */
   const close = useCallback(async () => {
     await startRef.current;
+    await teardownRef.current;
     const id = chatIdRef.current;
     if (!id) return;
+    closedRef.current = true;
     chatIdRef.current = null;
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);

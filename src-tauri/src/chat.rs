@@ -218,13 +218,11 @@ pub(crate) struct ChatSummary {
 pub struct ChatStarted {
     pub chat_id: String,
     pub session_id: String,
-    pub agent: String,
     pub modes: Option<Value>,
     /// The normalized models (`ChatModels::to_json`), when the agent offers any.
     pub models: Option<Value>,
     /// The normalized thinking levels (`ThoughtLevels::to_json`), when the agent offers any.
     pub thought: Option<Value>,
-    pub config_options: Option<Value>,
     /// The agent replayed a previous session (`session/load`) rather than
     /// starting a fresh one.
     pub loaded: bool,
@@ -1795,6 +1793,9 @@ fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, w
         None => {
             let mut cmd = Command::new("cmd");
             cmd.arg("/C").arg(program).args(args);
+            // cmd looks in the current folder (the project) before PATH: a `gemini.cmd` or
+            // `npx.cmd` of a cloned repo would run. This keeps the lookup to PATH.
+            cmd.env("NoDefaultCurrentDirectoryInExePath", "1");
             cmd.creation_flags(CREATE_NO_WINDOW);
             cmd
         }
@@ -1858,7 +1859,7 @@ fn new_session(chat: &Chat, cwd: &str) -> Result<(Value, String, bool), String> 
 /// (the session is gone, the agent can't read it...) falls back to a new
 /// session (`loaded` false, its new id) rather than failing the chat; the
 /// history the failed load had already replayed is dropped with it.
-fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Result<(Value, String, bool), String> {
+fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool, gate: &mut Option<StartGate>) -> Result<(Value, String, bool), String> {
     let init = chat.request(
         "initialize",
         json!({
@@ -1869,6 +1870,8 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
         }),
         SETUP_TIMEOUT,
     )?;
+    // The agent opened its state store to answer `initialize`: others may start now.
+    drop(gate.take());
     let images = init.pointer("/agentCapabilities/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false);
     chat.prompt_images.store(images, Ordering::Release);
     let can_load = init.pointer("/agentCapabilities/loadSession").and_then(Value::as_bool).unwrap_or(false);
@@ -1915,18 +1918,24 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool) -> Re
 /// state store at the same time (Codex: "failed to initialize sqlite state
 /// runtime" while another Codex process migrates or still releases
 /// `~/.codex`). It goes away by itself, so the start is tried again.
-fn transient_start_failure(error: &str) -> bool {
+fn transient_start_failure(agent: &str, error: &str) -> bool {
     let error = error.to_lowercase();
-    error.contains("state runtime") || error.contains("sqlite") || error.contains("database is locked")
+    // A timeout is not a busy store (its stderr tail may still mention one).
+    agent == "codex"
+        && !error.contains("timed out")
+        && (error.contains("state runtime") || error.contains("sqlite") || error.contains("database is locked"))
 }
 
 /// Attempts (after the first) a start makes when the agent trips over a busy state store.
 const START_RETRIES: u32 = 3;
 
-/// Starts that touch Codex's shared state store one at a time: several Codex
+/// Starts that touch Codex's shared state store one at a time - until the agent answers `initialize`, not through
+/// loading a session: several Codex
 /// processes initializing `~/.codex` together (a restored window opening many
 /// chats, a restart racing the agent it replaces) make some of them fail.
-fn start_gate(agent: &str) -> Option<std::sync::MutexGuard<'static, ()>> {
+type StartGate = std::sync::MutexGuard<'static, ()>;
+
+fn start_gate(agent: &str) -> Option<StartGate> {
     static CODEX: Mutex<()> = Mutex::new(());
     (agent == "codex").then(|| lock(&CODEX))
 }
@@ -1942,12 +1951,12 @@ fn start_blocking(
     strict: bool,
     shell: Option<String>,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
-    let _gate = start_gate(&agent);
     let mut attempt = 0;
     loop {
-        let started = start_once(app.clone(), owner.clone(), agent.clone(), cwd.clone(), profile.clone(), resume.clone(), strict, shell.clone());
+        let gate = start_gate(&agent);
+        let started = start_once(app.clone(), owner.clone(), agent.clone(), cwd.clone(), profile.clone(), resume.clone(), strict, shell.clone(), gate);
         match started {
-            Err(e) if attempt < START_RETRIES && transient_start_failure(&e) => {
+            Err(e) if attempt < START_RETRIES && transient_start_failure(&agent, &e) => {
                 attempt += 1;
                 eprintln!("chat: {agent} could not start ({e}); trying again ({attempt}/{START_RETRIES})");
                 std::thread::sleep(Duration::from_millis(700 * u64::from(attempt)));
@@ -1967,6 +1976,7 @@ fn start_once(
     resume: Option<String>,
     strict: bool,
     shell: Option<String>,
+    mut gate: Option<StartGate>,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
     let wsl = wsl_target(&cwd, shell.as_deref());
     let (mut child, line) = spawn_agent(&app, &agent, &cwd, profile.as_deref(), wsl.as_ref())?;
@@ -2022,7 +2032,7 @@ fn start_once(
         std::thread::spawn(move || write_replies(chat, queued));
     }
     // The agent sees Linux paths when it runs in WSL.
-    match handshake(&chat, wsl.as_ref().map_or(&cwd, |w| &w.cwd), resume, strict) {
+    match handshake(&chat, wsl.as_ref().map_or(&cwd, |w| &w.cwd), resume, strict, &mut gate) {
         Ok((result, session_id, loaded)) => {
             let _ = chat.session_id.set(session_id.clone());
             if let Some(modes) = result.get("modes") {
@@ -2036,11 +2046,9 @@ fn start_once(
             let started = ChatStarted {
                 chat_id,
                 session_id,
-                agent,
                 modes: result.get("modes").cloned(),
                 models: models.as_ref().map(ChatModels::to_json),
                 thought: thought.as_ref().map(ThoughtLevels::to_json),
-                config_options: result.get("configOptions").cloned(),
                 loaded,
                 wsl_distro: wsl.as_ref().and_then(|w| w.distro.clone().or_else(crate::util::wsl_default_distro)),
             };
@@ -2209,7 +2217,8 @@ pub async fn chat_image_path(
             (Some(id), None) => crate::chat_images::path_of(&id).ok_or_else(|| "missing".to_string())?,
             (None, Some(path)) => {
                 let file = app.state::<ChatState>().image_file(chat_id.as_deref(), &path)?;
-                if !file.is_file() {
+                // As `read_file` does: no stat of a network share (it would leak the user's NTLM hash).
+                if !crate::fs::is_local_path(&file, false) || !crate::fs::links_stay_local(&file) || !file.is_file() {
                     return Err("missing".into());
                 }
                 file
@@ -2534,9 +2543,11 @@ mod tests {
 
     #[test]
     fn a_busy_state_store_is_a_transient_start_failure() {
-        assert!(transient_start_failure(r"Error: failed to initialize sqlite state runtime under C:\Users\x\.codex"));
-        assert!(transient_start_failure("database is locked"));
-        assert!(!transient_start_failure("auth_required: sign in"));
+        assert!(transient_start_failure("codex", r"Error: failed to initialize sqlite state runtime under C:\Users\x\.codex"));
+        assert!(transient_start_failure("codex", "database is locked"));
+        assert!(!transient_start_failure("codex", "auth_required: sign in"));
+        assert!(!transient_start_failure("claude", "failed to initialize sqlite state runtime"));
+        assert!(!transient_start_failure("codex", "initialize timed out after 180s: sqlite"));
     }
 
     #[test]

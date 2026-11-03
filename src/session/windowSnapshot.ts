@@ -29,7 +29,7 @@ export function windowSnapshot(state: WindowSnapshotState, bounds?: SavedWindow[
       }
       if (tab.kind === "chat") {
         const sessionId = restoreContent && tab.talked !== false ? tab.sessionId : undefined;
-        return { kind: "chat", agent: tab.agent, cwd: tab.cwd, label: tab.label, profileId: tab.profileId, sessionId, viewId: tab.viewId, lastActiveAt: sessionId ? tab.lastActiveAt : undefined };
+        return { kind: "chat", agent: tab.agent, cwd: tab.cwd, label: tab.label, profileId: tab.profileId, sessionId, viewId: tab.viewId, shell: tab.shell, lastActiveAt: sessionId ? tab.lastActiveAt : undefined };
       }
       if (tab.kind === "editor") return { kind: "editor", path: tab.path, label: tab.label };
       if (tab.kind === "changelog") return { kind: "changelog" };

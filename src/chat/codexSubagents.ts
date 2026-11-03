@@ -25,6 +25,8 @@ export function updateCodexSubagents(items: ChatItem[], updatedId: string, at: n
   const updated = items.find((item) => item.type === "tool" && item.id === updatedId);
   if (updated?.type !== "tool") return items;
   const input = object(updated.call.rawInput);
+  // A plain tool call (every call of Claude and most of Codex's) says nothing about subagents: skip the scans below.
+  if (!isCodexSubagentLaunch(updated.call) && input.agentThreadId === undefined && input.senderThreadId === undefined && input.agentsStates === undefined) return items;
   const states = { ...object(input.agentsStates) };
   const activityThread = typeof input.agentThreadId === "string" ? input.agentThreadId : null;
   if (activityThread) {

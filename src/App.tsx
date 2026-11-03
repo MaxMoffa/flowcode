@@ -23,7 +23,7 @@ import type { GitChange } from "./git/gitStatus";
 import { loadPluginViews } from "./agentViews/pluginViews";
 import { defaultAgentView, defaultOpensChat } from "./agentViews/defaultView";
 import { ThemeProvider, useTheme, type ThemeMode } from "./themes/ThemeContext";
-import { shellStartKey, TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
+import { getConfiguredShell, shellStartKey, TerminalSettingsProvider, useTerminalSettings } from "./terminal/TerminalSettingsContext";
 import { loadSession, type SavedWindow } from "./session/session";
 import { useWindowSession } from "./session/useWindowSession";
 import { prepareEditorClose } from "./editor/closeEditors";
@@ -515,6 +515,7 @@ function Shell() {
               profileId: t.profileId,
               sessionId: keepChat ? t.sessionId : undefined,
               viewId: t.viewId,
+              shell: t.shell,
               // No saved session (or not restoring it): a fresh chat, nothing to resume yet.
               talked: keepChat && t.sessionId ? undefined : false,
               lastActiveAt: keepChat ? t.lastActiveAt : undefined,
@@ -1044,7 +1045,8 @@ function Shell() {
    * agent view - a chat tab, or a terminal (always, for one inside WSL). */
   function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number) {
     if (!wslDistro && defaultOpensChat()) {
-      void openChatTab(cli, cwd, { profileId, resume: { sessionId, lastActiveAt } });
+      // A session saved outside WSL is loaded outside it, whatever the default shell is.
+      void openChatTab(cli, cwd, { profileId, shell: "host", resume: { sessionId, lastActiveAt } });
       return;
     }
     void openAgentSession(cwd, sessionId, cli, wslDistro, profileId);
@@ -2144,7 +2146,7 @@ function Shell() {
   };
 
   /** Starts `cli` in a NEW tab opened in `cwd` (the Agents panel's "+" menu: the
-   * project folder, or a fresh git worktree of it). `shell` is the shell the
+   * project folder). `shell` is the shell the
    * project's own tab runs. Uses the CLI plugin's command, which may carry the
    * user's flags. A WSL shell runs the distro's own CLI, so it skips the host
    * install check and the host-only flags, like `openAgentSession`. The new
@@ -2201,13 +2203,13 @@ function Shell() {
   async function openChatTab(
     cli: AgentCli,
     cwd: string,
-    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number } = {},
+    opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number; shell?: string } = {},
   ): Promise<boolean> {
-    const { profileId, viewId, resume, replaceTabId, at } = opts;
+    const { profileId, viewId, resume, replaceTabId, at, shell } = opts;
     if (!(await ensureCliReady(cli, profileId))) return false;
     if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
-    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false, lastActiveAt: resume?.lastActiveAt };
+    const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), shell: shell ?? getConfiguredShell(), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false, lastActiveAt: resume?.lastActiveAt };
     setTabs((prev) => {
       const next = insertTabAt(prev, tab, replaceTabId ? prev.findIndex((t) => t.id === replaceTabId) : at);
       return replaceTabId ? next.filter((t) => t.id !== replaceTabId) : next;
@@ -2234,7 +2236,9 @@ function Shell() {
    * chat's place. A null `sessionId` (no prompt sent yet: nothing on disk to
    * resume) starts a fresh agent there instead, and the chat stays if it
    * can't start. */
-  function switchChatToTerminal(tab: ChatTab, sessionId: string | null) {
+  function switchChatToTerminal(tab: ChatTab, sessionId: string | null, chatDistro?: string | null) {
+    // A chat running in WSL keeps its sessions in the distro: the terminal is a WSL one there too.
+    const distro = chatDistro || wslDistroOfShell(tab.shell) || null;
     const index = latestRef.current.tabs.findIndex((t) => t.id === tab.id);
     const at = index < 0 ? undefined : index;
     const dropChat = () => {
@@ -2258,10 +2262,11 @@ function Shell() {
           await closer?.close();
           // A session with no transcript on disk (the only prompt failed before it was saved) can't be resumed:
           // `claude --resume` / `codex resume` would just say it isn't found, so a fresh agent starts instead.
-          const saved = await invoke<boolean>("agent_session_saved", { cli: tab.agent, sessionId, profile: tab.profileId ?? null }).catch(() => true);
+          // Not checked for WSL: its transcripts are in the distro, out of this check's reach (the chat was used, so it has one).
+          const saved = distro ? true : await invoke<boolean>("agent_session_saved", { cli: tab.agent, sessionId, profile: tab.profileId ?? null }).catch(() => true);
           if (saved) {
             dropChat();
-            await openAgentSession(tab.cwd, sessionId, tab.agent, undefined, tab.profileId, at);
+            await openAgentSession(distro ? (toWslPath(distro, tab.cwd) ?? tab.cwd) : tab.cwd, sessionId, tab.agent, distro ?? undefined, tab.profileId, at);
           } else if (await launchAgentInNewTab(tab.agent, tab.cwd, undefined, tab.profileId, true, at)) {
             dropChat();
           } else {
@@ -2274,8 +2279,20 @@ function Shell() {
       })();
       return;
     }
-    // The fresh terminal goes in front of the chat, which then closes.
-    void launchAgentInNewTab(tab.agent, tab.cwd, undefined, tab.profileId, true, at).then((ok) => ok && dropChat());
+    // The chat's agent ends first (two Codex processes starting together trip over their state store); the fresh terminal then
+    // goes in front of the chat, which closes.
+    if (switchingChatsRef.current.has(tab.id)) return;
+    switchingChatsRef.current.add(tab.id);
+    const freshCloser = chatClosersRef.current.get(tab.id);
+    void (async () => {
+      try {
+        await freshCloser?.close();
+        if (await launchAgentInNewTab(tab.agent, tab.cwd, distro ? wslShellId(distro) : undefined, tab.profileId, true, at)) dropChat();
+        else freshCloser?.restart();
+      } finally {
+        switchingChatsRef.current.delete(tab.id);
+      }
+    })();
   }
 
   /** The reverse of `switchChatToTerminal`: resumes the session in a chat tab.
@@ -2302,14 +2319,14 @@ function Shell() {
         const saved = await invoke<boolean>("agent_session_saved", { cli, sessionId, profile: tab.profileId ?? session.profile ?? null }).catch(() => true);
         if (!saved) {
           const at = latestRef.current.tabs.findIndex((t) => t.id === tabId);
-          await openChatTab(cli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, replaceTabId: tabId, at: at < 0 ? undefined : at });
+          await openChatTab(cli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, replaceTabId: tabId, shell: "host", at: at < 0 ? undefined : at });
           return;
         }
         const ptyId = termRefs.current.get(tabId)?.getPtyId();
         if (ptyId) await invoke("end_pty_agent", { ptyId }).catch(() => {});
         // Opens at the terminal's index, so the chat sits where the terminal was once that closes.
         const at = latestRef.current.tabs.findIndex((t) => t.id === tabId);
-        const opened = await openChatTab(cli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, resume, at: at < 0 ? undefined : at });
+        const opened = await openChatTab(cli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, resume, shell: "host", at: at < 0 ? undefined : at });
         if (!opened) resumeInTerminal(tabId, cli, sessionId);
       } finally {
         switchingChatsRef.current.delete(tabId);
@@ -2967,6 +2984,7 @@ function Shell() {
                       profileId={tab.profileId}
                       resumeSessionId={tab.sessionId}
                       strictResume={!!tab.handoffFrom}
+                      shell={tab.shell}
                       lastActiveAt={tab.lastActiveAt}
                       viewId={tab.viewId}
                       hidden={tab.id !== activeTabId}
@@ -2993,7 +3011,7 @@ function Shell() {
                         if (closer) chatClosersRef.current.set(tab.id, closer);
                         else chatClosersRef.current.delete(tab.id);
                       }}
-                      onSwitchToTerminal={(sessionId) => switchChatToTerminal(tab, sessionId)}
+                      onSwitchToTerminal={(sessionId, wslDistro) => switchChatToTerminal(tab, sessionId, wslDistro)}
                       onOpenFile={openFile}
                       onOpenLogin={(command) => openTerminalWithCommand(command, tab.profileId)}
                     />

@@ -25,6 +25,8 @@ interface AgentSessionViewProps {
   resumeSessionId?: string;
   /** The resumed session must load: fail rather than start a fresh one (a terminal handing its agent over). */
   strictResume?: boolean;
+  /** The shell id the agent runs where (see `ChatTab.shell`); absent = the configured shell. */
+  shell?: string;
   /** When the tab's conversation last had real activity (ms epoch), for a resumed chat: the replayed events only carry the load time. */
   lastActiveAt?: number;
   /** The registered view the session is shown with (absent: the default). */
@@ -41,7 +43,7 @@ interface AgentSessionViewProps {
   /** The view hands over how to end its agent (null when it goes): the terminal taking the session over waits for it. */
   onCloser: (closer: { close: () => Promise<void>; restart: () => void; clear: () => void; compact: () => void } | null) => void;
   /** Opens the session in a terminal tab: resumes `sessionId`, or starts a fresh one when it is null (nothing was said yet, so there is nothing on disk to resume). */
-  onSwitchToTerminal: (sessionId: string | null) => void;
+  onSwitchToTerminal: (sessionId: string | null, wslDistro?: string | null) => void;
   /** Opens a file of the project in an editor tab. */
   onOpenFile: (path: string) => void;
   /** Runs the agent's sign-in command in a terminal. */
@@ -57,6 +59,7 @@ export function AgentSessionView({
   profileId,
   resumeSessionId,
   strictResume,
+  shell,
   lastActiveAt,
   viewId,
   hidden,
@@ -72,7 +75,7 @@ export function AgentSessionView({
 }: AgentSessionViewProps) {
   const { t, language } = useI18n();
   const views = useAgentViews();
-  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, initialActivityAt: lastActiveAt, onSessionId, onStatus });
+  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, initialActivityAt: lastActiveAt, onSessionId, onStatus });
   const { model, phase, error, sessionId } = chat;
   // A new chat starting shows the conversation (the frog's pond); a resumed one waits behind the spinner.
   const showView = phase === "ready" || (phase === "starting" && !chat.resumed);
@@ -131,7 +134,7 @@ export function AgentSessionView({
   /** Switching needs the session id only when there is a conversation to resume, and never mid-turn: the terminal would resume a session the agent is still writing. */
   // Not while starting either: the agent is still being spawned (and, resumed, loading the session), and the terminal would race it for the session.
   const canSwitch = phase !== "starting" && !working && (!talked || !!sessionId);
-  const switchToTerminal = () => onSwitchToTerminal(talked ? (sessionId ?? null) : null);
+  const switchToTerminal = () => onSwitchToTerminal(talked ? (sessionId ?? null) : null, chat.wslDistro);
 
   function onViewKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.ctrlKey && e.key === "`" && canSwitch) {

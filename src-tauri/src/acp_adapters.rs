@@ -269,6 +269,15 @@ pub(crate) fn refresh_wsl_in_background(distro: Option<String>, agent: &str) {
     {
         let Some(pkg) = package(agent) else { return };
         let key = format!("wsl:{}:{agent}", distro.as_deref().unwrap_or(""));
+        // The script throttles itself in the distro, but starting `wsl.exe` costs a bash login each time: once an hour here.
+        static LAST: OnceLock<Mutex<std::collections::HashMap<String, Instant>>> = OnceLock::new();
+        {
+            let mut last = crate::util::lock(LAST.get_or_init(Default::default));
+            if last.get(&key).is_some_and(|at| at.elapsed() < Duration::from_secs(3600)) {
+                return;
+            }
+            last.insert(key.clone(), Instant::now());
+        }
         if !crate::util::lock(running()).insert(key.clone()) {
             return;
         }

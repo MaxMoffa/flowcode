@@ -17,6 +17,9 @@ import { readTheme } from "./readTheme";
 import type { AgentViewProps } from "./types";
 import "./plugin-view-host.css";
 
+/** Modes that switch the permission prompts off (as the mode menu tells them). */
+const BYPASS_MODE = /bypass|yolo|full.?access|dangerous/i;
+
 /** How long a view has to say hello before it's declared unresponsive. */
 const HELLO_TIMEOUT_MS = 10_000;
 
@@ -104,7 +107,10 @@ function SessionPluginViewHost(props: PluginViewHostProps) {
       },
       send: (text) => latest.current.session.send(text),
       cancel: () => latest.current.session.cancel(),
-      setMode: (modeId) => latest.current.session.setMode(modeId),
+      // A view may not lift the agent's permission prompts: the user picks the "bypass" modes in the mode menu.
+      setMode: (modeId) => {
+        if (!BYPASS_MODE.test(modeId)) latest.current.session.setMode(modeId);
+      },
       setModel: (modelId) => latest.current.session.setModel(modelId),
       openFile: (path) => latest.current.onOpenFile(path),
       switchView: (viewId) => latest.current.onSwitchView(viewId),

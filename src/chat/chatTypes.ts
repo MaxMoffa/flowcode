@@ -134,11 +134,9 @@ export interface ChatAttachment {
 export interface ChatStartResult {
   chatId: string;
   sessionId: string;
-  agent: string;
   modes: ChatModes | null;
   models: ChatModels | null;
   thought?: ChatThought | null;
-  configOptions: unknown;
   /** The session was resumed: its history arrives as events. */
   loaded: boolean;
   /** The WSL distro the agent runs in (its paths are Linux ones); null/absent for a Windows chat. */
