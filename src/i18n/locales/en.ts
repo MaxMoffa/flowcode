@@ -48,6 +48,9 @@ export const en: Record<MessageKey, string> = {
   "app.sessionSaveFailed": "Could not save the session. The window stays open. {error}",
   "terminal.inputFailed": "Input not sent ({bytes} bytes): {error}",
   "app.unsaved.confirm": "Close without saving",
+  "app.parkedBusy.title": "Agents still working",
+  "app.parkedBusy.message": "{count} background conversation(s) in this tab are still working and will be stopped. Close anyway?",
+  "app.parkedBusy.confirm": "Close and stop",
   "app.cli.notInstalled.title": "{name} is not installed",
   "app.cli.notInstalled.message":
     "{name} doesn't appear to be installed on this system. Install it now in a new terminal?",

@@ -33,7 +33,8 @@ interface AgentHistoryPanelProps {
   tabs: TermTab[];
   chatTabs: ChatTab[];
   getPtyId: (tabId: string) => string | null;
-  onOpenTab: (tabId: string) => void;
+  /** `sessionId`: the conversation to show, when the tab holds several. */
+  onOpenTab: (tabId: string, sessionId?: string) => void;
   onResume: (cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number) => void;
   /** `profileId`: the account profile the session runs under (`undefined` = default). */
   onNewSession: (cli: AgentCli, cwd: string, profileId: string | undefined) => void;
@@ -187,6 +188,11 @@ export function AgentHistoryPanel({
       if (!inRoots(tab.cwd, null)) continue;
       const status = tab.status === "busy" || tab.status === "waiting" ? tab.status : tab.status === "exited" ? undefined : "idle";
       mark({ cli: tab.agent, sessionId: tab.sessionId ?? "", title: tab.label, cwd: tab.cwd, at: null, profile: tab.profileId ?? null, wslDistro: null, tabId: tab.id, status });
+      // Conversations of the tab running in the background.
+      for (const pane of tab.parked ?? []) {
+        const paneStatus = pane.status === "busy" || pane.status === "waiting" ? pane.status : pane.status === "exited" ? undefined : "idle";
+        mark({ cli: tab.agent, sessionId: pane.sessionId ?? "", title: pane.label, cwd: tab.cwd, at: null, profile: tab.profileId ?? null, wslDistro: null, tabId: tab.id, status: paneStatus });
+      }
     }
     for (const session of sessions ?? []) {
       const tab = tabs.find((x) => getPtyId(x.id) === session.pty_id);
@@ -271,7 +277,7 @@ export function AgentHistoryPanel({
                   aria-current={row.sessionId && row.sessionId === currentSessionId ? "true" : undefined}
                   title={`${titleOf(row)}\n${row.cwd}`}
                   onClick={() => {
-                    if (row.tabId) onOpenTab(row.tabId);
+                    if (row.tabId) onOpenTab(row.tabId, row.sessionId || undefined);
                     else onResume(row.cwd, row.sessionId, row.cli, row.wslDistro ?? undefined, row.profile ?? undefined, row.at > 0 ? row.at : undefined);
                   }}
                 >

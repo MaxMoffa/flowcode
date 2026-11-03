@@ -18,7 +18,7 @@ import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setAc
 import { lastSubmitAt } from "./terminal/ptyClient";
 import type { EditorHandle } from "./editor/EditorView";
 import { SymbolOutline } from "./editor/SymbolOutline";
-import type { AppTab, ChatTab, TermTab, EditorTab } from "./tabs/types";
+import type { AppTab, ChatPane, ChatTab, TermTab, EditorTab } from "./tabs/types";
 import type { GitChange } from "./git/gitStatus";
 import { loadPluginViews } from "./agentViews/pluginViews";
 import { defaultAgentView, defaultOpensChat } from "./agentViews/defaultView";
@@ -1045,6 +1045,17 @@ function Shell() {
    * agent view - a chat tab, or a terminal (always, for one inside WSL). */
   function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number) {
     if (!wslDistro && defaultOpensChat()) {
+      // A chat tab already on this folder (same agent, profile, outside WSL) shows it too, the conversation
+      // it had keeps running in the background; only without one does a new tab open.
+      const { tabs: all, activeTabId: front } = latestRef.current;
+      const fits = (t: AppTab): t is ChatTab =>
+        t.kind === "chat" && t.agent === cli && t.cwd === cwd && (t.profileId ?? null) === (profileId ?? null) && !t.handoffFrom && wslDistroOfShell(t.shell) === undefined;
+      const target = all.find((t) => t.id === front && fits(t)) ?? all.find(fits);
+      if (target) {
+        showChatSession(target.id, sessionId, lastActiveAt);
+        setActiveTabId(target.id);
+        return;
+      }
       // A session saved outside WSL is loaded outside it, whatever the default shell is.
       void openChatTab(cli, cwd, { profileId, shell: "host", resume: { sessionId, lastActiveAt } });
       return;
@@ -1511,6 +1522,17 @@ function Shell() {
           title: t("app.unsaved.title"),
           message: t("app.unsaved.message", { name: tab.label }),
           confirmLabel: t("app.unsaved.confirm"),
+          danger: true,
+        });
+        if (!ok) return;
+      }
+      // Conversations parked in the background that are mid-turn end with the tab.
+      const working = tab.kind === "chat" ? (tab.parked ?? []).filter((p) => p.status === "busy" || p.status === "waiting").length : 0;
+      if (working > 0) {
+        const ok = await confirm({
+          title: t("app.parkedBusy.title"),
+          message: t("app.parkedBusy.message", { count: working }),
+          confirmLabel: t("app.parkedBusy.confirm"),
           danger: true,
         });
         if (!ok) return;
@@ -2231,12 +2253,71 @@ function Shell() {
     setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "chat" ? { ...t, ...patch } : t)));
   }
 
+  /** Patches one conversation of a chat tab: the shown one lives on the tab, a parked one in `parked`. */
+  function patchChatPane(tabId: string, paneKey: string, patch: Partial<ChatPane>) {
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.id !== tabId || t.kind !== "chat") return t;
+        if ((t.paneKey ?? t.id) === paneKey) return { ...t, ...patch };
+        return t.parked ? { ...t, parked: t.parked.map((p) => (p.paneKey === paneKey ? { ...p, ...patch } : p)) } : t;
+      }),
+    );
+  }
+
+  /** Shows `sessionId` in chat tab `tabId`: a parked conversation of it is swapped in, otherwise a new one
+   * starts resuming it. The one shown until now is parked, its agent keeps running. */
+  function showChatSession(tabId: string, sessionId: string, lastActiveAt?: number) {
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.id !== tabId || t.kind !== "chat" || t.sessionId === sessionId) return t;
+        const parked = t.parked ?? [];
+        const found = parked.find((p) => p.sessionId === sessionId);
+        const next: ChatPane = found ?? { paneKey: newTabId("chat"), label: basename(t.cwd) || CLI_INFO[t.agent].name, sessionId, viewId: t.viewId, lastActiveAt };
+        const current: ChatPane = { paneKey: t.paneKey ?? t.id, label: t.label, sessionId: t.sessionId, viewId: t.viewId, status: t.status, talked: t.talked, lastActiveAt: t.lastActiveAt };
+        return {
+          ...t,
+          paneKey: next.paneKey,
+          label: next.label,
+          sessionId: next.sessionId,
+          viewId: next.viewId,
+          status: next.status,
+          talked: next.talked,
+          lastActiveAt: next.lastActiveAt,
+          parked: [...parked.filter((p) => p !== found), current],
+        };
+      }),
+    );
+  }
+
+  /** A History row open in a tab was picked: the tab comes forward, showing that conversation if it is a parked one. */
+  function openHistoryTab(tabId: string, sessionId?: string) {
+    if (sessionId) showChatSession(tabId, sessionId);
+    selectTab(tabId);
+  }
+
   /** Ctrl+` in a chat: closes the chat (its view's unmount kills the agent, so
    * the session is free) and resumes that session in a terminal tab at the
    * chat's place. A null `sessionId` (no prompt sent yet: nothing on disk to
    * resume) starts a fresh agent there instead, and the chat stays if it
    * can't start. */
   function switchChatToTerminal(tab: ChatTab, sessionId: string | null, chatDistro?: string | null) {
+    // Conversations parked in the background that are mid-turn end with the chat.
+    const working = (latestRef.current.tabs.find((t): t is ChatTab => t.id === tab.id && t.kind === "chat")?.parked ?? []).filter((p) => p.status === "busy" || p.status === "waiting").length;
+    if (working === 0) {
+      doSwitchChatToTerminal(tab, sessionId, chatDistro);
+      return;
+    }
+    void confirm({
+      title: t("app.parkedBusy.title"),
+      message: t("app.parkedBusy.message", { count: working }),
+      confirmLabel: t("app.parkedBusy.confirm"),
+      danger: true,
+    }).then((ok) => {
+      if (ok) doSwitchChatToTerminal(tab, sessionId, chatDistro);
+    });
+  }
+
+  function doSwitchChatToTerminal(tab: ChatTab, sessionId: string | null, chatDistro?: string | null) {
     // A chat running in WSL keeps its sessions in the distro: the terminal is a WSL one there too.
     const distro = chatDistro || wslDistroOfShell(tab.shell) || null;
     const index = latestRef.current.tabs.findIndex((t) => t.id === tab.id);
@@ -2256,7 +2337,7 @@ function Shell() {
       // A second Ctrl+` while the first waits must not open a second terminal.
       if (switchingChatsRef.current.has(tab.id)) return;
       switchingChatsRef.current.add(tab.id);
-      const closer = chatClosersRef.current.get(tab.id);
+      const closer = chatClosersRef.current.get(tab.paneKey ?? tab.id);
       void (async () => {
         try {
           await closer?.close();
@@ -2283,7 +2364,7 @@ function Shell() {
     // goes in front of the chat, which closes.
     if (switchingChatsRef.current.has(tab.id)) return;
     switchingChatsRef.current.add(tab.id);
-    const freshCloser = chatClosersRef.current.get(tab.id);
+    const freshCloser = chatClosersRef.current.get(tab.paneKey ?? tab.id);
     void (async () => {
       try {
         await freshCloser?.close();
@@ -2578,14 +2659,14 @@ function Shell() {
                   tabs={terminalTabs}
                   chatTabs={chatTabs}
                   getPtyId={(id) => termRefs.current.get(id)?.getPtyId() ?? null}
-                  onOpenTab={selectTab}
+                  onOpenTab={openHistoryTab}
                   onResume={resumeAgentSession}
                   currentProfileId={historyAgent.profileId}
                   onNewSession={(cli, cwd, profileId) => {
                     // A chat in front starts its new conversation in place, like "/clear" -
                     // unless another agent or profile was picked.
                     const same = cli === historyAgent.cli && profileId === historyAgent.profileId;
-                    const closer = same && frontTab?.kind === "chat" ? chatClosersRef.current.get(frontTab.id) : undefined;
+                    const closer = same && frontTab?.kind === "chat" ? chatClosersRef.current.get(frontTab.paneKey ?? frontTab.id) : undefined;
                     if (closer) closer.clear();
                     else void launchAgentInNewTab(cli, cwd, undefined, profileId);
                   }}
@@ -2974,49 +3055,61 @@ function Shell() {
                 );
               }
               if (tab.kind === "chat") {
+                // The shown conversation (its fields are the tab's) and the parked ones, all mounted: a hidden one keeps its agent running.
+                const panes: (ChatPane & { shown: boolean })[] = [
+                  { paneKey: tab.paneKey ?? tab.id, label: tab.label, sessionId: tab.sessionId, viewId: tab.viewId, status: tab.status, talked: tab.talked, lastActiveAt: tab.lastActiveAt, shown: true },
+                  ...(tab.parked ?? []).map((p) => ({ ...p, shown: false })),
+                ];
                 return (
-                  <Suspense key={tab.id} fallback={null}>
-                    {/* Paths in this chat resolve against its folder and open on this PC. */}
-                    <FileLinkCwdContext.Provider value={tab.cwd}>
-                    <AgentSessionView
-                      agent={tab.agent}
-                      cwd={tab.cwd}
-                      profileId={tab.profileId}
-                      resumeSessionId={tab.sessionId}
-                      strictResume={!!tab.handoffFrom}
-                      shell={tab.shell}
-                      lastActiveAt={tab.lastActiveAt}
-                      viewId={tab.viewId}
-                      hidden={tab.id !== activeTabId}
-                      title={tab.label}
-                      onSessionId={(sessionId) => {
-                        patchChatTab(tab.id, { sessionId });
-                        if (tab.handoffFrom) finishHandoff(tab.id, tab.handoffFrom);
-                      }}
-                      onStatus={(status, error) => {
-                        if (status === "exited" && tab.handoffFrom) failHandoff(tab.id, error);
-                        else {
-                          // Real activity: a turn starting, or ending (busy/waiting -> idle). Starting up and replaying a resumed history is not.
-                          const working = (s: string | undefined) => s === "busy" || s === "waiting";
-                          const active = working(status) || (status === "idle" && working(tab.status));
-                          patchChatTab(tab.id, active ? { status, lastActiveAt: Date.now() } : { status });
-                        }
-                      }}
-                      onViewChange={(viewId) => patchChatTab(tab.id, { viewId })}
-                      onTalked={(talked) => {
-                        // Absent counts as talked (a restored or resumed chat); only a real change is written.
-                        if (talked ? tab.talked === false : tab.talked !== false) patchChatTab(tab.id, { talked });
-                      }}
-                      onCloser={(closer) => {
-                        if (closer) chatClosersRef.current.set(tab.id, closer);
-                        else chatClosersRef.current.delete(tab.id);
-                      }}
-                      onSwitchToTerminal={(sessionId, wslDistro) => switchChatToTerminal(tab, sessionId, wslDistro)}
-                      onOpenFile={openFile}
-                      onOpenLogin={(command) => openTerminalWithCommand(command, tab.profileId)}
-                    />
-                    </FileLinkCwdContext.Provider>
-                  </Suspense>
+                  <Fragment key={tab.id}>
+                    {panes.map((pane) => {
+                      const handoff = pane.shown ? tab.handoffFrom : undefined;
+                      return (
+                        <Suspense key={pane.paneKey} fallback={null}>
+                          {/* Paths in this chat resolve against its folder and open on this PC. */}
+                          <FileLinkCwdContext.Provider value={tab.cwd}>
+                          <AgentSessionView
+                            agent={tab.agent}
+                            cwd={tab.cwd}
+                            profileId={tab.profileId}
+                            resumeSessionId={pane.sessionId}
+                            strictResume={!!handoff}
+                            shell={tab.shell}
+                            lastActiveAt={pane.lastActiveAt}
+                            viewId={pane.viewId}
+                            hidden={tab.id !== activeTabId || !pane.shown}
+                            title={pane.label}
+                            onSessionId={(sessionId) => {
+                              patchChatPane(tab.id, pane.paneKey, { sessionId });
+                              if (handoff) finishHandoff(tab.id, handoff);
+                            }}
+                            onStatus={(status, error) => {
+                              if (status === "exited" && handoff) failHandoff(tab.id, error);
+                              else {
+                                // Real activity: a turn starting, or ending (busy/waiting -> idle). Starting up and replaying a resumed history is not.
+                                const working = (s: string | undefined) => s === "busy" || s === "waiting";
+                                const active = working(status) || (status === "idle" && working(pane.status));
+                                patchChatPane(tab.id, pane.paneKey, active ? { status, lastActiveAt: Date.now() } : { status });
+                              }
+                            }}
+                            onViewChange={(viewId) => patchChatPane(tab.id, pane.paneKey, { viewId })}
+                            onTalked={(talked) => {
+                              // Absent counts as talked (a restored or resumed chat); only a real change is written.
+                              if (talked ? pane.talked === false : pane.talked !== false) patchChatPane(tab.id, pane.paneKey, { talked });
+                            }}
+                            onCloser={(closer) => {
+                              if (closer) chatClosersRef.current.set(pane.paneKey, closer);
+                              else chatClosersRef.current.delete(pane.paneKey);
+                            }}
+                            onSwitchToTerminal={(sessionId, wslDistro) => switchChatToTerminal(tab, sessionId, wslDistro)}
+                            onOpenFile={openFile}
+                            onOpenLogin={(command) => openTerminalWithCommand(command, tab.profileId)}
+                          />
+                          </FileLinkCwdContext.Provider>
+                        </Suspense>
+                      );
+                    })}
+                  </Fragment>
                 );
               }
               if (tab.kind === "editor") {
@@ -3121,7 +3214,7 @@ function Shell() {
               <div className="panel-card-content" style={{ width: agentsResize.width - 2 }}>
                 <AgentInsightPanel
                   onClose={() => setAgentsSidebarOpen(false)}
-                  onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.id)?.compact() : undefined}
+                  onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.paneKey ?? frontChat.id)?.compact() : undefined}
                 />
               </div>
             </div>

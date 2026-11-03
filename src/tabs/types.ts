@@ -87,6 +87,22 @@ export interface ChatTab {
   explorerPath?: string;
   /** When the conversation last had real activity (ms epoch): a turn started or ended here, or the history said so for a session resumed from it. Saved; drives the "prompt cache expired" notice. */
   lastActiveAt?: number;
+  /** Stable key of the conversation shown (its view keeps running across swaps); absent = the tab id. Not saved. */
+  paneKey?: string;
+  /** Other conversations of this tab (same agent, folder, profile and shell), kept running in the background
+   * while another is shown; picking one in the History swaps it in. Not saved. */
+  parked?: ChatPane[];
+}
+
+/** The per-conversation fields of a chat tab: those of the shown one live on the tab itself, parked ones here. */
+export interface ChatPane {
+  paneKey: string;
+  label: string;
+  sessionId?: string;
+  viewId?: string;
+  status?: ChatStatus;
+  talked?: boolean;
+  lastActiveAt?: number;
 }
 
 export interface EditorTab {

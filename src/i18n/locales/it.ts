@@ -46,6 +46,9 @@ export const it = {
   "app.sessionSaveFailed": "Impossibile salvare la sessione. La finestra resta aperta. {error}",
   "terminal.inputFailed": "Input non inviato ({bytes} byte): {error}",
   "app.unsaved.confirm": "Chiudi senza salvare",
+  "app.parkedBusy.title": "Agenti ancora al lavoro",
+  "app.parkedBusy.message": "{count} conversazioni in background di questa tab stanno ancora lavorando e verranno interrotte. Chiudere comunque?",
+  "app.parkedBusy.confirm": "Chiudi e interrompi",
   "app.cli.notInstalled.title": "{name} non è installato",
   "app.cli.notInstalled.message":
     "{name} non risulta installato su questo sistema. Vuoi installarlo ora in un nuovo terminale?",
