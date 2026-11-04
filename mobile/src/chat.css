@@ -1435,6 +1435,7 @@ button.chat-step-row {
 }
 
 .chat-composer {
+  position: relative;
   flex: none;
   box-sizing: border-box;
   width: 100%;
@@ -1551,6 +1552,44 @@ button.chat-step-row {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* One line tall: when the pills leave no room the "/" button wraps to a second line and is clipped away. The pills keep priority, whatever the model's name. */
+.chat-actions-fit {
+  flex: 1 1 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 46px;
+  overflow: hidden;
+}
+
+.chat-actions-start:empty {
+  display: none;
+}
+
+.chat-slash {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--fg);
+  font-family: var(--mono, ui-monospace, Consolas, monospace);
+  font-size: 19px;
+}
+
+.chat-slash.on {
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+  color: var(--accent);
 }
 
 .chat-actions-start {
@@ -2886,3 +2925,254 @@ button.chat-step-row {
 .chat-termblock-out.is-empty { font-family: var(--font); white-space: normal; }
 .chat-termjump { position: absolute; left: 14px; bottom: 10px; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--glass-strong); -webkit-backdrop-filter: var(--blur-card); backdrop-filter: var(--blur-card); color: var(--fg); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; box-shadow: var(--shadow); animation: chat-jump-in 0.18s ease-out; }
 @media (prefers-reduced-motion: reduce) { .chat-termblock, .chat-termblock-head > svg { transition: none; } .chat-termjump { animation: none; } }
+
+/* The "/" panel over the composer, and the chip of a picked command. */
+.chat-commands {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  max-height: min(300px, 46vh);
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px var(--border-strong);
+}
+
+.chat-commands-list {
+  flex: 1;
+  min-height: 0;
+  padding: 0 6px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.chat-commands-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 10px 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chat-commands-group span {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-commands-none,
+.chat-commands-wait {
+  padding: 14px;
+  color: var(--muted);
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+.chat-command {
+  display: flex;
+  align-items: stretch;
+  border-radius: 12px;
+}
+
+.chat-command.is-open {
+  background: var(--surface-2);
+}
+
+.chat-command-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  min-height: 56px;
+  padding: 9px 4px 9px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+}
+
+.chat-command-pick:active {
+  background: var(--surface-3);
+}
+
+.chat-command-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-command-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, ui-monospace, Consolas, monospace);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.chat-command-name i {
+  font-style: normal;
+  color: var(--muted);
+}
+
+.chat-command-name mark {
+  background: none;
+  color: var(--accent);
+}
+
+.chat-command-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.chat-command.is-open .chat-command-desc {
+  display: block;
+  color: var(--fg);
+}
+
+.chat-command-more {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--muted);
+}
+
+.chat-command-more svg {
+  transition: transform 0.16s;
+}
+
+.chat-command.is-open .chat-command-more svg {
+  transform: rotate(180deg);
+}
+
+.chat-command-detail {
+  padding: 2px 12px 10px 47px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.chat-command-detail p {
+  margin: 0 0 4px;
+}
+
+.chat-kind-icon,
+.chat-cmd-chip {
+  --kind: var(--muted);
+}
+
+.chat-kind-icon.is-flowcode,
+.chat-cmd-chip.is-flowcode {
+  --kind: var(--accent);
+}
+
+.chat-kind-icon.is-skill,
+.chat-cmd-chip.is-skill {
+  --kind: var(--accent-2);
+}
+
+.chat-kind-icon.is-plugin,
+.chat-cmd-chip.is-plugin {
+  --kind: #8ea1dc;
+}
+
+.chat-kind-icon.is-mcp,
+.chat-cmd-chip.is-mcp {
+  --kind: #c98ac9;
+}
+
+.chat-kind-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--kind) 18%, transparent);
+  color: color-mix(in srgb, var(--kind) 80%, var(--fg));
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.chat-cmd-row {
+  display: flex;
+  min-width: 0;
+  margin: 0 10px 6px 0;
+}
+
+.chat-cmd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 6px 2px 3px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--kind) 15%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kind) 35%, transparent);
+  color: color-mix(in srgb, var(--kind) 70%, var(--fg));
+  font-family: var(--mono, ui-monospace, Consolas, monospace);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.chat-cmd-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-cmd-chip .chat-kind-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  font-size: 10px;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+  color: inherit;
+}
+
+.chat-cmd-chip.is-removable {
+  padding-right: 0;
+}
+
+.chat-cmd-chip-x {
+  flex: none;
+  width: 36px;
+  height: 32px;
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+}

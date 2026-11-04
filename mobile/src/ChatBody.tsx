@@ -3,6 +3,7 @@ import { askSummary } from "../../src/chat/askQuestions";
 import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "../../src/chat/chatModel";
 import { hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
 import type { ChatImageRef, ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
+import { UserText } from "../../src/chat/CommandChip";
 import { ChatCompaction } from "./ChatCompaction";
 import { ChatImages, ChatUserImages } from "./ChatImage";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
@@ -335,7 +336,7 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
       return (
         <>
           {item.images && item.images.length > 0 && <ChatUserImages images={item.images} />}
-          {(item.text || !item.images?.length) && <div className="chat-user">{item.text}</div>}
+          {(item.text || !item.images?.length) && <div className="chat-user"><UserText text={item.text} /></div>}
         </>
       );
     case "agent":

@@ -1,7 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import type { ChatModels, ChatModes, ChatThought } from "../../src/chat/chatTypes";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ChatCommand, ChatModels, ChatModes, ChatThought } from "../../src/chat/chatTypes";
+import { buildMenu, commandText, displayName, type MenuEntry } from "../../src/chat/commandMenu";
+import { CommandChip } from "../../src/chat/CommandChip";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
+import { ChatCommands } from "./ChatCommands";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
 import { ModeIcon, StarIcon } from "./ChatModeIcons";
@@ -15,6 +18,9 @@ const MAX_HEIGHT = 140;
 
 /** Unsent text per chat, so leaving a chat and coming back keeps it. */
 const drafts = new Map<string, string>();
+
+/** The picked command per chat, kept like the text. */
+const pickedDrafts = new Map<string, MenuEntry>();
 
 /** Keeps the keyboard where it is while a button is tapped. */
 const keepFocus = {
@@ -68,11 +74,18 @@ interface ChatComposerProps {
   onSend: (text: string) => void;
   onStop: () => void;
   subagentTray?: ReactNode;
+  /** What the agent offers on "/". */
+  commands: ChatCommand[];
+  /** The agent hasn't said its commands yet. */
+  commandsLoading: boolean;
+  /** Whether the desktop can run "/clear". */
+  canClear: boolean;
 }
 
 /**
  * The message card: the text field first, then one row of actions - the mode
- * pill on the left (it opens the list of modes) and the model pill beside it, the mic and the send button
+ * pill on the left (it opens the list of modes) and the model pill beside it, the "/" button
+ * (it goes when the row has no room for it), the mic and the send button
  * (the stop button while a turn runs and the box is empty) on the right, both
  * round and 56px for the thumb. While dictating, a waveform and a timer sit
  * where the placeholder was.
@@ -90,11 +103,37 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   onThought,
   onSend,
   onStop,
+  commands,
+  commandsLoading,
+  canClear,
 }, ref) {
   const box = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(() => drafts.get(chatId) ?? "");
   const [modeOpen, setModeOpen] = useState(false);
   const [defaultMode, setDefault] = useState(() => getDefaultMode(agent));
+  const [picked, setPicked] = useState<MenuEntry | null>(() => pickedDrafts.get(chatId) ?? null);
+  /** The "/" button over a draft that already has text: the list opens and the text stays, as the instructions. */
+  const [forced, setForced] = useState(false);
+  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+  const builtins = useMemo<ChatCommand[]>(() => (canClear ? [{ name: "clear", description: t("chatCmdClear") }] : []), [canClear]);
+  const query = picked ? null : forced ? "" : text.startsWith("/") && !/\s/.test(text) && dismissedFor !== text ? text.slice(1) : null;
+  const menu = useMemo(() => (query === null ? null : buildMenu(commands, builtins, query)), [query, commands, builtins]);
+  const closeMenu = () => {
+    setForced(false);
+    setDismissedFor(text);
+  };
+  const menuOpen = menu !== null;
+  useEscape(menuOpen, closeMenu);
+  useBackHandler(menuOpen, closeMenu);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!root.current?.contains(e.target as Node)) closeMenu();
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [menuOpen, text]);
   const closeMode = () => setModeOpen(false);
   useEscape(modeOpen, closeMode);
   useBackHandler(modeOpen, closeMode);
@@ -128,17 +167,44 @@ ${latest.current}` : added);
     tapFeedback();
     dictation.toggle();
   };
+  const pick = (entry: MenuEntry | null) => {
+    setPicked(entry);
+    if (entry) pickedDrafts.set(chatId, entry);
+    else pickedDrafts.delete(chatId);
+  };
+  const pickCommand = (entry: MenuEntry) => {
+    tapFeedback();
+    if (!forced) change("");
+    setForced(false);
+    pick(entry);
+    box.current?.focus();
+  };
+  /** Starts the "/" the keyboard often hides on its second layer; pressed again it closes. */
+  const toggleMenu = () => {
+    tapFeedback();
+    pick(null);
+    setDismissedFor(null);
+    if (forced) setForced(false);
+    else if (!text) change("/");
+    else if (text === "/") change("");
+    else setForced(true);
+    box.current?.focus();
+  };
   const send = () => {
-    if (!text.trim()) return;
+    if (!text.trim() && !picked) return;
     tapFeedback();
     dictation.cancel();
-    onSend(text);
+    // Flowcode's own commands take no instructions.
+    onSend(picked ? commandText(picked) + (text.trim() && picked.kind !== "flowcode" ? ` ${text}` : "") : text);
     change("");
+    pick(null);
+    setForced(false);
   };
   const current = modes?.availableModes.find((m) => m.id === modes.currentModeId);
 
   return (
-    <div className="chat-composer">
+    <div className="chat-composer" ref={root}>
+      {menu && query !== null && <ChatCommands {...keepFocus} menu={menu} query={query} loading={commandsLoading} onPick={pickCommand} />}
       {dictation.error && (
         <div className="chat-notice" role="alert">
           <span className="chat-notice-text">{dictation.error}</span>
@@ -160,23 +226,34 @@ ${latest.current}` : added);
             {dictation.partial && <span className="chat-listening-text">{dictation.partial}</span>}
           </div>
         )}
+        {picked && (
+          <div className="chat-cmd-row">
+            <CommandChip kind={picked.kind} name={displayName(picked)} title={picked.command.description} onRemove={() => { pick(null); box.current?.focus(); }} removeLabel={t("chatCmdRemove")} />
+          </div>
+        )}
         <textarea
           ref={box}
           className="chat-input"
           rows={1}
           value={text}
-          placeholder={listening ? "" : t("chatPlaceholder")}
+          placeholder={listening ? "" : picked ? (picked.hint ? `${picked.hint} · ${t("chatCmdOptional")}` : t("chatCmdAddInstructions")) : t("chatPlaceholder")}
           aria-label={t("chatPlaceholder")}
           autoCapitalize="sentences"
-          onChange={(e) => change(e.target.value)}
+          onChange={(e) => {
+            setForced(false);
+            change(e.target.value);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && hasKeyboard()) {
               e.preventDefault();
-              send();
+              const top = menu?.entries[0]?.entry;
+              if (top) pickCommand(top);
+              else send();
             }
           }}
         />
         <div className="chat-actions">
+          <div className="chat-actions-fit">
           <div className="chat-actions-start">
             {modes && current ? (
               <div className="chat-mode">
@@ -239,18 +316,20 @@ ${latest.current}` : added);
             ) : null}
             {onModel && onThought && <ChatModelPicker models={models} thought={thought} busy={busy} onModel={onModel} onThought={onThought} />}
           </div>
+          <button type="button" {...keepFocus} tabIndex={-1} className={"chat-slash" + (menu ? " on" : "")} aria-label={t("chatCmdTitle")} aria-expanded={menu !== null} onClick={toggleMenu}>/</button>
+          </div>
           <div className="chat-actions-end">
             {dictation.supported && (
               <button type="button" {...keepFocus} className={"chat-round chat-mic" + (listening ? " is-listening" : "")} aria-label={t("dictate")} aria-pressed={listening} onClick={dictate}>
                 <MicIcon />
               </button>
             )}
-            {busy && !text.trim() ? (
+            {busy && !text.trim() && !picked ? (
               <button type="button" {...keepFocus} className="chat-round is-stop" aria-label={t("chatStopTurn")} onClick={onStop}>
                 <StopIcon />
               </button>
             ) : (
-              <button type="button" {...keepFocus} className="chat-round is-send" aria-label={t("chatSend")} disabled={!text.trim()} onClick={send}>
+              <button type="button" {...keepFocus} className="chat-round is-send" aria-label={t("chatSend")} disabled={!text.trim() && !picked} onClick={send}>
                 <SendIcon />
               </button>
             )}

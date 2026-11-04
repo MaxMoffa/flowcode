@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per scegliere comandi e skill con lo / dalla chat mobile, confrontate con il composer di oggi.">
+  <title>Flowcode mobile — comandi con / · 3 varianti</title>
+  <style>
+    /* Token e misure copiati da mobile/src/ui.css e mobile/src/chat.css; colori dei tipi da src/chat/chat.css. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-2: #c9975a; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --wait: #d1a752;
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --kbh: 0px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1040px; margin: auto; padding: 28px 24px 40px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 130px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .layout { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .side { display: grid; gap: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; }
+    .controls select { padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface); color: var(--fg); font: inherit; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .ctl { min-height: 32px; padding: 0 11px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--fg); font-size: 13px; }
+    .note h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 62ch; }
+    .note code, .limits code { font: 12.5px var(--mono); }
+    .limits { padding: 14px 16px; border-radius: 12px; background: rgba(209, 167, 82, .07); box-shadow: inset 0 0 0 1px rgba(209, 167, 82, .24); }
+    .limits h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--wait); }
+    .limits ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 390px; max-width: 100%; height: 780px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong), 0 30px 60px -30px #000; isolation: isolate; margin: 9px auto 0; }
+    .status { flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .head { flex: none; display: flex; align-items: center; gap: 2px; padding: 2px 14px 2px 4px; border-bottom: 1px solid var(--border); }
+    .head .back { width: 44px; height: 46px; display: grid; place-items: center; color: var(--muted); }
+    .head .logo { width: 28px; height: 28px; margin-right: 10px; border-radius: 9px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; }
+    .head b { display: block; font-size: 15px; font-weight: 600; line-height: 1.25; }
+    .head small { display: block; font-size: 12px; color: var(--muted); line-height: 1.25; }
+    .conv { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 16px 12px; scrollbar-width: none; }
+    .conv::-webkit-scrollbar { display: none; }
+    .msg-user { width: fit-content; max-width: 82%; margin: 0 0 16px auto; padding: 9px 14px; border-radius: 18px 18px 5px 18px; background: var(--surface-2); font-size: 15px; overflow-wrap: anywhere; }
+    .msg { margin: 0 0 12px; font-size: 15px; line-height: 1.55; }
+    .rail { display: flex; align-items: center; gap: 8px; min-height: 34px; margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+    .rail i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+    .composer { position: relative; z-index: 3; flex: none; padding: 0 12px 10px; background: var(--bg); }
+    .card { position: relative; z-index: 1; padding: 14px 10px 10px 20px; border-radius: 28px; background: var(--surface-2); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); }
+    .card-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .input { display: block; flex: 1 1 120px; width: 100%; min-width: 0; min-height: 34px; max-height: 96px; padding: 0 10px 0 0; border: 0; outline: 0; resize: none; background: none; color: var(--fg); font: 16px/1.45 var(--font); }
+    .input:focus-visible, .search input:focus-visible { outline: 0; }
+    .input::placeholder { color: var(--muted); opacity: 1; }
+    .actions { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+    .actions .grow { flex: 1; }
+    .pill { display: flex; align-items: center; height: 46px; border-radius: 23px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); min-width: 0; overflow: hidden; }
+    .pill span { display: flex; align-items: center; height: 100%; padding: 0 12px; color: var(--fg); font-size: 14px; white-space: nowrap; }
+    .pill span + span { box-shadow: -1px 0 0 var(--border); overflow: hidden; text-overflow: ellipsis; }
+    .slash { flex: none; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); color: var(--fg); font: 500 19px var(--mono); }
+    .slash[aria-expanded="true"] { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); color: var(--accent); }
+    .round { flex: none; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); background: var(--bg); }
+    .round.send { background: var(--accent); color: var(--on-accent); }
+    .round.send:disabled { opacity: .45; cursor: default; }
+
+    /* ---- tastiera simulata ---- */
+    .kb { position: relative; z-index: 11; flex: none; height: 262px; padding: 8px 4px; display: none; gap: 8px; align-content: start; background: #0f0c09; border-top: 1px solid var(--border); touch-action: manipulation; }
+    .kb.on { display: grid; }
+    .kb div { display: flex; gap: 5px; justify-content: center; }
+    .kb button { flex: 0 1 34px; min-width: 0; height: 52px; display: grid; place-items: center; border-radius: 6px; background: var(--surface); font-size: 16px; }
+    .kb button:active { background: var(--surface-3); }
+    .kb button.fn { flex: 0 1 48px; background: var(--surface-2); color: var(--muted); font-size: 13px; }
+    .kb button.space { flex: 1 1 170px; }
+    .kb button.hl { box-shadow: inset 0 0 0 1px var(--accent-border); color: var(--accent); }
+
+    /* ---- elementi condivisi: icona del tipo, chip, righe ---- */
+    .is-flowcode { --kind: var(--accent); } .is-command { --kind: var(--muted); } .is-skill { --kind: var(--accent-2); } .is-plugin { --kind: #8ea1dc; } .is-mcp { --kind: #c98ac9; }
+    .kind { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--kind) 18%, transparent); color: var(--kind); font: 600 13px var(--mono); }
+    .kind.s { width: 18px; height: 18px; border-radius: 5px; font-size: 10px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 30px; padding: 0 4px 0 6px; border-radius: 9px; background: color-mix(in srgb, var(--kind) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kind) 32%, transparent); font: 500 13px var(--mono); vertical-align: middle; }
+    .chip > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip.fixed { padding-right: 8px; margin-right: 4px; }
+    .chip-x { flex: none; width: 34px; height: 30px; margin: -2px -4px -2px -4px; display: grid; place-items: center; color: var(--muted); }
+
+    .list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 8px; scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+    .group { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; padding: 9px 10px 5px; background: inherit; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .group span { font-weight: 400; font-variant-numeric: tabular-nums; }
+    .row { display: flex; align-items: stretch; border-radius: 12px; }
+    .row.open { background: var(--surface-2); }
+    .pick { flex: 1; min-width: 0; display: flex; gap: 11px; align-items: flex-start; min-height: 56px; padding: 9px 4px 9px 8px; border-radius: 12px; }
+    .pick:active { background: var(--surface-3); }
+    .txt { flex: 1; min-width: 0; display: block; }
+    .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 14px/1.35 var(--mono); }
+    .name i { font-style: normal; color: var(--muted); }
+    .name mark { background: none; color: var(--accent); }
+    .desc { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; margin-top: 2px; color: var(--muted); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+    .row.open .desc { display: block; color: var(--fg); }
+    .more { flex: none; width: 44px; display: grid; place-items: center; color: var(--muted); border-radius: 12px; }
+    .more svg { transition: transform .16s; }
+    .row.open .more svg { transform: rotate(180deg); }
+    .detail { padding: 0 12px 12px 47px; font-size: 12.5px; color: var(--muted); }
+    .detail p { margin: 0 0 8px; }
+    .detail code { font: 12px var(--mono); color: var(--fg); }
+    .use { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-size: 14px; font-weight: 600; }
+    .wait { display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--muted); font-size: 12.5px; }
+    .wait i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .none { padding: 16px 14px; color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+    .none code { font: 13px var(--mono); color: var(--fg); }
+    .none button { display: block; margin-top: 10px; min-height: 44px; padding: 0 14px; border-radius: 12px; background: var(--surface-3); color: var(--fg); }
+
+    /* ---- A: pannello sopra il composer ---- */
+    .pop { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 6px); z-index: 4; display: flex; flex-direction: column; max-height: 300px; overflow: hidden; border-radius: 20px; background: var(--surface); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); animation: rise .16s cubic-bezier(.2, .8, .3, 1); }
+    .pop .group { background: var(--surface); }
+    @keyframes rise { from { transform: translateY(14px); opacity: 0; } }
+
+    /* ---- B: foglio ---- */
+    .layer { position: absolute; left: 0; right: 0; top: 0; bottom: var(--kbh); z-index: 10; display: flex; flex-direction: column; justify-content: flex-end; }
+    .scrim { position: absolute; inset: 0; width: 100%; background: rgba(0, 0, 0, .5); animation: fade .18s ease-out; }
+    @keyframes fade { from { opacity: 0; } }
+    .sheet { position: relative; display: flex; flex-direction: column; height: 92%; background: var(--surface); border-radius: 24px 24px 0 0; box-shadow: 0 -1px 0 var(--border-strong); animation: rise .22s cubic-bezier(.2, .8, .3, 1); }
+    .sheet .group { background: var(--surface); }
+    .grab { flex: none; width: 38px; height: 4px; margin: 9px auto 3px; border-radius: 4px; background: var(--border-strong); }
+    .sheet-head { flex: none; display: flex; align-items: center; min-height: 46px; padding: 0 6px 0 18px; }
+    .sheet-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
+    .icon-btn { width: 44px; height: 44px; display: grid; place-items: center; color: var(--muted); }
+    .search { flex: none; display: flex; align-items: center; gap: 8px; margin: 0 14px 8px; padding: 0 12px; height: 44px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); color: var(--muted); }
+    .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: 15px var(--font); }
+    .search input::placeholder { color: var(--muted); opacity: 1; }
+    .search:focus-within { box-shadow: inset 0 0 0 1px var(--accent-border); }
+    .filters { flex: none; display: flex; gap: 6px; padding: 0 14px 8px; overflow-x: auto; scrollbar-width: none; }
+    .filters::-webkit-scrollbar { display: none; }
+    .filters button { flex: none; min-height: 36px; padding: 0 12px; border-radius: 18px; background: var(--bg); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); font-size: 13px; white-space: nowrap; }
+    .filters button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-border); }
+    .filters small { margin-left: 5px; font-size: 11.5px; opacity: .75; font-variant-numeric: tabular-nums; }
+
+    /* ---- C: striscia ---- */
+    .tray { position: relative; z-index: 2; margin-bottom: 6px; animation: rise .14s ease-out; }
+    .peek { display: flex; gap: 8px; align-items: flex-start; padding: 2px 8px 7px; font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+    .peek b { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12.5px/1.35 var(--mono); color: var(--fg); }
+    .peek span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-height: 2.7em; overflow-wrap: anywhere; }
+    .strip { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+    .strip::-webkit-scrollbar { display: none; }
+    .strip button { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px 0 8px; border-radius: 13px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--border-strong); font: 500 13px var(--mono); white-space: nowrap; }
+    .strip button:active { background: var(--surface-3); }
+    .strip mark { background: none; color: var(--accent); }
+    .strip .all { position: sticky; left: 0; z-index: 1; padding: 0 12px; background: var(--surface-3); color: var(--fg); font: 500 13px var(--font); box-shadow: 0 0 0 4px var(--bg), inset 0 0 0 1px var(--border-strong); }
+
+    @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } .page { padding: 20px 14px 32px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · COMPOSER DELLA CHAT</div>
+  <h1>Comandi e skill con lo /</h1>
+  <p class="lead">Da mobile oggi lo / non suggerisce niente: bisogna sapere il nome a memoria. Il prototipo è interattivo: tocca il pulsante /, oppure scrivi con la tastiera del telefono (lo / sta sotto ?123) o con quella del computer.</p>
+  <div class="variants" id="variants" role="group" aria-label="Variante"></div>
+  <div class="layout">
+    <div>
+      <div class="phone" id="phone">
+        <div class="status"><span>9:41</span><span>5G · 82%</span></div>
+        <div class="head">
+          <button class="back" type="button" aria-label="Indietro"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
+          <span class="logo"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg></span>
+          <span><b>Paginazione ordini</b><small>Claude Code · ~/shop</small></span>
+        </div>
+        <div class="conv" id="conv"></div>
+        <div class="composer" id="composer">
+          <div id="above"></div>
+          <div class="card">
+            <div class="card-top">
+              <span id="chipSlot" style="display:contents"></span>
+              <textarea class="input" id="ta" rows="1" aria-label="Messaggio" autocapitalize="sentences"></textarea>
+            </div>
+            <div class="actions">
+              <div class="pill"><span aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 3 4 7v5c0 5 3.5 8 8 9 4.500-1 8-4 8-9V7z"/></svg></span><span>Opus 5.5</span></div>
+              <button class="slash" id="slash" type="button" data-act="slash" aria-label="Comandi e skill" aria-haspopup="listbox" aria-expanded="false">/</button>
+              <span class="grow"></span>
+              <button class="round" type="button" aria-label="Detta"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+              <button class="round send" id="send" type="button" data-act="send" aria-label="Invia"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="kb" id="kb" aria-label="Tastiera simulata"></div>
+        <div id="layer"></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="controls">
+        <button class="ctl" type="button" data-try="/">Scrivi /</button>
+        <button class="ctl" type="button" data-try="/rev">Scrivi /rev</button>
+        <button class="ctl" type="button" data-try="/zzz">Nessun risultato</button>
+        <button class="ctl" type="button" data-try="">Azzera</button>
+        <label>Telefono
+          <select id="width"><option value="390">390 px</option><option value="360">360 px</option></select>
+        </label>
+        <label><input type="checkbox" id="loading"> Comandi non ancora arrivati</label>
+        <label><input type="checkbox" id="kbd" checked> Tastiera aperta</label>
+      </div>
+      <section class="note" id="note"></section>
+      <section class="limits">
+        <h3>Vale per tutte le varianti</h3>
+        <ul>
+          <li>Niente protocollo nuovo: il telefono riceve già <code>available_commands_update</code> e lo tiene in <code>model.commands</code>, perché usa lo stesso reducer del desktop. Manca solo la UI.</li>
+          <li>Da verificare su dispositivo: l’elenco arriva dal log rigiocato alla connessione, quindi va controllato che ci sia anche collegandosi a una chat già avviata.</li>
+          <li><code>buildMenu</code>, <code>classify</code> e <code>commandText</code> di <code>src/chat/commandMenu.ts</code> si riusano così come sono: il prototipo ne usa una copia fedele, quindi ordine e ricerca sono quelli reali.</li>
+          <li>Il composer mobile oggi invia solo con testo: va aggiunto il comando scelto, anche nelle bozze per chat. I messaggi inviati devono mostrare la chip come sul desktop, con il CSS portato su mobile.</li>
+          <li><code>/clear</code> con istruzioni: il desktop lo tratta comunque come clear, il telefono controlla il testo esatto. Va allineato.</li>
+          <li>Le descrizioni arrivano dall’agente, quindi di solito in inglese e a volte lunghissime: vanno sempre troncate e rese leggibili per intero.</li>
+          <li>Il pulsante / è nuovo e si nasconde quando la riga non ha spazio. Misurato sul composer reale, più largo di questo mockup: con modalità, modello e microfono serve almeno circa 400 px, quindi su molti telefoni resta solo lo / da tastiera.</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script>
+const I = {
+  down: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
+  close: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m7 7 10 10M7 17 17 7"/></svg>',
+  search: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="11" cy="11" r="6.500"/><path d="m16 16 4 4"/></svg>',
+};
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* ---- copia fedele di src/chat/commandMenu.ts ---- */
+const KIND_ORDER = ['flowcode', 'command', 'skill', 'plugin', 'mcp'];
+const KIND_LETTER = { flowcode: 'F', command: '›', skill: 'S', plugin: 'P', mcp: 'M' };
+const KIND_LABEL = { flowcode: 'Flowcode', command: 'Comandi', skill: 'Skill', plugin: 'Plugin', mcp: 'MCP', best: 'Migliori risultati' };
+const KIND_SOURCE = { flowcode: 'Comando di Flowcode, non va all’agente', command: 'Comando dell’agente', skill: 'Skill dell’utente', plugin: 'Skill di un plugin', mcp: 'Prompt di un server MCP' };
+const AGENT_COMMANDS = new Set(['add-dir','agents','approvals','bug','compact','config','context','cost','debug','diff','doctor','export','feedback','goal','help','hooks','init','logout','mcp','memory','mention','model','new','permissions','plan','quit','release-notes','rename','resume','review','review-branch','review-commit','rewind','security-review','skills','status','statusline','todos','undo','usage','vim']);
+
+function classify(command, clientNames) {
+  const hint = command.input && typeof command.input.hint === 'string' ? command.input.hint : null;
+  const entry = { command, kind: 'skill', namespace: null, base: command.name, sigil: '', hint, also: [] };
+  if (clientNames.has(command.name)) return { ...entry, kind: 'flowcode' };
+  let name = command.name;
+  if (name.startsWith('mcp:')) {
+    const parts = name.slice(4).split(':');
+    return parts.length > 1 ? { ...entry, kind: 'mcp', namespace: parts[0], base: parts.slice(1).join(':') } : { ...entry, kind: 'mcp', base: parts[0] };
+  }
+  const sigil = name.startsWith('$') ? '$' : '';
+  if (sigil) name = name.slice(1);
+  entry.sigil = sigil;
+  const colon = name.indexOf(':');
+  if (colon > 0) return { ...entry, kind: 'plugin', namespace: name.slice(0, colon), base: name.slice(colon + 1) };
+  entry.base = name;
+  entry.kind = !sigil && AGENT_COMMANDS.has(name) ? 'command' : 'skill';
+  return entry;
+}
+function dedupe(entries) {
+  const skills = new Map();
+  for (const e of entries) if (e.kind === 'skill') skills.set(e.base, e);
+  const out = [];
+  for (const e of entries) {
+    const twin = e.kind === 'plugin' ? skills.get(e.base) : undefined;
+    if (twin && e.namespace) twin.also.push(e.namespace);
+    else out.push(e);
+  }
+  return out;
+}
+const displayName = (e) => (e.namespace ? e.namespace + ':' : '') + e.base;
+const range = (start, n) => Array.from({ length: n }, (_, i) => start + i);
+function match(entry, query) {
+  const q = query.toLowerCase().replace(/^\$/, '');
+  if (!q) return { score: 1, hits: [] };
+  const target = displayName(entry).toLowerCase();
+  const base = entry.base.toLowerCase();
+  const offset = entry.namespace ? entry.namespace.length + 1 : 0;
+  let i = base.indexOf(q);
+  if (i === 0) return { score: 100 - base.length / 100, hits: range(offset, q.length) };
+  if (i > 0 && /[-_:]/.test(base[i - 1])) return { score: 80, hits: range(offset + i, q.length) };
+  i = target.indexOf(q);
+  if (i >= 0) return { score: 60, hits: range(i, q.length) };
+  const hits = [];
+  let k = 0;
+  for (let j = 0; j < target.length && k < q.length; j++) if (target[j] === q[k]) { hits.push(j); k++; }
+  if (k === q.length) return { score: 40 - (hits[hits.length - 1] - hits[0]) / 10, hits };
+  if ((entry.command.description ?? '').toLowerCase().includes(q)) return { score: 10, hits: [] };
+  return null;
+}
+function buildMenu(commands, clientCommands, query) {
+  const clientNames = new Set(clientCommands.map((c) => c.name));
+  const all = [...clientCommands, ...commands.filter((c) => !clientNames.has(c.name))];
+  const entries = dedupe(all.map((c) => classify(c, clientNames)));
+  const matched = entries.flatMap((entry) => { const m = match(entry, query); return m ? [{ entry, hits: m.hits, score: m.score }] : []; });
+  const grouped = query.replace(/^\$/, '') === '';
+  if (grouped) matched.sort((a, b) => KIND_ORDER.indexOf(a.entry.kind) - KIND_ORDER.indexOf(b.entry.kind) || displayName(a.entry).localeCompare(displayName(b.entry)));
+  else matched.sort((a, b) => b.score - a.score);
+  return { entries: matched.slice(0, 300), grouped };
+}
+const commandText = (e) => (e.sigil === '$' ? `$${e.command.name.replace(/^\$/, '')}` : `/${e.command.name}`);
+
+/* ---- dati di esempio: nomi e descrizioni come li manda l'agente ---- */
+const BUILTINS = [{ name: 'clear', description: 'Pulisci il contesto: inizia una nuova conversazione' }];
+const CMDS = [
+  { name: 'compact', description: 'Clear conversation history but keep a summary in context', input: { hint: 'summary instructions' } },
+  { name: 'context', description: 'Show current context usage' },
+  { name: 'init', description: 'Initialize a new CLAUDE.md file with codebase documentation' },
+  { name: 'memory', description: 'Edit memory files' },
+  { name: 'review', description: 'Review a pull request', input: { hint: 'PR number' } },
+  { name: 'security-review', description: 'Complete a security review of the pending changes on the current branch' },
+  { name: 'usage', description: 'Show plan usage limits' },
+  { name: 'code-review', description: 'Review the current diff, or a PR number, branch or path target, for correctness bugs at the effort level given first, before any target. With no level given, it reuses the level you typed last. Pass --comment to post findings as inline PR comments, or --fix to apply them to the working tree after the review.', input: { hint: 'level target' } },
+  { name: 'flowcode-plugin', description: 'Create or edit a Flowcode plugin (a declarative JSON manifest for the app’s shortcuts bar) - use when the user asks to add a shortcut, a quick action or a status popup.' },
+  { name: 'lean-build', description: 'Build feature work with high overbuilding risk. Use for new behavior, product slices, or integrations where repository reuse, strict scope, and an explicit stop condition matter.' },
+  { name: 'safe-refactor', description: 'Restructure code while preserving behavior. Use for extraction, consolidation, ownership moves, or cleanup where verification must bracket structural edits.' },
+  { name: 'simplify', description: 'Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes.' },
+  { name: 'surgical-patch', description: 'Fix bugs and small behavior changes at the narrowest responsible layer.' },
+  { name: 'verify-and-stop', description: 'Prove existing work meets acceptance conditions without expanding scope.' },
+  { name: 'caveman:simplify', description: 'Plugin copy of simplify.' },
+  { name: 'caveman:compress', description: 'Compress natural language memory files into caveman format to save input tokens. Human-readable backup saved as FILE.original.md.', input: { hint: 'filepath' } },
+  { name: 'design:design-critique', description: 'Structured critique of a screen or flow: hierarchy, clarity, consistency.' },
+  { name: 'design:ux-copy', description: 'Write or rewrite interface copy.' },
+  { name: 'figma:figma-use', description: 'Run Figma Plugin API scripts for canvas writes, inspections, variables, components and more.' },
+  { name: 'mcp:github:create_issue', description: 'Create a new issue in a GitHub repository', input: { hint: 'title' } },
+  { name: 'mcp:notion:summarize_page', description: 'Summarise a Notion page' },
+];
+
+const SEED = [
+  { user: 'Aggiungi la paginazione alla lista ordini' },
+  { rail: 'Modificati 3 file' },
+  { text: 'Fatto: la lista ora carica 20 ordini alla volta e il filtro resta attivo cambiando pagina.' },
+];
+
+const S = { variant: 'a', text: '', picked: null, forced: false, dismissed: null, kbd: true, layer: 'abc', loading: false, open: null, sheet: false, query: '', filter: 'all', recent: ['compact', 'code-review'], msgs: [...SEED] };
+
+const $ = (id) => document.getElementById(id);
+const ta = $('ta'), phone = $('phone');
+let searchEl = null;
+
+const menu = (q) => buildMenu(S.loading ? [] : CMDS, BUILTINS, q);
+const entryOf = (name) => menu('').entries.map((x) => x.entry).find((e) => e.command.name === name);
+
+function menuQuery() {
+  if (S.variant === '0' || S.picked) return null;
+  if (S.forced) return '';
+  const t = S.text;
+  return t.startsWith('/') && !/\s/.test(t) && S.dismissed !== t ? t.slice(1) : null;
+}
+
+/* ---- pezzi di interfaccia ---- */
+const kindIcon = (kind, small) => `<span class="kind is-${kind}${small ? ' s' : ''}" aria-hidden="true">${KIND_LETTER[kind]}</span>`;
+const hl = (name, hits) => [...name].map((ch, i) => (hits.includes(i) ? `<mark>${esc(ch)}</mark>` : esc(ch))).join('');
+const fixedChip = (kind, name) => `<span class="chip fixed is-${kind}">${kindIcon(kind, true)}<span>${esc(name)}</span></span>`;
+
+function detailBlock(e, withUse) {
+  const bits = [KIND_SOURCE[e.kind]];
+  if (e.namespace) bits.push(`da <code>${esc(e.namespace)}</code>`);
+  if (e.also.length) bits.push(`anche in <code>${esc(e.also.join(', '))}</code>`);
+  return `<div class="detail"><p>${bits.join(' · ')}</p>${e.hint ? `<p>Istruzioni: <code>${esc(e.hint)}</code> (facoltative)</p>` : ''}${withUse ? `<button type="button" class="use" data-act="pick" data-name="${esc(e.command.name)}">Usa ${esc(displayName(e))}</button>` : ''}</div>`;
+}
+
+/** A: tap sulla riga = scegli, freccia = leggi. B: tap sulla riga = leggi, poi "Usa". */
+function rowsHtml(res, mode) {
+  let html = '', last = null;
+  res.entries.forEach(({ entry, hits }, i) => {
+    const group = res.grouped ? entry.kind : i === 0 ? 'best' : null;
+    if (group && group !== last) {
+      const n = group === 'best' ? res.entries.length : res.entries.filter((x) => x.entry.kind === group).length;
+      html += `<div class="group" role="presentation">${KIND_LABEL[group]}<span>${n}</span></div>`;
+      last = group;
+    }
+    const name = entry.command.name, open = S.open === name;
+    const body = `${kindIcon(entry.kind)}<span class="txt"><span class="name"><i>${entry.sigil ? '' : '/'}</i>${hl(displayName(entry), hits)}</span><span class="desc">${esc(entry.command.description ?? '')}</span></span>`;
+    html += mode === 'pick'
+      ? `<div class="row${open ? ' open' : ''}"><button type="button" class="pick" role="option" aria-selected="false" data-act="pick" data-name="${esc(name)}">${body}</button><button type="button" class="more" aria-label="Dettagli di ${esc(displayName(entry))}" aria-expanded="${open}" data-act="toggle" data-name="${esc(name)}">${I.down}</button></div>${open ? detailBlock(entry, false) : ''}`
+      : `<div class="row${open ? ' open' : ''}"><button type="button" class="pick" aria-expanded="${open}" data-act="toggle" data-name="${esc(name)}">${body}</button></div>${open ? detailBlock(entry, true) : ''}`;
+  });
+  return html;
+}
+const waitHtml = () => (S.loading ? '<div class="wait"><i></i>L’agente sta caricando comandi e skill…</div>' : '');
+
+function renderAbove() {
+  const box = $('above');
+  const q = menuQuery();
+  const prev = box.querySelector('.list')?.scrollTop ?? 0;
+  if (S.variant === 'a' && q !== null) {
+    const res = menu(q);
+    const had = box.querySelector('.pop');
+    const body = res.entries.length ? rowsHtml(res, 'pick') : `<div class="none">Nessun comando per <code>/${esc(q)}</code>. Puoi inviarlo comunque come testo.</div>`;
+    box.innerHTML = `<div class="pop"${had ? ' style="animation:none"' : ''}><div class="list" role="listbox" aria-label="Comandi e skill">${body}${waitHtml()}</div></div>`;
+    box.querySelector('.list').scrollTop = prev;
+    return;
+  }
+  if (S.variant === 'c' && (q !== null || S.picked)) {
+    const had = box.querySelector('.tray');
+    const stripLeft = box.querySelector('.strip')?.scrollLeft ?? 0;
+    let peek, chips = '';
+    if (S.picked) {
+      const e = S.picked;
+      peek = `<div class="peek" aria-live="polite"><b>${esc(displayName(e))}</b><span>${esc(e.command.description ?? '')}</span></div>`;
+    } else {
+      const res = menu(q);
+      let items = res.entries;
+      if (res.grouped) {
+        const seen = S.recent.map((n) => items.find((x) => x.entry.command.name === n)).filter(Boolean);
+        items = [...seen, ...items.filter((x) => !seen.includes(x))];
+      }
+      const top = items[0]?.entry;
+      peek = top
+        ? `<div class="peek" aria-live="polite"><b>${esc(displayName(top))}</b><span>${esc(top.command.description ?? '')}</span></div>`
+        : `<div class="peek" aria-live="polite"><span>Nessun comando per /${esc(q)}. Puoi inviarlo comunque come testo.</span></div>`;
+      chips = `<div class="strip" role="listbox" aria-label="Comandi e skill"><button type="button" class="all" data-act="all">Tutti</button>${items.slice(0, 24).map(({ entry, hits }) => `<button type="button" role="option" aria-selected="false" data-act="pick" data-name="${esc(entry.command.name)}">${kindIcon(entry.kind, true)}<span>${hl(displayName(entry), hits)}</span></button>`).join('')}</div>`;
+    }
+    box.innerHTML = `<div class="tray"${had ? ' style="animation:none"' : ''}>${peek}${chips}${S.picked ? '' : waitHtml()}</div>`;
+    const strip = box.querySelector('.strip');
+    if (strip) strip.scrollLeft = stripLeft;
+    return;
+  }
+  box.innerHTML = '';
+}
+
+function renderChip() {
+  const e = S.picked;
+  $('chipSlot').innerHTML = e ? `<span class="chip is-${e.kind}">${kindIcon(e.kind, true)}<span>${esc(displayName(e))}</span><button type="button" class="chip-x" aria-label="Rimuovi comando" data-act="unpick">${I.close}</button></span>` : '';
+  ta.placeholder = e ? (e.hint ? `${e.hint} · facoltativo` : 'Aggiungi istruzioni (facoltativo)…') : 'Scrivi un messaggio…';
+}
+
+function renderConv() {
+  const conv = $('conv');
+  conv.innerHTML = S.msgs.map((m) => {
+    if (m.user !== undefined) {
+      const c = /^([/$])([A-Za-z0-9][\w:.-]*)(?=\s|$)/.exec(m.user);
+      if (!c) return `<div class="msg-user">${esc(m.user)}</div>`;
+      const entry = classify({ name: c[1] === '$' ? `$${c[2]}` : c[2] }, new Set(c[2] === 'clear' ? ['clear'] : []));
+      return `<div class="msg-user">${fixedChip(entry.kind, c[2].replace(/^mcp:/, ''))}${esc(m.user.slice(c[0].length))}</div>`;
+    }
+    if (m.rail) return `<div class="rail"><i></i>${esc(m.rail)}</div>`;
+    return `<p class="msg">${esc(m.text)}</p>`;
+  }).join('');
+  conv.scrollTop = conv.scrollHeight;
+}
+
+const KEYS = {
+  abc: ['qwertyuiop', 'asdfghjkl', ['⇧', ...'zxcvbnm', '⌫'], ['?123', ',', ' ', '.', '↵']],
+  sym: ['1234567890', '@#€_&-+()/', ['=', '\\', '*', '"', '\'', ':', ';', '!', '?', '⌫'], ['ABC', ',', ' ', '.', '↵']],
+};
+function renderKb() {
+  const kb = $('kb');
+  kb.classList.toggle('on', S.kbd);
+  document.documentElement.style.setProperty('--kbh', S.kbd ? '262px' : '0px');
+  kb.innerHTML = KEYS[S.layer].map((row) => `<div>${[...row].map((k) => {
+    const cls = k === ' ' ? 'space' : k.length > 1 || k === '⇧' || k === '⌫' || k === '↵' ? 'fn' : k === '/' ? 'hl' : '';
+    return `<button type="button" class="${cls}" data-key="${esc(k)}" aria-label="${k === ' ' ? 'Spazio' : esc(k)}">${k === ' ' ? '' : esc(k)}</button>`;
+  }).join('')}</div>`).join('');
+}
+
+function sheetEntries() {
+  const res = menu(S.query);
+  const counts = {};
+  for (const x of res.entries) counts[x.entry.kind] = (counts[x.entry.kind] ?? 0) + 1;
+  const entries = S.filter === 'all' ? res.entries : res.entries.filter((x) => x.entry.kind === S.filter);
+  return { res: { ...res, entries }, counts, total: res.entries.length };
+}
+function renderSheetBody() {
+  if (!S.sheet) return;
+  const { res, counts, total } = sheetEntries();
+  $('filters').innerHTML = [['all', 'Tutti', total], ...KIND_ORDER.filter((k) => counts[k]).map((k) => [k, KIND_LABEL[k], counts[k]])]
+    .map(([k, label, n]) => `<button type="button" aria-pressed="${S.filter === k}" data-act="filter" data-name="${k}">${label}<small>${n}</small></button>`).join('');
+  const list = $('sheetList'), top = list.scrollTop;
+  list.innerHTML = res.entries.length ? rowsHtml(res, 'read') + waitHtml()
+    : `<div class="none">Nessun comando per <code>/${esc(S.query)}</code>.${S.query ? '<button type="button" data-act="astext">Invia come testo</button>' : ''}</div>${waitHtml()}`;
+  list.scrollTop = top;
+}
+function openSheet(query, withKeyboard) {
+  Object.assign(S, { sheet: true, query, filter: 'all', open: null, kbd: withKeyboard, forced: false });
+  $('layer').innerHTML = `<div class="layer" role="dialog" aria-label="Comandi e skill"><button type="button" class="scrim" aria-label="Chiudi" data-act="close-sheet"></button><div class="sheet"><div class="grab"></div><div class="sheet-head"><h2>Comandi e skill</h2><button type="button" class="icon-btn" aria-label="Chiudi" data-act="close-sheet">${I.close}</button></div><label class="search">${I.search}<input id="search" type="text" placeholder="Cerca per nome o descrizione" aria-label="Cerca" autocomplete="off"></label><div class="filters" id="filters"></div><div class="list" id="sheetList"></div></div></div>`;
+  searchEl = $('search');
+  searchEl.value = query;
+  searchEl.addEventListener('input', () => { S.query = searchEl.value; S.open = null; renderSheetBody(); });
+  searchEl.addEventListener('focus', () => { if (!S.kbd) { S.kbd = true; render(); } });
+  if (withKeyboard) searchEl.focus();
+  render();
+}
+function closeSheet() {
+  S.sheet = false; searchEl = null; S.open = null;
+  $('layer').innerHTML = '';
+  render();
+}
+
+function render() {
+  const q = menuQuery();
+  const open = S.sheet || q !== null;
+  $('slash').style.display = S.variant === '0' ? 'none' : '';
+  $('slash').setAttribute('aria-expanded', String(open));
+  $('send').disabled = !S.text.trim() && !S.picked;
+  $('kbd').checked = S.kbd;
+  renderChip(); renderAbove(); renderKb(); renderSheetBody();
+}
+
+/* ---- azioni ---- */
+function setText(value) {
+  S.text = value; ta.value = value;
+  textChanged();
+}
+function textChanged() {
+  ta.style.height = 'auto';
+  ta.style.height = `${Math.min(ta.scrollHeight, 96)}px`;
+  if (S.dismissed !== S.text) S.dismissed = null;
+  S.open = null;
+  // B: lo / scritto a mano passa dal composer alla ricerca del foglio.
+  if (S.variant === 'b' && !S.sheet && !S.picked && S.text.startsWith('/') && !/\s/.test(S.text) && S.dismissed !== S.text) {
+    const q = S.text.slice(1);
+    S.text = ''; ta.value = '';
+    openSheet(q, true);
+    return;
+  }
+  render();
+}
+function pick(name) {
+  S.picked = entryOf(name) ?? null;
+  if (!S.forced && !S.sheet) { S.text = ''; ta.value = ''; }
+  S.forced = false; S.open = null;
+  if (S.sheet) closeSheet();
+  S.kbd = true;
+  ta.focus();
+  render();
+}
+function send() {
+  const e = S.picked, text = S.text;
+  if (!text.trim() && !e) return;
+  S.recent = e ? [e.command.name, ...S.recent.filter((n) => n !== e.command.name)].slice(0, 4) : S.recent;
+  if (e?.kind === 'flowcode' && e.command.name === 'clear') S.msgs = [{ rail: 'Nuova conversazione' }];
+  else {
+    S.msgs = [...S.msgs, { user: e ? commandText(e) + (text.trim() ? ` ${text}` : '') : text }, { rail: 'L’agente sta lavorando…' }];
+  }
+  S.picked = null; S.forced = false; S.dismissed = null; S.text = ''; ta.value = ''; ta.style.height = 'auto';
+  renderConv(); render();
+}
+function slash() {
+  if (S.variant === 'b') { S.picked = null; openSheet('', false); return; }
+  S.picked = null;
+  if (S.forced) S.forced = false;
+  else if (S.text === '') setText('/');
+  else if (S.text === '/') setText('');
+  else S.forced = true;
+  S.kbd = true; ta.focus(); render();
+}
+function dismiss() {
+  if (S.forced) S.forced = false;
+  else if (menuQuery() !== null) S.dismissed = S.text;
+  render();
+}
+function reset() {
+  if (S.sheet) closeSheet();
+  Object.assign(S, { picked: null, forced: false, dismissed: null, open: null, msgs: [...SEED] });
+  setText(''); renderConv();
+}
+
+function press(k) {
+  if (k === '?123' || k === 'ABC') { S.layer = k === 'ABC' ? 'abc' : 'sym'; renderKb(); return; }
+  if (k === '⇧') return;
+  const el = S.sheet && searchEl ? searchEl : ta;
+  if (k === '⌫') {
+    if (el === ta && !ta.value && S.picked) { S.picked = null; render(); return; }
+    const a = el.selectionStart, b = el.selectionEnd;
+    if (a === b && a > 0) el.setRangeText('', a - 1, a, 'end');
+    else if (a !== b) el.setRangeText('', a, b, 'end');
+  } else if (k === '↵') {
+    if (el === searchEl) return;
+    el.setRangeText('\n', el.selectionStart, el.selectionEnd, 'end');
+  } else {
+    el.setRangeText(k, el.selectionStart, el.selectionEnd, 'end');
+  }
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+ta.addEventListener('input', () => { S.text = ta.value; textChanged(); });
+ta.addEventListener('focus', () => { if (!S.kbd) { S.kbd = true; render(); } });
+ta.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  if (e.key === 'Escape') dismiss();
+  if (e.key === 'Backspace' && !ta.value && S.picked) { S.picked = null; render(); }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.sheet) closeSheet(); });
+// Come keepFocus in ChatComposer: toccare un pulsante non chiude la tastiera.
+phone.addEventListener('mousedown', (e) => { if (e.target.closest('button')) e.preventDefault(); });
+phone.addEventListener('wheel', (e) => {
+  const strip = e.target.closest('.strip');
+  if (strip && e.deltaY) { strip.scrollLeft += e.deltaY; e.preventDefault(); }
+}, { passive: false });
+phone.addEventListener('click', (e) => {
+  const key = e.target.closest('[data-key]');
+  if (key) { press(key.dataset.key); return; }
+  const btn = e.target.closest('[data-act]');
+  if (!btn) { if (e.target.closest('#conv')) dismiss(); return; }
+  const { act, name } = btn.dataset;
+  if (act === 'pick') pick(name);
+  if (act === 'toggle') { S.open = S.open === name ? null : name; S.sheet ? renderSheetBody() : renderAbove(); }
+  if (act === 'slash') slash();
+  if (act === 'send') send();
+  if (act === 'unpick') { S.picked = null; render(); }
+  if (act === 'all') { const q = S.forced ? '' : S.text.slice(1); openSheet(q, false); }
+  if (act === 'close-sheet') closeSheet();
+  if (act === 'filter') { S.filter = name; S.open = null; renderSheetBody(); }
+  if (act === 'astext') { const q = `/${S.query}`; closeSheet(); S.dismissed = q; S.text = q; ta.value = q; ta.focus(); render(); }
+});
+
+/* ---- pagina ---- */
+const NOTES = {
+  0: { tab: 'Oggi', title: '00 / Oggi', lead: 'Lo / è testo come un altro: nessun suggerimento, nessuna chip.', blocks: [['Cosa non funziona', [
+    'Serve conoscere il nome esatto di ogni comando e skill.',
+    'Su molte tastiere touch lo / sta nel secondo livello: prova ?123 sulla tastiera simulata.',
+    'Niente dice se un comando accetta istruzioni o cosa fa.']]] },
+  a: { tab: 'Pannello', title: 'A / Pannello sopra il composer', lead: 'Lo stesso menu del desktop, ridisegnato per il dito. Si apre scrivendo / oppure con il pulsante e si restringe mentre scrivi.', blocks: [
+    ['Come si usa', ['Tocco sulla riga: sceglie e crea la chip.', 'Freccia a destra: mostra descrizione intera, provenienza e istruzioni, senza scegliere.', 'Tocco sulla conversazione o Indietro: chiude.']],
+    ['Pro', ['Stesso gesto e stesse parole del desktop.', 'La tastiera resta aperta, un tocco per scegliere.', 'Due righe di descrizione già visibili per ogni voce.']],
+    ['Contro', ['Con la tastiera aperta si vedono 3-4 voci alla volta: con molte skill conta la ricerca.', 'Copre gli ultimi messaggi mentre è aperto.']],
+    ['Costo', ['Basso: un componente nuovo e lo stato della chip in ChatComposer.']]] },
+  b: { tab: 'Foglio', title: 'B / Foglio di ricerca', lead: 'Un catalogo a tutta altezza: ricerca, filtri per tipo e scheda di ogni voce. Il pulsante lo apre senza tastiera, scrivere / lo apre sulla ricerca.', blocks: [
+    ['Come si usa', ['Tocco sulla riga: apre la scheda con tutto il testo.', 'Pulsante Usa: conferma e crea la chip.', 'I filtri mostrano quante voci ci sono per tipo, anche durante una ricerca.']],
+    ['Pro', ['La scelta più consapevole: si legge sempre prima di usare.', 'Regge bene centinaia di skill, con i filtri.', 'Riusa AdaptiveSheet, come modi e modelli.']],
+    ['Contro', ['Due tocchi per ogni comando, anche per quelli che si conoscono.', 'Scrivere /compact a mano apre comunque il foglio: per inviare un testo che inizia con / serve Invia come testo.', 'Perde il contesto della conversazione.']],
+    ['Costo', ['Medio: foglio, filtri e passaggio del testo dal composer alla ricerca.']]] },
+  c: { tab: 'Striscia', title: 'C / Striscia sopra la tastiera', lead: 'Una riga di chip come i suggerimenti della tastiera, con i recenti davanti. Sopra, la descrizione del primo risultato. Tutti apre il catalogo.', blocks: [
+    ['Come si usa', ['Tocco su una chip: sceglie, la descrizione resta visibile finché non invii.', 'Scrivere restringe la striscia e aggiorna la descrizione.', 'La x sulla chip annulla.']],
+    ['Pro', ['Occupa poco: la conversazione resta visibile.', 'I recenti rendono velocissimi i comandi abituali.']],
+    ['Contro', ['Si legge la descrizione di una sola voce: per le altre si sceglie prima di aver letto, o si apre Tutti.', 'Scorrere in orizzontale nasconde gran parte dell’elenco.', 'Servono due interfacce: striscia e catalogo.']],
+    ['Costo', ['Medio-alto: tutto quello di B, più i recenti salvati sul telefono.']]] },
+};
+const ORDER = ['0', 'a', 'b', 'c'];
+const LABEL = { 0: '00', a: 'A', b: 'B', c: 'C' };
+
+function renderTabs() {
+  $('variants').innerHTML = ORDER.map((v) => `<button type="button" aria-pressed="${S.variant === v}" data-v="${v}"><span>${LABEL[v]}</span>${NOTES[v].tab}</button>`).join('');
+  const n = NOTES[S.variant];
+  $('note').innerHTML = `<h2>${n.title}</h2><p>${n.lead}</p>${n.blocks.map(([h, items]) => `<h3>${h.toUpperCase()}</h3><ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`).join('')}`;
+}
+$('variants').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-v]');
+  if (!b) return;
+  S.variant = b.dataset.v;
+  renderTabs(); reset();
+});
+document.querySelectorAll('[data-try]').forEach((b) => b.addEventListener('click', () => {
+  if (S.sheet) closeSheet();
+  S.picked = null; S.forced = false; S.dismissed = null; S.kbd = true;
+  setText(b.dataset.try);
+  if (!S.sheet) ta.focus();
+}));
+$('width').addEventListener('change', (e) => { phone.style.width = `${e.target.value}px`; });
+$('loading').addEventListener('change', (e) => { S.loading = e.target.checked; render(); });
+$('kbd').addEventListener('change', (e) => { S.kbd = e.target.checked; render(); });
+
+ta.placeholder = 'Scrivi un messaggio…';
+renderTabs(); renderConv(); render();
+</script>
+</body>
+</html>

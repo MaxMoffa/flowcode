@@ -43,7 +43,21 @@ const askSchema = (qs: { header: string; text: string; multi?: boolean; options:
   ),
 });
 
-/** The scripted history of each chat; `seq` and `at` are filled in. */
+/** What the agent offers on "/": one of each kind, with a long description and an argument hint. */
+const commandsUpdate = update("available_commands_update", {
+  availableCommands: [
+    { name: "compact", description: "Clear conversation history but keep a summary in context", input: { hint: "summary instructions" } },
+    { name: "review", description: "Review a pull request", input: { hint: "PR number" } },
+    { name: "usage", description: "Show plan usage limits" },
+    { name: "code-review", description: "Review the current diff, or a PR number, branch or path target, for correctness bugs at the effort level given first. With no level given, it reuses the level you typed last. Pass --comment to post findings as inline PR comments, or --fix to apply them to the working tree.", input: { hint: "level target" } },
+    { name: "simplify", description: "Review the changed code for reuse, simplification and efficiency, then apply the fixes." },
+    { name: "caveman:compress", description: "Compress memory files to save input tokens.", input: { hint: "filepath" } },
+    { name: "mcp:github:create_issue", description: "Create a new issue in a GitHub repository" },
+  ],
+});
+
+const mockModels = { currentModelId: "opus", availableModels: [{ modelId: "opus", name: "Opus 5.5" }, { modelId: "sonnet", name: "Sonnet 5.5" }] };
+
 const history: Record<string, Ev[]> = {
   c1: [
     { kind: "user", text: "Il banner di riconnessione resta visibile dopo che il collegamento torna online. Puoi sistemarlo?" },
@@ -112,7 +126,8 @@ function append(chatId: string, ev: Ev): Ev {
 function init() {
   if (started) return;
   started = true;
-  for (const [chatId, evs] of Object.entries(history)) evs.forEach((e) => append(chatId, e));
+  for (const [chatId, evs] of Object.entries(history)) [commandsUpdate, ...evs].forEach((e) => append(chatId, e));
+  for (const info of infos) info.models = mockModels;
 }
 
 const setStatus = (chatId: string, status: string) => {
@@ -135,7 +150,7 @@ export async function chatMockConnect() {
   await emit("remote://msgs", [{ t: "chats", chats: infos }]);
 }
 
-export const chatMockCaps = ["chat", "agentViews", "agentInsight"];
+export const chatMockCaps = ["chat", "agentViews", "agentInsight", "chatModel", "chatClear"];
 
 export const mockViews = [
   {
