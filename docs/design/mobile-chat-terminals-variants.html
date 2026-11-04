@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per i terminali in background nella chat da mobile, confrontate con la card di oggi.">
+  <title>Flowcode mobile — terminali in chat · 3 varianti</title>
+  <style>
+    /* Token e misure copiati da mobile/src/ui.css e mobile/src/chat.css. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --danger: #e2645c; --wait: #d1a752;
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1040px; margin: auto; padding: 28px 24px 40px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 130px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .layout { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .side { display: grid; gap: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; }
+    .controls select { padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface); color: var(--fg); font: inherit; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .ctl { min-height: 32px; padding: 0 11px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--fg); font-size: 13px; }
+    .ctl:disabled { opacity: .45; cursor: default; }
+    .note h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 62ch; }
+    .note code, .limits code { font: 12.5px var(--mono); }
+    .limits { padding: 14px 16px; border-radius: 12px; background: rgba(209, 167, 82, .07); box-shadow: inset 0 0 0 1px rgba(209, 167, 82, .24); }
+    .limits h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--wait); }
+    .limits ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; color: var(--fg); }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 390px; max-width: 100%; height: 780px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong), 0 30px 60px -30px #000; isolation: isolate; }
+    .status { flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .head { flex: none; display: flex; align-items: center; gap: 2px; padding: 2px 14px 2px 4px; border-bottom: 1px solid var(--border); }
+    .head .back { width: 44px; height: 46px; display: grid; place-items: center; color: var(--muted); }
+    .head .logo { width: 28px; height: 28px; margin-right: 10px; border-radius: 9px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; }
+    .head b { display: block; font-size: 15px; font-weight: 600; line-height: 1.25; }
+    .head small { display: block; font-size: 12px; color: var(--muted); line-height: 1.25; }
+    .conv { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 16px 12px; scrollbar-width: none; }
+    .conv::-webkit-scrollbar { display: none; }
+    .msg-user { width: fit-content; max-width: 82%; margin: 0 0 16px auto; padding: 9px 14px; border-radius: 18px 18px 5px 18px; background: var(--surface-2); font-size: 15px; }
+    .msg { margin: 0 0 12px; font-size: 15px; line-height: 1.55; }
+    .rail { display: flex; align-items: center; gap: 8px; min-height: 34px; margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+    .rail i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+    .composer { position: relative; z-index: 3; flex: none; padding: 0 12px 10px; background: var(--bg); }
+    .card { position: relative; z-index: 1; padding: 14px 10px 10px 20px; border-radius: 28px; background: var(--surface-2); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); }
+    .input { min-height: 34px; color: var(--muted); font-size: 16px; line-height: 1.45; }
+    .actions { display: flex; align-items: center; gap: 6px; }
+    .actions .grow { flex: 1; }
+    .round { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); background: var(--surface-3); }
+    .round.send { background: var(--accent); color: var(--on-accent); opacity: .45; }
+    .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+    .dot.done { background: var(--muted); animation: none; opacity: .6; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .time { flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+    .kb { flex: none; height: 262px; padding: 8px 4px; display: grid; gap: 8px; align-content: start; background: #0f0c09; border-top: 1px solid var(--border); }
+    .kb div { display: flex; gap: 5px; justify-content: center; }
+    .kb span { flex: 0 1 33px; height: 48px; border-radius: 6px; background: var(--surface); }
+    .kb span.w { flex: 1 1 180px; }
+
+    /* ---- 00 oggi: copia della card reale (.chat-termcard) ---- */
+    .tab { position: relative; z-index: 0; margin-top: -24px; padding-top: 24px; border-radius: 0 0 22px 22px; background: color-mix(in srgb, var(--fg) 5%, var(--surface)); box-shadow: 0 0 0 1px var(--border-strong); }
+    .tab-head { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 0 16px; border-radius: inherit; color: var(--muted); font-size: 13px; }
+    .tab-head b { flex: none; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+    .tab-head .peek { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab-head .chev { margin-left: auto; transition: transform .18s; }
+    .tab-head[aria-expanded="true"] .chev { transform: rotate(180deg); }
+    .old-list { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; padding: 4px 8px 8px; border-top: 1px solid var(--border); }
+    .old-row { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 0 8px; border-radius: 10px; color: var(--muted); font-size: 12.5px; }
+    .old-cmd { flex: 0 1 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: var(--fg); }
+    .old-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .old-out { margin: 2px 0 8px; padding: 8px 10px; max-height: 180px; overflow: auto; border-radius: 10px; background: color-mix(in srgb, var(--fg) 4%, var(--surface)); box-shadow: 0 0 0 1px var(--border); font: 11.5px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+    /* ---- 01 foglio ---- */
+    .layer { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; justify-content: flex-end; }
+    .scrim { position: absolute; inset: 0; width: 100%; background: rgba(0, 0, 0, .5); }
+    .layer.anim .scrim { animation: fade .18s ease-out; }
+    @keyframes fade { from { opacity: 0; } }
+    .sheet { position: relative; display: flex; flex-direction: column; max-height: 80%; background: var(--surface); border-radius: 24px 24px 0 0; box-shadow: 0 -1px 0 var(--border-strong); }
+    .sheet.full { height: 92%; max-height: 92%; }
+    .layer.anim .sheet { animation: rise .22s cubic-bezier(.2, .8, .3, 1); }
+    @keyframes rise { from { transform: translateY(40px); opacity: 0; } }
+    .grab { flex: none; width: 38px; height: 4px; margin: 9px auto 3px; border-radius: 4px; background: var(--border-strong); }
+    .sheet-head { flex: none; display: flex; align-items: center; gap: 4px; min-height: 48px; padding: 0 8px 0 18px; }
+    .sheet-head.with-back { padding-left: 4px; }
+    .sheet-head h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; }
+    .icon-btn { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: var(--muted); }
+    .sheet-list { overflow-y: auto; overscroll-behavior: contain; padding: 0 10px 18px; }
+    .sec { padding: 12px 10px 4px; font-size: 12px; color: var(--muted); }
+    .job { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 62px; padding: 9px 10px; border-radius: 14px; }
+    .job:active { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+    .job-text { flex: 1; min-width: 0; }
+    .job-text b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; font-weight: 500; line-height: 1.35; }
+    .job-text code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.5 var(--mono); color: var(--muted); }
+    .job.is-done b { color: var(--muted); }
+    .detail-meta { flex: none; padding: 0 18px 12px; }
+    .detail-meta code { display: block; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+    .detail-meta small { display: flex; align-items: center; gap: 7px; margin-top: 6px; color: var(--muted); font-size: 12.5px; }
+    .console { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); border-top: 1px solid var(--border); }
+    .console-label { flex: none; padding: 9px 18px 0; color: var(--muted); font-size: 12px; }
+    .console pre { flex: 1; min-height: 0; margin: 0; padding: 8px 18px 14px; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; font: 12.5px/1.6 var(--mono); white-space: pre; }
+    .console pre.empty, .peek-out.empty, .inline-out.empty { font-family: var(--font); color: var(--muted); white-space: normal; }
+    .sheet-foot { flex: none; display: flex; gap: 8px; padding: 10px 14px 18px; background: var(--bg); }
+    .pill-btn { flex: 1; min-height: 44px; padding: 0 12px; border-radius: 14px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--border-strong); font-size: 13.5px; text-align: center; }
+    .pill-btn.quiet { flex: 0 0 auto; }
+
+    /* ---- 02 pillole ---- */
+    .chips { display: flex; gap: 6px; min-height: 50px; align-items: center; padding: 0 10px; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 36px; max-width: 190px; padding: 0 12px; border-radius: 18px; background: var(--surface-3); font-size: 12.5px; white-space: nowrap; }
+    .chip code { overflow: hidden; text-overflow: ellipsis; font: 12px var(--mono); }
+    .chip[aria-pressed="true"] { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
+    .chip.is-done { color: var(--muted); }
+    .peekbox { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 8px); z-index: 4; display: flex; flex-direction: column; max-height: var(--room, 400px); border-radius: 20px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); }
+    .peekbox.anim { animation: rise .18s ease-out; }
+    .peek-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 2px 0 14px; }
+    .peek-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; }
+    .peek-out { flex: 1; min-height: 0; margin: 0; padding: 9px 14px 10px; overflow: auto; overscroll-behavior: contain; background: var(--bg); font: 12px/1.6 var(--mono); white-space: pre; }
+    .peek-foot { flex: none; display: flex; align-items: center; padding: 0 6px 0 14px; min-height: 44px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+    .peek-foot span { flex: 1; }
+    .peek-foot button { min-height: 44px; padding: 0 10px; color: var(--accent); font-size: 13px; }
+
+    /* ---- 03 nel flusso ---- */
+    .block { margin: 0 0 14px; border-radius: 16px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); transition: box-shadow .3s; overflow: hidden; }
+    .block.flash { box-shadow: 0 0 0 1.5px var(--accent); }
+    .block-head { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 46px; padding: 6px 12px; }
+    .block-head .job-text b { font-size: 14px; }
+    .block-head .chev { color: var(--muted); transition: transform .18s; }
+    .block-head[aria-expanded="true"] .chev { transform: rotate(180deg); }
+    .inline-out { margin: 0; padding: 8px 12px 10px; background: var(--bg); font: 12px/1.6 var(--mono); white-space: pre; overflow: hidden; color: var(--muted); }
+    .block.is-open .inline-out { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
+    .jump { position: absolute; right: 16px; bottom: calc(100% + 8px); z-index: 4; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 20px; background: var(--surface-3); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .jump[hidden] { display: none; }
+
+    .toast { position: absolute; left: 50%; bottom: 20px; z-index: 20; transform: translateX(-50%); width: max-content; max-width: 86%; padding: 8px 14px; border-radius: 12px; background: var(--fg); color: var(--bg); font-size: 13px; }
+    .toast:empty { display: none; }
+
+    @media (max-width: 900px) {
+      .page { padding: 18px 14px 32px; }
+      .layout { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+      .side { width: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">FLOWCODE / MOBILE</div>
+  <h1>Terminali in background nella chat</h1>
+  <p class="lead">La card di oggi e tre alternative, con i colori e le misure dell’app. Il telefono è interattivo: tocca la card, apri la tastiera, fai finire un terminale.</p>
+
+  <nav class="variants" aria-label="Varianti">
+    <button type="button" data-variant="0"><span>00</span>Oggi</button>
+    <button type="button" data-variant="1"><span>01</span>Foglio</button>
+    <button type="button" data-variant="2"><span>02</span>Pillole</button>
+    <button type="button" data-variant="3"><span>03</span>Nel flusso</button>
+  </nav>
+
+  <div class="layout">
+    <section class="phone" id="phone" aria-label="Anteprima della chat su telefono"></section>
+    <div class="side">
+      <div class="controls">
+        <label>Terminali
+          <select id="count"><option>1</option><option selected>3</option><option>6</option></select>
+        </label>
+        <label><input type="checkbox" id="kb">Tastiera aperta</label>
+        <button type="button" class="ctl" id="finish">Fai finire un terminale</button>
+        <button type="button" class="ctl" id="reset">Ricomincia</button>
+      </div>
+      <article class="note" id="note" aria-live="polite"></article>
+      <aside class="limits">
+        <h3>Vincoli comuni, oggi nel codice</h3>
+        <ul>
+          <li>L’output è solo quello che l’agente ha letto: niente stream dal vivo, ed è vuoto finché non lo interroga.</li>
+          <li>Il client non può uccidere un processo. “Ferma” può solo mandare un messaggio all’agente.</li>
+          <li>Il modello sa solo <code>running</code> sì/no: niente codice d’uscita né ora di fine.</li>
+          <li>Il rilevamento è euristico: un terminale finito ma mai riletto resta “in corso”.</li>
+        </ul>
+      </aside>
+    </div>
+  </div>
+</main>
+<script>
+const I = {
+  term: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg>',
+  up: '<svg class="chev" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>',
+  down: '<svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
+  back: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>',
+  close: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m7 7 10 10M7 17 17 7"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0m-7 7v3"/></svg>',
+  send: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>',
+  arrowUp: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>',
+};
+
+const NOTES = {
+  0: {
+    title: '00 / Oggi',
+    lead: 'Linguetta sotto il composer che si apre in lista, con l’output a fisarmonica dentro la lista.',
+    blocks: [['Cosa non funziona', [
+      'Da chiusa dice solo quanti sono, non cosa fanno.',
+      'Comando e descrizione si dividono una riga da 340 px: spesso si troncano entrambi.',
+      'Scroll dentro scroll: 180 px di output in una lista da 260 px.',
+      'Il testo va a capo ovunque, i log perdono l’allineamento.',
+      'Con la tastiera aperta resta pochissima conversazione.',
+      'Un terminale finito sparisce di colpo, anche se lo stavi leggendo.',
+    ]]],
+  },
+  1: {
+    title: '01 / Foglio',
+    lead: 'La linguetta resta, ma dice cosa gira. Il tocco apre un foglio dal basso: lista su due righe, poi una pagina di output a tutta altezza.',
+    blocks: [
+      ['Risolve', ['Output leggibile: un solo scroll, a tutta altezza, senza a capo forzati.', 'Descrizione e comando hanno ognuno la loro riga.', 'I terminati restano nel foglio.', 'Con un solo terminale il tocco va dritto all’output.']],
+      ['Costa', ['Chiude la tastiera e copre la chat: non leggi l’output mentre scrivi.', 'Due tocchi per arrivare all’output con più terminali.']],
+      ['Lavoro', ['Piccolo. Riusa <code>AdaptiveSheet</code>, il gesto di chiusura e il tasto indietro. La card condivisa col desktop non cambia: cambia solo il wrapper mobile.']],
+    ],
+  },
+  2: {
+    title: '02 / Pillole',
+    lead: 'Una pillola per terminale dentro la linguetta, che ha altezza fissa. Il tocco apre una sbirciata sopra il composer: non sposta nulla e la tastiera resta aperta.',
+    blocks: [
+      ['Risolve', ['Vedi tutti i terminali e i tempi con zero tocchi.', 'Puoi leggere l’output e scrivere all’agente insieme.', 'Composer fermo: nessun salto di layout.']],
+      ['Costa', ['Il nome è il comando accorciato: comandi simili si confondono.', 'Con 6 terminali serve lo scroll orizzontale, e quelli fuori schermo si perdono di vista.', 'Con la tastiera aperta lo spazio per l’output è poco. La sbirciata copre anche il tray dei subagenti.']],
+      ['Lavoro', ['Medio. Componente mobile nuovo, con la sbirciata ancorata al composer e gestione del tasto indietro.']],
+    ],
+  },
+  3: {
+    title: '03 / Nel flusso',
+    lead: 'Niente sotto il composer. Il terminale è un blocco nella conversazione, nel punto in cui l’agente lo ha lanciato. Una pillola galleggiante ti riporta lì quando è fuori schermo.',
+    blocks: [
+      ['Risolve', ['Il composer resta pulito, massimo spazio con la tastiera aperta.', 'Il terminale sta nel suo contesto, e dopo la fine resta come storia.', 'Un solo scroll: quello della chat.']],
+      ['Costa', ['In una sessione lunga il blocco si allontana: per seguire devi saltare avanti e indietro.', 'I terminali lanciati da un subagente stanno nella chat di quel subagente: la pillola dovrebbe aprirla.', 'Il blocco allunga la chat.']],
+      ['Lavoro', ['Il più alto. Va spezzato il raggruppamento delle tool call in <code>ChatBody</code>, e serve osservare quali blocchi sono visibili.']],
+    ],
+  },
+};
+
+const seed = () => [
+  { id: 't1', cmd: 'npm run dev', desc: 'Dev server Vite', own: 'Agente principale', start: 84, running: true,
+    out: '> flowcode@0.27.0 dev\n> vite\n\n  VITE v8.3.0  ready in 312 ms\n\n  ➜  Local:   http://localhost:1420/\n  ➜  Network: use --host to expose\n14:32:08 [vite] page reload src/App.tsx\n14:32:41 [vite] hmr update /src/chat/chat.css' },
+  { id: 't2', cmd: 'npm run test -- chat --reporter=verbose --coverage', desc: 'Test della chat con copertura', own: 'Verifica', start: 18, running: true,
+    out: '> vitest run chat --reporter=verbose --coverage\n\n ✓ src/chat/chatModel.test.ts (38 tests) 29ms\n ✓ src/chat/chatTimeline.test.ts (24 tests) 12ms\n ✓ src/chat/backgroundTerminals.test.ts (17 tests) 8ms\n ❯ src/chat/commandMenu.test.ts 3/11' },
+  { id: 't3', cmd: 'cargo check --manifest-path src-tauri/Cargo.toml', desc: 'Controllo del backend Rust', own: 'Verifica', start: 42, running: true, out: '' },
+  { id: 't4', cmd: 'tail -f logs/app.log', desc: 'Segue il log dell’app', own: 'Agente principale', start: 182, running: true,
+    out: '[info] session started\n[info] watcher ready\n[warn] slow frame 41ms in ChatBody\n[info] iroh peer connected' },
+  { id: 't5', cmd: 'npm run lint', desc: 'Lint del frontend', own: 'Revisione', start: 6, running: true,
+    out: '> eslint src mobile/src\n\nmobile/src/ChatBody.tsx\n  88:7  warning  unused variable "peek"' },
+  { id: 't6', cmd: 'npx playwright test mobile', desc: 'Prova end-to-end su mobile', own: 'Verifica', start: 27, running: true,
+    out: 'Running 12 tests using 2 workers\n\n  ✓  1 chat apre il composer (1.2s)\n  ✓  2 foglio sessione (0.8s)' },
+];
+
+const S = {
+  v: Number(new URLSearchParams(location.search).get('v') ?? 0),
+  n: 3, kb: false, jobs: seed(),
+  open: false, oldOpen: null,   // 00
+  sheet: null,                  // 01: null | 'list' | id
+  peek: null, peekTall: false,  // 02
+  blocks: new Set(),            // 03
+  anim: false, stick: true, toast: '',
+};
+const t0 = Date.now();
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const shown = () => S.jobs.slice(0, S.n);
+const running = () => shown().filter((j) => j.running);
+const finished = () => shown().filter((j) => !j.running);
+const byId = (id) => S.jobs.find((j) => j.id === id);
+const newest = () => [...running()].sort((a, b) => a.start - b.start)[0];
+const count = (n) => `${n} ${n === 1 ? 'terminale' : 'terminali'}`;
+const NO_OUTPUT = 'L’agente non ha ancora letto nessun output.';
+const elapsed = (j) => {
+  const s = Math.floor(j.start + (Date.now() - t0) / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+};
+const time = (j) => (j.running ? `<span class="time" data-el="${j.id}">${elapsed(j)}</span>` : '<span class="time">terminato</span>');
+const dot = (j) => `<span class="dot${j.running ? '' : ' done'}" aria-hidden="true"></span>`;
+const tail = (out, n) => out.split('\n').filter((l) => l.trim()).slice(-n).join('\n');
+
+function conversation() {
+  const intro = `
+    <div class="msg-user">Avvia l’anteprima e fai girare i test della chat.</div>
+    <p class="msg">Avvio il dev server e lancio i controlli in background, così continuo a lavorare mentre girano.</p>
+    <div class="rail"><i></i>4 passaggi · ha modificato 2 file</div>`;
+  if (S.v !== 3) {
+    return intro + `
+      <p class="msg">Sto sistemando il composer mentre i controlli finiscono. Ti avviso appena ho i risultati.</p>
+      <div class="rail"><i></i>2 passaggi · ha letto 3 file</div>
+      <p class="msg">Il dev server è su. Aspetto l’esito dei test prima di toccare <code>ChatBody.tsx</code>.</p>`;
+  }
+  const blocks = shown().map((j) => {
+    const open = S.blocks.has(j.id);
+    const body = j.out ? (open ? j.out : tail(j.out, 3)) : NO_OUTPUT;
+    return `<div class="block${open ? ' is-open' : ''}" data-block="${j.id}">
+      <button type="button" class="block-head" data-act="block" data-id="${j.id}" aria-expanded="${open}">
+        ${dot(j)}
+        <span class="job-text"><b>${esc(j.desc)}</b><code>${esc(j.cmd)}</code></span>
+        ${time(j)}${I.down}
+      </button>
+      <pre class="inline-out${j.out ? '' : ' empty'}">${esc(body)}</pre>
+    </div>`;
+  }).join('');
+  return intro + blocks + `
+    <p class="msg">Sto sistemando il composer mentre i controlli finiscono. Ti avviso appena ho i risultati.</p>
+    <div class="rail"><i></i>6 passaggi · ha letto 3 file, modificato 1</div>
+    <p class="msg">Ho spostato la logica del tray in un componente a parte. Ora rivedo gli stili su schermi stretti, poi guardo i risultati dei test.</p>
+    <div class="rail"><i></i>3 passaggi · ha modificato 2 file</div>
+    <p class="msg">Gli stili reggono anche a 320 px. Ho tolto una regola doppia da <code>chat.css</code> e allineato i margini del composer.</p>
+    <div class="rail"><i></i>5 passaggi · ha letto 2 file, modificato 2</div>
+    <p class="msg">Il dev server è su. Aspetto l’esito dei test prima di toccare <code>ChatBody.tsx</code>.</p>`;
+}
+
+function today() {
+  const list = running();
+  if (!list.length) return '';
+  const rows = S.open ? `<div class="old-list">${list.map((j) => `
+    <div>
+      <button type="button" class="old-row" data-act="old-row" data-id="${j.id}" aria-expanded="${S.oldOpen === j.id}">
+        ${dot(j)}<span class="old-cmd">${esc(j.cmd)}</span><span class="old-desc">${esc(j.desc)}</span>${time(j)}
+      </button>
+      ${S.oldOpen === j.id ? `<pre class="old-out">${esc(j.out || NO_OUTPUT)}</pre>` : ''}
+    </div>`).join('')}</div>` : '';
+  return `<div class="tab">
+    <button type="button" class="tab-head" data-act="old-toggle" aria-expanded="${S.open}">
+      ${I.term}<b>${count(list.length)} in background</b>${I.down}
+    </button>${rows}</div>`;
+}
+
+function sheetTab() {
+  const live = running(), done = finished();
+  if (!live.length && !done.length) return '';
+  const label = live.length ? count(live.length) : `${count(done.length)} ${done.length === 1 ? 'terminato' : 'terminati'}`;
+  const peek = live.length ? newest().desc : '';
+  return `<div class="tab">
+    <button type="button" class="tab-head" data-act="sheet-open" aria-haspopup="dialog">
+      ${live.length ? dot(live[0]) : I.check}<b>${label}</b><span class="peek">${esc(peek)}</span>${I.up}
+    </button></div>`;
+}
+
+function jobRow(j) {
+  return `<button type="button" class="job${j.running ? '' : ' is-done'}" data-act="sheet-job" data-id="${j.id}">
+    ${dot(j)}<span class="job-text"><b>${esc(j.desc)}</b><code>${esc(j.cmd)}</code></span>${j.running ? time(j) : ''}
+  </button>`;
+}
+
+function sheet() {
+  if (!S.sheet) return '';
+  const anim = S.anim ? ' anim' : '';
+  const scrim = '<button type="button" class="scrim" data-act="sheet-close" aria-label="Chiudi"></button>';
+  if (S.sheet === 'list') {
+    const live = running(), done = finished();
+    return `<div class="layer${anim}">${scrim}
+      <div class="sheet" role="dialog" aria-label="Terminali in background">
+        <div class="grab"></div>
+        <div class="sheet-head"><h2>Terminali in background</h2><button type="button" class="icon-btn" data-act="sheet-close" aria-label="Chiudi">${I.close}</button></div>
+        <div class="sheet-list">
+          ${live.map(jobRow).join('')}
+          ${done.length ? `<div class="sec">Terminati</div>${done.map(jobRow).join('')}` : ''}
+        </div>
+      </div></div>`;
+  }
+  const j = byId(S.sheet);
+  const many = shown().length > 1;
+  return `<div class="layer${anim}">${scrim}
+    <div class="sheet full" role="dialog" aria-label="${esc(j.desc)}">
+      <div class="grab"></div>
+      <div class="sheet-head${many ? ' with-back' : ''}">
+        ${many ? `<button type="button" class="icon-btn" data-act="sheet-back" aria-label="Indietro">${I.back}</button>` : ''}
+        <h2>${esc(j.desc)}</h2>
+        <button type="button" class="icon-btn" data-act="sheet-close" aria-label="Chiudi">${I.close}</button>
+      </div>
+      <div class="detail-meta">
+        <code>${esc(j.cmd)}</code>
+        <small>${dot(j)}${j.running ? `<span data-el="${j.id}">${elapsed(j)}</span>` : 'terminato'} · ${esc(j.own)}</small>
+      </div>
+      <div class="console">
+        <div class="console-label">Ultimo output letto dall’agente</div>
+        <pre class="${j.out ? '' : 'empty'}" tabindex="0">${esc(j.out || NO_OUTPUT)}</pre>
+      </div>
+      <div class="sheet-foot">
+        <button type="button" class="pill-btn quiet" data-act="toast" data-msg="Output copiato">Copia</button>
+        ${j.running ? '<button type="button" class="pill-btn" data-act="toast" data-msg="Manderebbe all’agente: “ferma questo terminale”">Chiedi all’agente di fermarlo</button>' : ''}
+      </div>
+    </div></div>`;
+}
+
+function chips() {
+  const list = shown();
+  if (!list.length) return '';
+  return `<div class="tab"><div class="chips" id="chips">${list.map((j) => `
+    <button type="button" class="chip${j.running ? '' : ' is-done'}" data-act="chip" data-id="${j.id}" aria-pressed="${S.peek === j.id}" aria-label="${esc(j.desc)}">
+      ${j.running ? dot(j) : I.check}<code>${esc(j.cmd)}</code>${j.running ? `<span class="time" data-el="${j.id}">${elapsed(j)}</span>` : ''}
+    </button>`).join('')}</div></div>`;
+}
+
+function peekbox() {
+  const j = S.peek && byId(S.peek);
+  if (!j) return '';
+  const body = j.out ? (S.peekTall ? j.out : tail(j.out, 5)) : NO_OUTPUT;
+  return `<div class="peekbox${S.anim ? ' anim' : ''}" role="region" aria-label="${esc(j.desc)}">
+    <div class="peek-head">${dot(j)}<b>${esc(j.desc)}</b>${time(j)}<button type="button" class="icon-btn" data-act="peek-close" aria-label="Chiudi">${I.close}</button></div>
+    <pre class="peek-out${j.out ? '' : ' empty'}" tabindex="0">${esc(body)}</pre>
+    ${j.out ? `<div class="peek-foot"><span>Letto dall’agente</span><button type="button" data-act="peek-tall">${S.peekTall ? 'Meno' : 'Tutto l’output'}</button></div>` : ''}
+  </div>`;
+}
+
+function underComposer() {
+  return [today, sheetTab, chips, () => ''][S.v]();
+}
+
+function aboveComposer() {
+  if (S.v === 2) return peekbox();
+  if (S.v === 3 && running().length) return `<button type="button" class="jump" id="jump" data-act="jump" hidden>${dot(running()[0])}<span>${running().length} in corso</span>${I.arrowUp}</button>`;
+  return '';
+}
+
+function keyboard() {
+  if (!S.kb) return '';
+  const row = (n) => `<div>${'<span></span>'.repeat(n)}</div>`;
+  return `<div class="kb" aria-hidden="true">${row(10)}${row(9)}${row(9)}<div><span></span><span></span><span class="w"></span><span></span><span></span></div></div>`;
+}
+
+function render() {
+  const prev = { top: $('conv')?.scrollTop, left: $('chips')?.scrollLeft };
+  $('phone').innerHTML = `
+    <div class="status"><span>9:41</span><span>5G</span></div>
+    <header class="head">
+      <span class="back">${I.back}</span>
+      <span class="logo">${I.term}</span>
+      <span><b>Sistema il composer</b><small>Claude Code · flowcode</small></span>
+    </header>
+    <div class="conv" id="conv">${conversation()}</div>
+    <div class="composer">
+      ${aboveComposer()}
+      <div class="card">
+        <div class="input">Scrivi un messaggio…</div>
+        <div class="actions"><span class="round">${I.plus}</span><span class="grow"></span><span class="round">${I.mic}</span><span class="round send">${I.send}</span></div>
+      </div>
+      ${underComposer()}
+    </div>
+    ${keyboard()}
+    ${S.v === 1 ? sheet() : ''}
+    <div class="toast" role="status">${esc(S.toast)}</div>`;
+  const conv = $('conv');
+  conv.scrollTop = S.stick ? conv.scrollHeight : prev.top ?? 0;
+  if ($('chips') && prev.left) $('chips').scrollLeft = prev.left;
+  $('phone').style.setProperty('--room', `${conv.clientHeight - 16}px`);
+  conv.addEventListener('scroll', updateJump, { passive: true });
+  S.stick = false;
+  S.anim = false;
+  updateJump();
+
+  document.querySelectorAll('[data-variant]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.variant) === S.v)));
+  $('kb').checked = S.kb;
+  $('finish').disabled = running().length === 0;
+  const n = NOTES[S.v];
+  $('note').innerHTML = `<h2>${n.title}</h2><p>${n.lead}</p>` +
+    n.blocks.map(([h, items]) => `<h3>${h.toUpperCase()}</h3><ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`).join('');
+}
+
+/** Running blocks of variant 03 that are off screen. */
+function hiddenBlocks() {
+  const conv = $('conv');
+  const box = conv.getBoundingClientRect();
+  return [...conv.querySelectorAll('[data-block]')].filter((el) => {
+    if (!byId(el.dataset.block).running) return false;
+    const r = el.getBoundingClientRect();
+    return r.bottom < box.top + 24 || r.top > box.bottom - 24;
+  });
+}
+function updateJump() {
+  const jump = $('jump');
+  if (jump) jump.hidden = hiddenBlocks().length === 0;
+}
+
+let toastTimer;
+function toast(msg) {
+  S.toast = msg;
+  render();
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { S.toast = ''; render(); }, 2200);
+}
+
+const ACTIONS = {
+  'old-toggle': () => { S.open = !S.open; S.oldOpen = null; },
+  'old-row': (id) => { S.oldOpen = S.oldOpen === id ? null : id; },
+  'sheet-open': () => { S.sheet = shown().length === 1 ? shown()[0].id : 'list'; S.kb = false; S.anim = true; },
+  'sheet-job': (id) => { S.sheet = id; },
+  'sheet-back': () => { S.sheet = 'list'; },
+  'sheet-close': () => { S.sheet = null; },
+  chip: (id) => { S.anim = S.peek === null; S.peek = S.peek === id ? null : id; S.peekTall = false; },
+  'peek-close': () => { S.peek = null; },
+  'peek-tall': () => { S.peekTall = !S.peekTall; },
+  block: (id) => { S.blocks.has(id) ? S.blocks.delete(id) : S.blocks.add(id); },
+};
+
+$('phone').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const { act, id, msg } = el.dataset;
+  if (act === 'toast') return toast(msg);
+  if (act === 'jump') {
+    const target = hiddenBlocks()[0];
+    if (!target) return;
+    const conv = $('conv');
+    const y = target.getBoundingClientRect().top - conv.getBoundingClientRect().top + conv.scrollTop - 12;
+    conv.scrollTo({ top: y, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    target.classList.add('flash');
+    setTimeout(() => target.classList.remove('flash'), 1200);
+    return;
+  }
+  ACTIONS[act](id);
+  render();
+});
+// A mouse wheel moves the chips, which have no visible scrollbar.
+$('phone').addEventListener('wheel', (e) => {
+  const strip = e.target.closest('.chips');
+  if (strip && e.deltaY) { strip.scrollLeft += e.deltaY; e.preventDefault(); }
+}, { passive: false });
+
+function closeAll() { S.open = false; S.oldOpen = null; S.sheet = null; S.peek = null; S.peekTall = false; }
+document.querySelectorAll('[data-variant]').forEach((b) => b.addEventListener('click', () => {
+  S.v = Number(b.dataset.variant);
+  closeAll();
+  S.stick = true;
+  history.replaceState(null, '', `?v=${S.v}`);
+  render();
+}));
+$('count').addEventListener('change', (e) => { S.n = Number(e.target.value); closeAll(); S.stick = true; render(); });
+$('kb').addEventListener('change', (e) => { S.kb = e.target.checked; if (S.kb) S.sheet = null; S.stick = true; render(); });
+$('finish').addEventListener('click', () => {
+  const live = running();
+  live[live.length - 1].running = false;
+  if (S.v === 0 && S.oldOpen && !byId(S.oldOpen).running) S.oldOpen = null;
+  if (S.v === 0 && !running().length) S.open = false;
+  render();
+});
+$('reset').addEventListener('click', () => { S.jobs = seed(); S.blocks.clear(); S.kb = false; closeAll(); S.stick = true; render(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (S.sheet && S.sheet !== 'list' && shown().length > 1) S.sheet = 'list';
+  else { S.sheet = null; S.peek = null; }
+  render();
+});
+setInterval(() => document.querySelectorAll('[data-el]').forEach((el) => { el.textContent = elapsed(byId(el.dataset.el)); }), 1000);
+render();
+</script>
+</body>
+</html>

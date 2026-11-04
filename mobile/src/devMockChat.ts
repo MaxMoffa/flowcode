@@ -72,6 +72,10 @@ const history: Record<string, Ev[]> = {
         },
       ],
     }),
+    update("tool_call", { toolCallId: "bg1", title: "npm run dev", kind: "execute", status: "completed", toolName: "Bash", rawInput: { command: "npm run dev", description: "Dev server Vite", run_in_background: true }, startedAt: Date.now() - 84000, content: [{ type: "content", content: { type: "text", text: "Command running in background with ID: bash_1" } }] }),
+    update("tool_call", { toolCallId: "bg2", title: "cargo check", kind: "execute", status: "completed", toolName: "Bash", rawInput: { command: "cargo check --manifest-path src-tauri/Cargo.toml", description: "Controllo del backend Rust", run_in_background: true }, startedAt: Date.now() - 42000, content: [{ type: "content", content: { type: "text", text: "Command running in background with ID: bash_2" } }] }),
+    update("tool_call", { toolCallId: "bg3", title: "BashOutput", kind: "other", status: "completed", toolName: "BashOutput", rawInput: { bash_id: "bash_1" }, content: [{ type: "content", content: { type: "text", text: "> flowcode@0.27.0 dev\n> vite\n\n  VITE v8.3.0  ready in 312 ms\n\n  ➜  Local:   http://localhost:1420/\n14:32:08 [vite] page reload src/App.tsx" } }] }),
+    text("agent_message_chunk", "I controlli girano in background: intanto continuo con il resto. Ho sistemato il reset di phase e attempt, ora ricontrollo i punti in cui `status` torna online e aggiorno i test della riconnessione.\n\nAppena `cargo check` finisce guardo il risultato e ti dico com'è andata."),
     { kind: "permission", requestId: "r1", toolCall: { toolCallId: "t3", title: "npm run build", kind: "execute", status: "pending" }, options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "always", name: "Always allow", kind: "allow_always" }, { optionId: "reject", name: "Reject", kind: "reject_once" }] },
   ],
   c2: [

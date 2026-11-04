@@ -7,7 +7,8 @@ import { ChatImagesProvider } from "./ChatImage";
 import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
 import { SubagentTray } from "../../shared/SubagentTray";
-import { BackgroundTerminals } from "./BackgroundTerminals";
+import { TerminalJump, TerminalsContext } from "./ChatTerminals";
+import { backgroundTerminals } from "../../src/chat/backgroundTerminals";
 import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
 import { CHAT_VIEW, ChatMenu, TERMINAL_VIEW, type ViewChoice } from "./ChatMenu";
@@ -131,6 +132,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
 
   const status = info ? chatStatus(info, model) : "idle";
   const exited = status === "exited";
+  // Nothing still runs for a session that ended, whatever the conversation last said.
+  const terminals = useMemo(() => new Map(backgroundTerminals(model.items, info?.agent ?? "").map((term) => [term.id, exited ? { ...term, running: false } : term])), [model.items, info?.agent, exited]);
   const runningSubs = useMemo(() => sub || exited ? [] : nestSubagents(model.items).flatMap((item) =>
     item.type === "subagent" && subagentState(item).running ? [item] : []), [model.items, sub, exited]);
   // The agent is starting: the frog floats in its pond.
@@ -395,14 +398,16 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
                 <ChatImagesProvider chatId={chatId}>
-                  {sub ? (
-                    <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
-                  ) : (
-                    <>
-                      {model.items.length === 0 && !session.loaded && !starting && <div className="chat-empty">{t("loading")}</div>}
-                      <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
-                    </>
-                  )}
+                  <TerminalsContext.Provider value={terminals}>
+                    {sub ? (
+                      <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
+                    ) : (
+                      <>
+                        {model.items.length === 0 && !session.loaded && !starting && <div className="chat-empty">{t("loading")}</div>}
+                        <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
+                      </>
+                    )}
+                  </TerminalsContext.Provider>
                 </ChatImagesProvider>
                 {(sub ? !!subState?.running : status === "busy") && !exited && (
                   <div className="chat-status">
@@ -449,6 +454,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
               </div>
             </div>
             {!sub && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && (session.loaded || starting) && <ChatEmptyFrog starting={starting} cleared={cleared} />}
+            {!sub && <TerminalJump terminals={terminals} scrollRef={scrollRef} onOpenSubagent={openSubagent} />}
             {!atBottom && (
               <button
                 type="button"
@@ -500,7 +506,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                 </ChatPondEnd>
               )}
               <div className="chat-ask-keep" hidden={!!openAsk || showLimit}>
-                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubagent} openLabel={t("chatSubOpen")} />} terminalsCard={sub || exited ? null : <BackgroundTerminals items={model.items} agent={info?.agent ?? ""} />} />
+                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubagent} openLabel={t("chatSubOpen")} />} />
               </div>
             </>
           )}

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { askSummary } from "../../src/chat/askQuestions";
 import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "../../src/chat/chatModel";
 import { hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
@@ -7,6 +7,7 @@ import { ChatCompaction } from "./ChatCompaction";
 import { ChatImages, ChatUserImages } from "./ChatImage";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { TerminalBlock, TerminalsContext } from "./ChatTerminals";
 import { t, type Key } from "./i18n";
 import { ChevronDownIcon } from "./icons";
 
@@ -394,8 +395,9 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
   }
 });
 
-/** A turn's items in order, with each run of consecutive tool calls folded into one rail. */
+/** A turn's items in order, with each run of consecutive tool calls folded into one rail; a background terminal's launch stands on its own, as a block. */
 function Turn({ group: flat, onLink, onOpenSubagent }: { group: ChatItem[]; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void }) {
+  const terminals = useContext(TerminalsContext);
   const out: ReactNode[] = [];
   // A subagent's tool calls fold into its own row, apart from the agent's run of calls.
   const group = nestSubagents(flat.filter((i) => !hiddenGuardian(i)));
@@ -417,10 +419,15 @@ function Turn({ group: flat, onLink, onOpenSubagent }: { group: ChatItem[]; onLi
       out.push(<Item key={item.id} item={item} onLink={onLink} />);
       continue;
     }
+    const term = terminals.get(item.id);
+    if (term) {
+      out.push(<TerminalBlock key={item.id} term={term} />);
+      continue;
+    }
     const calls: ChatToolCall[] = [item.call];
     while (i + 1 < group.length) {
       const next = group[i + 1];
-      if (next.type !== "tool") break;
+      if (next.type !== "tool" || terminals.has(next.id)) break;
       calls.push(next.call);
       i++;
     }

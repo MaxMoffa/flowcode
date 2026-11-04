@@ -4,7 +4,7 @@ import type { BackgroundTerminal } from "../src/chat/backgroundTerminals";
 /** Characters of a terminal's output drawn. */
 const OUTPUT_MAX = 3000;
 
-function elapsed(startedAt: number | null, now: number): string {
+export function elapsed(startedAt: number | null, now: number): string {
   if (startedAt === null) return "";
   const s = Math.max(0, Math.floor((now - startedAt) / 1000));
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;

@@ -68,8 +68,6 @@ interface ChatComposerProps {
   onSend: (text: string) => void;
   onStop: () => void;
   subagentTray?: ReactNode;
-  /** The agent's background terminals: a card tucked under the message card. */
-  terminalsCard?: ReactNode;
 }
 
 /**
@@ -84,7 +82,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   agent,
   busy,
   subagentTray,
-  terminalsCard,
   modes,
   onMode,
   models = null,
@@ -260,7 +257,6 @@ ${latest.current}` : added);
           </div>
         </div>
       </div>
-      {terminalsCard}
     </div>
   );
 });
