@@ -1918,6 +1918,8 @@ summary.chat-step-row {
 /* --- the expired-cache card, in the composer's place ----------------------- */
 .chat-cache-card {
   position: relative;
+  /* Above the terminals card tucked under it, like the composer. */
+  z-index: 1;
   padding: 20px 20px 16px;
   text-align: center;
   border-radius: 24px;
@@ -2007,6 +2009,7 @@ summary.chat-step-row {
 
 .chat-ask,
 .chat-ask:focus-within {
+  padding: 16px 18px 12px;
   outline: none;
   box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--accent);
   animation: chat-ask-in 0.22s ease-out;
@@ -2165,6 +2168,22 @@ summary.chat-step-row {
   color: var(--fg-muted);
 }
 
+.chat-ask-free::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--fg);
+}
+
+/* In a card the free answer is a textarea, sized by AskSteps. */
+.chat-ask-card .chat-ask-free {
+  display: block;
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 120px;
+  resize: none;
+  line-height: 1.45;
+}
+
 .chat-ask-actions {
   display: flex;
   align-items: center;
@@ -2264,8 +2283,19 @@ summary.chat-step-row {
 }
 
 .chat-ask-card.is-other {
+  grid-column: 1 / -1;
   justify-content: center;
+  min-height: 44px;
   cursor: text;
+}
+
+.chat-ask-card.is-other:focus-within {
+  border-color: var(--accent);
+}
+
+.chat-ask-card .chat-ask-badge {
+  align-self: flex-start;
+  margin-left: 0;
 }
 
 .chat-ask-review {
@@ -3153,14 +3183,14 @@ summary.chat-step-row {
 .chat-termcard { position:relative; z-index:0; border-radius:0 0 20px 20px; background:color-mix(in srgb, var(--fg) 5%, rgb(var(--surface-rgb))); box-shadow:0 8px 24px -12px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--fg) 16%, transparent); animation:chat-termcard-in .25s ease-out; }
 .chat-composer + .chat-termcard { margin-top:-20px; padding-top:20px; }
 @keyframes chat-termcard-in { from { opacity:0; transform:translateY(-10px); } }
-.chat-termcard-head { display:flex; align-items:center; gap:9px; width:100%; height:32px; padding:0 16px; border-radius:inherit; background:none; color:var(--fg-muted); font:inherit; font-size:12.5px; text-align:left; cursor:pointer; }
+.chat-termcard-head { display:flex; align-items:center; gap:9px; width:100%; height:32px; padding:0 16px; border:0; border-radius:inherit; background:none; color:var(--fg-muted); font:inherit; font-size:12.5px; text-align:left; cursor:pointer; }
 .chat-termcard-head:hover { color:var(--fg); }
 .chat-termcard-count { font-weight:600; color:var(--fg); font-variant-numeric:tabular-nums; }
 .chat-termcard-hint { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; }
 .chat-termcard-chev { flex:0 0 auto; transition:transform .18s; transform:rotate(180deg); }
 .chat-termcard-head[aria-expanded="true"] .chat-termcard-chev { transform:none; }
 .chat-termcard-list { max-height:190px; overflow:auto; padding:0 8px 8px; border-top:1px solid color-mix(in srgb, var(--fg) 10%, transparent); padding-top:6px; }
-.chat-termcard-row { display:flex; align-items:center; gap:9px; width:100%; padding:5px 8px; border-radius:8px; background:none; color:var(--fg-muted); font:inherit; font-size:12.5px; text-align:left; cursor:pointer; }
+.chat-termcard-row { display:flex; align-items:center; gap:9px; width:100%; padding:5px 8px; border:0; border-radius:8px; background:none; color:var(--fg-muted); font:inherit; font-size:12.5px; text-align:left; cursor:pointer; }
 .chat-termcard-row:hover { background:color-mix(in srgb, var(--fg) 6%, transparent); }
 .chat-termcard-row.is-selected { background:color-mix(in srgb, var(--accent) 16%, transparent); box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); color:var(--fg); }
 .chat-termcard-cmd { flex:0 1 auto; max-width:55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono, ui-monospace, monospace); font-size:12px; color:var(--fg); }

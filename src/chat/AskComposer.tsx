@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
 import { buildAskContent, type AskAnswer, type AskOption, type AskQuestion } from "./askQuestions";
 import type { ChatItem } from "./chatModel";
@@ -45,7 +45,7 @@ function OptionText({ option }: { option: AskOption }) {
 
 /** Whether a key press belongs to the free-text input (typing), not to the shortcuts. */
 function inInput(e: KeyboardEvent) {
-  return e.target instanceof HTMLInputElement;
+  return e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
 }
 
 /** Variant for one question: numbered rows, the last one "Other..." with a text input. */
@@ -151,7 +151,7 @@ function AskList({ question, autoFocus, onSkip, onSend }: { question: AskQuestio
 function AskSteps({ questions, autoFocus, onSkip, onSend }: { questions: AskQuestion[]; autoFocus: boolean; onSkip: () => void; onSend: (a: AskAnswer[]) => void }) {
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
-  const otherRef = useRef<HTMLInputElement>(null);
+  const otherRef = useRef<HTMLTextAreaElement>(null);
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<AskAnswer[]>(() => questions.map(() => ({ picked: [], custom: "" })));
   const count = questions.length;
@@ -165,6 +165,15 @@ function AskSteps({ questions, autoFocus, onSkip, onSend }: { questions: AskQues
   useEffect(() => {
     rootRef.current?.focus();
   }, [step]);
+  // The free answer grows with its text, up to the height set in the CSS.
+  const customText = answers[Math.min(step, count - 1)].custom;
+  useLayoutEffect(() => {
+    const input = otherRef.current;
+    if (!input) return;
+    input.style.height = "auto";
+    // 0 while the chat is hidden: stay on the one-row height.
+    if (input.scrollHeight) input.style.height = `${input.scrollHeight}px`;
+  }, [customText, step]);
 
   const update = (i: number, patch: Partial<AskAnswer>) => setAnswers((a) => a.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const go = (to: number) => setStep(Math.max(0, Math.min(count, to)));
@@ -250,11 +259,12 @@ function AskSteps({ questions, autoFocus, onSkip, onSend }: { questions: AskQues
                 <OptionText option={option} />
               </button>
             ))}
-            <div className="chat-ask-card is-other">
-              <input
+            <div className={`chat-ask-card is-other${customText.trim() ? " is-sel" : ""}`}>
+              <textarea
                 ref={otherRef}
                 className="chat-ask-free"
-                value={answers[step].custom}
+                rows={1}
+                value={customText}
                 placeholder={t("chat.ask.other")}
                 onChange={(e) => update(step, q.multi ? { custom: e.target.value } : { custom: e.target.value, picked: [] })}
               />
