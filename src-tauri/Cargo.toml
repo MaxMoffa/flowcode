@@ -75,13 +75,16 @@ getrandom = "0.3"
 # Local voice dictation (dictation/): whisper.cpp for the recognizing, cpal for
 # the microphone. On Windows whisper.cpp must be built with clang-cl + Ninja
 # (MSVC's build is ~20x slower at inference): `npm run tauri` sets that up
-# (scripts/tauri.mjs); for plain cargo see scripts/cargo-env.ps1.
+# (scripts/tauri.mjs); for plain cargo see scripts/cargo-env.ps1. On Windows it
+# runs on the GPU through Vulkan (feature below), which needs the Vulkan SDK to
+# build; the app itself doesn't need Vulkan to start (dictation/vulkan_loader.rs).
 whisper-rs = "0.16"
 cpal = "0.18"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-winrt-notification = "0.8.1"
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security_Credentials", "Win32_UI_WindowsAndMessaging"] }
+whisper-rs = { version = "0.16", features = ["vulkan", "raw-api"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security_Credentials", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 notify-rust = "4.18.1"

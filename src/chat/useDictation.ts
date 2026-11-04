@@ -9,6 +9,8 @@ import {
   getDictationCleanup,
   ensureModelsLoaded,
   dictationLanguageParam,
+  getDictationAccel,
+  getDictationGpu,
   getDictationLanguages,
   getSelectedModel,
   hasInstalledModel,
@@ -126,6 +128,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
         model: getCleanupModel(agent) || undefined,
         text,
         vocabulary: vocabularyRef.current?.slice(0, 300) || undefined,
+        accel: getDictationAccel(),
+        gpu: getDictationGpu(),
       });
     },
     (text) => {
@@ -236,6 +240,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
         language: dictationLanguageParam(getDictationLanguages()),
         model: modelForSession(modelsRef.current.models, getSelectedModel()),
         vocabulary: vocabularyRef.current?.slice(0, 300) || undefined,
+        accel: getDictationAccel(),
+        gpu: getDictationGpu(),
       });
     } catch (e) {
       if (sessionRef.current === token) sessionRef.current = null;

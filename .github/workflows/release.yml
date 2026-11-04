@@ -22,6 +22,9 @@ jobs:
     # whisper.cpp (dictation) must be built with clang-cl + Ninja: the MSVC
     # build runs inference ~20x slower. Both come with the runner image.
     env:
+      CC: clang-cl
+      CXX: clang-cl
+      LDFLAGS: /MANIFEST:NO
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER: clang-cl
       CMAKE_CXX_COMPILER: clang-cl
@@ -30,6 +33,10 @@ jobs:
       LIBCLANG_PATH: C:/Program Files/LLVM/bin
     steps:
       - uses: actions/checkout@v4
+
+      - name: Vulkan SDK (GPU dictation)
+        shell: pwsh
+        run: ./scripts/install-vulkan-sdk.ps1
 
       - uses: actions/setup-node@v4
         with:

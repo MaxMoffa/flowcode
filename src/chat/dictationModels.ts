@@ -306,6 +306,67 @@ export function setDictationAutoSend(on: boolean) {
 
 export const useDictationAutoSend = (): boolean => useSyncExternalStore(subscribePrefs, getDictationAutoSend);
 
+// --- where Whisper runs ---------------------------------------------------
+
+export type DictationAccel = "auto" | "gpu" | "cpu";
+
+/** A graphics card as the backend lists it (see dictation/engine.rs). */
+export interface DictationGpu {
+  id: number;
+  name: string;
+  discrete: boolean;
+}
+
+const ACCEL_KEY = "flowcode.dictation.accel";
+const GPU_KEY = "flowcode.dictation.gpu";
+
+function readAccel(): DictationAccel {
+  const stored = readString(ACCEL_KEY);
+  return stored === "gpu" || stored === "cpu" ? stored : "auto";
+}
+
+let accel = readAccel();
+let chosenGpu = readString(GPU_KEY) ?? "";
+let gpus: readonly DictationGpu[] = [];
+let gpusRequested = false;
+
+export const getDictationAccel = (): DictationAccel => accel;
+/** The name of the card picked in Settings; "" = the best one. */
+export const getDictationGpu = (): string => chosenGpu;
+
+export function setDictationAccel(value: DictationAccel) {
+  accel = value;
+  writeString(ACCEL_KEY, value);
+  notifyPrefs();
+}
+
+export function setDictationGpu(name: string) {
+  chosenGpu = name;
+  writeString(GPU_KEY, name);
+  notifyPrefs();
+}
+
+/** Asks the backend for the graphics cards, once per window. */
+export function ensureGpusLoaded() {
+  if (gpusRequested) return;
+  gpusRequested = true;
+  invoke<DictationGpu[]>("dictation_gpus")
+    .then((list) => {
+      gpus = list;
+      notifyPrefs();
+    })
+    .catch(() => {});
+}
+
+/** The card a session uses, as the backend picks it: the chosen one, else a discrete one, else any. */
+export function pickGpu(list: readonly DictationGpu[], chosen: string): DictationGpu | null {
+  return list.find((g) => g.name === chosen) ?? list.find((g) => g.discrete) ?? list[0] ?? null;
+}
+
+export const useDictationAccel = (): DictationAccel => useSyncExternalStore(subscribePrefs, getDictationAccel);
+export const useDictationGpu = (): string => useSyncExternalStore(subscribePrefs, getDictationGpu);
+export const useDictationGpus = (): readonly DictationGpu[] => useSyncExternalStore(subscribePrefs, () => gpus);
+
 // --- cleanup of the dictated text through an agent's model (opt-in) --------
 
 export type CleanupAgent = "claude" | "codex";

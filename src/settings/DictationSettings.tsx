@@ -18,6 +18,14 @@ import {
   WHISPER_LANGUAGES,
   cancelDownload,
   deleteModel,
+  type DictationAccel,
+  ensureGpusLoaded,
+  pickGpu,
+  setDictationAccel,
+  setDictationGpu,
+  useDictationAccel,
+  useDictationGpu,
+  useDictationGpus,
   downloadModel,
   downloadPercent,
   ellipsizeMiddle,
@@ -132,7 +140,7 @@ function Meter({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** Settings > Agenti > Dettatura: the local Whisper models (use, download,
+/** Settings > Dettatura: the local Whisper models (use, download,
  * delete), the spoken languages and the dictation shortcuts. Shares its state
  * with the chat mic. */
 export function DictationSettings() {
@@ -145,13 +153,18 @@ export function DictationSettings() {
   const shortcuts = useDictationShortcuts();
   const cleanup = useDictationCleanup();
   const cleanupAgent = useCleanupAgent();
+  const accel = useDictationAccel();
+  const chosenGpu = useDictationGpu();
+  const gpus = useDictationGpus();
   const [query, setQuery] = useState("");
   const lastPick = useRef<readonly string[]>([]);
   useEffect(ensureModelsLoaded, []);
+  useEffect(ensureGpusLoaded, []);
   if (languages.length > 0) lastPick.current = languages;
 
   // What the mic really uses: the chosen model if installed, else the backend's pick.
   const inUse = modelForSession(models, selected) ?? models.find((m) => m.installed)?.id ?? null;
+  const gpu = accel === "cpu" ? null : pickGpu(gpus, chosenGpu);
   const usedBytes = models.filter((m) => m.installed).reduce((sum, m) => sum + m.sizeBytes, 0);
 
   const mode: LanguageMode = languages.length === 0 ? "auto" : "pick";
@@ -220,8 +233,7 @@ export function DictationSettings() {
 
   return (
     <section className="settings-group dictation-settings">
-      <h3 className="settings-group-title">{t("settings.group.dictation")}</h3>
-      <p className="settings-group-desc dictation-settings-intro">
+      <p className="dictation-settings-intro">
         <span className="dictation-settings-local">
           <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="3" y="7" width="10" height="7" rx="1.5" />
@@ -229,8 +241,27 @@ export function DictationSettings() {
           </svg>
           {t("settings.dictation.local")}
         </span>
-        <span>{t("settings.dictation.intro")}</span>
       </p>
+
+      {/* Summary */}
+      <div className="dictation-settings-status">
+        <div>
+          <small>{t("settings.dictation.summary.model")}</small>
+          <b>{inUse ? modelName(inUse) : t("settings.dictation.summary.none")}</b>
+        </div>
+        <div>
+          <small>{t("settings.dictation.summary.device")}</small>
+          <b title={gpu?.name}>{gpu ? gpu.name : t("settings.dictation.summary.cpu")}</b>
+        </div>
+        <div>
+          <small>{t("settings.dictation.summary.languages")}</small>
+          <b>
+            {languages.length === 0
+              ? t("settings.dictation.summary.auto")
+              : languages.map((code) => languageName(code)).join(", ")}
+          </b>
+        </div>
+      </div>
 
       {/* Models */}
       <div id={settingDomId("dictationModel")} className="dictation-settings-section">
@@ -262,30 +293,26 @@ export function DictationSettings() {
                   }
                 }}
               >
-                <div className="dictation-settings-model-top">
-                  <span className="dictation-settings-radio" aria-hidden="true" />
-                  <span className="dictation-settings-model-name">{modelName(m.id)}</span>
-                  {m.recommended && <span className="dictation-settings-badge">{t("settings.dictation.model.recommended")}</span>}
-                </div>
-                <div className="dictation-settings-model-desc">{modelDescription(m.id)}</div>
-                {meters && (
-                  <div className="dictation-settings-meters">
-                    <Meter label={t("settings.dictation.model.speed")} value={meters.speed} />
-                    <Meter label={t("settings.dictation.model.precision")} value={meters.precision} />
+                <span className="dictation-settings-radio" aria-hidden="true" />
+                <div className="dictation-settings-model-info">
+                  <div className="dictation-settings-model-name-row">
+                    <span className="dictation-settings-model-name">{modelName(m.id)}</span>
+                    {m.recommended && <span className="dictation-settings-badge">{t("settings.dictation.model.recommended")}</span>}
                   </div>
-                )}
-                <div className="dictation-settings-model-foot">
+                  <div className="dictation-settings-model-desc">{modelDescription(m.id)}</div>
+                </div>
+                <div className="dictation-settings-meters">
+                  {meters && (
+                    <>
+                      <Meter label={t("settings.dictation.model.speed")} value={meters.speed} />
+                      <Meter label={t("settings.dictation.model.precision")} value={meters.precision} />
+                    </>
+                  )}
+                </div>
+                <div className="dictation-settings-model-actions">
                   {m.installed ? (
                     <>
-                      <span className="dictation-settings-ok">
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-                          <path d="m3 8.5 3 3 7-7" />
-                        </svg>
-                        {t("settings.dictation.model.installedSize", {
-                          state: isSelected ? t("settings.dictation.model.inUse") : t("settings.dictation.model.installed"),
-                          size: formatMb(m.sizeBytes),
-                        })}
-                      </span>
+                      <span className="dictation-settings-size">{t("settings.dictation.model.sizeOnly", { size: formatMb(m.sizeBytes) })}</span>
                       <button
                         type="button"
                         className="dictation-settings-icon-btn"
@@ -322,7 +349,7 @@ export function DictationSettings() {
                     </>
                   ) : (
                     <>
-                      <span>{t("settings.dictation.model.sizeOnly", { size: formatMb(m.sizeBytes) })}</span>
+                      <span className="dictation-settings-size">{t("settings.dictation.model.sizeOnly", { size: formatMb(m.sizeBytes) })}</span>
                       <button
                         type="button"
                         className="settings-choice dictation-settings-primary"
@@ -349,6 +376,46 @@ export function DictationSettings() {
           </button>
         </div>
       </div>
+
+      {/* Performance: nothing to choose without a GPU, unless "GPU" was chosen when there was one */}
+      {(gpus.length > 0 || accel === "gpu") && (
+        <div className="dictation-settings-section">
+          <div className="dictation-settings-head">
+            <span className="dictation-settings-title">{t("settings.dictation.accel.title")}</span>
+            <span className="dictation-settings-aside">{t("settings.dictation.accel.aside")}</span>
+          </div>
+          <div className="settings-card dictation-settings-perf">
+            <SettingRow id="dictationAccel" label={t("settings.dictation.accel.label")} desc={t(`settings.dictation.accel.desc.${accel}`)}>
+              <Segmented<DictationAccel>
+                value={accel}
+                options={[
+                  { value: "auto", label: t("settings.dictation.accel.mode.auto") },
+                  { value: "gpu", label: t("settings.dictation.accel.mode.gpu") },
+                  { value: "cpu", label: t("settings.dictation.accel.mode.cpu") },
+                ]}
+                onChange={setDictationAccel}
+                ariaLabel={t("settings.dictation.accel.label")}
+              />
+            </SettingRow>
+            {gpu && gpus.length > 1 && (
+              <SettingRow id="dictationGpu" label={t("settings.dictation.gpu.label")} desc={t("settings.dictation.gpu.desc")}>
+                <select
+                  className="dictation-settings-select"
+                  value={gpu.name}
+                  onChange={(e) => setDictationGpu(e.target.value)}
+                  aria-label={t("settings.dictation.gpu.label")}
+                >
+                  {gpus.map((g) => (
+                    <option key={g.id} value={g.name}>
+                      {g.discrete ? g.name : `${g.name} (${t("settings.dictation.gpu.integrated")})`}
+                    </option>
+                  ))}
+                </select>
+              </SettingRow>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Languages */}
       <div id={settingDomId("dictationLanguage")} className="dictation-settings-section">

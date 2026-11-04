@@ -47,6 +47,9 @@ jobs:
         shell: bash
         run: |
           {
+            echo "CC=clang-cl"
+            echo "CXX=clang-cl"
+            echo "LDFLAGS=/MANIFEST:NO"
             echo "CMAKE_GENERATOR=Ninja"
             echo "CMAKE_C_COMPILER=clang-cl"
             echo "CMAKE_CXX_COMPILER=clang-cl"
@@ -54,6 +57,10 @@ jobs:
             echo "GGML_CCACHE=OFF"
             echo "LIBCLANG_PATH=C:/Program Files/LLVM/bin"
           } >> "$GITHUB_ENV"
+      - name: Vulkan SDK (GPU dictation)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install-vulkan-sdk.ps1
       - name: Install Tauri system dependencies
         if: runner.os == 'Linux'
         run: |

@@ -1,8 +1,10 @@
 // `npm run tauri ...`: the Tauri CLI, with the build environment whisper.cpp
 // needs on Windows (dictation, src-tauri/src/dictation). Its default MSVC
 // build runs inference ~20x slower than clang-cl + Ninja, so those are forced
-// here when they're installed. Plain `cargo check/test/build` on Windows needs
-// the same variables: see scripts/cargo-env.ps1. Other OSes need nothing.
+// here when they're installed. GPU dictation also needs the Vulkan SDK
+// (`winget install KhronosGroup.VulkanSDK`). Plain `cargo check/test/build` on
+// Windows needs the same variables: see scripts/cargo-env.ps1. Other OSes need
+// nothing.
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { delimiter, join } from "node:path";
@@ -37,6 +39,12 @@ if (process.platform === "win32") {
   // Without LLVM the build falls back to MSVC: slow, but it still builds.
   const defaults = existsSync(llvm)
     ? {
+        // ggml's Vulkan shader generator is a separate CMake build that ignores
+        // CMAKE_C_COMPILER and fails under cl; its deep folders are too long for
+        // rc.exe, which only a manifest would need.
+        CC: "clang-cl",
+        CXX: "clang-cl",
+        LDFLAGS: "/MANIFEST:NO",
         CMAKE_GENERATOR: "Ninja",
         CMAKE_C_COMPILER: "clang-cl",
         CMAKE_CXX_COMPILER: "clang-cl",
@@ -46,6 +54,13 @@ if (process.platform === "win32") {
       }
     : {};
   for (const [key, value] of Object.entries(defaults)) env[key] ??= value;
+  // winget doesn't reach shells opened before it ran: find the newest SDK here.
+  const sdkRoot = "C:\\VulkanSDK";
+  if (!env.VULKAN_SDK && existsSync(sdkRoot)) {
+    const newest = readdirSync(sdkRoot).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).pop();
+    if (newest) env.VULKAN_SDK = join(sdkRoot, newest);
+  }
+  if (env.VULKAN_SDK) env[pathKey] = [join(env.VULKAN_SDK, "Bin"), env[pathKey]].join(delimiter);
 }
 
 const bin = join("node_modules", ".bin", process.platform === "win32" ? "tauri.cmd" : "tauri");

@@ -22,6 +22,8 @@ mod audio;
 pub mod cleanup;
 mod engine;
 mod models;
+#[cfg(windows)]
+mod vulkan_loader;
 
 use flowcode_shared::i18n::tr;
 use serde_json::{json, Value};
@@ -31,6 +33,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use whisper_rs::{WhisperContext, WhisperState};
 
 /// A session with no speech at all for this long ends by itself.
 const SILENCE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -126,6 +129,12 @@ pub fn dictation_models(app: AppHandle, state: State<'_, DictationState>) -> mod
     models::list(&app, &state.downloads)
 }
 
+/// The graphics cards dictation can run on.
+#[tauri::command]
+pub async fn dictation_gpus() -> Result<Vec<engine::GpuDevice>, String> {
+    crate::blocking(|| Ok(engine::gpu_devices())).await
+}
+
 /// Downloads a model; resolves once it is installed. Fails with "cancelled" if
 /// `dictation_cancel_download` ended it.
 #[tauri::command]
@@ -162,6 +171,7 @@ pub async fn dictation_delete_model(
 /// comma-separated list of them ("it,en"), among which Whisper picks; none or
 /// "auto" lets it detect among all. `vocabulary` is the user's own terms (names,
 /// jargon) handed to Whisper as a hint; trimmed and cut to 300 characters.
+/// `accel` is where to run ("auto", "gpu" or "cpu"), `gpu` the card's name.
 /// Resolves once the microphone is listening
 /// and the model loaded, or with why it couldn't.
 #[tauri::command]
@@ -172,6 +182,8 @@ pub async fn dictation_start(
     session: Option<String>,
     model: Option<String>,
     vocabulary: Option<String>,
+    accel: Option<String>,
+    gpu: Option<String>,
 ) -> Result<(), String> {
     let _gate = state.gate.lock().await;
     let app = window.app_handle().clone();
@@ -198,6 +210,8 @@ pub async fn dictation_start(
         vocabulary: vocabulary.unwrap_or_default().trim().chars().take(VOCABULARY_MAX_CHARS).collect(),
         model_id,
         model_path,
+        accel: accel.unwrap_or_default(),
+        gpu: gpu.unwrap_or_default(),
         contexts: state.contexts.clone(),
         signals: signals.clone(),
     };
@@ -239,6 +253,10 @@ struct Job {
     vocabulary: String,
     model_id: String,
     model_path: std::path::PathBuf,
+    /// Where to run: "auto", "gpu" or "cpu".
+    accel: String,
+    /// The graphics card picked in Settings, by name.
+    gpu: String,
     contexts: engine::ContextCache,
     signals: mpsc::Sender<Signal>,
 }
@@ -247,6 +265,21 @@ impl Job {
     fn emit(&self, event: &str, mut payload: Value) {
         payload["session"] = json!(self.token);
         let _ = self.window.emit_to(self.window.label(), event, payload);
+    }
+}
+
+/// The model ready to use on the device the settings ask for, and that device.
+/// Unless the GPU was demanded, one that fails gives way to the CPU.
+fn open(job: &Job) -> Result<(Arc<WhisperContext>, WhisperState, Option<i32>), String> {
+    let device = engine::resolve_device(&job.accel, &job.gpu, &engine::gpu_devices())?;
+    let attempt = |device: Option<i32>| {
+        let context = job.contexts.take(&job.model_id, device).map(Ok).unwrap_or_else(|| engine::load(&job.model_path, device))?;
+        let state = engine::new_state(&context)?;
+        Ok((context, state, device))
+    };
+    match attempt(device) {
+        Err(_) if device.is_some() && job.accel != "gpu" => attempt(None),
+        result => result,
     }
 }
 
@@ -262,15 +295,8 @@ fn work(
     waiting: &AtomicUsize,
     loaded: mpsc::Sender<Result<(), String>>,
 ) {
-    let context = match job.contexts.take(&job.model_id).map(Ok).unwrap_or_else(|| engine::load(&job.model_path)) {
-        Ok(context) => context,
-        Err(message) => {
-            let _ = loaded.send(Err(message));
-            return;
-        }
-    };
-    let mut state = match engine::new_state(&context) {
-        Ok(state) => state,
+    let (context, mut state, device) = match open(job) {
+        Ok(opened) => opened,
         Err(message) => {
             let _ = loaded.send(Err(message));
             return;
@@ -341,7 +367,7 @@ fn work(
         }
     }
     drop(state);
-    job.contexts.put(&job.model_id, context);
+    job.contexts.put(&job.model_id, device, context);
 }
 
 /// The thread of a session: opens the microphone and the model, answers

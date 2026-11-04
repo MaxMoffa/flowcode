@@ -2,6 +2,7 @@
 //! a while after a session so the next one starts at once.
 
 use flowcode_shared::i18n::tr;
+use serde::Serialize;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -41,26 +42,28 @@ struct CacheState {
 
 struct Cached {
     model: String,
+    /// The GPU it's loaded on, none for the CPU.
+    device: Option<i32>,
     context: Arc<WhisperContext>,
     /// When the model is let go, unless a later `put` extends it.
     expires_at: Instant,
 }
 
 impl ContextCache {
-    /// The cached context of `model`, taking it out (a session holds it while
-    /// it runs and hands it back with `put`).
-    pub fn take(&self, model: &str) -> Option<Arc<WhisperContext>> {
+    /// The cached context of `model` on `device`, taking it out (a session
+    /// holds it while it runs and hands it back with `put`).
+    pub fn take(&self, model: &str, device: Option<i32>) -> Option<Arc<WhisperContext>> {
         let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
         match state.slot.take() {
-            Some(cached) if cached.model == model => Some(cached.context),
+            Some(cached) if cached.model == model && cached.device == device => Some(cached.context),
             _ => None,
         }
     }
 
     /// Keeps `context` loaded for the next session, for a few minutes.
-    pub fn put(&self, model: &str, context: Arc<WhisperContext>) {
+    pub fn put(&self, model: &str, device: Option<i32>, context: Arc<WhisperContext>) {
         let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        state.slot = Some(Cached { model: model.to_string(), context, expires_at: Instant::now() + KEEP_LOADED });
+        state.slot = Some(Cached { model: model.to_string(), device, context, expires_at: Instant::now() + KEEP_LOADED });
         if state.reaper_running {
             return;
         }
@@ -95,9 +98,72 @@ impl ContextCache {
     }
 }
 
-pub fn load(path: &Path) -> Result<Arc<WhisperContext>, String> {
+/// A graphics card Whisper can run on.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuDevice {
+    /// What `load` takes: its position among the GPUs.
+    id: i32,
+    name: String,
+    /// A card of its own, rather than one built into the processor.
+    discrete: bool,
+}
+
+/// The GPUs Whisper can use, in its order. None when this build has no GPU
+/// backend or this PC has no working Vulkan.
+#[cfg(windows)]
+pub fn gpu_devices() -> Vec<GpuDevice> {
+    use whisper_rs::whisper_rs_sys as sys;
+    let mut devices = Vec::new();
+    // SAFETY: ggml owns the devices and their strings for the whole run.
+    unsafe {
+        for index in 0..sys::ggml_backend_dev_count() {
+            let device = sys::ggml_backend_dev_get(index);
+            let kind = sys::ggml_backend_dev_type(device);
+            let discrete = kind == sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU;
+            if !discrete && kind != sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU {
+                continue;
+            }
+            let name = std::ffi::CStr::from_ptr(sys::ggml_backend_dev_description(device)).to_string_lossy().into_owned();
+            devices.push(GpuDevice { id: devices.len() as i32, name, discrete });
+        }
+    }
+    devices
+}
+
+#[cfg(not(windows))]
+pub fn gpu_devices() -> Vec<GpuDevice> {
+    Vec::new()
+}
+
+/// The GPU to use for `accel` ("cpu", "gpu" or else automatic), none meaning
+/// the CPU: the one named `chosen`, else a discrete one (ggml may well list the
+/// integrated GPU first), else any. Fails if "gpu" finds none.
+pub fn resolve_device(accel: &str, chosen: &str, devices: &[GpuDevice]) -> Result<Option<i32>, String> {
+    if accel == "cpu" {
+        return Ok(None);
+    }
+    let device = devices
+        .iter()
+        .find(|d| d.name == chosen)
+        .or_else(|| devices.iter().find(|d| d.discrete))
+        .or_else(|| devices.first());
+    match device {
+        Some(device) => Ok(Some(device.id)),
+        None if accel == "gpu" => {
+            Err(tr("Nessuna GPU disponibile: scegli Automatica nelle impostazioni.", "No GPU available: choose Automatic in Settings.").to_string())
+        }
+        None => Ok(None),
+    }
+}
+
+/// Loads the model at `path` on the GPU `device`, or on the CPU with none.
+pub fn load(path: &Path, device: Option<i32>) -> Result<Arc<WhisperContext>, String> {
     let path = path.to_str().ok_or_else(|| tr("Percorso del modello non valido.", "Invalid model path.").to_string())?;
-    WhisperContext::new_with_params(path, WhisperContextParameters::default()).map(Arc::new).map_err(|e| {
+    let mut params = WhisperContextParameters::default();
+    // Flash attention speeds up the GPU and does nothing for the CPU.
+    params.use_gpu(device.is_some()).flash_attn(device.is_some()).gpu_device(device.unwrap_or(0));
+    WhisperContext::new_with_params(path, params).map(Arc::new).map_err(|e| {
         let base = tr("Impossibile caricare il modello vocale", "Couldn't load the speech model");
         format!("{base}: {e}")
     })
@@ -337,6 +403,22 @@ mod tests {
     }
 
     #[test]
+    fn the_device_follows_the_setting() {
+        let gpu = |id, name: &str, discrete| GpuDevice { id, name: name.into(), discrete };
+        let both = [gpu(0, "Radeon", false), gpu(1, "RTX", true)];
+        assert_eq!(resolve_device("cpu", "RTX", &both), Ok(None));
+        // A discrete GPU beats the first one listed.
+        assert_eq!(resolve_device("auto", "", &both), Ok(Some(1)));
+        assert_eq!(resolve_device("gpu", "", &both), Ok(Some(1)));
+        // The user's pick wins; a card no longer there doesn't count.
+        assert_eq!(resolve_device("auto", "Radeon", &both), Ok(Some(0)));
+        assert_eq!(resolve_device("auto", "Gone", &both), Ok(Some(1)));
+        assert_eq!(resolve_device("auto", "", &both[..1]), Ok(Some(0)));
+        assert_eq!(resolve_device("auto", "", &[]), Ok(None));
+        assert!(resolve_device("gpu", "", &[]).is_err());
+    }
+
+    #[test]
     fn hallucinations_are_recognised() {
         assert!(is_hallucination(""));
         assert!(is_hallucination("  ... "));
@@ -423,13 +505,20 @@ mod tests {
         let audio = read_wav(&wav);
         println!("audio {:.1}s", audio.len() as f32 / 16_000.0);
         let started = std::time::Instant::now();
-        let context = load(Path::new(&model)).unwrap();
+        let devices = gpu_devices();
+        println!("gpus {devices:?}");
+        let device = resolve_device("auto", "", &devices).unwrap();
+        println!("device {device:?}");
+        let context = load(Path::new(&model), device).unwrap();
         let mut state = new_state(&context).unwrap();
         println!("load {:?}", started.elapsed());
-        let started = std::time::Instant::now();
-        let text = transcribe(&mut state, &audio, "it", "", "", true).unwrap();
-        println!("transcribe {:?}: {text}", started.elapsed());
-        assert!(!text.is_empty());
+        // Twice: the first run on a GPU also pays for compiling its shaders.
+        for _ in 0..2 {
+            let started = std::time::Instant::now();
+            let text = transcribe(&mut state, &audio, "it", "", "", true).unwrap();
+            println!("transcribe {:?}: {text}", started.elapsed());
+            assert!(!text.is_empty());
+        }
     }
 
     fn read_wav(path: &str) -> Vec<f32> {

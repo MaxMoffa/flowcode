@@ -163,6 +163,7 @@ pub fn run() {
             dictation::dictation_stop,
             dictation::cleanup::dictation_cleanup,
             dictation::dictation_models,
+            dictation::dictation_gpus,
             dictation::dictation_download_model,
             dictation::dictation_cancel_download,
             dictation::dictation_delete_model,

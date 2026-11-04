@@ -16,6 +16,7 @@ import {
   formatMb,
   hasInstalledModel,
   modelForSession,
+  pickGpu,
   type DictationModel,
 } from "./dictationModels";
 
@@ -132,5 +133,18 @@ describe("dictation languages", () => {
     expect(languageName("it")).toBe("Italiano");
     expect(languageName("!!bad code")).toBe("!!bad code");
     expect(languageName("it")).toBe(languageName("it"));
+  });
+});
+
+describe("pickGpu", () => {
+  const radeon = { id: 0, name: "Radeon", discrete: false };
+  const rtx = { id: 1, name: "RTX", discrete: true };
+
+  it("prefers the chosen card, then a discrete one, then any", () => {
+    expect(pickGpu([radeon, rtx], "Radeon")).toBe(radeon);
+    expect(pickGpu([radeon, rtx], "")).toBe(rtx);
+    expect(pickGpu([radeon, rtx], "Gone")).toBe(rtx);
+    expect(pickGpu([radeon], "")).toBe(radeon);
+    expect(pickGpu([], "RTX")).toBeNull();
   });
 });

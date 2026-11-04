@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per la nuova sezione Dettatura delle impostazioni di Flowcode.">
+  <title>Flowcode — sezione Dettatura · 3 varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #17120e; --panel: #211a14; --raised: #2a221b; --terminal: #130f0c;
+      --fg: #e7d8c5; --muted: #ad967c; --dim: #7f6e5d; --line: #3a2f25;
+      --accent: #a5bd8f; --accent-fg: #17120e; --accent-bg: #30382a; --danger: #e18b7c; --warning: #d4af6e;
+      --hover: #ffffff0a; --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eee6d9; --panel: #fffaf1; --raised: #f0e8da; --terminal: #f6efe3;
+      --fg: #3a2b17; --muted: #806a50; --dim: #99856c; --line: #dfd3c2;
+      --accent: #4f6e3a; --accent-fg: #fffaf1; --accent-bg: #e5ebdc; --danger: #b34837; --warning: #96701c;
+      --hover: #57371009;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 "Segoe UI", system-ui, sans-serif; }
+    button, select { font: inherit; color: inherit; cursor: pointer; }
+    button { border: 0; background: none; padding: 0; text-align: left; }
+    button:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    kbd { font: 10px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); background: var(--raised); white-space: nowrap; }
+    code { font: 11px var(--mono); }
+
+    .page { max-width: 1100px; margin: auto; padding: 28px 32px 32px; }
+    .eyebrow { font-size: 10px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(21px, 2.4vw, 28px); font-weight: 550; letter-spacing: -.035em; margin: 0 0 4px; }
+    .lead { margin: 0 0 20px; color: var(--muted); max-width: 760px; }
+    .toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    .variants { display: flex; gap: 4px; padding: 4px; background: var(--terminal); border: 1px solid var(--line); border-radius: 10px; flex-wrap: wrap; }
+    .variants button { padding: 8px 14px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+    .variants button:hover { background: var(--hover); }
+    .variants button span { margin-right: 8px; opacity: .6; font: 11px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--raised); color: var(--fg); box-shadow: 0 1px 2px #0002; }
+    .tool { display: inline-flex; gap: 6px; align-items: center; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; }
+    .tool:hover { background: var(--hover); color: var(--fg); }
+    .pitch { color: var(--muted); margin: 0 0 14px; min-height: 20px; }
+
+    /* App frame */
+    .window { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 70px -40px #0009; display: grid; grid-template-columns: 216px minmax(0, 1fr); height: 720px; }
+    .nav { background: var(--terminal); border-right: 1px solid var(--line); padding: 0 6px 8px; overflow: auto; }
+    .nav-head { height: 38px; display: flex; align-items: center; padding: 0 6px; margin: 0 -6px 6px; padding-left: 12px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 12px; }
+    .nav-item { display: flex; flex-direction: column; padding: 5px 8px; border-radius: 6px; margin-bottom: 1px; color: var(--muted); }
+    .nav-item b { font-weight: 500; font-size: 12.5px; color: var(--fg); }
+    .nav-item small { font-size: 10.5px; color: var(--dim); }
+    .nav-item.on { background: var(--accent-bg); }
+    .nav-item.on b { color: var(--accent); }
+    .nav-item .new { display: inline-block; margin-left: 6px; font: 9px var(--mono); color: var(--accent); }
+    .content { overflow: auto; padding: 22px 28px 28px; min-width: 0; }
+    .inner { max-width: 680px; margin: auto; }
+    .title { font-size: 19px; font-weight: 600; letter-spacing: -.02em; margin: 0; }
+    .sub { margin: 2px 0 16px; color: var(--muted); font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .local { display: inline-flex; gap: 5px; align-items: center; padding: 1px 7px; border-radius: 99px; background: var(--accent-bg); color: var(--accent); font-size: 10.5px; }
+    .local svg { width: 11px; height: 11px; }
+
+    /* Shared controls */
+    .h { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin: 22px 0 7px; }
+    .h b { font-weight: 600; font-size: 12.5px; }
+    .h span { color: var(--dim); font-size: 11px; }
+    .card { border: 1px solid var(--line); border-radius: 9px; background: var(--raised); overflow: hidden; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 13px; }
+    .row + .row { border-top: 1px solid var(--line); }
+    .row .l { min-width: 0; }
+    .row .l b { display: block; font-weight: 500; font-size: 12.5px; }
+    .row .l small { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .row .c { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+    .seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 7px; background: var(--terminal); border: 1px solid var(--line); }
+    .seg button { padding: 3px 10px; border-radius: 5px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+    .seg button:hover { color: var(--fg); }
+    .seg button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+    .sw { width: 30px; height: 17px; border-radius: 99px; background: var(--terminal); border: 1px solid var(--line); position: relative; flex-shrink: 0; transition: background .15s; }
+    .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--dim); transition: transform .15s, background .15s; }
+    .sw[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+    .sw[aria-checked="true"]::after { transform: translateX(13px); background: var(--accent-fg); }
+    select.sel { border: 1px solid var(--line); border-radius: 6px; background: var(--terminal); padding: 4px 8px; font-size: 11.5px; max-width: 230px; }
+    .btn { padding: 4px 11px; border-radius: 6px; border: 1px solid var(--line); font-size: 11.5px; white-space: nowrap; }
+    .btn:hover { background: var(--hover); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    .btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
+    .btn:disabled { opacity: .45; cursor: default; }
+    .ico { width: 26px; height: 26px; display: inline-grid; place-items: center; border-radius: 6px; color: var(--muted); }
+    .ico:hover { background: var(--hover); color: var(--danger); }
+    .tag { font-size: 9.5px; letter-spacing: .03em; padding: 0 6px; border-radius: 99px; background: var(--accent-bg); color: var(--accent); white-space: nowrap; line-height: 16px; display: inline-block; }
+    .tag.alpha { background: transparent; border: 1px solid var(--line); color: var(--warning); line-height: 14px; }
+    .dots { display: inline-flex; gap: 2px; vertical-align: middle; }
+    .dots i { width: 8px; height: 4px; border-radius: 1px; background: var(--line); }
+    .dots i.on { background: var(--accent); }
+    .prog { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+    .prog .track { width: 84px; height: 4px; border-radius: 99px; background: var(--terminal); overflow: hidden; }
+    .prog .track i { display: block; height: 100%; background: var(--accent); }
+    .inuse { display: inline-flex; gap: 4px; align-items: center; color: var(--accent); font-size: 11px; white-space: nowrap; }
+    .inuse svg { width: 12px; height: 12px; stroke-width: 2.2; }
+    .chips { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+    .chip { display: inline-flex; gap: 5px; align-items: center; padding: 2px 8px; border-radius: 99px; background: var(--accent-bg); color: var(--accent); font-size: 11.5px; }
+    .chip button { display: inline-grid; place-items: center; color: inherit; opacity: .7; }
+    .chip button:hover { opacity: 1; }
+    .chip svg { width: 9px; height: 9px; stroke-width: 2; }
+    .hint { padding: 8px 13px 10px; color: var(--muted); font-size: 11px; display: flex; gap: 7px; }
+    .hint svg { margin-top: 2px; width: 12px; height: 12px; }
+    .hint.warn { color: var(--warning); }
+    .storage { display: flex; gap: 8px; align-items: center; color: var(--dim); font-size: 11px; flex-wrap: wrap; }
+    .storage code { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .link { color: var(--accent); font-size: 11px; }
+    .link:hover { text-decoration: underline; }
+    .sim { color: var(--warning); font-size: 10px; }
+
+    /* A: compact list */
+    .status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 9px; background: var(--raised); }
+    .status div { padding: 9px 13px; min-width: 0; }
+    .status div + div { border-left: 1px solid var(--line); }
+    .status small { display: block; color: var(--dim); font-size: 10.5px; }
+    .status b { display: block; font-weight: 500; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mrow { display: grid; grid-template-columns: 16px minmax(0, 1fr) 122px 150px; gap: 12px; align-items: center; padding: 9px 13px; }
+    .mrow + .mrow { border-top: 1px solid var(--line); }
+    .mrow.can { cursor: pointer; }
+    .mrow.can:hover { background: var(--hover); }
+    .mrow.sel { background: var(--accent-bg); }
+    .radio { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--dim); display: grid; place-items: center; }
+    .radio.on { border-color: var(--accent); }
+    .radio.on::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+    .radio.off { opacity: .35; }
+    .mname { font-weight: 500; font-size: 12.5px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .mdesc { color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .mmeter { display: grid; grid-template-columns: 56px auto; gap: 1px 6px; color: var(--dim); font-size: 10px; align-items: center; }
+    .mact { display: flex; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
+    .mact .size { color: var(--dim); font-size: 11px; white-space: nowrap; }
+
+    /* B: inner tabs + master/detail */
+    .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 14px; overflow-x: auto; }
+    .tabs button { padding: 7px 12px 8px; color: var(--muted); font-size: 12px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+    .tabs button small { display: block; font-size: 10px; color: var(--dim); max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+    .tabs button:hover { color: var(--fg); }
+    .tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+    .md { display: grid; grid-template-columns: 210px minmax(0, 1fr); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--raised); }
+    .md-list { border-right: 1px solid var(--line); background: var(--terminal); padding: 5px; }
+    .md-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 6px; }
+    .md-item:hover { background: var(--hover); }
+    .md-item[aria-selected="true"] { background: var(--raised); box-shadow: 0 0 0 1px var(--line); }
+    .md-item span { min-width: 0; flex: 1; }
+    .md-item b { display: block; font-weight: 500; font-size: 12px; }
+    .md-item small { display: block; color: var(--dim); font-size: 10.5px; }
+    .pip { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--dim); flex-shrink: 0; }
+    .pip.have { border-color: var(--accent); }
+    .pip.use { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+    .md-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-height: 196px; }
+    .md-body h3 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+    .md-body p { margin: 0; color: var(--muted); font-size: 12px; }
+    .big-meter { display: grid; grid-template-columns: 62px auto; gap: 4px 10px; align-items: center; color: var(--dim); font-size: 11px; justify-content: start; }
+    .big-meter .dots i { width: 22px; height: 5px; }
+    .md-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; }
+
+    /* C: trade-off axis + accordions */
+    .axis { padding: 16px 20px 12px; border: 1px solid var(--line); border-radius: 9px 9px 0 0; background: var(--raised); }
+    .ends { display: flex; justify-content: space-between; color: var(--dim); font-size: 10.5px; margin-bottom: 8px; }
+    .track { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); }
+    .track::before { content: ""; position: absolute; left: 12.5%; right: 12.5%; top: 10px; height: 2px; background: var(--line); }
+    .fill { position: absolute; left: 12.5%; top: 10px; height: 2px; background: var(--accent); transition: width .2s; }
+    .stop { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 0 4px 4px; text-align: center; border-radius: 6px; }
+    .stop i { width: 22px; height: 22px; border-radius: 50%; background: var(--panel); border: 2px solid var(--line); display: grid; place-items: center; color: transparent; }
+    .stop i svg { width: 11px; height: 11px; stroke-width: 2.6; }
+    .stop.have i { border-color: var(--accent); color: var(--accent); }
+    .stop.use i { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    .stop[aria-selected="true"] i { box-shadow: 0 0 0 4px var(--accent-bg); }
+    .stop b { font-weight: 500; font-size: 12px; line-height: 1.2; }
+    .stop[aria-selected="false"] b { color: var(--muted); }
+    .stop small { font-size: 10.5px; color: var(--dim); }
+    .pick { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 20px; align-items: center; padding: 11px 16px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 9px 9px; background: var(--terminal); margin-bottom: 14px; }
+    .pick p { margin: 0; color: var(--muted); font-size: 11.5px; }
+    .pick .a { display: flex; gap: 6px; align-items: center; }
+    .acc { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--raised); }
+    .acc-item + .acc-item { border-top: 1px solid var(--line); }
+    .acc-head { width: 100%; display: flex; align-items: center; gap: 9px; padding: 9px 13px; }
+    .acc-head:hover { background: var(--hover); }
+    .acc-head b { font-weight: 500; font-size: 12.5px; }
+    .acc-head span { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .acc-head svg { color: var(--dim); transition: transform .15s; width: 12px; height: 12px; }
+    .acc-head[aria-expanded="true"] svg { transform: rotate(90deg); }
+    .acc-body { border-top: 1px solid var(--line); background: var(--panel); }
+    .acc-body .card { border: 0; border-radius: 0; background: transparent; }
+
+    .notes { margin-top: 22px; color: var(--muted); font-size: 12px; }
+    .notes h3 { font-size: 13px; color: var(--fg); margin: 0 0 6px; font-weight: 600; }
+    .notes ul { margin: 0; padding-left: 18px; }
+    .notes li { margin-bottom: 3px; }
+
+    @media (max-width: 860px) {
+      .page { padding: 18px 14px; }
+      .window { grid-template-columns: minmax(0, 1fr); height: auto; }
+      .nav { display: none; }
+      .content { padding: 16px; }
+      .mrow { grid-template-columns: 16px minmax(0, 1fr); }
+      .mmeter, .mact { grid-column: 2; justify-content: flex-start; }
+      .md { grid-template-columns: minmax(0, 1fr); }
+      .md-list { border-right: 0; border-bottom: 1px solid var(--line); }
+      .row { flex-wrap: wrap; }
+      .status { grid-template-columns: minmax(0, 1fr); }
+      .status div + div { border-left: 0; border-top: 1px solid var(--line); }
+    }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">FLOWCODE · IMPOSTAZIONI</div>
+  <h1>Nuova sezione Dettatura</h1>
+  <p class="lead">Tutto esce da Agenti e diventa una voce propria. Modelli reali, dimensioni reali, GPU del tuo PC. Ogni controllo risponde: prova a scaricare, eliminare e cambiare accelerazione.</p>
+  <div class="toolbar">
+    <div class="variants" id="variants"></div>
+    <button class="tool" id="theme" type="button">Tema chiaro / scuro</button>
+  </div>
+  <p class="pitch" id="pitch"></p>
+
+  <div class="window">
+    <nav class="nav" aria-label="Sezioni impostazioni">
+      <div class="nav-head">Impostazioni</div>
+      <div class="nav-item"><b>Aspetto</b><small>Lingua, tema, trasparenza</small></div>
+      <div class="nav-item"><b>Terminale</b><small>Testo, shell, link</small></div>
+      <div class="nav-item"><b>Avvio</b><small>Cartelle e schede all'avvio</small></div>
+      <div class="nav-item"><b>File explorer</b><small>Pannello e apertura cartelle</small></div>
+      <div class="nav-item"><b>Agenti</b><small>Avvisi e ripresa automatica</small></div>
+      <div class="nav-item on"><b>Dettatura<span class="new">nuova</span></b><small>Modelli, lingue, comandi</small></div>
+      <div class="nav-item"><b>Browser</b><small>Link, anteprima, artefatti</small></div>
+      <div class="nav-item"><b>Accesso remoto</b><small>Telefono collegato</small></div>
+      <div class="nav-item"><b>Scorciatoie</b><small>Tastiera e combinazioni</small></div>
+      <div class="nav-item"><b>Funzionalità</b><small>Plugin e barra rapida</small></div>
+      <div class="nav-item"><b>Profili</b><small>Account separati per gli agenti</small></div>
+      <div class="nav-item"><b>Informazioni</b><small>Versione, aggiornamenti, crediti</small></div>
+    </nav>
+    <div class="content" id="content"></div>
+  </div>
+
+  <section class="notes">
+    <h3>Da sapere</h3>
+    <ul>
+      <li><b>Barre velocità/precisione:</b> sono quelle di oggi, misurate su CPU. Con la GPU la velocità di "Massima precisione" cambierà: le aggiorniamo dopo i test.</li>
+      <li><b>"Misura velocità":</b> i secondi sono quelli misurati sul tuo PC con una frase da 16 s. Nell'app sarebbe una prova vera.</li>
+      <li><b>Lingue:</b> il menu "Aggiungi" è ridotto per il mockup; nell'app resta la ricerca tra tutte le lingue di Whisper.</li>
+      <li><b>Ricerca impostazioni:</b> le voci di dettatura passano dalla sezione Agenti alla nuova, con le stesse parole chiave.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+const MODELS = [
+  { id: "base", name: "Leggero", desc: "Veloce su qualsiasi PC; qualche errore in più su nomi e termini tecnici.", size: 148, speed: 5, prec: 3, have: false },
+  { id: "small-q5", name: "Bilanciato", desc: "Ottimo italiano, trascrive una frase in meno di un secondo.", size: 190, speed: 4, prec: 4, have: true, rec: true },
+  { id: "small", name: "Preciso", desc: "Precisione piena, un po' più lento e più pesante.", size: 488, speed: 3, prec: 5, have: false },
+  { id: "turbo-q5", name: "Massima precisione", desc: "Il più accurato, soprattutto su termini tecnici e frasi miste italiano/inglese.", size: 574, speed: 2, prec: 5, have: true },
+];
+const DEVICES = [
+  { short: "RTX 5070 Ti", full: "NVIDIA GeForce RTX 5070 Ti Laptop · 12 GB" },
+  { short: "Radeon 890M", full: "AMD Radeon 890M (integrata)" },
+];
+const LANGS = { it: "Italiano", en: "English", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", nl: "Nederlands", pl: "Polski", ja: "日本語" };
+const VARIANTS = {
+  a: { label: "Elenco compatto", pitch: "Una pagina sola, come il resto delle impostazioni. In cima il riepilogo; i modelli diventano righe di tabella, confrontabili a colpo d'occhio." },
+  b: { label: "Schede interne", pitch: "Quattro schede che non scorrono. I modelli sono un elenco con il dettaglio accanto: guardi prima, scarichi o attivi dopo." },
+  c: { label: "Scala e fisarmonica", pitch: "I modelli stanno su una scala da veloce a preciso, perché la scelta è quella. Il resto è chiuso e mostra il valore attuale a destra." },
+};
+const S = {
+  v: "a", inUse: "turbo-q5", focus: "turbo-q5", dl: null, accel: "auto", device: 0, finish: "quality",
+  langMode: "pick", langs: ["it", "en"], tap: true, hold: true, send: false, clean: false, agent: "claude",
+  cmodel: "haiku", tab: "engine", open: { perf: true }, bench: 0,
+};
+const model = (id) => MODELS.find((m) => m.id === id);
+const I = {
+  lock: '<svg viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>',
+  check: '<svg viewBox="0 0 16 16"><path d="m3 8.5 3 3 7-7"/></svg>',
+  trash: '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg>',
+  x: '<svg viewBox="0 0 8 8"><path d="M1 1l6 6M7 1 1 7"/></svg>',
+  info: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7.5v3.5M8 5h.01"/></svg>',
+  chev: '<svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg>',
+};
+
+const dots = (n, label) => `<span class="dots" role="img" aria-label="${label} ${n} su 5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</span>`;
+const seg = (act, value, opts, label) => `<div class="seg" role="group" aria-label="${label}">${opts.map(([v, t]) => `<button type="button" data-act="${act}" data-val="${v}" aria-pressed="${v === value}">${t}</button>`).join("")}</div>`;
+const sw = (key, label) => `<button type="button" class="sw" role="switch" aria-checked="${S[key]}" aria-label="${label}" data-act="toggle" data-val="${key}"></button>`;
+const row = (title, desc, control) => `<div class="row"><div class="l"><b>${title}</b>${desc ? `<small>${desc}</small>` : ""}</div><div class="c">${control}</div></div>`;
+const head = (title, aside = "") => `<div class="h"><b>${title}</b><span>${aside}</span></div>`;
+
+const perfLabel = () => (S.accel === "cpu" ? "Solo CPU" : `${S.accel === "auto" ? "Auto" : "GPU"} · ${DEVICES[S.device].short}`);
+const langLabel = () => (S.langMode === "auto" ? "Automatica" : S.langs.map((c) => LANGS[c]).join(", "));
+const keysLabel = () => { const n = [S.tap, S.hold, S.send].filter(Boolean).length; return n === 1 ? "1 attiva" : `${n} attive`; };
+const cleanLabel = () => (S.clean ? `${S.agent === "claude" ? "Claude" : "Codex"} · ${S.cmodel}` : "Spenta");
+const usedMb = () => MODELS.filter((m) => m.have).reduce((sum, m) => sum + m.size, 0);
+
+function modelAction(m, withSize) {
+  if (S.dl?.id === m.id) {
+    return `<span class="prog"><span class="track"><i style="width:${S.dl.pct}%"></i></span>${S.dl.pct}%</span><button type="button" class="btn" data-act="cancel">Annulla</button>`;
+  }
+  if (!m.have) {
+    return `${withSize ? `<span class="size">${m.size} MB</span>` : ""}<button type="button" class="btn primary" data-act="download" data-val="${m.id}" ${S.dl ? "disabled" : ""}>Scarica</button>`;
+  }
+  const state = m.id === S.inUse
+    ? `<span class="inuse">${I.check}In uso</span>`
+    : `<button type="button" class="btn" data-act="use" data-val="${m.id}">Usa</button>`;
+  return `${withSize ? `<span class="size">${m.size} MB</span>` : ""}${state}<button type="button" class="ico" data-act="delete" data-val="${m.id}" title="Elimina ${m.name}" aria-label="Elimina ${m.name}">${I.trash}</button>`;
+}
+
+function perfRows() {
+  const device = S.accel === "cpu" ? "" : row("Scheda video", "Con due GPU conviene la dedicata.",
+    `<select class="sel" data-act="device" aria-label="Scheda video">${DEVICES.map((d, i) => `<option value="${i}" ${i === S.device ? "selected" : ""}>${d.full}</option>`).join("")}</select>`);
+  const accelDesc = { auto: "GPU se c'è, altrimenti processore.", gpu: "Sempre la GPU; errore se non è disponibile.", cpu: "Solo processore. Batteria e GPU restano libere." }[S.accel];
+  const bench = S.bench === 2
+    ? `<span class="sim">esempio misurato</span><span>CPU 13,5 s → GPU 0,35 s</span><button type="button" class="btn" data-act="bench">Ripeti</button>`
+    : S.bench === 1 ? `<span class="prog">Misuro…</span>` : `<button type="button" class="btn" data-act="bench">Misura velocità</button>`;
+  return row("Accelerazione", accelDesc, seg("accel", S.accel, [["auto", "Automatica"], ["gpu", "GPU"], ["cpu", "Solo CPU"]], "Accelerazione"))
+    + device
+    + row("Prova su questo PC", `Una frase di prova con ${model(S.inUse)?.name ?? "il modello scelto"}.`, bench);
+}
+
+function langBlock() {
+  const available = Object.keys(LANGS).filter((c) => !S.langs.includes(c));
+  const chips = S.langs.map((c) => `<span class="chip">${LANGS[c]}${S.langs.length > 1 ? `<button type="button" data-act="langdel" data-val="${c}" aria-label="Togli ${LANGS[c]}">${I.x}</button>` : ""}</span>`).join("");
+  const pick = S.langMode === "pick"
+    ? `<div class="row"><div class="chips">${chips}<select class="sel" data-act="langadd" aria-label="Aggiungi lingua"><option value="">Aggiungi…</option>${available.map((c) => `<option value="${c}">${LANGS[c]}</option>`).join("")}</select></div></div>`
+    : "";
+  const hint = S.langMode === "auto"
+    ? ["", "Whisper riconosce da solo la lingua. Comodo, ma su frasi brevi può sbagliare."]
+    : S.langs.length === 1
+      ? ["", `Whisper trascrive sempre in ${LANGS[S.langs[0]]}: il risultato più preciso e il più veloce.`]
+      : [" warn", `Whisper sceglie tra queste ${S.langs.length}. Costa un passaggio in più per frase: con una lingua sola la dettatura è più rapida.`];
+  return `<div class="card">${row("Modalità", "", seg("langmode", S.langMode, [["auto", "Automatica"], ["pick", "Scelgo io"]], "Lingue parlate"))}${pick}<div class="hint${hint[0]}">${I.info}<span>${hint[1]}</span></div></div>`;
+}
+
+const keysBlock = () => `<div class="card">
+  ${row("Tocca per dettare", "Spazio avvia la dettatura, di nuovo Spazio la ferma.", `<kbd>Spazio</kbd>${sw("tap", "Tocca per dettare")}`)}
+  ${row("Tieni premuto per dettare", "Parla tenendo premuto Spazio: al rilascio si ferma.", `<kbd>Spazio · tieni</kbd>${sw("hold", "Tieni premuto per dettare")}`)}
+  ${row("Invia subito il messaggio", "Al termine della dettatura il messaggio parte da solo.", `<kbd>Invio</kbd>${sw("send", "Invia subito il messaggio")}`)}
+</div>`;
+
+const cleanBlock = () => `<div class="card">
+  ${row('Pulisci il testo con un modello <span class="tag alpha">alpha</span>', "Corregge punteggiatura ed errori di trascrizione. Più lento, e il testo lascia il PC.", sw("clean", "Pulisci il testo con un modello"))}
+  ${S.clean ? row("Agente", "La CLI che esegue la pulizia.", seg("agent", S.agent, [["claude", "Claude"], ["codex", "Codex"]], "Agente"))
+    + row("Modello", "", `<select class="sel" data-act="cmodel" aria-label="Modello">${["haiku", "sonnet", "opus"].map((m) => `<option ${m === S.cmodel ? "selected" : ""}>${m}</option>`).join("")}</select>`) : ""}
+</div>`;
+
+const storage = () => `<div class="storage"><span>${usedMb()} MB occupati in</span><code>%LOCALAPPDATA%\\flowcode\\models</code><button type="button" class="link">Apri cartella</button></div>`;
+const heading = () => `<h2 class="title">Dettatura</h2><p class="sub"><span class="local">${I.lock}Solo su questo PC</span>La voce viene trascritta qui con Whisper: l'audio non esce mai.</p>`;
+
+function variantA() {
+  const inUse = model(S.inUse);
+  const rows = MODELS.map((m) => {
+    const can = m.have;
+    return `<div class="mrow ${can ? "can" : ""} ${m.id === S.inUse ? "sel" : ""}" role="radio" aria-checked="${m.id === S.inUse}" aria-disabled="${!can}" ${can ? `tabindex="0" data-act="use" data-val="${m.id}"` : ""}>
+      <span class="radio ${m.id === S.inUse ? "on" : ""} ${can ? "" : "off"}"></span>
+      <div><div class="mname">${m.name}${m.rec ? '<span class="tag">Consigliato</span>' : ""}</div><div class="mdesc">${m.desc}</div></div>
+      <div class="mmeter"><span>Velocità</span>${dots(m.speed, "Velocità")}<span>Precisione</span>${dots(m.prec, "Precisione")}</div>
+      <div class="mact">${modelAction({ ...m }, true).replace(/<span class="inuse">.*?<\/span>/, "")}</div>
+    </div>`;
+  }).join("");
+  return `${heading()}
+    <div class="status">
+      <div><small>Modello</small><b>${inUse?.name ?? "Nessuno"}</b></div>
+      <div><small>Eseguito su</small><b>${S.accel === "cpu" ? "Processore" : DEVICES[S.device].short}</b></div>
+      <div><small>Lingue</small><b>${langLabel()}</b></div>
+    </div>
+    ${head("Modello", "Quello usato dal microfono delle chat")}
+    <div class="card" role="radiogroup" aria-label="Modello">${rows}</div>
+    <div style="margin-top:7px">${storage()}</div>
+    ${head("Prestazioni", "Dove gira Whisper")}
+    <div class="card">${perfRows()}</div>
+    ${head("Lingue parlate", S.langMode === "auto" ? "Automatica" : `${S.langs.length} scelte`)}
+    ${langBlock()}
+    ${head("Comandi", "Nel composer vuoto")}
+    ${keysBlock()}
+    ${head("Pulizia del testo", "Facoltativa")}
+    ${cleanBlock()}`;
+}
+
+function variantB() {
+  const tabs = [["engine", "Motore", `${model(S.inUse)?.name ?? "Nessuno"}`], ["langs", "Lingue", langLabel()], ["keys", "Comandi", keysLabel()], ["clean", "Pulizia", cleanLabel()]];
+  const f = model(S.focus);
+  const list = MODELS.map((m) => `<button type="button" class="md-item" role="tab" aria-selected="${m.id === S.focus}" data-act="focus" data-val="${m.id}">
+    <i class="pip ${m.id === S.inUse ? "use" : m.have ? "have" : ""}"></i><span><b>${m.name}</b><small>${m.size} MB${m.id === S.inUse ? " · in uso" : m.have ? " · scaricato" : ""}</small></span></button>`).join("");
+  const engine = `<div class="md">
+      <div class="md-list" role="tablist" aria-label="Modelli" aria-orientation="vertical">${list}</div>
+      <div class="md-body">
+        <h3>${f.name}${f.rec ? '<span class="tag">Consigliato</span>' : ""}</h3>
+        <p>${f.desc}</p>
+        <div class="big-meter"><span>Velocità</span>${dots(f.speed, "Velocità")}<span>Precisione</span>${dots(f.prec, "Precisione")}</div>
+        <div class="md-foot"><span>${f.size} MB${f.have ? " su disco" : " da scaricare"}</span><span class="mact">${modelAction(f, false)}</span></div>
+      </div>
+    </div>
+    <div style="margin:7px 0 12px">${storage()}</div>
+    <div class="card">${perfRows()}</div>`;
+  const body = { engine, langs: langBlock(), keys: keysBlock(), clean: cleanBlock() }[S.tab];
+  return `${heading()}
+    <div class="tabs" role="tablist" aria-label="Dettatura">${tabs.map(([id, t, s]) => `<button type="button" role="tab" aria-selected="${id === S.tab}" data-act="tab" data-val="${id}">${t}<small>${s}</small></button>`).join("")}</div>
+    ${body}`;
+}
+
+function variantC() {
+  const f = model(S.focus);
+  const index = MODELS.indexOf(f);
+  const stops = MODELS.map((m) => `<button type="button" class="stop ${m.have ? "have" : ""} ${m.id === S.inUse ? "use" : ""}" role="tab" aria-selected="${m.id === S.focus}" data-act="focus" data-val="${m.id}">
+    <i>${m.have ? I.check : ""}</i><b>${m.name}</b><small>${m.size} MB</small></button>`).join("");
+  const item = (id, title, summary, body) => {
+    const open = !!S.open[id];
+    return `<div class="acc-item"><button type="button" class="acc-head" aria-expanded="${open}" data-act="acc" data-val="${id}">${I.chev}<b>${title}</b><span>${summary}</span></button>${open ? `<div class="acc-body">${body}</div>` : ""}</div>`;
+  };
+  return `${heading()}
+    <div class="axis">
+      <div class="ends"><span>← Più veloce</span><span>Più preciso →</span></div>
+      <div class="track" role="tablist" aria-label="Modelli"><div class="fill" style="width:${index * 25}%"></div>${stops}</div>
+    </div>
+    <div class="pick">
+      <p>${f.desc}${f.rec ? ' <span class="tag">Consigliato</span>' : ""}</p>
+      <div class="a">${modelAction(f, false)}</div>
+    </div>
+    <div class="acc">
+      ${item("perf", "Prestazioni", perfLabel(), `<div class="card">${perfRows()}</div>`)}
+      ${item("langs", "Lingue parlate", langLabel(), langBlock())}
+      ${item("keys", "Comandi", keysLabel(), keysBlock())}
+      ${item("clean", "Pulizia del testo", cleanLabel(), cleanBlock())}
+      ${item("disk", "Spazio su disco", `${usedMb()} MB`, `<div class="row">${storage()}</div>`)}
+    </div>`;
+}
+
+const content = document.getElementById("content");
+function render() {
+  const top = content.scrollTop;
+  document.getElementById("variants").innerHTML = Object.entries(VARIANTS).map(([id, v]) => `<button type="button" data-act="variant" data-val="${id}" aria-pressed="${id === S.v}"><span>${id.toUpperCase()}</span>${v.label}</button>`).join("");
+  document.getElementById("pitch").textContent = VARIANTS[S.v].pitch;
+  content.innerHTML = `<div class="inner">${{ a: variantA, b: variantB, c: variantC }[S.v]()}</div>`;
+  content.scrollTop = top;
+}
+
+let timer = null;
+function startDownload(id) {
+  S.dl = { id, pct: 0 };
+  timer = setInterval(() => {
+    S.dl.pct = Math.min(100, S.dl.pct + 5);
+    if (S.dl.pct === 100) {
+      clearInterval(timer);
+      const m = model(id);
+      m.have = true;
+      S.dl = null;
+      if (!S.inUse) S.inUse = id;
+    }
+    render();
+  }, 110);
+}
+
+const ACTIONS = {
+  variant: (v) => { S.v = v; content.scrollTop = 0; },
+  use: (id) => { if (model(id).have) { S.inUse = id; S.focus = id; S.bench = 0; } },
+  focus: (id) => { S.focus = id; },
+  download: startDownload,
+  cancel: () => { clearInterval(timer); S.dl = null; },
+  delete: (id) => {
+    model(id).have = false;
+    if (S.inUse === id) S.inUse = MODELS.find((m) => m.have)?.id ?? null;
+  },
+  accel: (v) => { S.accel = v; S.bench = 0; },
+  finish: (v) => { S.finish = v; },
+  bench: () => { S.bench = 1; setTimeout(() => { S.bench = 2; render(); }, 900); },
+  toggle: (key) => { S[key] = !S[key]; },
+  langmode: (v) => { S.langMode = v; },
+  langdel: (c) => { S.langs = S.langs.filter((x) => x !== c); },
+  agent: (v) => { S.agent = v; },
+  tab: (v) => { S.tab = v; },
+  acc: (id) => { S.open[id] = !S.open[id]; },
+};
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-act]");
+  if (!el || el.tagName === "SELECT" || !ACTIONS[el.dataset.act]) return;
+  ACTIONS[el.dataset.act](el.dataset.val);
+  render();
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.key === " " || e.key === "Enter") && e.target.matches?.('[role="radio"][data-act]')) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
+document.addEventListener("change", (e) => {
+  const act = e.target.dataset?.act;
+  if (act === "device") { S.device = Number(e.target.value); S.bench = 0; }
+  else if (act === "cmodel") S.cmodel = e.target.value;
+  else if (act === "langadd" && e.target.value) S.langs = [...S.langs, e.target.value];
+  else return;
+  render();
+});
+document.getElementById("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
+});
+render();
+</script>
+</body>
+</html>

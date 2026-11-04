@@ -596,8 +596,6 @@ export function SettingsPage({
               </SettingRow>
             </SettingsGroup>
 
-            <DictationSettings />
-
             <SettingsGroup title={t("settings.group.notifications")}>
               {NOTIFICATION_KINDS.map((kind) => (
                 <SettingRow
@@ -639,6 +637,8 @@ export function SettingsPage({
             </SettingsGroup>
           </>
         )}
+
+        {section === "dictation" && <DictationSettings />}
 
         {section === "browser" && (
           <>
