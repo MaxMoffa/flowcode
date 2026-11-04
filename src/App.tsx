@@ -1892,8 +1892,10 @@ function Shell() {
 
   const activeTerminal = tabs.find((t): t is TermTab => t.id === activeTerminalId && t.kind === "terminal");
   // Popups that pick an account profile start from the terminal in front.
-  const activeTerminalProfileId = activeTerminal?.profileId;
-  const activeTerminalKey = activeTerminal?.id;
+  // A chat in front wins over the last terminal, like in useActiveAgentSync.
+  const frontChat = tabs.find((t): t is ChatTab => t.id === activeTabId && t.kind === "chat");
+  const activeTerminalProfileId = frontChat ? frontChat.profileId : activeTerminal?.profileId;
+  const activeTerminalKey = frontChat ? frontChat.id : activeTerminal?.id;
   useEffect(() => {
     if (activeTerminalKey) activeTabProfile.set({ tabId: activeTerminalKey, profileId: activeTerminalProfileId });
   }, [activeTerminalKey, activeTerminalProfileId]);
@@ -1923,7 +1925,6 @@ function Shell() {
   }, [agentSessions, tabs, ptyVersion]);
   // The active tab's agent, for the usage popovers' context section.
   const activeAgentSession = activeTerminal ? sessionByTab.get(activeTerminal.id) : undefined;
-  const frontChat = tabs.find((t): t is ChatTab => t.id === activeTabId && t.kind === "chat");
   useActiveAgentSync(
     activeAgentSession,
     activeTerminal?.label,
