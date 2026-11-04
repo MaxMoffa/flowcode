@@ -2265,28 +2265,38 @@ function Shell() {
     );
   }
 
+  /** `next` becomes the conversation shown in chat tab `t`; the one shown until now is parked, its agent keeps running. */
+  function swapChatPane(t: ChatTab, next: ChatPane): ChatTab {
+    const current: ChatPane = { paneKey: t.paneKey ?? t.id, label: t.label, sessionId: t.sessionId, viewId: t.viewId, status: t.status, talked: t.talked, lastActiveAt: t.lastActiveAt };
+    return {
+      ...t,
+      paneKey: next.paneKey,
+      label: next.label,
+      sessionId: next.sessionId,
+      viewId: next.viewId,
+      status: next.status,
+      talked: next.talked,
+      lastActiveAt: next.lastActiveAt,
+      parked: [...(t.parked ?? []).filter((p) => p.paneKey !== next.paneKey), current],
+    };
+  }
+
   /** Shows `sessionId` in chat tab `tabId`: a parked conversation of it is swapped in, otherwise a new one
-   * starts resuming it. The one shown until now is parked, its agent keeps running. */
+   * starts resuming it. */
   function showChatSession(tabId: string, sessionId: string, lastActiveAt?: number) {
     setTabs((prev) =>
       prev.map((t) => {
         if (t.id !== tabId || t.kind !== "chat" || t.sessionId === sessionId) return t;
-        const parked = t.parked ?? [];
-        const found = parked.find((p) => p.sessionId === sessionId);
-        const next: ChatPane = found ?? { paneKey: newTabId("chat"), label: basename(t.cwd) || CLI_INFO[t.agent].name, sessionId, viewId: t.viewId, lastActiveAt };
-        const current: ChatPane = { paneKey: t.paneKey ?? t.id, label: t.label, sessionId: t.sessionId, viewId: t.viewId, status: t.status, talked: t.talked, lastActiveAt: t.lastActiveAt };
-        return {
-          ...t,
-          paneKey: next.paneKey,
-          label: next.label,
-          sessionId: next.sessionId,
-          viewId: next.viewId,
-          status: next.status,
-          talked: next.talked,
-          lastActiveAt: next.lastActiveAt,
-          parked: [...parked.filter((p) => p !== found), current],
-        };
+        const found = t.parked?.find((p) => p.sessionId === sessionId);
+        return swapChatPane(t, found ?? { paneKey: newTabId("chat"), label: basename(t.cwd) || CLI_INFO[t.agent].name, sessionId, viewId: t.viewId, lastActiveAt });
       }),
+    );
+  }
+
+  /** Starts a fresh conversation in chat tab `tabId`, beside the one shown (which keeps running in the background). */
+  function newChatPane(tabId: string) {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === tabId && t.kind === "chat" ? swapChatPane(t, { paneKey: newTabId("chat"), label: basename(t.cwd) || CLI_INFO[t.agent].name, viewId: t.viewId, talked: false }) : t)),
     );
   }
 
@@ -2664,11 +2674,14 @@ function Shell() {
                   onResume={resumeAgentSession}
                   currentProfileId={historyAgent.profileId}
                   onNewSession={(cli, cwd, profileId) => {
-                    // A chat in front starts its new conversation in place, like "/clear" -
+                    // An idle chat in front starts its new conversation in place, like "/clear" -
                     // unless another agent or profile was picked.
                     const same = cli === historyAgent.cli && profileId === historyAgent.profileId;
-                    const closer = same && frontTab?.kind === "chat" ? chatClosersRef.current.get(frontTab.paneKey ?? frontTab.id) : undefined;
-                    if (closer) closer.clear();
+                    const chat = same && frontTab?.kind === "chat" ? frontTab : undefined;
+                    const closer = chat && chatClosersRef.current.get(chat.paneKey ?? chat.id);
+                    // Mid-turn it must not end: it goes on in the background, found again in the History.
+                    if (closer && (chat.status === "busy" || chat.status === "waiting")) newChatPane(chat.id);
+                    else if (closer) closer.clear();
                     else void launchAgentInNewTab(cli, cwd, undefined, profileId);
                   }}
                 />
