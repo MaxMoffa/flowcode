@@ -1554,7 +1554,7 @@ summary.chat-step-row {
 }
 
 .chat-composer.is-dragover {
-  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
 }
 
 .chat-composer.is-dragover::after {
@@ -1868,17 +1868,17 @@ summary.chat-step-row {
      (the surface's colour without its alpha) so messages scrolling behind it
      don't show through. */
   background: color-mix(in srgb, var(--fg) 7%, rgb(var(--surface-rgb)));
-  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1px color-mix(in srgb, var(--fg) 24%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 24%, transparent);
 }
 
 .chat-composer:focus-within,
 .chat-composer.is-listening {
-  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
 }
 
 .chat-composer.is-transcribing,
 .chat-composer.is-transcribing:focus-within {
-  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 /* While the last words are transcribed two arcs run round the composer
@@ -1924,7 +1924,7 @@ summary.chat-step-row {
   text-align: center;
   border-radius: 24px;
   background: color-mix(in srgb, var(--fg) 7%, rgb(var(--surface-rgb)));
-  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .chat-cache-x {
@@ -2011,7 +2011,7 @@ summary.chat-step-row {
 .chat-ask:focus-within {
   padding: 16px 18px 12px;
   outline: none;
-  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
   animation: chat-ask-in 0.22s ease-out;
 }
 
@@ -2839,7 +2839,7 @@ summary.chat-step-row {
 
   .chat-composer.is-transcribing,
   .chat-composer.is-transcribing:focus-within {
-    box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.5), 0 0 0 1.5px var(--accent);
+    box-shadow: 0 0 0 1.5px var(--accent);
   }
 
   .chat-icon-btn.is-mic.is-listening {
