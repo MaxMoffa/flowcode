@@ -36,6 +36,14 @@ fn read_enabled() -> bool {
 /// otherwise pass, so wry's own default switches are repeated here, and any
 /// value already set by the user is kept in front.
 pub fn apply_at_startup() {
+    // WebKitGTK: animated 2D canvases (the new-tab frog) vanish with the
+    // DMA-BUF renderer on some GPU drivers. Fall back to the shared-memory
+    // path unless the user already chose a value.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // Runs before Tauri or any other thread reads the environment.
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     if !cfg!(target_os = "windows") || read_enabled() {
         return;
     }
