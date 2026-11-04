@@ -3640,3 +3640,83 @@ summary.chat-step-row {
   color: var(--fg-muted);
   font-size: 12px;
 }
+
+/* --- narrow pane -----------------------------------------------------------
+   The chat follows its own pane, not the window: cards opened beside it narrow
+   the pane and leave the window as it is. The fixed overlays inside the pane
+   (image lightbox, full-screen table) are portaled out of this container. */
+.chat-column-wrap {
+  container: chat-pane / inline-size;
+}
+
+/* Mode and model become one pill split by a hairline, as on the phone; the menus
+   open from the start of the row, so they stay inside the pane. */
+@container chat-pane (max-width: 520px) {
+  .chat-composer-actions {
+    position: relative;
+  }
+
+  .chat-composer-actions .chat-mode-anchor {
+    position: static;
+  }
+
+  .chat-composer-actions .chat-mode-menu {
+    right: 0;
+    width: auto;
+    min-width: 0;
+    max-width: 320px;
+  }
+
+  .chat-mode-anchor:has(+ .chat-mode-anchor) {
+    flex: none;
+  }
+
+  .chat-mode-anchor:has(+ .chat-mode-anchor) .chat-mode-name {
+    display: none;
+  }
+
+  .chat-mode-anchor:has(+ .chat-mode-anchor) .chat-mode-pill {
+    padding-right: 9px;
+    border-radius: 16px 0 0 16px;
+  }
+
+  .chat-mode-anchor + .chat-mode-anchor {
+    margin-left: -6px;
+  }
+
+  .chat-mode-anchor + .chat-mode-anchor .chat-mode-pill {
+    padding-left: 10px;
+    border-radius: 0 16px 16px 0;
+    box-shadow: inset 1px 0 0 var(--border);
+  }
+
+  .chat-termcard-desc {
+    display: none;
+  }
+
+  .chat-termcard-cmd {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+}
+
+@container chat-pane (max-width: 380px) {
+  .chat-column {
+    padding: 0 14px;
+    mask-image: linear-gradient(to top, transparent 12px, #000 12px);
+  }
+
+  .chat-footer {
+    margin: 0 -14px;
+    padding: 0 14px 14px;
+  }
+
+  .chat-composer {
+    padding: 12px 8px 8px 14px;
+  }
+
+  .chat-model-level,
+  .chat-model-pill svg {
+    display: none;
+  }
+}

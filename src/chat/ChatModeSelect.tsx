@@ -190,7 +190,8 @@ export default function ChatModeSelect({ chat, agent }: { chat: ChatSession; age
         className={`chat-mode-pill is-${pillKind}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={t("chat.menu.mode")}
+        title={`${t("chat.menu.mode")}: ${currentMode?.name ?? ""}`}
+        aria-label={`${t("chat.menu.mode")}: ${currentMode?.name ?? ""}`}
         onClick={() => setOpen((o) => !o)}
       >
         <ModeIcon kind={pillKind} size={15} />
