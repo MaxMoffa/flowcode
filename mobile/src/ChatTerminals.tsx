@@ -4,7 +4,7 @@ import type { BackgroundTerminal } from "../../src/chat/backgroundTerminals";
 import { tailLines } from "./terminalOutput";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
-import { ChevronDownIcon } from "./icons";
+import { ChevronDownIcon, TerminalIcon } from "./icons";
 
 /** Lines of output a folded block shows. */
 const PREVIEW_LINES = 3;
@@ -55,8 +55,8 @@ function outOfSight(scroller: HTMLElement, running: BackgroundTerminal[]): Backg
   });
 }
 
-/** Floats over the thread while a running terminal is out of sight; tap goes to the next one. */
-export function TerminalJump({ terminals, scrollRef, onOpenSubagent }: { terminals: ReadonlyMap<string, BackgroundTerminal>; scrollRef: RefObject<HTMLDivElement | null>; onOpenSubagent: (id: string) => void }) {
+/** Floats over the thread while a running terminal is out of sight; tap goes to the next one. `lifted` makes room for the jump-to-end arrow, which shares its corner. */
+export function TerminalJump({ terminals, scrollRef, lifted, onOpenSubagent }: { terminals: ReadonlyMap<string, BackgroundTerminal>; scrollRef: RefObject<HTMLDivElement | null>; lifted: boolean; onOpenSubagent: (id: string) => void }) {
   const running = [...terminals.values()].filter((term) => term.running);
   const key = running.map((term) => term.id).join(" ");
   const [hidden, setHidden] = useState(0);
@@ -95,9 +95,9 @@ export function TerminalJump({ terminals, scrollRef, onOpenSubagent }: { termina
     window.setTimeout(() => block.classList.remove("is-flash"), FLASH_MS);
   };
   return (
-    <button type="button" className="chat-termjump" aria-label={t("chatTermJump")} onClick={go}>
-      <span className="chat-subtray-dot" aria-hidden="true" />
-      {t("chatTermRunning", { n: running.length })}
+    <button type="button" className={"chat-termjump" + (lifted ? " is-lifted" : "")} aria-label={`${t("chatTermJump")}: ${running.length}`} onClick={go}>
+      <TerminalIcon />
+      <span className="chat-termjump-count" aria-hidden="true">{running.length}</span>
     </button>
   );
 }

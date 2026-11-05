@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per spostare l'indicatore dei terminali in corso nella chat da mobile.">
+  <title>Flowcode mobile — indicatore terminali · 3 varianti</title>
+  <style>
+    /* Token e misure copiati da mobile/src/ui.css e mobile/src/chat.css. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --wait: #d1a752;
+      --glass-strong: rgba(14, 10, 7, .62); --blur-card: blur(16px) saturate(130%);
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1080px; margin: auto; padding: 28px 24px 40px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 130px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .layout { display: grid; grid-template-columns: 430px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .stage { display: grid; justify-items: center; }
+    .side { display: grid; gap: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; }
+    .controls select { padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface); color: var(--fg); font: inherit; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .ctl { min-height: 32px; padding: 0 11px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--fg); font-size: 13px; }
+    .note h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 62ch; }
+    code { font: 12.5px var(--mono); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    caption { text-align: left; margin-bottom: 6px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    th, td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { font-weight: 500; color: var(--muted); }
+    tr.on td, tr.on th { background: var(--accent-bg); color: var(--fg); }
+    .limits { padding: 14px 16px; border-radius: 12px; background: rgba(209, 167, 82, .07); box-shadow: inset 0 0 0 1px rgba(209, 167, 82, .24); }
+    .limits h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--wait); }
+    .limits ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+    /* ---- telefono ---- */
+    .phone { --w: 390px; position: relative; width: var(--w); max-width: 100%; height: 780px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong), 0 30px 60px -30px #000; isolation: isolate; }
+    .status { flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .head { flex: none; display: flex; align-items: center; gap: 2px; padding: 2px 14px 2px 4px; border-bottom: 1px solid var(--border); }
+    .head .back { width: 44px; height: 46px; display: grid; place-items: center; color: var(--muted); }
+    .head b { display: block; font-size: 15px; font-weight: 600; line-height: 1.25; }
+    .head small { display: block; font-size: 12px; color: var(--muted); line-height: 1.25; }
+    .wrap { position: relative; flex: 1; min-height: 0; }
+    .conv { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 16px 12px; scrollbar-width: none; }
+    .conv::-webkit-scrollbar { display: none; }
+    .msg-user { width: fit-content; max-width: 82%; margin: 0 0 16px auto; padding: 9px 14px; border-radius: 18px 18px 5px 18px; background: var(--surface-2); font-size: 15px; }
+    .msg { margin: 0 0 12px; font-size: 15px; line-height: 1.55; }
+
+    /* blocco terminale: copia di .chat-termblock */
+    .block { margin: 0 0 14px; overflow: hidden; border-radius: 16px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); transition: box-shadow .3s; }
+    .block.flash { box-shadow: 0 0 0 1.5px var(--accent); }
+    .block-head { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 46px; padding: 6px 12px; }
+    .block-text { flex: 1; min-width: 0; }
+    .block-text b, .block-text code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .block-text b { font-size: 14px; font-weight: 500; line-height: 1.35; }
+    .block-text code { font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .block pre { margin: 0; padding: 8px 12px 10px; overflow: hidden; background: var(--bg); color: var(--muted); font: 12px/1.6 var(--mono); white-space: pre; }
+    .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+    .dot.done { background: var(--muted); opacity: .6; animation: none; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .time { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+    /* ---- galleggianti sul thread ---- */
+    .float { position: absolute; bottom: 10px; border: 1px solid var(--border-strong); background: var(--glass-strong); -webkit-backdrop-filter: var(--blur-card); backdrop-filter: var(--blur-card); box-shadow: var(--shadow); }
+    .float[hidden], .chip[hidden] { display: none; }
+    .down { right: 14px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
+    /* 00: copia di .chat-termjump */
+    .pill { left: 14px; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 22px; font-size: 13px; font-variant-numeric: tabular-nums; }
+    /* 01: stessa colonna della freccia */
+    .round { right: 14px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--fg); transition: bottom .18s ease-out; }
+    .round.lift { bottom: 62px; }
+    .badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    /* ---- composer: copia di .chat-composer / .chat-card ---- */
+    .composer { position: relative; z-index: 3; flex: none; padding: 0 12px 10px; }
+    .card { position: relative; padding: 16px 10px 10px 20px; border-radius: 28px; background: var(--surface-2); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); }
+    .card:focus-within { box-shadow: var(--shadow), 0 0 0 1px var(--accent-border); }
+    .input { display: block; width: 100%; min-height: 46px; max-height: 140px; padding: 0 10px 0 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--fg); font: 16px/1.45 var(--font); }
+    .input::placeholder { color: var(--muted); }
+    .card.has-corner .input { padding-right: 66px; }
+    .actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 10px; }
+    .fit { flex: 1 1 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; height: 46px; overflow: hidden; }
+    .start { display: flex; align-items: center; min-width: 0; max-width: 100%; height: 46px; border-radius: 23px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; }
+    .mode { flex: none; display: grid; place-items: center; height: 46px; padding: 0 10px 0 14px; }
+    .model { display: inline-flex; align-items: center; gap: 8px; min-width: 0; height: 46px; padding: 0 12px 0 10px; border-left: 1px solid var(--border-strong); font-size: 14.5px; }
+    .model span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .slash { flex: none; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); font: 19px var(--mono); }
+    .end { flex: none; display: flex; align-items: center; gap: 8px; }
+    .btn { flex: none; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; background: var(--bg); }
+    .btn.send { background: var(--accent); color: var(--on-accent); }
+    .btn.send:disabled { opacity: .45; }
+
+    /* ---- chip nel box (02, 03) ---- */
+    .chip { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 16px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--accent-border); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .chip::before { content: ""; position: absolute; inset: -6px; } /* area di tocco da 44 px */
+    .chip svg { color: var(--muted); }
+    .chip.corner { position: absolute; top: 10px; right: 12px; z-index: 1; }
+    .chip.inrow { flex: none; }
+
+    .kb { flex: none; height: 262px; padding: 8px 4px; display: grid; gap: 8px; align-content: start; background: #0f0c09; border-top: 1px solid var(--border); }
+    .kb[hidden] { display: none; }
+    .kb div { display: flex; gap: 5px; justify-content: center; }
+    .kb span { flex: 0 1 33px; height: 48px; border-radius: 6px; background: var(--surface); }
+    .kb span.w { flex: 1 1 180px; }
+
+    @media (max-width: 940px) {
+      .page { padding: 18px 14px 32px; }
+      .layout { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">FLOWCODE / MOBILE</div>
+  <h1>Indicatore dei terminali in corso</h1>
+  <p class="lead">Il pulsante di oggi e tre alternative, con i colori e le misure dell’app. Il telefono è interattivo: scorri la chat, tocca l’indicatore, scrivi nel box, cambia larghezza.</p>
+
+  <nav class="variants" aria-label="Varianti">
+    <button type="button" data-variant="0"><span>00</span>Oggi</button>
+    <button type="button" data-variant="1"><span>01</span>Tondo a destra</button>
+    <button type="button" data-variant="2"><span>02</span>Chip in alto nel box</button>
+    <button type="button" data-variant="3"><span>03</span>Chip tra i pulsanti</button>
+  </nav>
+
+  <div class="layout">
+    <div class="stage">
+      <section class="phone" id="phone" aria-label="Anteprima della chat su telefono">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <header class="head">
+          <button type="button" class="back" aria-label="Indietro"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
+          <div><b>Banner di riconnessione</b><small>Claude Code · flowcode</small></div>
+        </header>
+        <div class="wrap">
+          <div class="conv" id="conv"></div>
+          <button type="button" class="float pill" id="pill" hidden aria-label="Vai ai terminali in corso"><i class="dot"></i><span id="pillText"></span></button>
+          <button type="button" class="float round" id="round" hidden aria-label="Vai ai terminali in corso">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg><span class="badge" id="roundN"></span>
+          </button>
+          <button type="button" class="float down" id="down" hidden aria-label="Vai alla fine"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
+        </div>
+        <div class="composer">
+          <div class="card" id="card">
+            <button type="button" class="chip corner" id="corner" hidden aria-label="Vai ai terminali in corso"><i class="dot"></i><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg><span id="cornerN"></span></button>
+            <textarea class="input" id="input" rows="1" placeholder="Scrivi un messaggio…" aria-label="Scrivi un messaggio"></textarea>
+            <div class="actions">
+              <div class="fit">
+                <div class="start">
+                  <button type="button" class="mode" aria-label="Modalità"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.500 7-10V6z"/></svg></button>
+                  <button type="button" class="model"><span>Opus 5.5 · Alto</span></button>
+                </div>
+                <button type="button" class="slash" id="slash" aria-label="Comandi">/</button>
+              </div>
+              <div class="end">
+                <button type="button" class="chip inrow" id="inrow" hidden aria-label="Vai ai terminali in corso"><i class="dot"></i><span id="inrowN"></span></button>
+                <button type="button" class="btn" aria-label="Detta"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0m-7 7v3"/></svg></button>
+                <button type="button" class="btn send" id="send" aria-label="Invia" disabled><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="kb" id="keyboard" hidden aria-hidden="true">
+          <div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <div><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <div><span></span><span class="w"></span><span></span></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="side">
+      <div class="controls">
+        <label>Larghezza
+          <select id="width"><option value="360">360 px</option><option value="390" selected>390 px</option><option value="430">430 px</option></select>
+        </label>
+        <label>Terminali
+          <select id="count"><option>1</option><option selected>2</option><option>3</option></select>
+        </label>
+        <label><input type="checkbox" id="kbToggle">Tastiera aperta</label>
+        <label><input type="checkbox" id="longText">Testo lungo nel box</label>
+        <button type="button" class="ctl" id="finish">Fai finire un terminale</button>
+        <button type="button" class="ctl" id="reset">Ricomincia</button>
+      </div>
+      <article class="note" id="note" aria-live="polite"></article>
+      <table>
+        <caption>CONFRONTO</caption>
+        <thead><tr><th scope="col">Variante</th><th scope="col">Copre la chat</th><th scope="col">Costo nel box</th></tr></thead>
+        <tbody id="compare">
+          <tr data-row="0"><th scope="row">00 Oggi</th><td id="cover0">—</td><td>Nessuno</td></tr>
+          <tr data-row="1"><th scope="row">01 Tondo</th><td>44 × 44 px</td><td>Nessuno</td></tr>
+          <tr data-row="2"><th scope="row">02 In alto</th><td>Niente</td><td>66 px di larghezza al testo</td></tr>
+          <tr data-row="3"><th scope="row">03 Tra i pulsanti</th><td>Niente</td><td>Il pulsante “/” sparisce sotto i 432 px circa: quasi tutti i telefoni</td></tr>
+        </tbody>
+      </table>
+      <aside class="limits">
+        <h3>Vale per tutte</h3>
+        <ul>
+          <li>Il tocco resta uguale: porta al prossimo terminale, o apre la chat del subagente se il terminale è lì.</li>
+          <li>Mentre il composer è sostituito da una domanda dell’agente o dalla card del limite, le chip 02 e 03 spariscono con lui. La 01 resta.</li>
+          <li>Dentro il box servono <code>keepFocus</code> e 44 px di area di tocco, altrimenti il tocco chiude la tastiera.</li>
+        </ul>
+      </aside>
+    </div>
+  </div>
+</main>
+<script>
+const TERMS = [
+  { id: 'dev', title: 'Server di sviluppo', cmd: 'npm run dev -- --host', out: 'VITE ready in 412 ms\n  ➜  Local: http://localhost:5173/\n  ➜  Network: 192.168.1.20:5173', start: 754 },
+  { id: 'test', title: 'Test in osservazione', cmd: 'npx vitest --watch', out: ' ✓ src/chat/reconnect.test.ts (14)\n ✓ src/chat/banner.test.ts (6)\n Waiting for file changes…', start: 318 },
+  { id: 'logs', title: 'Log del relay', cmd: 'docker compose logs -f relay', out: 'relay-1  | peer connected\nrelay-1  | stream opened\nrelay-1  | ping 38 ms', start: 96 },
+];
+const PARAS = [
+  'Ho controllato il flusso di riconnessione: il banner appare dopo il primo tentativo fallito, ma il contatore dei tentativi non si azzera quando la connessione torna da sola, quindi al giro dopo parte già dal terzo.',
+  'Avvio il server e i test in background, così posso provare il comportamento mentre sistemo il contatore senza fermarmi ad aspettare.',
+  'Il problema sta nel gestore di chiusura del socket: legge lo stato vecchio perché la funzione viene creata una volta sola. Sposto il contatore in un ref e lo azzero nell’evento di apertura, che è l’unico punto in cui sappiamo davvero che la connessione è tornata.',
+  'Ho aggiunto due test: uno per la riconnessione spontanea e uno per il caso in cui il telefono torna dallo stand-by con la rete già cambiata. Il secondo falliva prima della modifica, ora passa.',
+  'Resta da decidere se il banner debba restare visibile un paio di secondi dopo il ritorno della connessione. Oggi sparisce subito, e su reti instabili lampeggia. Propongo un ritardo breve solo in uscita, così l’avviso non sfarfalla e chi legge capisce che la connessione è tornata.',
+  'Il server di sviluppo è ancora attivo: puoi aprire la pagina dal telefono e provare a spegnere il Wi-Fi per qualche secondo, poi riaccenderlo e guardare il banner.',
+];
+const NOTES = {
+  0: { title: '00 / Oggi', lead: 'Pillola “N in corso” in basso a sinistra, sopra la chat.', blocks: [['Cosa non funziona', [
+    'Sta proprio dove inizia ogni riga di testo dell’agente: copre l’inizio delle ultime righe.',
+    'È larga un quarto dello schermo per dire solo un numero.',
+  ]]] },
+  1: { title: '01 / Tondo a destra', lead: 'La tua prima idea: stesso comportamento, ma rotondo e nella colonna della freccia “vai alla fine”.', blocks: [
+    ['Bene', ['Copre molto meno, e a destra le righe dell’agente spesso sono già finite.', 'È la modifica più piccola: solo CSS e markup del pulsante.', 'Resta visibile anche quando il composer è sostituito.']],
+    ['Attenzione', ['Spostare la pillola com’è a destra non basta: finirebbe sotto la freccia “vai alla fine”, che è lì a 14 px dal bordo.', 'Quando compare la freccia il tondo sale di 52 px: il bersaglio si muove.', 'Copre ancora qualcosa, e l’icona dice meno di “2 in corso”.']],
+  ] },
+  2: { title: '02 / Chip in alto nel box · consigliata', lead: 'Chip nell’angolo in alto a destra del box. Resta finché qualcosa gira, anche se il terminale è già sullo schermo.', blocks: [
+    ['Bene', ['La chat resta libera del tutto.', 'Non tocca la riga dei pulsanti: “/”, modello e microfono restano dove sono.', 'Essendo fissa non compare e sparisce mentre scorri: diventa uno stato, non un avviso.']],
+    ['Attenzione', ['Il testo perde 66 px di larghezza mentre la chip è presente: prova “Testo lungo nel box”.', 'Con la dettatura o un comando scelto, la riga in cima al box deve lasciarle spazio.']],
+  ] },
+  3: { title: '03 / Chip tra i pulsanti', lead: 'Chip accanto al microfono, sulla riga delle azioni.', blocks: [
+    ['Bene', ['Chat libera e testo a tutta larghezza.', 'Sta con gli altri controlli, dove il pollice già arriva.']],
+    ['Attenzione', ['La riga è già piena: la chip fa sparire il pulsante “/” a 390 px e anche a 430 px. Il limite dipende dal nome del modello.', 'Niente icona terminale, altrimenti ruba altro spazio: “● 2” da solo è meno chiaro.']],
+  ] },
+};
+const $ = (id) => document.getElementById(id);
+const conv = $('conv');
+const state = { v: 1, count: 2, ended: new Set(), elapsed: 0 };
+const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const active = () => TERMS.slice(0, state.count);
+const running = () => active().filter((t) => !state.ended.has(t.id));
+const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+function drawThread() {
+  const block = (t) => `<div class="block" data-term="${t.id}"><div class="block-head"><i class="dot${state.ended.has(t.id) ? ' done' : ''}"></i><span class="block-text"><b>${t.title}</b><code>${t.cmd}</code></span><span class="time" data-time="${t.id}"></span></div><pre>${t.out}</pre></div>`;
+  const list = active();
+  conv.innerHTML = `<div class="msg-user">Il banner di riconnessione resta bloccato, puoi guardarci?</div>
+    <p class="msg">${PARAS[0]}</p><p class="msg">${PARAS[1]}</p>
+    ${list.slice(0, 2).map(block).join('')}
+    <p class="msg">${PARAS[2]}</p>
+    ${list.slice(2).map(block).join('')}
+    <p class="msg">${PARAS[3]}</p><p class="msg">${PARAS[4]}</p><p class="msg">${PARAS[5]}</p>`;
+  tick();
+  conv.scrollTop = conv.scrollHeight;
+}
+function tick() {
+  for (const t of active()) {
+    const el = conv.querySelector(`[data-time="${t.id}"]`);
+    if (el) el.textContent = state.ended.has(t.id) ? 'finito' : clock(t.start + state.elapsed);
+  }
+}
+/* Stessa regola di outOfSight in mobile/src/ChatTerminals.tsx. */
+function outOfSight() {
+  const box = conv.getBoundingClientRect();
+  return running().filter((t) => {
+    const r = conv.querySelector(`[data-term="${t.id}"]`).getBoundingClientRect();
+    return r.bottom < box.top + 24 || r.top > box.bottom - 24;
+  });
+}
+function update() {
+  const n = running().length;
+  const hidden = outOfSight().length;
+  const atBottom = conv.scrollHeight - conv.scrollTop - conv.clientHeight < 40;
+  $('down').hidden = atBottom;
+  $('pill').hidden = !(state.v === 0 && hidden > 0);
+  $('round').hidden = !(state.v === 1 && hidden > 0);
+  $('round').classList.toggle('lift', !atBottom);
+  $('corner').hidden = !(state.v === 2 && n > 0);
+  $('inrow').hidden = !(state.v === 3 && n > 0);
+  $('card').classList.toggle('has-corner', state.v === 2 && n > 0);
+  $('pillText').textContent = `${n} in corso`;
+  $('roundN').textContent = $('cornerN').textContent = $('inrowN').textContent = n;
+  grow();
+}
+function grow() {
+  const input = $('input');
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  $('send').disabled = !input.value.trim();
+}
+function go() {
+  const next = outOfSight()[0] ?? running()[0];
+  if (!next) return;
+  const block = conv.querySelector(`[data-term="${next.id}"]`);
+  const top = block.getBoundingClientRect().top - conv.getBoundingClientRect().top + conv.scrollTop - 12;
+  conv.scrollTo({ top, behavior: reduced() ? 'auto' : 'smooth' });
+  block.classList.add('flash');
+  setTimeout(() => block.classList.remove('flash'), 1200);
+}
+function drawNote() {
+  const note = NOTES[state.v];
+  $('note').innerHTML = `<h2>${note.title}</h2><p>${note.lead}</p>` + note.blocks.map(([h, items]) => `<h3>${h.toUpperCase()}</h3><ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`).join('');
+  document.querySelectorAll('[data-variant]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.variant === state.v)));
+  document.querySelectorAll('[data-row]').forEach((r) => r.classList.toggle('on', +r.dataset.row === state.v));
+}
+function measurePill() {
+  const pill = $('pill');
+  const wasHidden = pill.hidden;
+  pill.hidden = false;
+  const r = pill.getBoundingClientRect();
+  pill.hidden = wasHidden;
+  $('cover0').textContent = `${Math.round(r.width)} × ${Math.round(r.height)} px`;
+}
+
+document.querySelectorAll('[data-variant]').forEach((b) => b.addEventListener('click', () => { state.v = +b.dataset.variant; drawNote(); update(); }));
+['pill', 'round', 'corner', 'inrow'].forEach((id) => {
+  $(id).addEventListener('pointerdown', (e) => e.preventDefault()); /* come keepFocus */
+  $(id).addEventListener('click', go);
+});
+$('down').addEventListener('click', () => conv.scrollTo({ top: conv.scrollHeight, behavior: reduced() ? 'auto' : 'smooth' }));
+$('width').addEventListener('change', (e) => { $('phone').style.setProperty('--w', `${e.target.value}px`); update(); });
+$('count').addEventListener('change', (e) => { state.count = +e.target.value; state.ended.clear(); drawThread(); update(); measurePill(); });
+$('kbToggle').addEventListener('change', (e) => { $('keyboard').hidden = !e.target.checked; conv.scrollTop = conv.scrollHeight; update(); });
+$('longText').addEventListener('change', (e) => { $('input').value = e.target.checked ? 'Sì, aggiungi il ritardo in uscita, ma tienilo sotto i due secondi e controlla che non si sovrapponga all’avviso di aggiornamento.' : ''; update(); });
+$('input').addEventListener('input', grow);
+$('finish').addEventListener('click', () => { const last = running().at(-1); if (last) { state.ended.add(last.id); drawThread(); update(); } });
+$('reset').addEventListener('click', () => { state.ended.clear(); state.elapsed = 0; drawThread(); update(); });
+conv.addEventListener('scroll', update, { passive: true });
+new ResizeObserver(update).observe(conv);
+setInterval(() => { state.elapsed += 1; tick(); }, 1000);
+
+drawThread();
+drawNote();
+update();
+measurePill();
+</script>
+</body>
+</html>

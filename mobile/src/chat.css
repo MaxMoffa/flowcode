@@ -2936,8 +2936,11 @@ button.chat-step-row {
 .chat-termblock-out { margin: 0; padding: 8px 12px 10px; overflow: hidden; background: var(--bg); color: var(--muted); font-size: 12px; line-height: 1.6; white-space: pre; }
 .chat-termblock.is-open .chat-termblock-out { color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-termblock-out.is-empty { font-family: var(--font); white-space: normal; }
-.chat-termjump { position: absolute; left: 14px; bottom: 10px; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--glass-strong); -webkit-backdrop-filter: var(--blur-card); backdrop-filter: var(--blur-card); color: var(--fg); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; box-shadow: var(--shadow); animation: chat-jump-in 0.18s ease-out; }
-@media (prefers-reduced-motion: reduce) { .chat-termblock, .chat-termblock-head > svg { transition: none; } .chat-termjump { animation: none; } }
+/* Same corner as the jump-to-end arrow, which pushes it up one slot while it shows. */
+.chat-termjump { position: absolute; right: 14px; bottom: 10px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--glass-strong); -webkit-backdrop-filter: var(--blur-card); backdrop-filter: var(--blur-card); color: var(--fg); box-shadow: var(--shadow); transition: bottom 0.18s ease-out; animation: chat-jump-in 0.18s ease-out; }
+.chat-termjump.is-lifted { bottom: 62px; }
+.chat-termjump-count { position: absolute; top: -4px; right: -4px; display: grid; place-items: center; box-sizing: border-box; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .chat-termblock, .chat-termblock-head > svg { transition: none; } .chat-termjump { animation: none; transition: none; } }
 
 /* The "/" panel over the composer, and the chip of a picked command. */
 .chat-commands {

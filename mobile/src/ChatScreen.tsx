@@ -481,7 +481,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
               </div>
             </div>
             {!sub && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && (session.loaded || starting) && <ChatEmptyFrog starting={starting} cleared={cleared} />}
-            {!sub && <TerminalJump terminals={terminals} scrollRef={scrollRef} onOpenSubagent={openSubagent} />}
+            {!sub && <TerminalJump terminals={terminals} scrollRef={scrollRef} lifted={!atBottom} onOpenSubagent={openSubagent} />}
             {!atBottom && (
               <button
                 type="button"
