@@ -47,5 +47,5 @@ export function useChatBrowser(chatId: string | null) {
     setPending(false);
     setOpened(true);
   }, []);
-  return { opened, open, close, show, pending, dismissPending, page, supported, chatId: filesSupported ? chatId : null };
+  return { opened, open, close, show, pending, dismissPending, page, supported, chatId: filesSupported ? chatId : null, linksChatId: chatId };
 }

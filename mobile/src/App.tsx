@@ -9,7 +9,7 @@ import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { CompatBanner, IncompatibleScreen } from "./Compat";
 import { usePending } from "./pending";
-import { clearOpenRequest, recentClearTab, requestOpenChat, useChatHandoff, useOpenRequest, useTerminalHandoff } from "./chats";
+import { NewChatWatcher, clearOpenRequest, recentClearTab, requestOpenChat, useChatHandoff, useOpenRequest, useTerminalHandoff } from "./chats";
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
@@ -313,6 +313,7 @@ function AppContent() {
       {content}
       {compat.level === "partial" && host && !compatDismissed && paired && !adding && !lock.locked && <CompatBanner host={host} hostName={hostName} />}
       {paired && !pairing && !firstConnect && !adding && <Reconnect />}
+      {paired && !adding && <NewChatWatcher />}
       {update.sheetPending && updatesReady && !pairing && !adding && compat.level !== "blocked" && <UpdateSheet />}
       <Toast />
       <HandoffBar />

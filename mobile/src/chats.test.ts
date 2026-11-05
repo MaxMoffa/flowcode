@@ -282,3 +282,20 @@ describe("plain commands", () => {
     expect(link.sent).toEqual([{ t: "chatcancel", chatId: "c1" }]);
   });
 });
+
+describe("picking the new chat", () => {
+  const pick = (list: ChatInfo[], known: string[], expect?: { agent: string; cwd?: string }) => chatsModule.pickNewChat(list, new Set(known), expect)?.chatId;
+  const a = info("idle", { chatId: "a", agent: "claude", cwd: "C:\\Work\\app\\" });
+  const b = info("idle", { chatId: "b", agent: "codex", cwd: "/x" });
+  const c = info("idle", { chatId: "c", agent: "claude", cwd: "/other" });
+
+  it("takes the first unknown chat without an expectation", () => {
+    expect(pick([a, b, c], ["a"])).toBe("b");
+    expect(pick([a], ["a"])).toBeUndefined();
+  });
+  it("keeps to the asked agent and prefers the asked folder", () => {
+    expect(pick([b, c, a], [], { agent: "claude", cwd: "c:/work/APP" })).toBe("a");
+    expect(pick([b, c], [], { agent: "claude", cwd: "/nowhere" })).toBe("c");
+    expect(pick([b], [], { agent: "claude" })).toBeUndefined();
+  });
+});

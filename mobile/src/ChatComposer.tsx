@@ -174,19 +174,21 @@ ${latest.current}` : added);
   };
   const pickCommand = (entry: MenuEntry) => {
     tapFeedback();
-    if (!forced) change("");
+    if (!forced || text.startsWith("/")) change("");
     setForced(false);
     pick(entry);
     box.current?.focus();
   };
-  /** Starts the "/" the keyboard often hides on its second layer; pressed again it closes. */
+  /** Opens the command list ("/" is often hidden on the keyboard's second layer); pressed while it is open, closes it. */
   const toggleMenu = () => {
     tapFeedback();
     pick(null);
-    setDismissedFor(null);
-    if (forced) setForced(false);
-    else if (!text) change("/");
-    else if (text === "/") change("");
+    if (menuOpen) {
+      if (text === "/") change("");
+      if (forced) setForced(false);
+      else if (text !== "/") setDismissedFor(text);
+    } else if (!text) change("/");
+    else if (text === "/") setDismissedFor(null);
     else setForced(true);
     box.current?.focus();
   };

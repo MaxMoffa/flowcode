@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./browser.css";
 import { useBackHandler, useEscape } from "./back";
+import { chatLinkPages } from "./agentPreview";
+import { useChatInfo, useChatSession } from "./chats";
 import { useBrowserDrag, type Detent } from "./browserDrag";
 import { pageLabel, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
 import { t } from "./i18n";
@@ -18,16 +20,40 @@ function KindIcon({ page }: { page: Page | undefined }) {
   return page?.kind === "port" ? <MonitorIcon /> : page ? <FileIcon /> : <GlobeIcon />;
 }
 
+/** The pages the chat linked, computed only while the suggestions are on screen; says the empty text itself when it has nothing and the browser has no page. */
+function ChatPages({ chatId, filesChatId, hasPage, bad, onPick }: { chatId: string; filesChatId: string | null; hasPage: boolean; bad: boolean; onPick: (page: Page) => void }) {
+  const items = useChatSession(chatId)?.model.items;
+  const cwd = useChatInfo(chatId)?.cwd;
+  const pages = useMemo(() => (items && cwd !== undefined ? chatLinkPages(items.flatMap((i) => (i.type === "agent" ? [i.text] : [])), filesChatId, cwd) : []), [items, filesChatId, cwd]);
+  if (pages.length === 0) return !hasPage && !bad ? <div className="br-empty">{t("browser.empty")}</div> : null;
+  return (
+    <>
+      <h4>{t("browser.inChat")}</h4>
+      {pages.map((item) => (
+        <button key={pageLabel(item)} type="button" className="br-row" onPointerDown={(e) => e.preventDefault()} onClick={() => onPick(item)}>
+          <span className="br-kind-box" aria-hidden="true">
+            <KindIcon page={item} />
+          </span>
+          <span className="br-row-text">
+            <span className="br-row-name">{pageLabel(item)}</span>
+            <small>{item.kind === "port" ? t("browser.kindPort") : t("browser.kindFile")}</small>
+          </span>
+        </button>
+      ))}
+    </>
+  );
+}
+
 /**
  * In-app browser: the desktop's dev servers and the working folder's files, in an iframe.
  * On the phone it is a bottom drawer (half height, or full by dragging, the grabber or the
  * address field) over the chat; on a wide screen it covers the screen. Back/forward walk the
  * pages typed in the address field; navigation inside the page is not tracked (the iframe is
  * cross-origin to us), so Back leaves the page that was last typed, not the last link followed.
- * `chatId` or `ptyId` scopes relative files to that session's project folder; `suggested` lists
- * the pages linked in the chat, offered while the address is empty or being edited.
+ * `chatId` or `ptyId` scopes relative files to that session's project folder; `linksChatId` names the
+ * chat whose linked pages are offered while the address is empty or being edited.
  */
-export function Browser({ ptyId, chatId = null, initialPage = null, suggested = [], onClose }: { ptyId: string | null; chatId?: string | null; initialPage?: Page | null; suggested?: Page[]; onClose: () => void }) {
+export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId = null, onClose }: { ptyId: string | null; chatId?: string | null; initialPage?: Page | null; linksChatId?: string | null; onClose: () => void }) {
   const wide = useWide();
   const [pages, setPages] = useState<Page[]>(() => initialPage ? [initialPage] : []);
   const [index, setIndex] = useState(initialPage ? 0 : -1);
@@ -62,7 +88,7 @@ export function Browser({ ptyId, chatId = null, initialPage = null, suggested = 
 
   useBackHandler(true, requestClose);
   useBackHandler(!wide && detent === "full", () => setDetent("half"));
-  useEscape(true, () => (detent === "full" && !wide ? setDetent("half") : requestClose()));
+  useEscape(true, () => (document.querySelector(".tm-layer.open") ? undefined : detent === "full" && !wide ? setDetent("half") : requestClose()));
   useBrowserDrag(dragRef, rootRef, !wide, (target) => (target === "closed" ? requestClose() : setDetent(target)));
 
   useEffect(() => {
@@ -195,18 +221,7 @@ export function Browser({ ptyId, chatId = null, initialPage = null, suggested = 
         {showSuggestions && (
           <div className="br-sugg">
             {bad && <p className="br-bad">{t("browser.badAddress")}</p>}
-            {suggested.length > 0 && <h4>{t("browser.inChat")}</h4>}
-            {suggested.map((item) => (
-              <button key={pageLabel(item)} type="button" className="br-row" onPointerDown={(e) => e.preventDefault()} onClick={() => visit(item)}>
-                <span className="br-kind-box" aria-hidden="true">
-                  <KindIcon page={item} />
-                </span>
-                <span className="br-row-text">
-                  <span className="br-row-name">{pageLabel(item)}</span>
-                  <small>{item.kind === "port" ? t("browser.kindPort") : t("browser.kindFile")}</small>
-                </span>
-              </button>
-            ))}
+            {linksChatId && <ChatPages chatId={linksChatId} filesChatId={chatId} hasPage={!!page} bad={bad} onPick={visit} />}
             {page && editing && (
               <button type="button" className="br-row" onPointerDown={(e) => e.preventDefault()} onClick={copyAddress}>
                 <span className="br-kind-box" aria-hidden="true">
@@ -217,7 +232,7 @@ export function Browser({ ptyId, chatId = null, initialPage = null, suggested = 
                 </span>
               </button>
             )}
-            {!page && suggested.length === 0 && !bad && <div className="br-empty">{t("browser.empty")}</div>}
+            {!page && !linksChatId && !bad && <div className="br-empty">{t("browser.empty")}</div>}
           </div>
         )}
       </div>

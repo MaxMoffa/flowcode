@@ -628,7 +628,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
           closeSubs();
           if (target && onOpenSubagent) openSub(target.id);
         } else if (e.key === "Escape") closeSubs();
-        else setNavZone("input"); // any other key goes back to typing
+        else closeSubs(); // any other key goes back to typing
         if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") return;
       } else if (navZone === "term") {
         if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") e.preventDefault();
@@ -968,6 +968,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 if (subsOpen) closeSubs();
                 else {
                   setSubsOpen(true);
+                  setNavZone("sub");
+                  setNavIndex(runningSubs.length - 1);
                   inputRef.current?.focus();
                 }
               }}

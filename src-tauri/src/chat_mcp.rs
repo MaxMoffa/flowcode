@@ -10,6 +10,8 @@ use tauri::{AppHandle, Manager};
 const SERVER_NAME: &str = "flowcode";
 const OPEN_TOOL: &str = "mcp__flowcode__open_in_browser";
 const SCRIPT: &str = include_str!("flowcode-mcp.cjs");
+/// Off until the feature ships: no server reaches the agents and nothing is approved on its behalf.
+const ENABLED: bool = false;
 
 /// Puts the script on disk, once per run: chats starting together share it, none sees it half written.
 fn script_path(app: &AppHandle) -> Option<&'static PathBuf> {
@@ -33,7 +35,7 @@ fn server_entry(path: &str) -> Value {
 /// The `mcpServers` of a session. Prototype: Claude on the host only - inside WSL
 /// the script's Windows path means nothing, and other agents name tools differently.
 pub(crate) fn servers(app: &AppHandle, agent: &str, wsl: bool) -> Value {
-    if wsl || agent != "claude" {
+    if !ENABLED || wsl || agent != "claude" {
         return json!([]);
     }
     match script_path(app).and_then(|path| path.to_str()) {
@@ -47,6 +49,14 @@ pub(crate) fn servers(app: &AppHandle, agent: &str, wsl: bool) -> Value {
 /// opens is bound by the Browser settings. Never the "always" option: nothing
 /// is written to the user's agent settings.
 pub(crate) fn auto_allow(params: &Value) -> Option<String> {
+    if ENABLED {
+        allow_once_option(params)
+    } else {
+        None
+    }
+}
+
+fn allow_once_option(params: &Value) -> Option<String> {
     let tool = params.pointer("/toolCall/_meta/claudeCode/toolName").and_then(Value::as_str)?;
     if tool != OPEN_TOOL {
         return None;
@@ -73,10 +83,10 @@ mod tests {
 
     #[test]
     fn allows_only_the_open_tool_and_only_once() {
-        assert_eq!(auto_allow(&request(OPEN_TOOL)).as_deref(), Some("once"));
-        assert_eq!(auto_allow(&request("Bash")), None);
-        assert_eq!(auto_allow(&request("mcp__other__open_in_browser")), None);
-        assert_eq!(auto_allow(&json!({ "toolCall": {}, "options": [] })), None);
+        assert_eq!(allow_once_option(&request(OPEN_TOOL)).as_deref(), Some("once"));
+        assert_eq!(allow_once_option(&request("Bash")), None);
+        assert_eq!(allow_once_option(&request("mcp__other__open_in_browser")), None);
+        assert_eq!(allow_once_option(&json!({ "toolCall": {}, "options": [] })), None);
     }
 
     #[test]
@@ -85,7 +95,13 @@ mod tests {
             "toolCall": { "_meta": { "claudeCode": { "toolName": OPEN_TOOL } } },
             "options": [{ "optionId": "no", "kind": "reject_once" }],
         });
-        assert_eq!(auto_allow(&params), None);
+        assert_eq!(allow_once_option(&params), None);
+    }
+
+    #[test]
+    fn auto_allow_is_off_while_disabled() {
+        assert!(!ENABLED);
+        assert_eq!(auto_allow(&request(OPEN_TOOL)), None);
     }
 
     #[test]

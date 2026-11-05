@@ -76,7 +76,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const canClose = useSupports("closeTab");
   const canCloseChat = useSupports("chatCloseTab");
   const canBrowse = useSupports("preview");
-  const { opened: browserOpen, open: openBrowser, close: closeBrowser, show: showBrowserPage, pending: browserPending, dismissPending, page: browserPage, chatId: browserChatId } = useChatBrowser(doc === null ? activeChat : null);
+  const { opened: browserOpen, open: openBrowser, close: closeBrowser, show: showBrowserPage, pending: browserPending, dismissPending, page: browserPage, chatId: browserChatId, linksChatId } = useChatBrowser(doc === null ? activeChat : null);
   /** The terminal tab being renamed, with its draft label. */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -440,7 +440,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           </aside>
         )}
       </div>
-      {browserOpen && canBrowse && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} initialPage={browserPage} onClose={closeBrowser} />}
+      {browserOpen && canBrowse && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} linksChatId={linksChatId} initialPage={browserPage} onClose={closeBrowser} />}
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />

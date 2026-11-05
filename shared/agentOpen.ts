@@ -53,7 +53,7 @@ export function toolCommand(update: Record<string, unknown>): string | null {
 }
 
 /** The previewable target of a call to Flowcode's own MCP tool (see `chat_mcp.rs`). */
-export function openToolTarget(update: Record<string, unknown>): string | null {
+function openToolTarget(update: Record<string, unknown>): string | null {
   const meta = update._meta as { claudeCode?: { toolName?: unknown } } | null | undefined;
   if (meta?.claudeCode?.toolName !== OPEN_TOOL) return null;
   const target = (update.rawInput as { target?: unknown } | null | undefined)?.target;

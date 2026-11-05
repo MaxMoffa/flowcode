@@ -192,11 +192,16 @@ pub(crate) fn serve(app: &AppHandle, request: Request<Vec<u8>>, responder: UriSc
     tauri::async_runtime::spawn(async move {
         let response = match handle(conn, request).await {
             Ok(response) => response,
-            Err((status, message)) if status == StatusCode::BAD_GATEWAY || status == StatusCode::SERVICE_UNAVAILABLE => failure(status, &message),
+            Err((status, message)) if matches!(status, StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE | StatusCode::NOT_FOUND) => failure(status, &message),
             Err((status, message)) => plain(status, &message),
         };
         responder.respond(response);
     });
+}
+
+/// A file that isn't there: the desktop answers a bare 404, which would leave the frame blank. A dev server's own 404 stays as it sent it.
+fn missing_file(target: &PreviewTarget, status: StatusCode, body_len: usize) -> bool {
+    !matches!(target, PreviewTarget::Port(_)) && status == StatusCode::NOT_FOUND && body_len == 0
 }
 
 async fn handle(conn: Option<iroh::endpoint::Connection>, request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, (StatusCode, String)> {
@@ -209,6 +214,7 @@ async fn handle(conn: Option<iroh::endpoint::Connection>, request: Request<Vec<u
     }
     let bad_gateway = |e: &dyn std::fmt::Display| (StatusCode::BAD_GATEWAY, format!("bad gateway: {e}"));
     match tokio::time::timeout(TOTAL_TIMEOUT, fetch(&conn, &route, request)).await {
+        Ok(Ok(response)) if missing_file(&route.target, response.status(), response.body().len()) => Err((StatusCode::NOT_FOUND, "not found".into())),
         Ok(Ok(response)) => Ok(response),
         Ok(Err(e)) => Err(bad_gateway(&e)),
         Err(_) => Err(bad_gateway(&"timed out")),
@@ -275,6 +281,16 @@ mod tests {
         assert!(body.contains("flowcodeFrameError"));
         assert!(body.contains("&lt;refused&gt; &amp; more"));
         assert!(!body.contains("<refused>"));
+    }
+
+    #[test]
+    fn only_an_empty_404_on_files_is_missing() {
+        let nf = StatusCode::NOT_FOUND;
+        assert!(missing_file(&PreviewTarget::Files("t".into()), nf, 0));
+        assert!(missing_file(&PreviewTarget::ChatFiles("c".into()), nf, 0));
+        assert!(!missing_file(&PreviewTarget::Files("t".into()), nf, 9));
+        assert!(!missing_file(&PreviewTarget::Files("t".into()), StatusCode::OK, 0));
+        assert!(!missing_file(&PreviewTarget::Port(3000), nf, 0));
     }
 
     #[test]

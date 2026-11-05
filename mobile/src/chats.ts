@@ -304,21 +304,32 @@ export const requestOpenChat = (chatId: string) => store.set({ openRequest: chat
 export const clearOpenRequest = () => store.set({ openRequest: null });
 export const useOpenRequest = (): string | null => store.useSelector((s) => s.openRequest);
 
-/** A requested chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. A `firstPrompt` is queued on the fresh chat and goes out once the agent can take it. */
-export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string) => void): (firstPrompt?: string) => void {
-  /** The chats known when asking, until when to wait, and the message to send first. */
-  const pendingRef = useRef<{ known: Set<string>; until: number; firstPrompt?: string } | null>(null);
+const normCwd = (cwd: string | undefined) => (cwd ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
+/** The chat a request created: among the chats not in `known`, those of the asked agent, the one in the asked folder first. Without `expect`, the first new one. */
+export function pickNewChat(chats: ChatInfo[], known: ReadonlySet<string>, expect?: { agent: string; cwd?: string }): ChatInfo | undefined {
+  const fresh = chats.filter((c) => !known.has(c.chatId));
+  if (!expect) return fresh[0];
+  const ofAgent = fresh.filter((c) => c.agent === expect.agent);
+  const want = normCwd(expect.cwd);
+  return (want ? ofAgent.find((c) => normCwd(c.cwd) === want) : undefined) ?? ofAgent[0];
+}
+
+/** The chats known when a new one was asked for, until when to wait, the message to send first and what the new chat must be. Module-level: the screen that asked may be gone when the chat arrives, and the first hook instance to see it takes the request. */
+let pendingNew: { known: Set<string>; until: number; firstPrompt?: string; expect?: { agent: string; cwd?: string } } | null = null;
+
+/** A requested chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. A `firstPrompt` is queued on the fresh chat and goes out once the agent can take it; `expect` narrows which new chat is the one. */
+export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string) => void): (firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void {
   useEffect(() => {
-    const p = pendingRef.current;
+    const p = pendingNew;
     if (!p || !chats) return;
     if (Date.now() > p.until) {
-      pendingRef.current = null;
+      pendingNew = null;
       return;
     }
-    const fresh = chats.find((c) => !p.known.has(c.chatId));
+    const fresh = pickNewChat(chats, p.known, p.expect);
     if (fresh) {
-      pendingRef.current = null;
+      pendingNew = null;
       endPending();
       // Queued before opening: the queue holds it until the agent leaves "starting".
       if (p.firstPrompt) sendChatPrompt(fresh.chatId, p.firstPrompt);
@@ -328,9 +339,16 @@ export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string
 
   const chatsRef = useRef(chats);
   chatsRef.current = chats;
-  return useCallback((firstPrompt?: string) => {
-    pendingRef.current = { known: new Set((chatsRef.current ?? []).map((c) => c.chatId)), until: Date.now() + WAIT_MS, firstPrompt };
+  return useCallback((firstPrompt?: string, expect?: { agent: string; cwd?: string }) => {
+    pendingNew = { known: new Set((chatsRef.current ?? []).map((c) => c.chatId)), until: Date.now() + WAIT_MS, firstPrompt, expect };
   }, []);
+}
+
+/** Keeps a requested chat opening whatever page is shown: the Home that asked may have unmounted. */
+export function NewChatWatcher(): null {
+  const chats = useRemoteSelector((r) => r.chats);
+  useOpenNewChat(chats, requestOpenChat);
+  return null;
 }
 
 /**

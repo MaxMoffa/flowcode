@@ -124,16 +124,16 @@ function useOpenNewTab(tabs: Tab[] | null, onOpen: (ptyId: string) => void): () 
 }
 
 /** A requested terminal or chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet (a chat can carry a `firstPrompt` to send once it is ready) and what is being waited on (for `PendingRow`). */
-export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void): { onCreate: (asChat: boolean, label: string, firstPrompt?: string) => void; pending: Pending | null } {
+export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void): { onCreate: (asChat: boolean, label: string, firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void; pending: Pending | null } {
   const chats = useRemoteSelector((r) => r.chats);
   const onTab = useOpenNewTab(tabs, onOpen);
   const onChat = useOpenNewChat(chats, requestOpenChat);
   const pending = usePending();
   const onCreate = useCallback(
-    (asChat: boolean, label: string, firstPrompt?: string) => {
+    (asChat: boolean, label: string, firstPrompt?: string, expect?: { agent: string; cwd?: string }) => {
       // A chat waits as long as `useOpenNewChat` does (its agent starts first).
       beginPending({ kind: "open", asChat, label }, asChat ? CHAT_WAIT_MS : NEW_TAB_WAIT_MS);
-      if (asChat) onChat(firstPrompt);
+      if (asChat) onChat(firstPrompt, expect);
       else onTab();
     },
     [onTab, onChat],

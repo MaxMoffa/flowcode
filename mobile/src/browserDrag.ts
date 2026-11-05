@@ -5,7 +5,7 @@ import { releaseVelocity } from "./useSheetDrag";
 export type Detent = "half" | "full";
 
 /** Half height as a fraction of the visible viewport. */
-export const HALF_RATIO = 0.62;
+const HALF_RATIO = 0.62;
 /** Vertical movement before a touch becomes a drag (below it, a tap on the grabber). */
 const SLOP = 6;
 /** How far ahead (ms) the release velocity projects the drawer's resting point. */

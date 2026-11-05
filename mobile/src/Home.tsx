@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import "./home.css";
 import logo from "./assets/flowcode-icon.svg";
 import { AdaptiveSheet } from "./AdaptiveSheet";
@@ -66,8 +66,11 @@ function PickerSheet<V extends string | null>({ title, options, value, onPick, o
   );
 }
 
+/** What was sent, kept until the desktop answers: a failed start gives it back, even to a Home mounted again. */
+const sent = { current: "" };
+
 /** The text field that starts a chat: what to do, with which agent, in which folder. */
-function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | undefined; tabs: Tab[] | null; onCreate: (asChat: boolean, label: string, firstPrompt?: string) => void; pending: Pending | null }) {
+function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | undefined; tabs: Tab[] | null; onCreate: (asChat: boolean, label: string, firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void; pending: Pending | null }) {
   const canGemini = useSupports("gemini");
   const chats = useRemoteSelector((r) => r.chats);
   const agents = useMemo(() => AGENTS.filter((a) => a.id !== "gemini" || canGemini), [canGemini]);
@@ -77,8 +80,6 @@ function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | un
   if (folder.key !== key) setFolder({ key, cwd: safeStorage.get(key) || null });
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<"agent" | "folder" | null>(null);
-  /** What was sent, kept until the desktop answers: a failed start gives it back. */
-  const sent = useRef("");
 
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
   const cwd = folder.cwd;
@@ -102,10 +103,10 @@ function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | un
 
   const submit = () => {
     const text = draft.trim();
-    if (!text || !agent) return;
+    if (!text || !agent || (pending && !pending.failed)) return;
     sent.current = text;
     send({ t: "newchat", cli: agent.id, ...(cwd ? { cwd } : {}) });
-    onCreate(true, cwd ? `${agent.name} · ${shortCwd(cwd)}` : agent.name, text);
+    onCreate(true, cwd ? `${agent.name} · ${shortCwd(cwd)}` : agent.name, text, { agent: agent.id, ...(cwd ? { cwd } : {}) });
     setDraft("");
   };
 
@@ -121,7 +122,7 @@ function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | un
           <FolderIcon />
           <span>{cwd ? shortCwd(cwd) : t("newTermStartFolder")}</span>
         </button>
-        <button type="button" className="hm-go" aria-label={t("homeStart")} disabled={!draft.trim()} onClick={submit}>
+        <button type="button" className="hm-go" aria-label={t("homeStart")} disabled={!draft.trim() || (!!pending && !pending.failed)} onClick={submit}>
           <SendIcon />
         </button>
       </div>

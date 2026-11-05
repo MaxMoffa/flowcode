@@ -1210,9 +1210,15 @@ impl Chat {
                 }
             }
             Incoming::Request { id, method, params } => {
-                if let Some(option_id) = (method == "session/request_permission").then(|| crate::chat_mcp::auto_allow(&params)).flatten() {
-                    let reply = json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "selected", "optionId": option_id } } });
-                    let _ = self.replies.try_send(reply);
+                // A reply that could not be queued falls through to the prompt.
+                let auto_allowed = (method == "session/request_permission")
+                    .then(|| crate::chat_mcp::auto_allow(&params))
+                    .flatten()
+                    .is_some_and(|option_id| {
+                        let reply = json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "selected", "optionId": option_id } } });
+                        self.replies.try_send(reply).is_ok()
+                    });
+                if auto_allowed {
                 } else if method == "session/request_permission" {
                     lock(&self.permissions).insert(id.to_string(), id.clone());
                     let mut tool_call = params.get("toolCall").cloned().unwrap_or(Value::Null);

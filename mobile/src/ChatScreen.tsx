@@ -18,7 +18,7 @@ import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
 import { Browser } from "./Browser";
 import { ChatFileLinks } from "./ChatMarkdown";
-import { chatLinkPages, fileLinkPage } from "./agentPreview";
+import { fileLinkPage } from "./agentPreview";
 import { localLinkPage, pageLabel, type Page } from "./browserUrl";
 import { useChatBrowser } from "./useChatBrowser";
 import { defaultModeToApply } from "./chatModeDefaults";
@@ -219,10 +219,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
     [confirmLinks, canBrowse, filesOk, info?.cwd, chatId, showPage],
   );
   const noticePage = embedded ? pendingPage : browser.pending ? browser.page : null;
-  const suggested = useMemo(
-    () => (browser.opened && info ? chatLinkPages(model.items.flatMap((i) => (i.type === "agent" ? [i.text] : [])), browser.chatId, info.cwd) : []),
-    [browser.opened, model.items, browser.chatId, info?.cwd],
-  );
+
   const modes = chatModes(info, model);
   const canSetModel = useSupports("chatModel");
   const models = canSetModel ? chatModels(info, model) : null;
@@ -589,7 +586,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
         onCloseTab={canCloseTab && !isLastInWindow ? () => window.confirm(t("closeChatConfirm", { label: info.label })) && closeChatTab(chatId) : undefined}
       />
       {!embedded && onSwitch && <TermAgents activePty="" chatId={chatId} open={agentsOpen} onClose={closeAgents} />}
-      {browser.opened && canBrowse && !embedded && <Browser ptyId={null} chatId={browser.chatId} initialPage={browser.page} suggested={suggested} onClose={browser.close} />}
+      {browser.opened && canBrowse && !embedded && <Browser ptyId={null} chatId={browser.chatId} initialPage={browser.page} linksChatId={browser.linksChatId} onClose={browser.close} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>
   );
