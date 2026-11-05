@@ -174,12 +174,25 @@ fn plain(status: StatusCode, text: &str) -> Response<Vec<u8>> {
     response
 }
 
+/// A failed load: the text for a person, and a note to the in-app browser, which shows its own page.
+fn failure(status: StatusCode, text: &str) -> Response<Vec<u8>> {
+    let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let body = format!("<!doctype html><meta charset=\"utf-8\"><script>parent.postMessage({{flowcodeFrameError:true}},\"*\")</script><pre>{escaped}</pre>");
+    let mut response = Response::new(body.into_bytes());
+    *response.status_mut() = status;
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
 /// Entry point of the `flowcode-remote` scheme.
 pub(crate) fn serve(app: &AppHandle, request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     let conn = app.try_state::<Arc<Remote>>().and_then(|remote| remote.lock().conn.clone());
     tauri::async_runtime::spawn(async move {
         let response = match handle(conn, request).await {
             Ok(response) => response,
+            Err((status, message)) if status == StatusCode::BAD_GATEWAY || status == StatusCode::SERVICE_UNAVAILABLE => failure(status, &message),
             Err((status, message)) => plain(status, &message),
         };
         responder.respond(response);
@@ -252,6 +265,16 @@ mod tests {
 
     fn files(id: &str, upstream: &str) -> Option<Route> {
         Some(Route { target: PreviewTarget::Files(id.into()), upstream: upstream.into() })
+    }
+
+    #[test]
+    fn failure_is_html_that_tells_the_parent() {
+        let response = failure(StatusCode::BAD_GATEWAY, "bad gateway: <refused> & more");
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/html; charset=utf-8");
+        let body = String::from_utf8(response.into_body()).unwrap();
+        assert!(body.contains("flowcodeFrameError"));
+        assert!(body.contains("&lt;refused&gt; &amp; more"));
+        assert!(!body.contains("<refused>"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { markdownImageRef, splitLinks } from "../../src/chat/chatLinks";
 import { renderMarkdown } from "../../shared/Markdown";
 import { ChatImageView } from "./ChatImage";
@@ -24,12 +24,13 @@ function Link({ url, onLink, children }: { url: string; onLink: OnLink; children
 }
 
 /** Text with its `[text](url)` and bare http(s) urls as links. `label` renders a link's text (so code and bold inside it stay formatted); a `[text](path)` shows its label. */
-function withLinks(text: string, keyBase: string, onLink: OnLink, label: (text: string, key: string) => ReactNode = (text) => text): ReactNode[] {
+function withLinks(text: string, keyBase: string, onLink: OnLink, canOpen: (path: string) => boolean, label: (text: string, key: string) => ReactNode = (text) => text): ReactNode[] {
   return splitLinks(text).map((part, i) => {
     const key = `${keyBase}-${i}`;
-    if (part.url) {
+    const url = part.url ?? (part.path !== undefined && canOpen(part.path) ? part.path : undefined);
+    if (url !== undefined) {
       return (
-        <Link key={key} url={part.url} onLink={onLink}>
+        <Link key={key} url={url} onLink={onLink}>
           {label(part.text, key)}
         </Link>
       );
@@ -38,10 +39,14 @@ function withLinks(text: string, keyBase: string, onLink: OnLink, label: (text: 
   });
 }
 
+/** Whether a `[text](path)` link can be opened (the chat knows its folder). */
+export const ChatFileLinks = createContext<(path: string) => boolean>(() => false);
+
 /** Markdown with the phone's link sheet and image provider. */
 export function ChatMarkdown({ text, onLink }: { text: string; onLink: OnLink }) {
+  const canOpen = useContext(ChatFileLinks);
   return <div className="chat-md">{renderMarkdown(text, {
-    text: (text, key, label) => withLinks(text, key, onLink, label),
+    text: (text, key, label) => withLinks(text, key, onLink, canOpen, label),
     code: (text, key) => <code key={key}>{text}</code>,
     image: (src, alt, key) => {
       const ref = markdownImageRef(src);

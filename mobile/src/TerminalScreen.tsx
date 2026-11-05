@@ -9,6 +9,7 @@ import { lastInWindow } from "./homeSessions";
 import { AgentLogo, AgentsIcon, BackIcon, ChevronDownIcon, CopyIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
 import { interrupt, send, showToast, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
 import { Browser } from "./Browser";
+import { localLinkPage, type Page } from "./browserUrl";
 import { TermActions } from "./TermActions";
 import { TermAgents } from "./TermAgents";
 import { TermFiles } from "./TermFiles";
@@ -35,11 +36,12 @@ const keepFocus = {
 const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ?? cwd;
 
 /** `embedded`: the wide layout's main card; its header owns the files, quick actions and menu, so only the terminal and its docked key bar (shown while `keys`) remain. `onChat` turns an agent's terminal into a chat shown with the given view (App opens it once it appears). */
-export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded, keys }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; onChat?: (ptyId: string, view: string) => void; embedded?: boolean; keys?: boolean }) {
+export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded, keys, onOpenPage }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; onChat?: (ptyId: string, view: string) => void; embedded?: boolean; keys?: boolean; onOpenPage?: (page: Page) => void }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [browserPage, setBrowserPage] = useState<Page | null>(null);
   const canBrowse = useSupports("preview");
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -77,10 +79,19 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
       const now = Date.now();
       if (lastLink.current.url === url && now - lastLink.current.at < 600) return;
       lastLink.current = { url, at: now };
+      const page = canBrowse ? localLinkPage(url) : null;
+      if (page) {
+        if (onOpenPage) onOpenPage(page);
+        else {
+          setBrowserPage(page);
+          setBrowserOpen(true);
+        }
+        return;
+      }
       if (settings?.confirmLinkOpen === false) void openLink(url);
       else setLinkUrl(url);
     },
-    [settings?.confirmLinkOpen],
+    [settings?.confirmLinkOpen, canBrowse, onOpenPage],
   );
   const { areaRef, hostRef, termRef, ended, atBottom, hasSelection, resetIme } = useTerminal({
     ptyId,
@@ -425,7 +436,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
         {embedded && keyBar}
       </div>
       {!embedded && keyBar}
-      {browserOpen && canBrowse && <Browser ptyId={ptyId} onClose={() => setBrowserOpen(false)} />}
+      {browserOpen && canBrowse && <Browser ptyId={ptyId} initialPage={browserPage} onClose={() => { setBrowserOpen(false); setBrowserPage(null); }} />}
       {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
       {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} />}
       {!embedded && tab.cli && (

@@ -52,6 +52,16 @@ export function parseTyped(input: string, ptyId: string | null, chatId: string |
     : { kind: "file", ptyId: ptyId!, path: path.replace(/\\/g, "/") };
 }
 
+/** The page of a tapped web link, when it is a loopback address of the desktop. */
+export function localLinkPage(url: string): Page | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (parsed.hostname === "0.0.0.0" || parsed.hostname === "[::]") parsed.hostname = "localhost";
+    return parseTyped(parsed.toString(), null);
+  } catch { return null; }
+}
+
 /** The iframe URL of a page. `base` builds the scheme URL of a path (injectable for tests). */
 export function pageSrc(page: Page, base: (path: string) => string = (p) => convertFileSrc(p, "flowcode-remote")): string {
   if (page.kind === "port") {

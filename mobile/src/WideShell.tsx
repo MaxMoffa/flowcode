@@ -76,7 +76,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const canClose = useSupports("closeTab");
   const canCloseChat = useSupports("chatCloseTab");
   const canBrowse = useSupports("preview");
-  const { opened: browserOpen, setOpened: setBrowserOpen, page: browserPage, chatId: browserChatId } = useChatBrowser(doc === null ? activeChat : null);
+  const { opened: browserOpen, open: openBrowser, close: closeBrowser, show: showBrowserPage, pending: browserPending, dismissPending, page: browserPage, chatId: browserChatId } = useChatBrowser(doc === null ? activeChat : null);
   /** The terminal tab being renamed, with its draft label. */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -345,7 +345,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 canBrowse
                   ? () => {
                       setMenuOpen(false);
-                      setBrowserOpen(true);
+                      openBrowser();
                     }
                   : undefined
               }
@@ -401,13 +401,13 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           {active ? (
             <div style={{ display: shown ? "none" : "contents" }}>
               <Suspense fallback={<div className="screen" />}>
-                <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={noop} embedded keys={keys} />
+                <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={noop} embedded keys={keys} onOpenPage={showBrowserPage} />
               </Suspense>
             </div>
           ) : activeChat ? (
             <div style={{ display: shown ? "none" : "contents" }}>
               <Suspense fallback={<div className="screen" />}>
-                <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} embedded onBrowser={() => setBrowserOpen(true)} />
+                <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} embedded onBrowser={openBrowser} onOpenPage={showBrowserPage} pendingPage={browserPending ? browserPage : null} onOpenPending={openBrowser} onDismissPending={dismissPending} />
               </Suspense>
             </div>
           ) : !shown && tabs !== null && tabs.length === 0 && !chats?.length ? (
@@ -440,7 +440,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           </aside>
         )}
       </div>
-      {browserOpen && canBrowse && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} initialPage={browserPage} onClose={() => setBrowserOpen(false)} />}
+      {browserOpen && canBrowse && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} initialPage={browserPage} onClose={closeBrowser} />}
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />

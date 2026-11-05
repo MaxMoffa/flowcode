@@ -17,6 +17,9 @@ import { ChatPondEnd } from "./ChatPondEnd";
 import { PermissionBar } from "./ChatPermission";
 import { ChatPluginView } from "./ChatPluginView";
 import { Browser } from "./Browser";
+import { ChatFileLinks } from "./ChatMarkdown";
+import { chatLinkPages, fileLinkPage } from "./agentPreview";
+import { localLinkPage, pageLabel, type Page } from "./browserUrl";
 import { useChatBrowser } from "./useChatBrowser";
 import { defaultModeToApply } from "./chatModeDefaults";
 import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingAsks, pendingPermissions } from "./chatSession";
@@ -51,7 +54,7 @@ const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ??
 /** Chats whose default mode was already tried, so it is applied at most once per chat. */
 const defaultModeTried = new Set<string>();
 
-export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onBrowser }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean; onBrowser?: () => void }) {
+export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onBrowser, onOpenPage, pendingPage, onOpenPending, onDismissPending }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean; onBrowser?: () => void; onOpenPage?: (page: Page) => void; pendingPage?: Page | null; onOpenPending?: () => void; onDismissPending?: () => void }) {
   const browser = useChatBrowser(embedded ? null : chatId);
   const canBrowse = useSupports("preview");
   const screenRef = useRef<HTMLDivElement>(null);
@@ -198,13 +201,27 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const confirmLinks = useRemoteSelector((s) => s.settings?.confirmLinkOpen);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const closeLink = useCallback(() => setLinkUrl(null), []);
-  /** A link was tapped: open it at once when the user opted out of the prompt, else ask in the sheet. */
+  const showPage = onOpenPage ?? browser.show;
+  const filesOk = useSupports("chatPreview");
+  const canOpenFile = useCallback((path: string) => !!(canBrowse && filesOk && info && fileLinkPage(path, chatId, info.cwd)), [canBrowse, filesOk, info?.cwd, chatId]);
+  /** A link was tapped: a desktop page or chat file opens in the drawer; any other link at once when the user opted out of the prompt, else in the sheet. */
   const onLink = useCallback(
     (url: string) => {
+      const page = !canBrowse ? null : /^https?:/i.test(url) ? localLinkPage(url) : filesOk && info ? fileLinkPage(url, chatId, info.cwd) : null;
+      if (page) {
+        showPage(page);
+        return;
+      }
+      if (!/^https?:/i.test(url)) return;
       if (confirmLinks === false) void openLink(url);
       else setLinkUrl(url);
     },
-    [confirmLinks],
+    [confirmLinks, canBrowse, filesOk, info?.cwd, chatId, showPage],
+  );
+  const noticePage = embedded ? pendingPage : browser.pending ? browser.page : null;
+  const suggested = useMemo(
+    () => (browser.opened && info ? chatLinkPages(model.items.flatMap((i) => (i.type === "agent" ? [i.text] : [])), browser.chatId, info.cwd) : []),
+    [browser.opened, model.items, browser.chatId, info?.cwd],
   );
   const modes = chatModes(info, model);
   const canSetModel = useSupports("chatModel");
@@ -409,16 +426,18 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
                 <ChatImagesProvider chatId={chatId}>
-                  <TerminalsContext.Provider value={terminals}>
-                    {sub ? (
-                      <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
-                    ) : (
-                      <>
-                        {model.items.length === 0 && !session.loaded && !starting && <div className="chat-empty">{t("loading")}</div>}
-                        <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
-                      </>
-                    )}
-                  </TerminalsContext.Provider>
+                  <ChatFileLinks.Provider value={canOpenFile}>
+                    <TerminalsContext.Provider value={terminals}>
+                      {sub ? (
+                        <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
+                      ) : (
+                        <>
+                          {model.items.length === 0 && !session.loaded && !starting && <div className="chat-empty">{t("loading")}</div>}
+                          <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
+                        </>
+                      )}
+                    </TerminalsContext.Provider>
+                  </ChatFileLinks.Provider>
                 </ChatImagesProvider>
                 {(sub ? !!subState?.running : status === "busy") && !exited && (
                   <div className="chat-status">
@@ -516,6 +535,17 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                   </button>
                 </ChatPondEnd>
               )}
+              {noticePage && (
+                <div className="br-notice" role="status">
+                  <span>{t("browser.ready", { page: pageLabel(noticePage) })}</span>
+                  <button type="button" onClick={onOpenPending ?? browser.open}>
+                    {t("browser.open")}
+                  </button>
+                  <button type="button" className="br-notice-x" aria-label={t("closeViewer")} onClick={onDismissPending ?? browser.dismissPending}>
+                    <CloseIcon />
+                  </button>
+                </div>
+              )}
               <div className="chat-ask-keep" hidden={!!openAsk || showLimit}>
                 <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} commands={model.commands} commandsLoading={starting} canClear={canClear} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubFromTray} openLabel={t("chatSubOpen")} expanded={subsOpen} onToggle={toggleSubs} onUngrouped={foldSubs} countLabel={(n) => t("chatSubCount", { n })} />} />
               </div>
@@ -544,7 +574,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
         views={choices}
         view={shown}
         onView={pick}
-        onBrowser={canBrowse ? onBrowser ?? (() => browser.setOpened(true)) : undefined}
+        onBrowser={canBrowse ? onBrowser ?? browser.open : undefined}
         onCopyId={info.sessionId ? copyId : undefined}
         onRename={
           canRename
@@ -559,7 +589,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
         onCloseTab={canCloseTab && !isLastInWindow ? () => window.confirm(t("closeChatConfirm", { label: info.label })) && closeChatTab(chatId) : undefined}
       />
       {!embedded && onSwitch && <TermAgents activePty="" chatId={chatId} open={agentsOpen} onClose={closeAgents} />}
-      {browser.opened && canBrowse && !embedded && <Browser ptyId={null} chatId={browser.chatId} initialPage={browser.page} onClose={() => browser.setOpened(false)} />}
+      {browser.opened && canBrowse && !embedded && <Browser ptyId={null} chatId={browser.chatId} initialPage={browser.page} suggested={suggested} onClose={browser.close} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>
   );

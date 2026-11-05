@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per il browser mobile in un drawer dal basso, con l'apertura automatica dai link della chat, confrontate con il browser di oggi.">
+  <title>Flowcode mobile — browser nel drawer · 3 varianti</title>
+  <style>
+    /* Token e misure copiati da mobile/src/ui.css, browser.css e terminal.css. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-2: #c9975a; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --wait: #d1a752; --danger: #d9776a;
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(.2, .8, .2, 1);
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1080px; margin: auto; padding: 28px 24px 56px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 150px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .layout { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .side { display: grid; gap: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; min-height: 32px; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .ctl { min-height: 32px; padding: 0 11px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--fg); font-size: 13px; }
+    .ctl:active { background: var(--surface-3); }
+    .note h2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .tag { padding: 1px 8px; border-radius: 999px; background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); color: var(--accent); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 62ch; }
+    code { font: 12.5px var(--mono); }
+
+    .section { margin-top: 44px; }
+    .section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .section > p { margin: 0 0 12px; color: var(--muted); max-width: 72ch; }
+    .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 13.5px; }
+    th { padding: 9px 14px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+    td { padding: 10px 14px; border-top: 1px solid var(--border); vertical-align: top; }
+    td:first-child { width: 30%; }
+    td:nth-child(2) { color: var(--muted); }
+    .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+    .box { padding: 14px 16px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
+    .box.warn { background: rgba(209, 167, 82, .07); box-shadow: inset 0 0 0 1px rgba(209, 167, 82, .24); }
+    .box h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+    .box.warn h3 { color: var(--wait); }
+    .box ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 390px; max-width: 100%; height: 780px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong), 0 30px 60px -30px #000; isolation: isolate; margin: 9px auto 0; }
+    .status { flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .head { flex: none; display: flex; align-items: center; gap: 2px; padding: 2px 4px; border-bottom: 1px solid var(--border); }
+    .head .icon { width: 44px; height: 46px; display: grid; place-items: center; color: var(--muted); }
+    .head .logo { width: 28px; height: 28px; margin-right: 10px; border-radius: 9px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; }
+    .head .who { flex: 1; min-width: 0; }
+    .head b { display: block; font-size: 15px; font-weight: 600; line-height: 1.25; }
+    .head small { display: block; font-size: 12px; color: var(--muted); line-height: 1.25; }
+    .menu { position: absolute; top: 48px; right: 8px; z-index: 4; min-width: 170px; padding: 5px; border-radius: 14px; background: var(--surface); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); }
+    .menu button { display: flex; gap: 10px; align-items: center; width: 100%; min-height: 44px; padding: 0 10px; border-radius: 10px; }
+    .menu button:active { background: var(--surface-3); }
+    .conv { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 16px 12px; scrollbar-width: none; }
+    .conv::-webkit-scrollbar { display: none; }
+    .msg-user { width: fit-content; max-width: 82%; margin: 0 0 16px auto; padding: 9px 14px; border-radius: 18px 18px 5px 18px; background: var(--surface-2); font-size: 15px; }
+    .msg { margin: 0 0 12px; font-size: 15px; line-height: 1.55; }
+    .rail { display: flex; align-items: center; gap: 8px; min-height: 34px; margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+    .rail i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+    .lnk { display: inline; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+    .lnk:active { color: var(--fg); }
+
+    .composer { position: relative; z-index: 3; flex: none; padding: 0 12px 10px; background: var(--bg); transition: opacity .16s; }
+    .card { padding: 12px 10px 10px 20px; border-radius: 28px; background: var(--surface-2); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); }
+    .input { display: block; width: 100%; min-height: 30px; padding: 0 10px 0 0; border: 0; outline: 0; resize: none; background: none; color: var(--fg); font: 16px/1.45 var(--font); }
+    .input:focus-visible { outline: 0; }
+    .input::placeholder { color: var(--muted); opacity: 1; }
+    .actions { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+    .actions .grow { flex: 1; }
+    .pill { display: flex; align-items: center; height: 40px; padding: 0 14px; border-radius: 20px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); font-size: 14px; }
+    .round { flex: none; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+
+    /* ---- avviso e mini-barra sopra il composer ---- */
+    .notice, .mini { position: relative; z-index: 3; flex: none; display: flex; align-items: center; gap: 10px; margin: 0 12px 8px; border-radius: 16px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); }
+    .notice { min-height: 48px; padding: 4px 4px 4px 14px; font-size: 13.5px; animation: rise .18s var(--ease); }
+    .notice span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notice button { min-height: 40px; padding: 0 14px; border-radius: 12px; background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+    .mini { min-height: 52px; padding-left: 4px; touch-action: none; animation: rise .18s var(--ease); }
+    .mini-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 4px 0 10px; }
+    .mini-open .txt { flex: 1; min-width: 0; }
+    .mini-open b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px/1.3 var(--mono); }
+    .mini-open small { display: block; color: var(--muted); font-size: 12px; line-height: 1.3; }
+    .mini.fresh { box-shadow: 0 0 0 1px var(--accent-border); }
+    .mini.fresh small { color: var(--accent); }
+    .mini-x { flex: none; width: 44px; height: 52px; display: grid; place-items: center; color: var(--muted); }
+    .kindicon { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--accent-bg); color: var(--accent); }
+    @keyframes rise { from { transform: translateY(12px); opacity: 0; } }
+
+    /* ---- drawer ---- */
+    .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); border-radius: 22px 22px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, .45), 0 0 0 1px var(--border-strong); transition: height .28s var(--ease); }
+    .sheet.dragging { transition: none; }
+    .sheet.empty-h { box-shadow: none; }
+    .stage.v-c .composer { z-index: 6; }
+    .stage.v-c.at-full .composer { opacity: 0; pointer-events: none; }
+    .stage.v-today .sheet { border-radius: 0; box-shadow: none; transition: none; }
+    .drag { flex: none; touch-action: none; cursor: grab; }
+    .sheet.dragging .drag { cursor: grabbing; }
+    .grab { display: block; width: 100%; height: 22px; padding: 9px 0 0; }
+    .grab::before { content: ""; display: block; width: 38px; height: 4px; margin: auto; border-radius: 999px; background: var(--border-strong); }
+    .title { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 4px 2px 16px; font-size: 13.5px; }
+    .title span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+    .bar { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 6px; touch-action: none; }
+    .stage.v-today .bar { gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .stage.v-b .bar { padding: 8px 6px 10px; border-top: 1px solid var(--border); }
+    .btn { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; color: var(--fg); }
+    .btn:active:not(:disabled) { background: var(--surface-3); }
+    .btn:disabled { opacity: .35; cursor: default; }
+    .addr { position: relative; flex: 1; min-width: 0; }
+    .addr svg { position: absolute; left: 11px; top: 11px; color: var(--muted); pointer-events: none; }
+    .addr input { width: 100%; height: 40px; padding: 0 10px 0 33px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--fg); font: 13px var(--mono); text-overflow: ellipsis; }
+    .addr input:focus { outline: none; border-color: var(--accent-border); }
+    .addr input.bad { border-color: var(--danger); }
+    .addr input::placeholder { color: var(--muted); opacity: 1; }
+    .stage.v-today .addr svg { display: none; }
+    .stage.v-today .addr input { padding-left: 12px; font-size: 14px; }
+    .load { flex: none; height: 2px; overflow: hidden; }
+    .load.on { background: var(--accent-bg); }
+    .load.on::after { content: ""; display: block; width: 40%; height: 100%; background: var(--accent); animation: slide 1.1s ease-in-out infinite; }
+    @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+    .body { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; background: #fff; scrollbar-width: none; }
+    .body::-webkit-scrollbar { display: none; }
+    .body.dark { background: var(--surface); color: var(--fg); }
+
+    /* pagina vuota e suggerimenti */
+    .sugg { padding: 12px 8px; }
+    .sugg h3 { margin: 0; padding: 4px 10px 8px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .sugg .hint { margin: 8px 10px 0; color: var(--muted); font-size: 13px; }
+    .sugg .err { margin: 0 10px 10px; color: var(--danger); font-size: 13px; }
+    .row { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 54px; padding: 6px 8px; border-radius: 12px; }
+    .row:active { background: var(--surface-3); }
+    .row .txt { flex: 1; min-width: 0; }
+    .row b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13.5px/1.35 var(--mono); }
+    .row small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+    .todayempty { display: grid; place-items: center; height: 100%; padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
+
+    /* errori */
+    .fail { display: grid; align-content: center; justify-items: start; gap: 8px; min-height: 100%; padding: 28px 24px; }
+    .fail h3 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .fail p { margin: 0; color: var(--muted); }
+    .fail button { min-height: 44px; margin-top: 8px; padding: 0 16px; border-radius: 12px; background: var(--surface-3); }
+    .plain { padding: 8px; color: #000; font: 13px var(--mono); }
+
+    /* il sito di esempio: un'altra app, con i suoi colori */
+    .site { min-height: 100%; background: #fbfaf7; color: #22201c; font: 15px/1.5 system-ui, sans-serif; }
+    .site nav { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-bottom: 1px solid #e8e4dc; font-weight: 700; }
+    .site nav span { color: #746d60; font-size: 13px; font-weight: 400; }
+    .site main { padding: 20px 18px 28px; }
+    .site h4 { margin: 0 0 4px; font-size: 22px; letter-spacing: -.02em; }
+    .site p { margin: 0 0 14px; color: #746d60; }
+    .field { display: block; margin-bottom: 10px; padding: 11px 12px; border: 1px solid #d8d2c6; border-radius: 9px; background: #fff; color: #746d60; }
+    .cta { padding: 12px; border-radius: 9px; background: #2c5a46; color: #fff; font-weight: 600; text-align: center; }
+    .stat { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #e8e4dc; }
+    .stat b { font-variant-numeric: tabular-nums; }
+    .ok { color: #2c5a46; font-weight: 600; }
+
+    /* ---- foglio del link (invariato) ---- */
+    .ls-scrim { position: absolute; inset: 0; z-index: 8; background: rgba(0, 0, 0, .5); }
+    .ls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; padding-bottom: 12px; border-radius: 22px 22px 0 0; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); animation: rise .2s var(--ease); }
+    .ls .grabline { width: 38px; height: 4px; margin: 10px auto 8px; border-radius: 999px; background: var(--border-strong); }
+    .ls h3 { margin: 0; padding: 0 18px; font-size: 16px; font-weight: 600; }
+    .ls p { margin: 0 0 8px; padding: 0 18px; color: var(--muted); font: 12.5px var(--mono); overflow-wrap: anywhere; }
+    .ls .row { padding: 0 18px; border-radius: 0; font-size: 15px; }
+
+    .toast { position: absolute; left: 16px; right: 16px; bottom: 96px; z-index: 12; padding: 10px 14px; border-radius: 12px; background: var(--surface-3); box-shadow: var(--shadow); font-size: 13.5px; animation: rise .18s var(--ease); }
+
+    /* ---- tastiera simulata ---- */
+    .kb { position: relative; z-index: 11; flex: none; height: 262px; padding: 8px 4px; display: none; gap: 7px; align-content: start; background: #0f0c09; border-top: 1px solid var(--border); }
+    .phone.kbd .kb { display: grid; }
+    .kb div { display: flex; gap: 5px; justify-content: center; }
+    .kb button { flex: 0 1 34px; min-width: 0; height: 44px; display: grid; place-items: center; border-radius: 6px; background: var(--surface); font-size: 15px; }
+    .kb button:active { background: var(--surface-3); }
+    .kb button.fn { flex: 0 1 48px; background: var(--surface-2); color: var(--muted); }
+    .kb button.space { flex: 1 1 150px; }
+
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: minmax(0, 1fr); }
+      .page { padding: 20px 14px 40px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · BROWSER</div>
+  <h1>Il browser diventa un drawer dal basso</h1>
+  <p class="lead">Tocca i link nella chat del telefono qui sotto: i quattro link si comportano in modo diverso. Trascina la maniglia del drawer per cambiarne l'altezza.</p>
+
+  <div class="variants" id="variants">
+    <button type="button" data-v="today"><span>00</span>Oggi</button>
+    <button type="button" data-v="a"><span>01</span>Metà e intera</button>
+    <button type="button" data-v="b"><span>02</span>Barra sotto il pollice</button>
+    <button type="button" data-v="c"><span>03</span>Accanto alla chat</button>
+  </div>
+
+  <div class="layout">
+    <div class="phone" id="phone">
+      <div class="status"><span>9:41</span><span>Collegato</span></div>
+      <div class="stage" id="stage">
+        <header class="head">
+          <button type="button" class="icon" aria-label="Indietro"><svg width="20" height="20" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+          <span class="logo"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg></span>
+          <div class="who"><b>Pagina di login</b><small>Claude · bottega</small></div>
+          <button type="button" class="icon" id="menuBtn" aria-label="Menu della chat" aria-expanded="false"><svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+        </header>
+        <div class="menu" id="menu" hidden>
+          <button type="button" id="menuBrowser"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Browser</button>
+        </div>
+        <div class="conv" id="conv"></div>
+        <div class="notice" id="notice" role="status" hidden><span id="noticeText"></span><button type="button" id="noticeOpen">Apri</button></div>
+        <div class="mini" id="mini" hidden>
+          <button type="button" class="mini-open" id="miniOpen">
+            <span class="kindicon" id="miniIcon"></span>
+            <span class="txt"><b id="miniLabel"></b><small id="miniSub"></small></span>
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+          </button>
+          <button type="button" class="mini-x" id="miniClose" aria-label="Chiudi il browser"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div class="composer" id="composer">
+          <div class="card">
+            <textarea class="input" id="ta" rows="1" placeholder="Scrivi a Claude" aria-label="Messaggio"></textarea>
+            <div class="actions"><span class="pill">Sonnet</span><span class="grow"></span><button type="button" class="round" aria-label="Invia"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+          </div>
+        </div>
+
+        <section class="sheet" id="sheet" role="dialog" aria-label="Browser" inert>
+          <div class="drag" id="drag">
+            <button type="button" class="grab" id="grab" aria-label="Cambia l'altezza del browser"></button>
+            <div class="title" id="title"><span id="titleText"></span></div>
+          </div>
+          <div class="bar" id="bar">
+            <button type="button" class="btn" id="back" aria-label="Indietro"><svg width="20" height="20" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+            <button type="button" class="btn" id="fwd" aria-label="Avanti"><svg width="20" height="20" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+            <div class="addr" id="addr">
+              <span id="addrIcon"></span>
+              <input id="addrInput" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="localhost:5173" aria-label="Indirizzo">
+            </div>
+            <button type="button" class="btn" id="reload" aria-label="Ricarica"><svg width="19" height="19" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg></button>
+            <button type="button" class="btn" id="close" aria-label="Chiudi"><svg id="closeIcon" width="20" height="20" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="load" id="load" role="progressbar" aria-label="Caricamento"></div>
+          <div class="body" id="body"></div>
+        </section>
+
+        <div class="ls-scrim" id="lsScrim" hidden></div>
+        <section class="ls" id="ls" role="dialog" aria-label="Link" hidden>
+          <div class="grabline"></div>
+          <h3>Link</h3>
+          <p id="lsUrl"></p>
+          <button type="button" class="row" data-ls="open"><svg width="19" height="19" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Apri nel browser</button>
+          <button type="button" class="row" data-ls="always"><svg width="19" height="19" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></svg>Apri e non chiedere più</button>
+          <button type="button" class="row" data-ls="copy"><svg width="19" height="19" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>Copia link</button>
+        </section>
+        <div class="toast" id="toast" role="status" hidden></div>
+      </div>
+      <div class="kb" id="kb" aria-hidden="true"></div>
+    </div>
+
+    <div class="side">
+      <div class="controls">
+        <button type="button" class="ctl" id="agentOpen">L'agente apre una pagina</button>
+        <button type="button" class="ctl" id="androidBack">◁ Back di Android</button>
+        <label><input type="checkbox" id="writing"> Sto scrivendo</label>
+        <button type="button" class="ctl" id="reset">Ricomincia</button>
+      </div>
+      <div class="note" id="note"></div>
+    </div>
+  </div>
+
+  <section class="section">
+    <h2>Cosa apre il drawer</h2>
+    <p>La stessa regola vale per le tre varianti, e anche per i link toccati nel terminale.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Evento</th><th>Oggi</th><th>Proposta</th></tr></thead>
+        <tbody>
+          <tr><td>Link a <code>localhost</code>, <code>127.0.0.1</code>, <code>0.0.0.0</code>, <code>[::1]</code> con porta</td><td>Foglio del link, poi browser del telefono, dove quel server non esiste</td><td>Si apre subito nel drawer, senza conferma: è il tuo desktop</td></tr>
+          <tr><td>Link a un file, <code>[report](docs/report.html)</code></td><td>Testo normale, non si tocca</td><td>Drawer, se il file è nella cartella della chat. Altrimenti resta testo</td></tr>
+          <tr><td>Link a un sito esterno</td><td>Foglio del link, poi browser del telefono</td><td>Uguale. Il tunnel raggiunge solo il desktop e la CSP non ammette altri frame</td></tr>
+          <tr><td>L'agente apre una pagina</td><td>Tutto schermo, anche mentre scrivi</td><td>Drawer a metà. Se stai scrivendo o l'avevi ridotto, non ti interrompe</td></tr>
+          <tr><td>Altro link con il drawer aperto</td><td>Non si può toccare: la chat è coperta</td><td>Cambia pagina nello stesso drawer, Indietro riporta alla precedente</td></tr>
+          <tr><td>Desktop senza capacità <code>preview</code></td><td>Foglio del link</td><td>Uguale</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section cols">
+    <div class="box warn">
+      <h3>Il drawer non basta: limiti del tunnel ancora aperti</h3>
+      <ul>
+        <li>Il routing via <code>Referer</code> rompe le risorse annidate (dipendenze Vite, <code>url()</code> nei CSS) e i router SPA. Un dev server vero può apparire vuoto: serve un'origine per ogni porta.</li>
+        <li>Tutte le porte e le cartelle condividono un'origine: la pagina di una porta può leggere <code>/f/&lt;pty&gt;/.env</code>.</li>
+        <li>WebSocket e HMR non passano, quindi la pagina non si aggiorna da sola.</li>
+        <li>L'indirizzo non segue i link interni alla pagina.</li>
+        <li>Niente di tutto questo è mai stato provato su un telefono vero.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Cosa tocca nel codice</h3>
+      <ul>
+        <li>Instradamento unico dei link in <code>browserUrl.ts</code>, usato da <code>onLink</code> di <code>ChatScreen</code> e <code>TerminalScreen</code>.</li>
+        <li><code>useChatBrowser</code> espone l'apertura di una pagina; <code>WideShell</code> la passa alla chat incorporata.</li>
+        <li><code>withLinks</code> in <code>ChatMarkdown</code> rende toccabili i link a file.</li>
+        <li><code>AdaptiveSheet</code> non basta: è modale e sa solo chiudersi. Nuovo <code>BrowserDrawer</code> con altezze, riusando le soglie di <code>useSheetDrag</code>.</li>
+        <li>L'errore di porta chiusa diventa una pagina HTML in <code>preview.rs</code>, oggi è testo semplice.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Da decidere</h3>
+      <ul>
+        <li>Quale variante.</li>
+        <li>Tablet: il drawer dal basso spreca la larghezza. Proposta: lì diventa un pannello a destra.</li>
+        <li>Prima il drawer, oppure prima un'origine per porta? Consiglio di farli insieme: un bel drawer con pagine vuote si noterebbe subito.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const phone = $('phone'), stage = $('stage'), sheet = $('sheet'), body = $('body'), bar = $('bar'), addr = $('addrInput'), ta = $('ta');
+
+const ICONS = {
+  port: '<svg width="17" height="17" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+  file: '<svg width="17" height="17" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  globe: '<svg width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+  copy: '<svg width="17" height="17" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>',
+};
+const X_PATH = '<path d="M18 6 6 18M6 6l12 12"/>';
+const DOWN_PATH = '<path d="m6 9 6 6 6-6"/>';
+
+const NOTES = {
+  today: {
+    title: 'Oggi', tag: '',
+    lead: 'Il browser è a tutto schermo e si raggiunge dal menu. I link in chat non lo aprono: passano dal foglio e finiscono nel browser del telefono.',
+    how: ['Prova il primo link: il telefono cerca un server su se stesso e non lo trova.', 'Il link al file non si tocca.', 'L\'agente apre la pagina a tutto schermo anche mentre scrivi: spunta “Sto scrivendo” e prova.', 'Chiudendo si perde la pagina: al ritorno riparte da zero.'],
+    cost: [],
+  },
+  a: {
+    title: 'Metà e intera', tag: '',
+    lead: 'Il drawer più semplice. La barra resta in alto, come oggi, e a metà altezza la chat resta visibile e toccabile.',
+    how: ['Due altezze: metà e intera. Trascinando giù si chiude.', 'Il messaggio si scrive solo dopo aver chiuso: il drawer copre il composer.', 'Se stai scrivendo, un avviso sopra il composer offre “Apri”.'],
+    cost: ['Lavoro più piccolo: un componente nuovo, gli stessi controlli.', 'Chiudere scarica la pagina, come oggi.'],
+  },
+  b: {
+    title: 'Barra sotto il pollice', tag: '',
+    lead: 'Come la variante 01, con indirizzo e comandi in fondo al drawer, dove il pollice arriva senza spostare la mano.',
+    how: ['In cima restano maniglia, titolo e chiusura.', 'A tutta altezza i comandi non si allontanano: stanno sempre in basso.', 'Con la tastiera aperta la barra sale sopra i tasti.'],
+    cost: ['Nella metà bassa dello schermo la barra sta vicino alla navigazione di sistema: da provare su Android con i gesti.', 'Il composer resta coperto, come nella 01.'],
+  },
+  c: {
+    title: 'Accanto alla chat', tag: 'Consigliata',
+    lead: 'Il drawer esce da dietro il composer: guardi la pagina e intanto scrivi all\'agente. Ridotto diventa una barra e la pagina resta caricata.',
+    how: ['Tre altezze: barra, metà, intera. La freccia giù riduce, non chiude.', 'Il Back scende di un\'altezza, fino alla barra.', 'Se l\'agente apre una pagina mentre scrivi, compare la barra e nessuno ti interrompe.', 'La pagina non si ricarica quando riapri: l\'iframe resta montato.'],
+    cost: ['La più lunga da fare: il composer deve convivere con il drawer, anche con la tastiera aperta.', 'Con tastiera e metà altezza restano circa 175 px di pagina: basta per controllare, non per navigare.'],
+  },
+};
+
+const PAGES = {
+  'localhost:5173': { kind: 'port', title: 'Bottega · Accedi', html: `<div class="site"><nav>Bottega<span>Accedi</span></nav><main><h4>Bentornata</h4><p>Entra per vedere gli ordini di oggi.</p><span class="field">nome@bottega.it</span><span class="field">Password</span><div class="cta">Accedi</div><p style="margin-top:14px">Hai dimenticato la password?</p></main></div>` },
+  'localhost:5173/login': { alias: 'localhost:5173' },
+  'localhost:5173/dashboard': { kind: 'port', title: 'Bottega · Ordini', html: `<div class="site"><nav>Bottega<span>Ordini</span></nav><main><h4>Oggi</h4><p>Aggiornato adesso.</p>${[['Ordini aperti', 18], ['Da spedire', 7], ['Consegnati', 41], ['Resi', 2], ['Clienti nuovi', 5], ['Prodotti esauriti', 3], ['Messaggi', 11], ['Recensioni', 9]].map(([a, b]) => `<div class="stat"><span>${a}</span><b>${b}</b></div>`).join('')}</main></div>` },
+  'docs/report.html': { kind: 'file', title: 'report.html', html: `<div class="site"><main><h4>Riepilogo test</h4><p>Login, 12 casi eseguiti.</p>${[['Accesso corretto', 'ok'], ['Password sbagliata', 'ok'], ['Campo vuoto', 'ok'], ['Sessione scaduta', 'ok'], ['Blocco dopo 5 tentativi', 'ok'], ['Reset password', 'ok']].map(([a, b]) => `<div class="stat"><span>${a}</span><span class="ok">${b}</span></div>`).join('')}</main></div>` },
+};
+const CHAT_PAGES = ['localhost:5173/login', 'docs/report.html', 'localhost:3000'];
+
+const fresh = () => ({ detent: 'closed', restore: null, pages: [], index: -1, loading: false, editing: false, bad: false, reloads: 0, freshPage: false, notice: null, link: null, menu: false, confirm: true, rails: [] });
+const S = { v: 'c', kbd: false, ...fresh() };
+const current = () => S.pages[S.index];
+
+function resolve(label) {
+  const p = PAGES[label];
+  return p?.alias ? PAGES[p.alias] : p;
+}
+const kindOf = (label) => (/^localhost:/.test(label) ? 'port' : 'file');
+const isLocal = (url) => /^http:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d+/.test(url);
+const labelOf = (url) => url.replace(/^https?:\/\//, '').replace(/^(127\.0\.0\.1|0\.0\.0\.0|\[::1\])/, 'localhost').replace(/\/$/, '');
+
+/** Quello che in codice fa parseTyped: una porta, localhost:porta, o un file della chat. */
+function parseAddress(text) {
+  let s = text.trim();
+  if (/^https?:\/\//i.test(s)) {
+    if (!isLocal(s)) return null;
+    return labelOf(s);
+  }
+  if (/^\d{1,5}$/.test(s)) return 'localhost:' + s;
+  if (/^localhost:\d+/.test(s)) return s.replace(/\/$/, '');
+  if (/^[\w./-]+\.\w+$/.test(s) && !s.includes('..')) return s;
+  return null;
+}
+
+/* ---- conversazione ---- */
+function renderConv() {
+  const file = S.v === 'today' ? '<span>report.html</span>' : '<button type="button" class="lnk" data-link="docs/report.html">report.html</button>';
+  $('conv').innerHTML = `
+    <div class="msg-user">Mi fai vedere la pagina di login sistemata?</div>
+    <div class="rail"><i></i>Ha modificato 3 file</div>
+    <p class="msg">Fatto: form al centro ed errori sotto i campi. Il sito gira su <button type="button" class="lnk" data-link="http://localhost:5173/login">http://localhost:5173/login</button>.</p>
+    <p class="msg">I test sono nel ${file}, la guida seguita è <button type="button" class="lnk" data-link="https://vite.dev/guide/">vite.dev/guide</button>.</p>
+    <p class="msg">L'API su <button type="button" class="lnk" data-link="http://localhost:3000">http://localhost:3000</button> non l'ho avviata.</p>
+    ${S.rails.map((r) => `<div class="rail"><i></i>${r}</div>`).join('')}`;
+}
+
+/* ---- altezze ---- */
+function heights() {
+  const H = stage.clientHeight, comp = $('composer').offsetHeight;
+  if (S.v === 'today') return { closed: 0, mini: 0, half: H, full: H };
+  if (S.v === 'c') return { closed: 0, mini: 0, half: Math.min(Math.round(H * .5), H - comp - 56) + comp, full: H };
+  return { closed: 0, mini: 0, half: Math.round(H * .62), full: H };
+}
+const stops = () => (S.v === 'c' ? ['mini', 'half', 'full'] : ['closed', 'half', 'full']);
+
+/* ---- azioni ---- */
+function showPage(label, detent) {
+  S.pages = [...S.pages.slice(0, S.index + 1), label];
+  S.index = S.pages.length - 1;
+  S.notice = null;
+  if (detent) S.detent = detent;
+  load();
+}
+function load() {
+  S.loading = true;
+  S.reloads++;
+  const mine = S.reloads;
+  render();
+  setTimeout(() => { if (mine === S.reloads) { S.loading = false; render(); } }, 650);
+}
+function atLeastHalf() { return S.detent === 'full' ? 'full' : 'half'; }
+
+function tapLink(url) {
+  closeKeyboard();
+  const local = isLocal(url) || !/^https?:/.test(url);
+  if (S.v === 'today' || !local) {
+    if (!S.confirm) { toast(externalToast(url)); return; }
+    S.link = url;
+    render();
+    return;
+  }
+  showPage(labelOf(url), atLeastHalf());
+}
+const externalToast = (url) => isLocal(url) ? 'Il browser del telefono cerca localhost sul telefono: pagina non trovata' : 'Si apre nel browser del telefono';
+
+function agentOpens() {
+  const label = 'localhost:5173/dashboard';
+  S.rails.push('Ha aperto localhost:5173/dashboard');
+  renderConv();
+  $('conv').scrollTop = 1e6;
+  if (S.v === 'today') { showPage(label, 'full'); return; }
+  const open = S.detent === 'half' || S.detent === 'full';
+  if (open) { showPage(label); return; }
+  if (S.v === 'c' && (S.kbd || S.detent === 'mini')) {
+    S.freshPage = true;
+    showPage(label, 'mini');
+    return;
+  }
+  if (S.kbd) {
+    S.pages = [...S.pages.slice(0, S.index + 1), label];
+    S.index = S.pages.length - 1;
+    S.notice = label;
+    render();
+    return;
+  }
+  showPage(label, 'half');
+}
+
+function stepDown() {
+  if (S.link) { S.link = null; render(); return; }
+  if (S.editing) { addr.blur(); return; }
+  if (S.v === 'today') { if (S.detent !== 'closed') closeBrowser(); else toast('Torna alla lista delle chat'); return; }
+  const order = stops();
+  const i = order.indexOf(S.detent);
+  if (i > 0) { S.detent = order[i - 1]; afterDetent(); render(); return; }
+  toast('Torna alla lista delle chat');
+}
+function closeBrowser() {
+  S.detent = 'closed';
+  afterDetent();
+  // Oggi si perde anche la cronologia; nelle 01 e 02 resta, ma la pagina riparte da capo.
+  if (S.v === 'today') { S.pages = []; S.index = -1; }
+  render();
+}
+function afterDetent() { if (S.detent === 'half' || S.detent === 'full') S.freshPage = false; }
+
+function closeKeyboard() {
+  if (document.activeElement === ta || document.activeElement === addr) document.activeElement.blur();
+  S.kbd = false;
+  $('writing').checked = false;
+}
+
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { el.hidden = true; }, 2600);
+}
+
+/* ---- disegno ---- */
+function bodyHtml() {
+  const label = current();
+  const dark = S.editing || !label;
+  body.classList.toggle('dark', dark || (!resolve(label) && S.v !== 'today'));
+  if (S.editing) return suggestions();
+  if (!label) {
+    if (S.v === 'today') return '<div class="todayempty">Scrivi una porta del desktop (es. 5173) o un file della cartella della chat o del terminale (es. index.html). Gli artefatti aperti dall\'agente appaiono qui automaticamente.</div>';
+    return suggestions();
+  }
+  if (S.loading) return S.v === 'today' ? '' : '<div class="site"></div>';
+  const page = resolve(label);
+  if (page) return page.html;
+  if (S.v === 'today') return '<div class="plain">no answer from the desktop</div>';
+  const port = label.split(':')[1];
+  if (kindOf(label) === 'port') return `<div class="fail"><h3>Nessun server sulla porta ${port}</h3><p>Il desktop è collegato, ma lì non risponde niente. Avvia il server e riprova.</p><button type="button" data-retry>Riprova</button></div>`;
+  return `<div class="fail"><h3>File non trovato</h3><p>${label} non è nella cartella della chat.</p></div>`;
+}
+function suggestions() {
+  const rows = CHAT_PAGES.map((l) => `<button type="button" class="row" data-go="${l}"><span class="kindicon">${ICONS[kindOf(l)]}</span><span class="txt"><b>${l}</b><small>${kindOf(l) === 'port' ? 'Server sul desktop' : 'File della chat'}</small></span></button>`).join('');
+  const copy = current() ? `<button type="button" class="row" data-copy><span class="kindicon">${ICONS.copy}</span><span class="txt"><b style="font-family:var(--font)">Copia indirizzo</b></span></button>` : '';
+  const err = S.bad ? '<p class="err">Qui si aprono solo le porte del desktop e i file della chat.</p>' : '';
+  return `<div class="sugg">${err}<h3>In questa chat</h3>${rows}${copy}${S.editing ? '' : '<p class="hint">Oppure scrivi una porta del desktop in alto, per esempio 5173.</p>'}</div>`;
+}
+
+function placeControls() {
+  const top = S.v !== 'b';
+  sheet.insertBefore(bar, top ? body : null);
+  sheet.insertBefore($('load'), top ? body : bar);
+  $('title').hidden = S.v !== 'b';
+  $('grab').hidden = S.v === 'today';
+  // Il pulsante di chiusura: primo oggi, in fondo a destra nelle 01 e 03, nel titolo nella 02.
+  if (S.v === 'today') bar.insertBefore($('close'), bar.firstChild);
+  else if (S.v === 'b') $('title').appendChild($('close'));
+  else bar.appendChild($('close'));
+  if (S.v === 'today') bar.appendChild($('addr')); else bar.insertBefore($('addr'), $('reload'));
+  $('closeIcon').innerHTML = S.v === 'c' ? DOWN_PATH : X_PATH;
+  $('close').setAttribute('aria-label', S.v === 'c' ? 'Riduci' : 'Chiudi');
+}
+
+let bodyKey = '';
+function render() {
+  phone.classList.toggle('kbd', S.kbd);
+  stage.className = `stage v-${S.v}` + (S.detent === 'full' ? ' at-full' : '');
+  const h = heights();
+  const open = S.detent === 'half' || S.detent === 'full';
+  sheet.style.height = (h[S.detent] ?? 0) + 'px';
+  sheet.inert = !open;
+  sheet.style.visibility = open || drag ? 'visible' : '';
+  // Nella 03 a metà altezza il fondo del drawer sta dietro il composer.
+  body.style.marginBottom = S.v === 'c' && S.detent === 'half' ? $('composer').offsetHeight + 'px' : '0';
+
+  const label = current();
+  $('back').disabled = S.index <= 0;
+  $('fwd').hidden = S.v !== 'today' && S.index >= S.pages.length - 1;
+  $('fwd').disabled = S.index >= S.pages.length - 1;
+  $('reload').disabled = !label;
+  $('addrIcon').innerHTML = label ? ICONS[kindOf(label)] : ICONS.globe;
+  if (document.activeElement !== addr) addr.value = label ?? '';
+  addr.classList.toggle('bad', S.bad);
+  addr.setAttribute('aria-invalid', S.bad);
+  $('load').className = 'load' + (S.loading ? ' on' : '');
+  $('titleText').textContent = label ? (resolve(label)?.title ?? label) : 'Browser';
+
+  const key = [S.v, label, S.loading, S.editing, S.bad, S.reloads].join('|');
+  if (key !== bodyKey) { bodyKey = key; body.innerHTML = bodyHtml(); body.scrollTop = 0; }
+
+  $('notice').hidden = !S.notice;
+  $('noticeText').textContent = S.notice ? `Pagina pronta: ${S.notice}` : '';
+  const showMini = S.v === 'c' && S.detent === 'mini' && !!label;
+  $('mini').hidden = !showMini;
+  $('mini').classList.toggle('fresh', S.freshPage);
+  if (showMini) {
+    $('miniIcon').innerHTML = ICONS[kindOf(label)];
+    $('miniLabel').textContent = label;
+    $('miniSub').textContent = S.freshPage ? 'Aperta dall\'agente' : 'Pagina ancora caricata';
+  }
+
+  $('menu').hidden = !S.menu;
+  $('menuBtn').setAttribute('aria-expanded', S.menu);
+  $('ls').hidden = !S.link;
+  $('lsScrim').hidden = !S.link;
+  $('lsUrl').textContent = S.link ?? '';
+  $('writing').checked = S.kbd;
+}
+
+function renderNote() {
+  const n = NOTES[S.v];
+  $('note').innerHTML = `<h2>${n.title}${n.tag ? `<span class="tag">${n.tag}</span>` : ''}</h2><p>${n.lead}</p><h3>COME FUNZIONA</h3><ul>${n.how.map((x) => `<li>${x}</li>`).join('')}</ul>${n.cost.length ? `<h3>A COSA RINUNCI</h3><ul>${n.cost.map((x) => `<li>${x}</li>`).join('')}</ul>` : ''}`;
+  document.querySelectorAll('#variants button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === S.v));
+}
+function setVariant(v) {
+  closeKeyboard();
+  Object.assign(S, fresh(), { v });
+  bodyKey = '';
+  placeControls();
+  renderConv();
+  renderNote();
+  render();
+}
+
+/* ---- trascinamento ---- */
+let drag = null;
+function startDrag(e, from) {
+  if (S.v === 'today' || e.target.closest('input, .btn:not(.grab), .mini-x')) return;
+  drag = { y: e.clientY, h: heights()[S.detent] ?? 0, last: e.clientY, t: e.timeStamp, vel: 0, moved: false, id: e.pointerId, el: from };
+}
+window.addEventListener('pointermove', (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dy = e.clientY - drag.y;
+  if (!drag.moved && Math.abs(dy) < 6) return;
+  // La cattura parte solo dopo un movimento vero: prima ruberebbe il click ai pulsanti.
+  if (!drag.moved) drag.el.setPointerCapture(e.pointerId);
+  drag.moved = true;
+  sheet.classList.add('dragging');
+  sheet.style.visibility = 'visible';
+  const dt = Math.max(1, e.timeStamp - drag.t);
+  drag.vel = (e.clientY - drag.last) / dt;
+  drag.last = e.clientY;
+  drag.t = e.timeStamp;
+  sheet.style.height = Math.max(0, Math.min(heights().full, drag.h - dy)) + 'px';
+});
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const d = drag;
+  drag = null;
+  sheet.classList.remove('dragging');
+  if (!d.moved) {
+    // Un tocco senza movimento: sulla maniglia alterna metà e intera; la mini-barra ha il suo click.
+    if (d.el !== $('drag')) return;
+    S.detent = S.detent === 'half' ? 'full' : 'half';
+    render();
+    return;
+  }
+  d.el.dataset.dragged = '1';
+  setTimeout(() => delete d.el.dataset.dragged, 0);
+  const h = heights();
+  const target = parseFloat(sheet.style.height) - d.vel * 180;
+  S.detent = stops().reduce((best, s) => (Math.abs(h[s] - target) < Math.abs(h[best] - target) ? s : best));
+  afterDetent();
+  if (S.detent === 'mini' && !current()) S.detent = 'closed';
+  render();
+}
+window.addEventListener('pointerup', endDrag);
+window.addEventListener('pointercancel', endDrag);
+$('drag').addEventListener('pointerdown', (e) => startDrag(e, $('drag')));
+bar.addEventListener('pointerdown', (e) => { if (S.v !== 'b') startDrag(e, bar); });
+$('mini').addEventListener('pointerdown', (e) => startDrag(e, $('mini')));
+
+/* ---- tocchi ---- */
+$('variants').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setVariant(b.dataset.v); });
+$('conv').addEventListener('click', (e) => { const b = e.target.closest('[data-link]'); if (b) tapLink(b.dataset.link); });
+$('menuBtn').addEventListener('click', () => { S.menu = !S.menu; render(); });
+$('menuBrowser').addEventListener('click', () => {
+  S.menu = false;
+  closeKeyboard();
+  S.detent = S.v === 'today' ? 'full' : atLeastHalf();
+  afterDetent();
+  render();
+});
+$('back').addEventListener('click', () => { S.index--; load(); });
+$('fwd').addEventListener('click', () => { S.index++; load(); });
+$('reload').addEventListener('click', load);
+$('close').addEventListener('click', () => {
+  if (S.v === 'c') { S.detent = current() ? 'mini' : 'closed'; render(); } else closeBrowser();
+});
+$('noticeOpen').addEventListener('click', () => { S.notice = null; closeKeyboard(); S.detent = 'half'; load(); });
+$('miniOpen').addEventListener('click', () => { if ($('mini').dataset.dragged) return; closeKeyboard(); S.detent = 'half'; afterDetent(); render(); });
+$('miniClose').addEventListener('click', () => { S.pages = []; S.index = -1; S.detent = 'closed'; S.freshPage = false; render(); });
+$('grab').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); S.detent = S.detent === 'half' ? 'full' : 'half'; render(); } });
+body.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  if (go) { const label = go.dataset.go; addr.blur(); showPage(label, S.detent === 'closed' ? 'half' : undefined); return; }
+  if (e.target.closest('[data-copy]')) { addr.blur(); toast('Indirizzo copiato'); return; }
+  if (e.target.closest('[data-retry]')) load();
+});
+$('ls').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ls]');
+  if (!b) return;
+  const url = S.link;
+  if (b.dataset.ls === 'always') S.confirm = false;
+  S.link = null;
+  render();
+  toast(b.dataset.ls === 'copy' ? 'Link copiato' : externalToast(url));
+});
+$('lsScrim').addEventListener('click', () => { S.link = null; render(); });
+
+$('agentOpen').addEventListener('click', agentOpens);
+$('androidBack').addEventListener('click', stepDown);
+$('reset').addEventListener('click', () => setVariant(S.v));
+$('writing').addEventListener('change', (e) => {
+  if (e.target.checked) { S.kbd = true; render(); ta.focus(); } else { closeKeyboard(); render(); }
+});
+
+/* ---- indirizzo e tastiera ---- */
+addr.addEventListener('focus', () => {
+  S.editing = true;
+  S.kbd = true;
+  S.restore = S.detent;
+  S.detent = 'full';
+  render();
+  addr.select();
+});
+addr.addEventListener('blur', () => {
+  S.editing = false;
+  S.bad = false;
+  S.kbd = false;
+  if (S.restore) S.detent = S.restore;
+  S.restore = null;
+  render();
+});
+addr.addEventListener('input', () => { if (S.bad) { S.bad = false; render(); } });
+function submitAddress() {
+  const label = parseAddress(addr.value);
+  if (!label) { S.bad = true; render(); return; }
+  addr.blur();
+  showPage(label);
+}
+addr.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAddress(); });
+ta.addEventListener('focus', () => { if (!S.kbd) { S.kbd = true; render(); } });
+
+const KEYS = [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'], ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'], ['z', 'x', 'c', 'v', 'b', 'n', 'm', '⌫'], [':', '/', ' ', '.', '↵']];
+$('kb').innerHTML = KEYS.map((r) => `<div>${r.map((k) => `<button type="button" tabindex="-1" data-k="${k}" class="${k === ' ' ? 'space' : /[⌫↵]/.test(k) ? 'fn' : ''}">${k === ' ' ? '' : k}</button>`).join('')}</div>`).join('');
+$('kb').addEventListener('click', (e) => {
+  const k = e.target.closest('[data-k]')?.dataset.k;
+  const el = document.activeElement;
+  if (!k || (el !== addr && el !== ta)) return;
+  if (k === '↵') { if (el === addr) submitAddress(); return; }
+  if (k === '⌫') {
+    const a = el.selectionStart, b = el.selectionEnd;
+    if (a === b && a > 0) el.setRangeText('', a - 1, a, 'end');
+    else if (a !== b) el.setRangeText('', a, b, 'end');
+  } else el.setRangeText(k, el.selectionStart, el.selectionEnd, 'end');
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
+// Come keepFocus in ChatComposer: toccare un pulsante non chiude la tastiera. Toccare altrove sì.
+phone.addEventListener('mousedown', (e) => {
+  if (e.target.closest('button')) { e.preventDefault(); return; }
+  if (S.menu && !e.target.closest('.menu')) { S.menu = false; render(); }
+  if (S.kbd && !e.target.closest('input, textarea, .kb')) {
+    if (document.activeElement === addr) addr.blur();
+    else { closeKeyboard(); render(); }
+  }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') stepDown(); });
+window.addEventListener('resize', render);
+
+setVariant('c');
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { agentPreviewPage, relativeArtifactPath } from "./agentPreview";
-import { pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
+import { agentPreviewPage, chatLinkPages, fileLinkPage, relativeArtifactPath } from "./agentPreview";
+import { pageLabel, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
 
 describe("chat file previews", () => {
   it("opens relative files without a terminal and keeps chat precedence", () => {
@@ -37,5 +37,22 @@ describe("chat file previews", () => {
     expect(agentPreviewPage(open("https://example.com"), "c1", "/repo", true)).toBeNull();
     expect(agentPreviewPage(open("report.html"), "c1", "/repo", false)).toBeNull();
     expect(agentPreviewPage(open("report.html"), "c1", "/repo", true)).toEqual({ kind: "chatFile", chatId: "c1", path: "report.html" });
+  });
+});
+
+describe("chat links", () => {
+  it("opens previewable files inside the chat folder only", () => {
+    expect(fileLinkPage("docs/report.html", "c1", "/repo")).toEqual({ kind: "chatFile", chatId: "c1", path: "docs/report.html" });
+    expect(fileLinkPage("/repo/docs/report.html", "c1", "/repo")).toEqual({ kind: "chatFile", chatId: "c1", path: "docs/report.html" });
+    expect(fileLinkPage("src/main.rs", "c1", "/repo")).toBeNull();
+    expect(fileLinkPage("/other/report.html", "c1", "/repo")).toBeNull();
+  });
+  it("lists linked pages newest first, once each, up to the limit", () => {
+    const texts = ["see [a](a.html) and http://localhost:3000/x", "again [a](a.html)\nhttp://localhost:4000 https://vite.dev/guide"];
+    expect(chatLinkPages(texts, "c1", "/repo").map(pageLabel)).toEqual(["a.html", "localhost:4000", "localhost:3000/x"]);
+    expect(chatLinkPages(texts, "c1", "/repo", 2)).toHaveLength(2);
+  });
+  it("skips files without a chat", () => {
+    expect(chatLinkPages(["[a](a.html) http://localhost:3000"], null, "/repo").map(pageLabel)).toEqual(["localhost:3000"]);
   });
 });

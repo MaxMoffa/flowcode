@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createAgentOpenTracker } from "../../shared/agentOpen";
 import { agentPreviewPage } from "./agentPreview";
 import { onNewChatEvents, rawChatEvents, useChatInfo } from "./chats";
@@ -11,9 +11,13 @@ export function useChatBrowser(chatId: string | null) {
   const supported = useSupports("preview");
   const filesSupported = useSupports("chatPreview");
   const [opened, setOpened] = useState(false);
+  const [pending, setPending] = useState(false);
   const [page, setPage] = useState<Page | null>(null);
+  const openedRef = useRef(false);
+  openedRef.current = opened;
   useEffect(() => {
     setOpened(false);
+    setPending(false);
     setPage(null);
     if (!chatId || !info || !supported) return;
     const track = createAgentOpenTracker(info.cwd);
@@ -23,9 +27,25 @@ export function useChatBrowser(chatId: string | null) {
       const next = open && agentPreviewPage(open, chatId, info.cwd, filesSupported);
       if (next) {
         setPage(next);
-        setOpened(true);
+        // A page that arrives while the user types waits behind a notice instead of taking over.
+        const active = document.activeElement;
+        const typing = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement;
+        if (!openedRef.current && typing) setPending(true);
+        else setOpened(true);
       }
     });
   }, [chatId, info?.cwd, info?.sessionId, supported, filesSupported]);
-  return { opened, setOpened, page, supported, chatId: filesSupported ? chatId : null };
+  const open = useCallback(() => {
+    setPending(false);
+    setOpened(true);
+  }, []);
+  const close = useCallback(() => setOpened(false), []);
+  const dismissPending = useCallback(() => setPending(false), []);
+  const show = useCallback((next: Page) => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    setPage(next);
+    setPending(false);
+    setOpened(true);
+  }, []);
+  return { opened, open, close, show, pending, dismissPending, page, supported, chatId: filesSupported ? chatId : null };
 }

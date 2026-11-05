@@ -1,4 +1,6 @@
-import { parseTyped, type Page } from "./browserUrl";
+import { isPreviewableFile } from "../../shared/agentOpen";
+import { splitLinks } from "../../src/chat/chatLinks";
+import { localLinkPage, pageLabel, parseTyped, type Page } from "./browserUrl";
 
 function normalized(path: string): string {
   const parts: string[] = [];
@@ -34,14 +36,35 @@ export function relativeArtifactPath(target: string, commandCwd: string, rootCwd
 
 /** An automatic opener shows loopback servers or files scoped to this chat. */
 export function agentPreviewPage(open: { target: string; cwd: string }, chatId: string, rootCwd: string, filesSupported: boolean): Page | null {
-  if (/^https?:\/\//i.test(open.target)) {
-    try {
-      const url = new URL(open.target);
-      if (url.hostname === "0.0.0.0" || url.hostname === "[::]") url.hostname = "localhost";
-      return parseTyped(url.toString(), null);
-    } catch { return null; }
-  }
+  if (/^https?:\/\//i.test(open.target)) return localLinkPage(open.target);
   if (!filesSupported) return null;
   const path = relativeArtifactPath(open.target, open.cwd, rootCwd);
   return path ? parseTyped(path, null, chatId) : null;
+}
+
+/** A file linked in the chat, when it can be shown and lives in the chat's folder. */
+export function fileLinkPage(path: string, chatId: string, rootCwd: string): Page | null {
+  if (!isPreviewableFile(path)) return null;
+  const relative = relativeArtifactPath(path, rootCwd, rootCwd);
+  return relative ? parseTyped(relative, null, chatId) : null;
+}
+
+/** The pages linked in a chat's agent messages, newest first and without repeats. */
+export function chatLinkPages(texts: string[], chatId: string | null, rootCwd: string, limit = 6): Page[] {
+  const pages: Page[] = [];
+  const seen = new Set<string>();
+  for (let i = texts.length - 1; i >= 0 && pages.length < limit; i--) {
+    for (const line of texts[i].split("\n")) {
+      for (const part of splitLinks(line)) {
+        const page = part.url ? localLinkPage(part.url) : part.path !== undefined && chatId ? fileLinkPage(part.path, chatId, rootCwd) : null;
+        if (!page) continue;
+        const label = pageLabel(page);
+        if (seen.has(label)) continue;
+        seen.add(label);
+        pages.push(page);
+        if (pages.length >= limit) return pages;
+      }
+    }
+  }
+  return pages;
 }

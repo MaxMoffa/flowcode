@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pageLabel, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
+import { localLinkPage, pageLabel, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
 
 const port = (p: number, path = "/"): Page => ({ kind: "port", port: p, path });
 
@@ -45,5 +45,19 @@ describe("pageSrc", () => {
     expect(pageLabel(port(5173, "/a"))).toBe("localhost:5173/a");
     expect(sandboxFor(port(1))).toContain("allow-same-origin");
     expect(sandboxFor({ kind: "file", ptyId: "p", path: "a" })).toBe("allow-scripts");
+  });
+});
+
+describe("localLinkPage", () => {
+  it("turns loopback links into ports", () => {
+    expect(localLinkPage("http://localhost:5173/login")).toEqual(port(5173, "/login"));
+    expect(localLinkPage("http://127.0.0.1:3000")).toEqual(port(3000));
+    expect(localLinkPage("http://0.0.0.0:8080/x")).toEqual(port(8080, "/x"));
+  });
+  it("leaves everything else to the system browser", () => {
+    expect(localLinkPage("https://vite.dev/guide")).toBeNull();
+    expect(localLinkPage("http://localhost/x")).toBeNull();
+    expect(localLinkPage("mailto:a@b.c")).toBeNull();
+    expect(localLinkPage("not a url")).toBeNull();
   });
 });
