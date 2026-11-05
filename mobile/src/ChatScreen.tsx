@@ -23,9 +23,10 @@ import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingAs
 import { useTwoFingerSwipe } from "./chatSwipe";
 import { eventsActivity } from "../../src/chat/cacheWarning";
 import { useCacheWarning } from "../../src/chat/useCacheWarning";
-import { answerChatAsk, answerChatPermission, cancelChat, clearChat, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName } from "./common";
 import { defaultViewFor } from "./defaultView";
+import { lastInWindow } from "./homeSessions";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
 import { AgentLogo, AgentsIcon, BackIcon, ArrowDownIcon, ChevronDownIcon, CloseIcon, PencilIcon, SendIcon, Svg } from "./icons";
@@ -69,6 +70,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const cancelRename = useRef(false);
   const canRename = useSupports("chatRename");
   const canClear = useSupports("chatClear");
+  const canCloseTab = useSupports("chatCloseTab");
   const info = useChatInfo(chatId);
   const tabId = info?.tabId;
   // While this screen is up the chat is on the user's screen, so its notifications skip the toast.
@@ -80,6 +82,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   // Counts, not the lists: a message that changes neither re-renders nothing here.
   const othersWaiting = useRemoteSelector((s) => (s.tabs ?? []).filter((x) => x.cli && x.status === "waiting").length + (s.chats ?? []).filter((c) => c.status === "waiting" && c.chatId !== chatId).length);
   const chatsKnown = useRemoteSelector((s) => s.chats !== null);
+  const isLastInWindow = useRemoteSelector((s) => !!info && lastInWindow(info.window, s.tabs ?? [], s.chats ?? []));
   const language = useRemoteSelector((s) => s.settings?.resolvedLanguage);
   const stored = useChatSession(chatId);
   // A chat that opens within the clear window of its own tab is the fresh conversation a /clear made.
@@ -552,6 +555,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
             : undefined
         }
         onStop={working ? () => cancelChat(chatId) : undefined}
+        // No onBack: App leaves once the chat is gone from the list, and the chat stays if the desktop asks for confirmation.
+        onCloseTab={canCloseTab && !isLastInWindow ? () => window.confirm(t("closeChatConfirm", { label: info.label })) && closeChatTab(chatId) : undefined}
       />
       {!embedded && onSwitch && <TermAgents activePty="" chatId={chatId} open={agentsOpen} onClose={closeAgents} />}
       {browser.opened && canBrowse && !embedded && <Browser ptyId={null} chatId={browser.chatId} initialPage={browser.page} onClose={() => browser.setOpened(false)} />}

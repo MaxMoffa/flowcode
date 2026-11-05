@@ -11,7 +11,7 @@ import { useUiZoom } from "./uiScale";
 import { useWide } from "./wide";
 
 type Cli = ProfileCli;
-const AGENTS: { id: Cli; name: string }[] = [
+export const AGENTS: { id: Cli; name: string }[] = [
   { id: "claude", name: "Claude Code" },
   { id: "codex", name: "Codex" },
   { id: "vibe", name: "Mistral Vibe" },
@@ -28,11 +28,11 @@ interface Recent {
 const MAX_RECENTS = 4;
 /** Whether agents open as a chat instead of a terminal; one choice for every desktop. */
 const AS_CHAT_KEY = "nts.asChat";
-const recentsKey = (host: string | undefined) => "nts.recent." + (host ?? "");
+export const recentsKey = (host: string | undefined) => "nts.recent." + (host ?? "");
 const sameRecent = (a: Recent, b: Recent) => a.cwd === b.cwd && a.cli === b.cli && a.profile === b.profile;
 
 /** The saved recents of one desktop; anything unreadable counts as none. */
-function loadRecents(key: string): Recent[] {
+export function loadRecents(key: string): Recent[] {
   try {
     const raw: unknown = JSON.parse(safeStorage.get(key) ?? "[]");
     if (!Array.isArray(raw)) return [];

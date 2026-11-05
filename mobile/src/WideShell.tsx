@@ -3,7 +3,8 @@ import "./terminal.css";
 import "./wide.css";
 import { AgentsScreen } from "./Agents";
 import { useBackHandler } from "./back";
-import { requestOpenChat } from "./chats";
+import { closeChatTab, requestOpenChat } from "./chats";
+import { lastInWindow } from "./homeSessions";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
 import { ActionIcon, AgentLogo, AgentsIcon, ChatIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
@@ -73,6 +74,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const chats = useRemoteSelector((r) => r.chats);
   const canRename = useSupports("rename");
   const canClose = useSupports("closeTab");
+  const canCloseChat = useSupports("chatCloseTab");
   const canBrowse = useSupports("preview");
   const { opened: browserOpen, setOpened: setBrowserOpen, page: browserPage, chatId: browserChatId } = useChatBrowser(doc === null ? activeChat : null);
   /** The terminal tab being renamed, with its draft label. */
@@ -233,7 +235,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 {x.cli && x.status === "busy" && <TabSweep />}
                 {ico}
                 <span className="w-tab-label">{x.label}</span>
-                {canClose && all.filter((y) => y.window === x.window).length > 1 && (
+                {canClose && !lastInWindow(x.window, all, chats ?? []) && (
                   <span
                     role="button"
                     className="w-tab-x"
@@ -261,6 +263,19 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                   </i>
                 </span>
                 <span className="w-tab-label">{c.label}</span>
+                {canCloseChat && !lastInWindow(c.window, all, chats ?? []) && (
+                  <span
+                    role="button"
+                    className="w-tab-x"
+                    aria-label={t("chatCloseTab")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(t("closeChatConfirm", { label: c.label }))) closeChatTab(c.chatId);
+                    }}
+                  >
+                    ×
+                  </span>
+                )}
               </button>
             );
           })}
@@ -412,8 +427,6 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             </div>
             <div className="w-scroll">
               <AgentsScreen
-                compact
-                hostName={hostName}
                 tabs={tabs}
                 activePty={doc === null ? activePty : null}
                 activeChat={doc === null ? activeChat : null}
@@ -421,7 +434,6 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                   select(id);
                   if (!docked) setAgentsOpen(false);
                 }}
-                onAddComputer={onAddComputer}
               />
             </div>
             <div className={"w-resize left" + (agents.dragging ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label={t("resizePanel")} data-no-sheet-drag {...agents.handleProps} />

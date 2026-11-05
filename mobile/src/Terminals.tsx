@@ -123,17 +123,17 @@ function useOpenNewTab(tabs: Tab[] | null, onOpen: (ptyId: string) => void): () 
   }, []);
 }
 
-/** A requested terminal or chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet and what is being waited on (for `PendingRow`). */
-export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void): { onCreate: (asChat: boolean, label: string) => void; pending: Pending | null } {
+/** A requested terminal or chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet (a chat can carry a `firstPrompt` to send once it is ready) and what is being waited on (for `PendingRow`). */
+export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void): { onCreate: (asChat: boolean, label: string, firstPrompt?: string) => void; pending: Pending | null } {
   const chats = useRemoteSelector((r) => r.chats);
   const onTab = useOpenNewTab(tabs, onOpen);
   const onChat = useOpenNewChat(chats, requestOpenChat);
   const pending = usePending();
   const onCreate = useCallback(
-    (asChat: boolean, label: string) => {
+    (asChat: boolean, label: string, firstPrompt?: string) => {
       // A chat waits as long as `useOpenNewChat` does (its agent starts first).
       beginPending({ kind: "open", asChat, label }, asChat ? CHAT_WAIT_MS : NEW_TAB_WAIT_MS);
-      if (asChat) onChat();
+      if (asChat) onChat(firstPrompt);
       else onTab();
     },
     [onTab, onChat],
@@ -142,7 +142,7 @@ export function useOpenNew(tabs: Tab[] | null, onOpen: (ptyId: string) => void):
 }
 
 /** The row at the top of the list while the desktop opens a requested terminal or chat; a muted notice if it never answers. */
-function PendingRow({ pending }: { pending: Pending | null }) {
+export function PendingRow({ pending }: { pending: Pending | null }) {
   if (!pending) return null;
   return (
     <section className="tr-group">

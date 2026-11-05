@@ -1,20 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import logo from "./assets/flowcode-icon.svg";
-import { pendingPermissionTitle, requestOpenChat, useChatSession } from "./chats";
-import { ComputerSwitcher } from "./ComputerSwitcher";
-import { agentName, contextPercent, shortCwd } from "./common";
-import { tapFeedback } from "./haptics";
+import { contextPercent, shortCwd } from "./common";
 import { t } from "./i18n";
+import { requestOpenChat } from "./chats";
 import { AgentLogo, ChatIcon } from "./icons";
-import { send, useRemoteSelector, type ChatInfo, type Tab, type UsageItem, type UsageMetric } from "./remote";
+import { money } from "./homeUsage";
+import { useRemoteSelector, type ChatInfo, type Tab, type UsageItem, type UsageMetric } from "./remote";
 
 /** Every limit gauge (5-hour session, weekly...) gets its own row. */
 function gaugeMetrics(item: UsageItem): UsageMetric[] {
   return item.metrics.filter((m) => typeof m.percent === "number");
-}
-
-function money(v: number): string {
-  return `$${v.toFixed(v >= 100 ? 0 : 2)}`;
 }
 
 function UsageCard({ item }: { item: UsageItem }) {
@@ -51,7 +45,7 @@ function UsageCard({ item }: { item: UsageItem }) {
   );
 }
 
-interface ProfileGroup {
+export interface ProfileGroup {
   key: string;
   title: string;
   color?: string;
@@ -63,8 +57,11 @@ const AGENT_ORDER = ["claude-code", "codex-cli", "mistral-vibe", "gemini-cli"];
 /** Usage plugin of each agent CLI (`Tab.cli`). */
 const PLUGIN_OF: Record<string, string> = { claude: "claude-code", codex: "codex-cli", vibe: "mistral-vibe", gemini: "gemini-cli" };
 
+/** The agent CLI (`Tab.cli`) of each usage plugin. */
+export const CLI_OF: Record<string, string> = Object.fromEntries(Object.entries(PLUGIN_OF).map(([cli, plugin]) => [plugin, cli]));
+
 /** `focus`: the agent of the terminal being viewed - its profile's group leads, and its card leads every group. */
-function groupByProfile(usage: UsageItem[], focus?: { plugin: string; profile: string }): ProfileGroup[] {
+export function groupByProfile(usage: UsageItem[], focus?: { plugin: string; profile: string }): ProfileGroup[] {
   const groups = new Map<string, ProfileGroup>();
   for (const u of usage) {
     const key = u.profile ?? "";
@@ -171,99 +168,7 @@ function Meta({ tab }: { tab: Tab }) {
   );
 }
 
-function WaitingRow({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void }) {
-  return (
-    <button type="button" className="card tile is-waiting" onClick={() => onOpen(tab.ptyId)}>
-      <span className="tile-head">
-        <i className="dot wait" />
-        <b>{tab.label}</b>
-      </span>
-      <Meta tab={tab} />
-    </button>
-  );
-}
-
-function Hero({ tab, count, onOpen }: { tab: Tab; count: number; onOpen: (ptyId: string) => void }) {
-  return (
-    <section className="card hero">
-      <span className="hero-eyebrow">{count === 1 ? t("waitingOne") : t("waitingMany", { n: count })}</span>
-      <div className="hero-title">{tab.label}</div>
-      <Meta tab={tab} />
-      <div className="hero-actions">
-        <button
-          type="button"
-          className="btn big accent hero-btn"
-          onClick={() => {
-            tapFeedback();
-            send({ t: "input", ptyId: tab.ptyId, data: "1" });
-          }}
-        >
-          {t("yes")}
-        </button>
-        <button
-          type="button"
-          className="btn big hero-btn"
-          onClick={() => {
-            tapFeedback();
-            send({ t: "input", ptyId: tab.ptyId, data: "\x1b" });
-          }}
-        >
-          {t("no")}
-        </button>
-      </div>
-      <button type="button" className="hero-link" onClick={() => onOpen(tab.ptyId)}>
-        {t("openTerminal")}
-      </button>
-    </section>
-  );
-}
-
-function AgentTile({ tab, onOpen }: { tab: Tab; onOpen: (ptyId: string) => void }) {
-  const st = tab.status ?? "idle";
-  const text = st === "busy" ? t("statusBusy") : t("statusIdle");
-  return (
-    <button type="button" className="card tile" onClick={() => onOpen(tab.ptyId)}>
-      <span className="tile-head">
-        <i className={"dot " + st} />
-        <b>{tab.label}</b>
-      </span>
-      <span className={"tile-status " + st}>{text}</span>
-      <Meta tab={tab} />
-    </button>
-  );
-}
-
 const chatState = (chat: ChatInfo) => (chat.status === "waiting" ? "waiting" : chat.status === "busy" ? "busy" : "idle");
-
-/** A chat session that waits for an answer: what it asks, one tap to answer it in the chat. */
-function ChatWaitingRow({ chat }: { chat: ChatInfo }) {
-  const asks = pendingPermissionTitle(useChatSession(chat.chatId), chat);
-  return (
-    <button type="button" className="card tile is-waiting" onClick={() => requestOpenChat(chat.chatId)}>
-      <span className="tile-head">
-        <i className="dot wait" />
-        <ChatIcon size={15} />
-        <b>{chat.label}</b>
-      </span>
-      <span className="mono agent-meta">{asks ? t("chatAsks", { title: asks }) : `${agentName(chat.agent)} · ${shortCwd(chat.cwd)}`}</span>
-    </button>
-  );
-}
-
-function ChatTile({ chat }: { chat: ChatInfo }) {
-  const st = chatState(chat);
-  return (
-    <button type="button" className="card tile" onClick={() => requestOpenChat(chat.chatId)}>
-      <span className="tile-head">
-        <i className={"dot " + st} />
-        <ChatIcon size={15} />
-        <b>{chat.label}</b>
-      </span>
-      <span className={"tile-status " + st}>{st === "busy" ? t("statusBusy") : t("statusIdle")}</span>
-      <span className="mono agent-meta">{agentName(chat.agent)}</span>
-    </button>
-  );
-}
 
 /** The wide layout's agent row for a chat session: the agent's logo with a bubble, folder, status chip. */
 function ChatAgentRow({ chat, active }: { chat: ChatInfo; active: boolean }) {
@@ -303,8 +208,8 @@ function AgentRow({ tab, active, onOpen }: { tab: Tab; active: boolean; onOpen: 
   );
 }
 
-/** `compact` is the wide layout's side card: its own header holds the title and the computer switcher is in the top bar, and agents are rows with the shown one (`activePty`) marked. */
-export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact, activePty, activeChat }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void; onAddComputer: () => void; compact?: boolean; activePty?: string | null; activeChat?: string | null }) {
+/** The wide layout's side card: its own header holds the title and the computer switcher is in the top bar. Agents are rows, with the shown one (`activePty` / `activeChat`) marked. */
+export function AgentsScreen({ tabs, onOpen, activePty, activeChat }: { tabs: Tab[] | null; onOpen: (ptyId: string) => void; activePty?: string | null; activeChat?: string | null }) {
   const usage = useRemoteSelector((r) => r.usage);
   const chats = useRemoteSelector((r) => r.chats);
   const waitingChats = useMemo(() => (chats ?? []).filter((c) => c.status === "waiting"), [chats]);
@@ -318,56 +223,21 @@ export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact, a
   const focusPlugin = active?.cli ? PLUGIN_OF[active.cli] : undefined;
   const focusProfile = active?.profile ?? "";
   const groups = useMemo(() => groupByProfile(usage, focusPlugin ? { plugin: focusPlugin, profile: focusProfile } : undefined), [usage, focusPlugin, focusProfile]);
-  if (compact) {
-    return (
-      <>
-        {waiting.length + others.length + chatCount > 0 && (
-          <section className="ag-section">
-            <div className="gh">{t("thisComputer")}</div>
-            {waitingChats.map((c) => (
-              <ChatAgentRow key={c.chatId} chat={c} active={c.chatId === activeChat} />
-            ))}
-            {[...waiting, ...others].map((x) => (
-              <AgentRow key={x.ptyId} tab={x} active={x.ptyId === activePty} onOpen={onOpen} />
-            ))}
-            {otherChats.map((c) => (
-              <ChatAgentRow key={c.chatId} chat={c} active={c.chatId === activeChat} />
-            ))}
-          </section>
-        )}
-        {groups.map((g) => (
-          <section className="usage-section" key={g.key}>
-            <div className="gh usage-group">
-              {g.color && <i className="dot" style={{ background: g.color }} />}
-              {g.title}
-            </div>
-            <UsageCarousel group={g} />
-          </section>
-        ))}
-        {tabs !== null && waiting.length + others.length + chatCount === 0 && <div className="empty">{t("noAgents")}</div>}
-      </>
-    );
-  }
   return (
     <>
-      <header className="agents-head">
-        <img src={logo} alt="" />
-        <ComputerSwitcher hostName={hostName} onAdd={onAddComputer} />
-        <span className="agents-online">
-          <i className="dot idle on" />
-          {t("onlineShort")}
-        </span>
-      </header>
-      {waiting.length + waitingChats.length > 0 && (
-        <div className="stack">
-          {waiting.length > 0 && <Hero tab={waiting[0]} count={waiting.length + waitingChats.length} onOpen={onOpen} />}
-          {waiting.slice(1).map((x) => (
-            <WaitingRow key={x.ptyId} tab={x} onOpen={onOpen} />
-          ))}
+      {waiting.length + others.length + chatCount > 0 && (
+        <section className="ag-section">
+          <div className="gh">{t("thisComputer")}</div>
           {waitingChats.map((c) => (
-            <ChatWaitingRow key={c.chatId} chat={c} />
+            <ChatAgentRow key={c.chatId} chat={c} active={c.chatId === activeChat} />
           ))}
-        </div>
+          {[...waiting, ...others].map((x) => (
+            <AgentRow key={x.ptyId} tab={x} active={x.ptyId === activePty} onOpen={onOpen} />
+          ))}
+          {otherChats.map((c) => (
+            <ChatAgentRow key={c.chatId} chat={c} active={c.chatId === activeChat} />
+          ))}
+        </section>
       )}
       {groups.map((g) => (
         <section className="usage-section" key={g.key}>
@@ -378,19 +248,6 @@ export function AgentsScreen({ hostName, tabs, onOpen, onAddComputer, compact, a
           <UsageCarousel group={g} />
         </section>
       ))}
-      {others.length + otherChats.length > 0 && (
-        <section className="usage-section">
-          <div className="gh">{t("activeAgents")}</div>
-          <div className="tile-grid">
-            {others.map((x) => (
-              <AgentTile key={x.ptyId} tab={x} onOpen={onOpen} />
-            ))}
-            {otherChats.map((c) => (
-              <ChatTile key={c.chatId} chat={c} />
-            ))}
-          </div>
-        </section>
-      )}
       {tabs !== null && waiting.length + others.length + chatCount === 0 && <div className="empty">{t("noAgents")}</div>}
     </>
   );

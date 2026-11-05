@@ -5,6 +5,7 @@ import "./chat.css";
 import { ChatMenu, TERMINAL_VIEW } from "./ChatMenu";
 import { agentName } from "./common";
 import { t } from "./i18n";
+import { lastInWindow } from "./homeSessions";
 import { AgentLogo, AgentsIcon, BackIcon, ChevronDownIcon, CopyIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
 import { interrupt, send, showToast, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
 import { Browser } from "./Browser";
@@ -59,7 +60,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
   const settings = useRemoteSelector((s) => s.settings);
   // Counts, not the tabs array: a tabs message that changes neither re-renders nothing here.
   const othersWaiting = useRemoteSelector((s) => (s.tabs ?? []).filter((x) => x.cli && x.status === "waiting" && x.ptyId !== ptyId).length);
-  const lastInWindow = useRemoteSelector((s) => (s.tabs ?? []).filter((x) => x.window === tab.window).length <= 1);
+  const isLastInWindow = useRemoteSelector((s) => lastInWindow(tab.window, s.tabs ?? [], s.chats ?? []));
   const local = phoneTheme.use();
   // Only what the colors derive from: the terminal re-reads its theme when this changes, not on every settings echo.
   const themeKey = JSON.stringify([settings?.resolvedTheme, settings?.theme, settings?.palette, settings?.colors, settings?.terminalColors, local.enabled, local.theme, local.palette]);
@@ -235,7 +236,7 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
           setMenuOpen(false);
           interrupt(ptyId);
         }}
-        onCloseTab={canClose && !lastInWindow ? closeThisTab : undefined}
+        onCloseTab={canClose && !isLastInWindow ? closeThisTab : undefined}
       />
     </>
   );

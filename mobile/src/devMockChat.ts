@@ -112,6 +112,7 @@ const history: Record<string, Ev[]> = {
 };
 
 const logs = new Map<string, Ev[]>();
+let newChats = 0;
 const seqs = new Map<string, number>();
 let started = false;
 
@@ -133,7 +134,7 @@ function init() {
 const setStatus = (chatId: string, status: string) => {
   const info = infos.find((i) => i.chatId === chatId);
   if (info) info.status = status;
-  void emit("remote://msgs", [{ t: "chats", chats: infos }]);
+  void emit("remote://msgs", [{ t: "chats", chats: [...infos] }]);
 };
 
 /** Appends events to a chat and streams them as the desktop would to a follower. */
@@ -147,10 +148,10 @@ const later = (ms: number, fn: () => void) => setTimeout(fn, ms);
 /** Sends what the dev server pretends the desktop sends on connect. */
 export async function chatMockConnect() {
   init();
-  await emit("remote://msgs", [{ t: "chats", chats: infos }]);
+  await emit("remote://msgs", [{ t: "chats", chats: [...infos] }]);
 }
 
-export const chatMockCaps = ["chat", "agentViews", "agentInsight", "chatModel", "chatClear"];
+export const chatMockCaps = ["chat", "agentViews", "agentInsight", "chatModel", "chatClear", "chatRename", "chatCloseTab"];
 
 export const mockViews = [
   {
@@ -168,7 +169,7 @@ export const mockViews = [
   },
 ];
 
-export function chatMock(msg: { t?: string; chatId?: string; text?: string; afterSeq?: number; optionId?: string | null; requestId?: string; action?: string; content?: Record<string, unknown>; cli?: string; modeId?: string; ptyId?: string } | undefined) {
+export function chatMock(msg: { t?: string; chatId?: string; text?: string; afterSeq?: number; optionId?: string | null; requestId?: string; action?: string; content?: Record<string, unknown>; cli?: string; cwd?: string; label?: string; modeId?: string; ptyId?: string } | undefined) {
   if (!msg?.t) return;
   init();
   const { chatId = "" } = msg;
@@ -245,10 +246,24 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
       break;
     }
     case "newchat": {
-      const id = `c${infos.length + 1}`;
-      infos.push({ chatId: id, tabId: `t${id}`, window: WINDOW, label: "Nuova chat", agent: msg.cli ?? "claude", cwd: "C:/Users/massi", status: "idle" });
+      const id = `c${++newChats + 10}`;
+      // Starts "starting", like a real agent, so a message queued by the phone waits for it.
+      infos.push({ chatId: id, tabId: `t${id}`, window: WINDOW, label: "Nuova chat", agent: msg.cli ?? "claude", cwd: msg.cwd ?? "C:/Users/massi", status: "starting" });
       logs.set(id, []);
-      later(200, () => void emit("remote://msgs", [{ t: "chats", chats: infos }]));
+      later(200, () => void emit("remote://msgs", [{ t: "chats", chats: [...infos] }]));
+      later(1500, () => setStatus(id, "idle"));
+      break;
+    }
+    case "chatrename": {
+      const info = infos.find((i) => i.chatId === chatId);
+      if (info && msg.label) info.label = msg.label;
+      void emit("remote://msgs", [{ t: "chats", chats: [...infos] }]);
+      break;
+    }
+    case "chatclosetab": {
+      const at = infos.findIndex((i) => i.chatId === chatId);
+      if (at >= 0) infos.splice(at, 1);
+      void emit("remote://msgs", [{ t: "chats", chats: [...infos] }]);
       break;
     }
   }

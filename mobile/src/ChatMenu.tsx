@@ -30,6 +30,8 @@ export function ChatMenu(props: {
   onRename?: () => void;
   onCopyId?: () => void;
   onStop?: () => void;
+  /** Closes the chat's tab (and ends its agent): only chats offer it, and not the last tab of a window. */
+  onCloseTab?: () => void;
   onBrowser?: () => void;
   /** The stop button's label, when "Stop the agent" doesn't fit (a terminal interrupts). */
   stopLabel?: string;
@@ -109,6 +111,12 @@ export function ChatMenu(props: {
             <StopIcon />
             <span>{props.stopLabel ?? t("chatStopAgent")}</span>
           </button>
+          {props.onCloseTab && (
+            <button type="button" className="danger" onClick={close(props.onCloseTab)}>
+              <CloseIcon />
+              <span>{t("chatCloseTab")}</span>
+            </button>
+          )}
         </div>
         {props.swipeHint !== false && <p className="chat-menu-hint">{t("chatSwipeHint")}</p>}
       </div>

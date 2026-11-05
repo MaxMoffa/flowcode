@@ -18,17 +18,36 @@ const mockActions = [{ id: "commit", label: "Commit" }, { id: "usage", label: "U
   { id: "codex-cli", label: "Codex CLI", cli: "codex" },
 ];
 
+/** A reset about two hours ahead, worded the way Claude Code words it ("3pm"). */
+const soon = (() => {
+  const h = new Date(Date.now() + 2 * 3_600_000).getHours();
+  return `${h % 12 || 12}${h < 12 ? "am" : "pm"}`;
+})();
+/** A dated reset three days ahead ("Sep 19, 12am"). */
+const later = (() => {
+  const d = new Date(Date.now() + 3 * 86_400_000);
+  return `${d.toLocaleString("en-US", { month: "short" })} ${d.getDate()}, 12am`;
+})();
 const gauges = (a: number, b: number) => [
-  { kind: "gauge", label: "5 ore", percent: a },
-  { kind: "gauge", label: "Settimana", percent: b },
+  { kind: "session", label: "Sessione 5 ore", percent: a, resets: soon },
+  { kind: "week", label: "Settimana", percent: b, resets: later },
 ];
 
 const L = { profile: "lavoro-1fa968", profileName: "Lavoro", profileColor: "#6f9bcf" };
 const usage = [
-  { pluginId: "mistral-vibe", label: "Mistral Vibe", metrics: [{ kind: "spend", label: "Questo mese", cost: 3.42, period: "month" }] },
+  {
+    pluginId: "mistral-vibe",
+    label: "Mistral Vibe",
+    metrics: [
+      { kind: "spend", label: "Oggi", period: "today", cost: 1.84, tokens: 410_000, sessions: 3 },
+      { kind: "spend", label: "7 giorni", period: "week", cost: 9.2, tokens: 2_100_000, sessions: 14 },
+      { kind: "spend", label: "30 giorni", period: "month", cost: 31.6, tokens: 7_400_000, sessions: 52 },
+    ],
+  },
+  { pluginId: "gemini-cli", label: "Gemini CLI", metrics: [{ kind: "loggedOut", label: "Non collegato", command: "gemini" }] },
   { pluginId: "codex-cli", label: "Codex", metrics: gauges(0.09, 0.78) },
   { pluginId: "claude-code", label: "Claude Code", metrics: gauges(0.42, 0.18) },
-  { pluginId: "codex-cli", label: "Codex", ...L, metrics: gauges(0.22, 0.95) },
+  { pluginId: "codex-cli", label: "Codex", ...L, metrics: gauges(1, 0.95) },
 ];
 
 const mockProfiles = [
@@ -64,6 +83,16 @@ const mockSettings = {
   notify: { done: true, input: true, exited: false, limitReset: true },
   autoResume: { enabled: true, message: "continua" },
 };
+
+/** Closing or renaming a terminal tab: the list the desktop would push next. */
+function mockTabs(msg: { t?: string; ptyId?: string; label?: string } | undefined) {
+  const at = tabs.findIndex((x) => x.ptyId === msg?.ptyId);
+  if (at < 0) return;
+  if (msg?.t === "closetab") tabs.splice(at, 1);
+  else if (msg?.t === "rename" && msg.label) tabs[at].label = msg.label;
+  else return;
+  void emit("remote://msgs", [{ t: "tabs", tabs: [...tabs] }]);
+}
 
 // What the desktop sends once the link is up: its features, the chats and the view plugins.
 async function chatHello() {
@@ -137,6 +166,7 @@ mockIPC(
       case "view_cache_prune":
         return undefined;
       default:
+        if (cmd === "send") mockTabs((args as { msg?: { t?: string; ptyId?: string; label?: string } }).msg);
         if (cmd === "send") chatMock((args as { msg?: Parameters<typeof chatMock>[0] }).msg);
         return termMock(cmd, args);
     }

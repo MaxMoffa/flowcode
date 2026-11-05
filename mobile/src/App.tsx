@@ -1,5 +1,5 @@
 import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useState, type ErrorInfo, type ReactElement, type ReactNode } from "react";
-import { AgentsScreen } from "./Agents";
+import { HomeScreen } from "./Home";
 import { tapFeedback } from "./haptics";
 import { AgentsIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { t } from "./i18n";
@@ -293,7 +293,7 @@ function AppContent() {
     content = (
       <div className="screen">
         <main className="page">
-          {page === "agents" && <AgentsScreen hostName={hostName} tabs={tabs} onOpen={open} onAddComputer={() => setAdding(true)} />}
+          {page === "agents" && <HomeScreen hostName={hostName} tabs={tabs} onOpen={open} onAddComputer={() => setAdding(true)} />}
           {page === "terminals" && <TerminalsScreen hostName={hostName} tabs={tabs} onOpen={open} />}
           {page === "settings" && (
             <Suspense fallback={null}>

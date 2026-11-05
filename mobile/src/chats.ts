@@ -268,6 +268,21 @@ export function clearChat(chatId: string) {
   });
 }
 export const renameChat =(chatId: string, label: string) => send({ t: "chatrename", chatId, label });
+
+/** How long the phone waits for a closed chat to leave the list before saying the desktop may be asking. */
+const CLOSE_CHECK_MS = 3000;
+
+/**
+ * Asks the desktop to close the chat's tab. It may ask for confirmation on the
+ * PC when parked conversations are still working, which the phone cannot see:
+ * a chat still listed after a moment gets a hint instead of silence.
+ */
+export function closeChatTab(chatId: string) {
+  send({ t: "chatclosetab", chatId });
+  setTimeout(() => {
+    if (infoOf(chatId)) showToast(t("chatCloseOnDesktop"));
+  }, CLOSE_CHECK_MS);
+}
 /** Asks the desktop to turn the chat's session into a terminal tab. */
 const chatToTerminal = (chatId: string) => send({ t: "chatterminal", chatId });
 
@@ -289,10 +304,10 @@ export const requestOpenChat = (chatId: string) => store.set({ openRequest: chat
 export const clearOpenRequest = () => store.set({ openRequest: null });
 export const useOpenRequest = (): string | null => store.useSelector((s) => s.openRequest);
 
-/** A requested chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. */
-export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string) => void): () => void {
-  /** The chats known when asking, and until when to wait. */
-  const pendingRef = useRef<{ known: Set<string>; until: number } | null>(null);
+/** A requested chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. A `firstPrompt` is queued on the fresh chat and goes out once the agent can take it. */
+export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string) => void): (firstPrompt?: string) => void {
+  /** The chats known when asking, until when to wait, and the message to send first. */
+  const pendingRef = useRef<{ known: Set<string>; until: number; firstPrompt?: string } | null>(null);
 
   useEffect(() => {
     const p = pendingRef.current;
@@ -305,14 +320,16 @@ export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string
     if (fresh) {
       pendingRef.current = null;
       endPending();
+      // Queued before opening: the queue holds it until the agent leaves "starting".
+      if (p.firstPrompt) sendChatPrompt(fresh.chatId, p.firstPrompt);
       onOpen(fresh.chatId);
     }
   }, [chats, onOpen]);
 
   const chatsRef = useRef(chats);
   chatsRef.current = chats;
-  return useCallback(() => {
-    pendingRef.current = { known: new Set((chatsRef.current ?? []).map((c) => c.chatId)), until: Date.now() + WAIT_MS };
+  return useCallback((firstPrompt?: string) => {
+    pendingRef.current = { known: new Set((chatsRef.current ?? []).map((c) => c.chatId)), until: Date.now() + WAIT_MS, firstPrompt };
   }, []);
 }
 

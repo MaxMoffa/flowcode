@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per trasformare la pagina Agenti di Flowcode mobile nella home, con avvio rapido e chiusura delle sessioni.">
+  <title>Flowcode mobile — home Agenti · 3 varianti</title>
+  <style>
+    /* Token copiati da mobile/src/ui.css: a runtime theme.ts li sovrascrive con la palette del desktop. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07;
+      --wait: #d1a752; --wait-bg: rgba(209, 167, 82, .08); --wait-border: rgba(209, 167, 82, .28);
+      --busy: #6f9bcf; --busy-bg: rgba(111, 155, 207, .09);
+      --danger: #e2645c;
+      --glass-strong: rgba(14, 10, 7, .72);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:disabled { cursor: not-allowed; }
+    button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; }
+    .ic { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .mono { font-family: var(--mono); }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1060px; margin: auto; padding: 28px 24px 40px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 150px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .layout { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .side { display: grid; gap: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; }
+    .controls select { padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface); color: var(--fg); font: inherit; }
+    .ctl { min-height: 32px; padding: 0 11px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); font-size: 13px; }
+    .note h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .note h2 small { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--accent-bg); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 2px; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 62ch; }
+    code { font: 12.5px var(--mono); }
+    .check { padding: 14px 16px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
+    .check h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+    .check table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .check th, .check td { padding: 7px 8px 7px 0; border-top: 1px solid var(--border); text-align: left; vertical-align: top; font-weight: 400; }
+    .check th { color: var(--muted); font-size: 12px; border-top: 0; }
+    .yes { color: var(--accent); } .no { color: var(--danger); }
+    .check p { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+    .limits { padding: 14px 16px; border-radius: 12px; background: var(--wait-bg); box-shadow: inset 0 0 0 1px var(--wait-border); font-size: 13px; }
+    .limits h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--wait); }
+    .limits ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 390px; max-width: 100%; height: 800px; overflow: hidden; border-radius: 34px; background: var(--bg); box-shadow: 0 0 0 1px var(--border-strong), 0 24px 60px rgba(0, 0, 0, .5); }
+    .scroll { position: absolute; inset: 0; overflow-y: auto; padding: 18px 16px 112px; scrollbar-width: none; }
+    .scroll::-webkit-scrollbar { display: none; }
+    .head { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+    .brand { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-bg); color: var(--accent); }
+    .host { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; min-height: 44px; font-size: 15px; font-weight: 600; }
+    .host svg { color: var(--muted); }
+    .online { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--accent); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); }
+    .online .dot { background: var(--accent); }
+    .sec { display: flex; align-items: center; justify-content: space-between; margin: 22px 2px 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .sec b { font-weight: 600; color: var(--fg); }
+    .sec .add { width: 44px; height: 32px; margin-right: -10px; display: grid; place-items: center; color: var(--accent); }
+
+    /* righe sessione */
+    .list { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; }
+    .row-wrap { position: relative; overflow: hidden; }
+    .row-wrap + .row-wrap { border-top: 1px solid var(--border); }
+    .row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 4px 10px 12px; background: var(--surface); transition: transform .18s ease; }
+    .row.dragging { transition: none; }
+    .swipe .row { touch-action: pan-y; padding-right: 14px; user-select: none; }
+    .row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 44px; }
+    .ico { position: relative; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-3); flex: none; }
+    .ico.waiting { background: var(--wait-bg); color: var(--wait); box-shadow: inset 0 0 0 1px var(--wait-border); }
+    .ico.busy { background: var(--busy-bg); color: var(--busy); }
+    .kind { position: absolute; right: -4px; bottom: -4px; width: 17px; height: 17px; border-radius: 6px; display: grid; place-items: center; background: var(--bg); color: var(--muted); box-shadow: 0 0 0 1px var(--border-strong); }
+    .txt { min-width: 0; display: grid; gap: 1px; }
+    .txt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub i { font-style: normal; color: var(--fg); }
+    .sub i.busy { color: var(--busy); } .sub i.waiting { color: var(--wait); } .sub i.starting { color: var(--accent); }
+    .more { width: 44px; height: 44px; display: grid; place-items: center; color: var(--muted); flex: none; }
+    .reveal { position: absolute; top: 0; right: 0; bottom: 0; width: 88px; display: grid; place-items: center; background: var(--danger); color: #1a0c0a; font-size: 13px; font-weight: 600; text-align: center; }
+    .reveal:disabled { background: var(--surface-3); color: var(--muted); font-size: 11px; padding: 0 8px; }
+
+    /* card "ti aspetta" */
+    .wait { margin-top: 14px; padding: 14px; border-radius: 18px; background: var(--wait-bg); border: 1px solid var(--wait-border); }
+    .wait-top { display: flex; gap: 12px; align-items: center; }
+    .wait-eye { font-size: 12px; font-weight: 600; color: var(--wait); }
+    .wait-title { font-size: 16px; font-weight: 600; line-height: 1.25; }
+    .wait-acts { display: grid; grid-template-columns: 1fr 1fr 44px; gap: 8px; margin-top: 12px; }
+    .wait-acts.single { grid-template-columns: 1fr; }
+    .btn { min-height: 44px; border-radius: 13px; text-align: center; font-weight: 600; background: var(--surface-3); }
+    .btn.primary { background: var(--accent); color: var(--on-accent); }
+    .btn.icon { display: grid; place-items: center; color: var(--muted); }
+    .btn.danger { background: var(--danger); color: #1a0c0a; }
+
+    /* 01: launcher */
+    .launch { margin-top: 12px; padding: 14px; border-radius: 22px; background: var(--surface); border: 1px solid var(--border-strong); }
+    .launch textarea { display: block; width: 100%; height: 64px; resize: none; padding: 0; border: 0; outline: 0; background: none; color: var(--fg); font: 17px/1.35 var(--font); }
+    .launch textarea::placeholder { color: var(--muted); }
+    .launch-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; max-width: 132px; padding: 0 10px; border-radius: 12px; background: var(--surface-3); font-size: 13px; white-space: nowrap; }
+    .pill span { overflow: hidden; text-overflow: ellipsis; }
+    .go { width: 44px; height: 44px; margin-left: auto; border-radius: 15px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
+    .go:disabled { background: var(--surface-3); color: var(--muted); }
+
+    /* 02: scorciatoie e progetti */
+    .tiles { display: flex; gap: 10px; margin: 0 -16px; padding: 2px 16px; overflow-x: auto; scroll-snap-type: x proximity; scroll-padding-left: 16px; scrollbar-width: none; }
+    .tiles::-webkit-scrollbar { display: none; }
+    .tile { flex: 0 0 128px; height: 108px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); scroll-snap-align: start; }
+    .tile b { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tile small { font-size: 12px; color: var(--muted); }
+    .tile.plus { background: none; border-style: dashed; border-color: var(--border-strong); color: var(--accent); }
+    .tile .ico { width: 32px; height: 32px; border-radius: 10px; }
+
+    /* 03: inbox */
+    .summary { margin: 14px 2px 12px; font-size: 27px; line-height: 1.16; font-weight: 600; letter-spacing: -.02em; }
+    .summary em { font-style: normal; color: var(--wait); }
+    .summary span { color: var(--muted); }
+    .ring { width: 44px; height: 44px; display: grid; place-items: center; font: 600 10px var(--mono); position: relative; }
+    .ring svg { position: absolute; inset: 6px; transform: rotate(-90deg); }
+    .filters { display: flex; gap: 6px; margin: 0 -16px 12px; padding: 0 16px; overflow-x: auto; scrollbar-width: none; }
+    .filters button { flex: none; min-height: 36px; padding: 0 12px; border-radius: 12px; color: var(--muted); font-size: 13px; background: var(--surface); }
+    .filters button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600; }
+    .glabel { margin: 14px 2px 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+    .glabel.wait-l { color: var(--wait); }
+
+    /* limiti e costi (01) */
+    .sec-link { min-height: 44px; margin: -12px -2px -12px 0; padding: 0 2px; color: var(--accent); font-size: 13px; font-weight: 600; }
+    .ucards { display: flex; gap: 10px; margin: 0 -16px; padding: 2px 16px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-left: 16px; scrollbar-width: none; }
+    .ucards::-webkit-scrollbar { display: none; }
+    .uc { flex: 0 0 300px; min-width: 0; padding: 14px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); scroll-snap-align: start; }
+    .uc.hit { border-color: rgba(226, 100, 92, .5); }
+    .uc.warmc { border-color: var(--wait-border); }
+    .u-head { display: flex; align-items: center; gap: 10px; }
+    .u-head .ico { width: 32px; height: 32px; border-radius: 10px; }
+    .u-name { min-width: 0; display: grid; }
+    .u-name b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .u-name small { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .u-name small .dot { width: 7px; height: 7px; }
+    .u-alert { margin-top: 10px; padding: 7px 10px; border-radius: 10px; background: rgba(226, 100, 92, .12); color: var(--danger); font-size: 13px; font-weight: 600; }
+    .c-s { --c: var(--accent); } .c-w { --c: var(--busy); } .warm { --c: var(--wait); } .hot { --c: var(--danger); }
+    /* A: anelli */
+    .u-ring { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
+    .ringbox { position: relative; width: 104px; height: 104px; flex: none; }
+    .ringbox svg { transform: rotate(-90deg); }
+    .ringbox circle { fill: none; stroke-width: 9; }
+    .ringbox .tr { stroke: var(--surface-3); }
+    .ringbox .arc { stroke: var(--c); stroke-linecap: round; }
+    .ringc { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+    .ringc b { font-size: 21px; font-weight: 650; line-height: 1; letter-spacing: -.02em; }
+    .ringc small { font-size: 10px; color: var(--muted); }
+    .u-legs { flex: 1; min-width: 0; display: grid; gap: 10px; }
+    .u-leg { display: grid; grid-template-columns: 9px 1fr auto; column-gap: 7px; align-items: center; font-size: 13px; }
+    .u-leg i { width: 9px; height: 9px; border-radius: 3px; background: var(--c); }
+    .u-leg b { font-weight: 600; color: var(--c); font-size: 15px; }
+    .u-leg small { grid-column: 2 / 4; font-size: 12px; color: var(--muted); }
+    .u-big { display: flex; align-items: baseline; gap: 6px; margin-top: 12px; }
+    .u-big b { font-size: 30px; line-height: 1.1; font-weight: 650; letter-spacing: -.02em; }
+    .u-big span { color: var(--muted); font-size: 13px; }
+    .u-note { font-size: 12px; color: var(--muted); }
+    .u-note.up { color: var(--wait); }
+    .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+    .col { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+    .col .track { display: flex; align-items: flex-end; height: 44px; border-radius: 8px; background: var(--surface-3); overflow: hidden; }
+    .col .track i { width: 100%; background: var(--accent); }
+    .col b { color: var(--fg); font-size: 13px; font-weight: 600; }
+    /* B: barre e ritmo */
+    .u-g { margin-top: 12px; }
+    .u-gt { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--muted); }
+    .u-gt b { font-size: 19px; font-weight: 650; letter-spacing: -.01em; color: var(--c); }
+    .u-bar { position: relative; height: 10px; margin-top: 4px; border-radius: 5px; background: var(--surface-3); }
+    .u-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--c); }
+    .u-bar s { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--fg); box-shadow: 0 0 0 1.5px var(--surface); }
+    .u-gs { display: flex; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 12px; color: var(--muted); }
+    .u-gs .up { color: var(--wait); }
+    .nest { display: grid; gap: 7px; margin-top: 10px; }
+    .nest div { display: grid; grid-template-columns: 54px 1fr 58px; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+    .nest span.bar2 { height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+    .nest span.bar2 i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+    .nest b { text-align: right; color: var(--fg); font-weight: 600; font-size: 13px; }
+    /* C: cruscotto */
+    .upanel { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; }
+    .upanel .pr { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 66px; padding: 9px 12px; }
+    .upanel .pr + .pr { border-top: 1px solid var(--border); }
+    .pr .u-head { flex: 1; min-width: 0; }
+    .pr-right { flex: none; display: grid; gap: 5px; }
+    .tk { display: grid; grid-template-columns: 22px 80px 32px; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); }
+    .tk b { text-align: right; font-size: 12px; font-weight: 600; color: var(--c); }
+    .ticks { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+    .ticks i { height: 10px; border-radius: 2px; background: var(--surface-3); }
+    .ticks i.f { background: var(--c); }
+    .costs { display: grid; grid-template-columns: auto auto; gap: 14px; text-align: right; }
+    .costs b { display: block; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+    .costs small { font-size: 11px; color: var(--muted); }
+    .u-off { margin-top: 10px; font-size: 13px; }
+    .u-off b { display: block; font-weight: 600; }
+    .u-off span { color: var(--muted); font-size: 12px; }
+    .sheet .uc { margin-top: 10px; background: var(--surface-2); }
+    .sheet .u-hint { margin: 10px 0 0; font-size: 12px; }
+
+    /* stati delle sessioni (01) */
+    .sec b.busy { color: var(--busy); }
+    .srow { padding-left: 14px; }
+    .srow .row-main { gap: 13px; }
+    .state { flex: none; display: grid; justify-items: end; gap: 3px; }
+    .state em { padding: 2px 8px; border-radius: 8px; font-size: 12px; font-style: normal; font-weight: 600; background: var(--surface-3); color: var(--fg); white-space: nowrap; }
+    .state em.starting { background: var(--accent-bg); color: var(--accent); }
+    .state small { font-size: 12px; color: var(--muted); }
+    .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .sub .warm { color: var(--wait); }
+    .ico.st-idle { color: var(--muted); }
+    .ico.st-exited { background: none; color: var(--muted); box-shadow: inset 0 0 0 1px var(--border-strong); opacity: .7; }
+    .ico.st-busy { background: var(--busy-bg); color: var(--busy); }
+    .ico.st-starting { background: var(--accent-bg); color: var(--accent); }
+    .sweep { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+    .sweep rect { fill: none; stroke: var(--busy); stroke-width: 1.5; animation: sweep 1.6s linear infinite; }
+    .st-starting .sweep rect { stroke: var(--accent); }
+    @keyframes sweep { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100px; } }
+    .bubble { position: absolute; right: -4px; bottom: -4px; width: 17px; height: 17px; border-radius: 6px; display: grid; place-items: center; background: var(--bg); color: var(--muted); box-shadow: 0 0 0 1px var(--border-strong); }
+    .wait-sub { font-size: 12px; color: var(--muted); }
+
+    /* nav */
+    .nav { position: absolute; left: 16px; right: 16px; bottom: 12px; display: flex; gap: 4px; padding: 6px; border-radius: 28px; background: var(--glass-strong); backdrop-filter: blur(24px) saturate(160%); border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(0, 0, 0, .35); z-index: 2; }
+    .nav button { flex: 1; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 22px; color: var(--muted); font-size: 11px; font-weight: 600; }
+    .nav button.on { background: var(--accent-bg); color: var(--accent); }
+    .nav button.new { flex: 0 0 64px; background: var(--accent); color: var(--on-accent); }
+
+    /* sheet, toast */
+    .scrim { position: absolute; inset: 0; background: rgba(8, 5, 3, .6); z-index: 3; animation: fade .15s ease; }
+    .sheet { position: absolute; left: 0; right: 0; bottom: 0; max-height: 88%; overflow-y: auto; padding: 10px 16px 22px; border-radius: 26px 26px 0 0; background: var(--surface); border-top: 1px solid var(--border-strong); z-index: 4; animation: up .2s ease; }
+    .grab { width: 38px; height: 4px; margin: 0 auto 12px; border-radius: 2px; background: var(--border-strong); }
+    .sheet h2 { margin: 0 0 2px; font-size: 17px; font-weight: 600; }
+    .sheet p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+    .opt { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 12px; border-radius: 13px; font-size: 15px; }
+    .opt.on { background: var(--accent-bg); color: var(--accent); }
+    .opt.danger { color: var(--danger); }
+    .opt:disabled { color: var(--muted); }
+    .opt small { display: block; font-size: 12px; color: var(--muted); }
+    .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+    .agent { display: flex; align-items: center; gap: 10px; min-height: 68px; padding: 0 12px; border-radius: 16px; background: var(--surface-3); font-weight: 600; }
+    .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 14px; background: var(--bg); }
+    .seg button { min-height: 40px; border-radius: 10px; text-align: center; color: var(--muted); font-size: 13px; }
+    .seg button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
+    .toast { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); width: max-content; max-width: 86%; padding: 9px 14px; border-radius: 13px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 600; z-index: 5; }
+    .empty { padding: 26px 18px; text-align: center; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 18px; margin-top: 14px; }
+    @keyframes up { from { transform: translateY(24px); opacity: 0; } }
+    @keyframes fade { from { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .row, .sheet, .scrim { transition: none; animation: none; } }
+    @media (max-width: 880px) { .layout { grid-template-columns: minmax(0, 1fr); } .phone { margin: auto; } .page { padding: 20px 14px 32px; } }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · HOME</div>
+  <h1>La pagina Agenti diventa la home</h1>
+  <p class="lead">Tre direzioni interattive. Oggi per avviare una sessione bisogna passare da Terminali. Qui l'avvio è in pagina, sopra limiti, costi e sessioni.</p>
+  <div class="variants" id="variants"></div>
+  <div class="layout">
+    <div class="phone" id="phone"></div>
+    <div class="side">
+      <div class="controls">
+        <label>Scenario
+          <select id="scenario">
+            <option value="states">Tutti gli stati</option>
+            <option value="normal">Un agente aspetta</option>
+            <option value="many">Tante sessioni</option>
+            <option value="quiet">Nessuno aspetta</option>
+            <option value="one">Una sola sessione</option>
+            <option value="empty">Nessuna sessione</option>
+          </select>
+        </label>
+        <span id="usageCtl" style="display:contents">
+          <label>Grafica limiti
+            <select id="ustyle">
+              <option value="b">Barre e ritmo</option>
+              <option value="a">Anelli</option>
+              <option value="c">Cruscotto</option>
+            </select>
+          </label>
+          <label>Uso
+            <select id="uscn">
+              <option value="normal">Normale</option>
+              <option value="near">Vicino al limite</option>
+              <option value="full">Limite raggiunto</option>
+              <option value="off">Non collegati</option>
+            </select>
+          </label>
+        </span>
+        <button type="button" class="ctl" id="reset">Ripristina</button>
+      </div>
+      <div class="note" id="note"></div>
+      <div class="check">
+        <h3>Verifica: chiudere da mobile</h3>
+        <table>
+          <tr><th></th><th>Protocollo e desktop</th><th>App mobile</th></tr>
+          <tr><td>Terminale</td><td class="yes">Sì, <code>closetab</code></td><td class="yes">Sì, menu ⋯ del terminale; × sulle schede su tablet</td></tr>
+          <tr><td>Chat</td><td class="yes">Sì, <code>chatclosetab</code></td><td class="no">No, nessun comando lo invia</td></tr>
+        </table>
+        <p>Nel menu della chat c'è solo “Ferma l'agente”, che annulla il turno e lascia aperta la scheda. L'ultima scheda di una finestra non si chiude da remoto: il desktop ignora la richiesta. Le varianti mostrano la chiusura per entrambi i tipi e la disattivano sull'ultima scheda.</p>
+      </div>
+      <div class="limits">
+        <h3>Limiti da tenere presenti</h3>
+        <ul>
+          <li>Se una chat ha conversazioni in background ancora attive, il desktop chiede conferma sul PC: il telefono non lo vede e la chat resta aperta.</li>
+          <li>I terminali non espongono la domanda dell'agente: la card mostra solo “aspetta una risposta” e Sì/No. Le chat invece mostrano il titolo della richiesta.</li>
+          <li>Gli stati “Avvio…” e “Terminata” esistono solo per le chat; il contesto (ctx) in riga solo per i terminali, e compare da 70% in su.</li>
+          <li>La riga non dice cosa sta facendo l'agente: per le chat non seguite il telefono non riceve gli eventi.</li>
+          <li>Ritmo e medie sono calcolati sul telefono: il reset arriva come testo della CLI e, se non si riesce a leggerlo, la tacca e il ritmo spariscono. I costi a consumo sono stime ai prezzi di listino.</li>
+          <li>Il mockup usa dati finti: nessun messaggio arriva al desktop.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const LOGOS = {"claude":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"},"codex":{"viewBox":"-0.82 -0.73 21.65 21.45","path":"M11.248 18.25q-.825 0-1.568-.314a4.3 4.3 0 0 1-1.32-.874 4 4 0 0 1-1.304.214 4 4 0 0 1-2.046-.544 4.27 4.27 0 0 1-1.518-1.485 4 4 0 0 1-.56-2.095q0-.48.131-1.04A4.4 4.4 0 0 1 2.04 10.71a4.07 4.07 0 0 1 .017-3.4 4.2 4.2 0 0 1 1.056-1.418 3.8 3.8 0 0 1 1.6-.842 3.9 3.9 0 0 1 .76-1.683q.593-.759 1.451-1.188a4.04 4.04 0 0 1 1.832-.429q.825 0 1.567.313.742.314 1.32.875a4 4 0 0 1 1.304-.215q1.106 0 2.046.545a4.14 4.14 0 0 1 1.501 1.485q.578.941.578 2.095 0 .48-.132 1.04.66.61 1.023 1.419.363.792.363 1.666 0 .892-.38 1.717a4.3 4.3 0 0 1-1.072 1.435 3.8 3.8 0 0 1-1.584.825 3.8 3.8 0 0 1-.775 1.683 4.06 4.06 0 0 1-1.436 1.188 4.04 4.04 0 0 1-1.832.429m-4.076-2.062q.825 0 1.435-.347l3.103-1.782a.36.36 0 0 0 .164-.313v-1.42L7.881 14.62a.67.67 0 0 1-.726 0l-3.118-1.798a.5.5 0 0 1-.017.115v.198q0 .841.396 1.551.413.693 1.139 1.089a3.2 3.2 0 0 0 1.617.412m.165-2.69a.4.4 0 0 0 .181.05q.083 0 .165-.05l1.238-.71-3.977-2.31a.7.7 0 0 1-.363-.643v-3.58q-.825.362-1.32 1.122a2.9 2.9 0 0 0-.495 1.65q0 .809.413 1.55.412.743 1.072 1.123zm3.91 3.663q.875 0 1.585-.396a2.96 2.96 0 0 0 1.534-2.64v-3.564a.32.32 0 0 0-.165-.297l-1.254-.726v4.604a.7.7 0 0 1-.363.643l-3.119 1.799a3 3 0 0 0 1.783.577m.627-6.039V8.878L10.01 7.822 8.129 8.878v2.244l1.881 1.056zM7.057 5.859a.7.7 0 0 1 .363-.644l3.119-1.798a3 3 0 0 0-1.782-.578q-.874 0-1.584.396A2.96 2.96 0 0 0 6.05 4.324a3.07 3.07 0 0 0-.396 1.551v3.547q0 .199.165.314l1.237.726zm8.383 7.887q.825-.364 1.303-1.123.495-.758.495-1.65a3.15 3.15 0 0 0-.412-1.55q-.413-.743-1.073-1.123l-3.086-1.782q-.099-.065-.181-.049a.3.3 0 0 0-.165.05l-1.238.692 3.993 2.327a.6.6 0 0 1 .264.264.64.64 0 0 1 .1.363zm-3.317-8.382a.63.63 0 0 1 .726 0l3.135 1.831v-.297q0-.792-.396-1.501a2.86 2.86 0 0 0-1.105-1.155q-.71-.43-1.65-.43-.825 0-1.436.347L8.294 5.941a.36.36 0 0 0-.165.314v1.418z"},"gemini":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"M12 0C12.7 6.7 17.3 11.3 24 12 17.3 12.7 12.7 17.3 12 24 11.3 17.3 6.7 12.7 0 12 6.7 11.3 11.3 6.7 12 0Z"},"vibe":{"viewBox":"-1.6 -1.6 27.2 27.2","path":"M2 2h4v4H2zM18 2h4v4h-4zM2 6h8v4H2zM14 6h8v4h-8zM2 10h20v4H2zM2 14h4v4H2zM10 14h4v4h-4zM18 14h4v4h-4zM2 18h4v4H2zM18 18h4v4h-4z"}};
+const I = {
+  chev: '<path d="m6 9 6 6 6-6"/>', right: '<path d="m9.500 6 6 6-6 6"/>', plus: '<path d="M12 5v14M5 12h14"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>', term: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m7.500 10 2.500 2-2.500 2M13 14.500h3.500"/>',
+  chat: '<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-5 4v-4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>',
+  folder: '<path d="M3.500 7.500a2 2 0 0 1 2-2h3.600l2 2.200h7.400a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  bot: '<rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 7V4M9 13h.01M15 13h.01"/>',
+  sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+  open: '<path d="M7 17 17 7M9 7h8v8"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>', pencil: '<path d="M4 20h4L19 9l-4-4L4 16zM13.500 6.500l4 4"/>',
+};
+const ic = (n, s = 20) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true">${I[n]}</svg>`;
+const dots = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.800"/><circle cx="12" cy="12" r="1.800"/><circle cx="19" cy="12" r="1.800"/></svg>';
+const logo = (cli, s = 20) => { const l = LOGOS[cli]; return l ? `<svg width="${s}" height="${s}" viewBox="${l.viewBox}" aria-hidden="true"><path d="${l.path}" fill="currentColor"/></svg>` : ic('term', s); };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const AGENTS = [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex' }, { id: 'vibe', name: 'Mistral Vibe' }, { id: 'gemini', name: 'Gemini CLI' }];
+const nameOf = (cli) => AGENTS.find((a) => a.id === cli)?.name ?? 'Shell';
+const FOLDERS = ['flowcode', 'sito', 'mobile-app'];
+const RECENTS = [{ cli: 'claude', cwd: 'flowcode' }, { cli: 'codex', cwd: 'sito' }, { cli: 'claude', cwd: 'mobile-app' }, { cli: 'gemini', cwd: 'flowcode' }];
+// Stessi dati di UsageItem: session/week con percent e resets, spend today/week/month con cost, tokens e sessions.
+const VIBE = { id: 'vibe', cli: 'vibe', name: 'Mistral Vibe', kind: 'payg', today: { c: 1.84, tk: '410K', n: 3 }, week: { c: 9.2, tk: '2.1M', n: 14 }, month: { c: 31.6, tk: '7.4M', n: 52 } };
+const API = { id: 'api', cli: 'claude', name: 'Claude Code', profile: 'Lavoro', color: '#6f9bcf', kind: 'payg', today: { c: 0.42, tk: '96K', n: 1 }, week: { c: 6.15, tk: '1.3M', n: 9 }, month: { c: 28.9, tk: '6.2M', n: 41 } };
+const plan = (id, cli, name, s, sl, w, wl) => ({ id, cli, name, kind: 'plan', s: { p: s, left: sl }, w: { p: w, left: wl } });
+const USES = {
+  normal: [plan('c', 'claude', 'Claude Code', 42, 130, 61, 3200), plan('x', 'codex', 'Codex', 12, 250, 28, 7000), VIBE, API],
+  near: [plan('c', 'claude', 'Claude Code', 88, 200, 93, 2500), plan('x', 'codex', 'Codex', 74, 95, 40, 6000), { ...VIBE, today: { c: 7.9, tk: '1.8M', n: 8 } }],
+  full: [plan('c', 'claude', 'Claude Code', 100, 72, 96, 900), plan('x', 'codex', 'Codex', 55, 120, 100, 2880), VIBE],
+  off: [{ id: 'c', cli: 'claude', name: 'Claude Code', kind: 'off', title: 'Non collegato', hint: 'Esegui "claude" nel terminale per collegare un account.' }, { id: 'v', cli: 'vibe', name: 'Mistral Vibe', kind: 'off', title: 'Chiave API mancante', hint: 'Esegui "vibe --setup" nel terminale per inserire la chiave API di Mistral.' }, { id: 'x', cli: 'codex', name: 'Codex', kind: 'off', title: 'Non disponibile', hint: 'Riprova tra poco.' }],
+};
+const USTYLES = {
+  a: ['Anelli', 'Colpo d\'occhio: anello esterno 5 ore, interno settimana. Per il consumo, oggi contro la media giornaliera.'],
+  b: ['Barre e ritmo', 'La tacca bianca segna il tempo già passato nella finestra: se la barra la supera stai consumando più in fretta del ritmo. Per il consumo, oggi, 7 e 30 giorni sulla stessa scala.'],
+  c: ['Cruscotto', 'Tutti gli agenti in un solo pannello, senza scorrere di lato: occupa meno spazio ma mostra meno dettagli. Il reset è nel foglio Dettagli.'],
+};
+const S = (id, kind, cli, label, cwd, status, extra = {}) => ({ id, kind, cli, label, cwd, status, ...extra });
+const BASE = [
+  S(2, 'chat', 'claude', 'Home mobile', 'flowcode', 'busy', { since: 4 }),
+  S(3, 'chat', 'codex', 'Test end-to-end', 'sito', 'busy', { since: 18 }),
+  S(4, 'term', 'gemini', 'Note di rilascio', 'sito', 'idle', { ctx: 21, since: 130 }),
+];
+const WAITING = S(1, 'term', 'claude', 'Refactor API remota', 'flowcode', 'waiting', { ctx: 64, since: 6 });
+const SCENARIOS = {
+  states: () => [WAITING, S(5, 'chat', 'claude', 'Migrazione profili', 'mobile-app', 'waiting', { ask: 'Eseguire npm test?', since: 1 }), ...BASE.slice(0, 2), S(9, 'chat', 'gemini', 'Analisi log', 'flowcode', 'starting', { since: 0 }), BASE[2], S(8, 'term', 'codex', 'Pulizia dipendenze', 'flowcode', 'idle', { ctx: 86, since: 25 }), S(10, 'chat', 'vibe', 'Bozza changelog', 'sito', 'exited', { since: 300 })],
+  normal: () => [WAITING, ...BASE],
+  many: () => [WAITING, S(5, 'chat', 'claude', 'Migrazione profili', 'mobile-app', 'waiting', { ask: 'Eseguire npm test?' }), ...BASE, S(6, 'term', 'vibe', 'Bozza changelog', 'sito', 'idle', { ctx: 8 }), S(7, 'chat', 'claude', 'Fix tastiera Android', 'mobile-app', 'idle'), S(8, 'term', 'codex', 'Pulizia dipendenze', 'flowcode', 'idle', { ctx: 47 })],
+  quiet: () => BASE,
+  one: () => [BASE[0]],
+  empty: () => [],
+};
+const STATUS = { waiting: 'Ti aspetta', busy: 'Al lavoro', idle: 'Inattivo', starting: 'Avvio…', exited: 'Terminata' };
+const VARIANTS = [
+  { title: 'Launcher', badge: 'Scelta', note: 'Un campo in cima: scrivi il compito e parte la chat con agente e cartella già scelti.', why: ['È il gesto più diretto: dall\'apertura al primo messaggio serve un solo schermo.', 'Agente e cartella restano memorizzati, quindi di solito si scrive e basta.', 'Limiti e costi hanno una loro sezione, in tre stili da confrontare; Dettagli apre tutto in un foglio.', 'Le sessioni sono divise per stato: chi lavora prima, poi le inattive e le terminate.', 'Lo stato non dipende solo dal colore: il gruppo ha un titolo, chi lavora ha l\'arco che gira usato nel resto dell\'app, chi è fermo ha il logo spento.', 'Ogni riga dice quale agente è, in che cartella e da quanto tempo è in quello stato.'], cost: ['Il primo messaggio va tenuto sul telefono e inviato con <code>chatprompt</code> quando la chat è pronta: oggi <code>newchat</code> non accetta un testo.', 'Serve gestire l\'errore se l\'agente non parte.', 'Occupa più altezza: con molte sessioni la lista parte più in basso.', 'Il tempo nello stato non arriva dal desktop: lo conta il telefono, da quando vede il cambio, e riparte a ogni riconnessione.'] },
+  { title: 'Scorciatoie e progetti', note: 'Una fila di scorciatoie avvia con un tocco; le sessioni sono raggruppate per cartella, ognuna con il suo +.', why: ['Riusa i recenti che <code>NewTerminalSheet</code> salva già per ogni computer.', 'Il + di un progetto avvia nella cartella giusta senza passare da un modulo.', 'Nessuna modifica al protocollo: bastano <code>newchat</code>, <code>newtab</code> e <code>chatclosetab</code>.'], cost: ['I recenti non ricordano se erano chat o terminale: vale la preferenza globale, a meno di aggiungere un campo.', 'Al primo avvio la fila è vuota, resta solo la tessera “Nuova”.'] },
+  { title: 'Inbox', note: 'Una frase dice cosa succede, i filtri riducono la lista e il + centrale apre la scelta dell\'agente. Si chiude scorrendo la riga verso sinistra.', why: ['È la più leggibile con molte sessioni: prima chi ha bisogno di te.', 'Il + resta raggiungibile col pollice da ogni scroll.', 'Lo swipe toglie il pulsante ⋯ e alleggerisce le righe.'], cost: ['Avviare richiede due tocchi: + e agente.', 'Lo swipe si scopre poco e va affiancato da un\'alternativa accessibile.', 'Tocca la barra di navigazione, quindi anche Terminali e Impostazioni.'] },
+];
+
+let nextId = 100;
+const fresh = () => ({ ustyle: 'b', uscn: 'normal', variant: 1, scenario: 'states', sessions: SCENARIOS.states(), sheet: null, target: null, toast: '', draft: '', agent: 'claude', cwd: 'flowcode', mode: 'chat', filter: 'all' });
+let st = fresh();
+let toastTimer;
+const phone = document.getElementById('phone');
+
+const toast = (text) => { st.toast = text; clearTimeout(toastTimer); toastTimer = setTimeout(() => { st.toast = ''; render(); }, 1900); };
+const find = (id) => st.sessions.find((s) => s.id === Number(id));
+const canClose = () => st.sessions.length > 1;
+
+function start(cli, cwd, kind, prompt) {
+  const s = S(nextId++, kind, cli, prompt ? prompt.slice(0, 36) : nameOf(cli), cwd, 'starting', { since: 0 });
+  st.sessions.unshift(s);
+  st.sheet = null; st.draft = '';
+  toast(`Apro ${nameOf(cli)} in ${cwd}`);
+  setTimeout(() => { s.status = prompt ? 'busy' : 'idle'; render(); }, 1300);
+}
+
+const subLine = (s) => `<i class="${s.status}">${s.ask ?? STATUS[s.status]}</i>${s.ctx != null ? ` · ctx ${s.ctx}%` : ''}`;
+const icon = (s) => `<span class="ico ${s.status}">${logo(s.cli, 20)}<span class="kind">${ic(s.kind === 'chat' ? 'chat' : 'term', 11)}</span></span>`;
+const row = (s, showCwd = true) => `<div class="row-wrap"><div class="row">
+  <button type="button" class="row-main" data-act="open" data-id="${s.id}">${icon(s)}<span class="txt"><b>${esc(s.label)}</b><span class="sub">${subLine(s)}${showCwd ? ` · <span class="mono">${esc(s.cwd)}</span>` : ''}</span></span></button>
+  <button type="button" class="more" data-act="menu" data-id="${s.id}" aria-label="Azioni per ${esc(s.label)}">${dots}</button></div></div>`;
+const swipeRow = (s) => `<div class="row-wrap swipe"><button type="button" class="reveal" data-act="${canClose() ? 'confirm' : 'noop'}" data-id="${s.id}" ${canClose() ? '' : 'disabled'}>${canClose() ? 'Chiudi' : 'Ultima scheda'}</button><div class="row" data-swipe="${s.id}">
+  <button type="button" class="row-main" data-act="open" data-id="${s.id}">${icon(s)}<span class="txt"><b>${esc(s.label)}</b><span class="sub">${subLine(s)} · <span class="mono">${esc(s.cwd)}</span></span></span></button></div></div>`;
+
+// Copia di sweepDashes (shared/busySweep.ts): l'arco che gira attorno agli agenti al lavoro.
+const SWEEP = Array.from({ length: 16 }, (_, i) => { const step = 45 / 16, t = ((i + 1) / 16) ** 1.6, below = i ? (i / 16) ** 1.6 : 0; return { d: `0 ${i * step} ${45 - i * step} 55`, o: 1 - (1 - t) / (1 - below) }; });
+const sweep = `<svg class="sweep" aria-hidden="true">${SWEEP.map((x) => `<rect width="100%" height="100%" rx="12" pathLength="100" style="stroke-dasharray:${x.d};opacity:${x.o}"/>`).join('')}</svg>`;
+const ago = (m) => (m == null ? '' : m < 1 ? 'ora' : m < 60 ? `${m} min` : `${Math.round(m / 60)} h`);
+const tile = (s) => `<span class="ico st-${s.status}">${logo(s.cli, 20)}${s.status === 'busy' || s.status === 'starting' ? sweep : ''}${s.kind === 'chat' ? `<span class="bubble">${ic('chat', 11)}</span>` : ''}</span>`;
+const stateRow = (s) => `<div class="row-wrap"><div class="row srow">
+  <button type="button" class="row-main" data-act="open" data-id="${s.id}">${tile(s)}<span class="txt" style="flex:1"><b>${esc(s.label)}</b><span class="sub">${nameOf(s.cli)} · <span class="mono">${esc(s.cwd)}</span>${s.ctx >= 70 ? ` · <span class="warm">ctx ${s.ctx}%</span>` : ''}</span></span><span class="state">${s.status === 'starting' ? `<em class="starting">${STATUS.starting}</em>` : `<span class="vh">${STATUS[s.status]}</span><small>${s.since < 1 ? 'ora' : `da ${ago(s.since)}`}</small>`}</span></button>
+  <button type="button" class="more" data-act="menu" data-id="${s.id}" aria-label="Azioni per ${esc(s.label)}">${dots}</button></div></div>`;
+
+const WIN = { s: 300, w: 10080 };
+const tone = (p) => (p >= 90 ? 'hot' : p >= 70 ? 'warm' : '');
+const usd = (v) => `$${v.toFixed(v >= 100 ? 0 : 2)}`;
+const leftTxt = (m) => (m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${Math.floor(m / 1440)} g ${Math.floor((m % 1440) / 60)} h`);
+const pace = (g, win) => { const el = Math.round((1 - g.left / win) * 100), d = g.p - el; return { el, text: d > 10 ? 'Sopra il ritmo' : d < -10 ? 'Sotto il ritmo' : 'In linea', up: d > 10 }; };
+const hitOf = (u) => (u.kind !== 'plan' ? null : u.s.p >= 100 ? u.s : u.w.p >= 100 ? u.w : null);
+const uclass = (u) => { const hit = hitOf(u); return hit ? ' hit' : u.kind === 'plan' && Math.max(u.s.p, u.w.p) >= 90 ? ' warmc' : ''; };
+const alert = (u) => { const hit = hitOf(u); return hit ? `<div class="u-alert">Limite raggiunto · riparte tra ${leftTxt(hit.left)}</div>` : ''; };
+const uhead = (u) => `<div class="u-head"><span class="ico">${logo(u.cli, 18)}</span><span class="u-name"><b>${u.name}</b><small>${u.color ? `<i class="dot" style="background:${u.color}"></i>` : ''}${u.profile ? `${u.profile} · ` : ''}${u.kind === 'plan' ? 'Abbonamento' : u.kind === 'payg' ? 'A consumo · stima' : 'Non attivo'}</small></span></div>`;
+const offBody = (u) => `<div class="u-off"><b>${u.title}</b><span>${esc(u.hint)}</span></div>`;
+const avg = (u) => { const a = u.month.c / 30, x = u.today.c / a; return { a, text: x >= 1.3 ? `${x.toFixed(1).replace('.', ',')}× la media` : x <= .7 ? 'Sotto la media' : 'Nella media', up: x >= 1.3 }; };
+
+function cardA(u) {
+  if (u.kind === 'off') return `<article class="uc">${uhead(u)}${offBody(u)}</article>`;
+  if (u.kind === 'payg') {
+    const v = [['Oggi', u.today.c], ['Media 7 g', u.week.c / 7], ['Media 30 g', u.month.c / 30]], top = Math.max(...v.map((x) => x[1])), m = avg(u);
+    return `<article class="uc">${uhead(u)}<div class="u-big"><b>${usd(u.today.c)}</b><span>oggi</span></div><div class="u-note${m.up ? ' up' : ''}">${m.text} · ${u.today.tk} token</div><div class="cols">${v.map(([l, c]) => `<div class="col"><span class="track"><i style="height:${Math.max(6, (c / top) * 100)}%"></i></span><b>${usd(c)}</b>${l}</div>`).join('')}</div></article>`;
+  }
+  const lead = u.s.p >= u.w.p ? [u.s.p, '5 ore'] : [u.w.p, 'settimana'];
+  const arc = (r, g, base) => `<circle class="tr" cx="52" cy="52" r="${r}"/><circle class="arc ${tone(g.p) || base}" cx="52" cy="52" r="${r}" pathLength="100" stroke-dasharray="${g.p} 100"/>`;
+  const leg = (l, g, base) => `<div class="u-leg ${tone(g.p) || base}"><i></i><span>${l}</span><b>${g.p}%</b><small>riparte tra ${leftTxt(g.left)}</small></div>`;
+  return `<article class="uc${uclass(u)}">${uhead(u)}<div class="u-ring"><div class="ringbox"><svg width="104" height="104" viewBox="0 0 104 104" aria-hidden="true">${arc(46, u.s, 'c-s')}${arc(33, u.w, 'c-w')}</svg><div class="ringc"><b>${lead[0]}%</b><small>${lead[1]}</small></div></div><div class="u-legs">${leg('5 ore', u.s, 'c-s')}${leg('Settimana', u.w, 'c-w')}</div></div>${alert(u)}</article>`;
+}
+function gaugeB(l, g, win) {
+  const p = pace(g, win);
+  return `<div class="u-g ${tone(g.p) || 'c-s'}"><div class="u-gt"><span>${l}</span><b>${g.p}%</b></div><div class="u-bar" role="img" aria-label="${l}: ${g.p}% usato, ${p.el}% del tempo passato"><i style="width:${g.p}%"></i><s style="left:${p.el}%"></s></div><div class="u-gs"><span>Riparte tra ${leftTxt(g.left)}</span>${g.p < 100 ? `<span class="${p.up ? 'up' : ''}">${p.text}</span>` : ''}</div></div>`;
+}
+function cardB(u) {
+  if (u.kind === 'off') return `<article class="uc">${uhead(u)}${offBody(u)}</article>`;
+  if (u.kind === 'payg') {
+    const m = avg(u), row = (l, x) => `<div><span>${l}</span><span class="bar2"><i style="width:${Math.max(2, (x.c / u.month.c) * 100)}%"></i></span><b>${usd(x.c)}</b></div>`;
+    return `<article class="uc">${uhead(u)}<div class="u-big"><b>${usd(u.today.c)}</b><span>oggi</span></div><div class="u-note${m.up ? ' up' : ''}">${m.text} di ${usd(m.a)} al giorno</div><div class="nest">${row('Oggi', u.today)}${row('7 giorni', u.week)}${row('30 giorni', u.month)}</div><div class="u-note" style="margin-top:8px">${u.month.tk} token · ${u.month.n} sessioni in 30 giorni</div></article>`;
+  }
+  return `<article class="uc${uclass(u)}">${uhead(u)}${alert(u)}${gaugeB('Sessione 5 ore', u.s, WIN.s)}${gaugeB('Settimana', u.w, WIN.w)}</article>`;
+}
+function rowC(u) {
+  const tk = (l, g, base) => `<div class="tk ${tone(g.p) || base}"><span>${l}</span><span class="ticks">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(g.p / 10) ? 'f' : ''}"></i>`).join('')}</span><b>${g.p}%</b></div>`;
+  const right = u.kind === 'plan' ? `<span class="pr-right">${tk('5h', u.s, 'c-s')}${tk('7g', u.w, 'c-w')}</span>` : u.kind === 'payg' ? `<span class="costs"><span><b>${usd(u.today.c)}</b><small>oggi</small></span><span><b>${usd(u.month.c)}</b><small>30 giorni</small></span></span>` : `<span class="u-note">${u.title}</span>`;
+  return `<button type="button" class="pr" data-act="sheet" data-sheet="usage">${uhead(u)}${right}</button>`;
+}
+function usageSection() {
+  const items = USES[st.uscn];
+  const body = st.ustyle === 'c' ? `<div class="upanel">${items.map(rowC).join('')}</div>` : `<div class="ucards">${items.map(st.ustyle === 'a' ? cardA : cardB).join('')}</div>`;
+  return `<div class="sec"><b>Limiti e costi</b><button type="button" class="sec-link" data-act="sheet" data-sheet="usage">Dettagli</button></div>${body}`;
+}
+
+function waitCards() {
+  const ws = st.sessions.filter((s) => s.status === 'waiting');
+  return ws.map((s) => {
+    const term = s.kind === 'term';
+    return `<section class="wait"><div class="wait-top">${icon(s)}<div><div class="wait-eye">${s.ask ? esc(s.ask) : 'Ti aspetta'}${s.since != null ? ` · ${ago(s.since)}` : ''}</div><div class="wait-title">${esc(s.label)}</div><div class="wait-sub">${nameOf(s.cli)} · <span class="mono">${esc(s.cwd)}</span></div></div></div>
+    <div class="wait-acts${term ? '' : ' single'}">${term ? `<button type="button" class="btn primary" data-act="answer" data-id="${s.id}">Sì</button><button type="button" class="btn" data-act="answer" data-id="${s.id}">No</button><button type="button" class="btn icon" data-act="open" data-id="${s.id}" aria-label="Apri ${esc(s.label)}">${ic('open', 18)}</button>` : `<button type="button" class="btn primary" data-act="open" data-id="${s.id}">Rispondi nella chat</button>`}</div></section>`;
+  }).join('');
+}
+const head = (right) => `<header class="head"><span class="brand">${ic('bot', 18)}</span><button type="button" class="host" data-act="host">Il mio PC ${ic('chev', 16)}</button>${right}</header>`;
+const online = '<span class="online"><i class="dot"></i>Online</span>';
+const nav = (plus) => `<nav class="nav" aria-label="Navigazione"><button type="button" class="on" aria-current="page">${ic('bot', 22)}<span>Home</span></button>${plus ? `<button type="button" class="new" data-act="sheet" data-sheet="new" aria-label="Nuova sessione">${ic('plus', 24)}</button>` : ''}<button type="button" data-act="soon">${ic('term', 22)}<span>Terminali</span></button><button type="button" data-act="soon">${ic('sliders', 22)}<span>Impostazioni</span></button></nav>`;
+const emptyBox = (text) => `<div class="empty">${text}</div>`;
+
+function v1() {
+  const G = [['Al lavoro', 'busy', ['busy', 'starting']], ['Inattive', '', ['idle']], ['Terminate', '', ['exited']]].map(([t, c, k]) => [t, c, st.sessions.filter((s) => k.includes(s.status))]).filter(([, , l]) => l.length);
+  return `<div class="scroll">${head(online)}
+    <section class="launch"><textarea id="draft" placeholder="Cosa deve fare l'agente?" aria-label="Primo messaggio">${esc(st.draft)}</textarea>
+      <div class="launch-bar"><button type="button" class="pill" data-act="sheet" data-sheet="agent">${logo(st.agent, 16)}<span>${nameOf(st.agent)}</span></button><button type="button" class="pill mono" data-act="sheet" data-sheet="folder">${ic('folder', 15)}<span>${st.cwd}</span></button><button type="button" class="go" id="go" data-act="launch" aria-label="Avvia la sessione" ${st.draft.trim() ? '' : 'disabled'}>${ic('up', 20)}</button></div></section>
+    ${waitCards()}
+    ${usageSection()}
+    ${G.map(([t, c, l]) => `<div class="sec"><b class="${c}">${t}</b><span>${l.length}</span></div><div class="list">${l.map(stateRow).join('')}</div>`).join('')}${st.sessions.length ? '' : emptyBox('Nessuna sessione aperta. Scrivi qui sopra per iniziare.')}
+      </div>${nav(false)}`;
+}
+
+function v2() {
+  const groups = [...new Set(st.sessions.filter((s) => s.status !== 'waiting').map((s) => s.cwd))];
+  return `<div class="scroll">${head(`<button type="button" class="online" data-act="sheet" data-sheet="usage" style="min-height:44px"><i class="dot"></i>Limiti 42%</button>`)}
+    <div class="sec" style="margin-top:12px"><b>Avvia</b></div>
+    <div class="tiles">${RECENTS.map((r) => `<button type="button" class="tile" data-act="quick" data-cli="${r.cli}" data-cwd="${r.cwd}"><span class="ico">${logo(r.cli, 18)}</span><span><b class="mono">${r.cwd}</b><small>${nameOf(r.cli)}</small></span></button>`).join('')}<button type="button" class="tile plus" data-act="sheet" data-sheet="new">${ic('plus', 22)}<span><b>Nuova</b><small>Scegli tu</small></span></button></div>
+    ${waitCards()}
+    ${groups.map((g) => { const l = st.sessions.filter((s) => s.cwd === g && s.status !== 'waiting'); return `<div class="sec"><b class="mono">${esc(g)}</b><button type="button" class="add" data-act="quick" data-cli="claude" data-cwd="${esc(g)}" aria-label="Nuova sessione in ${esc(g)}">${ic('plus', 18)}</button></div><div class="list">${l.map((s) => row(s, false)).join('')}</div>`; }).join('')}
+    ${st.sessions.length ? '' : emptyBox('Nessuna sessione aperta. Tocca una scorciatoia per iniziare.')}
+  </div>${nav(false)}`;
+}
+
+function v3() {
+  const by = (k) => st.sessions.filter((s) => (k === 'idle' ? ['idle', 'starting', 'exited'].includes(s.status) : s.status === k));
+  const w = by('waiting').length, b = by('busy').length;
+  const line = !st.sessions.length ? '<span>Tutto fermo.</span>' : `${w ? `<em>${w === 1 ? '1 ti aspetta' : `${w} ti aspettano`}</em>` : '<span>Nessuno ti aspetta</span>'}<br>${b === 1 ? '1 al lavoro' : `${b} al lavoro`}`;
+  const F = [['all', 'Tutte', st.sessions.length], ['waiting', 'Ti aspettano', w], ['busy', 'Al lavoro', b], ['idle', 'Inattive', by('idle').length]];
+  const G = [['waiting', 'Ti aspettano'], ['busy', 'Al lavoro'], ['idle', 'Inattive']].filter(([k]) => st.filter === 'all' || st.filter === k);
+  const ring = `<button type="button" class="ring" data-act="sheet" data-sheet="usage" aria-label="Limiti d'uso, 42%"><svg width="32" height="32" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="var(--surface-3)" stroke-width="3"/><circle cx="16" cy="16" r="14" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="37 88"/></svg>42</button>`;
+  return `<div class="scroll">${head(ring)}<div class="summary">${line}</div>
+    ${st.sessions.length ? `<div class="filters">${F.map(([k, l, n]) => `<button type="button" data-act="filter" data-f="${k}" aria-pressed="${st.filter === k}">${l} ${n}</button>`).join('')}</div>` : emptyBox('Tocca + per avviare una sessione.')}
+    ${G.map(([k, l]) => { const items = by(k); return items.length ? `<div class="glabel${k === 'waiting' ? ' wait-l' : ''}">${l}</div><div class="list">${items.map(swipeRow).join('')}</div>` : ''; }).join('')}
+  </div>${nav(true)}`;
+}
+
+function sheet() {
+  const s = st.target ? find(st.target) : null;
+  const wrap = (body) => `<div class="scrim" data-act="dismiss"></div><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${body}</div>`;
+  switch (st.sheet) {
+    case 'agent': return wrap(`<h2>Agente</h2><p>Resta scelto per i prossimi avvii.</p>${AGENTS.map((a) => `<button type="button" class="opt${a.id === st.agent ? ' on' : ''}" data-act="pick-agent" data-v="${a.id}">${logo(a.id, 20)}${a.name}</button>`).join('')}`);
+    case 'folder': return wrap(`<h2>Cartella</h2><p>Cartelle delle sessioni aperte e recenti.</p>${FOLDERS.map((f) => `<button type="button" class="opt mono${f === st.cwd ? ' on' : ''}" data-act="pick-folder" data-v="${f}">${ic('folder', 18)}${f}</button>`).join('')}`);
+    case 'new': return wrap(`<h2>Nuova sessione</h2><p>Parte subito in <span class="mono">${st.cwd}</span>.</p><div class="seg"><button type="button" data-act="mode" data-v="chat" aria-pressed="${st.mode === 'chat'}">Chat</button><button type="button" data-act="mode" data-v="term" aria-pressed="${st.mode === 'term'}">Terminale</button></div><div class="grid">${AGENTS.map((a) => `<button type="button" class="agent" data-act="quick" data-cli="${a.id}" data-cwd="${st.cwd}">${logo(a.id, 22)}${a.name}</button>`).join('')}</div><button type="button" class="opt" data-act="sheet" data-sheet="folder">${ic('folder', 18)}Cambia cartella</button>`);
+    case 'usage': return wrap(`<h2>Limiti e costi</h2>${USES[st.uscn].map(cardB).join('')}<p class="u-hint">La tacca bianca segna il tempo già passato nella finestra.</p>`);
+    case 'menu': return s && wrap(`<h2>${esc(s.label)}</h2><p>${nameOf(s.cli)} · <span class="mono">${esc(s.cwd)}</span></p><button type="button" class="opt" data-act="open" data-id="${s.id}">${ic('open', 18)}Apri</button><button type="button" class="opt" data-act="soon">${ic('pencil', 18)}Rinomina</button><button type="button" class="opt danger" data-act="confirm" data-id="${s.id}" ${canClose() ? '' : 'disabled'}>${ic('close', 18)}<span>Chiudi ${s.kind === 'chat' ? 'chat' : 'terminale'}${canClose() ? '' : "<small>È l'ultima scheda della finestra</small>"}</span></button>`);
+    case 'confirm': return s && wrap(`<h2>Chiudere “${esc(s.label)}”?</h2><p>${s.kind === 'chat' ? 'La scheda si chiude anche sul computer e la sessione dell\'agente termina.' : 'Il processo in esecuzione verrà terminato.'}${s.status === 'busy' ? ' L\'agente sta lavorando.' : ''}</p><div class="acts"><button type="button" class="btn" data-act="dismiss">Annulla</button><button type="button" class="btn danger" data-act="close" data-id="${s.id}">Chiudi</button></div>`);
+    default: return '';
+  }
+}
+
+function render() {
+  const top = phone.querySelector('.scroll')?.scrollTop ?? 0;
+  phone.innerHTML = [v1, v2, v3][st.variant - 1]() + (st.sheet ? sheet() || '' : '') + (st.toast ? `<div class="toast" role="status">${esc(st.toast)}</div>` : '');
+  const sc = phone.querySelector('.scroll'); if (sc) sc.scrollTop = top;
+  document.getElementById('usageCtl').style.display = st.variant === 1 ? 'contents' : 'none';
+  document.getElementById('variants').innerHTML = VARIANTS.map((v, i) => `<button type="button" data-v="${i + 1}" aria-pressed="${st.variant === i + 1}"><span>0${i + 1}</span>${v.title}</button>`).join('');
+  const v = VARIANTS[st.variant - 1];
+  document.getElementById('note').innerHTML = `<h2>${v.title}${v.badge ? `<small>${v.badge}</small>` : ''}</h2><p>${v.note}</p>${st.variant === 1 ? `<h3>GRAFICA LIMITI: ${USTYLES[st.ustyle][0].toUpperCase()}</h3><p>${USTYLES[st.ustyle][1]}</p>` : ''}<h3>PERCHÉ FUNZIONA</h3><ul>${v.why.map((x) => `<li>${x}</li>`).join('')}</ul><h3>COSA COSTA</h3><ul>${v.cost.map((x) => `<li>${x}</li>`).join('')}</ul>`;
+}
+
+const ACTIONS = {
+  open: (d) => { const s = find(d.id); st.sheet = null; if (s) toast(`Apre “${s.label}”`); },
+  menu: (d) => { st.target = Number(d.id); st.sheet = 'menu'; },
+  confirm: (d) => { st.target = Number(d.id); st.sheet = 'confirm'; },
+  close: (d) => { const s = find(d.id); st.sessions = st.sessions.filter((x) => x !== s); st.sheet = null; if (s) toast(`${s.kind === 'chat' ? 'Chat chiusa' : 'Terminale chiuso'}`); },
+  dismiss: () => { st.sheet = null; },
+  sheet: (d) => { st.sheet = d.sheet; },
+  answer: (d) => { const s = find(d.id); if (s) s.status = 'busy'; toast('Risposta inviata'); },
+  launch: () => { if (st.draft.trim()) start(st.agent, st.cwd, 'chat', st.draft.trim()); },
+  quick: (d) => start(d.cli, d.cwd, st.mode),
+  'pick-agent': (d) => { st.agent = d.v; st.sheet = null; },
+  'pick-folder': (d) => { st.cwd = d.v; st.sheet = st.variant === 3 || st.variant === 2 ? 'new' : null; },
+  mode: (d) => { st.mode = d.v; },
+  filter: (d) => { st.filter = d.f; },
+  host: () => toast('Apre il selettore dei computer'),
+  soon: () => { st.sheet = null; toast('Fuori dal mockup'); },
+  noop: () => {},
+};
+
+let dragged = false;
+phone.addEventListener('click', (e) => {
+  if (dragged) { dragged = false; return; }
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  ACTIONS[el.dataset.act](el.dataset);
+  render();
+});
+phone.addEventListener('input', (e) => {
+  if (e.target.id !== 'draft') return;
+  st.draft = e.target.value;
+  document.getElementById('go').disabled = !st.draft.trim();
+});
+
+// Swipe della variante 03: la riga scorre a sinistra e scopre "Chiudi".
+let drag = null;
+phone.addEventListener('pointerdown', (e) => {
+  const r = e.target.closest('[data-swipe]');
+  phone.querySelectorAll('[data-swipe]').forEach((x) => { if (x !== r) x.style.transform = ''; });
+  if (r) drag = { r, x: e.clientX, base: r.style.transform ? -88 : 0, dx: 0 };
+});
+window.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  drag.dx = e.clientX - drag.x;
+  if (Math.abs(drag.dx) < 6) return;
+  dragged = true;
+  drag.r.classList.add('dragging');
+  drag.r.style.transform = `translateX(${Math.max(-110, Math.min(0, drag.base + drag.dx))}px)`;
+});
+const endDrag = () => {
+  if (!drag) return;
+  drag.r.classList.remove('dragging');
+  drag.r.style.transform = drag.base + drag.dx < -44 ? 'translateX(-88px)' : '';
+  drag = null;
+  setTimeout(() => { dragged = false; }, 0);
+};
+window.addEventListener('pointerup', endDrag);
+window.addEventListener('pointercancel', endDrag);
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.sheet) { st.sheet = null; render(); } });
+
+document.getElementById('variants').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { st.variant = Number(b.dataset.v); st.sheet = null; phone.querySelector('.scroll').scrollTop = 0; render(); } });
+document.getElementById('scenario').addEventListener('change', (e) => { st.scenario = e.target.value; st.sessions = SCENARIOS[st.scenario](); st.sheet = null; st.filter = 'all'; render(); });
+document.getElementById('ustyle').addEventListener('change', (e) => { st.ustyle = e.target.value; render(); });
+document.getElementById('uscn').addEventListener('change', (e) => { st.uscn = e.target.value; render(); });
+document.getElementById('reset').addEventListener('click', () => { const { variant, scenario, ustyle, uscn } = st; st = { ...fresh(), variant, scenario, ustyle, uscn, sessions: SCENARIOS[scenario]() }; render(); });
+render();
+</script>
+</body>
+</html>

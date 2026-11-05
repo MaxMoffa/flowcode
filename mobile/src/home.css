@@ -1,0 +1,674 @@
+/* The home page (Home.tsx, HomeUsage.tsx), ported from docs/design/mobile-home-variants.html:
+   variant 01 "Launcher" with the "Barre e ritmo" usage cards. Theme tokens only: the desktop's
+   palette overrides them at runtime. Everything is prefixed hm- so it never meets the old page's rules. */
+
+.hm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hm-sec {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 2px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.hm-sec b {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.hm-sec b.busy {
+  color: var(--busy);
+}
+
+.hm-sec-link {
+  min-height: 44px;
+  margin: -12px -2px -12px 0;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hm-empty {
+  padding: 26px 18px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: 18px;
+}
+
+/* ---- launcher ---------------------------------------------------------- */
+
+.hm-launch {
+  padding: 14px;
+  border-radius: 22px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+}
+
+.hm-launch textarea {
+  display: block;
+  width: 100%;
+  height: 64px;
+  resize: none;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--fg);
+  font: 17px/1.35 var(--font);
+}
+
+.hm-launch textarea::placeholder {
+  color: var(--muted);
+}
+
+.hm-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.hm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  max-width: 132px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-3);
+  color: var(--fg);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.hm-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-pill svg {
+  flex: none;
+}
+
+.hm-go {
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.hm-go:disabled {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+/* ---- buttons ------------------------------------------------------------ */
+
+.hm-btn {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 13px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--surface-3);
+}
+
+.hm-btn.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.hm-btn.icon {
+  padding: 0;
+  color: var(--muted);
+}
+
+.hm-btn.danger {
+  background: var(--danger);
+  color: var(--bg);
+}
+
+.hm-btn:disabled {
+  opacity: 0.45;
+}
+
+/* ---- "ti aspetta" ------------------------------------------------------- */
+
+.hm-wait {
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--wait-bg);
+  border: 1px solid var(--wait-border);
+}
+
+.hm-wait-top {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.hm-wait-text {
+  min-width: 0;
+}
+
+.hm-wait-eye {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wait);
+}
+
+.hm-wait-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.hm-wait-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hm-wait-acts {
+  display: grid;
+  grid-template-columns: 1fr 1fr 44px;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.hm-wait-acts.single {
+  grid-template-columns: 1fr;
+}
+
+/* ---- session rows ------------------------------------------------------- */
+
+.hm-list {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.hm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 4px 10px 14px;
+}
+
+.hm-row + .hm-row {
+  border-top: 1px solid var(--border);
+}
+
+.hm-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.hm-txt {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.hm-txt b {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-sub {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-sub .warm {
+  color: var(--wait);
+}
+
+.hm-more {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  flex: none;
+}
+
+.hm-tile {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-3);
+}
+
+.hm-tile.st-waiting {
+  background: var(--wait-bg);
+  color: var(--wait);
+  box-shadow: inset 0 0 0 1px var(--wait-border);
+}
+
+.hm-tile.st-idle {
+  color: var(--muted);
+}
+
+.hm-tile.st-exited {
+  background: none;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  opacity: 0.7;
+}
+
+.hm-tile.st-busy {
+  background: var(--busy-bg);
+  color: var(--busy);
+}
+
+.hm-tile.st-starting {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.hm-tile.st-starting .tr-sweep rect {
+  stroke: var(--accent);
+}
+
+.hm-bubble {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 17px;
+  height: 17px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--muted);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.hm-state {
+  flex: none;
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+}
+
+.hm-state em {
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  background: var(--accent-bg);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.hm-state small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hm-vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* ---- limits and costs --------------------------------------------------- */
+
+.hm-ucards {
+  display: flex;
+  gap: 10px;
+  margin: 0 -16px;
+  padding: 2px 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-left: 16px;
+  scrollbar-width: none;
+}
+
+.hm-ucards::-webkit-scrollbar {
+  display: none;
+}
+
+.hm-uc {
+  flex: 0 0 300px;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  scroll-snap-align: start;
+}
+
+.hm-ucards.single .hm-uc {
+  flex-basis: 100%;
+}
+
+.hm-uc.hit {
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+
+.hm-uc.warmc {
+  border-color: var(--wait-border);
+}
+
+.hm-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hm-sheet-list .hm-uc {
+  flex: none;
+  background: var(--surface-2);
+}
+
+.hm-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hm-u-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hm-u-ico {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-3);
+}
+
+.hm-u-name {
+  min-width: 0;
+  display: grid;
+}
+
+.hm-u-name b {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-u-name small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.hm-u-name small .dot {
+  width: 7px;
+  height: 7px;
+}
+
+.hm-u-alert {
+  margin-top: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hm-ok {
+  --c: var(--accent);
+}
+
+.hm-warm {
+  --c: var(--wait);
+}
+
+.hm-hot {
+  --c: var(--danger);
+}
+
+.hm-u-g {
+  margin-top: 12px;
+}
+
+.hm-u-gt {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.hm-u-gt b {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--c);
+}
+
+.hm-u-bar {
+  position: relative;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 5px;
+  background: var(--surface-3);
+}
+
+.hm-u-bar i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 5px;
+  background: var(--c);
+}
+
+.hm-u-bar s {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--fg);
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+.hm-u-gs {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hm-u-gs .up {
+  color: var(--wait);
+}
+
+.hm-u-big {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.hm-u-big b {
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.hm-u-big span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.hm-u-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hm-u-note.up {
+  color: var(--wait);
+}
+
+.hm-u-note.gap {
+  margin-top: 8px;
+}
+
+.hm-nest {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.hm-nest div {
+  display: grid;
+  grid-template-columns: 54px 1fr 58px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hm-nest span.bar2 {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.hm-nest span.bar2 i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.hm-nest b {
+  text-align: right;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.hm-u-off {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.hm-u-off b {
+  display: block;
+  font-weight: 600;
+}
+
+.hm-u-off span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---- pickers and the session sheet -------------------------------------- */
+
+.hm-sheet-sub {
+  margin: -8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.hm-sheet-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.hm-acts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.hm-rename {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.hm-rename input {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+
+.hm-opt-small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
