@@ -6,6 +6,7 @@ mod gpu;
 mod attention;
 mod chat;
 mod chat_images;
+mod chat_mcp;
 mod agent_insight;
 mod context;
 mod dictation;

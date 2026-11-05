@@ -37,6 +37,21 @@ describe("agent preview openers", () => {
     expect(track(done, true)).toBeNull();
     expect(track(done, false)).toBeNull();
   });
+  it("follows Flowcode's own tool, marked as not opened yet", () => {
+    const meta = { claudeCode: { toolName: "mcp__flowcode__open_in_browser" } };
+    const track = createAgentOpenTracker("/repo");
+    expect(track(event({ _meta: meta, rawInput: { target: "https://example.com" } }))).toBeNull();
+    expect(track(event({ _meta: meta, status: "completed" }))).toEqual({ target: "https://example.com", cwd: "/repo", direct: true });
+  });
+  it("ignores Flowcode's tool when denied, or for a target it can't preview", () => {
+    const meta = { claudeCode: { toolName: "mcp__flowcode__open_in_browser" } };
+    expect(createAgentOpenTracker("/repo")(event({ _meta: meta, status: "failed", rawInput: { target: "https://example.com" } }))).toBeNull();
+    expect(createAgentOpenTracker("/repo")(event({ _meta: meta, status: "completed", rawInput: { target: "C:/Windows/calc.exe" } }))).toBeNull();
+    expect(createAgentOpenTracker("/repo")(event({ _meta: meta, status: "completed", rawInput: { target: "javascript:alert(1)" } }))).toBeNull();
+  });
+  it("needs the tool's exact name, not just a target input", () => {
+    expect(createAgentOpenTracker("/repo")(event({ _meta: { claudeCode: { toolName: "mcp__other__open" } }, status: "completed", rawInput: { target: "https://example.com" } }))).toBeNull();
+  });
   it("can finish a command whose start arrived in the reconnect replay", () => {
     const track = createAgentOpenTracker("/repo");
     expect(track(event({ status: "in_progress", rawInput: { command: "xdg-open http://localhost:5173" } }), true)).toBeNull();

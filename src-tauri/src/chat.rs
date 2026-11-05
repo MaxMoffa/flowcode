@@ -1210,7 +1210,10 @@ impl Chat {
                 }
             }
             Incoming::Request { id, method, params } => {
-                if method == "session/request_permission" {
+                if let Some(option_id) = (method == "session/request_permission").then(|| crate::chat_mcp::auto_allow(&params)).flatten() {
+                    let reply = json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "selected", "optionId": option_id } } });
+                    let _ = self.replies.try_send(reply);
+                } else if method == "session/request_permission" {
                     lock(&self.permissions).insert(id.to_string(), id.clone());
                     let mut tool_call = params.get("toolCall").cloned().unwrap_or(Value::Null);
                     crate::chat_images::stash_images(&mut tool_call);
@@ -1851,7 +1854,8 @@ fn session_in_use(error: &str) -> bool {
 }
 
 fn new_session(chat: &Chat, cwd: &str) -> Result<(Value, String, bool), String> {
-    let result = chat.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), SETUP_TIMEOUT)?;
+    let mcp = crate::chat_mcp::servers(&chat.app, &chat.agent, chat.wsl);
+    let result = chat.request("session/new", json!({ "cwd": cwd, "mcpServers": mcp }), SETUP_TIMEOUT)?;
     let session_id = result
         .get("sessionId")
         .and_then(Value::as_str)
@@ -1965,7 +1969,7 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool, gate:
                 }
                 loaded = chat.request(
                     "session/load",
-                    json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
+                    json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": crate::chat_mcp::servers(&chat.app, &chat.agent, chat.wsl) }),
                     SETUP_TIMEOUT,
                 );
                 if !loaded.as_ref().err().is_some_and(|e| session_in_use(e)) || chat.exited.load(Ordering::Acquire) {

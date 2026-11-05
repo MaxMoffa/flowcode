@@ -1,5 +1,6 @@
 import type { ChatEvent } from "../src/chat/chatTypes";
 
+const OPEN_TOOL = "mcp__flowcode__open_in_browser";
 const PREVIEWABLE = new Set(["html", "htm", "svg", "pdf", "png", "jpg", "jpeg", "gif", "webp", "mp4", "webm"]);
 
 export function isPreviewableFile(path: string): boolean {
@@ -51,24 +52,50 @@ export function toolCommand(update: Record<string, unknown>): string | null {
   return typeof command === "string" ? command : typeof cmd === "string" ? cmd : null;
 }
 
+/** The previewable target of a call to Flowcode's own MCP tool (see `chat_mcp.rs`). */
+export function openToolTarget(update: Record<string, unknown>): string | null {
+  const meta = update._meta as { claudeCode?: { toolName?: unknown } } | null | undefined;
+  if (meta?.claudeCode?.toolName !== OPEN_TOOL) return null;
+  const target = (update.rawInput as { target?: unknown } | null | undefined)?.target;
+  if (typeof target !== "string") return null;
+  if (/^https?:\/\//i.test(target)) return target;
+  const path = fileTarget(target);
+  return isPreviewableFile(path) ? path : null;
+}
+
+export interface AgentOpen {
+  target: string;
+  cwd: string;
+  /** Asked through Flowcode's tool: nothing has opened yet, so Flowcode must open it wherever the settings say. */
+  direct?: boolean;
+}
+
+function agentOpen(update: Record<string, unknown>, cwd: string): AgentOpen | null {
+  const tool = openToolTarget(update);
+  if (tool) return { target: tool, cwd, direct: true };
+  const command = toolCommand(update);
+  const target = command && openCommandTarget(command);
+  return target ? { target, cwd: commandCwd(command, cwd) } : null;
+}
+
 /** Tracks partial tool updates; only a successful live opener causes navigation. */
 export function createAgentOpenTracker(cwd: string) {
-  const commands = new Map<string, string>();
+  // The input arrives with an earlier update than the one that completes the call.
+  const inputs = new Map<string, Record<string, unknown>>();
   const settled = new Set<string>();
-  return (event: ChatEvent, replay = false): { target: string; cwd: string } | null => {
+  return (event: ChatEvent, replay = false): AgentOpen | null => {
     if (event.kind !== "update") return null;
     const update = event.update;
     const id = update.toolCallId;
     if ((update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") || typeof id !== "string" || settled.has(id)) return null;
-    const command = toolCommand(update) ?? commands.get(id);
+    const input = toolCommand(update) !== null || openToolTarget(update) !== null ? update : inputs.get(id);
     if (update.status !== "completed" && update.status !== "failed") {
-      if (command) commands.set(id, command);
+      if (input) inputs.set(id, input);
       return null;
     }
-    commands.delete(id);
+    inputs.delete(id);
     settled.add(id);
-    if (replay || update.status === "failed" || !command) return null;
-    const target = openCommandTarget(command);
-    return target ? { target, cwd: commandCwd(command, cwd) } : null;
+    if (replay || update.status === "failed" || !input) return null;
+    return agentOpen(input, cwd);
   };
 }

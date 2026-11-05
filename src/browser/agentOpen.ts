@@ -1,23 +1,34 @@
+import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type { AgentOpen } from "../../shared/agentOpen";
 import { checkPath } from "../lib/fileLinks";
 import { toWindowsPath } from "../terminal/wslPath";
-import { getBrowserSettings } from "./browserSettings";
+import { getBrowserSettings, type Target } from "./browserSettings";
 import { isLocalUrl, normalizeLocalUrl, openFileInPreview, openUrlInPreview } from "./browserStore";
 
-export { commandCwd, openCommandTarget, toolCommand } from "../../shared/agentOpen";
+export { commandCwd, createAgentOpenTracker, openCommandTarget, toolCommand } from "../../shared/agentOpen";
 
-/** An agent ran a command that opens `target` in the system: shows it in the
- * Browser panel too when the Browser settings say "in app" for that kind. The
- * caller waits for the command to complete (denied or failed ones never get
- * here); the system opener has already run - this can't stop it, only put the
- * page where the user asked for it. */
-export async function routeAgentOpen(target: string, cwd: string, distro: string | null): Promise<void> {
+/** An agent opened `target`: shows it where the Browser settings say for that
+ * kind. The caller waits for the call to complete (denied or failed ones never
+ * get here). After a shell opener the system has already opened it - this can't
+ * stop that, only add the panel when the settings say "in app". Flowcode's own
+ * tool (`direct`) opened nothing yet, so Flowcode opens it, in the panel when
+ * the setting is "ask": there is no click to anchor the question to, and the
+ * panel is the contained choice for a page the agent picked. */
+export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro: string | null): Promise<void> {
   const settings = getBrowserSettings();
+  const inPanel = (setting: Target) => setting === "app" || (direct && setting === "ask");
   if (/^https?:\/\//i.test(target)) {
-    if ((isLocalUrl(target) ? settings.local : settings.external) === "app") openUrlInPreview(isLocalUrl(target) ? normalizeLocalUrl(target) : target);
+    const local = isLocalUrl(target);
+    const setting = local ? settings.local : settings.external;
+    if (inPanel(setting)) openUrlInPreview(local ? normalizeLocalUrl(target) : target);
+    else if (direct) openUrl(target).catch(() => {});
     return;
   }
-  if (settings.artifacts !== "app") return;
+  if (!direct && settings.artifacts !== "app") return;
   const path = distro && target.startsWith("/") ? toWindowsPath(distro, target) : target;
   const found = await checkPath(path, cwd);
-  if (found?.kind === "file") openFileInPreview(found.path);
+  if (found?.kind !== "file") return;
+  if (inPanel(settings.artifacts)) openFileInPreview(found.path);
+  else void invoke("open_with_default_app", { path: found.path }).catch(() => {});
 }
