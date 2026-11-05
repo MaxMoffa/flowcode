@@ -3197,6 +3197,24 @@ summary.chat-step-row {
 .chat-composer { z-index:1; }
 @media (prefers-reduced-motion: reduce) { .chat-subtray, .chat-subtray-dot { animation:none; } }
 .chat-subtray-row.is-selected { background:color-mix(in srgb, var(--accent) 16%, transparent); box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); border-radius:8px; margin:0 -8px; padding-inline:8px; }
+/* Two or more subagents: one line against the composer (mirror of the terminals card), the list opens upward. */
+.chat-subtray.is-grouped { padding:0 0 24px; }
+.chat-subtray-head { display:flex; align-items:center; gap:9px; width:100%; height:32px; padding:0 16px; border:0; border-radius:inherit; background:none; color:var(--fg-muted); font:inherit; font-size:12.5px; text-align:left; cursor:pointer; }
+.chat-subtray-head:hover { color:var(--fg); }
+.chat-subtray-count { flex:0 0 auto; font-weight:600; color:var(--fg); font-variant-numeric:tabular-nums; }
+.chat-subtray-hint { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; }
+.chat-subtray-chev { flex:0 0 auto; transition:transform .18s; }
+.chat-subtray-head[aria-expanded="true"] .chat-subtray-chev { transform:rotate(180deg); }
+.chat-subtray.is-grouped .chat-subtray-list { max-height:190px; overflow:auto; padding:6px 8px; border-bottom:1px solid color-mix(in srgb, var(--fg) 10%, transparent); animation:chat-subtray-list-in .18s ease-out; }
+@keyframes chat-subtray-list-in { from { opacity:0; transform:translateY(8px); } }
+.chat-subtray.is-grouped .chat-subtray-row { width:100%; max-height:32px; margin:0; padding:5px 8px; border:0; border-radius:8px; background:none; color:var(--fg); font:inherit; font-size:12.5px; text-align:left; }
+.chat-subtray.is-grouped button.chat-subtray-row { cursor:pointer; }
+.chat-subtray.is-grouped button.chat-subtray-row:hover { background:color-mix(in srgb, var(--fg) 6%, transparent); }
+.chat-subtray.is-grouped .chat-subtray-row.is-selected, .chat-subtray.is-grouped button.chat-subtray-row.is-selected:hover { background:color-mix(in srgb, var(--accent) 16%, transparent); }
+.chat-subtray.is-grouped .chat-subtray-row.is-leaving { max-height:0; padding-block:0; }
+.chat-subtray-go { flex:0 0 auto; display:grid; place-items:center; color:var(--fg-muted); }
+.chat-subtray-row.is-selected .chat-subtray-go { color:var(--accent); }
+@media (prefers-reduced-motion: reduce) { .chat-subtray.is-grouped .chat-subtray-list { animation:none; } .chat-subtray-chev { transition:none; } }
 
 /* Background terminals: a card as wide as the composer, tucked under its bottom edge (mirror of the subagent tray). */
 .chat-termcard { position:relative; z-index:0; border-radius:0 0 20px 20px; background:color-mix(in srgb, var(--fg) 5%, rgb(var(--surface-rgb))); box-shadow:0 8px 24px -12px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--fg) 16%, transparent); animation:chat-termcard-in .25s ease-out; }

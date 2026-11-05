@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Proposta interattiva: la card dei subagent sopra il composer si raggruppa come quella dei terminali, su desktop e mobile.">
+  <title>Flowcode — subagent raggruppati sopra il composer</title>
+  <style>
+    /* Token da mobile/src/ui.css; misure da src/chat/chat.css (.chat-subtray, .chat-termcard) e mobile/src/chat.css. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07;
+      --tray: color-mix(in srgb, var(--fg) 5%, var(--surface));
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; color: var(--fg); background: var(--surface); }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1280px; margin: auto; padding: 28px 24px 40px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 760px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 14px; margin-bottom: 20px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .stepper { display: flex; align-items: center; gap: 8px; }
+    .stepper b { min-width: 16px; text-align: center; color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .ctl { min-width: 32px; min-height: 32px; padding: 0 10px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--fg); text-align: center; }
+    .ctl:disabled { opacity: .4; cursor: default; }
+    .stage { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 40px; align-items: start; }
+    .cap { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; margin-top: 32px; }
+    .notes h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+    .notes ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; color: var(--muted); font-size: 13.5px; }
+    .notes li b { color: var(--fg); font-weight: 500; }
+    .notes code { font: 12.5px var(--mono); color: var(--fg); }
+    @media (max-width: 1000px) { .stage, .notes { grid-template-columns: minmax(0, 1fr); } .phone { justify-self: center; } }
+
+    /* ---- conversazione, comune ---- */
+    .pane { position: relative; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+    .conv { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+    .msg-user { width: fit-content; max-width: 78%; margin: 0 0 16px auto; padding: 9px 14px; background: var(--surface-2); overflow-wrap: anywhere; }
+    .msg { margin: 0 0 12px; line-height: 1.6; }
+    .mark { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; color: var(--muted); font-size: 12.5px; }
+    .mark b { color: var(--fg); font-weight: 600; }
+    .mark svg { color: var(--accent); }
+    .toast { position: absolute; left: 50%; top: 56px; z-index: 6; transform: translateX(-50%); max-width: 86%; padding: 7px 14px; border-radius: 10px; background: var(--surface-3); box-shadow: 0 8px 24px -10px #000c; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: drop .18s ease-out; }
+    @keyframes drop { from { opacity: 0; transform: translate(-50%, -6px); } }
+
+    /* ---- la card: parti comuni ---- */
+    .tray { position: relative; z-index: 0; background: var(--tray); box-shadow: 0 8px 24px -12px rgba(0, 0, 0, .6), 0 0 0 1px color-mix(in srgb, var(--fg) 16%, transparent); }
+    .tray.is-new { animation: tray-in .25s ease-out; }
+    @keyframes tray-in { from { opacity: 0; transform: translateY(10px); } }
+    .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .3; } }
+    .name { flex: 0 0 auto; font-weight: 600; color: var(--fg); white-space: nowrap; }
+    .task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+    .time { flex: 0 0 auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .go { flex: 0 0 auto; color: var(--muted); }
+    .row { display: flex; align-items: center; gap: 9px; width: 100%; font-size: 12.5px; }
+    .row.is-leaving { opacity: 0; transform: translateX(10px); transition: opacity .4s, transform .4s; }
+    button.row:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+    button.row:hover .go { color: var(--fg); }
+    .row.is-selected, button.row.is-selected:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+    .row.is-selected .go { color: var(--accent); }
+    .head { display: flex; align-items: center; gap: 9px; width: 100%; border-radius: inherit; color: var(--muted); font-size: 12.5px; }
+    .head:hover { color: var(--fg); }
+    .count { font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .hint { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+    .chev { flex: 0 0 auto; margin-left: auto; transition: transform .18s; }
+    .head[aria-expanded="true"] .chev { transform: rotate(180deg); }
+    .list { overflow-y: auto; overscroll-behavior: contain; border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+    .list.is-new { animation: list-in .18s ease-out; }
+    @keyframes list-in { from { opacity: 0; transform: translateY(8px); } }
+
+    /* ---- desktop ---- */
+    /* Tema scuro desktop da src/themes/themes.css: sfondo reale = --term-bg (.6) sul vetro, qui composto su un fondo fisso. */
+    .desk {
+      --surface-rgb: 14 10 7;
+      --bg: #130e0a; --surface: rgb(var(--surface-rgb)); --surface-3: #2c241c;
+      --tray: color-mix(in srgb, var(--fg) 5%, rgb(var(--surface-rgb)));
+      height: 780px; isolation: isolate; border: 1px solid rgba(0, 0, 0, .55); border-radius: 12px; box-shadow: 0 0 0 1px var(--border), 0 24px 70px -40px #000;
+    }
+    .desk::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .225; mix-blend-mode: screen; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.62  0 0 0 0 0.45  0 0 0 0 0.25  0 0 0 .55 -.12'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+    .chrome { flex: none; height: 38px; display: flex; align-items: center; gap: 14px; padding: 0 13px; background: var(--tray); border-bottom: 1px solid var(--border); font-size: 12px; }
+    .chrome b { font-weight: 600; }
+    .chrome span { align-self: stretch; display: flex; align-items: center; padding: 0 16px; background: var(--surface); border-bottom: 2px solid var(--accent); }
+    .desk .conv { padding: 20px 32px 12px; }
+    .desk .col { width: 100%; max-width: 680px; margin: 0 auto; }
+    .desk .msg-user { max-width: 70%; padding: 8px 15px; border-radius: 18px 18px 4px 18px; background: rgba(139, 168, 118, .22); }
+    .desk .msg { font-size: 14.5px; }
+    .desk .stack { flex: none; padding: 6px 32px 16px; }
+    .desk .tray { border-radius: 20px 20px 0 0; margin-bottom: -24px; }
+    .desk .tray.single { padding: 9px 16px 34px; }
+    .desk .tray.single .row { min-height: 24px; }
+    .desk .tray.grouped { padding-bottom: 24px; }
+    .desk .head { height: 32px; padding: 0 16px; }
+    .desk .list { max-height: 190px; padding: 6px 8px; }
+    .desk .list .row { padding: 5px 8px; border-radius: 8px; }
+    .desk .tray.single .row.is-selected { margin: 0 -8px; padding-inline: 8px; width: calc(100% + 16px); border-radius: 8px; }
+    .composer { position: relative; z-index: 1; padding: 14px 12px 10px 18px; border-radius: 24px; background: color-mix(in srgb, var(--fg) 7%, rgb(var(--surface-rgb))); box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 24%, transparent); }
+    .composer:focus-within { box-shadow: 0 0 0 1.5px var(--accent); }
+    .composer textarea { display: block; width: 100%; height: 44px; resize: none; border: 0; outline: 0; padding: 0; background: none; color: var(--fg); font: 13.5px/1.6 var(--font); }
+    .composer textarea::placeholder { color: var(--muted); opacity: 1; }
+    .tools { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11.5px; }
+    .send { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+    .termcard { position: relative; z-index: 0; margin-top: -20px; padding-top: 20px; border-radius: 0 0 20px 20px; background: var(--tray); box-shadow: 0 8px 24px -12px rgba(0, 0, 0, .6), 0 0 0 1px color-mix(in srgb, var(--fg) 16%, transparent); }
+    .termcard .chev { transform: rotate(180deg); }
+    .termcard .head[aria-expanded="true"] .chev { transform: none; }
+    .termcard .list { max-height: 190px; padding: 6px 8px 8px; border-bottom: 0; border-top: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); }
+    .termcard .row { padding: 5px 8px; border-radius: 8px; color: var(--muted); }
+    .termcard code { flex: 0 1 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: var(--fg); }
+    .termcard pre { margin: 4px 0 6px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 4%, rgb(var(--surface-rgb))); box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent); font: 11.5px/1.6 var(--mono); white-space: pre-wrap; }
+
+    /* ---- mobile ---- */
+    .phone { width: 390px; max-width: 100%; height: 780px; border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong); }
+    .status { flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .bar { flex: none; display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 2px 16px; border-bottom: 1px solid var(--border); }
+    .bar b { display: block; font-size: 15px; font-weight: 600; line-height: 1.25; }
+    .bar small { display: block; font-size: 12px; color: var(--muted); line-height: 1.25; }
+    .phone .conv { padding: 16px 16px 12px; }
+    .phone .msg-user { border-radius: 18px 18px 5px 18px; font-size: 15px; }
+    .phone .msg { font-size: 15px; line-height: 1.55; }
+    .phone .stack { position: relative; flex: none; padding: 6px 12px 10px; background: var(--bg); }
+    .phone .tray { margin: 0 4px -24px; border-radius: 22px 22px 0 0; box-shadow: 0 0 0 1px var(--border-strong); }
+    .phone .tray.single { padding: 8px 12px 32px; }
+    .phone .tray.single .row { min-height: 40px; }
+    .phone .tray.grouped { padding-bottom: 24px; }
+    .phone .name { flex: 0 1 auto; max-width: 30%; overflow: hidden; text-overflow: ellipsis; }
+    .phone .task { flex: 1 1 0; }
+    .phone-col .cap { margin-bottom: 18px; }
+    .phone .head { min-height: 44px; padding: 0 14px; }
+    .phone .list { max-height: var(--list-max, 195px); padding: 4px 6px; }
+    .phone .list .row { min-height: 44px; padding: 0 8px; border-radius: 10px; }
+    .phone .go { width: 22px; display: grid; place-items: center; }
+    .card { position: relative; z-index: 1; padding: 16px 10px 10px 20px; border-radius: 28px; background: var(--surface-2); box-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 0 0 1px var(--border-strong); }
+    .card:focus-within { box-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 0 0 1px var(--accent-border); }
+    .card input { display: block; width: 100%; min-height: 34px; border: 0; outline: 0; background: none; color: var(--fg); font: 16px var(--font); }
+    .card input::placeholder { color: var(--muted); opacity: 1; }
+    .actions { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+    .pill { flex: 0 1 auto; display: flex; align-items: center; height: 46px; padding: 0 14px; border-radius: 23px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); font-size: 14px; white-space: nowrap; }
+    .round { flex: none; width: 52px; height: 52px; margin-left: auto; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+    .kb { flex: none; height: 262px; display: grid; place-items: center; background: #0f0c09; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+    .kb[hidden] { display: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .tray.is-new, .list.is-new, .dot, .toast { animation: none; }
+      .chev, .row.is-leaving { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="eyebrow">FLOWCODE · CHAT</div>
+    <h1>Subagent raggruppati sopra il composer</h1>
+    <p class="lead">Con più di un subagent la card diventa una riga sola, specchio di quella dei terminali. Prova: clic sulla riga, oppure sul desktop <kbd>↑</kbd> dal composer vuoto.</p>
+
+    <div class="controls">
+      <div class="stepper">
+        Subagent in corso
+        <button type="button" class="ctl" id="less" aria-label="Termina un subagent">−</button>
+        <b id="n">3</b>
+        <button type="button" class="ctl" id="more" aria-label="Avvia un subagent">+</button>
+      </div>
+      <label><input type="checkbox" id="terms" checked> Terminali in background (desktop)</label>
+      <label><input type="checkbox" id="kb"> Tastiera aperta (mobile)</label>
+    </div>
+
+    <div class="stage">
+      <section aria-label="Desktop">
+        <p class="cap">DESKTOP</p>
+        <div class="pane desk" id="desk">
+          <div class="chrome"><b>Flowcode</b><span>flowcode · Claude</span></div>
+          <div class="conv"><div class="col">
+            <div class="msg-user msg">Controlla come il tray dei subagent si comporta su mobile e prepara i test.</div>
+            <p class="msg">Divido il lavoro: un subagent per ogni parte, poi unisco i risultati.</p>
+            <div class="mark"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 3v18M3 12h18"/></svg><span><b>Subagent avviati</b> · lavorano in parallelo</span></div>
+          </div></div>
+          <div class="stack"><div class="col">
+            <div id="deskTray"></div>
+            <div class="composer">
+              <textarea id="input" placeholder="Scrivi un messaggio…" aria-label="Messaggio"></textarea>
+              <div class="tools"><span>Claude · Sonnet</span><span>Auto</span><button type="button" class="send" aria-label="Invia"><svg viewBox="0 0 24 24" width="14" height="14" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+            </div>
+            <div id="deskTerm"></div>
+          </div></div>
+        </div>
+      </section>
+
+      <section aria-label="Mobile" class="phone-col">
+        <p class="cap">MOBILE</p>
+        <div class="pane phone" id="phone">
+          <div class="status"><span>9:41</span><span>5G</span></div>
+          <div class="bar"><div><b>flowcode</b><small>Claude · in esecuzione</small></div></div>
+          <div class="conv">
+            <div class="msg-user msg">Controlla il tray dei subagent e prepara i test.</div>
+            <p class="msg">Divido il lavoro: un subagent per ogni parte, poi unisco i risultati.</p>
+          </div>
+          <div class="stack">
+            <div id="phoneTray"></div>
+            <div class="card">
+              <input placeholder="Scrivi un messaggio…" aria-label="Messaggio">
+              <div class="actions"><span class="pill">Claude · Sonnet</span><button type="button" class="round" aria-label="Invia"><svg viewBox="0 0 24 24" width="20" height="20" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+            </div>
+          </div>
+          <div class="kb" id="keys" hidden>tastiera</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="notes">
+      <div>
+        <h2>Comportamento comune</h2>
+        <ul>
+          <li><b>1 subagent:</b> riga di oggi, nessun cambiamento.</li>
+          <li><b>2 o più:</b> riga unica con conteggio; la lista si apre verso l’alto, la riga resta attaccata al composer.</li>
+          <li><b>Riga intera cliccabile:</b> apre la chat del subagent e richiude la lista. La freccia ↗ resta come segno visivo.</li>
+          <li><b>Scende a 1:</b> torna da sola alla riga singola.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>Desktop</h2>
+        <ul>
+          <li><kbd>↑</kbd> a inizio testo: espande e seleziona la riga più vicina al composer.</li>
+          <li><kbd>↑</kbd> <kbd>↓</kbd> scorrono; <kbd>↓</kbd> dall’ultima riga richiude e torna al testo.</li>
+          <li><kbd>Invio</kbd> apre il subagent, <kbd>Esc</kbd> richiude.</li>
+          <li>Altri tasti tornano al testo e la lista resta aperta, come per i terminali.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>Mobile</h2>
+        <ul>
+          <li>Solo tocco: riga di 44 px, righe della lista di 44 px.</li>
+          <li>Nessun suggerimento di tasti.</li>
+          <li>Lista limitata a <code>min(200px, 25dvh)</code>, come oggi: con la tastiera aperta scorre al suo interno.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const POOL = [
+      ["Explore", "Trova i punti di ingresso del tray nel codice"],
+      ["code-reviewer", "Rivedi il diff di ChatBody.tsx"],
+      ["general-purpose", "Prepara i test per la navigazione con le frecce"],
+      ["Plan", "Valuta l’impatto sul layout mobile"],
+      ["Explore", "Confronta gli stili di chat.css desktop e mobile"],
+      ["general-purpose", "Controlla le traduzioni delle etichette"],
+      ["code-reviewer", "Verifica l’accessibilità della lista"],
+      ["Explore", "Cerca altri usi di SubagentTray"],
+    ];
+    const TERMS = [
+      ["npm run dev", "Server di sviluppo", "VITE ready in 412 ms\n  Local: http://localhost:1420/"],
+      ["npm test -- --watch", "Test in osservazione", "Tests  84 passed (84)\nWaiting for file changes…"],
+    ];
+    const MAX = POOL.length;
+    const $ = (id) => document.getElementById(id);
+    const CHEV = '<svg class="chev" viewBox="0 0 24 24" width="14" height="14" stroke-width="2.2"><path d="m6 15 6-6 6 6"/></svg>';
+    const GO = '<span class="go"><svg viewBox="0 0 24 24" width="14" height="14" stroke-width="2.4"><path d="M7 17 17 7M8 7h9v9"/></svg></span>';
+    const TERM_ICON = '<svg viewBox="0 0 24 24" width="14" height="14"><path d="m5 7 5 5-5 5m8 0h6"/></svg>';
+
+    let nextId = 0;
+    const launch = (i) => ({ id: nextId++, slot: i % MAX, started: Date.now() - (40 + (MAX - i) * 23) * 1000 });
+    let subs = [0, 1, 2].map(launch);
+    const desk = { open: false, wasOpen: false, shown: false };
+    const phone = { open: false, wasOpen: false, shown: false };
+    let zone = "input", index = 0, termsOpen = false, termsShown = true, termOut = null;
+
+    const secs = (s) => `${Math.max(0, Math.floor((Date.now() - s.started) / 1000))}s`;
+    const rowInner = (s) => `<span class="dot" aria-hidden="true"></span><span class="name">${POOL[s.slot][0]}</span><span class="task">${POOL[s.slot][1]}</span><span class="time" data-started="${s.started}">${secs(s)}</span>`;
+    const countLabel = (n) => `${n} subagent in corso`;
+
+    function trayHtml(state, isDesk) {
+      const n = subs.length;
+      if (n === 0) { state.shown = false; state.open = false; state.wasOpen = false; return ""; }
+      const trayNew = state.shown ? "" : " is-new";
+      state.shown = true;
+      if (n === 1) {
+        state.open = false; state.wasOpen = false;
+        const selected = isDesk && zone === "sub" ? " is-selected" : "";
+        return `<div class="tray single${trayNew}" role="status"><div class="row${selected}">${rowInner(subs[0])}<button type="button" class="go" data-open="0" aria-label="Apri la chat di questo subagent" title="Apri la chat di questo subagent"><svg viewBox="0 0 24 24" width="14" height="14" stroke-width="2.4"><path d="M7 17 17 7M8 7h9v9"/></svg></button></div></div>`;
+      }
+      const hint = isDesk ? (state.open ? "↑↓ scorri · Invio apri" : "↑ per espandere") : "";
+      const listNew = state.open && !state.wasOpen ? " is-new" : "";
+      state.wasOpen = state.open;
+      const rows = state.open
+        ? `<div class="list${listNew}" role="list">${subs.map((s, i) => `<button type="button" role="listitem" class="row${isDesk && zone === "sub" && index === i ? " is-selected" : ""}" data-open="${i}" title="Apri la chat di questo subagent">${rowInner(s)}${GO}</button>`).join("")}</div>`
+        : "";
+      return `<div class="tray grouped${trayNew}">${rows}<button type="button" class="head" data-toggle aria-expanded="${state.open}"><span class="dot" aria-hidden="true"></span><span class="count">${countLabel(n)}</span><span class="hint">${hint}</span>${CHEV}</button></div>`;
+    }
+
+    function termHtml() {
+      if (!termsShown) return "";
+      const hint = termsOpen ? "↑↓ scorri · Invio output" : "↓ per espandere";
+      const rows = termsOpen
+        ? `<div class="list" role="list">${TERMS.map(([cmd, desc, out], i) => `<div role="listitem"><button type="button" class="row${zone === "term" && index === i ? " is-selected" : ""}" data-term="${i}"><span class="dot" aria-hidden="true"></span><code>${cmd}</code><span class="task">${desc}</span></button>${termOut === i ? `<pre>${out}</pre>` : ""}</div>`).join("")}</div>`
+        : "";
+      return `<div class="termcard"><button type="button" class="head" data-term-toggle aria-expanded="${termsOpen}">${TERM_ICON}<span class="count">${TERMS.length} terminali in background</span><span class="hint">${hint}</span>${CHEV}</button>${rows}</div>`;
+    }
+
+    function render() {
+      if (zone === "sub" && subs.length === 0) zone = "input";
+      if (zone === "sub") index = Math.min(index, subs.length - 1);
+      if (zone === "term" && !termsShown) zone = "input";
+      $("deskTray").innerHTML = trayHtml(desk, true);
+      $("phoneTray").innerHTML = trayHtml(phone, false);
+      $("deskTerm").innerHTML = termHtml();
+      $("n").textContent = subs.length;
+      $("less").disabled = subs.length === 0;
+      $("more").disabled = subs.length === MAX;
+      document.querySelector("#deskTray .is-selected, #deskTerm .is-selected")?.scrollIntoView({ block: "nearest" });
+    }
+
+    function toast(pane, text) {
+      pane.querySelector(".toast")?.remove();
+      const el = document.createElement("div");
+      el.className = "toast";
+      el.setAttribute("role", "status");
+      el.textContent = text;
+      pane.append(el);
+      setTimeout(() => el.remove(), 1600);
+    }
+
+    function openSub(state, pane, i) {
+      const s = subs[i];
+      if (!s) return;
+      state.open = false;
+      zone = "input";
+      toast(pane, `Si apre la chat di ${POOL[s.slot][0]}`);
+      render();
+    }
+
+    function wireTray(host, state, pane, isDesk) {
+      host.addEventListener("click", (e) => {
+        if (e.target.closest("[data-toggle]")) {
+          state.open = !state.open;
+          if (!state.open && isDesk) zone = "input";
+          render();
+          if (isDesk) $("input").focus();
+          return;
+        }
+        const row = e.target.closest("[data-open]");
+        if (row) openSub(state, pane, Number(row.dataset.open));
+      });
+    }
+    wireTray($("deskTray"), desk, $("desk"), true);
+    wireTray($("phoneTray"), phone, $("phone"), false);
+
+    $("deskTerm").addEventListener("click", (e) => {
+      if (e.target.closest("[data-term-toggle]")) {
+        termsOpen = !termsOpen;
+        if (!termsOpen) { termOut = null; if (zone === "term") zone = "input"; }
+      } else {
+        const row = e.target.closest("[data-term]");
+        if (!row) return;
+        const i = Number(row.dataset.term);
+        zone = "term"; index = i; termOut = termOut === i ? null : i;
+      }
+      render();
+      $("input").focus();
+    });
+
+    const closeSubs = () => { desk.open = false; zone = "input"; };
+    const closeTerms = () => { termsOpen = false; termOut = null; zone = "input"; };
+
+    $("input").addEventListener("keydown", (e) => {
+      const nav = ["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(e.key);
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      const box = e.currentTarget;
+      if (zone === "sub") {
+        if (!nav) { zone = "input"; render(); return; }
+        e.preventDefault();
+        if (e.key === "ArrowUp") index = Math.max(0, index - 1);
+        else if (e.key === "ArrowDown") { if (index + 1 >= subs.length) closeSubs(); else index += 1; }
+        else if (e.key === "Enter") return openSub(desk, $("desk"), index);
+        else closeSubs();
+        render();
+      } else if (zone === "term") {
+        if (!nav) { zone = "input"; render(); return; }
+        e.preventDefault();
+        if (e.key === "ArrowDown") index = Math.min(TERMS.length - 1, index + 1);
+        else if (e.key === "ArrowUp") { if (index === 0) closeTerms(); else index -= 1; }
+        else if (e.key === "Enter") termOut = termOut === index ? null : index;
+        else if (termOut !== null) termOut = null;
+        else closeTerms();
+        render();
+      } else if (e.key === "ArrowUp" && subs.length > 0 && box.selectionStart === 0 && box.selectionEnd === 0) {
+        e.preventDefault();
+        zone = "sub"; index = subs.length - 1;
+        if (subs.length > 1) desk.open = true;
+        render();
+      } else if (e.key === "ArrowDown" && termsShown && box.selectionStart === box.value.length && box.selectionEnd === box.value.length) {
+        e.preventDefault();
+        zone = "term"; index = 0; termsOpen = true;
+        render();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        box.value = "";
+      }
+    });
+
+    $("more").addEventListener("click", () => {
+      if (subs.length === MAX) return;
+      const used = new Set(subs.map((s) => s.slot));
+      const slot = POOL.findIndex((_, i) => !used.has(i));
+      subs.push({ id: nextId++, slot, started: Date.now() });
+      render();
+    });
+
+    $("less").addEventListener("click", () => {
+      const gone = subs[0];
+      if (!gone) return;
+      document.querySelectorAll(".list .row:first-child, .tray.single .row").forEach((el) => el.classList.add("is-leaving"));
+      $("less").disabled = true;
+      setTimeout(() => {
+        subs = subs.filter((s) => s !== gone);
+        render();
+      }, 420);
+    });
+
+    $("terms").addEventListener("change", (e) => {
+      termsShown = e.target.checked;
+      if (!termsShown) { termsOpen = false; termOut = null; }
+      render();
+    });
+
+    $("kb").addEventListener("change", (e) => {
+      $("keys").hidden = !e.target.checked;
+      $("phone").style.setProperty("--list-max", e.target.checked ? "130px" : "195px");
+    });
+
+    setInterval(() => {
+      document.querySelectorAll("[data-started]").forEach((el) => {
+        el.textContent = secs({ started: Number(el.dataset.started) });
+      });
+    }, 1000);
+
+    render();
+  </script>
+</body>
+</html>

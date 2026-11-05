@@ -113,6 +113,14 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
     }
     setOpenSub(id);
   }, [openSub]);
+  // The running subagents folded above the composer.
+  const [subsOpen, setSubsOpen] = useState(false);
+  const foldSubs = useCallback(() => setSubsOpen(false), []);
+  const toggleSubs = useCallback(() => setSubsOpen((open) => !open), []);
+  const openSubFromTray = useCallback((id: string) => {
+    setSubsOpen(false);
+    openSubagent(id);
+  }, [openSubagent]);
   const wide = useWide();
   useFollowChat(chatId);
 
@@ -506,7 +514,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                 </ChatPondEnd>
               )}
               <div className="chat-ask-keep" hidden={!!openAsk || showLimit}>
-                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} commands={model.commands} commandsLoading={starting} canClear={canClear} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubagent} openLabel={t("chatSubOpen")} />} />
+                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} commands={model.commands} commandsLoading={starting} canClear={canClear} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubFromTray} openLabel={t("chatSubOpen")} expanded={subsOpen} onToggle={toggleSubs} onUngrouped={foldSubs} countLabel={(n) => t("chatSubCount", { n })} />} />
               </div>
             </>
           )}

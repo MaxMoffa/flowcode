@@ -6,12 +6,44 @@ const LEAVE_GRACE_MS = 2500;
 
 type TrayRow ={ item: SubagentItem; leaving: boolean };
 
-/** Running children behind the composer, shared by desktop and mobile. */
-export function SubagentTray({ items, onOpen, openLabel, selectedId = null }: { items: SubagentItem[]; onOpen?: (id: string) => void; openLabel: string; /** The row the keyboard is on (desktop). */ selectedId?: string | null }) {
+const OPEN_ICON = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M7 17 17 7M8 7h9v9" />
+  </svg>
+);
+
+/** Running children behind the composer, shared by desktop and mobile. From two of them on they fold into one line that opens upward. */
+export function SubagentTray({
+  items,
+  onOpen,
+  openLabel,
+  selectedId = null,
+  expanded,
+  onToggle,
+  onUngrouped,
+  countLabel,
+  hint = "",
+  hintOpen = "",
+}: {
+  items: SubagentItem[];
+  onOpen?: (id: string) => void;
+  openLabel: string;
+  /** The row the keyboard is on (desktop). */
+  selectedId?: string | null;
+  expanded: boolean;
+  onToggle: () => void;
+  /** Down to a single row: there is nothing left to fold, so the host drops its expanded state. */
+  onUngrouped: () => void;
+  countLabel: (n: number) => string;
+  /** Collapsed / expanded hint next to the count (the keys, on desktop). */
+  hint?: string;
+  hintOpen?: string;
+}) {
   const [rows, setRows] = useState<TrayRow[]>([]);
   const [, setTick] = useState(0);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const graceTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setRows((prev) => {
@@ -87,30 +119,64 @@ export function SubagentTray({ items, onOpen, openLabel, selectedId = null }: { 
     return () => clearInterval(interval);
   }, [anyActive]);
 
+  // Rows in their grace period still count: a subagent between two steps must not refold the card.
+  const liveCount = rows.filter((row) => !row.leaving).length;
+  const grouped = liveCount > 1;
+  useEffect(() => {
+    if (!grouped && expanded) onUngrouped();
+  }, [grouped, expanded, onUngrouped]);
+  useEffect(() => {
+    listRef.current?.querySelector(".is-selected")?.scrollIntoView({ block: "nearest" });
+  }, [selectedId, expanded]);
+
   if (rows.length === 0) return null;
   return (
-    <div className="chat-subtray" role="status">
-      <div className="chat-subtray-list">
-        {rows.map(({ item, leaving }) => {
-          const { type, description } = subagentInfo(item.call);
-          const elapsed = Math.max(0, Math.floor((Date.now() - (item.call.startedAt ?? Date.now())) / 1000));
-          return (
-            <div key={item.id} className={`chat-subtray-row${leaving ? " is-leaving" : ""}${selectedId === item.id ? " is-selected" : ""}`}>
-              <span className="chat-subtray-dot" aria-hidden="true" />
-              <span className="chat-subtray-name">{type ?? "agent"}</span>
-              <span className="chat-subtray-task" title={description}>{description}</span>
-              <span className="chat-subtray-time">{`${elapsed}s`}</span>
-              {onOpen && (
-                <button type="button" className="chat-subcard-open" title={openLabel} aria-label={openLabel} onClick={() => onOpen(item.id)}>
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M7 17 17 7M8 7h9v9" />
-                  </svg>
+    <div className={`chat-subtray${grouped ? " is-grouped" : ""}`} role="status">
+      {(!grouped || expanded) && (
+        <div ref={listRef} className="chat-subtray-list">
+          {rows.map(({ item, leaving }) => {
+            const { type, description } = subagentInfo(item.call);
+            const elapsed = Math.max(0, Math.floor((Date.now() - (item.call.startedAt ?? Date.now())) / 1000));
+            const className = `chat-subtray-row${leaving ? " is-leaving" : ""}${selectedId === item.id ? " is-selected" : ""}`;
+            const info = (
+              <>
+                <span className="chat-subtray-dot" aria-hidden="true" />
+                <span className="chat-subtray-name">{type ?? "agent"}</span>
+                <span className="chat-subtray-task" title={description}>{description}</span>
+                <span className="chat-subtray-time">{`${elapsed}s`}</span>
+              </>
+            );
+            if (grouped && onOpen) {
+              return (
+                <button key={item.id} type="button" className={className} title={openLabel} onClick={() => onOpen(item.id)}>
+                  {info}
+                  <span className="chat-subtray-go">{OPEN_ICON}</span>
                 </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            }
+            return (
+              <div key={item.id} className={className}>
+                {info}
+                {onOpen && (
+                  <button type="button" className="chat-subcard-open" title={openLabel} aria-label={openLabel} onClick={() => onOpen(item.id)}>
+                    {OPEN_ICON}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {grouped && (
+        <button type="button" className="chat-subtray-head" aria-expanded={expanded} onClick={onToggle}>
+          <span className="chat-subtray-dot" aria-hidden="true" />
+          <span className="chat-subtray-count">{countLabel(liveCount)}</span>
+          <span className="chat-subtray-hint">{expanded ? hintOpen : hint}</span>
+          <svg className="chat-subtray-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m6 15 6-6 6 6" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

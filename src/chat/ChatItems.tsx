@@ -323,9 +323,22 @@ export function SubagentMarker({ items, onOpen }: { items: SubagentItem[]; onOpe
 }
 
 /** The shared running-subagent tray, with desktop translations. */
-export function SubagentTray({ items, onOpen, selectedId }: { items: SubagentItem[]; onOpen?: (id: string) => void; selectedId?: string | null }) {
+export function SubagentTray({ items, onOpen, selectedId, expanded, onToggle, onUngrouped }: { items: SubagentItem[]; onOpen?: (id: string) => void; selectedId?: string | null; expanded: boolean; onToggle: () => void; onUngrouped: () => void }) {
   const { t } = useI18n();
-  return <SharedSubagentTray items={items} onOpen={onOpen} openLabel={t("chat.subagent.open")} selectedId={selectedId} />;
+  return (
+    <SharedSubagentTray
+      items={items}
+      onOpen={onOpen}
+      openLabel={t("chat.subagent.open")}
+      selectedId={selectedId}
+      expanded={expanded}
+      onToggle={onToggle}
+      onUngrouped={onUngrouped}
+      countLabel={(count) => t("chat.subagent.count", { count })}
+      hint={t("chat.subagent.hint")}
+      hintOpen={t("chat.subagent.hintOpen")}
+    />
+  );
 }
 
 /** The words for why a turn stopped early. */

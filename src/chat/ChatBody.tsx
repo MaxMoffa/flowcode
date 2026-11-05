@@ -350,6 +350,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   const terminals = useMemo(() => (sub ? [] : backgroundTerminals(model.items, agent).filter((term) => term.running)), [sub, model.items]);
   const [navZone, setNavZone] = useState<"input" | "sub" | "term">("input");
   const [navIndex, setNavIndex] = useState(0);
+  const [subsOpen, setSubsOpen] = useState(false);
+  const foldSubs = useCallback(() => setSubsOpen(false), []);
   const [termsOpen, setTermsOpen] = useState(false);
   const [termOutId, setTermOutId] = useState<string | null>(null);
   useEffect(() => {
@@ -369,6 +371,10 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     }),
     [t],
   );
+  const closeSubs = () => {
+    setSubsOpen(false);
+    setNavZone((zone) => (zone === "sub" ? "input" : zone));
+  };
   const closeTerms = () => {
     setTermsOpen(false);
     setTermOutId(null);
@@ -615,13 +621,13 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
         if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") e.preventDefault();
         if (e.key === "ArrowUp") setNavIndex(Math.max(0, navIndex - 1));
         else if (e.key === "ArrowDown") {
-          if (navIndex + 1 >= runningSubs.length) setNavZone("input");
+          if (navIndex + 1 >= runningSubs.length) closeSubs();
           else setNavIndex(navIndex + 1);
         } else if (e.key === "Enter") {
           const target = runningSubs[navIndex];
-          setNavZone("input");
+          closeSubs();
           if (target && onOpenSubagent) openSub(target.id);
-        } else if (e.key === "Escape") setNavZone("input");
+        } else if (e.key === "Escape") closeSubs();
         else setNavZone("input"); // any other key goes back to typing
         if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") return;
       } else if (navZone === "term") {
@@ -640,6 +646,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
         if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape") return;
       } else if (e.key === "ArrowUp" && runningSubs.length > 0 && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
         e.preventDefault();
+        setSubsOpen(true);
         setNavZone("sub");
         setNavIndex(runningSubs.length - 1);
         return;
@@ -945,7 +952,27 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 ))}
               </div>
             )}
-            <SubagentTray items={runningSubs} onOpen={onOpenSubagent ? openSub : undefined} selectedId={navZone === "sub" ? (runningSubs[navIndex]?.id ?? null) : null} />
+            <SubagentTray
+              items={runningSubs}
+              onOpen={
+                onOpenSubagent
+                  ? (id) => {
+                      closeSubs();
+                      openSub(id);
+                    }
+                  : undefined
+              }
+              selectedId={navZone === "sub" ? (runningSubs[navIndex]?.id ?? null) : null}
+              expanded={subsOpen}
+              onToggle={() => {
+                if (subsOpen) closeSubs();
+                else {
+                  setSubsOpen(true);
+                  inputRef.current?.focus();
+                }
+              }}
+              onUngrouped={foldSubs}
+            />
             {/* The textarea stays mounted (hidden) so a half-typed message survives the question. */}
             {openAsk && <AskComposer key={openAsk.id} item={openAsk} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
             {/* The expired-cache card takes the composer's place (the composer stays mounted, hidden). */}

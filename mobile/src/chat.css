@@ -1508,12 +1508,25 @@ button.chat-step-row {
 .chat-subtray-task { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .chat-subtray-time { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chat-subtray .chat-subcard-open { width: 44px; height: 40px; }
+/* Two or more subagents: one line against the card, the list opens upward. */
+.chat-subtray.is-grouped { padding: 0 0 24px; }
+.chat-subtray-head { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; border-radius: inherit; background: none; color: var(--muted); font: inherit; font-size: 12.5px; text-align: left; }
+.chat-subtray-count { flex: none; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+.chat-subtray-hint { flex: 1; min-width: 0; }
+.chat-subtray-chev { flex: none; transition: transform .18s; }
+.chat-subtray-head[aria-expanded="true"] .chat-subtray-chev { transform: rotate(180deg); }
+.chat-subtray.is-grouped .chat-subtray-list { padding: 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); animation: chat-subtray-list-in .18s ease-out; }
+@keyframes chat-subtray-list-in { from { opacity: 0; transform: translateY(8px); } }
+.chat-subtray.is-grouped .chat-subtray-row { width: 100%; min-height: 44px; padding: 0 8px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; }
+.chat-subtray.is-grouped button.chat-subtray-row:active { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.chat-subtray.is-grouped .chat-subtray-row.is-leaving { min-height: 0; max-height: 0; padding-block: 0; }
+.chat-subtray-go { flex: none; width: 22px; display: grid; place-items: center; color: var(--muted); }
 .chat-subtray + .chat-card { z-index: 1; }
 @keyframes chat-subtray-pulse { 50% { opacity: .3; } }
 @keyframes chat-subtray-in { from { opacity: 0; transform: translateY(10px); } }
 @media (prefers-reduced-motion: reduce) {
-  .chat-subtray, .chat-subtray-dot { animation: none; }
-  .chat-subtray-row { transition: none; }
+  .chat-subtray, .chat-subtray-dot, .chat-subtray.is-grouped .chat-subtray-list { animation: none; }
+  .chat-subtray-row, .chat-subtray-chev { transition: none; }
 }
 
 .chat-input {
