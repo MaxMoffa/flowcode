@@ -3,7 +3,8 @@ import "./terminal.css";
 import "./wide.css";
 import { AgentsScreen } from "./Agents";
 import { useBackHandler } from "./back";
-import { closeChatTab, requestOpenChat } from "./chats";
+import { ChatClearing } from "./ChatClearing";
+import { closeChatTab, requestOpenChat, useClearing } from "./chats";
 import { lastInWindow } from "./homeSessions";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
@@ -53,6 +54,7 @@ interface Props {
 
 /** The desktop-like layout of large screens: a header (panel toggles, tab strip, quick actions), then cards: files, one terminal, agents. */
 export function WideShell({ hostName, tabs, settings, status, activePty, onSelectPty, activeChat, onTerminal, onAddComputer }: Props) {
+  const clearing = useClearing();
   const docked = useDocked();
   const big = useBigScreen();
   const panelMode = usePanelMode();
@@ -406,9 +408,13 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             </div>
           ) : activeChat ? (
             <div style={{ display: shown ? "none" : "contents" }}>
-              <Suspense fallback={<div className="screen" />}>
-                <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} embedded onBrowser={openBrowser} onOpenPage={showBrowserPage} pendingPage={browserPending ? browserPage : null} onOpenPending={openBrowser} onDismissPending={dismissPending} />
-              </Suspense>
+              {clearing?.chatId === activeChat ? (
+                <ChatClearing />
+              ) : (
+                <Suspense fallback={<div className="screen" />}>
+                  <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} embedded onBrowser={openBrowser} onOpenPage={showBrowserPage} pendingPage={browserPending ? browserPage : null} onOpenPending={openBrowser} onDismissPending={dismissPending} />
+                </Suspense>
+              )}
             </div>
           ) : !shown && tabs !== null && tabs.length === 0 && !chats?.length ? (
             <div className="empty">{t("noTabs")}</div>

@@ -1715,3 +1715,22 @@ button.set-row.danger {
     animation-duration: 2.4s;
   }
 }
+
+/* A chat being replaced by the fresh one of a /clear: the frog's pond, its caption under it. */
+.chat-clearing {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-clearing-label {
+  position: absolute;
+  top: calc(50% + 72px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}

@@ -25,9 +25,11 @@ interface ChatsSnapshot {
   sessions: Record<string, ChatSession>;
   /** A chat a screen far from App's state asked to show, until App has opened it. */
   openRequest: string | null;
+  /** The `/clear` under way: the old chat and its tab, until the fresh chat is on screen. */
+  clearing: { chatId: string; tabId: string } | null;
 }
 
-const store = createStore<ChatsSnapshot>({ sessions: {}, openRequest: null });
+const store = createStore<ChatsSnapshot>({ sessions: {}, openRequest: null, clearing: null });
 
 /** How long a requested chat or a handoff is waited for before giving up: a chat
  * starts its agent's adapter and replays the session first, which takes a while. */
@@ -169,6 +171,7 @@ function onChatMsg(m: ServerMsg) {
         lastHost = m.hostName;
         sessionIds.clear();
         store.set({ sessions: {} });
+        consumeClear();
       }
       break;
     case "chats":
@@ -248,24 +251,33 @@ export function setChatThought(chatId: string, value: string) {
     if (!ok) showToast(t("chatThoughtSendFailed"));
   });
 }
-/** How long after a `/clear` the chat's tab may show up under a new chat id. */
-const CLEAR_WAIT_MS = 10000;
-let clearing: { tabId: string; until: number } | null = null;
+let clearTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** The tab being cleared right now, if any: the chat that left its list may be coming back under a new id. */
-export const recentClearTab = (): string | null => (clearing && Date.now() < clearing.until ? clearing.tabId : null);
+/** The tab being cleared right now, if any. */
+export const recentClearTab = (): string | null => store.get().clearing?.tabId ?? null;
+export const useClearing = () => store.useSelector((s) => s.clearing);
 
+/** The wait for a `/clear` is over: the fresh chat is on screen, or the user or the link gave up on it. */
 export const consumeClear = () => {
-  clearing = null;
+  clearTimeout(clearTimer);
+  if (store.get().clearing) store.set({ clearing: null });
 };
 
-/** `/clear`: the desktop starts a fresh conversation in the chat's tab; the chat comes back under a new id (App follows the tab). */
+/** `/clear`: the desktop starts a fresh conversation in the chat's tab. The chat leaves the list until its new agent has a session, then comes back under a new id (App shows the wait, then follows the tab). */
 export function clearChat(chatId: string) {
   const tabId = infoOf(chatId)?.tabId;
-  if (tabId) clearing = { tabId, until: Date.now() + CLEAR_WAIT_MS };
   void sendChecked({ t: "chatclear", chatId }).then((ok) => {
-    if (!ok) showToast(t("chatClearSendFailed"));
+    if (ok) return;
+    consumeClear();
+    showToast(t("chatClearSendFailed"));
   });
+  if (!tabId) return;
+  store.set({ clearing: { chatId, tabId } });
+  clearTimeout(clearTimer);
+  clearTimer = setTimeout(() => {
+    consumeClear();
+    showToast(t("openTimeout"));
+  }, WAIT_MS);
 }
 export const renameChat =(chatId: string, label: string) => send({ t: "chatrename", chatId, label });
 

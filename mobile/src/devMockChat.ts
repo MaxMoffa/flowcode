@@ -260,6 +260,20 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
       void emit("remote://msgs", [{ t: "chats", chats: [...infos] }]);
       break;
     }
+    case "chatclear": {
+      // As on the desktop: the chat stays a moment, leaves the list while the new agent starts, and comes back under a new id.
+      const at = infos.findIndex((i) => i.chatId === chatId);
+      if (at < 0) break;
+      const [old] = infos.splice(at, 1);
+      later(300, () => void emit("remote://msgs", [{ t: "chats", chats: [...infos] }]));
+      later(4000, () => {
+        const id = `c${++newChats + 10}`;
+        infos.splice(at, 0, { ...old, chatId: id, status: "idle" });
+        logs.set(id, []);
+        void emit("remote://msgs", [{ t: "chats", chats: [...infos] }]);
+      });
+      break;
+    }
     case "chatclosetab": {
       const at = infos.findIndex((i) => i.chatId === chatId);
       if (at >= 0) infos.splice(at, 1);

@@ -299,3 +299,43 @@ describe("picking the new chat", () => {
     expect(pick([b], [], { agent: "claude" })).toBeUndefined();
   });
 });
+
+describe("/clear", () => {
+  it("keeps the wait up while the chat is out of the list, until the fresh chat is on screen", () => {
+    ready();
+    chats([info("idle")]);
+    chatsModule.clearChat("c1");
+    expect(link.sent).toContainEqual({ t: "chatclear", chatId: "c1" });
+    chats([]);
+    expect(chatsModule.recentClearTab()).toBe("t1");
+    chats([info("idle", { chatId: "c2" })]);
+    expect(chatsModule.recentClearTab()).toBe("t1");
+    chatsModule.consumeClear();
+    expect(chatsModule.recentClearTab()).toBeNull();
+  });
+
+  it("gives up with a toast when the desktop never brings the chat back", () => {
+    vi.useFakeTimers();
+    try {
+      ready();
+      chats([info("idle")]);
+      chatsModule.clearChat("c1");
+      vi.advanceTimersByTime(44_000);
+      expect(chatsModule.recentClearTab()).toBe("t1");
+      vi.advanceTimersByTime(1_000);
+      expect(chatsModule.recentClearTab()).toBeNull();
+      expect(link.toasts).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops the wait at once when the message can't leave the phone", async () => {
+    link.online = false;
+    ready();
+    chats([info("idle")]);
+    chatsModule.clearChat("c1");
+    await vi.waitFor(() => expect(link.toasts).toHaveLength(1));
+    expect(chatsModule.recentClearTab()).toBeNull();
+  });
+});

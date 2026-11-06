@@ -9,7 +9,8 @@ import { useBackHandler } from "./back";
 import { PairingScreen } from "./Pairing";
 import { CompatBanner, IncompatibleScreen } from "./Compat";
 import { usePending } from "./pending";
-import { NewChatWatcher, clearOpenRequest, recentClearTab, requestOpenChat, useChatHandoff, useOpenRequest, useTerminalHandoff } from "./chats";
+import { ChatClearing } from "./ChatClearing";
+import { NewChatWatcher, clearOpenRequest, consumeClear, requestOpenChat, useChatHandoff, useClearing, useOpenRequest, useTerminalHandoff } from "./chats";
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
@@ -219,30 +220,34 @@ function AppContent() {
   }, [openPty, tabs, tab]);
   // The open chat left the desktop (closed, or turned into a terminal): back to the list.
   const chat = openChat ? chats?.find((c) => c.chatId === openChat) : undefined;
-  // A chat cleared with /clear comes back in the same tab under a new id: follow it.
+  // A chat cleared with /clear comes back in the same tab under a new id: wait for it and follow it.
+  const clearing = useClearing();
+  const awaitingClear = !!clearing && clearing.chatId === openChat;
   useEffect(() => {
-    if (!openChat || !chats || chat) return;
-    const cleared = recentClearTab();
-    if (cleared) {
-      const next = chats.find((c) => c.tabId === cleared);
+    if (!openChat || !chats) return;
+    if (clearing && awaitingClear) {
+      const next = chats.find((c) => c.tabId === clearing.tabId && c.chatId !== clearing.chatId);
       if (next) setOpenChat(next.chatId);
-      return;
+    } else if (!chat) {
+      setOpenChat(null);
     }
-    setOpenChat(null);
-  }, [openChat, chats, chat]);
+  }, [openChat, chats, chat, clearing, awaitingClear]);
   // Back from a terminal or a chat returns to the list; on the root it is left alone (the app exits).
-  useBackHandler((!!tab || !!chat) && !wide, () => {
+  useBackHandler((!!tab || !!chat || awaitingClear) && !wide, () => {
+    consumeClear();
     setOpenPty(null);
     setOpenChat(null);
   });
 
   function open(ptyId: string) {
+    consumeClear();
     setLastOpened(ptyId);
     setOpenChat(null);
     setOpenPty(ptyId);
   }
 
   function openChatTab(chatId: string) {
+    consumeClear();
     setOpenPty(null);
     setOpenChat(chatId);
   }
@@ -276,6 +281,12 @@ function AppContent() {
   } else if (wide) {
     content = (
       <WideShell hostName={hostName} tabs={tabs} settings={settings} status={status} activePty={openPty} onSelectPty={open} activeChat={openChat} onTerminal={toTerminal} onAddComputer={() => setAdding(true)} />
+    );
+  } else if (awaitingClear) {
+    content = (
+      <div className="screen">
+        <ChatClearing />
+      </div>
     );
   } else if (chat) {
     content = (

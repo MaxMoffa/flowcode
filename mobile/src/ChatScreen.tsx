@@ -429,7 +429,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                         <SubagentBody sub={sub} agent={agentName(info.agent)} onLink={onLink} onOpenSubagent={openSubagent} />
                       ) : (
                         <>
-                          {model.items.length === 0 && !session.loaded && !starting && <div className="chat-empty">{t("loading")}</div>}
+                          {model.items.length === 0 && !session.loaded && !starting && !cleared && <div className="chat-empty">{t("loading")}</div>}
                           <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
                         </>
                       )}
@@ -480,7 +480,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                 )}
               </div>
             </div>
-            {!sub && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && (session.loaded || starting) && <ChatEmptyFrog starting={starting} cleared={cleared} />}
+            {!sub && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && (session.loaded || starting || cleared) && <ChatEmptyFrog starting={starting} cleared={cleared} />}
             {!sub && <TerminalJump terminals={terminals} scrollRef={scrollRef} lifted={!atBottom} onOpenSubagent={openSubagent} />}
             {!atBottom && (
               <button
