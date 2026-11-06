@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./home.css";
 import { AdaptiveSheet } from "./AdaptiveSheet";
+import { FolderPicker } from "./FolderPicker";
+import { launchPath } from "./explorerPaths";
 import { useBackHandler, useEscape } from "./back";
 import { closeChatTab, pendingPermissionTitle, renameChat, requestOpenChat, useChatSession } from "./chats";
 import { ComputerSwitcher } from "./ComputerSwitcher";
@@ -10,8 +12,8 @@ import { groupSessions, lastInWindow, sessionsOf, useStateSince, type Session } 
 import { leftText } from "./homeUsage";
 import { UsageSection } from "./HomeUsageCards";
 import { t } from "./i18n";
-import { AgentLogo, ArrowUpRightIcon, ChatIcon, CheckIcon, CloseIcon, DotsIcon, FolderIcon, PencilIcon, SendIcon } from "./icons";
-import { AGENTS, loadRecents, recentsKey } from "./NewTerminalSheet";
+import { AgentLogo, ArrowUpRightIcon, ChatIcon, CheckIcon, CloseIcon, DotsIcon, FolderIcon, PencilIcon, PlusIcon, SendIcon, TerminalIcon } from "./icons";
+import { AGENTS, loadRecents, recentsKey, NewTerminalSheet } from "./NewTerminalSheet";
 import type { Pending } from "./pending";
 import { send, useRemoteSelector, useSupports, type Tab } from "./remote";
 import { safeStorage } from "./store";
@@ -104,8 +106,8 @@ function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | un
     const text = draft.trim();
     if (!text || !agent || (pending && !pending.failed)) return;
     sent.current = text;
-    send({ t: "newchat", cli: agent.id, ...(cwd ? { cwd } : {}) });
-    onCreate(true, cwd ? `${agent.name} · ${shortCwd(cwd)}` : agent.name, text, { agent: agent.id, ...(cwd ? { cwd } : {}) });
+    send({ t: "newchat", cli: agent.id, ...(cwd ? { cwd: launchPath(cwd) } : {}) });
+    onCreate(true, cwd ? `${agent.name} · ${shortCwd(cwd)}` : agent.name, text, { agent: agent.id, ...(cwd ? { cwd: launchPath(cwd) } : {}) });
     setDraft("");
   };
 
@@ -139,10 +141,10 @@ function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | un
         />
       )}
       {picker === "folder" && (
-        <PickerSheet
-          title={t("newTermFolder")}
+        <FolderPicker
           value={cwd}
-          options={[{ value: null as string | null, label: t("newTermStartFolder"), icon: <FolderIcon /> }, ...folders.map((f) => ({ value: f as string | null, label: shortCwd(f), icon: <FolderIcon />, mono: true }))]}
+          suggestions={folders}
+          allowDefault
           onClose={() => setPicker(null)}
           onPick={(c) => {
             setFolder({ key, cwd: c });
@@ -280,7 +282,7 @@ function SessionSheet({ s, last, onOpen, onClose }: { s: Session; last: boolean;
       <div className="nts-grab" aria-hidden="true" />
       <h2>{s.label}</h2>
       <p className="hm-sheet-sub">
-        {agentName(s.cli)} · <span className="mono">{shortCwd(s.cwd)}</span>
+        {s.cli ? agentName(s.cli) : t("terminals")} · <span className="mono">{shortCwd(s.cwd)}</span>
       </p>
       <div className="nts-body">
         {mode === "menu" && (
@@ -355,13 +357,16 @@ export function HomeScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName
   const chats = useRemoteSelector((r) => r.chats);
   const canChat = useSupports("chat");
   const sessions = useMemo(() => sessionsOf(tabs ?? [], chats ?? []), [tabs, chats]);
+  const shells = useMemo<Session[]>(() => (tabs ?? []).filter((tab) => !tab.cli).map((tab) => ({ key: "t:" + tab.ptyId, kind: "term", cli: "", label: tab.label, cwd: tab.cwd, status: "idle", window: tab.window, tab, contextPct: null })), [tabs]);
+  const folders = useMemo(() => [...new Set([...(tabs ?? []).map((tab) => tab.cwd), ...(chats ?? []).map((chat) => chat.cwd)].filter(Boolean))], [tabs, chats]);
+  const [newTerminal, setNewTerminal] = useState(false);
   const groups = useMemo(() => groupSessions(sessions), [sessions]);
   const { now, since } = useStateSince(sessions);
   const [menuKey, setMenuKey] = useState<string | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const topSpace = useRef<HTMLDivElement>(null);
   const { onCreate, pending } = useOpenNew(tabs, onOpen);
-  const menu = menuKey ? sessions.find((s) => s.key === menuKey) : undefined;
+  const menu = menuKey ? [...sessions, ...shells].find((s) => s.key === menuKey) : undefined;
   // The session left (closed here or on the computer): its sheet goes with it.
   useEffect(() => {
     if (menuKey && !menu) setMenuKey(null);
@@ -413,7 +418,8 @@ export function HomeScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName
             </section>
           ),
       )}
-      {tabs !== null && sessions.length === 0 && !pending && <div className="hm-empty">{t("noAgents")}</div>}
+      <section className="hm-group"><div className="hm-sec"><b>{t("terminals")}{shells.length ? ` · ${shells.length}` : ""}</b><button type="button" className="hm-new-terminal" onClick={() => setNewTerminal(true)}><PlusIcon />{t("newTerminalShort")}</button></div>{shells.length ? <div className="hm-list">{shells.map((s) => <div className="hm-row hm-shell" key={s.key}><button type="button" className="hm-row-main" onClick={() => onOpen(s.tab!.ptyId)}><span className="hm-tile st-shell"><TerminalIcon /></span><span className="hm-txt"><b>{s.label}</b><span className="hm-sub mono">{shortCwd(s.cwd)}</span></span></button><button type="button" className="hm-more" aria-label={t("homeSessionActions", { name: s.label })} onClick={() => setMenuKey(s.key)}><DotsIcon /></button></div>)}</div> : <div className="hm-empty">{t("filesNoTerminals")}</div>}</section>
+      {newTerminal && <NewTerminalSheet open folders={folders} onClose={() => setNewTerminal(false)} onCreate={onCreate} />}
       {menu && <SessionSheet key={menu.key} s={menu} last={lastInWindow(menu.window, tabs ?? [], chats ?? [])} onOpen={onOpen} onClose={() => setMenuKey(null)} />}
     </>
   );

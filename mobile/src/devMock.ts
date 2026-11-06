@@ -4,8 +4,10 @@ import { emit } from "@tauri-apps/api/event";
 import { mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
 import { chatMock, chatMockCaps, chatMockConnect, mockViews } from "./devMockChat";
 import { termMock } from "./devMockTerm";
+import { explorerMock } from "./devMockExplorer";
+import type { ClientMsg, Tab } from "../../shared/remote-types";
 
-const tabs = [
+const tabs: Tab[] = [
   { ptyId: "p1", tabId: "t1", window: "w1", label: "flowcode", cwd: "C:/Users/massi/Progetti/flowcode", cols: 80, rows: 24, cli: "claude", status: "waiting", context: { used: 16000, window: 200000 } },
   { ptyId: "p2", tabId: "t2", window: "w1", label: "api-server", cwd: "C:/Users/massi/api", cols: 80, rows: 24, cli: "codex", status: "busy", context: { used: 48000, window: 200000 } },
   { ptyId: "p3", tabId: "t3", window: "w1", label: "docs", cwd: "C:/Users/massi/Progetti/docs", cols: 80, rows: 24 },
@@ -85,7 +87,14 @@ const mockSettings = {
 };
 
 /** Closing or renaming a terminal tab: the list the desktop would push next. */
-function mockTabs(msg: { t?: string; ptyId?: string; label?: string } | undefined) {
+function mockTabs(msg: ClientMsg | undefined) {
+  if (msg?.t === "newtab") {
+    const id = `new-${Date.now()}`;
+    tabs.push({ ptyId: id, tabId: id, window: "w1", label: msg.cli ?? "Terminale", cwd: msg.cwd ?? "C:/Users/massi", cols: 80, rows: 24, ...(msg.cli ? { cli: msg.cli, status: "idle" as const } : {}) });
+    setTimeout(() => void emit("remote://msgs", [{ t: "tabs", tabs: [...tabs] }]), 80);
+    return;
+  }
+  if (msg?.t !== "rename" && msg?.t !== "closetab") return;
   const at = tabs.findIndex((x) => x.ptyId === msg?.ptyId);
   if (at < 0) return;
   if (msg?.t === "closetab") tabs.splice(at, 1);
@@ -96,7 +105,7 @@ function mockTabs(msg: { t?: string; ptyId?: string; label?: string } | undefine
 
 // What the desktop sends once the link is up: its features, the chats and the view plugins.
 async function chatHello() {
-  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", ...chatMockCaps] }]);
+  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", ...chatMockCaps] }]);
   await chatMockConnect();
   await emit("remote://msgs", [{ t: "views", views: mockViews }]);
 }
@@ -166,7 +175,8 @@ mockIPC(
       case "view_cache_prune":
         return undefined;
       default:
-        if (cmd === "send") mockTabs((args as { msg?: { t?: string; ptyId?: string; label?: string } }).msg);
+        if (cmd === "send") mockTabs((args as { msg?: ClientMsg }).msg);
+        if (cmd === "send") explorerMock((args as { msg?: ClientMsg }).msg);
         if (cmd === "send") chatMock((args as { msg?: Parameters<typeof chatMock>[0] }).msg);
         return termMock(cmd, args);
     }

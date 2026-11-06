@@ -368,3 +368,11 @@ up), but keeping the ticket's `node` string is more robust offline.
   than they can be handled, is disconnected. Per connection: 64 open terminals,
   1024 queued outgoing frames, 256 queued incoming frames, 64 queued `input`
   messages per terminal.
+
+## Standalone file explorer (`fileExplorer`)
+
+A paired phone can browse without an open terminal. The original `ls` and `read` messages retain their terminal-root sandbox. New clients send `{ t: "fs", requestId, request: { op, ... } }`; every response is `{ t: "fs", requestId, response?, error? }`, including failures. Clients only send these messages when `ready.caps` advertises `fileExplorer`.
+
+Operations are `roots`, `list`/`read`/`delete` (`path`), `create` (`path` of the parent, `name`, `dir`), `rename` (`path`, `name`), `move` (`path`, `destination` folder), and `write` (`path`, `text`, `version`). Paths are absolute local paths; Windows drive roots and local WSL shares are offered by the desktop. Device paths, arbitrary UNC servers, parent traversal and links into remote shares are refused. Roots, home and app configuration ancestors cannot be renamed, moved, deleted or overwritten.
+
+Response kinds: `roots` (`roots: [{ name, path }]`), `list` (`path`, `parent`, `entries`, `truncated`), `file` (`path`, `text`, `truncated`, `version`) and `done` (`path`). Lists stop at 2,000 entries. Text previews are bounded to 1 MiB and reduced further to fit the JSON frame; binary and non-UTF-8 files are refused. Partial previews have no writable version. A write checks the SHA-256 version from the complete read and refuses a file changed on the desktop before committing an atomic replacement. Deletion is permanent and the phone requires an explicit confirmation.

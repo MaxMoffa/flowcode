@@ -130,6 +130,23 @@ export interface LsEntry {
   size?: number;
 }
 
+/** Standalone filesystem operations on the paired desktop (`fileExplorer`). */
+export type FsRequest =
+  | { op: "roots" }
+  | { op: "list" | "read" | "delete"; path: string }
+  | { op: "create"; path: string; name: string; dir: boolean }
+  | { op: "rename"; path: string; name: string }
+  | { op: "move"; path: string; destination: string }
+  | { op: "write"; path: string; text: string; version: string };
+
+export interface FsRoot { name: string; path: string }
+
+export type FsResponse =
+  | { kind: "roots"; roots: FsRoot[] }
+  | { kind: "list"; path: string; parent: string | null; entries: LsEntry[]; truncated: boolean }
+  | { kind: "file"; path: string; text: string; truncated: boolean; version: string | null }
+  | { kind: "done"; path: string };
+
 export type ProfileCli = "claude" | "codex" | "vibe" | "gemini";
 
 /** An account profile on the desktop (the default one is not listed). */
@@ -217,6 +234,7 @@ export type SettingKey =
  * remote-proto/src/lib.rs). A desktop that sends no `caps` is an old one.
  */
 export type RemoteCap =
+  | "fileExplorer"
   | "rename"
   | "profiles"
   | "profileLogin"
@@ -269,6 +287,7 @@ export interface DesktopUpdate {
 }
 
 export type ServerMsg =
+  | { t: "fs"; requestId: string; response?: FsResponse; error?: string }
   | { t: "chatpromptack"; chatId: string; requestId: string; message?: string }
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
   | { t: "error"; message: string; ptyId?: string; fatal: boolean }
@@ -303,6 +322,7 @@ export type ServerMsg =
   | { t: "pong" };
 
 export type ClientMsg =
+  | { t: "fs"; requestId: string; request: FsRequest }
   | { t: "list" }
   | { t: "open"; ptyId: string; cols?: number; rows?: number }
   | { t: "resize"; ptyId: string; cols: number; rows: number }

@@ -11,6 +11,7 @@ export const LEGACY_CAPS: string[] = ["profiles", "profileLogin", "background"];
 
 /** Every optional feature the phone knows, and the i18n key naming it for the user. */
 export const CAP_LABELS = {
+  fileExplorer: "files",
   rename: "capRename",
   closeTab: "capCloseTab",
   profiles: "capProfiles",
@@ -35,7 +36,7 @@ export const CAP_LABELS = {
 } as const satisfies Record<RemoteCap, string>;
 
 /** Features the UI simply hides when the desktop lacks them: not worth a compatibility notice. */
-const QUIET_CAPS: RemoteCap[] = ["chat", "agentViews", "linkPreview", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatClear", "desktopUpdate", "preview", "chatPreview", "agentInsight"];
+const QUIET_CAPS: RemoteCap[] = ["fileExplorer", "chat", "agentViews", "linkPreview", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatClear", "desktopUpdate", "preview", "chatPreview", "agentInsight"];
 
 export interface HostInfo {
   appVersion?: string;

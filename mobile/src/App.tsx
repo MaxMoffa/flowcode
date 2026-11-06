@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useState, type ErrorInfo, type ReactElement, type ReactNode } from "react";
 import { HomeScreen } from "./Home";
 import { tapFeedback } from "./haptics";
-import { AgentsIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { AgentsIcon, SlidersIcon, FolderIcon } from "./icons";
 import { t } from "./i18n";
 import { LockScreen } from "./Lock";
 import { unlock, useLock } from "./applock";
@@ -14,7 +14,7 @@ import { NewChatWatcher, clearOpenRequest, consumeClear, requestOpenChat, useCha
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
-import { TerminalsScreen } from "./Terminals";
+import { FilesScreen } from "./Files";
 import { UpdateSheet } from "./UpdatesUi";
 import { autoCheckForUpdates, updates } from "./updates";
 // Listens for the desktop's `views` from the start, long before a chat is opened.
@@ -29,7 +29,7 @@ const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ defa
 const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
 const ChatScreen = lazy(() => import("./ChatScreen").then((m) => ({ default: m.ChatScreen })));
 
-type Page = "agents" | "terminals" | "settings";
+type Page = "agents" | "files" | "settings";
 
 /** Keeps --app-h at the visible height so the key bar rides above the on-screen keyboard. */
 function useViewportHeight() {
@@ -306,9 +306,9 @@ function AppContent() {
   } else {
     content = (
       <div className="screen">
-        <main className="page">
+        <main className={"page" + (page === "files" ? " files-page" : "")}>
           {page === "agents" && <HomeScreen hostName={hostName} tabs={tabs} onOpen={open} onAddComputer={() => setAdding(true)} />}
-          {page === "terminals" && <TerminalsScreen hostName={hostName} tabs={tabs} onOpen={open} />}
+          {page === "files" && <FilesScreen hostName={hostName} tabs={tabs} onOpen={open} />}
           {page === "settings" && (
             <Suspense fallback={null}>
               <SettingsScreen hostName={hostName} settings={settings} />
@@ -361,7 +361,7 @@ function Toast() {
 function BottomNav({ page, onChange, updateAvailable }: { page: Page; onChange: (p: Page) => void; updateAvailable: boolean }) {
   const items: { id: Page; label: string; icon: ReactElement }[] = [
     { id: "agents", label: t("navAgents"), icon: <AgentsIcon /> },
-    { id: "terminals", label: t("navTerminals"), icon: <TerminalIcon /> },
+    { id: "files", label: t("files"), icon: <FolderIcon /> },
     { id: "settings", label: t("navSettings"), icon: <SlidersIcon /> },
   ];
   return (

@@ -14,6 +14,7 @@ mod auth;
 mod chat;
 mod connlog;
 mod fsbrowse;
+mod explorer;
 mod hex;
 pub(crate) mod keystore;
 mod preview;
@@ -1521,7 +1522,10 @@ fn append_frame(buf: &mut Vec<u8>, msg: &ServerMsg, compress: bool) {
                 tr("Messaggio troppo grande, scartato", "Message too large, dropped"),
                 bytes / 1024
             );
-            let note = ServerMsg::Error { message, pty_id: msg_pty_id(msg), fatal: false };
+            let note = match msg {
+                ServerMsg::Fs { request_id, .. } => ServerMsg::Fs { request_id: request_id.clone(), response: None, error: Some(message) },
+                _ => ServerMsg::Error { message, pty_id: msg_pty_id(msg), fatal: false },
+            };
             if let Ok(bytes) = encode_frame(&note, false) {
                 buf.extend_from_slice(&bytes);
             }
@@ -2526,6 +2530,16 @@ impl Conn {
             ClientMsg::Read { pty_id, path } => self.spawn_fs(pty_id, move |root, pty_id| {
                 read_text(root, &path).map(|(path, text, truncated)| ServerMsg::File { pty_id, path, text, truncated })
             }),
+            ClientMsg::Fs { request_id, request } => {
+                if request_id.len() > 128 { return; }
+                let config = self.shared.app.path().app_config_dir().ok();
+                let out = self.out_tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    let result = crate::blocking(move || explorer::run(request, config.as_deref())).await;
+                    let (response, error) = match result { Ok(r) => (Some(r), None), Err(e) => (None, Some(e)) };
+                    let _ = out.send(ServerMsg::Fs { request_id, response, error }).await;
+                });
+            }
         }
     }
 

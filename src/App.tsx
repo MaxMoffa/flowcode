@@ -2133,7 +2133,8 @@ function Shell() {
       // Automatic for an agent: the folder's project default, like a shell tab gets.
       const pick = profileId !== undefined ? Promise.resolve(profileId) : profileForPath(dir);
       // The phone picks terminal or chat itself (its own default view).
-      void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, undefined, id ?? undefined, true));
+      const distro = wslDistroOfPath(dir);
+      void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, distro ? wslShellId(distro) : undefined, id ?? undefined, true));
     } else addTab(cwd ?? undefined, undefined, false, profileId);
   };
 
@@ -2229,8 +2230,9 @@ function Shell() {
     opts: { profileId?: string; viewId?: string; resume?: { sessionId: string; label?: string; handoffFrom?: string; lastActiveAt?: number }; replaceTabId?: string; at?: number; shell?: string } = {},
   ): Promise<boolean> {
     const { profileId, viewId, resume, replaceTabId, at, shell } = opts;
-    if (!(await ensureCliReady(cli, profileId))) return false;
-    if (cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
+    const inWsl = !!wslDistroOfPath(cwd) || wslDistroOfShell(shell) !== undefined;
+    if (!inWsl && !(await ensureCliReady(cli, profileId))) return false;
+    if (!inWsl && cli === "vibe") await invoke("vibe_ensure_model", { profile: profileId ?? null }).catch(() => {});
     const id = newTabId("chat");
     const tab: ChatTab = { kind: "chat", id, agent: cli, cwd, label: resume?.label ?? (basename(cwd) || CLI_INFO[cli].name), profileId, viewId: viewId ?? (defaultOpensChat() ? defaultAgentView() : undefined), shell: shell ?? getConfiguredShell(), sessionId: resume?.sessionId, handoffFrom: resume?.handoffFrom, talked: resume ? undefined : false, lastActiveAt: resume?.lastActiveAt };
     setTabs((prev) => {

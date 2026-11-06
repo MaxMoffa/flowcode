@@ -4,6 +4,34 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum FsRequest {
+    Roots,
+    List { path: String },
+    Read { path: String },
+    Create { path: String, name: String, dir: bool },
+    Rename { path: String, name: String },
+    Move { path: String, destination: String },
+    Delete { path: String },
+    Write { path: String, text: String, version: String },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct FsRoot {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum FsResponse {
+    Roots { roots: Vec<FsRoot> },
+    List { path: String, parent: Option<String>, entries: Vec<LsEntry>, truncated: bool },
+    File { path: String, text: String, truncated: bool, version: Option<String> },
+    Done { path: String },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "t", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum ClientMsg {
     /// First message of a new device: trades the pairing code for a token.
@@ -46,6 +74,8 @@ pub enum ClientMsg {
     },
     /// Read a text file under the tab's working directory.
     Read { pty_id: String, path: String },
+    /// Standalone explorer, available only with `fileExplorer`.
+    Fs { request_id: String, request: FsRequest },
     /// Change one desktop setting the phone mirrors (see `ServerMsg::Settings`).
     /// The desktop validates `key` and the value's type and ignores anything else.
     Set { key: String, value: serde_json::Value },
@@ -214,6 +244,13 @@ pub enum ServerMsg {
     Actions { actions: Vec<Action> },
     Ls { pty_id: String, path: String, entries: Vec<LsEntry> },
     File { pty_id: String, path: String, text: String, truncated: bool },
+    Fs {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        response: Option<FsResponse>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     /// The desktop settings the phone mirrors, as one JSON object. Sent after
     /// `ready` once the desktop has published them, and again on every change.
     Settings { settings: serde_json::Value },
@@ -448,6 +485,17 @@ pub struct LsEntry {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn standalone_explorer_preserves_request_ids_and_write_versions() {
+        use super::*;
+        let json = serde_json::json!({ "t": "fs", "requestId": "r1", "request": { "op": "write", "path": "C:/project/a.txt", "text": "new", "version": "sha256" } });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        let reply = ServerMsg::Fs { request_id: "r1".into(), response: Some(FsResponse::List { path: "C:/project".into(), parent: Some("C:/".into()), entries: vec![], truncated: false }), error: None };
+        let json = serde_json::to_value(&reply).unwrap();
+        assert_eq!(json["response"]["kind"], "list");
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
+    }
     #[test]
     fn prompt_receipts_and_image_ids_expand_the_old_protocol() {
         let legacy: super::ClientMsg = serde_json::from_str(r#"{"t":"chatprompt","chatId":"c","text":"hello"}"#).unwrap();

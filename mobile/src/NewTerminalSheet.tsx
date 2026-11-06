@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AdaptiveSheet } from "./AdaptiveSheet";
+import { FolderPicker } from "./FolderPicker";
+import { launchPath } from "./explorerPaths";
 import { useBackHandler, useEscape } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
@@ -129,10 +131,10 @@ const agentName = (cli: Cli | null) => AGENTS.find((a) => a.id === cli)?.name ??
  * straight away). The desktop opens it as a new tab; `onCreate` runs once the
  * request is sent. A bottom sheet on the phone, a centered dialog on the
  * tablet layout (Enter opens, on a hardware keyboard). */
-export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: boolean; folders: string[]; onClose: () => void; onCreate: (asChat: boolean, label: string) => void }) {
+export function NewTerminalSheet({ open, folders, onClose, onCreate, initialCwd = null, initialCli = null, agentOnly = false }: { open: boolean; folders: string[]; onClose: () => void; onCreate: (asChat: boolean, label: string, firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void; initialCwd?: string | null; initialCli?: Cli | null; agentOnly?: boolean }) {
   /** null = the desktop's start folder. */
-  const [cwd, setCwd] = useState<string | null>(null);
-  const [cli, setCli] = useState<Cli | null>(null);
+  const [cwd, setCwd] = useState<string | null>(initialCwd);
+  const [cli, setCli] = useState<Cli | null>(initialCli);
   /** null = automatic (the folder's project default), "" = the default profile. */
   const [profile, setProfile] = useState<string | null>(null);
   /** The select row whose menu is open. */
@@ -153,10 +155,10 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
   const zoom = wide ? uiZoom : 1;
   const closeMenu = () => setMenu(null);
   // The menu registers last, so Back and Escape close just it before the sheet.
-  useBackHandler(open, onClose);
-  useBackHandler(menu !== null, closeMenu);
+  useBackHandler(open && menu !== "cwd", onClose);
+  useBackHandler(menu !== null && menu !== "cwd", closeMenu);
   useEscape(open && menu === null, onClose);
-  useEscape(menu !== null, closeMenu);
+  useEscape(menu !== null && menu !== "cwd", closeMenu);
 
   const showProfiles = canPickProfile && !!profiles && profiles.length > 0;
   const usable = (c: Cli, p: string | null) => (c !== "gemini" || canGemini) && agentAvailable(c, p, canPickProfile ? profiles : null, defaultLoggedIn);
@@ -168,9 +170,9 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
     safeStorage.set(key, JSON.stringify(list));
     setSaved({ key, list });
     const chat = canChat && asChat && v.cli !== null;
-    if (chat) send({ t: "newchat", cli: v.cli!, ...(v.cwd ? { cwd: v.cwd } : {}), ...(p !== null ? { profile: p } : {}) });
-    else send({ t: "newtab", ...(v.cwd ? { cwd: v.cwd } : {}), ...(v.cli ? { cli: v.cli } : {}), ...(p !== null ? { profile: p } : {}) });
-    onCreate(chat, v.cwd ? `${agentName(v.cli)} · ${shortCwd(v.cwd)}` : agentName(v.cli));
+    if (chat) send({ t: "newchat", cli: v.cli!, ...(v.cwd ? { cwd: launchPath(v.cwd) } : {}), ...(p !== null ? { profile: p } : {}) });
+    else send({ t: "newtab", ...(v.cwd ? { cwd: launchPath(v.cwd) } : {}), ...(v.cli ? { cli: v.cli } : {}), ...(p !== null ? { profile: p } : {}) });
+    onCreate(chat, v.cwd ? `${agentName(v.cli)} · ${shortCwd(v.cwd)}` : agentName(v.cli), undefined, v.cli ? { agent: v.cli, ...(v.cwd ? { cwd: launchPath(v.cwd) } : {}) } : undefined);
     onClose();
   };
 
@@ -189,6 +191,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
   }, [open, wide, menu]);
 
   if (!open) return null;
+  if (menu === "cwd") return <FolderPicker value={cwd} suggestions={[...folders, ...saved.list.flatMap((r) => r.cwd ? [r.cwd] : [])]} allowDefault onClose={closeMenu} onPick={(path) => { setCwd(path); setMenu(null); }} />;
 
   /** Picking a profile drops an agent that isn't signed in under it. */
   const pickProfile = (p: string | null) => {
@@ -214,11 +217,11 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
     };
 
   return (
-    <AdaptiveSheet open family="nts" variant="dialog" onClose={onClose} label={t("newTerminal")}>
+    <AdaptiveSheet open portal family="nts" variant="dialog" onClose={onClose} label={agentOnly ? t("filesAgent") : t("newTerminal")}>
       <div className="nts-grab" aria-hidden="true" />
-      <h2>{t("newTerminal")}</h2>
+      <h2>{agentOnly ? t("filesAgent") : t("newTerminal")}</h2>
       <div className="nts-body">
-        {recents.length > 0 && (
+        {!agentOnly && !initialCwd && recents.length > 0 && (
           <div className="nts-field">
             <span className="nts-label">
               {t("newTermRecent")}
@@ -239,19 +242,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
             </div>
           </div>
         )}
-        <NtsMenu
-          autoFocus
-          label={t("newTermFolder")}
-          icon={<FolderIcon />}
-          valueLabel={cwd ? shortCwd(cwd) : t("newTermStartFolder")}
-          mono={!!cwd}
-          value={cwd}
-          options={[{ value: null, label: t("newTermStartFolder"), icon: <FolderIcon /> }, ...folders.map((f) => ({ value: f as string | null, label: shortCwd(f), icon: <FolderIcon />, mono: true }))]}
-          zoom={zoom}
-          open={menu === "cwd"}
-          onToggle={toggle("cwd")}
-          onSelect={choose(setCwd)}
-        />
+        <div className="nts-field"><span className="nts-label">{t("newTermFolder")}</span><button type="button" data-autofocus className="nts-sel" aria-haspopup="dialog" onClick={() => setMenu("cwd")}><FolderIcon /><span className="nts-sel-value mono">{cwd ? shortCwd(cwd) : t("newTermStartFolder")}</span><ChevronIcon /></button></div>
         {showProfiles && (
           <NtsMenu
             label={t("newTermProfile")}
@@ -274,7 +265,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
           icon={agentIcon(cli)}
           valueLabel={agentName(cli)}
           value={cli}
-          options={[{ value: null, label: t("newTermShell"), icon: <TerminalIcon /> }, ...agents.map((a) => ({ value: a.id as Cli | null, label: a.name, icon: <AgentLogo cli={a.id} size={18} /> }))]}
+          options={[...(!agentOnly ? [{ value: null, label: t("newTermShell"), icon: <TerminalIcon /> }] : []), ...agents.map((a) => ({ value: a.id as Cli | null, label: a.name, icon: <AgentLogo cli={a.id} size={18} /> }))]}
           zoom={zoom}
           hint={agents.length === 0 && profile !== null ? t("newTermNoAgent", { profile: profileName(profile) }) : undefined}
           open={menu === "agent"}
@@ -294,7 +285,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate }: { open: b
           </div>
         )}
       </div>
-      <button type="button" className="btn primary big nts-go" onClick={() => create()}>
+      <button type="button" className="btn primary big nts-go" disabled={agentOnly && !cli} onClick={() => create()}>
         {cli ? t("newTermOpenWith", { name: agentName(cli) }) : t("newTermOpenShell")}
       </button>
     </AdaptiveSheet>
