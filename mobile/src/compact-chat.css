@@ -1,0 +1,67 @@
+/* The split-screen reading layout: a header action and no persistent composer. */
+.st-top.has-action {
+  grid-template-columns: 44px minmax(0, 1fr) auto 44px;
+  gap: 6px;
+}
+
+.chat-write {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font: 600 13px var(--font);
+  white-space: nowrap;
+}
+
+.chat-write svg { width: 18px; height: 18px; }
+.chat-write:active { background: var(--surface-2); }
+.chat-write:focus-visible, .chat-compose-head button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.is-compact-chat > .st-top { border-bottom: 1px solid var(--border); background: var(--bg); }
+.is-compact-chat .st-capsule { justify-self: start; border: 0; border-radius: 8px; background: none; box-shadow: none; backdrop-filter: none; padding-inline: 6px; }
+.is-compact-chat .st-capsule b { font-size: 14px; }
+.chat-composer[hidden] { display: none; }
+.chat-editor-field { display: contents; }
+
+/* Variant 2: a rounded writing surface, with the existing controls underneath. */
+.chat-composer.is-fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: var(--safe-t) 0 var(--safe-b);
+  background: var(--bg);
+}
+
+.kb .chat-composer.is-fullscreen { padding-bottom: 0; }
+.chat-compose-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 4px 12px 4px 6px; border-bottom: 1px solid var(--border); }
+.chat-compose-head h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font-size: 15px; font-weight: 600; }
+.chat-compose-head small { flex: none; margin-left: auto; font-size: 11px; color: var(--muted); }
+.chat-composer.is-fullscreen .chat-card { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 0; background: none; box-shadow: none; }
+.chat-composer.is-fullscreen .chat-editor-field { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 17px; border: 1px solid var(--border-strong); border-radius: 18px; background: var(--surface); overflow: auto; }
+.chat-composer.is-fullscreen .chat-editor-field:focus-within { border-color: var(--accent-border); }
+.chat-compose-label { flex: none; color: var(--muted); font-size: 11px; }
+.chat-composer.is-fullscreen .chat-input { flex: 1; min-height: 46px; max-height: none; padding: 0; overflow-y: auto; }
+.chat-compose-hint { flex: none; align-self: flex-end; color: var(--muted); font-size: 10px; }
+.chat-composer.is-fullscreen .chat-actions { flex: none; margin-top: 0; }
+.chat-composer.is-fullscreen .chat-round { width: 44px; height: 44px; }
+.chat-composer.is-fullscreen .chat-actions-start, .chat-composer.is-fullscreen .chat-mode-pill, .chat-composer.is-fullscreen .chat-model-pill { height: 44px; }
+.chat-composer.is-fullscreen .chat-actions-fit { max-height: 44px; }
+.chat-composer.is-fullscreen .chat-commands { bottom: 72px; max-height: calc(100% - 132px); }
+.chat-composer.is-fullscreen > .chat-subtray { display: none; }
+
+@media (max-height: 420px) {
+  .chat-composer.is-fullscreen .chat-card { padding: 8px 12px; gap: 8px; }
+  .chat-composer.is-fullscreen .chat-editor-field { padding: 12px; gap: 6px; }
+  .chat-compose-label, .chat-compose-hint { display: none; }
+  .chat-compose-head { min-height: 44px; padding-block: 0; }
+}

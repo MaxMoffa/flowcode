@@ -22,6 +22,7 @@ import "./viewCache";
 import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
 import { WideShell } from "./WideShell";
 import { useWide } from "./wide";
+import { useCompactChat } from "./useCompactChat";
 
 // xterm makes the terminal the bulk of the bundle; it loads when first opened.
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
@@ -133,7 +134,9 @@ function AppContent() {
   const lock = useLock();
   useViewportHeight();
   useSystemInsets();
-  const wide = useWide();
+  const wideScreen = useWide();
+  const compactChat = useCompactChat();
+  const wide = wideScreen && !(compactChat && openChat);
 
   // The phone wears the desktop's colors and language (see remote.ts); before
   // the first settings message the cached ones (or the defaults) apply.

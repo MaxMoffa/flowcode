@@ -40,6 +40,8 @@ import { openLink, TermLink } from "./TermLink";
 import { useTerminalViewport } from "./termViewport";
 import { useReadyViews, viewFits, viewLabel } from "./viewCache";
 import { useWide } from "./wide";
+import { useCompactChat } from "./useCompactChat";
+import "./compact-chat.css";
 import { limitOf } from "../../src/chat/chatLimit";
 import { findSubagent, isGuardianReview, nestSubagents, subagentInfo, subagentState } from "../../src/chat/chatTimeline";
 
@@ -62,6 +64,9 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<ChatComposerHandle>(null);
+  const compact = useCompactChat();
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [hasComposerDraft, setHasComposerDraft] = useState(false);
   /** The thread follows new messages only while the user is at its end. */
   const stick = useRef(true);
   /** Set while the smooth scroll to the end runs, so its in-between scroll events don't flash the jump button. */
@@ -322,6 +327,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const sendPrompt = (text: string) => {
     if (canClear && text.trim() === "/clear") clearChat(chatId);
     else sendChatPrompt(chatId, text);
+    setComposerOpen(false);
   };
 
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
@@ -388,7 +394,12 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
     />
   );
   // The thread scrolls under the buttons; a plugin view has no room for that, so they take their own band.
-  const floating = shown === CHAT_VIEW || !pkg;
+  const floating = !compact && (shown === CHAT_VIEW || !pkg);
+  const writeAction = compact && !sub && !exited && !openAsk && !showLimit && (shown === CHAT_VIEW || !pkg) ? (
+    <button type="button" className="chat-write" aria-haspopup="dialog" aria-expanded={composerOpen} onClick={() => setComposerOpen(true)}>
+      <PencilIcon /><span>{t(hasComposerDraft ? "chatResumeDraft" : "chatWrite")}</span>
+    </button>
+  ) : undefined;
   const rename = () => {
     setDraft(info.label);
     setEditing(true);
@@ -402,7 +413,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   toolRows.push({ label: t("chatStopAgent"), icon: <StopIcon />, run: working ? () => cancelChat(chatId) : undefined, danger: true });
 
   return (
-    <div className={"screen term-screen chat-screen" + (embedded ? " is-embedded" : "") + (kbOpen ? " kb" : "") + (!embedded && floating ? " has-floating-top" : "")} ref={screenRef}>
+    <div className={"screen term-screen chat-screen" + (embedded ? " is-embedded" : "") + (kbOpen ? " kb" : "") + (compact ? " is-compact-chat" : "") + (!embedded && floating ? " has-floating-top" : "")} ref={screenRef}>
       {embedded ? (
         <header className="term-head chat-head">
           {back}
@@ -432,6 +443,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
             </button>
           )}
           <i className={"term-dot chat-dot is-" + status} role="img" aria-label={stateText} title={stateText} />
+          {writeAction}
         </header>
       ) : (
         <SessionTop
@@ -446,6 +458,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
           toolsLabel={othersWaiting && onSwitch ? t("sessionToolsWaiting", { n: othersWaiting }) : t("sessionTools")}
           waiting={onSwitch ? othersWaiting : 0}
           floating={floating}
+          action={writeAction}
         >
           <SessionMenu
             open={menuOpen}
@@ -591,7 +604,14 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                 </div>
               )}
               <div className="chat-ask-keep" hidden={!!openAsk || showLimit}>
-                <ChatComposer ref={composerRef} chatId={chatId} agent={info?.agent ?? ""} busy={working} commands={model.commands} commandsLoading={starting} canClear={canClear} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubFromTray} openLabel={t("chatSubOpen")} expanded={subsOpen} onToggle={toggleSubs} onUngrouped={foldSubs} countLabel={(n) => t("chatSubCount", { n })} />} />
+                <ChatComposer
+                  ref={composerRef}
+                  compact={compact}
+                  expanded={composerOpen && !sub && !exited && !openAsk && !showLimit}
+                  onClose={() => setComposerOpen(false)}
+                  onOpen={() => setComposerOpen(true)}
+                  onDraftChange={setHasComposerDraft}
+                  chatId={chatId} agent={info?.agent ?? ""} busy={working} commands={model.commands} commandsLoading={starting} canClear={canClear} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubFromTray} openLabel={t("chatSubOpen")} expanded={subsOpen} onToggle={toggleSubs} onUngrouped={foldSubs} countLabel={(n) => t("chatSubCount", { n })} />} />
               </div>
             </>
           )}

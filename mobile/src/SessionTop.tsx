@@ -15,10 +15,10 @@ export interface MenuRow {
 }
 
 /** The phone's session top: back, the project in its capsule (or `center` instead: a crumb, the rename field) and the tools button, with no bar behind them. `floating` lays it over a thread that scrolls under it; otherwise it takes its own band. The menus go in `children`, so they anchor to it. */
-export function SessionTop(props: { name: string; state: string; stateText: string; backLabel: string; onBack: () => void; onSession: () => void; center?: ReactNode; onTools: () => void; toolsLabel: string; waiting: number; floating?: boolean; children: ReactNode }) {
+export function SessionTop(props: { name: string; state: string; stateText: string; backLabel: string; onBack: () => void; onSession: () => void; center?: ReactNode; action?: ReactNode; onTools: () => void; toolsLabel: string; waiting: number; floating?: boolean; children: ReactNode }) {
   const { name, state, stateText, center, waiting } = props;
   return (
-    <header className={"st-top" + (props.floating ? " is-floating" : "")}>
+    <header className={"st-top" + (props.floating ? " is-floating" : "") + (props.action ? " has-action" : "")}>
       <button type="button" className="st-btn" aria-label={props.backLabel} onClick={props.onBack}>
         <BackIcon />
       </button>
@@ -31,6 +31,7 @@ export function SessionTop(props: { name: string; state: string; stateText: stri
           <ChevronDownIcon />
         </button>
       )}
+      {props.action}
       <button type="button" className="st-btn" aria-haspopup="dialog" aria-label={props.toolsLabel} onClick={props.onTools}>
         <DotsIcon />
         {waiting > 0 && <b className="term-pill-badge">{waiting}</b>}

@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChatCommand, ChatModels, ChatModes, ChatThought } from "../../src/chat/chatTypes";
 import { buildMenu, commandText, displayName, type MenuEntry } from "../../src/chat/commandMenu";
 import { CommandChip } from "../../src/chat/CommandChip";
@@ -10,7 +10,7 @@ import { t } from "./i18n";
 import { ModeIcon, StarIcon } from "./ChatModeIcons";
 import { ChatModelPicker } from "./ChatModelPicker";
 import { getDefaultMode, isRiskyKind, modeKind, setDefaultMode } from "./chatModeDefaults";
-import { CloseIcon, SendIcon, StopIcon, Svg } from "./icons";
+import { BackIcon, CloseIcon, SendIcon, StopIcon, Svg } from "./icons";
 import { appendDictation, useDictation } from "./useDictation";
 
 /** Tallest the box grows before it scrolls. */
@@ -59,6 +59,11 @@ export interface ChatComposerHandle {
 }
 
 interface ChatComposerProps {
+  compact?: boolean;
+  expanded?: boolean;
+  onClose?: () => void;
+  onOpen?: () => void;
+  onDraftChange?: (hasDraft: boolean) => void;
   chatId: string;
   /** The agent CLI, which the default mode is kept per. */
   agent: string;
@@ -91,6 +96,11 @@ interface ChatComposerProps {
  * where the placeholder was.
  */
 export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(function ChatComposer({
+  compact = false,
+  expanded = false,
+  onClose,
+  onOpen,
+  onDraftChange,
   chatId,
   agent,
   busy,
@@ -107,6 +117,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   commandsLoading,
   canClear,
 }, ref) {
+  const fullscreen = compact && expanded;
+  const inputId = useId();
+  // Register before the command/mode layers so Android Back closes the top layer first.
+  useBackHandler(fullscreen, () => closeComposer());
   const box = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(() => drafts.get(chatId) ?? "");
   const [modeOpen, setModeOpen] = useState(false);
@@ -135,16 +149,46 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     return () => document.removeEventListener("pointerdown", onDown);
   }, [menuOpen, text]);
   const closeMode = () => setModeOpen(false);
+  const closeComposer = () => {
+    closeMenu();
+    setModeOpen(false);
+    onClose?.();
+  };
   useEscape(modeOpen, closeMode);
   useBackHandler(modeOpen, closeMode);
 
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
+    if (fullscreen) {
+      el.style.height = "";
+      el.style.overflowY = "";
+      return;
+    }
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
     el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
-  }, [text]);
+  }, [text, fullscreen]);
+
+  useEffect(() => {
+    onDraftChange?.(!!text.trim() || !!picked);
+  }, [text, picked, onDraftChange]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const screen = root.current?.closest(".chat-screen");
+    const previous = screen?.querySelector<HTMLElement>(".chat-write") ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const siblings = Array.from(screen?.children ?? []).filter((el): el is HTMLElement => el instanceof HTMLElement && !el.contains(root.current));
+    const wasInert = siblings.map(el => el.inert);
+    siblings.forEach(el => { el.inert = true; });
+    box.current?.focus({ preventScroll: true });
+    return () => {
+      siblings.forEach((el, i) => { el.inert = wasInert[i]; });
+      // Closing also dismisses the soft keyboard before returning to the reading layout.
+      if (root.current?.contains(document.activeElement) && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [fullscreen]);
 
   const change = (value: string) => {
     setText(value);
@@ -157,10 +201,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
     insertDraft: (added) => {
       change(latest.current.trim() ? `${added}
 ${latest.current}` : added);
-      box.current?.focus();
+      if (compact) onOpen?.();
+      else box.current?.focus();
     },
   }));
-  const dictation = useDictation((spoken) => change(appendDictation(latest.current, spoken)), true);
+  const dictation = useDictation((spoken) => change(appendDictation(latest.current, spoken)), !compact || expanded);
   const listening = dictation.state === "listening";
   const elapsed = useElapsed(listening);
   const dictate = () => {
@@ -205,7 +250,35 @@ ${latest.current}` : added);
   const current = modes?.availableModes.find((m) => m.id === modes.currentModeId);
 
   return (
-    <div className="chat-composer" ref={root}>
+    <div
+      className={"chat-composer" + (fullscreen ? " is-fullscreen" : "")}
+      ref={root}
+      hidden={compact && !expanded}
+      role={fullscreen ? "dialog" : undefined}
+      aria-modal={fullscreen ? true : undefined}
+      aria-label={fullscreen ? t("chatComposeTitle") : undefined}
+      onKeyDown={(e) => {
+        if (!fullscreen || e.nativeEvent.isComposing || !root.current?.contains(e.target as Node)) return;
+        if (e.key === "Escape" && !menuOpen && !modeOpen) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeComposer();
+        }
+        if (e.key === "Tab") {
+          const items = Array.from(root.current.querySelectorAll<HTMLElement>('button:not(:disabled), textarea, select, [tabindex="0"]')).filter(el => el.getClientRects().length > 0);
+          const first = items[0], last = items[items.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        }
+      }}
+    >
+      {fullscreen && (
+        <header className="chat-compose-head">
+          <button type="button" className="tm-btn" aria-label={t("chatComposeBack")} onClick={closeComposer}><BackIcon /></button>
+          <h2>{t("chatComposeTitle")}</h2>
+          {(text.trim() || picked) && <small>{t("chatDraftKept")}</small>}
+        </header>
+      )}
       {menu && query !== null && <ChatCommands {...keepFocus} menu={menu} query={query} loading={commandsLoading} onPick={pickCommand} />}
       {dictation.error && (
         <div className="chat-notice" role="alert">
@@ -217,6 +290,8 @@ ${latest.current}` : added);
       )}
       {subagentTray}
       <div className={"chat-card" + (listening ? " is-listening" : "")}>
+        <div className="chat-editor-field">
+        {fullscreen && <label className="chat-compose-label" htmlFor={inputId}>{t("chatPlaceholder")}</label>}
         {listening && (
           <div className="chat-listening" aria-live="polite">
             <span className="chat-wave" role="img" aria-label={t("dictateListening")}>
@@ -234,6 +309,7 @@ ${latest.current}` : added);
           </div>
         )}
         <textarea
+          id={inputId}
           ref={box}
           className="chat-input"
           rows={1}
@@ -246,7 +322,7 @@ ${latest.current}` : added);
             change(e.target.value);
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && hasKeyboard()) {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && (fullscreen ? (e.ctrlKey || e.metaKey || (!!menu?.entries.length && hasKeyboard())) : hasKeyboard())) {
               e.preventDefault();
               const top = menu?.entries[0]?.entry;
               if (top) pickCommand(top);
@@ -254,6 +330,8 @@ ${latest.current}` : added);
             }
           }}
         />
+        {fullscreen && <small className="chat-compose-hint">{t("chatComposeHint")}</small>}
+        </div>
         <div className="chat-actions">
           <div className="chat-actions-fit">
           <div className="chat-actions-start">

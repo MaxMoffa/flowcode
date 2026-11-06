@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="it" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre prototipi interattivi per Flowcode in split screen: solo chat e scrittura a schermo intero nell'area dell'app.">
+  <title>Flowcode · Split screen · 3 varianti</title>
+  <style>
+    /* Palette Flowcode da src/themes/palettes.ts; font e superfici da mobile/src/ui.css. */
+    :root {
+      color-scheme: dark;
+      --page: #120e0b; --bg: #1a1511; --chat: #0e0a07; --surface: #292420;
+      --surface-2: #302b26; --fg: #e7d8c5; --muted: #a08a6f;
+      --border: #e8b88020; --line: #e7d8c52e; --accent: #9db984;
+      --accent-bg: #9db98416; --on-accent: #0e0a07; --amber: #d1a752;
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+      --preview-height: 500px;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --page: #eee7dc; --bg: #f6efe3; --chat: #fffaf1; --surface: #ebe3d5;
+      --surface-2: #e3daca; --fg: #3a2b17; --muted: #7c674c;
+      --border: #78502428; --line: #78502444; --accent: #4f6e3a;
+      --accent-bg: #4f6e3a13; --on-accent: #fffaf1; --amber: #8a6a1f;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--page); color: var(--fg); font: 14px/1.5 var(--font); }
+    button, textarea, select { font: inherit; color: inherit; }
+    button { cursor: pointer; border: 0; background: none; }
+    button, select, summary { -webkit-tap-highlight-color: transparent; }
+    button { transition: background .18s, color .18s, border-color .18s, transform .18s; }
+    button:hover:not(:disabled) { background: var(--surface-2); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { opacity: .4; cursor: default; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    textarea:focus-visible { outline-offset: -2px; }
+    .icon { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    .svg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .page { max-width: 1440px; margin: auto; padding: 28px 32px 30px; }
+    .mast { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+    .wordmark { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; letter-spacing: -.04em; }
+    .brand-mark { width: 26px; height: 26px; color: var(--accent); }
+    .mast-note { font: 11px var(--mono); color: var(--muted); letter-spacing: .06em; }
+    .intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding: 26px 0 23px; }
+    .eyebrow { color: var(--accent); font: 11px var(--mono); letter-spacing: .08em; margin: 0 0 7px; }
+    h1 { font-size: clamp(25px, 3vw, 34px); font-weight: 550; line-height: 1.15; letter-spacing: -.045em; margin: 0 0 10px; }
+    .intro p:last-child { margin: 0; color: var(--muted); max-width: 660px; }
+    .intro-index { font: 38px/1 var(--mono); color: var(--line); letter-spacing: -.08em; }
+    .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+    .seg { display: flex; gap: 3px; padding: 3px; border-radius: 9px; background: var(--bg); border: 1px solid var(--border); }
+    .seg button { padding: 7px 13px; min-height: 36px; border-radius: 6px; font-size: 12px; color: var(--muted); }
+    .seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .plain-control { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+    .theme-toggle { margin-left: auto; }
+    .keyboard-control[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+    .workspace { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; align-items: start; }
+    .variant { min-width: 0; }
+    .variant-title { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; min-height: 26px; }
+    .variant-title .number { font: 11px var(--mono); color: var(--muted); }
+    h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.015em; }
+    .recommended { font-size: 10px; color: var(--accent); border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; margin-left: auto; }
+    .appframe { height: var(--preview-height); min-height: 280px; position: relative; overflow: hidden; border-radius: 14px; background: var(--chat); border: 1px solid var(--line); box-shadow: 0 12px 35px #08060425; isolation: isolate; container-type: inline-size; }
+    .read-view { height: 100%; display: flex; flex-direction: column; }
+    .app-header { flex: none; display: flex; gap: 9px; align-items: center; height: 48px; padding: 0 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .session-icon { color: var(--accent); width: 17px; height: 17px; }
+    .session-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: auto; flex: none; }
+    .session-agent { font-size: 11px; color: var(--muted); }
+    .thread { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; padding: 20px 18px 18px; font-size: 14px; line-height: 1.65; }
+    .thread-inner { max-width: 680px; margin: auto; display: flex; flex-direction: column; gap: 17px; }
+    .time-label { align-self: center; font: 10px var(--mono); color: var(--muted); margin: 0 0 2px; }
+    .message-user { max-width: 88%; align-self: flex-end; background: var(--surface); border-radius: 15px 15px 4px 15px; padding: 10px 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .message-agent p { margin: 0 0 10px; }
+    .message-agent p:last-child { margin: 0; }
+    .agent-label { display: flex; gap: 7px; align-items: center; font-size: 11px; color: var(--muted); margin-bottom: 7px; }
+    .agent-label .icon { width: 14px; height: 14px; color: var(--accent); }
+    code { font: 11.5px var(--mono); background: var(--accent-bg); color: var(--accent); padding: 2px 4px; border-radius: 4px; overflow-wrap: anywhere; }
+    .tool-result { display: flex; align-items: center; gap: 7px; font: 10.5px/1.5 var(--mono); color: var(--muted); border-left: 2px solid var(--line); padding: 7px 10px; overflow-wrap: anywhere; }
+    .tool-result .icon { width: 13px; height: 13px; color: var(--accent); }
+    .completed { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .completed .icon { width: 13px; height: 13px; color: var(--accent); }
+    .primary { background: var(--accent); color: var(--on-accent); border: 1px solid transparent; }
+    .primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--fg)); }
+    .write { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; font-weight: 600; }
+    .v-a .write { position: absolute; bottom: 16px; right: 16px; padding: 0 17px; height: 46px; border-radius: 25px; box-shadow: 0 6px 20px #0004; }
+    .v-a .thread { padding-bottom: 82px; }
+    .draft-dot { display: none; width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
+    .has-draft .draft-dot { display: inline-block; }
+    .v-b .write { margin: 0; flex: none; width: 100%; min-height: 46px; padding: 10px 16px; justify-content: flex-start; color: var(--muted); background: var(--bg); border-top: 1px solid var(--line); }
+    .v-b .write .icon, .v-b.has-draft .write { color: var(--accent); }
+    .write .expand-icon { margin-left: auto; width: 15px; height: 15px; opacity: .65; }
+    .v-c .write { margin-left: auto; padding: 0 10px; min-height: 36px; border-radius: 7px; color: var(--accent); font-size: 12px; }
+    .v-c .session-agent, .v-c .status-dot { display: none; }
+    .variant-caption { padding-top: 14px; }
+    .variant-caption p { color: var(--muted); margin: 0 0 10px; font-size: 12px; line-height: 1.65; }
+    .variant-caption .tradeoff { color: var(--fg); font-size: 11px; display: flex; gap: 7px; align-items: baseline; }
+    .tradeoff b { font-weight: 500; color: var(--accent); }
+    .try { display: inline-flex; gap: 6px; align-items: center; padding: 5px 0; font-size: 12px; color: var(--accent); }
+    .try:hover:not(:disabled) { background: transparent; text-decoration: underline; text-underline-offset: 4px; }
+    .try .icon { width: 14px; height: 14px; }
+    .composer { position: absolute; inset: 0; z-index: 3; background: var(--chat); display: flex; flex-direction: column; animation: enter .18s ease-out; }
+    @keyframes enter { from { opacity: .4; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .compose-head { min-height: 53px; padding: 6px 10px; flex: none; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid var(--border); }
+    .icon-button { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 9px; }
+    .compose-heading { min-width: 0; }
+    .compose-heading h3 { margin: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .compose-heading small { display: block; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .save-state { margin-left: auto; color: var(--muted); font-size: 10px; white-space: nowrap; padding-right: 6px; }
+    .editor-area { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 21px 21px 10px; overflow-y: auto; }
+    .editor-label { font-size: 10px; color: var(--muted); margin-bottom: 10px; letter-spacing: .04em; }
+    textarea { display: block; flex: 1; width: 100%; min-height: 54px; border: 0; border-radius: 5px; padding: 0; background: transparent; resize: none; line-height: 1.7; font-size: 16px; outline: none; }
+    textarea::placeholder { color: var(--muted); opacity: .7; }
+    .editor-foot { display: flex; align-items: center; justify-content: space-between; padding-top: 9px; color: var(--muted); font-size: 10px; gap: 8px; }
+    .compose-actions { flex: none; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 12px 14px; border-top: 1px solid var(--border); }
+    .model { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; min-height: 36px; padding: 0 8px; font-size: 11px; max-width: 150px; }
+    .send { margin-left: auto; min-height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-radius: 9px; font-size: 12px; font-weight: 600; }
+    .send .icon { width: 16px; height: 16px; }
+    .v-b .composer { background: var(--bg); }
+    .v-b .editor-area { margin: 12px; padding: 17px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
+    .v-b .compose-actions { padding-top: 0; border-top: 0; }
+    .v-b .compose-heading small { display: none; }
+    .context { position: relative; flex: none; margin: 13px 17px 0; border-left: 2px solid var(--accent); padding: 0 11px; font-size: 11px; color: var(--muted); }
+    .context summary { cursor: pointer; color: var(--fg); padding: 3px 0; }
+    .context p { position: absolute; z-index: 1; left: -2px; right: 0; top: 100%; margin: 5px 0; padding: 12px; max-height: 120px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; line-height: 1.6; box-shadow: 0 8px 20px #0003; }
+    .keyboard { flex: none; padding: 8px 5px 5px; background: var(--surface-2); border-top: 1px solid var(--line); }
+    .keyrow { display: flex; justify-content: center; gap: 4px; margin-bottom: 4px; }
+    .key { flex: 1; max-width: 34px; height: 26px; border-radius: 4px; display: grid; place-items: center; background: var(--bg); color: var(--fg); box-shadow: 0 1px 0 var(--line); font-size: 11px; }
+    .key.wide { flex: 1.7; max-width: 50px; } .key.space { flex: 5; max-width: 160px; font-size: 9px; }
+    .keyboard-note { font-size: 8px; color: var(--muted); text-align: center; }
+    .compact.with-keyboard .editor-area { padding: 10px 14px; }
+    .compact.with-keyboard .editor-label, .compact.with-keyboard .editor-foot { display: none; }
+    .compact.with-keyboard .keyboard .key { height: 20px; }
+    .compact.with-keyboard .compose-actions { padding: 8px 12px; }
+    .screen-meta { display: flex; justify-content: space-between; margin-top: 8px; font: 10px var(--mono); color: var(--muted); }
+    .other-app { display: none; min-width: 0; }
+    .other-window { height: var(--preview-height); background: var(--bg); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; color: var(--muted); }
+    .other-title { height: 48px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 9px; padding: 0 18px; font-size: 12px; }
+    .window-dots { display: flex; gap: 4px; margin-right: 8px; }.window-dots i { width: 6px; height: 6px; background: var(--line); border-radius: 50%; }
+    .other-body { padding: 33px; font-size: 14px; line-height: 1.8; max-width: 650px; }
+    .other-body small { font: 10px var(--mono); letter-spacing: .07em; }
+    .other-body h3 { font-size: 25px; line-height: 1.25; font-weight: 500; letter-spacing: -.03em; color: var(--fg); margin: 14px 0 20px; }
+    .other-body hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
+    .other-body .snippet { padding: 14px; background: var(--chat); font: 11px/1.9 var(--mono); border-radius: 7px; color: var(--accent); overflow-wrap: anywhere; }
+    .other-app .variant-title { color: var(--muted); font-size: 12px; }
+    .split-tabs { display: none; }
+    .workspace.split { grid-template-columns: minmax(0, 1fr) minmax(280px, 1fr); gap: 16px; max-width: 1120px; margin: auto; }
+    .workspace.split .other-app { display: block; }
+    .workspace.split .variant:not(.selected) { display: none; }
+    .workspace.split .try { display: none; }
+    body[data-mode="split"] .split-tabs { display: flex; }
+    .workspace.split .thread { padding-inline: 24px; }
+    .principles { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; padding-top: 21px; margin-top: 21px; border-top: 1px solid var(--border); }
+    .principles p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+    .principles strong { display: block; font-size: 12px; color: var(--fg); font-weight: 500; margin-bottom: 3px; }
+    .live-status { margin-top: 14px; min-height: 19px; color: var(--accent); font-size: 12px; }
+    .skip { position: absolute; left: 20px; top: -80px; z-index: 5; background: var(--accent); color: var(--on-accent); padding: 10px; border-radius: 6px; }
+    .skip:focus { top: 12px; }
+    @container (max-width: 300px) { .session-agent { display: none; } .compose-actions { padding-inline: 8px; } .editor-area { padding-inline: 15px; } .save-state { font-size: 9px; } }
+    @media (min-width: 1200px) { .workspace.split { grid-template-columns: minmax(0, var(--other-ratio, 1fr)) minmax(280px, 1fr); } }
+    @media (max-width: 980px) { .workspace:not(.split) { gap: 14px; } .page { padding: 24px 18px; } .recommended { font-size: 9px; } }
+    @media (max-width: 820px) { .workspace:not(.split) { grid-template-columns: 1fr; max-width: 520px; margin: auto; gap: 30px; } .principles { grid-template-columns: 1fr; gap: 14px; } .variant-title { flex-wrap: wrap; } }
+    @media (max-width: 600px) { .workspace.split { grid-template-columns: minmax(0, 1fr); max-width: 520px; } .workspace.split .other-app { display: none; } .mast-note { display: none; } .intro-index { display: none; } .toolbar { gap: 8px; } .theme-toggle { margin-left: 0; } .page { padding: 18px 14px; } .other-toggle { display: none; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body data-mode="compare">
+  <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-write" viewBox="0 0 24 24"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15Z"/><path d="M13 20h7"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m10 5-7 7 7 7M3 12h18"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0Z"/><path d="M7 9h8M7 13h5"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 15h10"/></symbol>
+    <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-brand" viewBox="0 0 24 24"><path d="m9 4-6 8 6 8M15 4l6 8-6 8M14 4l-4 16"/></symbol>
+  </defs></svg>
+  <a class="skip" href="#workspace">Vai alle varianti</a>
+  <main class="page">
+    <header class="mast">
+      <div class="wordmark"><svg class="icon brand-mark"><use href="#i-brand"/></svg>flowcode <span style="font-weight:400;color:var(--muted);letter-spacing:0">/ studi di interfaccia</span></div>
+      <span class="mast-note">SPLIT SCREEN · PROTOTIPO 01</span>
+    </header>
+    <div class="intro">
+      <div><p class="eyebrow">MENO INTERFACCIA, PIÙ CONVERSAZIONE</p><h1>Spazio alla chat.</h1><p>In split screen resta solo la conversazione. Un pulsante apre lo spazio per scrivere, quando serve.</p></div>
+      <span class="intro-index" aria-hidden="true">01—03</span>
+    </div>
+    <nav class="toolbar" aria-label="Controlli del prototipo">
+      <div class="seg" aria-label="Visualizzazione">
+        <button type="button" data-mode="compare" aria-pressed="true">Confronta le 3 varianti</button>
+        <button type="button" data-mode="split" aria-pressed="false">Simula split screen</button>
+      </div>
+      <div class="seg split-tabs" aria-label="Variante in simulazione">
+        <button type="button" data-variant="a" aria-pressed="true">01 Flottante</button>
+        <button type="button" data-variant="b" aria-pressed="false">02 Barra</button>
+        <button type="button" data-variant="c" aria-pressed="false">03 In alto</button>
+      </div>
+      <button type="button" class="plain-control" id="height-toggle" aria-pressed="false">Altezza: normale</button>
+      <button type="button" class="plain-control keyboard-control" id="keyboard-toggle" aria-pressed="false"><svg class="icon"><use href="#i-keyboard"/></svg>Tastiera simulata</button>
+      <button type="button" class="plain-control theme-toggle" id="theme-toggle" aria-label="Passa al tema chiaro"><svg class="icon"><use href="#i-theme"/></svg><span>Scuro</span></button>
+    </nav>
+    <div class="workspace" id="workspace">
+      <aside class="other-app" aria-label="Altra app di esempio">
+        <div class="variant-title">Altra app · rimane sempre visibile</div>
+        <div class="other-window">
+          <div class="other-title"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>Note / Requisiti</div>
+          <div class="other-body"><small>FLOWCODE / INTERFACCIA</small><h3>Una conversazione,<br>tutto lo spazio possibile.</h3><p>Quando lavoro con due app affiancate, voglio leggere la risposta senza sacrificare metà finestra al box di input.</p><hr><p>La scrittura si apre solo al bisogno. Dopo l’invio torno esattamente nella conversazione.</p><div class="snippet">chat → scrittura → invio → chat<br>bozza conservata alla chiusura</div></div>
+        </div>
+        <div class="screen-meta"><span>Simulazione di due finestre affiancate</span><span>50 / 50</span></div>
+      </aside>
+    </div>
+    <div class="principles">
+      <p><strong>01 / La chat occupa la finestra</strong>Sidebar, terminale, pannelli e input permanente scompaiono nella modalità compatta proposta.</p>
+      <p><strong>02 / Scrittura a tutta area</strong>Il box copre l’intera area assegnata a Flowcode. L’altra app resta al suo posto, anche durante la scrittura.</p>
+      <p><strong>03 / Nessun testo perso</strong>Chiudi con Indietro o Esc: la bozza resta. Invio dal pulsante o Ctrl/⌘ + Invio; poi ritorno alla chat.</p>
+    </div>
+    <div class="live-status" role="status" aria-live="polite" id="live-status">Prova i pulsanti “Scrivi”: apertura, bozza e invio sono interattivi. I messaggi restano in questo prototipo.</div>
+  </main>
+  <template id="thread-template">
+    <div class="thread-inner">
+      <div class="time-label">OGGI · 14:32</div>
+      <div class="message-user">Controlla il salvataggio delle bozze quando cambio sessione.</div>
+      <div class="message-agent"><div class="agent-label"><svg class="icon"><use href="#i-brand"/></svg>Claude · Flowcode</div><p>La bozza viene conservata per ogni chat. Sto verificando anche il ripristino quando torni alla sessione.</p></div>
+      <div class="tool-result"><svg class="icon"><use href="#i-check"/></svg>ChatComposer.tsx · lettura completata</div>
+      <div class="message-agent"><p>Il testo rimane disponibile dopo il cambio di sessione e la chiusura del box.</p><p>Ho mantenuto separati il contenuto della bozza e il modello selezionato. Puoi continuare a leggere e riprendere a scrivere quando vuoi.</p></div>
+      <div class="tool-result"><svg class="icon"><use href="#i-check"/></svg>Verifica completata · 3 controlli superati</div>
+      <div class="message-agent"><p>Ora puoi provare il passaggio tra lettura e scrittura con un messaggio più lungo.</p><div class="completed"><svg class="icon"><use href="#i-check"/></svg>Completato · 18 s</div></div>
+    </div>
+  </template>
+  <script>
+    const icon = (name, extra = '') => `<svg class="icon ${extra}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+    const variants = {
+      a: { number: '01', title: 'Pulsante flottante', label: 'Scrivi', description: 'Chat fino al bordo. Il pulsante resta nell’angolo, vicino al pollice. Il box si apre come una pagina di scrittura essenziale.', gain: 'Nessuna barra in basso', cost: 'Il pulsante si sovrappone a una piccola area della chat.' },
+      b: { number: '02', title: 'Barra compatta', label: 'Scrivi un messaggio…', description: 'Una sola riga al posto del composer. Accesso evidente e anteprima della bozza. In scrittura, un foglio separato dal resto dell’interfaccia.', gain: 'Accesso più riconoscibile', cost: 'Riserva 46 px alla barra, senza coprire i messaggi.' },
+      c: { number: '03', title: 'Azione in alto', label: 'Scrivi', description: 'Nessun elemento in fondo alla chat. Scrivi dall’intestazione; nel box puoi riaprire l’ultimo messaggio per mantenere il contesto.', gain: 'Fondo della chat completamente libero', cost: 'Pulsante più distante dal pollice su tablet.' }
+    };
+    const workspace = document.querySelector('#workspace');
+    const status = document.querySelector('#live-status');
+    const states = new Map();
+    let selected = 'a';
+    let keyboard = false;
+    let activeComposer = null;
+    let storageAvailable = true;
+    function readDraft(key) { try { return localStorage.getItem('flowcode-split-prototype-' + key) || ''; } catch { storageAvailable = false; return ''; } }
+    function storeDraft(key, value) { try { localStorage.setItem('flowcode-split-prototype-' + key, value); } catch { storageAvailable = false; } }
+    function keyboardMarkup() {
+      const row = (text) => `<div class="keyrow">${[...text].map(k => `<span class="key">${k}</span>`).join('')}</div>`;
+      return row('qwertyuiop') + row('asdfghjkl') + `<div class="keyrow"><span class="key wide">⇧</span>${[...'zxcvbnm'].map(k => `<span class="key">${k}</span>`).join('')}<span class="key wide">⌫</span></div><div class="keyrow"><span class="key wide">123</span><span class="key space">spazio</span><span class="key wide">↵</span></div><div class="keyboard-note">Tastiera illustrativa · digita nel campo sopra</div>`;
+    }
+    Object.entries(variants).forEach(([key, variant]) => {
+      const article = document.createElement('article');
+      article.className = 'variant' + (key === selected ? ' selected' : '');
+      article.dataset.key = key;
+      const writeButton = `<button type="button" class="write ${key === 'a' ? 'primary' : ''}" aria-label="Apri scrittura a tutta area: ${variant.title}" aria-expanded="false" aria-controls="composer-${key}">${icon('write')}<span class="write-label">${variant.label}</span><span class="draft-dot" aria-hidden="true"></span>${key === 'b' ? icon('expand', 'expand-icon') : ''}</button>`;
+      article.innerHTML = `<header class="variant-title"><span class="number">${variant.number}</span><h2>${variant.title}</h2>${key === 'a' ? '<span class="recommended">Consigliata</span>' : ''}</header>
+        <div class="appframe v-${key}">
+          <div class="read-view"><header class="app-header">${icon('chat', 'session-icon')}<span class="session-name">flowcode</span><span class="status-dot" title="Pronto"></span><span class="session-agent">Claude</span>${key === 'c' ? writeButton : ''}</header>
+            <div class="thread" role="region" aria-label="Conversazione di esempio, variante ${variant.number}" tabindex="0">${document.querySelector('#thread-template').innerHTML}</div>${key !== 'c' ? writeButton : ''}</div>
+          <section class="composer" id="composer-${key}" role="dialog" aria-modal="true" aria-labelledby="compose-title-${key}" hidden>
+            <header class="compose-head"><button type="button" class="icon-button back" aria-label="Torna alla chat e conserva la bozza">${icon('back')}</button><div class="compose-heading"><h3 id="compose-title-${key}">${key === 'b' ? 'Il tuo messaggio' : 'Scrivi un messaggio'}</h3><small>flowcode · ${key === 'c' ? 'Contesto a portata di mano' : 'Tutta l’area per scrivere'}</small></div><span class="save-state">Bozza vuota</span></header>
+            ${key === 'c' ? '<details class="context"><summary>Ultimo messaggio di Claude</summary><p>Ora puoi provare il passaggio tra lettura e scrittura con un messaggio più lungo.</p></details>' : ''}
+            <div class="editor-area"><label class="editor-label" for="input-${key}">MESSAGGIO A CLAUDE</label><textarea id="input-${key}" placeholder="Descrivi cosa vuoi fare…&#10;&#10;Qui hai spazio per tutti i dettagli." spellcheck="true"></textarea><div class="editor-foot"><span class="char-count">0 caratteri</span><span>Ctrl/⌘ + Invio per inviare</span></div></div>
+            <footer class="compose-actions"><select class="model" aria-label="Modello per la variante ${variant.number}"><option>Sonnet 4.5</option><option>Opus 4.5</option></select><button type="button" class="send primary" disabled>Invia ${icon('send')}</button></footer>
+            <div class="keyboard" aria-hidden="true" hidden>${keyboardMarkup()}</div>
+          </section>
+        </div>
+        <div class="screen-meta"><span class="dimensions"></span><span>Modalità compatta</span></div>
+        <div class="variant-caption"><p>${variant.description}</p><p class="tradeoff"><b>${variant.gain}.</b></p><p>${variant.cost}</p><button type="button" class="try">Prova con un’altra app ${icon('arrow')}</button></div>`;
+      workspace.append(article);
+      const frame = article.querySelector('.appframe');
+      const composer = article.querySelector('.composer');
+      const textarea = article.querySelector('textarea');
+      const state = { key, article, frame, composer, textarea, write: article.querySelector('.write'), read: article.querySelector('.read-view'), thread: article.querySelector('.thread'), open: false, scroll: 0 };
+      states.set(key, state);
+      textarea.value = readDraft(key);
+      state.write.addEventListener('click', () => openComposer(state));
+      article.querySelector('.back').addEventListener('click', () => closeComposer(state));
+      article.querySelector('.send').addEventListener('click', () => send(state));
+      article.querySelector('.try').addEventListener('click', () => { selectVariant(key); setMode('split'); workspace.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); });
+      textarea.addEventListener('input', () => { storeDraft(key, textarea.value); updateDraft(state); });
+      composer.addEventListener('keydown', event => {
+        if (event.isComposing) return;
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeComposer(state); }
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); send(state); }
+        if (event.key === 'Tab') {
+          const focusable = [...composer.querySelectorAll('button:not(:disabled), textarea, select, summary')].filter(el => el.getClientRects().length);
+          const first = focusable[0], last = focusable.at(-1);
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+      });
+      new ResizeObserver(() => { article.querySelector('.dimensions').textContent = `${Math.round(frame.clientWidth)} × ${Math.round(frame.clientHeight)} px`; }).observe(frame);
+      updateDraft(state);
+      requestAnimationFrame(() => { state.thread.scrollTop = state.thread.scrollHeight; });
+    });
+    function updateDraft(state) {
+      const value = state.textarea.value;
+      const hasDraft = value.trim().length > 0;
+      state.frame.classList.toggle('has-draft', hasDraft);
+      state.article.querySelector('.send').disabled = !hasDraft;
+      state.article.querySelector('.char-count').textContent = `${[...value].length} caratteri`;
+      state.article.querySelector('.save-state').textContent = hasDraft ? (storageAvailable ? 'Bozza salvata' : 'Bozza in memoria') : 'Bozza vuota';
+      state.write.querySelector('.write-label').textContent = hasDraft ? (state.key === 'b' ? 'Riprendi la bozza…' : 'Riprendi') : variants[state.key].label;
+    }
+    function openComposer(state) {
+      if (activeComposer && activeComposer !== state) closeComposer(activeComposer, false);
+      state.scroll = state.thread.scrollTop;
+      state.open = true;
+      state.composer.hidden = false;
+      state.read.inert = true;
+      state.write.setAttribute('aria-expanded', 'true');
+      activeComposer = state;
+      // Mantiene accessibili soltanto il dialogo e i controlli interni durante la scrittura.
+      document.querySelectorAll('.mast, .intro, .toolbar, .principles, .other-app, .skip').forEach(el => el.inert = true);
+      states.forEach(other => { if (other !== state) other.article.inert = true; });
+      state.article.querySelectorAll('.variant-title, .variant-caption').forEach(el => el.inert = true);
+      requestAnimationFrame(() => { state.textarea.focus({ preventScroll: true }); state.textarea.setSelectionRange(state.textarea.value.length, state.textarea.value.length); });
+      status.textContent = 'Scrittura aperta nell’area Flowcode. Esc torna alla chat e conserva la bozza.';
+    }
+    function closeComposer(state, restoreFocus = true) {
+      storeDraft(state.key, state.textarea.value);
+      state.open = false;
+      state.composer.hidden = true;
+      state.read.inert = false;
+      state.write.setAttribute('aria-expanded', 'false');
+      document.querySelectorAll('[inert]').forEach(el => el.inert = false);
+      activeComposer = null;
+      state.thread.scrollTop = state.scroll;
+      updateDraft(state);
+      if (restoreFocus) state.write.focus({ preventScroll: true });
+      status.textContent = state.textarea.value.trim() ? 'Bozza conservata. Premi “Riprendi” per continuare.' : 'Di nuovo nella chat. Posizione di lettura conservata.';
+    }
+    function send(state) {
+      const text = state.textarea.value.trim();
+      if (!text) return;
+      const message = document.createElement('div');
+      message.className = 'message-user';
+      message.textContent = text;
+      state.thread.querySelector('.thread-inner').append(message);
+      const receipt = document.createElement('div');
+      receipt.className = 'completed';
+      receipt.innerHTML = `${icon('check')}Messaggio aggiunto alla demo · nessuna richiesta all’agente`;
+      state.thread.querySelector('.thread-inner').append(receipt);
+      state.textarea.value = '';
+      closeComposer(state);
+      state.thread.scrollTop = state.thread.scrollHeight;
+      status.textContent = `Variante ${variants[state.key].number}: messaggio aggiunto alla chat di esempio. Bozza svuotata.`;
+    }
+    function selectVariant(key) {
+      selected = key;
+      states.forEach(state => state.article.classList.toggle('selected', state.key === key));
+      document.querySelectorAll('[data-variant]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.variant === key)));
+    }
+    function setMode(mode) {
+      if (activeComposer) closeComposer(activeComposer, false);
+      document.body.dataset.mode = mode;
+      workspace.classList.toggle('split', mode === 'split');
+      document.querySelectorAll('button[data-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
+    }
+    document.querySelectorAll('button[data-mode]').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
+    document.querySelectorAll('[data-variant]').forEach(button => button.addEventListener('click', () => selectVariant(button.dataset.variant)));
+    document.querySelector('#height-toggle').addEventListener('click', event => {
+      const button = event.currentTarget;
+      const compact = button.getAttribute('aria-pressed') !== 'true';
+      button.setAttribute('aria-pressed', String(compact));
+      button.textContent = compact ? 'Altezza: ridotta' : 'Altezza: normale';
+      workspace.classList.toggle('compact', compact);
+      document.documentElement.style.setProperty('--preview-height', compact ? '340px' : '500px');
+    });
+    document.querySelector('#keyboard-toggle').addEventListener('click', event => {
+      keyboard = !keyboard;
+      workspace.classList.toggle('with-keyboard', keyboard);
+      event.currentTarget.setAttribute('aria-pressed', String(keyboard));
+      document.querySelectorAll('.keyboard').forEach(element => element.hidden = !keyboard);
+      status.textContent = keyboard ? 'Tastiera simulata attiva: apri “Scrivi” per valutare lo spazio restante.' : 'Tastiera simulata disattivata.';
+    });
+    document.querySelector('#theme-toggle').addEventListener('click', event => {
+      const light = document.documentElement.dataset.theme !== 'light';
+      document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      event.currentTarget.querySelector('span').textContent = light ? 'Chiaro' : 'Scuro';
+      event.currentTarget.setAttribute('aria-label', light ? 'Passa al tema scuro' : 'Passa al tema chiaro');
+    });
+  </script>
+</body>
+</html>
