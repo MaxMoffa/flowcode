@@ -273,7 +273,7 @@ const READ_CHUNK: u64 = 4 * 1024 * 1024;
 
 /// Brings `scan` up to date with `path`, reading only what was appended since
 /// the last time. A file that shrank (rewritten) is read again from the start.
-fn refresh(scan: &mut FileScan, path: &Path, wanted: LineFilter, parse: ParseLine) {
+fn refresh(scan: &mut FileScan, path: &Path, wanted: LineFilter, parse: ParseLine, now: u64) {
     let Ok(mut file) = std::fs::File::open(path) else { return };
     let len = file.metadata().map(|m| m.len()).unwrap_or(0);
     if len < scan.offset {
@@ -316,7 +316,6 @@ fn refresh(scan: &mut FileScan, path: &Path, wanted: LineFilter, parse: ParseLin
     }
     if scan.calls.len() > before {
         // Older than the longest period can't add to any: not kept.
-        let now = now_ms();
         scan.calls.retain(|c| now.saturating_sub(c.at) < 31 * DAY_MS);
         // Their dedupe keys go with them, or `seen` would only ever grow.
         let kept: HashSet<u64> = scan.calls.iter().map(|c| c.key).collect();
@@ -328,10 +327,14 @@ fn refresh(scan: &mut FileScan, path: &Path, wanted: LineFilter, parse: ParseLin
 /// is up to date - a file already read to `len` isn't even opened. Callers of
 /// one file wait for each other, so the calls aren't cloned for `f`.
 fn with_calls<R>(path: &Path, len: u64, wanted: LineFilter, parse: ParseLine, f: impl FnOnce(&[Call]) -> R) -> R {
+    with_calls_at(path, len, wanted, parse, now_ms(), f)
+}
+
+fn with_calls_at<R>(path: &Path, len: u64, wanted: LineFilter, parse: ParseLine, now: u64, f: impl FnOnce(&[Call]) -> R) -> R {
     let entry = lock(&CACHE).entry(path.to_path_buf()).or_default().clone();
     let mut scan = lock(&entry);
     if scan.offset != len {
-        refresh(&mut scan, path, wanted, parse);
+        refresh(&mut scan, path, wanted, parse, now);
     }
     f(&scan.calls)
 }
@@ -596,7 +599,9 @@ mod tests {
 
     fn calls_in(path: &Path, wanted: LineFilter, parse: ParseLine) -> Vec<Call> {
         let len = std::fs::metadata(path).map_or(0, |m| m.len());
-        with_calls(path, len, wanted, parse, |calls| calls.to_vec())
+        // Keep the fixture clock fixed so retention does not age these calls out.
+        let now = parse_timestamp("2026-10-06T12:00:00Z").unwrap();
+        with_calls_at(path, len, wanted, parse, now, |calls| calls.to_vec())
     }
 
     fn summarize(calls: &[Call], now: u64, today_start: u64) -> CliSpend {
@@ -609,6 +614,18 @@ mod tests {
         let path = std::env::temp_dir().join(format!("spend-test-{}.jsonl", uuid::Uuid::new_v4()));
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
         path
+    }
+
+    #[test]
+    fn scan_retention_uses_the_supplied_clock() {
+        let path = write(&[r#"{"type":"assistant","timestamp":"2026-10-06T10:00:00Z","message":{"id":"m1","model":"claude-sonnet-4-6","usage":{"input_tokens":100}}}"#]);
+        let len = std::fs::metadata(&path).unwrap().len();
+        let now = parse_timestamp("2026-10-06T10:00:00Z").unwrap();
+        assert_eq!(with_calls_at(&path, len, claude_filter, parse_claude_line, now, |calls| calls.len()), 1);
+        // Force a fresh scan of the same transcript at the retention boundary.
+        lock(&CACHE).remove(&path);
+        assert_eq!(with_calls_at(&path, len, claude_filter, parse_claude_line, now + 31 * DAY_MS, |calls| calls.len()), 0);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
