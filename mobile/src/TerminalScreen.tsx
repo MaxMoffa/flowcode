@@ -2,11 +2,12 @@ import { useCallback, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import "./chat.css";
-import { ChatMenu, TERMINAL_VIEW } from "./ChatMenu";
-import { agentName } from "./common";
+import { TERMINAL_VIEW } from "./ChatMenu";
+import { agentName, shortCwd } from "./common";
 import { t } from "./i18n";
 import { lastInWindow } from "./homeSessions";
-import { AgentLogo, AgentsIcon, BackIcon, ChevronDownIcon, CopyIcon, DotsIcon, FolderIcon, KeyboardIcon } from "./icons";
+import { AgentsIcon, BoltIcon, CloseIcon, CopyIcon, FolderIcon, GlobeIcon, KeyboardIcon, PencilIcon } from "./icons";
+import { SessionMenu, SessionTop, ToolsMenu, type MenuRow } from "./SessionTop";
 import { interrupt, send, showToast, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
 import { Browser } from "./Browser";
 import { localLinkPage, type Page } from "./browserUrl";
@@ -15,7 +16,6 @@ import { TermAgents } from "./TermAgents";
 import { TermFiles } from "./TermFiles";
 import { openLink, TermLink } from "./TermLink";
 import { TermKeyBar } from "./TermKeyBar";
-import { TermMenu } from "./TermMenu";
 import { encodeKey, encodeText, useModifiers, type Active, type NamedKey } from "./termModifiers";
 import { tapFeedback } from "./haptics";
 import { phoneFontSize } from "./termFont";
@@ -45,13 +45,13 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
   const canBrowse = useSupports("preview");
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const canRename = useSupports("rename");
   const canClose = useSupports("closeTab");
   const canChat = useSupports("terminalChat") && !!onChat;
-  const [titleMenuOpen, setTitleMenuOpen] = useState(false);
+  const [sessionOpen, setSessionOpen] = useState(false);
   const wide = useWide();
   const language = useRemoteSelector((s) => s.settings?.resolvedLanguage);
   const views = useReadyViews().filter((v) => viewFits(v, wide));
@@ -179,7 +179,6 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
     else focusTerminal(termRef.current);
   }
 
-  const closeMenu = useCallback(() => setMenuOpen(false), []);
   const answer = (data: string) => send({ t: "input", ptyId, data });
 
   /** Ends the title edit: Escape sets `cancelRename` before blurring, so it is dropped here. */
@@ -196,7 +195,6 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
 
   /** Closing the window's only tab would close the window, which the desktop refuses from a phone. */
   function closeThisTab() {
-    setMenuOpen(false);
     if (!window.confirm(t("closeTerminalConfirm", { label: tab.label }))) return;
     send({ t: "closetab", ptyId });
     onBack();
@@ -214,43 +212,20 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
     onChat(ptyId, id);
   };
 
-  const more = !embedded && (
-    <>
-      <button type="button" className="tm-back" aria-label={t("termMore")} aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
-        <DotsIcon />
-      </button>
-      <TermMenu
-        open={menuOpen}
-        kbOpen={kbOpen}
-        onClose={closeMenu}
-        onFiles={() => {
-          setMenuOpen(false);
-          setFilesOpen(true);
-        }}
-        onActions={() => {
-          setMenuOpen(false);
-          setActionsOpen(true);
-        }}
-        onBrowser={
-          canBrowse
-            ? () => {
-                setMenuOpen(false);
-                setBrowserOpen(true);
-              }
-            : undefined
-        }
-        onKeyboard={() => {
-          setMenuOpen(false);
-          toggleKeyboard();
-        }}
-        onInterrupt={() => {
-          setMenuOpen(false);
-          interrupt(ptyId);
-        }}
-        onCloseTab={canClose && !isLastInWindow ? closeThisTab : undefined}
-      />
-    </>
-  );
+  const rename = () => {
+    setDraft(tab.label);
+    setEditing(true);
+  };
+  const sessionRows: MenuRow[] = canRename ? [{ label: t("rename"), icon: <PencilIcon />, run: rename }] : [];
+  const toolRows: MenuRow[] = [
+    { label: t("termMenuFiles"), icon: <FolderIcon />, run: () => setFilesOpen(true) },
+    { label: t("termMenuActions"), icon: <BoltIcon />, run: () => setActionsOpen(true) },
+  ];
+  if (canBrowse) toolRows.push({ label: t("browser.menu"), icon: <GlobeIcon />, run: () => setBrowserOpen(true) });
+  if (onSwitch) toolRows.push({ label: t("agents"), icon: <AgentsIcon />, run: () => setAgentsOpen(true), note: othersWaiting ? t("sessionWaiting", { n: othersWaiting }) : undefined });
+  // With the keyboard up the pill is gone, and this is the on-screen way to lower it.
+  if (kbOpen) toolRows.push({ label: t("hideKeyboard"), icon: <KeyboardIcon size={18} />, run: toggleKeyboard });
+  toolRows.push({ label: t("termMenuInterrupt"), icon: <span className="st-c">^C</span>, run: () => interrupt(ptyId), danger: true });
 
   const keyBar = (
     <TermKeyBar
@@ -301,64 +276,35 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
   );
 
   return (
-    <div className={"screen term-screen" + (embedded ? " is-embedded" : "")} ref={screenRef}>
+    <div className={"screen term-screen" + (embedded ? " is-embedded" : " is-bare")} ref={screenRef}>
       {!embedded && (
-        <header className="term-head">
-          <button type="button" className="tm-back" aria-label={t("back")} onClick={onBack}>
-            <BackIcon />
-          </button>
-          {tab.cli ? (
-            <>
-              {editing ? (
-                <div className="chat-title">
-                  <span className="chat-title-logo">
-                    <AgentLogo cli={tab.cli} size={18} />
-                  </span>
-                  {renameInput}
-                </div>
-              ) : (
-                <button type="button" className="chat-title" aria-haspopup="dialog" aria-expanded={titleMenuOpen} onClick={() => setTitleMenuOpen(true)}>
-                  <span className="chat-title-logo">
-                    <AgentLogo cli={tab.cli} size={18} />
-                  </span>
-                  <span className="chat-title-text">
-                    <span className="chat-title-line">
-                      <b>{tab.label}</b>
-                      <ChevronDownIcon />
-                    </span>
-                    <span className="chat-title-sub">
-                      {agentName(tab.cli)} · {folderName(tab.cwd)}
-                    </span>
-                  </span>
-                </button>
-              )}
-              <i className={"term-dot is-" + state} role="img" aria-label={stateText} title={stateText} />
-            </>
-          ) : (
-            <div className="term-titles">
-              <i className={"term-dot is-" + state} />
-              {editing ? (
-                renameInput
-              ) : !canRename ? (
-                <span className="term-title">{tab.label}</span>
-              ) : (
-                <button
-                  type="button"
-                  className="term-title"
-                  aria-label={t("renameTerminal")}
-                  onClick={() => {
-                    setDraft(tab.label);
-                    setEditing(true);
-                  }}
-                >
-                  {tab.label}
-                </button>
-              )}
-              {!editing && <span className="term-state">{stateText}</span>}
-            </div>
-          )}
-          {more}
-        </header>
+        <SessionTop
+          name={folderName(tab.cwd)}
+          state={state}
+          stateText={stateText}
+          backLabel={t("back")}
+          onBack={onBack}
+          onSession={() => setSessionOpen(true)}
+          center={editing ? renameInput : undefined}
+          onTools={() => setToolsOpen(true)}
+          toolsLabel={othersWaiting && onSwitch ? t("sessionToolsWaiting", { n: othersWaiting }) : t("sessionTools")}
+          waiting={onSwitch ? othersWaiting : 0}
+        >
+          <SessionMenu
+            open={sessionOpen}
+            onClose={() => setSessionOpen(false)}
+            title={tab.label}
+            subtitle={`${tab.cli ? agentName(tab.cli) : t("sessionShell")} · ${stateText}`}
+            path={shortCwd(tab.cwd)}
+            views={tab.cli ? (canChat ? views.map((v) => ({ id: v.id, label: viewLabel(v, language) })) : []) : undefined}
+            viewsDisabled={!canChat || tab.status === "busy"}
+            view={TERMINAL_VIEW}
+            onView={pickView}
+            rows={sessionRows}
+            closeRow={canClose && !isLastInWindow ? { label: t("closeTerminal"), icon: <CloseIcon />, run: closeThisTab, danger: true } : undefined}
+          />
+          <ToolsMenu open={toolsOpen} onClose={() => setToolsOpen(false)} rows={toolRows} />
+        </SessionTop>
       )}
       <div className="term-card">
         <div className="term-body">
@@ -439,31 +385,6 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
       {browserOpen && canBrowse && <Browser ptyId={ptyId} initialPage={browserPage} onClose={() => { setBrowserOpen(false); setBrowserPage(null); }} />}
       {!embedded && <TermFiles tab={tab} open={filesOpen} onClose={closeFiles} onType={typeText} />}
       {!embedded && onSwitch && <TermAgents activePty={ptyId} open={agentsOpen} onClose={closeAgents} />}
-      {!embedded && tab.cli && (
-        <ChatMenu
-          open={titleMenuOpen}
-          onClose={() => setTitleMenuOpen(false)}
-          agent={tab.cli}
-          agentName={agentName(tab.cli)}
-          title={tab.label}
-          cwd={tab.cwd}
-          views={canChat ? views.map((v) => ({ id: v.id, label: viewLabel(v, language) })) : []}
-          viewsDisabled={!canChat || tab.status === "busy"}
-          view={TERMINAL_VIEW}
-          onView={pickView}
-          onRename={
-            canRename
-              ? () => {
-                  setDraft(tab.label);
-                  setEditing(true);
-                }
-              : undefined
-          }
-          onStop={tab.status === "busy" ? () => interrupt(ptyId) : undefined}
-          stopLabel={t("termMenuInterrupt")}
-          swipeHint={false}
-        />
-      )}
       {!embedded && <TermActions tab={tab} actions={actions} open={actionsOpen} onClose={closeActions} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>

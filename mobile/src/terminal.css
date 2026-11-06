@@ -19,29 +19,6 @@
   padding: 0 6px 0 2px;
 }
 
-.term-titles {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.term-title {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font-family: inherit;
-  font-size: 16px;
-  font-weight: 600;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .term-title-input {
   flex: 1;
   min-width: 0;
@@ -55,12 +32,6 @@
   font-size: 16px;
   font-weight: 600;
   outline: none;
-}
-
-.term-state {
-  flex: none;
-  font-size: 13px;
-  color: var(--muted);
 }
 
 .term-dot {
@@ -128,6 +99,15 @@
   border-top: 1px solid var(--border);
   background: var(--term-bg, #050302);
   overflow: hidden;
+}
+
+/* The phone's terminal has no header bar: the buttons sit on the terminal's own color. */
+.screen.term-screen.is-bare {
+  background: var(--term-bg, #050302);
+}
+
+.is-bare .term-card {
+  border-top: 0;
 }
 
 .term-body {
@@ -362,64 +342,6 @@
 .term-wait button.yes {
   background: rgba(157, 185, 132, 0.2);
   color: var(--accent, #9db984);
-}
-
-/* ---- "⋯" menu ------------------------------------------------------------- */
-
-.tm-menu-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  background: rgba(0, 0, 0, 0.25);
-}
-
-.tm-menu {
-  position: absolute;
-  top: calc(100% - 4px);
-  right: 10px;
-  z-index: 21;
-  width: 210px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  border-radius: 16px;
-  background: var(--glass-strong, #1b140e);
-  -webkit-backdrop-filter: var(--blur-sheet);
-  backdrop-filter: var(--blur-sheet);
-  border: 1px solid var(--border-strong, rgba(232, 184, 128, 0.14));
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
-}
-
-.tm-menu button {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 46px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 11px;
-  background: transparent;
-  color: var(--fg);
-  text-align: left;
-  font-size: 15px;
-}
-
-.tm-menu button:active {
-  background: var(--surface-2, rgba(231, 216, 197, 0.06));
-}
-
-.tm-menu button.danger {
-  color: var(--danger, #f0938c);
-}
-
-.tm-menu svg {
-  flex: none;
-}
-
-.tm-menu-c {
-  width: 18px;
-  text-align: center;
-  font: 13px var(--mono);
 }
 
 /* ---- drawer + sheet ----------------------------------------------------- */

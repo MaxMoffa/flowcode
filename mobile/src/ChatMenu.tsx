@@ -13,6 +13,13 @@ export interface ViewChoice {
 export const CHAT_VIEW = "chat";
 export const TERMINAL_VIEW = "terminal";
 
+/** Every way to look at a session, in order: the chat, the plugin views, the terminal. */
+export const viewChoices = (views: ViewChoice[]): (ViewChoice & { icon: React.ReactNode })[] => [
+  { id: CHAT_VIEW, label: t("chat"), icon: <ChatIcon size={18} /> },
+  ...views.map((v) => ({ ...v, icon: <ChatIcon size={18} /> })),
+  { id: TERMINAL_VIEW, label: t("chatViewTerminal"), icon: <TerminalIcon /> },
+];
+
 /** The session sheet behind the header's title button: how to view the session, its id, and stopping the agent. */
 export function ChatMenu(props: {
   open: boolean;
@@ -25,28 +32,18 @@ export function ChatMenu(props: {
   views: ViewChoice[];
   view: string;
   onView: (id: string) => void;
-  /** Greys out the choices other than the current view (the desktop can't switch this session). */
-  viewsDisabled?: boolean;
   onRename?: () => void;
   onCopyId?: () => void;
   onStop?: () => void;
   /** Closes the chat's tab (and ends its agent): only chats offer it, and not the last tab of a window. */
   onCloseTab?: () => void;
   onBrowser?: () => void;
-  /** The stop button's label, when "Stop the agent" doesn't fit (a terminal interrupts). */
-  stopLabel?: string;
-  /** Whether to mention the two-finger swipe (a terminal has none). */
-  swipeHint?: boolean;
 }) {
   const { open, onClose } = props;
   useEscape(open, onClose);
   useBackHandler(open, onClose);
 
-  const choices: (ViewChoice & { icon: React.ReactNode })[] = [
-    { id: CHAT_VIEW, label: t("chat"), icon: <ChatIcon size={18} /> },
-    ...props.views.map((v) => ({ ...v, icon: <ChatIcon size={18} /> })),
-    { id: TERMINAL_VIEW, label: t("chatViewTerminal"), icon: <TerminalIcon /> },
-  ];
+  const choices = viewChoices(props.views);
   const close = (action?: () => void) => () => {
     onClose();
     action?.();
@@ -79,7 +76,6 @@ export function ChatMenu(props: {
               role="radio"
               aria-checked={c.id === props.view}
               className={c.id === props.view ? "on" : ""}
-              disabled={props.viewsDisabled && c.id !== props.view}
               onClick={close(() => c.id !== props.view && props.onView(c.id))}
             >
               {c.icon}
@@ -109,7 +105,7 @@ export function ChatMenu(props: {
           )}
           <button type="button" className="danger" disabled={!props.onStop} onClick={close(props.onStop)}>
             <StopIcon />
-            <span>{props.stopLabel ?? t("chatStopAgent")}</span>
+            <span>{t("chatStopAgent")}</span>
           </button>
           {props.onCloseTab && (
             <button type="button" className="danger" onClick={close(props.onCloseTab)}>
@@ -118,7 +114,7 @@ export function ChatMenu(props: {
             </button>
           )}
         </div>
-        {props.swipeHint !== false && <p className="chat-menu-hint">{t("chatSwipeHint")}</p>}
+        <p className="chat-menu-hint">{t("chatSwipeHint")}</p>
       </div>
     </AdaptiveSheet>
   );

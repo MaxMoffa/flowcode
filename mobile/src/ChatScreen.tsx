@@ -27,13 +27,14 @@ import { useTwoFingerSwipe } from "./chatSwipe";
 import { eventsActivity } from "../../src/chat/cacheWarning";
 import { useCacheWarning } from "../../src/chat/useCacheWarning";
 import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
-import { agentName } from "./common";
+import { agentName, shortCwd } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { lastInWindow } from "./homeSessions";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
-import { AgentLogo, AgentsIcon, BackIcon, ArrowDownIcon, ChevronDownIcon, CloseIcon, PencilIcon, SendIcon, Svg } from "./icons";
+import { AgentLogo, AgentsIcon, BackIcon, ArrowDownIcon, ChevronDownIcon, CloseIcon, CopyIcon, GlobeIcon, PencilIcon, SendIcon, StopIcon, Svg } from "./icons";
 import { setChatTabShown, showToast, useRemoteSelector, useSupports } from "./remote";
+import { SessionMenu, SessionTop, ToolsMenu, type MenuRow } from "./SessionTop";
 import { TermAgents } from "./TermAgents";
 import { openLink, TermLink } from "./TermLink";
 import { useTerminalViewport } from "./termViewport";
@@ -67,6 +68,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const gliding = useRef(false);
   const [atBottom, setAtBottom] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -255,7 +257,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
       const next = order[order.indexOf(shown) + direction];
       if (next) pick(next);
     },
-    !menuOpen && !sub,
+    !menuOpen && !toolsOpen && !sub,
   );
 
   // The thread follows the conversation while the user is at its end (including when the keyboard resizes it).
@@ -352,70 +354,115 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
     );
   }
 
+  const crumb = sub && (
+    <div className="chat-crumb">
+      <AgentLogo cli={info.agent} size={18} />
+      <span className="chat-crumb-label">{[subagentInfo(sub.call).type, subagentInfo(sub.call).description].filter(Boolean).join(" · ")}</span>
+      {subState?.running ? (
+        <span className="chat-spinner" aria-hidden="true" />
+      ) : (
+        <span className={"chat-sub-mark" + (subState?.failed ? " is-failed" : "")} title={subState?.failed ? t("chatSubFailed") : t("chatSubDone")}>
+          {subState?.failed ? "✕" : "✓"}
+        </span>
+      )}
+    </div>
+  );
+  const renameInput = (
+    <input
+      className="term-title-input"
+      value={draft}
+      autoFocus
+      maxLength={128}
+      enterKeyHint="done"
+      aria-label={t("rename")}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        else if (e.key === "Escape") {
+          cancelRename.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+      onBlur={commitRename}
+    />
+  );
+  // The thread scrolls under the buttons; a plugin view has no room for that, so they take their own band.
+  const floating = shown === CHAT_VIEW || !pkg;
+  const rename = () => {
+    setDraft(info.label);
+    setEditing(true);
+  };
+  const sessionRows: MenuRow[] = [];
+  if (canRename) sessionRows.push({ label: t("rename"), icon: <PencilIcon />, run: rename });
+  if (info.sessionId) sessionRows.push({ label: t("chatCopyId"), icon: <CopyIcon />, run: copyId });
+  const toolRows: MenuRow[] = [];
+  if (canBrowse) toolRows.push({ label: t("browser.menu"), icon: <GlobeIcon />, run: onBrowser ?? browser.open });
+  if (onSwitch) toolRows.push({ label: t("agents"), icon: <AgentsIcon />, run: () => setAgentsOpen(true), note: othersWaiting ? t("sessionWaiting", { n: othersWaiting }) : undefined });
+  toolRows.push({ label: t("chatStopAgent"), icon: <StopIcon />, run: working ? () => cancelChat(chatId) : undefined, danger: true });
+
   return (
-    <div className={"screen term-screen chat-screen" + (embedded ? " is-embedded" : "") + (kbOpen ? " kb" : "")} ref={screenRef}>
-      <header className="term-head chat-head">
-        {back}
-        {sub ? (
-          <div className="chat-crumb">
-            <AgentLogo cli={info.agent} size={18} />
-            <span className="chat-crumb-label">{[subagentInfo(sub.call).type, subagentInfo(sub.call).description].filter(Boolean).join(" · ")}</span>
-            {subState?.running ? (
-              <span className="chat-spinner" aria-hidden="true" />
-            ) : (
-              <span className={"chat-sub-mark" + (subState?.failed ? " is-failed" : "")} title={subState?.failed ? t("chatSubFailed") : t("chatSubDone")}>
-                {subState?.failed ? "✕" : "✓"}
+    <div className={"screen term-screen chat-screen" + (embedded ? " is-embedded" : "") + (kbOpen ? " kb" : "") + (!embedded && floating ? " has-floating-top" : "")} ref={screenRef}>
+      {embedded ? (
+        <header className="term-head chat-head">
+          {back}
+          {sub ? (
+            crumb
+          ) : editing ? (
+            <div className="chat-title">
+              <span className="chat-title-logo">
+                <AgentLogo cli={info.agent} size={18} />
               </span>
-            )}
-          </div>
-        ) : editing ? (
-          <div className="chat-title">
-            <span className="chat-title-logo">
-              <AgentLogo cli={info.agent} size={18} />
-            </span>
-            <input
-              className="term-title-input"
-              value={draft}
-              autoFocus
-              maxLength={128}
-              enterKeyHint="done"
-              aria-label={t("rename")}
-              onFocus={(e) => e.currentTarget.select()}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-                else if (e.key === "Escape") {
-                  cancelRename.current = true;
-                  e.currentTarget.blur();
-                }
-              }}
-              onBlur={commitRename}
-            />
-          </div>
-        ) : (
-          <button type="button" className="chat-title" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
-            <span className="chat-title-logo">
-              <AgentLogo cli={info.agent} size={18} />
-            </span>
-            <span className="chat-title-text">
-              <span className="chat-title-line">
-                <b>{info.label}</b>
-                <ChevronDownIcon />
+              {renameInput}
+            </div>
+          ) : (
+            <button type="button" className="chat-title" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
+              <span className="chat-title-logo">
+                <AgentLogo cli={info.agent} size={18} />
               </span>
-              <span className="chat-title-sub">
-                {agentName(info.agent)} · {folderName(info.cwd)}
+              <span className="chat-title-text">
+                <span className="chat-title-line">
+                  <b>{info.label}</b>
+                  <ChevronDownIcon />
+                </span>
+                <span className="chat-title-sub">
+                  {agentName(info.agent)} · {folderName(info.cwd)}
+                </span>
               </span>
-            </span>
-          </button>
-        )}
-        <i className={"term-dot chat-dot is-" + status} role="img" aria-label={stateText} title={stateText} />
-        {!embedded && onSwitch && (
-          <button type="button" className="tm-back chat-agents-btn" aria-label={othersWaiting ? t("agentsWaitingAria", { n: othersWaiting }) : t("agents")} onClick={() => setAgentsOpen(true)}>
-            <AgentsIcon />
-            {othersWaiting > 0 && <b className="term-pill-badge">{othersWaiting}</b>}
-          </button>
-        )}
-      </header>
+            </button>
+          )}
+          <i className={"term-dot chat-dot is-" + status} role="img" aria-label={stateText} title={stateText} />
+        </header>
+      ) : (
+        <SessionTop
+          name={folderName(info.cwd)}
+          state={status}
+          stateText={stateText}
+          backLabel={sub ? t("chatSubBack") : t("back")}
+          onBack={sub ? closeSub : onBack}
+          onSession={() => setMenuOpen(true)}
+          center={sub ? crumb : editing ? renameInput : undefined}
+          onTools={() => setToolsOpen(true)}
+          toolsLabel={othersWaiting && onSwitch ? t("sessionToolsWaiting", { n: othersWaiting }) : t("sessionTools")}
+          waiting={onSwitch ? othersWaiting : 0}
+          floating={floating}
+        >
+          <SessionMenu
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            title={info.label}
+            subtitle={`${agentName(info.agent)} · ${stateText}`}
+            path={shortCwd(info.cwd)}
+            views={choices}
+            view={shown}
+            onView={pick}
+            rows={sessionRows}
+            closeRow={canCloseTab && !isLastInWindow ? { label: t("chatCloseTab"), icon: <CloseIcon />, run: () => { if (window.confirm(t("closeChatConfirm", { label: info.label }))) closeChatTab(chatId); }, danger: true } : undefined}
+            hint={t("chatSwipeHint")}
+          />
+          <ToolsMenu open={toolsOpen} onClose={() => setToolsOpen(false)} rows={toolRows} />
+        </SessionTop>
+      )}
 
       {shown === CHAT_VIEW || !pkg ? (
         <>
@@ -561,30 +608,25 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
         </>
       )}
 
-      <ChatMenu
-        open={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        agent={info.agent}
-        agentName={agentName(info.agent)}
-        title={info.label}
-        cwd={info.cwd}
-        views={choices}
-        view={shown}
-        onView={pick}
-        onBrowser={canBrowse ? onBrowser ?? browser.open : undefined}
-        onCopyId={info.sessionId ? copyId : undefined}
-        onRename={
-          canRename
-            ? () => {
-                setDraft(info.label);
-                setEditing(true);
-              }
-            : undefined
-        }
-        onStop={working ? () => cancelChat(chatId) : undefined}
-        // No onBack: App leaves once the chat is gone from the list, and the chat stays if the desktop asks for confirmation.
-        onCloseTab={canCloseTab && !isLastInWindow ? () => window.confirm(t("closeChatConfirm", { label: info.label })) && closeChatTab(chatId) : undefined}
-      />
+      {embedded && (
+        <ChatMenu
+          open={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          agent={info.agent}
+          agentName={agentName(info.agent)}
+          title={info.label}
+          cwd={info.cwd}
+          views={choices}
+          view={shown}
+          onView={pick}
+          onBrowser={canBrowse ? onBrowser ?? browser.open : undefined}
+          onCopyId={info.sessionId ? copyId : undefined}
+          onRename={canRename ? rename : undefined}
+          onStop={working ? () => cancelChat(chatId) : undefined}
+          // No onBack: App leaves once the chat is gone from the list, and the chat stays if the desktop asks for confirmation.
+          onCloseTab={canCloseTab && !isLastInWindow ? () => window.confirm(t("closeChatConfirm", { label: info.label })) && closeChatTab(chatId) : undefined}
+        />
+      )}
       {!embedded && onSwitch && <TermAgents activePty="" chatId={chatId} open={agentsOpen} onClose={closeAgents} />}
       {browser.opened && canBrowse && !embedded && <Browser ptyId={null} chatId={browser.chatId} initialPage={browser.page} linksChatId={browser.linksChatId} onClose={browser.close} />}
       <TermLink url={linkUrl} onClose={closeLink} />

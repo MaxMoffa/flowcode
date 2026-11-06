@@ -91,17 +91,6 @@
   font-size: 13px;
 }
 
-/* The agents button in the header: a waiting count sits on its corner. */
-.chat-agents-btn {
-  position: relative;
-}
-
-.chat-agents-btn .term-pill-badge {
-  top: 2px;
-  right: 0;
-  box-shadow: 0 0 0 2px var(--bg);
-}
-
 .chat-dot.is-exited {
   background: var(--danger);
 }
@@ -137,6 +126,20 @@
   max-width: var(--chat-col);
   margin: 0 auto;
   padding: 16px 18px 12px;
+}
+
+/* Under the phone's floating buttons: the thread starts below them and fades out as it passes behind. */
+.has-floating-top .chat-thread-wrap {
+  border-top: 0;
+}
+
+.has-floating-top .chat-thread {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 34px, #000 64px);
+  mask-image: linear-gradient(to bottom, transparent 0, transparent 34px, #000 64px);
+}
+
+.has-floating-top .chat-thread-inner {
+  padding-top: 64px;
 }
 
 .chat-empty,
