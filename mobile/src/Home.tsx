@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./home.css";
-import logo from "./assets/flowcode-icon.svg";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { closeChatTab, pendingPermissionTitle, renameChat, requestOpenChat, useChatSession } from "./chats";
@@ -359,12 +358,24 @@ export function HomeScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName
   const groups = useMemo(() => groupSessions(sessions), [sessions]);
   const { now, since } = useStateSince(sessions);
   const [menuKey, setMenuKey] = useState<string | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const topSpace = useRef<HTMLDivElement>(null);
   const { onCreate, pending } = useOpenNew(tabs, onOpen);
   const menu = menuKey ? sessions.find((s) => s.key === menuKey) : undefined;
   // The session left (closed here or on the computer): its sheet goes with it.
   useEffect(() => {
     if (menuKey && !menu) setMenuKey(null);
   }, [menuKey, menu]);
+
+  // The bar stays bare over the aurora until the page slides under it.
+  useEffect(() => {
+    const page = topSpace.current?.parentElement;
+    if (!page) return;
+    const onScroll = () => setScrolled(page.scrollTop > 6);
+    onScroll();
+    page.addEventListener("scroll", onScroll, { passive: true });
+    return () => page.removeEventListener("scroll", onScroll);
+  }, []);
 
   const list: [string, string, Session[]][] = [
     [t("homeWorking"), "busy", groups.working],
@@ -375,14 +386,11 @@ export function HomeScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName
 
   return (
     <>
-      <header className="agents-head">
-        <img src={logo} alt="" />
+      <div className="hm-aurora" aria-hidden="true" />
+      <header className={"hm-top" + (scrolled ? " scrolled" : "")}>
         <ComputerSwitcher hostName={hostName} onAdd={onAddComputer} />
-        <span className="agents-online">
-          <i className="dot idle on" />
-          {t("onlineShort")}
-        </span>
       </header>
+      <div className="hm-top-space" ref={topSpace} />
       {canChat && <Launcher hostName={hostName} tabs={tabs} onCreate={onCreate} pending={pending} />}
       <PendingRow pending={pending} />
       {groups.waiting.map((s) => (

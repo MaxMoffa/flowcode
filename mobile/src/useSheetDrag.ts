@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 /** The edge a sheet or drawer slides in from; dragging toward it closes. */
-type SheetEdge = "down" | "left" | "right";
+type SheetEdge = "up" | "down" | "left" | "right";
 
 /** Movement before a touch is judged a scroll or a close drag. */
 const SLOP = 8;
@@ -33,9 +33,10 @@ const SCRIM = ".tm-scrim, .nts-scrim, .rc-scrim, [data-sheet-scrim]";
 
 /** Whether `el` scrolls along the drag axis and can still scroll the way the finger pushes. */
 function scrollsAgainst(el: HTMLElement, edge: SheetEdge): boolean {
-  if (edge === "down") {
+  if (edge === "down" || edge === "up") {
     const oy = getComputedStyle(el).overflowY;
-    return (oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight && el.scrollTop > 0;
+    if ((oy !== "auto" && oy !== "scroll") || el.scrollHeight <= el.clientHeight) return false;
+    return edge === "down" ? el.scrollTop > 0 : el.scrollTop < el.scrollHeight - el.clientHeight - 1;
   }
   const ox = getComputedStyle(el).overflowX;
   if ((ox !== "auto" && ox !== "scroll") || el.scrollWidth <= el.clientWidth) return false;
@@ -67,9 +68,9 @@ export function useSheetDrag(sheetRef: RefObject<HTMLElement | null>, onClose: (
     const sheet = sheetRef.current;
     if (!enabled || !sheet) return;
     const el: HTMLElement = sheet;
-    const vertical = edge === "down";
-    // +1 when the closing direction grows the coordinate (down, right), -1 when it shrinks it (left).
-    const sign = edge === "left" ? -1 : 1;
+    const vertical = edge === "down" || edge === "up";
+    // +1 when the closing direction grows the coordinate (down, right), -1 when it shrinks it (up, left).
+    const sign = edge === "left" || edge === "up" ? -1 : 1;
     const prev = el.previousElementSibling;
     const scrim = prev instanceof HTMLElement && prev.matches(SCRIM) ? prev : null;
 
@@ -84,7 +85,7 @@ export function useSheetDrag(sheetRef: RefObject<HTMLElement | null>, onClose: (
     let swallowTimer = 0;
     let resetTimer = 0;
 
-    const translate = (d: number) => (vertical ? `translateY(${d}px)` : `translateX(${sign * d}px)`);
+    const translate = (d: number) => (vertical ? `translateY(${sign * d}px)` : `translateX(${sign * d}px)`);
 
     function reset() {
       el.style.transform = "";
@@ -116,7 +117,7 @@ export function useSheetDrag(sheetRef: RefObject<HTMLElement | null>, onClose: (
       const across = vertical ? dx : dy;
       if (!captured) {
         if (Math.hypot(dx, dy) < SLOP) return;
-        // Upward or sideways first moves, and scrolls inside a list, are never ours.
+        // First moves away from the edge or sideways, and scrolls inside a list, are never ours.
         if (along <= 0 || Math.abs(across) >= along || startsInScroll(e.target as Element, el, edge)) {
           tracking = false;
           return;

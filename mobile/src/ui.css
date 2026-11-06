@@ -350,52 +350,63 @@ button.card:active {
   color: var(--fg);
 }
 
-.agents-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 2px 0;
-}
-
-.agents-head img {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-}
-
 .cs {
   position: relative;
   flex: 1;
   min-width: 0;
 }
 
-.cs-trigger {
+.cs-title {
   display: flex;
   align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  padding: 6px 0;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  height: var(--hm-top-h);
+  padding: 0 max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left));
   border: 0;
   background: none;
   color: var(--fg);
   font: inherit;
-  font-size: 15px;
-  font-weight: 600;
   text-align: left;
+  outline: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.cs-title svg {
+  flex: none;
+  color: color-mix(in srgb, var(--fg) 96%, var(--bg));
+}
+
+.cs-title-text {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.cs-title-text b {
+  overflow: hidden;
+  font-size: 19px;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.cs-trigger span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--muted);
-  font-weight: 400;
+.cs-title-text small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.25;
+  color: color-mix(in srgb, var(--accent) 20%, var(--fg));
 }
 
-.cs-trigger svg {
-  flex: none;
-  color: var(--muted);
+.cs-title-text .dot {
+  width: 7px;
+  height: 7px;
 }
 
 .cs-scrim {
@@ -432,7 +443,7 @@ button.card:active {
   min-width: 0;
 }
 
-.cs-menu .cs-forget {
+:is(.cs-menu, .cd) .cs-forget {
   flex: none;
   justify-content: center;
   width: 36px;
@@ -441,7 +452,7 @@ button.card:active {
   color: var(--muted);
 }
 
-.cs-menu button {
+:is(.cs-menu, .cd) button {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -455,19 +466,19 @@ button.card:active {
   font-size: 15px;
 }
 
-.cs-menu button:active {
+:is(.cs-menu, .cd) button:active {
   background: var(--surface-2, rgba(231, 216, 197, 0.06));
 }
 
-.cs-menu button.on {
+:is(.cs-menu, .cd) button.on {
   font-weight: 600;
 }
 
-.cs-menu button.on svg {
+:is(.cs-menu, .cd) button.on svg {
   color: var(--accent);
 }
 
-.cs-menu svg {
+:is(.cs-menu, .cd) svg {
   flex: none;
 }
 
@@ -479,7 +490,7 @@ button.card:active {
   white-space: nowrap;
 }
 
-.cs-menu .cs-add {
+:is(.cs-menu, .cd) .cs-add {
   margin-top: 4px;
   border-top: 1px solid var(--border);
   border-radius: 0 0 11px 11px;
@@ -491,12 +502,88 @@ button.card:active {
   color: var(--muted);
 }
 
-.agents-online {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--accent);
+/* The computers drawer: slides down from the top edge, over the bar and the nav. */
+.cd-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  visibility: hidden;
+  transition: visibility 0s linear 0.26s;
+}
+
+.cd-layer.open {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.cd-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.26s ease;
+}
+
+.cd-layer.open .cd-scrim {
+  opacity: 1;
+}
+
+.cd {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 75%;
+  padding: calc(var(--safe-t) + 18px) 12px 10px;
+  border-radius: 0 0 24px 24px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--glass-strong, #1b140e);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  transform: translateY(-100%);
+  transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.cd-layer.open .cd {
+  transform: none;
+}
+
+.cd h2 {
+  margin: 0;
+  padding: 0 6px;
+  font-size: 18px;
+}
+
+.cd-list {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.cd button {
+  height: 54px;
+}
+
+.cd .cs-add {
+  flex: none;
+}
+
+.cd .nts-grab {
+  flex: none;
+  margin-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cd-layer,
+  .cd-scrim,
+  .cd {
+    transition: none;
+  }
 }
 
 .dot {

@@ -2,6 +2,67 @@
    variant 01 "Launcher" with the "Barre e ritmo" usage cards. Theme tokens only: the desktop's
    palette overrides them at runtime. Everything is prefixed hm- so it never meets the old page's rules. */
 
+/* ---- ground and top bar -------------------------------------------------- */
+
+:root {
+  --hm-top-h: 72px;
+}
+
+/* Three theme colours behind the top of the page, eased off under the bar so its text stays readable. */
+.hm-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.7;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55) calc(var(--safe-t) + 44px), #000 calc(var(--safe-t) + 124px));
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55) calc(var(--safe-t) + 44px), #000 calc(var(--safe-t) + 124px));
+  background:
+    radial-gradient(ellipse 105% 44% at 8% -4%, color-mix(in srgb, var(--accent) 58%, transparent), transparent 72%),
+    radial-gradient(ellipse 88% 40% at 100% 10%, color-mix(in srgb, var(--accent-2) 50%, transparent), transparent 72%),
+    radial-gradient(ellipse 80% 26% at 46% 36%, color-mix(in srgb, var(--ansi-magenta, #b48ead) 38%, transparent), transparent 74%);
+}
+
+/* Laid over .page, against .screen, so it doesn't scroll. */
+.hm-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  padding-top: var(--safe-t);
+}
+
+/* The glass is a layer of its own, so it can fade in on its own. */
+.hm-top::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  background: color-mix(in srgb, var(--bg) 76%, transparent);
+  box-shadow: 0 1px 0 var(--border);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+.hm-top.scrolled::before {
+  opacity: 1;
+}
+
+/* .page's padding and gap already add 22px: the first card lands 8px under the bar. */
+.hm-top-space {
+  flex: none;
+  height: calc(var(--hm-top-h) - 14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-top::before {
+    transition: none;
+  }
+}
+
 .hm-group {
   display: flex;
   flex-direction: column;
@@ -15,7 +76,7 @@
   margin: 8px 2px 0;
   font-size: 13px;
   font-weight: 600;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--fg) 90%, var(--bg));
 }
 
 .hm-sec b {
@@ -24,7 +85,7 @@
 }
 
 .hm-sec b.busy {
-  color: var(--busy);
+  color: color-mix(in srgb, var(--busy) 20%, var(--fg));
 }
 
 .hm-sec-link {
@@ -33,7 +94,7 @@
   padding: 0 2px;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 20%, var(--fg));
   font-size: 13px;
   font-weight: 600;
 }
@@ -51,7 +112,9 @@
 .hm-launch {
   padding: 14px;
   border-radius: 22px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   border: 1px solid var(--border-strong);
 }
 
@@ -160,7 +223,9 @@
 .hm-wait {
   padding: 14px;
   border-radius: 18px;
-  background: var(--wait-bg);
+  background: linear-gradient(var(--wait-bg), var(--wait-bg)), color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   border: 1px solid var(--wait-border);
 }
 
@@ -208,7 +273,9 @@
 .hm-list {
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   overflow: hidden;
 }
 
@@ -387,7 +454,9 @@
   min-width: 0;
   padding: 14px;
   border-radius: 20px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   border: 1px solid var(--border);
   scroll-snap-align: start;
 }
@@ -413,6 +482,8 @@
 .hm-sheet-list .hm-uc {
   flex: none;
   background: var(--surface-2);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .hm-hint {
