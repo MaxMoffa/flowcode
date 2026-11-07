@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ProviderAuthState } from "../../shared/providerAuth";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { killPty, spawnPty, writePty } from "../terminal/ptyClient";
@@ -444,14 +445,30 @@ async function fetchVibeUsage(profile?: string): Promise<UsageInfo> {
   if (usage.lastModel) {
     metrics.push({ kind: "model", label: VIBE_MODEL_NAMES[usage.lastModel] ?? usage.lastModel });
   }
-  if (!usage.hasApiKey) metrics.unshift({ kind: "noApiKey", command: "vibe --setup" });
+  if (!usage.hasApiKey) {
+    // Browser credentials and API keys are both valid Vibe authentication methods.
+    const auth = await invoke<ProviderAuthState>("provider_auth", { request: { op: "status", cli: "vibe", profile: profile ?? null } }).catch(() => null);
+    if (!auth?.authenticated) metrics.unshift({ kind: "loggedOut", command: "vibe --setup" });
+  }
   return { fetchedAt: Date.now(), ok: true, metrics };
+}
+
+/** Gemini exposes no comparable quota here; show its real authentication state instead. */
+async function fetchGeminiUsage(profile?: string): Promise<UsageInfo> {
+  try {
+    const auth = await invoke<ProviderAuthState>("provider_auth", { request: { op: "status", cli: "gemini", profile: profile ?? null } });
+    if (!auth.installed) return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "unavailable" }] };
+    return { fetchedAt: Date.now(), ok: auth.authenticated, metrics: auth.authenticated ? [{ kind: "other", label: t("usage.connected") }] : [{ kind: "loggedOut", command: "gemini" }] };
+  } catch (error) {
+    return unavailable("Gemini CLI", { Error: String(error) });
+  }
 }
 
 const FETCHERS: Record<string, UsageFetcher> = {
   "codex-cli": fetchCodexUsage,
   "claude-code": fetchClaudeUsage,
   "mistral-vibe": fetchVibeUsage,
+  "gemini-cli": fetchGeminiUsage,
 };
 
 export function usageFetcherFor(id: string): UsageFetcher | undefined {

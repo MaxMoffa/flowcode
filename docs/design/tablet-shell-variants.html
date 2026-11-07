@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per l'interfaccia tablet di Flowcode mobile.">
+  <title>Flowcode tablet — interfaccia · 3 varianti</title>
+  <style>
+    /* Token copiati da mobile/src/ui.css e wide.css: a runtime theme.ts li sovrascrive con la palette del desktop. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07;
+      --wait: #d1a752; --wait-bg: rgba(209, 167, 82, .08); --wait-border: rgba(209, 167, 82, .28);
+      --busy: #6f9bcf; --busy-bg: rgba(111, 155, 207, .09);
+      --danger: #e2645c;
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; display: block; }
+    .ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    code { font: 12.5px var(--mono); }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1240px; margin: auto; padding: 28px 24px 48px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 760px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+    .seg { display: flex; gap: 4px; padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .seg.grow { flex: 1 1 520px; }
+    .seg button { flex: 1 1 auto; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .seg button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .stage { display: flex; justify-content: center; margin-bottom: 28px; }
+    .frame { position: relative; flex: none; }
+    .device { position: absolute; top: 0; left: 0; transform-origin: 0 0; overflow: hidden; border-radius: 26px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong), 0 0 0 9px #0c0907, 0 0 0 10px var(--border), 0 28px 70px rgba(0, 0, 0, .55); }
+    .notes { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+    .note h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .note h2 small { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--accent-bg); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 2px; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 66ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 66ch; }
+    .check { padding: 14px 16px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
+    .check h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+    .check table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .check th, .check td { padding: 7px 8px 7px 0; border-top: 1px solid var(--border); text-align: left; vertical-align: top; font-weight: 400; }
+    .check thead th { color: var(--muted); font-size: 12px; border-top: 0; }
+    .check tr.on td, .check tr.on th { color: var(--accent); }
+    @media (max-width: 860px) { .notes { grid-template-columns: 1fr; } }
+
+    /* ---- guscio comune ---- */
+    .shell { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--surface); }
+    .ib { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 10px; color: color-mix(in srgb, var(--fg) 85%, transparent); }
+    .ib[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--fg); }
+    .card { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; background: var(--bg); border: 1px solid var(--border); }
+    .scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+    .scroll::-webkit-scrollbar { display: none; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); flex: none; }
+    .dot.waiting { background: var(--wait); } .dot.busy { background: var(--busy); } .dot.ok { background: var(--accent); }
+    .pc { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border-radius: 12px; background: var(--surface-3); font-size: 13px; white-space: nowrap; }
+    .ico { position: relative; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-3); color: var(--fg); flex: none; }
+    .ico .ic { width: 18px; height: 18px; }
+    .ico.waiting { background: var(--wait-bg); color: var(--wait); box-shadow: inset 0 0 0 1px var(--wait-border); }
+    .ico.busy { background: var(--busy-bg); color: var(--busy); }
+    .txt { min-width: 0; flex: 1; display: grid; gap: 1px; }
+    .txt b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub.waiting { color: var(--wait); } .sub.busy { color: var(--busy); }
+    .time { flex: none; align-self: flex-start; padding-top: 2px; font-size: 11px; color: var(--muted); }
+
+    /* riga sessione */
+    .srow { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 12px; border-radius: 14px; }
+    .srow[aria-current="true"] { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
+    .glabel { margin: 14px 12px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+    .glabel.waiting { color: var(--wait); } .glabel.busy { color: var(--busy); }
+
+    /* intestazione del contenuto */
+    .ph { flex: none; display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--border); }
+    .ph .txt b { font-size: 15px; }
+
+    /* chat */
+    .msgs { padding: 18px 22px 8px; display: grid; gap: 14px; align-content: start; }
+    .msgs > * { width: 100%; max-width: 680px; margin-inline: auto; }
+    .me { display: flex; justify-content: flex-end; }
+    .me span { max-width: 78%; padding: 9px 13px; border-radius: 16px 16px 4px 16px; background: var(--surface-3); }
+    .ai { color: var(--fg); }
+    .tool { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 10px; background: var(--surface); font: 12.5px var(--mono); color: var(--muted); }
+    .tool .ic { width: 16px; height: 16px; }
+    .ask { padding: 14px; border-radius: 16px; background: var(--wait-bg); border: 1px solid var(--wait-border); }
+    .ask b { display: block; font-size: 12px; color: var(--wait); font-weight: 600; }
+    .ask code { display: block; margin: 4px 0 12px; font-size: 14px; }
+    .acts { display: flex; gap: 8px; }
+    .btn { flex: 1; min-height: 44px; border-radius: 13px; text-align: center; font-weight: 600; background: var(--surface-3); }
+    .btn.primary { background: var(--accent); color: var(--on-accent); }
+    .composer { flex: none; margin: 8px 14px 14px; }
+    .composer > div { max-width: 680px; margin: auto; display: flex; align-items: center; gap: 6px; min-height: 56px; padding: 6px 6px 6px 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border-strong); color: var(--muted); }
+    .composer span { flex: 1; }
+    .go { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 14px; background: var(--accent); color: var(--on-accent); }
+
+    /* terminale */
+    .term { padding: 14px 16px; font: 13px/1.6 var(--mono); white-space: pre-wrap; color: #d6c8b4; background: #120e0b; }
+    .term i { font-style: normal; color: var(--accent); } .term u { text-decoration: none; color: var(--muted); }
+    .keys { flex: none; display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); background: var(--bg); overflow: hidden; }
+    .keys span { flex: 1 1 0; min-width: 44px; height: 44px; display: grid; place-items: center; border-radius: 9px; background: var(--surface-2); font: 12px var(--mono); color: var(--muted); }
+
+    /* home */
+    .home { padding: 26px 28px 28px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px 24px; align-content: start; max-width: 1040px; margin: auto; }
+    .home.one { grid-template-columns: minmax(0, 1fr); max-width: 640px; }
+    .home .full { grid-column: 1 / -1; }
+    .home h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+    .home h2 em { font-style: normal; color: var(--wait); }
+    .launch { padding: 14px; border-radius: 22px; background: var(--surface); border: 1px solid var(--border-strong); }
+    .launch textarea { display: block; width: 100%; height: 62px; resize: none; padding: 0; border: 0; outline: 0; background: none; color: var(--fg); font: 17px/1.35 var(--font); }
+    .launch textarea::placeholder { color: var(--muted); }
+    .launch > div { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+    .launch .go { margin-left: auto; }
+    .sec { margin: 0 2px 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .wait { padding: 14px; border-radius: 18px; background: var(--wait-bg); border: 1px solid var(--wait-border); }
+    .wait + .wait { margin-top: 10px; }
+    .wait .top { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .uc { padding: 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); }
+    .uc + .uc { margin-top: 10px; }
+    .uh { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; }
+    .ug { display: grid; grid-template-columns: 74px 1fr 42px; gap: 8px; align-items: center; min-height: 24px; font-size: 12px; color: var(--muted); }
+    .ug b { text-align: right; color: var(--fg); font-weight: 600; }
+    .track { position: relative; height: 8px; border-radius: 4px; background: var(--surface-3); }
+    .track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); }
+    .track i.hot { background: var(--wait); }
+    .list { border-radius: 18px; background: var(--surface); border: 1px solid var(--border); padding: 4px; }
+
+    /* file */
+    .tree { padding: 6px; }
+    .tree button { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; border-radius: 10px; font: 13px var(--mono); color: var(--muted); }
+    .tree button.sel { background: var(--accent-bg); color: var(--fg); }
+    .tree .ic { width: 17px; height: 17px; }
+    .side-h { flex: none; display: flex; align-items: center; min-height: 52px; padding: 4px 6px 4px 14px; font-weight: 600; border-bottom: 1px solid var(--border); }
+    .side-h span { flex: 1; }
+    .scrim { position: absolute; inset: 0; background: rgba(10, 7, 5, .45); z-index: 4; }
+    .drawer { position: absolute; top: 8px; bottom: 8px; width: 330px; z-index: 5; box-shadow: 0 24px 60px rgba(0, 0, 0, .5); background: var(--bg); }
+    .drawer.l { left: 8px; } .drawer.r { right: 8px; }
+
+    /* 01: schede */
+    .top { flex: none; display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 8px; }
+    .tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 4px; overflow-x: auto; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { flex: none; display: flex; align-items: center; gap: 8px; width: 168px; height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--border); background: rgba(0, 0, 0, .08); color: var(--muted); font: 500 13px/1 var(--mono); white-space: nowrap; }
+    .tab span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    .tab .ic { width: 16px; height: 16px; }
+    .tab.home-t { width: 44px; justify-content: center; padding: 0; }
+    .tab.on { background: var(--accent-bg); border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--fg); font-weight: 700; }
+    .tab.waiting:not(.on) { border-color: var(--wait-border); color: var(--wait); }
+    .tab.busy:not(.on) { border-color: rgba(111, 155, 207, .35); }
+    .body { flex: 1; min-height: 0; position: relative; display: flex; gap: 8px; padding: 0 8px 8px; }
+    .body > .card { flex: 1; }
+    .body > .card.side { flex: 0 0 290px; }
+    .pill { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+
+    /* 02: rail + elenco */
+    .rshell { position: absolute; inset: 0; display: flex; background: var(--surface); }
+    .rail { flex: none; width: 72px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; }
+    .rail .sp { flex: 1; }
+    .rb { position: relative; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 14px; color: var(--muted); }
+    .rb[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+    .rb .ic { width: 22px; height: 22px; }
+    .rb b { position: absolute; top: 4px; right: 4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--wait); color: var(--on-accent); font-size: 11px; line-height: 17px; text-align: center; font-weight: 700; }
+    .pc-av { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 13px; background: var(--surface-3); font: 600 13px var(--mono); position: relative; }
+    .pc-av .dot { position: absolute; right: -1px; bottom: -1px; box-shadow: 0 0 0 2px var(--surface); }
+    .rbody { flex: 1; min-width: 0; position: relative; display: flex; gap: 8px; padding: 8px 8px 8px 0; }
+    .rbody > .card { flex: 1; }
+    .rbody > .card.mid { flex: 0 0 310px; }
+
+    /* 03: banco */
+    .bench { flex: 1; min-height: 0; display: flex; gap: 8px; padding: 8px 8px 0; }
+    .portrait .bench { flex-direction: column; }
+    .bench > .card { flex: 1; transition: border-color .15s; }
+    .bench > .card.focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+    .dock { flex: none; display: flex; align-items: center; gap: 6px; height: 68px; padding: 0 8px; overflow: hidden; }
+    .chips { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip { flex: none; display: flex; align-items: center; gap: 9px; width: 176px; height: 52px; padding: 0 10px; border-radius: 14px; background: var(--bg); border: 1px solid var(--border); }
+    .chip .ico { width: 32px; height: 32px; }
+    .chip .txt b { font-size: 13px; } .chip .sub { font-size: 11px; }
+    .chip.in { border-color: var(--accent-border); background: var(--accent-bg); }
+    .chip.waiting:not(.in) { border-color: var(--wait-border); }
+    .portrait .chip { width: 150px; }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 4v16M12.5 9H17M12.5 13H17"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><path d="M5 7h9M18 7h1M5 17h1M10 17h9"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-5 4v-4a2 2 0 0 1-1-2z"/></symbol>
+    <symbol id="i-term" viewBox="0 0 24 24"><path d="M5 7l5 5-5 5M12 18h7"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><path d="M12 5.5h.01M12 12h.01M12 18.5h.01"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-agents" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-4 3-6 6-6s5.400 2 6 6M16 5a3.500 3.500 0 0 1 0 6.500M18 14.500c1.700.8 2.700 2.600 3 5.500"/></symbol>
+    <symbol id="i-split" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 4v16"/></symbol>
+  </svg>
+
+  <div class="page">
+    <div class="eyebrow">FLOWCODE MOBILE · TABLET</div>
+    <h1>Interfaccia tablet</h1>
+    <p class="lead">Oggi il tablet copia il desktop: barra schede, file e agenti, ma niente home. Tre direzioni, tutte navigabili: tocca sessioni, Home e pannelli, e prova la rotazione.</p>
+    <div class="bar">
+      <div class="seg grow" id="variants" role="group" aria-label="Variante">
+        <button data-v="1"><span>01</span>Schede + Home</button>
+        <button data-v="2"><span>02</span>Rail + elenco</button>
+        <button data-v="3"><span>03</span>Banco a due</button>
+      </div>
+      <div class="seg" id="orient" role="group" aria-label="Orientamento">
+        <button data-o="land">Orizzontale</button>
+        <button data-o="port">Verticale</button>
+      </div>
+    </div>
+    <div class="stage" id="stage"><div class="frame" id="frame"><div class="device" id="device"></div></div></div>
+    <div class="notes">
+      <div class="note" id="note"></div>
+      <div class="check">
+        <h3>Confronto</h3>
+        <table>
+          <thead><tr><th>Variante</th><th>Sessioni visibili</th><th>Stato sempre a vista</th><th>Lavoro</th></tr></thead>
+          <tbody id="cmp"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const S = [
+      { id: "a", name: "fix-auth-token", proj: "flowcode", kind: "chat", agent: "Claude", st: "waiting", say: "Chiede di eseguire npm test", time: "ora" },
+      { id: "b", name: "refactor-sidebar", proj: "flowcode", kind: "chat", agent: "Codex", st: "busy", say: "Modifica WideShell.tsx", time: "3 min" },
+      { id: "c", name: "migrazione-db", proj: "api", kind: "term", agent: "Claude", st: "busy", say: "Esegue le migrazioni", time: "6 min" },
+      { id: "d", name: "dev-server", proj: "site", kind: "term", st: "idle", say: "vite su :5173", time: "18 min" },
+      { id: "e", name: "note-release", proj: "flowcode", kind: "chat", agent: "Claude", st: "idle", say: "Bozza pronta", time: "1 h" },
+      { id: "f", name: "bench-parser", proj: "api", kind: "term", st: "idle", say: "Terminato", time: "2 h" },
+    ];
+    const FILES = ["src/", "src/auth/token.ts", "src/auth/session.ts", "src/App.tsx", "package.json", "README.md"];
+    const ic = (n) => `<svg class="ic"><use href="#i-${n}"/></svg>`;
+    const by = (id) => S.find((s) => s.id === id);
+    const icon = (s) => `<span class="ico ${s.st}">${ic(s.kind === "chat" ? "chat" : "term")}</span>`;
+    const row = (s, cur) => `<button class="srow" data-open="${s.id}" aria-current="${cur === s.id}">${icon(s)}<span class="txt"><b>${s.name}</b><span class="sub ${s.st}">${s.say}</span></span><span class="time">${s.time}</span></button>`;
+    const groups = (cur) => [["waiting", "Ti aspettano"], ["busy", "Al lavoro"], ["idle", "Ferme"]]
+      .map(([st, l]) => `<div class="glabel ${st}">${l}</div>` + S.filter((s) => s.st === st).map((s) => row(s, cur)).join("")).join("");
+
+    const chat = (s) => `<div class="scroll"><div class="msgs">
+        <div class="me"><span>Sistema la scadenza del token e verifica con i test</span></div>
+        <div class="ai">Il controllo usa <code>&lt;</code> invece di <code>&lt;=</code>: un token scade un secondo dopo il dovuto. Correggo <code>token.ts</code>.</div>
+        <div class="tool">${ic("file")}<span>src/auth/token.ts  +2 −2</span></div>
+        ${s.st === "waiting" ? `<div class="ask"><b>Serve il tuo permesso</b><code>npm test -- auth</code><div class="acts"><button class="btn primary" data-done="${s.id}">Consenti</button><button class="btn" data-done="${s.id}">Rifiuta</button></div></div>` : `<div class="tool">${ic("term")}<span>${s.say}…</span></div>`}
+      </div></div>
+      <div class="composer"><div><span>Scrivi a ${s.agent}…</span><button class="go" aria-label="Invia">${ic("up")}</button></div></div>`;
+    const LOGS = {
+      c: `npm run migrate
+
+<u>&gt; api@2.4.0 migrate</u>
+
+  ✓ 0041_add_sessions
+  ✓ 0042_token_expiry
+  … 0043_backfill_owner  12.400 / 31.000 righe`,
+      d: `npm run dev
+
+<u>&gt; site@1.8.0 dev</u>
+
+  ready in 412 ms
+  ➜ Local:   http://localhost:5173/
+
+<u>[14:02:11]</u> hmr update /src/App.tsx`,
+      f: `npm run bench
+
+<u>&gt; api@2.4.0 bench</u>
+
+  parser  48.210 op/s  ±0,8%
+  lexer   91.477 op/s  ±0,5%
+
+<u>Completato in 21 s</u>`,
+    };
+    const term = (s) => `<div class="scroll term"><i>~/${s.proj}</i> $ ${LOGS[s.id]}${s.st === "busy" ? "" : `
+<i>~/${s.proj}</i> $ ▌`}</div>
+      <div class="keys">${["esc", "tab", "ctrl", "alt", "↑", "↓", "←", "→"].map((k) => `<span>${k}</span>`).join("")}</div>`;
+    const head = (s, extra = "") => `<div class="ph">${icon(s)}<span class="txt"><b>${s.name}</b><span class="sub">${s.proj}${s.agent ? " · " + s.agent : ""}</span></span>${extra}<button class="ib" aria-label="Altre opzioni">${ic("more")}</button></div>`;
+    const session = (s, extra) => head(s, extra) + (s.kind === "chat" ? chat(s) : term(s));
+
+    const waiters = () => S.filter((s) => s.st === "waiting");
+    const homeView = (narrow) => {
+      const w = waiters();
+      return `<div class="scroll"><div class="home ${narrow ? "one" : ""}">
+        <h2 class="full">${w.length ? `<em>${w.length} ${w.length > 1 ? "sessioni ti aspettano" : "sessione ti aspetta"}</em>, ` : "Nessuno ti aspetta, "}${S.filter((s) => s.st === "busy").length} al lavoro</h2>
+        <div class="launch full"><textarea aria-label="Nuova sessione" placeholder="Cosa vuoi far fare all'agente?"></textarea><div><span class="pc">${ic("folder")}flowcode</span><span class="pc">Claude</span><span class="pc">Chat</span><button class="go" aria-label="Avvia">${ic("up")}</button></div></div>
+        <div>
+          ${w.length ? `<div class="sec">Ti aspettano</div>` + w.map((s) => `<div class="wait"><div class="top">${icon(s)}<span class="txt"><b>${s.name}</b><span class="sub">${s.say}</span></span></div><div class="acts"><button class="btn primary" data-open="${s.id}">Rispondi</button></div></div>`).join("") + `<div style="height:16px"></div>` : ""}
+          <div class="sec">Sessioni</div>
+          <div class="list">${S.filter((s) => s.st !== "waiting").map((s) => row(s)).join("")}</div>
+        </div>
+        <div>
+          <div class="sec">Limiti</div>
+          <div class="uc"><div class="uh">Claude</div>
+            <div class="ug"><span>Sessione</span><span class="track"><i style="width:62%"></i></span><b>62%</b></div>
+            <div class="ug"><span>Settimana</span><span class="track"><i class="hot" style="width:84%"></i></span><b>84%</b></div></div>
+          <div class="uc"><div class="uh">Codex</div>
+            <div class="ug"><span>Sessione</span><span class="track"><i style="width:23%"></i></span><b>23%</b></div>
+            <div class="ug"><span>Settimana</span><span class="track"><i style="width:41%"></i></span><b>41%</b></div></div>
+        </div>
+      </div></div>`;
+    };
+    const tree = (close) => `<div class="side-h"><span>File · flowcode</span>${close ? `<button class="ib" data-side="" aria-label="Chiudi">${ic("x")}</button>` : ""}</div><div class="scroll tree">${FILES.map((f, i) => `<button class="${i === 1 ? "sel" : ""}">${ic(f.endsWith("/") ? "folder" : "file")}${f}</button>`).join("")}</div>`;
+    const agentsSide = (cur, close) => `<div class="side-h"><span>Agenti attivi</span><button class="ib" aria-label="Nuova sessione">${ic("plus")}</button>${close ? `<button class="ib" data-side="" aria-label="Chiudi">${ic("x")}</button>` : ""}</div><div class="scroll" style="padding:0 6px 8px">${groups(cur)}</div>`;
+
+    const st = { v: 1, o: "land", view: "home", side: "", rail: "list", panes: ["a", "c"], focus: 0 };
+
+    function v1() {
+      const port = st.o === "port";
+      const cur = st.view;
+      const main = cur === "home" ? homeView(port || st.side) : session(by(cur));
+      const panel = (l, html) => port ? `<div class="scrim" data-side=""></div><div class="card drawer ${l}">${html}</div>` : `<div class="card side">${html}</div>`;
+      const left = st.side === "files" ? panel("l", tree(port)) : "";
+      const right = st.side === "agents" ? panel("r", agentsSide(cur, port)) : "";
+      return `<div class="shell"><div class="top">
+          <button class="ib" data-side="files" aria-pressed="${st.side === "files"}" aria-label="File">${ic("folder")}</button>
+          <div class="tabs"><button class="tab home-t ${cur === "home" ? "on" : ""}" data-open="home" aria-label="Home">${ic("home")}</button>
+          ${S.slice(0, 5).map((s) => `<button class="tab ${s.st} ${cur === s.id ? "on" : ""}" data-open="${s.id}">${ic(s.kind === "chat" ? "chat" : "term")}<span>${s.name}</span></button>`).join("")}</div>
+          <button class="ib" aria-label="Nuova sessione">${ic("plus")}</button>
+          <button class="ib" data-side="agents" aria-pressed="${st.side === "agents"}" aria-label="Agenti">${ic("agents")}</button>
+          <span class="pill"><span class="dot ok"></span>${port ? "" : "Workstation"}</span>
+        </div><div class="body">${port ? "" : left}<div class="card">${main}</div>${port ? "" : right}${port ? left + right : ""}</div></div>`;
+    }
+
+    function v2() {
+      const port = st.o === "port";
+      const n = waiters().length;
+      const rb = (k, i, l, badge = "") => `<button class="rb" data-rail="${k}" aria-pressed="${st.rail === k}" aria-label="${l}">${ic(i)}${badge}</button>`;
+      const home = st.rail === "home";
+      const listHtml = st.rail === "files" ? tree(port) : `<div class="side-h"><span>Sessioni</span><button class="ib" aria-label="Nuova sessione">${ic("plus")}</button>${port ? `<button class="ib" data-rail="none" aria-label="Chiudi">${ic("x")}</button>` : ""}</div><div class="scroll" style="padding:0 6px 8px">${groups(st.view)}</div>`;
+      const showList = !home && st.rail !== "none";
+      const detail = home || st.view === "home" ? homeView(port) : session(by(st.view));
+      const mid = !showList ? "" : port ? `<div class="scrim" data-rail="none"></div><div class="card drawer l">${listHtml}</div>` : `<div class="card mid">${listHtml}</div>`;
+      return `<div class="rshell"><nav class="rail">
+          ${rb("home", "home", "Home")}${rb("list", "list", "Sessioni", n ? `<b>${n}</b>` : "")}${rb("files", "folder", "File")}
+          <button class="rb" aria-label="Browser">${ic("globe")}</button>
+          <span class="sp"></span>
+          <button class="rb" aria-label="Impostazioni">${ic("gear")}</button>
+          <span class="pc-av" aria-label="Workstation, connesso">WS<span class="dot ok"></span></span>
+        </nav><div class="rbody">${port ? "" : mid}<div class="card">${detail}</div>${port ? mid : ""}</div></div>`;
+    }
+
+    function v3() {
+      const port = st.o === "port";
+      const home = st.view === "home";
+      const pane = (id, i) => `<div class="card ${st.focus === i ? "focus" : ""}" data-pane="${i}">${session(by(id))}</div>`;
+      const bench = home ? `<div class="card">${homeView(port)}</div>` : st.panes.map(pane).join("");
+      return `<div class="shell ${port ? "portrait" : ""}"><div class="bench">${bench}</div>
+        <div class="dock"><button class="ib" data-open="home" aria-pressed="${home}" aria-label="Home">${ic("home")}</button>
+          <div class="chips">${S.map((s) => `<button class="chip ${s.st} ${!home && st.panes.includes(s.id) ? "in" : ""}" data-chip="${s.id}">${icon(s)}<span class="txt"><b>${s.name}</b><span class="sub ${s.st}">${s.say}</span></span></button>`).join("")}</div>
+          <button class="ib" aria-label="Nuova sessione">${ic("plus")}</button>
+          <span class="pill"><span class="dot ok"></span></span>
+        </div></div>`;
+    }
+
+    const NOTES = {
+      1: { t: "Schede + Home", tag: "Lavoro minore", p: "Tiene il guscio di oggi e aggiunge quello che manca: una scheda Home fissa con launcher, sessioni e limiti, gli stessi del telefono.", good: ["Chi usa il desktop si ritrova subito", "Riusa <code>WideShell</code> e <code>HomeScreen</code>", "Schede colorate per stato, non solo l'arco"], bad: ["In verticale stanno circa 3 schede: le altre scorrono via", "Agenti e file restano in pannelli da aprire"] },
+      2: { t: "Rail + elenco", tag: "Consigliata", p: "Navigazione da tablet: rail a sinistra, elenco sessioni per stato sempre aperto in orizzontale, contenuto a destra. In verticale l'elenco diventa un cassetto e il rail resta, con il badge di chi aspetta.", good: ["Tutte le sessioni a vista, raggruppate per stato", "Icone a portata di pollice sinistro", "Rotazione senza perdere la navigazione", "<code>AgentsScreen</code> diventa la colonna centrale"], bad: ["Il tablet smette di somigliare al desktop", "Va riscritta la testata di <code>WideShell</code>; rinomina schede e azioni rapide vanno spostate nel menu sessione"] },
+      3: { t: "Banco a due", tag: "Più ambiziosa", p: "Sfrutta lo schermo per quello che il telefono non può: due sessioni affiancate (impilate in verticale). Il dock in basso mostra tutte le sessioni; toccane una per metterla nel riquadro attivo.", good: ["Chat e terminale insieme, senza cambi di contesto", "Dock vicino ai pollici con tablet in mano"], bad: ["Due schermi montati insieme: oggi <code>WideShell</code> ne regge uno, stream e tastiera vanno ripensati", "Con tastiera a schermo in verticale resta poco spazio"] },
+    };
+    const CMP = [["01 Schede + Home", "3–5", "Colore scheda", "Piccolo"], ["02 Rail + elenco", "Tutte", "Elenco e badge", "Medio"], ["03 Banco a due", "Tutte + 2 aperte", "Dock", "Grande"]];
+
+    const device = document.getElementById("device"), frame = document.getElementById("frame"), stage = document.getElementById("stage");
+    function fit() {
+      const w = st.o === "land" ? 1180 : 820, h = st.o === "land" ? 820 : 1180;
+      const k = Math.max(.45, Math.min(1, (stage.clientWidth - 24) / w, (innerHeight - 48) / h));
+      device.style.width = w + "px"; device.style.height = h + "px"; device.style.transform = `scale(${k})`;
+      frame.style.width = w * k + "px"; frame.style.height = h * k + "px";
+    }
+    function render() {
+      device.innerHTML = [v1, v2, v3][st.v - 1]();
+      document.querySelectorAll("#variants button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v == st.v));
+      document.querySelectorAll("#orient button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.o === st.o));
+      const n = NOTES[st.v];
+      document.getElementById("note").innerHTML = `<h2>${n.t}<small>${n.tag}</small></h2><p>${n.p}</p><h3>PRO</h3><ul>${n.good.map((x) => `<li>${x}</li>`).join("")}</ul><h3>CONTRO</h3><ul>${n.bad.map((x) => `<li>${x}</li>`).join("")}</ul>`;
+      document.getElementById("cmp").innerHTML = CMP.map((r, i) => `<tr class="${i + 1 === st.v ? "on" : ""}">${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+      fit();
+    }
+    function setVariant(v) {
+      st.v = v; st.side = "";
+      if (v === 1) st.view = "home";
+      if (v === 2) { st.rail = st.o === "land" ? "list" : "none"; st.view = "a"; }
+      if (v === 3) st.view = "a";
+      render();
+    }
+
+    document.getElementById("variants").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b) setVariant(+b.dataset.v); });
+    document.getElementById("orient").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-o]"); if (!b) return;
+      st.o = b.dataset.o; st.side = "";
+      if (st.v === 2 && st.rail !== "home") st.rail = st.o === "land" ? "list" : "none";
+      render();
+    });
+    device.addEventListener("click", (e) => {
+      const t = e.target.closest("[data-done],[data-open],[data-side],[data-rail],[data-chip],[data-pane]");
+      if (!t) return;
+      const d = t.dataset;
+      if (d.done) { by(d.done).st = "busy"; by(d.done).say = "Esegue npm test"; }
+      else if (d.open) {
+        st.view = d.open;
+        if (st.v === 2) st.rail = st.o === "land" ? "list" : "none";
+        if (st.v === 3 && d.open !== "home" && !st.panes.includes(d.open)) st.panes[st.focus] = d.open;
+        if (st.o === "port") st.side = "";
+      }
+      else if (d.side !== undefined) st.side = st.side === d.side ? "" : d.side;
+      else if (d.rail) st.rail = st.rail === d.rail && d.rail !== "home" ? "none" : d.rail;
+      else if (d.chip) {
+        const i = st.panes.indexOf(d.chip);
+        if (i >= 0) st.focus = i; else st.panes[st.focus] = d.chip;
+        st.view = d.chip;
+      }
+      else if (d.pane) { if (st.focus === +d.pane) return; st.focus = +d.pane; }
+      render();
+    });
+    addEventListener("resize", fit);
+    setVariant(2);
+  </script>
+</body>
+</html>

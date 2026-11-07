@@ -3,6 +3,8 @@
 // bridge). Types only, no runtime imports. The Rust source of truth is
 // src-tauri/remote-proto/src/msg.rs (serde camelCase); keep the two in step.
 
+import type { ProviderAuthRequest, ProviderAuthState } from "./providerAuth";
+
 type AgentStatus = "busy" | "idle" | "waiting";
 
 /** How full an agent's context window is (tokens). */
@@ -238,6 +240,7 @@ export type RemoteCap =
   | "rename"
   | "profiles"
   | "profileLogin"
+  | "providerAuth"
   | "profileAgents"
   | "newTabProfile"
   | "background"
@@ -287,6 +290,8 @@ export interface DesktopUpdate {
 }
 
 export type ServerMsg =
+  | { t: "providerauthrequired"; cli: string; profile: string | null }
+  | { t: "providerauth"; requestId: string; state: ProviderAuthState | null; error: string | null }
   | { t: "fs"; requestId: string; response?: FsResponse; error?: string }
   | { t: "chatpromptack"; chatId: string; requestId: string; message?: string }
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
@@ -322,6 +327,7 @@ export type ServerMsg =
   | { t: "pong" };
 
 export type ClientMsg =
+  | { t: "providerauth"; requestId: string; request: ProviderAuthRequest }
   | { t: "fs"; requestId: string; request: FsRequest }
   | { t: "list" }
   | { t: "open"; ptyId: string; cols?: number; rows?: number }

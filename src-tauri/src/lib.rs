@@ -14,6 +14,8 @@ mod newtab_background;
 mod notify;
 mod plugins;
 mod profiles;
+mod provider_auth;
+mod provider_auth_keys;
 mod preview;
 mod pty;
 mod remote;
@@ -113,6 +115,7 @@ pub fn run() {
                 // A closed window takes its terminals with it - nothing is
                 // left to show them in.
                 app.state::<PtyState>().kill_owned_by(label);
+                provider_auth::cancel_owner(&format!("desktop:{label}"));
                 app.state::<chat::ChatState>().kill_owned_by(label);
                 app.state::<std::sync::Arc<remote_client::RemoteClients>>().forget_window(label);
                 app.state::<dictation::DictationState>().forget(label);
@@ -207,6 +210,7 @@ pub fn run() {
             plugins::delete_plugin,
             plugins::run_plugin_command,
             plugins::check_cli_status,
+            provider_auth::provider_auth,
             plugins::codex_needs_no_daemon,
             plugins::open_in_vscode,
             agents::list_agent_sessions,

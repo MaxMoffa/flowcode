@@ -7,6 +7,7 @@ import { formatTokens, leftText, money, pace, resetIn, spendSummary, usageTone, 
 import { t } from "./i18n";
 import { AgentLogo } from "./icons";
 import type { UsageItem, UsageMetric } from "./remote";
+import { ProviderUsageAuth } from "./ProviderUsageAuth";
 
 /** Re-reads the clock every minute so "resets in" and the tick move while the page stays open. */
 function useNow(): Date {
@@ -135,6 +136,7 @@ function OtherBody({ item }: { item: UsageItem }) {
     <div className="hm-u-off">
       {first.label && <b>{first.label}</b>}
       {first.command && <span>{t("usageRunCommand", { command: first.command })}</span>}
+      <ProviderUsageAuth item={item} />
     </div>
   );
 }

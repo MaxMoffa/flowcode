@@ -1,0 +1,7 @@
+.provider-auth-notice { display: flex; gap: 11px; margin: 10px 14px; padding: 13px; border: 1px solid color-mix(in srgb, var(--wait, #d1a752) 45%, transparent); background: color-mix(in srgb, var(--wait, #d1a752) 9%, var(--bg)); border-radius: 10px; color: var(--fg); font-size: 13px; }
+.provider-auth-notice strong { font-weight: 600; color: var(--wait, #d1a752); }
+.provider-auth-notice p { color: var(--muted); margin: 4px 0 10px; font-size: 12px; }
+.provider-auth-symbol { flex: none; width: 23px; height: 23px; display: grid; place-items: center; color: var(--wait, #d1a752); border: 1px solid currentColor; border-radius: 7px; font-weight: 600; }
+.provider-auth-usage-action { margin-top: 12px; width: 100%; }
+.provider-auth-required-banner { position: fixed; z-index: 1900; left: 14px; right: 14px; bottom: calc(var(--inset-b, 0px) + 70px); max-width: 620px; margin: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; background: var(--surface, var(--bg)); color: var(--fg); border: 1px solid var(--wait, #d1a752); padding: 14px; border-radius: 12px; box-shadow: 0 12px 35px #0005; font-size: 12px; }
+.provider-auth-required-banner > span { color: var(--muted); margin-right: auto; }

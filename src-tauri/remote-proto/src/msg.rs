@@ -34,6 +34,8 @@ pub enum FsResponse {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "t", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum ClientMsg {
+    /// Provider sign-in over the authenticated control channel. Never log the request.
+    ProviderAuth { request_id: String, request: serde_json::Value },
     /// First message of a new device: trades the pairing code for a token.
     Pair { code: String, device_name: String },
     /// First message of a known device.
@@ -205,6 +207,10 @@ pub enum ClientMsg {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "t", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum ServerMsg {
+    /// Actionable provider error, only delivered to phones that advertise providerAuth.
+    ProviderAuthRequired { cli: String, profile: Option<String> },
+    /// A correlated provider-auth result; secrets are never returned.
+    ProviderAuth { request_id: String, state: Option<serde_json::Value>, error: Option<String> },
     /// Only sent for a prompt carrying requestId; old clients never receive it.
     ChatPromptAck {
         chat_id: String,
@@ -485,6 +491,24 @@ pub struct LsEntry {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_auth_messages_keep_correlation_and_profile_scope() {
+        use super::*;
+        let request = serde_json::json!({ "t":"providerauth", "requestId":"auth-1", "request": {"op":"key","cli":"codex","profile":"work","apiKey":"invented-test-key","remote":true} });
+        let parsed: ClientMsg = serde_json::from_value(request.clone()).unwrap();
+        assert_eq!(serde_json::to_value(parsed).unwrap(), request);
+        let reply = ServerMsg::ProviderAuth { request_id: "auth-1".into(), state: Some(serde_json::json!({"cli":"codex","profile":"work","authenticated":true})), error: None };
+        let wire = serde_json::to_value(&reply).unwrap();
+        assert_eq!(wire["requestId"], "auth-1");
+        assert_eq!(wire["state"]["profile"], "work");
+        assert!(!wire.to_string().contains("invented-test-key"));
+        assert_eq!(serde_json::from_value::<ServerMsg>(wire).unwrap(), reply);
+        let required = ServerMsg::ProviderAuthRequired { cli: "claude".into(), profile: None };
+        let wire = serde_json::to_value(&required).unwrap();
+        assert_eq!(wire["t"], "providerauthrequired");
+        assert!(wire["profile"].is_null());
+        assert_eq!(serde_json::from_value::<ServerMsg>(wire).unwrap(), required);
+    }
     #[test]
     fn standalone_explorer_preserves_request_ids_and_write_versions() {
         use super::*;

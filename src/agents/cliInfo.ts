@@ -38,6 +38,12 @@ const CLI_STATUS_TTL_MS = 60_000;
 const cliStatusCache = new Map<AgentCli, { at: number; status: CliStatus }>();
 const cliStatusInFlight = new Map<AgentCli, Promise<CliStatus | null>>();
 
+/** A completed authentication invalidates both file-based and cached CLI status. */
+export function invalidateCliStatus(cli: AgentCli): void {
+  cliStatusCache.delete(cli);
+  cliStatusInFlight.delete(cli);
+}
+
 /** Whether a CLI is installed and signed in under the default profile (the
  * probe may spawn the CLI, hence the cache); `null` when the check failed.
  * `fresh` skips the cached answer. */
@@ -48,11 +54,12 @@ export function defaultCliStatus(cli: AgentCli, fresh = false): Promise<CliStatu
   if (pending) return pending;
   const probe = invoke<CliStatus>("check_cli_status", { cli })
     .then((status) => {
+      if (cliStatusInFlight.get(cli) !== probe) return null;
       cliStatusCache.set(cli, { at: Date.now(), status });
       return status;
     })
     .catch(() => null)
-    .finally(() => cliStatusInFlight.delete(cli));
+    .finally(() => { if (cliStatusInFlight.get(cli) === probe) cliStatusInFlight.delete(cli); });
   cliStatusInFlight.set(cli, probe);
   return probe;
 }

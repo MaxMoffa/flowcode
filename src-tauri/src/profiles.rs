@@ -159,10 +159,11 @@ pub fn dirs(app: &AppHandle, profile: Option<&str>) -> Option<ProfileDirs> {
 /// Env vars to set on a process launched under `profile`: none for the default
 /// profile (the CLIs then use their own folders), else one per CLI.
 pub fn env_for(app: &AppHandle, profile: Option<&str>) -> Vec<(String, String)> {
-    let Some(id) = profile else { return Vec::new() };
+    let mut env = Vec::new();
+    if let Some(id) = profile {
     let Some(d) = dirs(app, Some(id)) else { return Vec::new() };
     let s = |p: &Path| p.to_string_lossy().into_owned();
-    vec![
+    env.extend([
         ("CLAUDE_CONFIG_DIR".to_string(), s(&d.claude)),
         ("CODEX_HOME".to_string(), s(&d.codex)),
         ("VIBE_HOME".to_string(), s(&d.vibe)),
@@ -172,7 +173,10 @@ pub fn env_for(app: &AppHandle, profile: Option<&str>) -> Vec<(String, String)> 
         // use the same key. With the keyring off it falls back to
         // `<VIBE_HOME>/.env`, which is per profile.
         ("VIBE_TEST_DISABLE_KEYRING".to_string(), "1".to_string()),
-    ]
+    ]);
+    }
+    env.extend(crate::provider_auth_keys::env_for(app, profile));
+    env
 }
 
 /// Every profile, the default one first.
@@ -193,7 +197,7 @@ pub fn all_dirs(app: &AppHandle) -> Vec<(Option<String>, ProfileDirs)> {
 /// Cheap, file-only login check. Claude keeps OAuth in `.credentials.json` on
 /// Windows/Linux (the keychain on macOS, where the account shows up in
 /// `.claude.json` instead), or an API key in `.claude.json`.
-fn login_state(d: &ProfileDirs, use_keyring: bool) -> LoginState {
+fn login_state(app: &AppHandle, d: &ProfileDirs, profile: Option<&str>, use_keyring: bool) -> LoginState {
     let claude = d.claude.join(".credentials.json").exists()
         || std::fs::read_to_string(d.claude.join(".claude.json"))
             .ok()
@@ -212,7 +216,12 @@ fn login_state(d: &ProfileDirs, use_keyring: bool) -> LoginState {
     // with it off, see `env_for`).
     let vibe = crate::vibe::has_api_key(Some(&d.vibe), use_keyring);
     let gemini = crate::gemini::has_login(&d.gemini);
-    LoginState { claude, codex, vibe, gemini }
+    LoginState {
+        claude: claude || crate::provider_auth_keys::has_key(app, "claude", profile),
+        codex: codex || crate::provider_auth_keys::has_key(app, "codex", profile),
+        vibe: vibe || crate::provider_auth_keys::has_key(app, "vibe", profile),
+        gemini: gemini || crate::provider_auth_keys::has_key(app, "gemini", profile),
+    }
 }
 
 /// Folder-name-safe id stem: lowercase ascii alphanumerics and single dashes,
@@ -376,7 +385,7 @@ pub async fn profiles_list(app: AppHandle) -> Result<ProfilesState, String> {
             .profiles
             .into_iter()
             .map(|p| {
-                let logged_in = login_state(&profile_dirs(&root, &p.id), false);
+                let logged_in = login_state(&app, &profile_dirs(&root, &p.id), Some(&p.id), false);
                 let dir = root.join(&p.id).to_string_lossy().into_owned();
                 ProfileInfo { id: p.id, name: p.name, color: p.color, dir, logged_in }
             })
@@ -384,7 +393,7 @@ pub async fn profiles_list(app: AppHandle) -> Result<ProfilesState, String> {
         Ok(ProfilesState {
             profiles,
             project_defaults: store.project_defaults,
-            default_logged_in: default_dirs().map(|d| login_state(&d, true)),
+            default_logged_in: default_dirs().map(|d| login_state(&app, &d, None, true)),
         })
     })
     .await
@@ -479,6 +488,7 @@ pub async fn profile_logout(app: AppHandle, id: Option<String>, cli: String) -> 
     crate::blocking(move || {
         let id = id.as_deref();
         let d = dirs(&app, id).ok_or_else(|| "profile not found".to_string())?;
+        crate::provider_auth_keys::clear(&app, &cli, id)?;
         let command = match cli.as_str() {
             "claude" => "claude auth logout",
             "codex" => "codex logout",

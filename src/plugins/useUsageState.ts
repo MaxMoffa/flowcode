@@ -4,6 +4,8 @@ import { profileById, useProfiles, useProfilesLoaded } from "../profiles/profile
 import { createStore } from "../lib/externalStore";
 import { cliOfPlugin } from "../agents/cliInfo";
 import { activeTabProfile } from "../profiles/activeTabProfile";
+import { CLI_INFO } from "../agents/cliInfo";
+import { markProviderAuthRequired, useProviderAuthRequired } from "../profiles/providerAuth";
 
 const STALE_MS = 30_000;
 /** Usage limits don't move minute to minute, and a Codex refresh in
@@ -29,6 +31,8 @@ interface Entry {
    * case with a phone connected). */
   retained: number;
   timer?: ReturnType<typeof setInterval>;
+  generation: number;
+  refreshAfterLoad: boolean;
 }
 
 const EMPTY: Snapshot = { usage: null, loading: false };
@@ -48,7 +52,7 @@ function keyOf(pluginId: string, profile?: string): string {
 function entryFor(key: string, pluginId: string, profile?: string): Entry {
   let entry = entries.get(key);
   if (!entry) {
-    entry = { pluginId, profile, snapshot: EMPTY, lastFetch: 0, listeners: new Set(), retained: 0 };
+    entry = { pluginId, profile, snapshot: EMPTY, lastFetch: 0, listeners: new Set(), retained: 0, generation: 0, refreshAfterLoad: false };
     entries.set(key, entry);
   }
   return entry;
@@ -79,16 +83,35 @@ function loadUsage(pluginId: string, profile?: string, force = false) {
   if (entry.snapshot.loading) return;
   if (!force && entry.snapshot.usage && Date.now() - entry.lastFetch < STALE_MS) return;
   entry.lastFetch = Date.now();
+  const generation = entry.generation;
   update(entry, { loading: true });
   fetcher(profile)
     .then((usage) => {
+      if (generation !== entry.generation) return;
       update(entry, { usage });
+      const cli = cliOfPlugin(pluginId);
+      if (cli && usage.metrics.some((metric) => ["reauth", "loggedOut", "noApiKey"].includes(metric.kind))) markProviderAuthRequired(cli, profile);
       fetchedListeners.forEach((listener) => listener(pluginId, usage, profile));
     })
     // The fetchers already turn real failures into an `ok: false` result -
     // this only keeps an unexpected throw from wedging `loading` forever.
     .catch(() => {})
-    .finally(() => update(entry, { loading: false }));
+    .finally(() => {
+      update(entry, { loading: false });
+      if (entry.refreshAfterLoad) {
+        entry.refreshAfterLoad = false;
+        loadUsage(pluginId, profile, true);
+      }
+    });
+}
+
+/** Authentication changes must bypass the usage TTL and discard an older in-flight result. */
+export function refreshProviderUsage(pluginId: string, profile?: string): void {
+  const entry = entryFor(keyOf(pluginId, profile), pluginId, profile);
+  entry.generation++;
+  entry.lastFetch = 0;
+  if (entry.snapshot.loading) entry.refreshAfterLoad = true;
+  else loadUsage(pluginId, profile, true);
 }
 
 // The 5-minute timer is skipped while the window is hidden, so coming back
@@ -144,7 +167,12 @@ export function useUsageState(pluginId: string, profile?: string, enabled = true
     [pluginId, profile, fetcher, enabled],
   );
   const getSnapshot = useCallback(() => entries.get(keyOf(pluginId, profile))?.snapshot ?? EMPTY, [pluginId, profile]);
-  const { usage, loading } = useSyncExternalStore(subscribeToEntry, getSnapshot);
+  const { usage: fetchedUsage, loading } = useSyncExternalStore(subscribeToEntry, getSnapshot);
+  const cli = cliOfPlugin(pluginId);
+  const required = useProviderAuthRequired(cli, profile);
+  const usage: UsageInfo | null = required && cli && !fetchedUsage?.metrics.some((metric) => ["reauth", "loggedOut", "noApiKey"].includes(metric.kind))
+    ? { fetchedAt: fetchedUsage?.fetchedAt ?? 0, ok: false, metrics: [{ kind: "reauth", command: CLI_INFO[cli].loginCommand }] }
+    : fetchedUsage;
   const load = useCallback(() => {
     if (enabled) loadUsage(pluginId, profile);
   }, [pluginId, profile, enabled]);
@@ -170,11 +198,10 @@ export function useUsageProfile(
   const picked = overrides.use()[pluginId];
   const { profileId: tabProfile } = activeTabProfile.use();
   const wanted = picked ? picked.id : tabProfile;
-  // A CLI's usage only exists for profiles it is signed in under; others
-  // (e.g. the active tab's) fall back to the default account.
-  const cli = cliOfPlugin(pluginId);
+  // Preserve the selected account even when its login is missing or expired.
+  // Falling back would display and authenticate an unrelated default account.
   const profile = profileById(profiles, wanted);
-  const usable = !!profile && (!cli || profile.logged_in[cli]);
+  const usable = !!profile;
   const set = useCallback(
     (next: string | undefined) => overrides.update((prev) => ({ ...prev, [pluginId]: { id: next } })),
     [pluginId],

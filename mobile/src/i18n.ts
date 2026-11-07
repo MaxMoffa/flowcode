@@ -1,5 +1,11 @@
 // Tiny catalog: Italian when the system language is Italian, English otherwise.
 const it = {
+  providerAuthRequired: "Accesso al provider richiesto",
+  providerAuthHint: "Ricollega questo provider per continuare. Conversazione e bozza restano disponibili.",
+  providerAuthSignin: "Accedi o configura chiave API",
+  providerAuthLegacy: "Questo computer supporta solo il login nel terminale desktop. Aggiorna Flowcode per accedere dal telefono.",
+  providerAuthUpgrade: "Aggiorna Flowcode sul computer per accedere ai provider dal telefono.",
+  providerAuthCapability: "Accesso ai provider",
   filesTooLarge: "Contenuto troppo grande da inviare. Riduci il testo o modifica il file sul computer.",
   filesTimeout: "Il computer non risponde. Riprova.",
   filesOffline: "Computer non collegato",
@@ -729,6 +735,12 @@ const it = {
   dictateErrUnknown: "Dettatura non riuscita",
 };
 const en: Record<keyof typeof it, string> = {
+  providerAuthRequired: "Provider sign-in required",
+  providerAuthHint: "Reconnect this provider to continue. Your conversation and draft remain available.",
+  providerAuthSignin: "Sign in or configure API key",
+  providerAuthLegacy: "This computer only supports sign-in in its desktop terminal. Update Flowcode to sign in from your phone.",
+  providerAuthUpgrade: "Update Flowcode on your computer to sign in to providers from your phone.",
+  providerAuthCapability: "Provider sign-in",
   filesTooLarge: "Content is too large to send. Reduce it or edit the file on the computer.",
   filesTimeout: "The computer did not reply. Try again.",
   filesOffline: "Computer not connected",

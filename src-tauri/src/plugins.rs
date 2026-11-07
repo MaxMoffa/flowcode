@@ -142,9 +142,17 @@ pub struct CliStatus {
 /// would silently break for anyone not on an English Windows install.
 /// `where`/`command -v` report found-or-not purely via exit code, no text
 /// parsing, no locale dependency.
-fn cli_is_installed(cli: &str) -> bool {
+pub(crate) fn cli_is_installed(cli: &str) -> bool {
     let probe = if cfg!(windows) { format!("where {cli}") } else { format!("command -v {cli}") };
     run_command_blocking(&probe).map(|o| o.status.success()).unwrap_or(false)
+}
+
+/// Gemini also authenticates from the inherited environment (an API key, or
+/// Vertex AI), which leaves no file in its config folder.
+fn gemini_env_auth() -> bool {
+    let set = |key: &str| std::env::var(key).is_ok_and(|v| !v.trim().is_empty());
+    set("GEMINI_API_KEY") || set("GOOGLE_API_KEY")
+        || std::env::var("GOOGLE_GENAI_USE_VERTEXAI").is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1")
 }
 
 /// Best-effort login check for a plugin's CLI, used to decide whether
@@ -155,7 +163,7 @@ fn cli_is_installed(cli: &str) -> bool {
 /// "Not logged in" text it's documented to print (same kind of heuristic
 /// src/plugins/codexStatus.ts already uses against Codex's interactive
 /// screen - there's no more reliable signal available for it).
-fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
+pub(crate) fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
     let envs = crate::profiles::env_for(app, profile);
     match cli {
         "claude" => run_status_command("claude auth status", &envs)
@@ -178,7 +186,11 @@ fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
         // API key), so a missing sign-in must never block launching it: being
         // installed is enough. Profiles' real sign-in state is file-based
         // (see `gemini::has_login`).
-        "gemini" => true,
+        "gemini" => crate::profiles::dirs(app, profile).is_some_and(|d| crate::gemini::has_login(&d.gemini))
+            || crate::provider_auth_keys::has_key(app, cli, profile)
+            // Inherited key or Vertex setup: still valid unless a Flowcode
+            // method is saved (its env then blanks these variables).
+            || (crate::provider_auth_keys::method(app, cli, profile).is_none() && gemini_env_auth()),
         _ => false,
     }
 }

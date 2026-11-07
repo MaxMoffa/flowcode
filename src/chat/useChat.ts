@@ -10,6 +10,8 @@ import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { NO_ACTIVITY, resumedActivity, trackActivity, type ChatActivity } from "./cacheWarning";
 import { applyEvent, applyLocalError, delegatesOf, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleAttached, settleChat, type ChatModelState } from "./chatModel";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
+import { isProviderAuthError } from "../../shared/providerAuth";
+import { markProviderAuthRequired, PROVIDER_AUTHENTICATED, providerAuthRequired, useProviderAuthRequired, type ProviderAuthenticated } from "../profiles/providerAuth";
 
 /** A message waiting for the agent to be idle. */
 export interface QueuedMessage {
@@ -65,6 +67,18 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   // The WSL distro the agent runs in (its paths are Linux ones); null for a Windows chat.
   const [wslDistro, setWslDistro] = useState<string | null>(null);
   const [queued, setQueued] = useState<QueuedMessage[]>([]);
+  const authRequired = useProviderAuthRequired(agent, profileId);
+  const authRequiredRef = useRef(authRequired);
+  authRequiredRef.current = authRequired;
+  const authQueuePausedRef = useRef(false);
+  if (authRequired) authQueuePausedRef.current = true;
+  const needsAuthRestartRef = useRef(false);
+  const reportAuthError = useCallback((message: string) => {
+    if (attachChatId || !isProviderAuthError(message)) return;
+    needsAuthRestartRef.current = true;
+    authQueuePausedRef.current = true;
+    markProviderAuthRequired(agent, profileId);
+  }, [agent, profileId, attachChatId]);
   // The agent loaded the session asked for (false for a fresh one, or a resume that fell back to a new session).
   const [loaded, setLoaded] = useState(false);
   // Bumped by `restart` to run the start effect again.
@@ -121,6 +135,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const trackOpen = createAgentOpenTracker(cwd);
     let distro: string | null = null;
     const followOpen = (ev: ChatEvent) => {
+      if (ev.kind === "error") reportAuthError(ev.message);
       // An attached child's opens are routed by its orchestrator's chat, whether or not this tab exists.
       if (attachChatId) return;
       const open = trackOpen(ev);
@@ -211,6 +226,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           setPhase("ready");
         } catch (err) {
           if (cancelled) return;
+          reportAuthError(String(err));
           setError(String(err));
           setPhase("failed");
         }
@@ -243,6 +259,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   /** Hands a message to the agent; a failure shows up as an error in the conversation. */
   const dispatch = useCallback((text: string, attachments: ChatAttachment[]) => {
+    if (providerAuthRequired(agent, profileId)) return;
     const id = chatIdRef.current;
     if (!id) return;
     sentAtSeqRef.current = modelRef.current.lastSeq;
@@ -263,33 +280,38 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           return;
         }
         sentAtSeqRef.current = null;
+        reportAuthError(message);
         setModelState((m) => applyLocalError(m, message));
       },
     );
-  }, []);
+  }, [agent, profileId, reportAuthError]);
 
   const send = useCallback(
     (text: string, attachments: ChatAttachment[] = []) => {
       if (attachedRef.current) return;
+      if (authRequiredRef.current || providerAuthRequired(agent, profileId)) return;
+      authQueuePausedRef.current = false;
       const trimmed = text.trim();
       if ((!trimmed && attachments.length === 0) || (!chatIdRef.current && !closedRef.current)) return;
       if (closedRef.current) setQueued((q) => [...q, { text: trimmed, attachments }]);
       else if (modelRef.current.status === "idle" && sentAtSeqRef.current === null) dispatch(trimmed, attachments);
       else setQueued((q) => [...q, { text: trimmed, attachments }]);
     },
-    [dispatch],
+    [dispatch, agent, profileId],
   );
 
   // The turn is over: send the next queued message.
   useEffect(() => {
     if (model.status !== "idle") return;
+    if (authRequired || providerAuthRequired(agent, profileId)) return;
+    if (authQueuePausedRef.current) return;
     if (closedRef.current) return;
     if (sentAtSeqRef.current !== null && model.lastSeq <= sentAtSeqRef.current) return;
     sentAtSeqRef.current = null;
     if (queued.length === 0) return;
     dispatch(queued[0].text, queued[0].attachments);
     setQueued((q) => q.slice(1));
-  }, [model.status, model.lastSeq, queued, dispatch]);
+  }, [model.status, model.lastSeq, queued, dispatch, authRequired, agent, profileId]);
 
   const cancel = useCallback(() => {
     // A delegated child is stopped through its task, so the orchestrator hears of it (status `cancelled`).
@@ -303,6 +325,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   /** "Send now": moves the queued message first and interrupts a running turn; the idle effect above then sends it. */
   const force = useCallback((index: number) => {
+    if (authRequiredRef.current) return;
+    authQueuePausedRef.current = false;
     // A prompt sent whose turn hasn't started yet is about to run: interrupt it too.
     const inFlight = sentAtSeqRef.current !== null;
     // The previous prompt may not have started its turn yet; its guard must not hold this one back.
@@ -432,6 +456,18 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   /** Starts the agent again - resuming the same session when it had a conversation. */
   const restart = useCallback(() => setAttempt((n) => n + 1), []);
+  useEffect(() => {
+    const authenticated = (event: Event) => {
+      const detail = (event as CustomEvent<ProviderAuthenticated>).detail;
+      if (attachChatId || detail?.cli !== agent || (detail.profile || null) !== (profileId || null)) return;
+      if (needsAuthRestartRef.current || authRequiredRef.current) {
+        needsAuthRestartRef.current = false;
+        restart();
+      }
+    };
+    window.addEventListener(PROVIDER_AUTHENTICATED, authenticated);
+    return () => window.removeEventListener(PROVIDER_AUTHENTICATED, authenticated);
+  }, [agent, profileId, attachChatId, restart]);
 
   /** "/clear": a fresh conversation in this tab. The queue is dropped and the
    * session forgotten, so the start effect runs a `session/new` (and reports
@@ -458,16 +494,18 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired"> & {
   /** Starts a fresh conversation in the same tab; absent for a chat running on another PC. */
   clear?: () => void;
   /** Answer a permission request or question one of the chat's delegates asked (in the child's own chat); absent for a chat running on another PC, whose delegates are not shown. */
   answerDelegatePermission?: (childChatId: string, requestId: string, optionId: string | null) => void;
   answerDelegateAsk?: (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  /** This provider needs authentication before sending another message. */
+  authRequired?: boolean;
   /** A delegated child's chat shown read-only (see `useChat`'s `attachChatId`). */
   attached?: boolean;
 };

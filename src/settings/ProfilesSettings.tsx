@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
@@ -10,7 +10,6 @@ import {
   createProfile,
   deleteProfile,
   logoutProfile,
-  refreshProfiles,
   updateProfile,
   useProfiles,
   type LoginState,
@@ -186,24 +185,9 @@ function NewProfileDialog({ onClose }: { onClose: () => void }) {
 /** The Profiles settings page: the implicit default profile and one card per
  * extra profile (each lists its signed-in agents with sign-out and a "+" to
  * add others; rename/recolour, delete) and a button opening a dialog to create
- * more. `onLogin` opens the CLI's login in a terminal tab under that profile;
+ * more. `onLogin` opens the dedicated provider dialog under that profile;
  * without it the sign-in buttons are hidden. */
 export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | null, cli: AgentCli) => void }) {
-  // A focus listener is already waiting: one refresh covers every login click.
-  const loginFocusArmedRef = useRef(false);
-  // Default-profile CLIs whose login was started since the listener was armed
-  // - each needs its own status re-read when the user comes back.
-  const pendingDefaultClisRef = useRef(new Set<AgentCli>());
-  const loginFocusHandlerRef = useRef<(() => void) | null>(null);
-
-  // Don't leave the window listener behind if the page closes mid-login.
-  useEffect(() => {
-    return () => {
-      if (loginFocusHandlerRef.current) window.removeEventListener("focus", loginFocusHandlerRef.current);
-      loginFocusHandlerRef.current = null;
-      loginFocusArmedRef.current = false;
-    };
-  }, []);
   const { t } = useI18n();
   const confirm = useConfirmDialog();
   const { profiles, default_logged_in } = useProfiles();
@@ -256,23 +240,9 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | n
     }
   }
 
-  /** Hands the login to the terminal, then re-reads the login state once the
-   * user comes back to this window. */
+  /** Opens the shared provider dialog; the host refreshes status after verification. */
   function handleLogin(profileId: string | null, cli: AgentCli) {
     onLogin?.(profileId, cli);
-    if (profileId === null) pendingDefaultClisRef.current.add(cli);
-    if (loginFocusArmedRef.current) return;
-    loginFocusArmedRef.current = true;
-    const onFocus = () => {
-      window.removeEventListener("focus", onFocus);
-      loginFocusHandlerRef.current = null;
-      loginFocusArmedRef.current = false;
-      void refreshProfiles();
-      for (const c of pendingDefaultClisRef.current) void defaultCliStatus(c, true);
-      pendingDefaultClisRef.current.clear();
-    };
-    loginFocusHandlerRef.current = onFocus;
-    window.addEventListener("focus", onFocus);
   }
 
   async function handleLogout(profileId: string | null, profileName: string, cli: AgentCli) {

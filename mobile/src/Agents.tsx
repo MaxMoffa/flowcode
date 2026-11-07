@@ -5,6 +5,7 @@ import { requestOpenChat } from "./chats";
 import { AgentLogo, ChatIcon } from "./icons";
 import { money } from "./homeUsage";
 import { useRemoteSelector, type ChatInfo, type Tab, type UsageItem, type UsageMetric } from "./remote";
+import { ProviderUsageAuth } from "./ProviderUsageAuth";
 
 /** Every limit gauge (5-hour session, weekly...) gets its own row. */
 function gaugeMetrics(item: UsageItem): UsageMetric[] {
@@ -41,6 +42,7 @@ function UsageCard({ item }: { item: UsageItem }) {
         </div>
       ))}
       {note && <div className="usage-sub">{note}</div>}
+      <ProviderUsageAuth item={item} />
     </div>
   );
 }

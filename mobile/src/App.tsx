@@ -23,6 +23,7 @@ import { applyTheme, phoneTheme, withPhoneTheme } from "./theme";
 import { WideShell } from "./WideShell";
 import { useWide } from "./wide";
 import { useCompactChat } from "./useCompactChat";
+import { ProviderAuthHost } from "./ProviderAuth";
 
 // xterm makes the terminal the bulk of the bundle; it loads when first opened.
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
@@ -325,6 +326,7 @@ function AppContent() {
   return (
     <>
       {content}
+      {paired && !adding && !lock.locked && <ProviderAuthHost />}
       {compat.level === "partial" && host && !compatDismissed && paired && !adding && !lock.locked && <CompatBanner host={host} hostName={hostName} />}
       {paired && !pairing && !firstConnect && !adding && <Reconnect />}
       {paired && !adding && <NewChatWatcher />}

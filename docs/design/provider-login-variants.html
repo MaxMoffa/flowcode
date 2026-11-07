@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="it" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per gli avvisi di accesso e il login dei provider in Flowcode.">
+  <title>Flowcode · Accesso ai provider · 3 varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #100d0a; --bg: #1a1511; --surface: #241e18; --raised: #2d261f;
+      --fg: #e7d8c5; --muted: #b19b82; --border: #3e3328;
+      --accent: #9db984; --accent-bg: #253022; --on-accent: #17200f;
+      --amber: #e4ba65; --amber-bg: #31271a; --amber-border: #6e5430;
+      --danger: #f08b82; --danger-bg: #37221e; --shadow: #0007;
+      --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, ui-monospace, monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --page: #eee9e0; --bg: #fffaf1; --surface: #f6f0e6; --raised: #eee6d8;
+      --fg: #3a2b17; --muted: #776146; --border: #d9cdbb;
+      --accent: #4f6e3a; --accent-bg: #e5ecdc; --on-accent: #fff;
+      --amber: #7c5715; --amber-bg: #fbf0d9; --amber-border: #d6b879;
+      --danger: #a5372f; --danger-bg: #f8e5df; --shadow: #3a2b1724;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--page); color: var(--fg); font: 14px/1.5 var(--font); }
+    button, input, select, textarea { font: inherit; }
+    button, select { cursor: pointer; }
+    button { color: inherit; border: 0; background: transparent; }
+    button:disabled { cursor: default; opacity: .55; }
+    button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+    #auth-title:focus { outline: none; }
+    button:hover:not(:disabled) { filter: brightness(1.1); }
+    h1, h2, h3, p { margin: 0; }
+    svg { width: 20px; height: 20px; flex: none; }
+    .logo { fill: currentColor; }
+    .muted { color: var(--muted); }
+    .mono { font-family: var(--mono); }
+    .studio { max-width: 1440px; margin: auto; padding: 28px 36px 36px; }
+    .studio-top { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
+    .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 15px; }
+    .brand img { width: 25px; height: 25px; }
+    .studio-label { color: var(--muted); font-size: 12px; border-left: 1px solid var(--border); margin-left: 6px; padding-left: 15px; font-weight: 400; }
+    .btn { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 36px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--raised); font-size: 12px; font-weight: 600; }
+    .btn.primary { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+    .btn.quiet { background: transparent; }
+    .btn.warn { color: var(--amber); border-color: var(--amber-border); background: var(--amber-bg); }
+    .wide { width: 100%; }
+    .text-btn { padding: 7px 0; color: var(--accent); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+    .heading { display: flex; justify-content: space-between; align-items: end; gap: 30px; margin-bottom: 22px; }
+    h1 { font-size: clamp(26px, 3vw, 36px); line-height: 1.15; letter-spacing: -.035em; font-weight: 600; margin-bottom: 9px; }
+    .heading p { color: var(--muted); font-size: 13px; max-width: 700px; }
+    .prototype { font: 11px var(--mono); color: var(--muted); white-space: nowrap; padding-bottom: 3px; }
+    .variants { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+    .variant { display: flex; align-items: center; text-align: left; gap: 13px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); }
+    .variant[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); }
+    .variant .number { color: var(--muted); font: 12px var(--mono); }
+    .variant[aria-pressed="true"] .number { color: var(--accent); }
+    .variant strong { display: block; font-size: 13px; font-weight: 600; }
+    .variant small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .recommend { color: var(--accent); font-size: 10px; margin-left: 5px; font-weight: 400; }
+    .controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 0 0 17px; font-size: 12px; color: var(--muted); }
+    .controls label { display: flex; align-items: center; gap: 7px; }
+    select { border: 1px solid var(--border); color: var(--fg); border-radius: 5px; background: var(--bg); padding: 6px 26px 6px 9px; min-height: 32px; max-width: 100%; }
+    .controls .reset { margin-left: auto; }
+    .workspace { position: relative; border: 1px solid var(--border); border-radius: 11px; background: var(--bg); overflow: hidden; box-shadow: 0 18px 50px -30px var(--shadow); }
+    .titlebar { height: 41px; border-bottom: 1px solid var(--border); padding: 0 15px; display: flex; align-items: center; gap: 10px; background: var(--surface); }
+    .window-name { color: var(--muted); font-size: 11px; }
+    .tab { height: 100%; display: flex; align-items: center; gap: 8px; font-size: 11px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); padding: 0 20px; margin-left: 22px; background: var(--bg); }
+    .tab svg { width: 15px; height: 15px; color: var(--accent); }
+    .title-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .provider-trigger { display: flex; align-items: center; position: relative; padding: 4px; border-radius: 5px; }
+    .provider-trigger.active { background: var(--raised); }
+    .provider-trigger .badge { position: absolute; right: -1px; top: -1px; font: 700 9px/12px var(--font); width: 12px; height: 12px; text-align: center; background: var(--amber); color: var(--bg); border-radius: 50%; }
+    .work-body { height: 536px; position: relative; display: grid; grid-template-columns: 166px minmax(0, 1fr); }
+    #auth-host { display: contents; }
+    .sidebar { display: flex; flex-direction: column; padding: 17px 12px 12px; border-right: 1px solid var(--border); font-size: 11px; color: var(--muted); background: var(--surface); }
+    .project { font-weight: 600; color: var(--fg); padding: 3px 8px 14px; }
+    .file { padding: 6px 8px; border-radius: 4px; }
+    .file.selected { background: var(--raised); color: var(--fg); }
+    .indent { padding-left: 20px; }
+    .sidebar-bottom { margin-top: auto; display: grid; gap: 8px; }
+    .sidebar-bottom .btn { justify-content: start; font-weight: 400; padding: 7px 9px; font-size: 11px; }
+    .main { min-width: 0; display: flex; flex-direction: column; position: relative; }
+    .chat-header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 47px; padding: 10px 20px; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .chat-header .status { margin-left: auto; font-size: 10px; color: var(--amber); }
+    .profile-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted); background: var(--raised); padding: 3px 7px; border-radius: 4px; white-space: nowrap; }
+    .profile-dot { width: 6px; height: 6px; background: #6f9bcf; border-radius: 50%; }
+    .chat-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 276px; }
+    .conversation { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 24px 24px 16px; }
+    .messages { flex: 1; overflow: auto; font-size: 13px; display: flex; flex-direction: column; gap: 16px; }
+    .message-label { font-size: 10px; color: var(--muted); margin-bottom: 5px; }
+    .user-msg { align-self: end; max-width: 88%; background: var(--raised); padding: 10px 13px; border-radius: 9px 9px 2px 9px; }
+    .tool { color: var(--muted); font: 10px var(--mono); border-left: 2px solid var(--border); padding: 7px 10px; margin-top: 9px; }
+    .auth-notice { border: 1px solid var(--amber-border); background: var(--amber-bg); border-radius: 8px; padding: 14px; display: flex; align-items: start; gap: 11px; margin: 20px 0 12px; }
+    .notice-symbol { display: flex; align-items: center; justify-content: center; width: 23px; height: 23px; flex: none; color: var(--amber); border: 1px solid var(--amber-border); border-radius: 7px; font: 600 14px var(--mono); }
+    .notice-copy { flex: 1; min-width: 0; }
+    .auth-notice h3 { font-size: 13px; font-weight: 600; color: var(--amber); margin-bottom: 3px; }
+    .auth-notice p { font-size: 12px; color: var(--muted); margin-bottom: 11px; max-width: 50ch; }
+    .auth-notice .btn { min-height: 31px; padding: 6px 11px; font-size: 11px; }
+    .composer { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 10px 12px; }
+    .composer textarea { resize: none; border: 0; outline: none; background: transparent; color: var(--fg); width: 100%; height: 35px; font-size: 11px; }
+    .composer-footer { display: flex; align-items: center; color: var(--muted); gap: 8px; font-size: 10px; }
+    .composer-footer button { margin-left: auto; font-size: 14px; height: 24px; width: 26px; border: 1px solid var(--border); border-radius: 4px; }
+    .popover-rail { padding: 22px 16px 16px 0; }
+    .surface-caption { font-size: 10px; color: var(--muted); margin: 0 0 8px 4px; }
+    .usage-popup { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 8px 20px -12px var(--shadow); overflow: hidden; }
+    .popup-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding: 12px; font-size: 11px; font-weight: 600; }
+    .popup-header .provider-name { display: flex; gap: 5px; align-items: center; }
+    .popup-header svg { width: 17px; height: 17px; }
+    .popup-body { padding: 17px 13px 13px; }
+    .popup-state { display: flex; align-items: center; gap: 7px; color: var(--amber); font-weight: 600; font-size: 12px; margin-bottom: 8px; }
+    .popup-body p { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+    .popup-foot { border-top: 1px solid var(--border); padding: 9px 13px; color: var(--muted); font-size: 10px; }
+    .rail-note { padding: 14px 4px 0; color: var(--muted); font-size: 10px; max-width: 230px; }
+    .state-connected { color: var(--accent) !important; }
+    .connected-notice { border-color: var(--accent); background: var(--accent-bg); }
+    .connected-notice .notice-symbol { border-color: var(--accent); color: var(--accent); }
+    .connected-notice h3 { color: var(--accent); }
+    .settings-page { padding: 23px 30px; overflow: auto; flex: 1; }
+    .settings-crumb { color: var(--muted); font-size: 10px; margin-bottom: 12px; }
+    .settings-page h2 { font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+    .settings-page > p { font-size: 12px; color: var(--muted); margin: 5px 0 24px; }
+    .profile-card { border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-width: 680px; }
+    .profile-card-head { display: flex; align-items: center; gap: 8px; padding-bottom: 13px; font-size: 13px; }
+    .provider-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); font-size: 12px; }
+    .provider-row .provider-status { margin-left: auto; color: var(--muted); font-size: 10px; }
+    .provider-row .btn { font-size: 10px; min-height: 29px; padding: 5px 10px; }
+    .provider-row.current .provider-status { color: var(--amber); }
+    .auth-layer { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; padding: 18px; background: #090705a6; }
+    .auth-layer.drawer { justify-content: end; padding: 0; background: #0907055c; }
+    .auth-layer.page { background: var(--bg); padding: 0; }
+    .auth-panel { width: 450px; max-width: 100%; max-height: 100%; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 24px 70px var(--shadow); animation: enter .16s ease-out; }
+    .drawer .auth-panel { height: 100%; width: 430px; border-radius: 0; border-width: 0 0 0 1px; animation: slide .18s ease-out; }
+    .page .auth-panel { border: 0; border-radius: 0; box-shadow: none; width: 100%; height: 100%; background: var(--bg); }
+    .auth-top { padding: 13px 18px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+    .auth-top .close { margin-left: auto; width: 26px; height: 26px; font-size: 21px; line-height: 1; border-radius: 4px; }
+    .auth-top .close:hover { background: var(--raised); }
+    .auth-content { padding: 22px 27px 20px; }
+    .auth-identity { display: flex; align-items: center; gap: 10px; margin-bottom: 17px; }
+    .provider-mark { display: flex; align-items: center; justify-content: center; width: 43px; height: 43px; background: var(--raised); border: 1px solid var(--border); border-radius: 11px; }
+    .provider-mark svg { width: 29px; height: 29px; }
+    .auth-identity strong { display: block; font-size: 13px; font-weight: 600; }
+    .auth-identity small { color: var(--muted); font-size: 10px; }
+    .auth-content h2 { font-size: 24px; letter-spacing: -.025em; font-weight: 600; line-height: 1.2; margin-bottom: 8px; }
+    .auth-intro { color: var(--muted); font-size: 13px; margin-bottom: 19px; max-width: 49ch; }
+    .method-tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 15px; gap: 18px; }
+    .method-tabs button { color: var(--muted); font-size: 11px; padding: 6px 0 10px; border-bottom: 2px solid transparent; }
+    .method-tabs button[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); }
+    .auth-method { padding: 15px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 13px; }
+    .method-title { display: flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+    .method-title svg { color: var(--accent); width: 18px; height: 18px; }
+    .auth-method p { color: var(--muted); font-size: 12px; margin-bottom: 13px; }
+    .assurance { display: flex; gap: 7px; align-items: start; font-size: 10px; color: var(--muted); margin: 12px 0 0; }
+    .assurance span:first-child { color: var(--accent); }
+    .auth-bottom { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding: 11px 26px; color: var(--muted); font-size: 10px; }
+    .auth-bottom button { font-size: 11px; padding: 5px 0; }
+    .wait-card { background: var(--raised); border: 1px solid var(--border); padding: 17px; border-radius: 8px; margin-bottom: 13px; }
+    .wait-heading { display: flex; align-items: center; gap: 9px; font-size: 12px; margin-bottom: 8px; font-weight: 600; }
+    .spinner { width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; display: inline-block; animation: spin 1s linear infinite; flex: none; }
+    .wait-card p { font-size: 11px; color: var(--muted); }
+    .wait-links { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; }
+    .wait-links button { color: var(--accent); font-size: 10px; text-decoration: underline; text-underline-offset: 3px; }
+    .success-mark { width: 46px; height: 46px; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; font-size: 25px; border: 1px solid var(--accent); border-radius: 50%; margin: 2px 0 17px; }
+    .success-summary { border-top: 1px solid var(--border); padding: 12px 0 16px; font-size: 11px; display: flex; justify-content: space-between; gap: 10px; }
+    .success-summary span:last-child { color: var(--accent); }
+    .error-box { background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 7px; padding: 13px; margin-bottom: 15px; font-size: 11px; color: var(--danger); }
+    .field-label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+    .key-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 9px 10px; color: var(--fg); font-family: var(--mono); font-size: 12px; margin-bottom: 12px; }
+    .device-code { font: 24px var(--mono); letter-spacing: .12em; text-align: center; padding: 13px 0; color: var(--fg); }
+    .device-caption { font-size: 10px; color: var(--muted); text-align: center; margin-bottom: 12px; }
+    .page-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(380px, 1fr); max-width: 900px; margin: auto; align-items: start; }
+    .page-aside { padding: 40px 35px; border-right: 1px solid var(--border); min-height: 370px; }
+    .page-aside h3 { font-size: 24px; line-height: 1.25; letter-spacing: -.02em; margin-bottom: 12px; font-weight: 500; }
+    .page-aside p { color: var(--muted); font-size: 12px; margin-bottom: 26px; }
+    .step { display: flex; gap: 10px; font-size: 11px; color: var(--muted); margin: 18px 0; align-items: center; }
+    .step span { display: grid; place-items: center; border: 1px solid var(--border); width: 23px; height: 23px; border-radius: 50%; font: 10px var(--mono); }
+    .step.current { color: var(--accent); }
+    .step.current span { border-color: var(--accent); background: var(--accent-bg); }
+    .page .auth-content { padding: 27px 35px 20px; }
+    .page .auth-bottom { max-width: 830px; margin: 0 auto; padding-left: 0; padding-right: 0; }
+    .page .auth-content h2 { font-size: 25px; }
+    .page .auth-identity { margin-bottom: 14px; }
+    .description-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 40px; margin-top: 20px; }
+    .description-row h2 { font-size: 14px; font-weight: 600; margin-bottom: 5px; }
+    .description-row p { font-size: 12px; color: var(--muted); max-width: 65ch; }
+    .flow-note { display: flex; gap: 10px; align-items: start; }
+    .flow-note .number { font: 11px var(--mono); color: var(--accent); padding-top: 2px; }
+    .demo-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 16px; margin-top: 22px; color: var(--muted); font-size: 11px; }
+    .demo-bar strong { color: var(--fg); font-weight: 500; }
+    .demo-bar select { font-size: 11px; }
+    .live-status { margin-left: auto; max-width: 450px; text-align: right; }
+    @keyframes enter { from { opacity: 0; transform: translateY(5px); } }
+    @keyframes slide { from { transform: translateX(20px); opacity: 0; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+    @media (max-width: 1100px) {
+      .studio { padding: 22px; }
+      .work-body { grid-template-columns: 135px minmax(0, 1fr); }
+      .chat-layout { grid-template-columns: minmax(0, 1fr) 250px; }
+      .conversation { padding: 18px; }
+      .profile-pill { font-size: 9px; }
+      .popup-header { padding: 10px; }
+    }
+    @media (max-width: 850px) {
+      .sidebar { display: none; }
+      .work-body { grid-template-columns: minmax(0, 1fr); }
+      .studio-label, .prototype { display: none; }
+      .variant { padding: 12px; gap: 8px; }
+      .variant small { display: none; }
+      .recommend { display: block; margin: 2px 0 0; }
+      .page-grid { grid-template-columns: minmax(0, 1fr); max-width: 500px; }
+      .page-aside { display: none; }
+      .page .auth-bottom { margin: 0 35px; }
+    }
+    @media (max-width: 600px) {
+      .studio { padding: 18px 12px 24px; }
+      .studio-top { margin-bottom: 24px; }
+      .heading { margin-bottom: 18px; }
+      h1 { font-size: 28px; max-width: 300px; }
+      .heading p { font-size: 12px; }
+      .variants { gap: 6px; }
+      .variant { align-items: start; gap: 6px; padding: 10px 7px; }
+      .variant strong { font-size: 11px; }
+      .variant .number { font-size: 10px; padding-top: 2px; }
+      .recommend { font-size: 9px; }
+      .controls { gap: 9px; }
+      .controls label { flex: 1 1 140px; font-size: 11px; }
+      .controls select { min-width: 0; width: 100%; font-size: 11px; }
+      .controls .reset { margin-left: 0; }
+      .titlebar { padding: 0 10px; }
+      .tab { margin-left: 0; padding: 0 10px; }
+      .window-name { display: none; }
+      .work-body { height: 680px; }
+      .chat-header { padding: 10px 13px; }
+      .chat-layout { display: flex; flex-direction: column; overflow: auto; }
+      .conversation { min-height: 407px; padding: 16px 13px 10px; }
+      .messages { flex: none; font-size: 11px; gap: 10px; }
+      .auth-notice { margin-top: 17px; padding: 12px; }
+      .popover-rail { padding: 4px 13px 15px; }
+      .popup-body { padding: 11px 13px; }
+      .popup-body p { margin-bottom: 10px; }
+      .rail-note, .popup-foot { display: none; }
+      .usage-popup .popup-header { padding: 9px 12px; }
+      .auth-layer { padding: 12px; }
+      .auth-panel { width: 100%; }
+      .drawer .auth-panel { width: 100%; border: 0; }
+      .auth-content { padding: 22px; }
+      .auth-content h2 { font-size: 24px; }
+      .auth-top { padding: 13px; }
+      .page .auth-content { padding: 26px 22px; }
+      .page .auth-bottom { margin: 0 22px; }
+      .description-row { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+      .demo-bar { gap: 10px; }
+      .live-status { margin-left: 0; text-align: left; width: 100%; }
+      .settings-page { padding: 20px 15px; }
+      .provider-row { gap: 7px; flex-wrap: wrap; }
+      .provider-row .provider-status { font-size: 9px; }
+      .provider-row .btn { font-size: 9px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="studio">
+    <header class="studio-top">
+      <div class="brand"><span id="flowcode-logo"></span>flowcode <span class="studio-label">Studio di interazione / Accesso ai provider</span></div>
+      <button class="btn quiet" id="theme" type="button">Tema chiaro</button>
+    </header>
+    <div class="heading">
+      <div><h1>Un accesso chiaro.<br>Da qualsiasi punto.</h1><p>Sessione scaduta, primo collegamento, chiave mancante: un messaggio visibile e un percorso dedicato per ripartire.</p></div>
+      <span class="prototype">PROTOTIPO INTERATTIVO · 3 VARIANTI</span>
+    </div>
+    <nav class="variants" aria-label="Varianti del flusso di accesso">
+      <button class="variant" data-variant="modal" aria-pressed="true"><span class="number">01</span><span><strong>Finestra centrale <span class="recommend">Consigliata</span></strong><small>Un momento di attenzione, poi riparti.</small></span></button>
+      <button class="variant" data-variant="drawer" aria-pressed="false"><span class="number">02</span><span><strong>Pannello laterale</strong><small>Il login accanto al tuo lavoro.</small></span></button>
+      <button class="variant" data-variant="page" aria-pressed="false"><span class="number">03</span><span><strong>Pagina dedicata</strong><small>Un percorso guidato, senza distrazioni.</small></span></button>
+    </nav>
+    <div class="controls">
+      <label>Provider <select id="provider"><option value="claude">Claude Code</option><option value="codex">Codex CLI</option><option value="gemini">Gemini CLI</option><option value="vibe">Mistral Vibe</option></select></label>
+      <label>Profilo <select id="profile"><option value="Lavoro">Lavoro</option><option value="Personale">Personale</option><option value="Predefinito">Predefinito</option></select></label>
+      <label>Scenario <select id="scenario"><option value="expired">Sessione scaduta</option><option value="new">Primo accesso</option></select></label>
+      <button class="btn quiet reset" id="reset">Ricomincia</button>
+    </div>
+    <div class="workspace" id="workspace">
+      <div class="titlebar"><span class="window-name">flowcode</span><div class="tab"><span id="tab-logo"></span>flowcode <span class="muted">×</span></div><div class="title-actions" id="provider-triggers"></div></div>
+      <div class="work-body" id="work-body">
+        <aside class="sidebar"><div class="project">⌄ &nbsp; flowcode</div><div class="file">⌄ &nbsp; src</div><div class="file indent">› &nbsp; agents</div><div class="file indent">› &nbsp; chat</div><div class="file indent">› &nbsp; profiles</div><div class="file selected indent">&nbsp; App.tsx</div><div class="file">› &nbsp; src-tauri</div><div class="file">&nbsp; package.json</div><div class="sidebar-bottom"><div class="profile-pill"><span class="profile-dot"></span><span id="sidebar-profile">Lavoro</span></div><button class="btn quiet" data-action="settings">Impostazioni · Profili</button></div></aside>
+        <main class="main" id="main"></main>
+        <div id="auth-host"></div>
+      </div>
+    </div>
+    <div class="description-row">
+      <div><h2 id="variant-title">01 / Finestra centrale</h2><p id="variant-description"></p></div>
+      <div class="flow-note"><span class="number">↳</span><div><h2>Tre ingressi. Lo stesso percorso.</h2><p>Premi il pulsante in chat, nel popup oppure apri <button class="text-btn" data-action="settings">Impostazioni · Profili</button>. Il provider e il profilo scelti restano sempre visibili.</p></div></div>
+    </div>
+    <footer class="demo-bar"><strong>Controlli del prototipo</strong><label>Esito simulato &nbsp;<select id="outcome"><option value="success">Accesso riuscito</option><option value="denied">Accesso rifiutato</option><option value="network">Errore di rete</option><option value="timeout">Link / codice scaduto</option></select></label><span>Login simulato. Nessun servizio contattato.</span><span class="live-status" id="live-status" role="status" aria-live="polite">Premi «Accedi di nuovo» per esplorare il flusso.</span></footer>
+  </div>
+  <script>
+    // Logo riutilizzati da shared/agentLogos.ts. Nessuna dipendenza o richiesta di rete.
+    const AGENT_LOGOS = {"claude":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"},"codex":{"viewBox":"-0.82 -0.73 21.65 21.45","path":"M11.248 18.25q-.825 0-1.568-.314a4.3 4.3 0 0 1-1.32-.874 4 4 0 0 1-1.304.214 4 4 0 0 1-2.046-.544 4.27 4.27 0 0 1-1.518-1.485 4 4 0 0 1-.56-2.095q0-.48.131-1.04A4.4 4.4 0 0 1 2.04 10.71a4.07 4.07 0 0 1 .017-3.4 4.2 4.2 0 0 1 1.056-1.418 3.8 3.8 0 0 1 1.6-.842 3.9 3.9 0 0 1 .76-1.683q.593-.759 1.451-1.188a4.04 4.04 0 0 1 1.832-.429q.825 0 1.567.313.742.314 1.32.875a4 4 0 0 1 1.304-.215q1.106 0 2.046.545a4.14 4.14 0 0 1 1.501 1.485q.578.941.578 2.095 0 .48-.132 1.04.66.61 1.023 1.419.363.792.363 1.666 0 .892-.38 1.717a4.3 4.3 0 0 1-1.072 1.435 3.8 3.8 0 0 1-1.584.825 3.8 3.8 0 0 1-.775 1.683 4.06 4.06 0 0 1-1.436 1.188 4.04 4.04 0 0 1-1.832.429m-4.076-2.062q.825 0 1.435-.347l3.103-1.782a.36.36 0 0 0 .164-.313v-1.42L7.881 14.62a.67.67 0 0 1-.726 0l-3.118-1.798a.5.5 0 0 1-.017.115v.198q0 .841.396 1.551.413.693 1.139 1.089a3.2 3.2 0 0 0 1.617.412m.165-2.69a.4.4 0 0 0 .181.05q.083 0 .165-.05l1.238-.71-3.977-2.31a.7.7 0 0 1-.363-.643v-3.58q-.825.362-1.32 1.122a2.9 2.9 0 0 0-.495 1.65q0 .809.413 1.55.412.743 1.072 1.123zm3.91 3.663q.875 0 1.585-.396a2.96 2.96 0 0 0 1.534-2.64v-3.564a.32.32 0 0 0-.165-.297l-1.254-.726v4.604a.7.7 0 0 1-.363.643l-3.119 1.799a3 3 0 0 0 1.783.577m.627-6.039V8.878L10.01 7.822 8.129 8.878v2.244l1.881 1.056zM7.057 5.859a.7.7 0 0 1 .363-.644l3.119-1.798a3 3 0 0 0-1.782-.578q-.874 0-1.584.396A2.96 2.96 0 0 0 6.05 4.324a3.07 3.07 0 0 0-.396 1.551v3.547q0 .199.165.314l1.237.726zm8.383 7.887q.825-.364 1.303-1.123.495-.758.495-1.65a3.15 3.15 0 0 0-.412-1.55q-.413-.743-1.073-1.123l-3.086-1.782q-.099-.065-.181-.049a.3.3 0 0 0-.165.05l-1.238.692 3.993 2.327a.6.6 0 0 1 .264.264.64.64 0 0 1 .1.363zm-3.317-8.382a.63.63 0 0 1 .726 0l3.135 1.831v-.297q0-.792-.396-1.501a2.86 2.86 0 0 0-1.105-1.155q-.71-.43-1.65-.43-.825 0-1.436.347L8.294 5.941a.36.36 0 0 0-.165.314v1.418z"},"gemini":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"M12 0C12.7 6.7 17.3 11.3 24 12 17.3 12.7 12.7 17.3 12 24 11.3 17.3 6.7 12.7 0 12 6.7 11.3 11.3 6.7 12 0Z"},"vibe":{"viewBox":"-1.6 -1.6 27.2 27.2","path":"M2 2h4v4H2zM18 2h4v4h-4zM2 6h8v4H2zM14 6h8v4h-8zM2 10h20v4H2zM2 14h4v4H2zM10 14h4v4h-4zM18 14h4v4h-4zM2 18h4v4H2zM18 18h4v4h-4z"}};
+    const FLOWCODE_LOGO = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\">\n  <title>Flowcode</title>\n  <rect width=\"1024\" height=\"1024\" rx=\"224\" fill=\"#14532D\"/>\n  <g fill=\"#A3E635\">\n    <circle cx=\"340\" cy=\"400\" r=\"135\"/>\n    <circle cx=\"684\" cy=\"400\" r=\"135\"/>\n    <ellipse cx=\"512\" cy=\"610\" rx=\"360\" ry=\"220\"/>\n  </g>\n  <circle cx=\"340\" cy=\"393\" r=\"85\" fill=\"#FFFFFF\"/>\n  <circle cx=\"684\" cy=\"393\" r=\"85\" fill=\"#FFFFFF\"/>\n  <circle cx=\"362\" cy=\"408\" r=\"45\" fill=\"#14532D\"/>\n  <circle cx=\"706\" cy=\"408\" r=\"45\" fill=\"#14532D\"/>\n  <g fill=\"none\" stroke=\"#14532D\" stroke-width=\"44\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n    <path d=\"M396 575 L472 632 L396 689\"/>\n    <path d=\"M526 689 L636 689\"/>\n  </g>\n</svg>\n";
+    const providers = {
+      claude: { name: 'Claude Code', vendor: 'Anthropic', browser: 'Continua con Claude', key: false },
+      codex: { name: 'Codex CLI', vendor: 'OpenAI', browser: 'Continua con ChatGPT', key: false },
+      gemini: { name: 'Gemini CLI', vendor: 'Google', browser: 'Continua con Google', key: true },
+      vibe: { name: 'Mistral Vibe', vendor: 'Mistral AI', key: true }
+    };
+    const variants = {
+      modal: { title: '01 / Finestra centrale', description: 'Il problema resta vicino al messaggio. Il pulsante apre una finestra compatta per accedere e verificare la connessione. Adatta a un rinnovo rapido, con poco spazio occupato.' },
+      drawer: { title: '02 / Pannello laterale', description: 'L’avviso rimane nella conversazione. Il login si apre sul lato destro, mantenendo visibile il lavoro. Utile se devi consultare istruzioni o configurare una chiave.' },
+      page: { title: '03 / Pagina dedicata', description: 'Il login occupa l’area di lavoro con passaggi espliciti. Più spazio per il primo collegamento e i metodi alternativi. Al termine torni al punto di partenza.' }
+    };
+    const state = { variant: 'modal', provider: 'claude', profile: 'Lavoro', scenario: 'expired', connected: new Set(), surface: 'chat', open: false, step: 'intro', method: 'browser', source: 'chat', outcome: 'success', error: '', draft: 'Controlla anche la versione mobile.', notice: '' };
+    let lastTrigger = null;
+    let timer;
+    const $ = selector => document.querySelector(selector);
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const logo = key => `<svg class="logo" viewBox="${AGENT_LOGOS[key].viewBox}" aria-hidden="true"><path d="${AGENT_LOGOS[key].path}"/></svg>`;
+    // Icona browser già utilizzata da src/plugins/icons.tsx.
+    const browserIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"/></svg>';
+    const connectionKey = () => state.profile + ':' + state.provider;
+    const isConnected = () => state.connected.has(connectionKey());
+    const profilePill = () => `<span class="profile-pill"><span class="profile-dot"></span>${state.profile}</span>`;
+    const provider = () => providers[state.provider];
+    const isKey = () => state.provider === 'vibe';
+    const actionLabel = () => isKey() ? 'Configura chiave API' : state.scenario === 'new' ? 'Accedi' : 'Accedi di nuovo';
+    const problemTitle = () => isKey() ? (state.scenario === 'new' ? 'Chiave API mancante' : 'Chiave API non valida') : state.scenario === 'new' ? 'Accesso richiesto' : 'Sessione scaduta';
+    const sourceLabel = () => state.source === 'settings' ? 'Impostazioni · Profili' : state.source === 'popup' ? 'Popup provider' : 'Chat';
+    function announce(message) { $('#live-status').textContent = message; }
+    function rememberDraft() { const input = $('#draft'); if (input) state.draft = input.value; }
+    function render() {
+      $('#variant-title').textContent = variants[state.variant].title;
+      $('#variant-description').textContent = variants[state.variant].description;
+      document.querySelectorAll('[data-variant]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.variant === state.variant)));
+      $('#provider').value = state.provider;
+      $('#profile').value = state.profile;
+      $('#sidebar-profile').textContent = state.profile;
+      $('#tab-logo').innerHTML = logo(state.provider);
+      $('#provider-triggers').innerHTML = Object.keys(providers).map(key => `<button class="provider-trigger ${key === state.provider ? 'active' : ''}" data-provider="${key}" title="Popup ${providers[key].name}" aria-label="Apri popup ${providers[key].name}">${logo(key)}${key === state.provider && !isConnected() ? '<span class="badge">!</span>' : ''}</button>`).join('');
+      $('#main').innerHTML = state.surface === 'settings' ? settingsMarkup() : chatMarkup();
+      renderAuth();
+    }
+    function chatMarkup() {
+      const connected = isConnected();
+      return `<div class="chat-header">${logo(state.provider)}<strong>Rifinitura interfaccia</strong>${profilePill()}<span class="status ${connected ? 'state-connected' : ''}">${connected ? 'Connesso' : problemTitle()}</span><button class="text-btn" data-action="settings" aria-label="Apri impostazioni profili">Profili</button></div>
+        <div class="chat-layout"><section class="conversation" aria-label="Anteprima chat"><div class="messages"><div class="user-msg">Migliora il flusso di accesso ai provider.</div><div><div class="message-label">${provider().name}</div>Controllo come viene gestito l’accesso nel profilo ${state.profile}.<div class="tool">Read &nbsp; src/profiles/profiles.ts</div></div></div>
+        <div class="auth-notice ${connected ? 'connected-notice' : ''}" role="status"><span class="notice-symbol">${connected ? '✓' : '!'}</span><div class="notice-copy"><h3>${connected ? provider().name + ' è connesso' : problemTitle() + ' · ' + provider().name}</h3><p>${connected ? (state.notice || 'Puoi riprendere la conversazione. La tua bozza è ancora qui.') : isKey() ? 'Configura una chiave valida per il profilo ' + state.profile + '. Conversazione e bozza restano disponibili.' : 'Per continuare, ' + (state.scenario === 'new' ? 'collega' : 'ricollega') + ' il profilo ' + state.profile + '. Conversazione e bozza restano disponibili.'}</p>${connected ? '' : `<button class="btn primary" data-action="login" data-source="chat">${actionLabel()}</button>`}</div></div>
+        <div class="composer"><textarea id="draft" aria-label="Bozza del messaggio">${escapeHtml(state.draft)}</textarea><div class="composer-footer"><span>${provider().name} · ${state.profile}</span><button data-action="send" ${connected ? '' : 'disabled'} aria-label="Invia messaggio" title="${connected ? 'Invia messaggio' : 'Completa l’accesso per inviare'}">↑</button></div></div></section>
+        <aside class="popover-rail"><div class="surface-caption">Popup provider · anteprima aperta</div><div class="usage-popup"><div class="popup-header"><span class="provider-name">${logo(state.provider)}${provider().name}</span>${profilePill()}</div><div class="popup-body"><div class="popup-state ${connected ? 'state-connected' : ''}"><span>${connected ? '✓' : '!'}</span>${connected ? 'Account collegato' : problemTitle()}</div><p>${connected ? 'Accesso verificato per questo profilo. I dati di utilizzo possono essere aggiornati.' : isKey() ? 'La chiave di questo profilo non è disponibile o non è valida.' : 'Non possiamo recuperare i dati di utilizzo. ' + (state.scenario === 'new' ? 'Collega il tuo account.' : 'Il provider richiede un nuovo accesso.')}</p><button class="btn ${connected ? 'quiet' : 'primary'} wide" data-action="${connected ? 'refresh' : 'login'}" data-source="popup">${connected ? 'Aggiorna utilizzo' : actionLabel()}</button></div><div class="popup-foot">${connected ? 'Stato verificato · adesso' : 'Utilizzo non disponibile · accesso richiesto'}</div></div><p class="rail-note">Stesso stato in chat e nel popup, per questo provider e questo profilo.</p></aside></div>`;
+    }
+    function settingsMarkup() {
+      return `<div class="chat-header"><button class="text-btn" data-action="chat">‹ Torna alla chat</button><span class="muted">Impostazioni</span></div><section class="settings-page"><div class="settings-crumb">Account / Profili</div><h2>I tuoi profili</h2><p>Collega i provider al profilo che usi per lavorare.</p><div class="profile-card"><div class="profile-card-head"><span class="profile-dot"></span><strong>${state.profile}</strong><span class="muted">· profilo selezionato</span></div>${Object.keys(providers).map(key => {
+        const current = key === state.provider;
+        const connected = state.connected.has(state.profile + ':' + key);
+        return `<div class="provider-row ${current && !connected ? 'current' : ''}">${logo(key)}<span>${providers[key].name}</span><span class="provider-status ${connected ? 'state-connected' : ''}">${connected ? 'Connesso' : current ? problemTitle() : 'Non collegato'}</span><button class="btn ${connected ? 'quiet' : 'primary'}" data-action="login" data-source="settings" data-login-provider="${key}">${connected ? 'Accedi di nuovo' : key === 'vibe' ? 'Configura chiave' : current ? actionLabel() : 'Collega'}</button></div>`;
+      }).join('')}</div><p class="muted" style="font-size:11px;margin-top:15px">Ogni collegamento vale solo per il profilo selezionato.</p></section>`;
+    }
+    function openLogin(source, key) {
+      rememberDraft();
+      lastTrigger = document.activeElement;
+      if (key) { state.provider = key; }
+      state.source = source;
+      state.open = true;
+      state.step = 'intro';
+      state.error = '';
+      state.method = isKey() ? 'key' : 'browser';
+      render();
+      focusAuth();
+      announce('Accesso a ' + provider().name + ' · profilo ' + state.profile + ' · da ' + sourceLabel() + '.');
+    }
+    function focusAuth() { requestAnimationFrame(() => ($('#auth-title') || $('.auth-panel'))?.focus()); }
+    function renderAuth() {
+      const host = $('#auth-host');
+      if (!state.open) { host.innerHTML = ''; return; }
+      const content = authContent();
+      const activeStep = state.step === 'success' ? 3 : state.step === 'intro' ? 1 : 2;
+      host.innerHTML = `<div class="auth-layer ${state.variant}" id="auth-layer"><section class="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-title" tabindex="-1"><div class="auth-top"><span>Accesso provider</span><span class="muted">/ ${sourceLabel()}</span><button class="close" data-action="close" aria-label="Chiudi accesso">×</button></div>${state.variant === 'page' ? `<div class="page-grid"><aside class="page-aside"><h3>Collega il tuo account.<br>Riprendi il tuo lavoro.</h3><p>Un accesso dedicato a ${provider().name}, nel profilo ${state.profile}.</p>${['Scegli come accedere', 'Autorizza e verifica', 'Torna al tuo lavoro'].map((text, i) => `<div class="step ${activeStep === i + 1 ? 'current' : ''}"><span>${activeStep > i + 1 ? '✓' : i + 1}</span>${text}</div>`).join('')}</aside><div class="auth-content">${content}</div></div>` : `<div class="auth-content">${content}</div>`}<div class="auth-bottom"><span>Profilo: ${state.profile} · ${provider().name}</span><button data-action="close">${state.step === 'success' ? 'Chiudi' : 'Annulla'}</button></div></section></div>`;
+      $('#main').inert = true;
+      $('.sidebar').inert = true;
+      $('.titlebar').inert = true;
+    }
+    function identity() { return `<div class="auth-identity"><span class="provider-mark">${logo(state.provider)}</span><div><strong>${provider().name}</strong><small>${provider().vendor} · profilo ${state.profile}</small></div></div>`; }
+    function authContent() {
+      let markup = identity();
+      if (state.step === 'success') {
+        return markup + `<div class="success-mark" aria-hidden="true">✓</div><h2 id="auth-title" tabindex="-1">Accesso completato.</h2><p class="auth-intro">${provider().name} è pronto nel profilo ${state.profile}. Conversazione e bozza sono ancora qui.</p><div class="success-summary"><span>${state.profile} / ${provider().name}</span><span>Connessione verificata</span></div><button class="btn primary wide" data-action="return">${state.source === 'settings' ? 'Torna ai profili' : 'Torna alla chat'}</button><p class="assurance"><span>✓</span><span>Nessun messaggio viene inviato automaticamente.</span></p>`;
+      }
+      const busy = state.step === 'verifying';
+      if (state.step === 'waiting' || busy) {
+        return markup + `<h2 id="auth-title" tabindex="-1">${busy ? 'Verifica in corso…' : 'Completa l’accesso.'}</h2><p class="auth-intro">${state.method === 'key' ? 'Verifichiamo la chiave per il profilo ' + state.profile + '.' : 'Autorizza ' + provider().name + ' nel browser, poi torna qui per verificare l’accesso.'}</p><div class="wait-card" role="status"><div class="wait-heading"><span class="spinner" aria-hidden="true"></span>${busy ? 'Controllo della connessione' : 'In attesa dell’autorizzazione'}</div>${state.method === 'device' ? '<div class="device-code">FLOW-4826</div><div class="device-caption">Codice dimostrativo · valido per 10 minuti</div>' : ''}<p>${busy ? 'Attendi un momento. La conversazione rimane aperta.' : 'La finestra resta disponibile mentre completi l’accesso.'}</p>${busy ? '' : '<div class="wait-links"><button data-action="reopen">Riapri il browser</button><button data-action="restart">Ricomincia accesso</button></div>'}</div><button class="btn primary wide" data-action="verify" ${busy ? 'disabled' : ''}>${busy ? 'Verifica in corso…' : 'Ho completato l’accesso'}</button><p class="assurance"><span>✓</span><span>Chat e popup si aggiornano dopo la verifica.</span></p>`;
+      }
+      if (state.step === 'error') {
+        const errors = {
+          denied: ['Accesso non autorizzato.', 'L’autorizzazione non è stata concessa. Puoi riprovare quando vuoi.'],
+          network: ['Connessione non verificata.', 'Il provider non è raggiungibile. Controlla la rete e riprova la verifica.'],
+          timeout: ['L’accesso è scaduto.', state.method === 'key' ? 'La verifica non è stata completata in tempo. Riprova con la chiave di esempio.' : 'Il link o il codice non è più valido. Genera un nuovo accesso.']
+        };
+        const error = errors[state.error];
+        return markup + `<h2 id="auth-title" tabindex="-1">${error[0]}</h2><p class="auth-intro">Il profilo ${state.profile} non è stato ricollegato.</p><div class="error-box" role="alert">${error[1]}</div><button class="btn primary wide" data-action="${state.error === 'network' ? 'verify' : 'restart'}">${state.error === 'network' ? 'Riprova verifica' : 'Ricomincia accesso'}</button><p class="assurance"><span>✓</span><span>La conversazione e la bozza restano disponibili.</span></p>`;
+      }
+      markup += `<h2 id="auth-title" tabindex="-1">${state.method === 'key' ? 'Collega la tua chiave.' : state.scenario === 'new' || state.source === 'settings' ? 'Collega il tuo account.' : 'Torniamo al lavoro.'}</h2><p class="auth-intro">${state.method === 'key' ? 'Configura ' + provider().name + ' per il profilo ' + state.profile + '.' : state.scenario === 'new' || state.source === 'settings' ? 'Accedi a ' + provider().name + ' con il tuo account.' : 'La sessione di ' + provider().name + ' è scaduta. Accedi di nuovo per riprendere la conversazione.'}</p>`;
+      if (state.provider === 'gemini') markup += `<div class="method-tabs" aria-label="Metodo di accesso"><button data-method="browser" aria-pressed="${state.method === 'browser'}">Account Google</button><button data-method="key" aria-pressed="${state.method === 'key'}">Chiave API</button></div>`;
+      if (state.provider === 'codex') markup += `<div class="method-tabs" aria-label="Metodo di accesso"><button data-method="browser" aria-pressed="${state.method === 'browser'}">Browser</button><button data-method="device" aria-pressed="${state.method === 'device'}">Codice dispositivo</button></div>`;
+      if (state.method === 'key') {
+        markup += `<div class="auth-method"><div class="method-title">Chiave API · ${provider().vendor}</div><p>Usa la chiave dell’account da associare a questo profilo.</p><label class="field-label" for="api-key">Chiave di esempio</label><input class="key-input" id="api-key" type="password" placeholder="Inserisci almeno 8 caratteri di esempio" autocomplete="off" spellcheck="false"><button class="btn primary wide" data-action="save-key" disabled>Verifica e collega</button></div><p class="assurance"><span>i</span><span>Prototipo: usa un valore inventato. La chiave non viene salvata né inviata.</span></p>`;
+      } else {
+        markup += `<div class="auth-method"><div class="method-title">${browserIcon}${state.method === 'device' ? 'Accedi con un codice' : 'Accesso nel browser'}</div><p>${state.method === 'device' ? 'Genera un codice da inserire nella pagina di autorizzazione del provider.' : 'Si apre la pagina ufficiale di ' + provider().vendor + '. Autorizza l’accesso, poi torna in Flowcode.'}</p><button class="btn primary wide" data-action="start">${state.method === 'device' ? 'Genera codice e continua' : provider().browser} <span aria-hidden="true">↗</span></button></div><p class="assurance"><span>✓</span><span>L’accesso riguarda solo ${provider().name}, nel profilo ${state.profile}.</span></p>`;
+      }
+      return markup;
+    }
+    function closeAuth() {
+      clearTimeout(timer);
+      const success = state.step === 'success';
+      state.open = false;
+      $('#main').inert = false;
+      $('.sidebar').inert = false;
+      $('.titlebar').inert = false;
+      render();
+      const selector = state.source === 'settings' ? `[data-login-provider="${state.provider}"]` : `[data-action="login"][data-source="${state.source}"]`;
+      ($(selector) || (lastTrigger?.isConnected ? lastTrigger : null) || $('#draft') || $('[data-action="chat"]'))?.focus();
+      announce(success ? provider().name + ' connesso al profilo ' + state.profile + '. Chat e popup aggiornati.' : 'Accesso annullato. Puoi riprovare dal pulsante di accesso.');
+    }
+    function verify() {
+      state.step = 'verifying';
+      renderAuth();
+      focusAuth();
+      announce('Verifica simulata in corso…');
+      const outcome = state.outcome;
+      timer = setTimeout(() => {
+        if (!state.open) return;
+        if (outcome === 'success') {
+          state.connected.add(connectionKey());
+          state.step = 'success';
+          state.notice = '';
+        } else { state.step = 'error'; state.error = outcome; }
+        render();
+        focusAuth();
+        announce(outcome === 'success' ? 'Accesso verificato. Provider e profilo collegati.' : 'Verifica non riuscita: ' + ({denied:'accesso rifiutato',network:'errore di rete',timeout:'accesso scaduto'}[outcome]) + '.');
+      }, 700);
+    }
+    document.addEventListener('click', event => {
+      const target = event.target.closest('button');
+      if (!target) return;
+      if (target.dataset.variant) {
+        rememberDraft(); state.variant = target.dataset.variant; render();
+        if (state.open) focusAuth();
+        return;
+      }
+      if (target.dataset.provider) {
+        rememberDraft(); state.provider = target.dataset.provider; state.surface = 'chat'; render();
+        announce('Popup ' + provider().name + ' aperto.'); return;
+      }
+      if (target.dataset.method) { state.method = target.dataset.method; renderAuth(); focusAuth(); return; }
+      switch (target.dataset.action) {
+        case 'login': openLogin(target.dataset.source, target.dataset.loginProvider); break;
+        case 'settings': rememberDraft(); if (state.open) closeAuth(); state.surface = 'settings'; render(); announce('Profili aperti. Seleziona un provider da collegare.'); break;
+        case 'chat': state.surface = 'chat'; render(); break;
+        case 'close': case 'return': closeAuth(); break;
+        case 'start': state.step = 'waiting'; renderAuth(); focusAuth(); announce('Browser simulato. Premi «Ho completato l’accesso» per provare l’esito selezionato.'); break;
+        case 'reopen': announce('Riapertura del browser simulata. Nessuna pagina esterna aperta.'); break;
+        case 'restart': state.step = 'intro'; state.error = ''; renderAuth(); focusAuth(); break;
+        case 'verify': verify(); break;
+        case 'save-key': if ($('#api-key').value.trim().length >= 8) { $('#api-key').value = ''; verify(); } break;
+        case 'refresh': announce('Aggiornamento utilizzo simulato per ' + provider().name + '. Nessuna quota inventata.'); break;
+        case 'send': rememberDraft(); state.notice = 'Messaggio simulato. La connessione è pronta per continuare.'; render(); announce('Invio simulato. Nessun messaggio inviato a servizi esterni.'); break;
+      }
+    });
+    document.addEventListener('input', event => {
+      if (event.target.id === 'api-key') $('[data-action="save-key"]').disabled = event.target.value.trim().length < 8;
+      if (event.target.id === 'draft') state.draft = event.target.value;
+    });
+    document.addEventListener('keydown', event => {
+      if (!state.open) return;
+      if (event.key === 'Escape') { event.preventDefault(); closeAuth(); return; }
+      if (event.key !== 'Tab') return;
+      const focusable = [...$('.auth-panel').querySelectorAll('button:not(:disabled), input, [tabindex="0"]')].filter(node => node.getClientRects().length);
+      const first = focusable[0], last = focusable.at(-1);
+      if (event.shiftKey && (!focusable.includes(document.activeElement) || document.activeElement === first)) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && (!focusable.includes(document.activeElement) || document.activeElement === last)) { event.preventDefault(); first?.focus(); }
+    });
+    function reset() {
+      clearTimeout(timer);
+      state.connected.clear(); state.open = false; state.step = 'intro'; state.error = ''; state.notice = '';
+      $('#main').inert = false; $('.sidebar').inert = false; $('.titlebar').inert = false;
+      render(); announce('Scenario ripristinato. Premi «' + actionLabel() + '» per esplorare il flusso.');
+    }
+    $('#reset').addEventListener('click', reset);
+    $('#provider').addEventListener('change', event => { rememberDraft(); if (state.open) closeAuth(); state.provider = event.target.value; state.surface = 'chat'; render(); announce('Provider selezionato: ' + provider().name + '.'); });
+    $('#profile').addEventListener('change', event => { rememberDraft(); state.profile = event.target.value; if (state.open) closeAuth(); render(); announce('Profilo selezionato: ' + state.profile + '.'); });
+    $('#scenario').addEventListener('change', event => { state.scenario = event.target.value; rememberDraft(); reset(); });
+    $('#outcome').addEventListener('change', event => { state.outcome = event.target.value; });
+    $('#theme').addEventListener('click', () => { const light = document.documentElement.dataset.theme !== 'light'; document.documentElement.dataset.theme = light ? 'light' : 'dark'; $('#theme').textContent = light ? 'Tema scuro' : 'Tema chiaro'; });
+    $('#flowcode-logo').innerHTML = FLOWCODE_LOGO;
+    render();
+  </script>
+</body>
+</html>

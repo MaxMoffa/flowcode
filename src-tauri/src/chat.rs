@@ -2293,6 +2293,9 @@ fn start_once(
         }
         Err(e) => {
             chat.kill();
+            if e.starts_with("auth_required") {
+                chat.app.state::<crate::remote::RemoteState>().notify_provider_auth_required(&chat.agent, chat.profile.as_deref());
+            }
             Err(if e.starts_with("auth_required") || e.starts_with("resume_unsupported") { e } else { format!("`{line}`: {e}") })
         }
     }

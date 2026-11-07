@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre posizioni compatte per avviare agenti e terminali, con selettore cartelle navigabile condiviso.">
+  <title>Flowcode · File Explorer: azioni compatte e selettore cartelle</title>
+  <style>
+    /* Token e misure copiati da mobile/src/ui.css e home.css. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-2: #c9975a; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --wait: #d1a752; --wait-bg: rgba(209, 167, 82, .08); --wait-border: rgba(209, 167, 82, .28);
+      --busy: #6f9bcf; --busy-bg: rgba(111, 155, 207, .09); --danger: #e2645c;
+      --glass-strong: rgba(14, 10, 7, .62);
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(.2, .8, .2, 1);
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:disabled { cursor: default; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+    svg.logo { fill: currentColor; stroke: none; }
+    .mono { font-family: var(--mono); }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1080px; margin: auto; padding: 28px 24px 56px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 150px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .layout { display: grid; grid-template-columns: 406px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .side { display: grid; gap: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; min-height: 32px; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .ctl { min-height: 32px; padding: 0 11px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--fg); font-size: 13px; }
+    .ctl:active { background: var(--surface-3); }
+    .note h2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .tag { padding: 1px 8px; border-radius: 999px; background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); color: var(--accent); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 62ch; }
+    code { font: 12.5px var(--mono); }
+    .section { margin-top: 44px; }
+    .section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .section > p { margin: 0 0 12px; color: var(--muted); max-width: 72ch; }
+    .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 13.5px; }
+    th { padding: 9px 14px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+    td { padding: 10px 14px; border-top: 1px solid var(--border); vertical-align: top; }
+    td:first-child { width: 25%; color: var(--muted); }
+    .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+    .box { padding: 14px 16px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
+    .box.warn { background: rgba(209, 167, 82, .07); box-shadow: inset 0 0 0 1px rgba(209, 167, 82, .24); }
+    .box h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+    .box.warn h3 { color: var(--wait); }
+    .box ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; }
+    @media (max-width: 880px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 390px; max-width: 100%; height: 780px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong), 0 30px 60px -30px #000; isolation: isolate; margin: 9px auto 0; }
+    .status { position: relative; z-index: 6; flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding: 0 14px 104px; display: flex; flex-direction: column; gap: 12px; }
+    .scroll::-webkit-scrollbar { display: none; }
+    .scroll.docked { padding-bottom: 178px; }
+    .aurora { position: absolute; inset: -26px 0 0; z-index: -1; pointer-events: none; opacity: .7;
+      -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.55) 44px, #000 124px); mask-image: linear-gradient(to bottom, rgba(0,0,0,.55) 44px, #000 124px);
+      background: radial-gradient(ellipse 105% 44% at 8% -4%, color-mix(in srgb, var(--accent) 58%, transparent), transparent 72%), radial-gradient(ellipse 88% 40% at 100% 10%, color-mix(in srgb, var(--accent-2) 50%, transparent), transparent 72%), radial-gradient(ellipse 80% 26% at 46% 36%, color-mix(in srgb, #b48ead 38%, transparent), transparent 74%); }
+
+    /* barra di navigazione */
+    .nav { position: absolute; left: 16px; right: 16px; bottom: 12px; z-index: 3; display: flex; gap: 4px; padding: 6px; border-radius: 28px; background: var(--glass-strong); -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%); border: 1px solid var(--border); }
+    .nav button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 52px; border-radius: 22px; color: var(--muted); font-size: 11px; font-weight: 600; }
+    .nav button.on { background: var(--accent-bg); color: var(--accent); }
+
+    /* ---- home ---- */
+    .hm-top { flex: none; display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 18px; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+    .hm-launch { padding: 14px; border-radius: 22px; background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--border-strong); -webkit-backdrop-filter: blur(16px) saturate(130%); backdrop-filter: blur(16px) saturate(130%); }
+    .hm-launch textarea { display: block; width: 100%; height: 50px; resize: none; padding: 0; border: 0; outline: 0; background: none; color: var(--fg); font: 17px/1.35 var(--font); }
+    .hm-launch textarea::placeholder { color: var(--muted); }
+    .hm-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+    .hm-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; max-width: 132px; padding: 0 10px; border-radius: 12px; background: var(--surface-3); font-size: 13px; white-space: nowrap; }
+    .hm-pill span { overflow: hidden; text-overflow: ellipsis; }
+    .hm-go { width: 44px; height: 44px; margin-left: auto; border-radius: 15px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
+    .hm-go:disabled { background: var(--surface-3); color: var(--muted); }
+    .hm-btn { display: grid; place-items: center; min-height: 44px; padding: 0 12px; border-radius: 13px; text-align: center; font-weight: 600; background: var(--surface-3); }
+    .hm-btn.primary { background: var(--accent); color: var(--on-accent); }
+    .hm-btn.danger { background: var(--danger); color: var(--bg); }
+    .hm-btn:disabled { opacity: .45; }
+    .hm-wait { padding: 14px; border-radius: 18px; background: linear-gradient(var(--wait-bg), var(--wait-bg)), color-mix(in srgb, var(--bg) 88%, transparent); border: 1px solid var(--wait-border); }
+    .hm-wait-top { display: flex; gap: 12px; align-items: center; }
+    .hm-wait-eye { font-size: 12px; font-weight: 600; color: var(--wait); }
+    .hm-wait-title { font-size: 16px; font-weight: 600; line-height: 1.25; }
+    .hm-wait .hm-btn { width: 100%; margin-top: 12px; }
+    .hm-usage { display: flex; gap: 8px; }
+    .hm-usage div { flex: 1; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 86%, transparent); font-size: 12px; color: var(--muted); }
+    .hm-usage b { display: block; color: var(--fg); font-size: 15px; font-weight: 600; }
+    .hm-usage i { display: block; height: 4px; margin-top: 6px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+    .hm-usage i::after { content: ""; display: block; height: 100%; width: var(--w); background: var(--accent); }
+    .hm-group { display: flex; flex-direction: column; gap: 8px; }
+    .hm-sec { display: flex; align-items: center; justify-content: space-between; min-height: 22px; margin: 6px 2px 0; font-size: 13px; font-weight: 600; color: color-mix(in srgb, var(--fg) 90%, var(--bg)); }
+    .hm-sec b { font-weight: 600; color: var(--fg); }
+    .hm-sec b.busy { color: color-mix(in srgb, var(--busy) 20%, var(--fg)); }
+    .hm-sec-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin: -12px 0; color: color-mix(in srgb, var(--accent) 20%, var(--fg)); font-size: 13px; font-weight: 600; }
+    .hm-list { border: 1px solid var(--border); border-radius: 18px; background: color-mix(in srgb, var(--surface) 86%, transparent); overflow: hidden; }
+    .hm-row { display: flex; align-items: center; gap: 4px; min-height: 64px; padding: 10px 4px 10px 14px; }
+    .hm-row + .hm-row { border-top: 1px solid var(--border); }
+    .hm-row.slim { min-height: 54px; padding-block: 5px; }
+    .hm-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 13px; min-height: 44px; }
+    .hm-txt { flex: 1; min-width: 0; display: grid; gap: 1px; }
+    .hm-txt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hm-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hm-since { flex: none; font-size: 11px; color: var(--muted); }
+    .hm-more { flex: none; width: 40px; height: 44px; display: grid; place-items: center; color: var(--muted); }
+    .hm-tile { position: relative; flex: none; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-3); }
+    .hm-tile.st-waiting { background: var(--wait-bg); color: var(--wait); box-shadow: inset 0 0 0 1px var(--wait-border); }
+    .hm-tile.st-idle, .hm-tile.st-shell { color: var(--muted); }
+    .hm-tile.st-busy { background: var(--busy-bg); color: var(--busy); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--busy) 42%, transparent); }
+    .hm-tile.st-shell { background: none; box-shadow: inset 0 0 0 1px var(--border-strong); }
+    .hm-tile .bub { position: absolute; right: -4px; bottom: -4px; width: 17px; height: 17px; border-radius: 6px; display: grid; place-items: center; background: var(--surface-2); box-shadow: 0 0 0 2px var(--surface); color: var(--fg); }
+    .hm-empty { padding: 14px 16px; border: 1px dashed var(--border-strong); border-radius: 16px; color: var(--muted); font-size: 13px; text-align: center; }
+    /* variante 2 */
+    .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; border-radius: 13px; background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--border); }
+    .seg button { min-height: 38px; border-radius: 10px; text-align: center; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .seg button small { margin-left: 3px; font-weight: 500; opacity: .75; font-size: 12px; }
+    .seg button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
+    /* variante 3 */
+    .strip { display: flex; gap: 8px; margin: 0 -14px; padding: 2px 14px; overflow-x: auto; scrollbar-width: none; }
+    .strip::-webkit-scrollbar { display: none; }
+    .chip { flex: none; display: flex; align-items: center; gap: 8px; max-width: 176px; min-height: 48px; padding: 0 12px 0 10px; border-radius: 14px; border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--surface) 86%, transparent); }
+    .chip > svg { color: var(--muted); }
+    .chip span { display: grid; min-width: 0; line-height: 1.2; }
+    .chip b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chip small { font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chip.add { padding: 0 14px; color: var(--muted); border-style: dashed; font-size: 13px; }
+
+    /* ---- pagina file ---- */
+    .fx-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 4px 8px 4px 18px; }
+    .fx-head.sub { padding-left: 4px; }
+    .fx-head h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+    .fx-head.sub h2 { font-size: 17px; }
+    .fx-head .t { flex: 1; min-width: 0; }
+    .fx-head small { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ib { flex: none; width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; color: var(--muted); }
+    .ib.solid { background: var(--surface-3); color: var(--fg); }
+    .crumbs { flex: none; display: flex; align-items: center; gap: 1px; padding: 0 14px 8px; overflow-x: auto; scrollbar-width: none; font-size: 13px; color: var(--muted); }
+    .crumbs::-webkit-scrollbar { display: none; }
+    .crumbs button { flex: none; min-height: 36px; padding: 0 6px; border-radius: 8px; }
+    .crumbs button.on { color: var(--fg); font-weight: 600; }
+    .crumbs svg { width: 12px; height: 12px; opacity: .6; }
+    .fx-list { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; }
+    .fx-row { display: flex; align-items: center; min-height: 56px; padding-right: 4px; }
+    .fx-row + .fx-row { border-top: 1px solid var(--border); }
+    .fx-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 4px 6px 14px; }
+    .fx-ico { flex: none; color: var(--muted); display: grid; place-items: center; }
+    .fx-ico.dir { color: var(--accent-2); }
+    .fx-txt { flex: 1; min-width: 0; display: grid; }
+    .fx-txt b { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fx-txt small { font-size: 12px; color: var(--muted); }
+    .live { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); font-size: 12px; font-weight: 600; }
+    .live.wait { background: var(--wait-bg); color: var(--wait); }
+    .live i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .fx-note { padding: 22px 18px; text-align: center; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 18px; }
+    .fx-note b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 2px; }
+    /* variante 1: barra apri qui */
+    .dock { position: absolute; left: 10px; right: 10px; bottom: 88px; z-index: 2; padding: 9px 10px 10px; border-radius: 20px; background: color-mix(in srgb, var(--surface-2) 92%, transparent); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: 1px solid var(--border-strong); box-shadow: var(--shadow); }
+    .dock-label { margin: 0 4px 7px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dock-label b { color: var(--fg); font-weight: 600; }
+    .dock-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .dock-acts .hm-btn { display: flex; justify-content: center; align-items: center; gap: 7px; }
+    /* variante 2: albero */
+    .tree { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; padding: 4px 0; }
+    .tn { display: flex; align-items: center; min-height: 44px; padding-right: 8px; }
+    .tn.on { background: var(--accent-bg); }
+    .tn-tw { flex: none; width: 28px; height: 44px; display: grid; place-items: center; color: var(--muted); }
+    .tn-tw svg { width: 13px; height: 13px; transition: transform .15s var(--ease); }
+    .tn.open .tn-tw svg { transform: rotate(90deg); }
+    .tn-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; min-height: 44px; font-size: 14px; }
+    .tn-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tn-name small { flex: none; margin-left: auto; font-size: 11px; color: var(--muted); }
+    .tn-acts { display: flex; gap: 6px; padding: 2px 8px 8px; background: var(--accent-bg); }
+    .tn-acts .hm-btn { flex: 1; display: flex; justify-content: center; align-items: center; gap: 6px; min-height: 40px; padding: 0 8px; font-size: 13px; }
+    .tn-acts .hm-btn.sq { flex: none; width: 44px; }
+    /* variante 3: progetti */
+    .pj { padding: 13px 14px 12px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface); }
+    .pj-top { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; }
+    .pj-tiles { flex: none; display: flex; }
+    .pj-tiles .hm-tile { width: 30px; height: 30px; border-radius: 10px; box-shadow: 0 0 0 2px var(--surface); }
+    .pj-tiles .hm-tile + .hm-tile { margin-left: -8px; }
+    .pj-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .pj-acts .hm-btn { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 42px; font-size: 13px; }
+    .ask { position: absolute; left: 10px; right: 10px; bottom: 88px; z-index: 2; display: flex; align-items: flex-end; gap: 6px; padding: 8px; border-radius: 20px; background: color-mix(in srgb, var(--surface-2) 94%, transparent); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: 1px solid var(--border-strong); box-shadow: var(--shadow); }
+    .ask-in { flex: 1; min-width: 0; }
+    .ask-in textarea { display: block; width: 100%; height: 40px; padding: 8px 4px 0; resize: none; border: 0; outline: 0; background: none; color: var(--fg); font: 15px/1.3 var(--font); }
+    .ask-in textarea::placeholder { color: var(--muted); }
+    .ask-row { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+    .ask .hm-pill { min-height: 36px; }
+    .ask .hm-go { margin: 0; }
+
+    /* ---- fogli ---- */
+    .scrim { position: absolute; inset: -26px 0 0; z-index: 7; display: flex; align-items: flex-end; background: rgba(8, 6, 4, .58); }
+    .sheet { width: 100%; max-height: 84%; display: flex; flex-direction: column; padding: 8px 14px 18px; border-radius: 24px 24px 0 0; background: var(--surface); box-shadow: 0 -1px 0 var(--border-strong), var(--shadow); overflow-y: auto; scrollbar-width: none; }
+    .sheet.in { animation: up .24s var(--ease); }
+    @keyframes up { from { transform: translateY(40px); opacity: .4; } }
+    .grab { width: 38px; height: 4px; margin: 2px auto 10px; border-radius: 2px; background: var(--border-strong); flex: none; }
+    .sheet h3 { margin: 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; }
+    .sheet .sub { margin: 1px 4px 12px; font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+    .sheet p { margin: 0 4px 12px; color: var(--muted); }
+    .sheet p.warn { color: var(--wait); }
+    .opts { display: grid; border-radius: 14px; background: var(--surface-2); overflow: hidden; margin-bottom: 10px; }
+    .opts button { display: flex; align-items: center; gap: 12px; min-height: 50px; padding: 4px 14px; font-size: 15px; }
+    .opts button + button { border-top: 1px solid var(--border); }
+    .opts button:active { background: var(--surface-3); }
+    .opts button.danger { color: var(--danger); }
+    .opts button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .opts button.on { color: var(--accent); }
+    .field { display: block; margin: 0 0 12px; }
+    .field span { display: block; margin: 0 4px 4px; font-size: 12px; color: var(--muted); }
+    .field input, .field textarea { width: 100%; min-height: 46px; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--fg); font: 15px/1.35 var(--font); resize: none; }
+    .err { margin: -6px 4px 10px; color: var(--danger); font-size: 13px; }
+    .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .acts.one { grid-template-columns: 1fr; }
+    .sheet .seg { margin-bottom: 12px; background: var(--surface-2); }
+
+    /* ---- schermate a tutto schermo ---- */
+    .full { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; background: var(--bg); }
+    .full-head { flex: none; display: flex; align-items: center; gap: 2px; min-height: 50px; padding: 2px 6px 2px 4px; border-bottom: 1px solid var(--border); }
+    .full-head .t { flex: 1; min-width: 0; }
+    .full-head b { display: block; font-size: 15px; font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .full-head small { display: block; font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txtbtn { flex: none; min-height: 40px; padding: 0 12px; border-radius: 11px; font-size: 13px; font-weight: 600; color: var(--accent); }
+    .txtbtn.fill { background: var(--accent); color: var(--on-accent); }
+    .txtbtn:disabled { color: var(--muted); }
+    .code { flex: 1; min-height: 0; margin: 0; padding: 14px; overflow: auto; font: 12.5px/1.6 var(--mono); white-space: pre; scrollbar-width: thin; }
+    textarea.code { width: 100%; border: 0; outline: 0; resize: none; background: var(--surface); color: var(--fg); }
+    .banner { flex: none; padding: 9px 14px; font-size: 13px; background: var(--wait-bg); color: var(--wait); border-bottom: 1px solid var(--wait-border); }
+    .term { flex: 1; padding: 12px 14px; font: 13px/1.6 var(--mono); background: #0e0a07; white-space: pre-wrap; }
+    .term i { font-style: normal; color: var(--accent); }
+    .chatmsg { width: fit-content; max-width: 82%; margin: 16px 14px 0 auto; padding: 9px 14px; border-radius: 18px 18px 5px 18px; background: var(--surface-2); font-size: 15px; }
+    .chatrail { margin: 12px 16px; color: var(--muted); font-size: 13px; }
+    .toast { position: absolute; left: 14px; right: 14px; bottom: 92px; z-index: 8; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 8px 6px 14px; border-radius: 14px; background: var(--surface-3); box-shadow: var(--shadow); font-size: 14px; }
+    .toast span { flex: 1; min-width: 0; }
+    @media (prefers-reduced-motion: reduce) { .sheet.in { animation: none; } .tn-tw svg { transition: none; } }
+
+    /* Variante Sfoglia: azioni compatte, navigazione e Home condivise. */
+    .compact-head { padding-right: 10px; gap: 0; }
+    .launch-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 13px; color: var(--muted); }
+    .launch-icon > span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; }
+    .launch-icon.agent { color: var(--accent); }
+    .launch-icon.agent > span { background: var(--accent-bg); }
+    .launch-icon:hover > span, .launch-icon:active > span { background: var(--surface-3); }
+    .launch-icon[disabled] { opacity: .35; }
+    .context-actions { flex: none; display: flex; align-items: center; gap: 2px; margin: -3px 14px 9px; border-bottom: 1px solid var(--border); }
+    .context-actions .folder-caption { flex: 1; min-width: 0; color: var(--muted); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .quiet-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 0 8px; color: var(--muted); font-size: 12px; border-radius: 10px; }
+    .quiet-action.agent { color: var(--accent); }
+    .quiet-action:hover, .quiet-action:active { background: var(--surface); }
+    .float-launch { position: absolute; right: 16px; bottom: 92px; z-index: 4; }
+    .float-trigger { min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 22px; background: var(--surface-3); color: var(--fg); box-shadow: inset 0 0 0 1px var(--border-strong), 0 4px 16px #0003; font-size: 13px; }
+    .float-trigger[aria-expanded="true"] { color: var(--accent); }
+    .float-menu { position: absolute; right: 0; bottom: 54px; width: 192px; padding: 5px; border-radius: 17px; background: var(--surface-2); border: 1px solid var(--border-strong); box-shadow: var(--shadow); }
+    .float-menu small { display: block; padding: 6px 9px 3px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .float-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border-radius: 11px; font-size: 14px; }
+    .float-menu button.agent { color: var(--accent); }
+    .float-menu button:hover { background: var(--surface-3); }
+    .float-dismiss { position: absolute; inset: 0; z-index: 3; cursor: default; }
+    .scroll.with-float { padding-bottom: 156px; }
+    .folder-choice { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 48px; padding: 7px 10px; margin: 9px 0 12px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg); }
+    .folder-choice > span { flex: 1; min-width: 0; display: grid; }
+    .folder-choice small { color: var(--muted); font-size: 11px; }
+    .folder-choice b { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .picker { position: absolute; inset: 0; z-index: 9; display: flex; flex-direction: column; background: var(--bg); }
+    .picker-head { display: flex; align-items: center; gap: 2px; min-height: 58px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+    .picker-head > div { flex: 1; min-width: 0; }
+    .picker-head h3 { margin: 0; font-size: 17px; font-weight: 600; }
+    .picker-head small { color: var(--muted); font-size: 12px; }
+    .picker-close { font-size: 13px; color: var(--muted); min-height: 44px; padding: 0 10px; }
+    .picker-crumbs { padding: 3px 8px; min-height: 44px; border-bottom: 1px solid var(--border); }
+    .picker-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; scrollbar-width: thin; }
+    .picker-label { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; margin: 0 1px 8px; }
+    .picker-list { border: 1px solid var(--border); border-radius: 15px; overflow: hidden; background: var(--surface); margin-bottom: 18px; }
+    .picker-row { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 56px; padding: 8px 12px; }
+    .picker-row + .picker-row { border-top: 1px solid var(--border); }
+    .picker-row > span { flex: 1; min-width: 0; display: grid; }
+    .picker-row b { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .picker-row small { color: var(--muted); font: 11px/1.5 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .picker-row > svg:first-child { color: var(--accent-2); }
+    .picker-row > svg:last-child { color: var(--muted); }
+    .picker-row:active, .picker-row:hover { background: var(--surface-2); }
+    .picker-info { margin: 0 1px 14px; color: var(--muted); font-size: 12px; }
+    .picker-footer { flex: none; padding: 11px 14px 16px; border-top: 1px solid var(--border); background: var(--surface); }
+    .picker-footer small { display: block; color: var(--muted); font: 11px/1.5 var(--mono); overflow-wrap: anywhere; margin: 0 2px 8px; }
+    .picker-footer .hm-btn { width: 100%; min-height: 44px; }
+    .picker-filter { display: flex; align-items: center; margin: 10px 14px 0; }
+    .picker-filter input { width: 100%; min-height: 44px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); padding: 0 12px; font: 14px var(--font); }
+    .picker-filter input::placeholder { color: var(--muted); }
+    .prototype-note { margin-top: 16px !important; font-size: 12px; }
+    @media (max-width: 460px) { .page { padding: 20px 16px 40px; } .phone { width: 100%; } .layout { gap: 24px; } .cols { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · TELEFONO</div>
+  <h1>Più spazio ai file. Avvio a portata di mano.</h1>
+  <p class="lead">Base scelta: <b>01 · Sfoglia</b>. Cambia solo la posizione delle azioni nella pagina File. Home e selettore cartelle restano uguali nelle tre proposte. Esplora, scegli una cartella e prova ad avviare una sessione.</p>
+  <div class="variants" role="group" aria-label="Posizione delle azioni" id="variants">
+    <button type="button" data-v="1"><span>01</span>Nell’intestazione</button>
+    <button type="button" data-v="2"><span>02</span>Sotto il percorso</button>
+    <button type="button" data-v="3"><span>03</span>Flottante</button>
+  </div>
+
+  <div class="layout">
+    <div class="phone" aria-label="Anteprima del telefono">
+      <div class="status"><span>9:41</span><span>5G · 82%</span></div>
+      <div id="stage"></div>
+    </div>
+    <div class="side">
+      <div class="controls">
+        <button type="button" class="ctl" data-go="home">Vai a Home</button>
+        <button type="button" class="ctl" data-go="files">Vai a File</button>
+        <button type="button" class="ctl" id="demo-picker">Prova selettore</button>
+        <label><input type="checkbox" id="noterm"> Nessun terminale</label>
+        <label><input type="checkbox" id="olddesk"> PC non aggiornato</label>
+        <button type="button" class="ctl" id="reset">Ricomincia</button>
+      </div>
+      <article class="note" id="note"></article>
+    </div>
+  </div>
+
+  <section class="section">
+    <h2>Stesso esploratore, tre posizioni</h2>
+    <p>Dimensioni visive ridotte, aree di tocco da almeno 44 × 44 px. Il menu ⋯ di ogni elemento resta disponibile.</p>
+    <div class="tablewrap"><table><thead><tr><th></th><th>01 Intestazione</th><th>02 Sotto il percorso</th><th>03 Flottante</th></tr></thead><tbody>
+      <tr><td>Dove sono le azioni</td><td>Due icone accanto al titolo File</td><td>Una riga leggera sotto il percorso</td><td>Un pulsante “Avvia” sopra la navigazione</td></tr>
+      <tr><td>Spazio occupato</td><td>Nessuna riga in più</td><td>Una riga da 44 px, senza pannello</td><td>Nessuna riga; piccolo ingombro in basso</td></tr>
+      <tr><td>Tocchi per aprire</td><td>Terminale: 1 · agente: 2 con conferma</td><td>Terminale: 1 · agente: 2 con conferma</td><td>Terminale: 2 · agente: 3 con conferma</td></tr>
+      <tr><td>Compromesso</td><td>Le icone richiedono familiarità</td><td>Etichette chiare, un po’ meno spazio ai file</td><td>Comodo con una mano, un tocco in più</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="section">
+    <h2>Un selettore cartelle, ovunque</h2>
+    <p>Usalo dalla cartella nel campo di avvio Home, da “Nuovo” nei terminali o dalla cartella nel foglio di avvio agente.</p>
+    <div class="cols"><div class="box"><h3>Suggerimenti come punto di partenza</h3><ul>
+      <li>Cartella attuale e progetti delle sessioni aperte. Toccare un suggerimento apre la cartella: puoi continuare a scendere.</li>
+      <li>“Computer” mostra cartella utente, disco C: e WSL. Nessun obbligo di scegliere tra i suggerimenti.</li>
+      <li>Percorso navigabile, pulsante per risalire e filtro delle sottocartelle presenti nel livello corrente.</li>
+    </ul></div><div class="box"><h3>Conferma esplicita</h3><ul>
+      <li>Solo la conferma in basso sceglie la cartella. Per un nuovo terminale, la conferma apre la sessione lì.</li>
+      <li>Nel foglio agente puoi cambiare cartella senza perdere messaggio, agente e modalità Chat / Terminale.</li>
+      <li>Annulla torna al punto di partenza. Cartelle vuote selezionabili; radice virtuale e accesso negato non selezionabili.</li>
+    </ul></div></div>
+    <p class="prototype-note">Prototipo con dati simulati: navigazione e modifiche restano in questa pagina. Nessun file del computer viene modificato.</p>
+  </section>
+
+</main>
+
+<script>
+const LOGOS = {"claude":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"},"codex":{"viewBox":"-0.82 -0.73 21.65 21.45","path":"M11.248 18.25q-.825 0-1.568-.314a4.3 4.3 0 0 1-1.32-.874 4 4 0 0 1-1.304.214 4 4 0 0 1-2.046-.544 4.27 4.27 0 0 1-1.518-1.485 4 4 0 0 1-.56-2.095q0-.48.131-1.04A4.4 4.4 0 0 1 2.04 10.71a4.07 4.07 0 0 1 .017-3.4 4.2 4.2 0 0 1 1.056-1.418 3.8 3.8 0 0 1 1.6-.842 3.9 3.9 0 0 1 .76-1.683q.593-.759 1.451-1.188a4.04 4.04 0 0 1 1.832-.429q.825 0 1.567.313.742.314 1.32.875a4 4 0 0 1 1.304-.215q1.106 0 2.046.545a4.14 4.14 0 0 1 1.501 1.485q.578.941.578 2.095 0 .48-.132 1.04.66.61 1.023 1.419.363.792.363 1.666 0 .892-.38 1.717a4.3 4.3 0 0 1-1.072 1.435 3.8 3.8 0 0 1-1.584.825 3.8 3.8 0 0 1-.775 1.683 4.06 4.06 0 0 1-1.436 1.188 4.04 4.04 0 0 1-1.832.429m-4.076-2.062q.825 0 1.435-.347l3.103-1.782a.36.36 0 0 0 .164-.313v-1.42L7.881 14.62a.67.67 0 0 1-.726 0l-3.118-1.798a.5.5 0 0 1-.017.115v.198q0 .841.396 1.551.413.693 1.139 1.089a3.2 3.2 0 0 0 1.617.412m.165-2.69a.4.4 0 0 0 .181.05q.083 0 .165-.05l1.238-.71-3.977-2.31a.7.7 0 0 1-.363-.643v-3.58q-.825.362-1.32 1.122a2.9 2.9 0 0 0-.495 1.65q0 .809.413 1.55.412.743 1.072 1.123zm3.91 3.663q.875 0 1.585-.396a2.96 2.96 0 0 0 1.534-2.64v-3.564a.32.32 0 0 0-.165-.297l-1.254-.726v4.604a.7.7 0 0 1-.363.643l-3.119 1.799a3 3 0 0 0 1.783.577m.627-6.039V8.878L10.01 7.822 8.129 8.878v2.244l1.881 1.056zM7.057 5.859a.7.7 0 0 1 .363-.644l3.119-1.798a3 3 0 0 0-1.782-.578q-.874 0-1.584.396A2.96 2.96 0 0 0 6.05 4.324a3.07 3.07 0 0 0-.396 1.551v3.547q0 .199.165.314l1.237.726zm8.383 7.887q.825-.364 1.303-1.123.495-.758.495-1.65a3.15 3.15 0 0 0-.412-1.55q-.413-.743-1.073-1.123l-3.086-1.782q-.099-.065-.181-.049a.3.3 0 0 0-.165.05l-1.238.692 3.993 2.327a.6.6 0 0 1 .264.264.64.64 0 0 1 .1.363zm-3.317-8.382a.63.63 0 0 1 .726 0l3.135 1.831v-.297q0-.792-.396-1.501a2.86 2.86 0 0 0-1.105-1.155q-.71-.43-1.65-.43-.825 0-1.436.347L8.294 5.941a.36.36 0 0 0-.165.314v1.418z"},"gemini":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"M12 0C12.7 6.7 17.3 11.3 24 12 17.3 12.7 12.7 17.3 12 24 11.3 17.3 6.7 12.7 0 12 6.7 11.3 11.3 6.7 12 0Z"},"vibe":{"viewBox":"-1.6 -1.6 27.2 27.2","path":"M2 2h4v4H2zM18 2h4v4h-4zM2 6h8v4H2zM14 6h8v4h-8zM2 10h20v4H2zM2 14h4v4H2zM10 14h4v4h-4zM18 14h4v4h-4zM2 18h4v4H2zM18 18h4v4h-4z"}};
+const AGENTS = [["claude", "Claude Code"], ["codex", "Codex"], ["vibe", "Mistral Vibe"], ["gemini", "Gemini CLI"]];
+const agentName = (id) => AGENTS.find((a) => a[0] === id)?.[1] ?? id;
+
+const NOTES = {
+  1: { name: "Nell’intestazione", tag: "più spazio ai file", lead: "Agente e Terminale diventano due icone accanto al titolo. Nessuna barra in basso, nessuna riga aggiuntiva.", how: ["Tocca il logo agente o l’icona terminale in alto: si riferiscono alla cartella nel percorso", "Nel foglio agente tocca la cartella per cambiarla", "Da Home prova sia la cartella del launcher sia Nuovo nei terminali"], pro: ["L’elenco guadagna tutto lo spazio della vecchia barra", "Le azioni restano visibili mentre scorri", "Icone da 18 px, aree di tocco da 44 px"], con: ["Solo icone: serve riconoscerle", "In alto, meno comode da raggiungere con una mano"] },
+  2: { name: "Sotto il percorso", tag: "più esplicita", lead: "Una riga sottile unisce il nome della cartella alle azioni Agente e Terminale. Niente pannello, niente pulsanti pieni.", how: ["Cambia cartella: nome e azioni seguono il percorso", "Tocca Agente o Terminale nella riga contestuale", "Con Prova selettore esplora anche cartelle non suggerite"], pro: ["Etichette leggibili, nessuna icona da indovinare", "La relazione con la cartella è immediata", "La parte bassa della pagina resta libera"], con: ["Occupa una riga da 44 px", "Le azioni restano nella parte alta dello schermo"] },
+  3: { name: "Flottante", tag: "comoda con una mano", lead: "Un piccolo pulsante Avvia sopra la navigazione. Un tocco svela le due azioni, soltanto quando servono.", how: ["Tocca Avvia, poi scegli Agente o Terminale", "Tocca fuori dal menu o premi Escape per richiuderlo", "Apri una cartella vuota: puoi comunque avviare una sessione lì"], pro: ["Un solo controllo persistente, largo 92 px circa", "Raggiungibile con il pollice", "L’elenco usa tutta l’altezza disponibile"], con: ["Un tocco in più per avviare", "Il pulsante copre una piccola zona in basso: l’elenco può scorrere oltre"] },
+};
+
+const file = (name, size, text, extra) => ({ name, size, text: text ?? "", ...extra });
+const dir = (name, kids = [], extra) => ({ name, dir: true, kids, ...extra });
+const makeFs = () => dir("Computer", [
+  dir("massi", [
+    dir("Documenti", [
+      dir("Progetti", [
+        dir("flowcode", [
+          dir("docs", [dir("design", [file("mobile-home-variants.html", "60 KB", "<!doctype html>\n<html lang=\"it\">\n…")]), file("architecture.md", "9 KB", "# Architecture\n\nDesktop app, phone client over iroh.\n")]),
+          dir("mobile", [dir("src", [file("App.tsx", "13 KB", "import { HomeScreen } from \"./Home\";\n\ntype Page = \"agents\" | \"terminals\" | \"settings\";\n"), file("Home.tsx", "16 KB", "/** The phone's home. */\nexport function HomeScreen() {\n  // …\n}\n"), file("home.css", "14 KB", ".hm-launch {\n  padding: 14px;\n}\n")]), file("package.json", "1 KB", "{\n  \"name\": \"flowcode-mobile\"\n}\n")]),
+          dir("src", [dir("chat", [file("chat.ts", "22 KB", "export const chat = {};\n")]), file("main.tsx", "2 KB", "import { render } from \"react-dom\";\n")]),
+          file("build.log", "38 MB", "[12:04:11] vite v7 building for production…\n[12:04:12] transforming…\n[12:04:18] 2 412 modules transformed.\n", { cut: true }),
+          file("logo.png", "84 KB", "", { binary: true }),
+          file("package.json", "3 KB", "{\n  \"name\": \"flowcode\",\n  \"private\": true\n}\n"),
+          file("README.md", "6 KB", "# Flowcode\n\nTerminali e agenti, dal PC e dal telefono.\n\n## Sviluppo\n\nnpm install\nnpm run tauri dev\n"),
+          file("ROADMAP.md", "4 KB", "# Roadmap\n\n- Pagina File sul telefono\n- Terminali in home\n"),
+        ]),
+        dir("sito-velo", [dir("assets", [file("hero.jpg", "412 KB", "", { binary: true })]), file("index.html", "12 KB", "<!doctype html>\n<title>Velo</title>\n"), file("style.css", "8 KB", "body { margin: 0; }\n")]),
+        dir("note-lavoro", [file("idee.md", "1 KB", "# Idee\n\n- Rivedere il cestino in WSL\n")]),
+        dir("archivio"),
+      ]),
+      file("preventivo.pdf", "212 KB", "", { binary: true }),
+    ]),
+    dir("Download", [file("setup.exe", "96 MB", "", { binary: true })]),
+    dir("Desktop"),
+  ]),
+  dir("Disco C:", [dir("Programmi"), dir("System Volume Information", [], { locked: true }), dir("Utenti")]),
+  dir("WSL Ubuntu", [dir("home", [dir("massi", [dir("api", [file("main.py", "3 KB", "print('ok')\n")])])]), dir("etc")]),
+]);
+
+const PROJ = ["massi", "Documenti", "Progetti"];
+const makeSessions = () => [
+  { id: "c1", kind: "chat", cli: "claude", label: "Refactor del parser", cwd: "~/Documenti/Progetti/flowcode", status: "waiting", asks: "Chiede: modificare src/chat/chat.ts?" },
+  { id: "t1", kind: "term", cli: "codex", label: "Test mobile", cwd: "~/Documenti/Progetti/flowcode/mobile", status: "busy", since: "da 6 min" },
+  { id: "c2", kind: "chat", cli: "claude", label: "Landing page", cwd: "~/Documenti/Progetti/sito-velo", status: "idle", since: "da 2 h 05" },
+  { id: "s1", kind: "shell", label: "dev server", cwd: "~/Documenti/Progetti/flowcode" },
+  { id: "s2", kind: "shell", label: "PowerShell", cwd: "~/Documenti/Progetti/sito-velo" },
+  { id: "s3", kind: "shell", label: "bash", cwd: "/home/massi/api" },
+];
+
+const fresh = () => ({ fs: makeFs(), sessions: makeSessions(), page: "files", path: PROJ.concat("flowcode"), picker: null, launchOpen: false, p3: null, sel: PROJ.concat("flowcode"), open: new Set(["massi", "massi|Documenti", "massi|Documenti|Progetti", "massi|Documenti|Progetti|flowcode"]), sheet: null, full: null, toast: null, filter: "all", agent: "claude", homeCwd: "~/Documenti/Progetti/flowcode", draft: "", ask: "", seq: 1, anim: false });
+let S = fresh();
+let variant = 1, hideTerms = false, oldDesk = false, toastTimer = 0;
+
+/* ---- utilità ---- */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const pk = (p) => esc(p.join("|"));
+const unpk = (s) => (s ? s.split("|") : []);
+const I = (d, s = 20) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" stroke-width="1.8" aria-hidden="true">${d}</svg>`;
+const ic = {
+  folder: (s) => I('<path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>', s),
+  file: (s) => I('<path d="M7 3.5h6.5L18 8v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5A1.5 1.5 0 0 1 7.5 3.5z"/><path d="M13.5 3.5V8H18"/>', s),
+  term: (s) => I('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m7.5 10 2.5 2-2.5 2"/><path d="M13 14.5h3.5"/>', s),
+  plus: (s) => I('<path d="M12 5v14M5 12h14"/>', s),
+  dots: () => I('<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>'),
+  chev: (s) => I('<path d="m9 5 7 7-7 7"/>', s),
+  down: (s) => I('<path d="m6 9 6 6 6-6"/>', s),
+  back: () => I('<path d="m15 5-7 7 7 7"/>'),
+  pencil: () => I('<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>'),
+  move: () => I('<path d="M3.5 7.500a2 2 0 0 1 2-2h3.600l2 2.200h7.400a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M9 13h6m-2.500-2.500L15 13l-2.500 2.500"/>'),
+  trash: () => I('<path d="M4.500 7h15M9.500 7V4.500h5V7M6.500 7l1 12.500h9l1-12.500"/>'),
+  send: () => I('<path d="M12 19V6M6.500 11.500 12 6l5.500 5.500"/>'),
+  check: () => I('<path d="m5 12.500 4.500 4.500L19 7.500"/>'),
+  home: () => I('<path d="M4 11.500 12 5l8 6.500V19a1 1 0 0 1-1 1h-4.500v-5h-5v5H5a1 1 0 0 1-1-1z"/>', 22),
+  sliders: () => I('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>', 22),
+  bubble: (s) => I('<path d="M5 5.500h14a1.500 1.500 0 0 1 1.500 1.500v8a1.500 1.500 0 0 1-1.500 1.500h-8L6.500 20v-3.500H5A1.500 1.500 0 0 1 3.500 15V7A1.500 1.500 0 0 1 5 5.500z"/>', s),
+  disk: (s) => I('<rect x="3.500" y="6" width="17" height="12" rx="2.500"/><path d="M7 14.500h.01M11 14.500h6"/>', s),
+  open: () => I('<path d="M7 17 17 7M9 7h8v8"/>'),
+};
+const logo = (c, s = 18) => `<svg class="logo" width="${s}" height="${s}" viewBox="${LOGOS[c].viewBox}" aria-hidden="true"><path d="${LOGOS[c].path}"/></svg>`;
+const node = (p) => p.reduce((n, name) => n?.kids?.find((k) => k.name === name), S.fs);
+const disp = (p) => {
+  if (!p.length) return "Computer";
+  const [r, ...rest] = p;
+  const tail = rest.join("/");
+  return r === "massi" ? "~" + (tail ? "/" + tail : "") : r === "Disco C:" ? "C:/" + tail : "/" + tail;
+};
+const pathOf = (cwd) => (cwd.startsWith("~") ? ["massi", ...cwd.split("/").slice(1)] : cwd.startsWith("C:") ? ["Disco C:", ...cwd.slice(3).split("/").filter(Boolean)] : ["WSL Ubuntu", ...cwd.split("/").filter(Boolean)]);
+const shortCwd = (c) => { const a = c.split("/"); return a.length > 2 ? "…/" + a.slice(-2).join("/") : c; };
+const tail = (c) => c.split("/").pop() || c;
+const sessionsIn = (p) => { const d = disp(p); return S.sessions.filter((s) => s.cwd === d || s.cwd.startsWith(d + "/")); };
+const sortKids = (n) => [...(n.kids ?? [])].sort((a, b) => Number(!!b.dir) - Number(!!a.dir) || a.name.localeCompare(b.name, "it", { sensitivity: "base" }));
+const count = (n) => { const k = n.kids?.length ?? 0; return k === 0 ? "vuota" : k === 1 ? "1 elemento" : k + " elementi"; };
+const rootIcon = (n, s) => (n === "massi" ? ic.folder(s) : ic.disk(s));
+const rootName = (n) => (n === "massi" ? "massi · cartella utente" : n);
+const agents = () => S.sessions.filter((s) => s.kind !== "shell");
+const shells = () => (hideTerms ? [] : S.sessions.filter((s) => s.kind === "shell"));
+
+/* ---- pezzi condivisi ---- */
+function tile(s, size = 20) {
+  if (s.kind === "shell") return `<span class="hm-tile st-shell">${ic.term(size)}</span>`;
+  return `<span class="hm-tile st-${s.status}">${logo(s.cli, size)}${s.kind === "chat" ? `<span class="bub">${ic.bubble(11)}</span>` : ""}</span>`;
+}
+function row(s) {
+  const sub = s.kind === "shell" ? `<span class="mono">${esc(shortCwd(s.cwd))}</span>` : `${esc(agentName(s.cli))} · <span class="mono">${esc(shortCwd(s.cwd))}</span>`;
+  return `<div class="hm-row${s.kind === "shell" ? " slim" : ""}"><button type="button" class="hm-row-main" data-a="openSession" data-id="${s.id}">${tile(s)}<span class="hm-txt"><b>${esc(s.label)}</b><span class="hm-sub">${sub}</span></span>${s.since ? `<span class="hm-since">${esc(s.since)}</span>` : ""}</button><button type="button" class="hm-more" aria-label="Azioni per ${esc(s.label)}" data-a="sessionMenu" data-id="${s.id}">${ic.dots()}</button></div>`;
+}
+const group = (title, tone, list, link = "") => `<section class="hm-group"><div class="hm-sec"><b class="${tone}">${title}</b>${link || `<span>${list.length}</span>`}</div>${list.length ? `<div class="hm-list">${list.map(row).join("")}</div>` : ""}</section>`;
+const newTermLink = `<button type="button" class="hm-sec-link" data-a="newTermPick">${ic.plus(15)}Nuovo</button>`;
+
+function home() {
+  const waiting = agents().filter((s) => s.status === "waiting");
+  const working = agents().filter((s) => s.status === "busy" || s.status === "starting");
+  const idle = agents().filter((s) => s.status === "idle");
+  const sh = shells();
+  const agentGroups = group("Al lavoro", "busy", working).repeat(working.length ? 1 : 0) + group("Inattivi", "", idle).repeat(idle.length ? 1 : 0);
+  const launch = `<section class="hm-launch"><textarea id="draft" placeholder="Cosa vuoi fare?" aria-label="Cosa vuoi fare?">${esc(S.draft)}</textarea><div class="hm-bar"><button type="button" class="hm-pill" data-a="pickAgent">${logo(S.agent, 16)}<span>${esc(agentName(S.agent))}</span></button><button type="button" class="hm-pill mono" data-a="pickFolder">${ic.folder(16)}<span>${esc(tail(S.homeCwd))}</span></button><button type="button" class="hm-go" id="go" aria-label="Avvia" data-a="homeStart" ${S.draft.trim() ? "" : "disabled"}>${ic.send()}</button></div></section>`;
+  const wait = waiting.map((s) => `<section class="hm-wait"><div class="hm-wait-top">${tile(s)}<div><div class="hm-wait-eye">${esc(s.asks ?? "Ti aspetta")}</div><div class="hm-wait-title">${esc(s.label)}</div><div class="hm-sub">${esc(agentName(s.cli))} · <span class="mono">${esc(shortCwd(s.cwd))}</span></div></div></div><button type="button" class="hm-btn primary" data-a="openSession" data-id="${s.id}">Rispondi</button></section>`).join("");
+  const usage = `<div class="hm-usage"><div>Claude · 5 ore<b>42%</b><i style="--w:42%"></i></div><div>Codex · settimana<b>18%</b><i style="--w:18%"></i></div></div>`;
+  const body = launch + wait + usage + agentGroups + `<section class="hm-group"><div class="hm-sec"><b>Terminali${sh.length ? ` · ${sh.length}` : ""}</b>${newTermLink}</div>${sh.length ? `<div class="hm-list">${sh.map(row).join("")}</div>` : `<div class="hm-empty">Nessun terminale aperto</div>`}</section>`;
+  return `<div class="aurora"></div><header class="hm-top"><span>PC-Massi</span>${ic.down(18)}</header><div class="scroll" data-scroll="home">${body}</div>`;
+}
+
+function liveBadge(p) {
+  const list = sessionsIn(p);
+  if (!list.length) return "";
+  const waiting = list.some((s) => s.status === "waiting");
+  return `<span class="live${waiting ? " wait" : ""}" title="${list.length} sessioni aperte qui"><i></i>${list.length}</span>`;
+}
+function fsRow(p, n) {
+  const full = [...p, n.name];
+  const isRoot = p.length === 0;
+  const main = n.dir ? `data-a="enter" data-p="${pk(full)}"` : `data-a="openFile" data-p="${pk(full)}"`;
+  const ico = isRoot ? rootIcon(n.name, 22) : n.dir ? ic.folder(22) : ic.file(22);
+  return `<div class="fx-row"><button type="button" class="fx-main" ${main}><span class="fx-ico${n.dir ? " dir" : ""}">${ico}</span><span class="fx-txt"><b>${esc(isRoot ? rootName(n.name) : n.name)}</b><small>${n.dir ? (n.locked ? "accesso negato" : count(n)) : esc(n.size)}</small></span>${n.dir ? liveBadge(full) : ""}</button>${isRoot || n.locked ? "" : `<button type="button" class="hm-more" aria-label="Azioni per ${esc(n.name)}" data-a="itemMenu" data-p="${pk(full)}">${ic.dots()}</button>`}</div>`;
+}
+function listing(p) {
+  const n = node(p);
+  if (!n) return `<div class="fx-note"><b>Cartella sparita</b>È stata spostata o eliminata sul PC.</div>`;
+  if (n.locked) return `<div class="fx-note"><b>Accesso negato</b>Windows non permette di aprire questa cartella.</div>`;
+  const kids = sortKids(n);
+  if (!kids.length) return `<div class="fx-note"><b>Cartella vuota</b>Crea un file o aprila in un terminale.</div>`;
+  return `<div class="fx-list">${kids.map((k) => fsRow(p, k)).join("")}</div>`;
+}
+function crumbs(p) {
+  const parts = [`<button type="button" class="${p.length ? "" : "on"}" data-a="enter" data-p="">Computer</button>`];
+  p.forEach((name, i) => parts.push(ic.chev(12), `<button type="button" class="${i === p.length - 1 ? "on" : ""}" data-a="enter" data-p="${pk(p.slice(0, i + 1))}">${esc(name)}</button>`));
+  return `<nav class="crumbs" aria-label="Percorso" id="crumbs">${parts.join("")}</nav>`;
+}
+const fileHead = (add) => `<header class="fx-head"><div class="t"><h2>File</h2><small>PC-Massi</small></div>${add ? `<button type="button" class="ib solid" aria-label="Nuovo file o cartella" data-a="newItem" data-p="${pk(add)}">${ic.plus()}</button>` : ""}</header>`;
+
+function files() {
+  if (oldDesk) return fileHead(null) + `<div class="scroll"><div class="fx-note"><b>Aggiorna Flowcode sul computer</b>La pagina File richiede l’ultima versione sul PC.</div></div>`;
+  const p = S.path, n = node(p), usable = p.length > 0 && n?.dir && !n.locked;
+  const terminal = `data-a="openTerm" data-p="${pk(p)}"`;
+  const agent = `data-a="agentSheet" data-p="${pk(p)}"`;
+  const actions = usable && variant === 1 ? `<button type="button" class="launch-icon agent" aria-label="Avvia un agente qui" title="Avvia un agente qui" ${agent}><span>${logo(S.agent,18)}</span></button><button type="button" class="launch-icon" aria-label="Apri terminale qui" title="Apri terminale qui" ${terminal}><span>${ic.term(18)}</span></button>` : "";
+  const head = `<header class="fx-head compact-head"><div class="t"><h2>File</h2><small>PC-Massi</small></div>${actions}${usable ? `<button type="button" class="launch-icon" aria-label="Nuovo file o cartella" title="Nuovo file o cartella" data-a="newItem" data-p="${pk(p)}"><span>${ic.plus(19)}</span></button>` : ""}</header>`;
+  const inline = usable && variant === 2 ? `<div class="context-actions"><span class="folder-caption">${esc(n.name)}</span><button type="button" class="quiet-action agent" ${agent}>${logo(S.agent,16)}Agente</button><button type="button" class="quiet-action" ${terminal}>${ic.term(16)}Terminale</button></div>` : "";
+  const floating = usable && variant === 3 ? `${S.launchOpen ? '<button type="button" class="float-dismiss" data-a="toggleLaunch" aria-label="Chiudi menu avvio" tabindex="-1"></button>' : ""}<div class="float-launch">${S.launchOpen ? `<div class="float-menu" role="group" aria-label="Avvia nella cartella corrente"><small>In ${esc(n.name)}</small><button type="button" class="agent" ${agent}>${logo(S.agent,18)}Agente</button><button type="button" ${terminal}>${ic.term(18)}Terminale</button></div>` : ""}<button type="button" class="float-trigger" data-a="toggleLaunch" aria-expanded="${S.launchOpen}">${S.launchOpen ? ic.down(16) : ic.plus(16)}Avvia</button></div>` : "";
+  return head + crumbs(p) + inline + `<div class="scroll${usable && variant === 3 ? " with-float" : ""}" data-scroll="f${pk(p)}">${listing(p)}</div>` + floating;
+}
+
+function openPicker(context) {
+  const previous = S.sheet;
+  S.picker = { context, path: null, previous, query: "" };
+  S.sheet = null; S.launchOpen = false;
+  render();
+}
+function suggestedFolders() {
+  const paths = [S.homeCwd, ...S.sessions.map((s) => s.cwd)];
+  return [...new Set(paths)].map(pathOf).filter((p) => node(p)?.dir && !node(p).locked).slice(0,4);
+}
+function pickerRows() {
+  const h = S.picker;
+  if (h.path === null) return "";
+  const n = node(h.path);
+  if (!n) return '<div class="fx-note"><b>Cartella non disponibile</b>Risalire per scegliere un altro percorso.</div>';
+  if (n.locked) return '<div class="fx-note"><b>Accesso negato</b>Questa cartella non può essere selezionata.</div>';
+  const folders = sortKids(n).filter((k) => k.dir);
+  const filtered = folders.filter((k) => k.name.toLocaleLowerCase("it").includes(h.query.toLocaleLowerCase("it")));
+  if (!filtered.length) return `<div class="fx-note"><b>${h.query ? "Nessuna cartella corrispondente" : "Nessuna sottocartella"}</b>${h.query ? "Prova un altro nome o cancella il filtro." : h.path.length ? "Puoi scegliere questa cartella con il pulsante in basso." : "Nessuna posizione disponibile."}</div>`;
+  return `<div class="picker-list">${filtered.map((k) => pickerRow([...h.path,k.name],k.locked ? "Accesso negato" : count(k))).join("")}</div>`;
+}
+function pickerRow(p, sub) {
+  return `<button type="button" class="picker-row" data-a="pickerEnter" data-p="${pk(p)}">${p.length === 1 ? rootIcon(p[0],21) : ic.folder(21)}<span><b>${esc(p.length === 1 ? rootName(p[0]) : node(p)?.name ?? p.at(-1))}</b><small>${esc(sub ?? disp(p))}</small></span>${ic.chev(16)}</button>`;
+}
+function picker() {
+  const h = S.picker;
+  if (!h) return "";
+  const p = h.path, n = p === null ? null : node(p);
+  const valid = !oldDesk && !!(p?.length && n?.dir && !n.locked);
+  const title = h.context === "terminal" ? "Nuovo terminale" : "Scegli cartella";
+  const current = h.context === "agent" ? h.previous?.p : pathOf(S.homeCwd);
+  const suggested = suggestedFolders();
+  const intro = `<p class="picker-info">Apri un suggerimento o sfoglia il computer. Conferma solo quando sei nella cartella giusta.</p><h4 class="picker-label">Suggerite</h4>${suggested.length ? `<div class="picker-list">${suggested.map((q) => pickerRow(q)).join("")}</div>` : '<p class="picker-info">Nessuna cartella suggerita.</p>'}<h4 class="picker-label">Esplora</h4><div class="picker-list"><button type="button" class="picker-row" data-a="pickerEnter" data-p="">${ic.disk(21)}<span><b>Computer</b><small>Cartella utente, dischi e WSL</small></span>${ic.chev(16)}</button></div>${current?.length && node(current)?.dir ? `<button type="button" class="picker-row" data-a="pickerEnter" data-p="${pk(current)}">${ic.folder(21)}<span><b>Cartella attuale</b><small>${esc(disp(current))}</small></span>${ic.chev(16)}</button>` : ""}`;
+  const path = p === null ? "" : `<nav class="crumbs picker-crumbs" aria-label="Percorso del selettore"><button type="button" data-a="pickerHome">Suggerite</button>${ic.chev(12)}<button type="button" data-a="pickerEnter" data-p="">Computer</button>${p.map((name,i) => `${ic.chev(12)}<button type="button" class="${i === p.length-1 ? "on" : ""}" data-a="pickerEnter" data-p="${pk(p.slice(0,i+1))}">${esc(name)}</button>`).join("")}</nav>`;
+  return `<section class="picker" role="dialog" aria-modal="true" aria-label="${title}"><header class="picker-head"><button type="button" class="ib" data-a="pickerBack" aria-label="${p === null ? "Torna indietro" : "Risali di un livello"}">${ic.back()}</button><div><h3>${title}</h3><small>PC-Massi · ${h.context === "terminal" ? "Scegli dove aprirlo" : "Cartella di lavoro"}</small></div><button type="button" class="picker-close" data-a="pickerCancel">Annulla</button></header>${oldDesk ? "" : path}${!oldDesk && p !== null && !n?.locked ? '<label class="picker-filter"><input id="folder-filter" type="search" placeholder="Filtra le sottocartelle" aria-label="Filtra le sottocartelle di questo livello" autocomplete="off"></label>' : ""}<div class="picker-body" data-scroll="picker-${p === null ? "suggested" : pk(p)}">${oldDesk ? '<div class="fx-note"><b>Aggiorna Flowcode sul computer</b>La navigazione delle cartelle richiede una versione aggiornata del programma.</div>' : p === null ? intro : pickerRows()}</div><footer class="picker-footer"><small>${valid ? esc(disp(p)) : p === null ? "Entra in una cartella per selezionarla" : p?.length ? "Questa cartella non è selezionabile" : "Scegli una cartella all’interno del computer"}</small><button type="button" class="hm-btn primary" data-a="pickerConfirm" ${valid ? "" : "disabled"}>${h.context === "terminal" ? "Apri terminale qui" : "Usa questa cartella"}</button></footer></section>`;
+}
+
+const nav = () => `<nav class="nav" aria-label="Principale">${[["home", "Home", ic.home()], ["files", "File", ic.folder(22)], ["settings", "Impostazioni", ic.sliders()]].map(([id, label, icon]) => `<button type="button" class="${S.page === id ? "on" : ""}" ${S.page === id ? 'aria-current="page"' : ""} data-a="page" data-id="${id}">${icon}<span>${label}</span></button>`).join("")}</nav>`;
+
+/* ---- fogli ---- */
+function sheet() {
+  const h = S.sheet;
+  if (!h) return "";
+  const wrap = (html) => `<div class="scrim" data-a="closeSheet" data-self="1"><div class="sheet${S.anim ? " in" : ""}" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
+  const opt = (a, icon, label, attrs = "", cls = "") => `<button type="button" class="${cls}" data-a="${a}" ${attrs}>${icon}<span>${label}</span></button>`;
+  if (h.t === "item") {
+    const n = node(h.p), P = `data-p="${pk(h.p)}"`;
+    return wrap(`<h3>${esc(n.name)}</h3><div class="sub">${esc(disp(h.p))}</div><div class="opts">${n.dir ? opt("openTerm", ic.term(), "Apri in un terminale", P) + opt("agentSheet", logo(S.agent, 20), "Apri in un agente", P) : opt("openFile", ic.open(), "Apri", P)}</div><div class="opts">${opt("rename", ic.pencil(), "Rinomina", P)}${opt("move", ic.move(), "Sposta", P)}${opt("del", ic.trash(), "Elimina", P, "danger")}</div>`);
+  }
+  if (h.t === "agent") {
+    const n = node(h.p);
+    return wrap(`<h3>Apri in un agente</h3><button type="button" class="folder-choice" data-a="chooseAgentFolder">${ic.folder(19)}<span><small>Cartella di lavoro</small><b>${esc(disp(h.p))}</b></span>${ic.chev(16)}</button><div class="opts" role="radiogroup" aria-label="Agente">${AGENTS.map(([id, name]) => `<button type="button" role="radio" aria-checked="${id === S.agent}" class="${id === S.agent ? "on" : ""}" data-a="setAgent" data-id="${id}">${logo(id, 20)}<span>${esc(name)}</span>${id === S.agent ? ic.check() : ""}</button>`).join("")}</div><div class="seg" role="group" aria-label="Come aprirlo"><button type="button" data-a="setMode" data-id="chat" aria-pressed="${h.mode === "chat"}">Chat</button><button type="button" data-a="setMode" data-id="term" aria-pressed="${h.mode === "term"}">Terminale</button></div>${h.mode === "chat" ? `<label class="field"><span>Primo messaggio, se vuoi</span><textarea id="first" rows="2" placeholder="Cosa deve fare in ${esc(n.name)}?">${esc(h.first ?? "")}</textarea></label>` : ""}<div class="acts one"><button type="button" class="hm-btn primary" data-a="startAgent" data-p="${pk(h.p)}">Avvia</button></div>`);
+  }
+  if (h.t === "name") {
+    const n = h.mode === "rename" ? node(h.p) : null;
+    const title = h.mode === "rename" ? `Rinomina ${n.dir ? "cartella" : "file"}` : h.mode === "dir" ? "Nuova cartella" : h.mode === "file" ? "Nuovo file" : "";
+    const live = h.mode === "rename" && n.dir ? sessionsIn(h.p).length : 0;
+    return wrap(`<h3>${title}</h3><div class="sub">${esc(disp(h.mode === "rename" ? h.p.slice(0, -1) : h.p))}</div>${live ? `<p class="warn">${live === 1 ? "Una sessione lavora" : live + " sessioni lavorano"} qui dentro: il cambio di nome può confonderle.</p>` : ""}<label class="field"><span>Nome</span><input id="name" value="${esc(h.value ?? (n?.name ?? ""))}" autocomplete="off" spellcheck="false"></label>${h.err ? `<p class="err" role="alert">${esc(h.err)}</p>` : ""}<div class="acts"><button type="button" class="hm-btn" data-a="closeSheet">Annulla</button><button type="button" class="hm-btn primary" data-a="saveName">${h.mode === "rename" ? "Rinomina" : "Crea"}</button></div>`);
+  }
+  if (h.t === "new") return wrap(`<h3>Crea in ${esc(node(h.p).name)}</h3><div class="sub">${esc(disp(h.p))}</div><div class="opts">${opt("newDir", ic.folder(), "Nuova cartella")}${opt("newFile", ic.file(), "Nuovo file")}</div>`);
+  if (h.t === "move") {
+    const n = node(h.p), parent = h.p.slice(0, -1).join("|"), self = h.p.join("|"), dest = [];
+    const walk = (p) => { for (const k of sortKids(node(p))) if (k.dir && !k.locked) { const f = [...p, k.name], j = f.join("|"); if (j === self) continue; if (j !== parent) dest.push(f); walk(f); } };
+    walk(PROJ);
+    return wrap(`<h3>Sposta ${esc(n.name)}</h3><div class="sub">Scegli la cartella di arrivo</div><div class="opts">${dest.slice(0, 7).map((d) => `<button type="button" data-a="moveTo" data-p="${pk(d)}">${ic.folder()}<span class="mono" style="font-size:13px">${esc(shortCwd(disp(d)))}</span></button>`).join("")}</div>`);
+  }
+  if (h.t === "del") {
+    const n = node(h.p), live = n.dir ? sessionsIn(h.p).length : 0, wsl = h.p[0] === "WSL Ubuntu";
+    return wrap(`<h3>Eliminare ${esc(n.name)}?</h3><div class="sub">${esc(disp(h.p))}</div><p>${wsl ? "In WSL non c'è il Cestino: non si potrà recuperare." : "Finisce nel Cestino del PC, da dove si può recuperare."}</p>${live ? `<p class="warn">${live === 1 ? "Una sessione è aperta" : live + " sessioni sono aperte"} qui dentro.</p>` : ""}<div class="acts"><button type="button" class="hm-btn" data-a="closeSheet">Annulla</button><button type="button" class="hm-btn danger" data-a="doDel" data-p="${pk(h.p)}">Elimina</button></div>`);
+  }
+  if (h.t === "session") {
+    const s = S.sessions.find((x) => x.id === h.id);
+    if (!s) return "";
+    return wrap(`<h3>${esc(s.label)}</h3><div class="sub">${esc(s.cwd)}</div>${h.confirm ? `<p>Chiudere ${s.kind === "chat" ? "questa chat" : "questo terminale"}? Se qualcosa è in esecuzione si interrompe.</p><div class="acts"><button type="button" class="hm-btn" data-a="closeSheet">Annulla</button><button type="button" class="hm-btn danger" data-a="doClose" data-id="${s.id}">Chiudi</button></div>` : `<div class="opts">${opt("openSession", ic.open(), "Apri", `data-id="${s.id}"`)}${opt("reveal", ic.folder(), "Mostra in File", `data-id="${s.id}"`)}${opt("askClose", ic.trash(), s.kind === "chat" ? "Chiudi la chat" : "Chiudi il terminale", `data-id="${s.id}"`, "danger")}</div>`}`);
+  }
+  if (h.t === "pick") {
+    return wrap(`<h3>Agente</h3><div class="sub"></div><div class="opts">${AGENTS.map(([id,name]) => `<button type="button" class="${id === S.agent ? "on" : ""}" data-a="pickDone" data-id="${id}">${logo(id,20)}<span>${esc(name)}</span>${id === S.agent ? ic.check() : ""}</button>`).join("")}</div>`);
+  }
+
+  return "";
+}
+
+function full() {
+  const f = S.full;
+  if (!f) return "";
+  if (f.t === "file") {
+    const n = node(f.p);
+    if (!n) return "";
+    const head = (right) => `<header class="full-head"><button type="button" class="ib" aria-label="Indietro" data-a="closeFull">${ic.back()}</button><div class="t"><b>${esc(n.name)}</b><small>${esc(disp(f.p.slice(0, -1)))}</small></div>${right}</header>`;
+    if (n.binary) return `<div class="full">${head("")}<div class="scroll" style="padding-top:16px"><div class="fx-note"><b>File binario</b>Non si può mostrare sul telefono.</div></div></div>`;
+    if (f.edit) return `<div class="full">${head(`<button type="button" class="txtbtn" data-a="cancelEdit">Annulla</button><button type="button" class="txtbtn fill" data-a="saveFile">Salva</button>`)}<textarea class="code" id="editor" aria-label="Contenuto di ${esc(n.name)}" spellcheck="false">${esc(n.text)}</textarea></div>`;
+    return `<div class="full">${head(n.cut ? "" : `<button type="button" class="txtbtn" data-a="edit">Modifica</button>`)}${n.cut ? `<div class="banner">Mostrato solo il primo MB: non si può modificare da qui.</div>` : ""}<pre class="code">${esc(n.text)}</pre></div>`;
+  }
+  const s = S.sessions.find((x) => x.id === f.id);
+  if (!s) return "";
+  const body = s.kind === "chat" ? `${s.first ? `<div class="chatmsg">${esc(s.first)}</div>` : ""}<div class="chatrail">${s.status === "waiting" ? esc(s.asks) : s.first ? "Sto lavorando…" : `${esc(agentName(s.cli))} è pronto in ${esc(tail(s.cwd))}.`}</div>` : `<div class="term">${s.kind === "term" ? `<i>${esc(s.cli)}</i> avviato in ${esc(s.cwd)}\n\n` : ""}<i>${esc(s.cwd)}</i> $ _</div>`;
+  return `<div class="full"><header class="full-head"><button type="button" class="ib" aria-label="Indietro" data-a="closeFull">${ic.back()}</button><div class="t"><b>${esc(s.label)}</b><small>${esc(s.cwd)}</small></div></header>${body}</div>`;
+}
+
+/* ---- disegno ---- */
+const stage = document.getElementById("stage");
+const scrolls = {};
+function render() {
+  stage.querySelectorAll("[data-scroll]").forEach((el) => (scrolls[el.dataset.scroll] = el.scrollTop));
+  const page = S.page === "home" ? home() : S.page === "files" ? files() : `<div class="fx-head"><div class="t"><h2>Impostazioni</h2><small>Invariate</small></div></div>`;
+  stage.innerHTML = (S.page === "settings" ? page + `<div class="scroll"></div>` : page) + nav() + full() + sheet() + picker() + (S.toast ? `<div class="toast" role="status"><span>${esc(S.toast.text)}</span>${S.toast.undo ? `<button type="button" class="txtbtn" data-a="undo">Annulla</button>` : ""}</div>` : "");
+  stage.querySelectorAll("[data-scroll]").forEach((el) => (el.scrollTop = scrolls[el.dataset.scroll] ?? 0));
+  const c = document.getElementById("crumbs");
+  if (c) c.scrollLeft = c.scrollWidth;
+  const pc = stage.querySelector(".picker-crumbs");
+  if (pc) pc.scrollLeft = pc.scrollWidth;
+  const filter = document.getElementById("folder-filter");
+  if (filter && S.picker) filter.value = S.picker.query;
+  if (S.anim) stage.querySelector(".sheet input, .sheet textarea")?.focus();
+  S.anim = false;
+}
+function showToast(text, undo) {
+  clearTimeout(toastTimer);
+  S.toast = { text, undo };
+  toastTimer = setTimeout(() => { S.toast = null; render(); }, 5000);
+}
+const openSheet = (h) => { S.launchOpen = false; S.sheet = h; S.anim = true; render(); };
+function addSession(s) {
+  s.id = "n" + S.seq++;
+  S.sessions.push(s);
+  S.launchOpen = false;
+  S.sheet = null;
+  S.full = { t: "session", id: s.id };
+  render();
+}
+function validName(raw, parent, except) {
+  const v = raw.trim();
+  if (!v) return "Scrivi un nome.";
+  if (/[\\/:*?"<>|]/.test(v)) return "Il nome non può contenere \\ / : * ? \" < > |";
+  if (parent.kids.some((k) => k.name.toLowerCase() === v.toLowerCase() && k !== except)) return "Esiste già un elemento con questo nome.";
+  return null;
+}
+function relocate(from, to) {
+  const a = disp(from), b = disp(to);
+  for (const s of S.sessions) if (s.cwd === a || s.cwd.startsWith(a + "/")) s.cwd = b + s.cwd.slice(a.length);
+  const fix = (p) => (p.join("|") === from.join("|") || p.join("|").startsWith(from.join("|") + "|") ? [...to, ...p.slice(from.length)] : p);
+  S.path = fix(S.path); S.sel = fix(S.sel);
+  if (S.p3) S.p3 = fix(S.p3);
+  S.open = new Set([...S.open].map((k) => fix(k.split("|")).join("|")));
+}
+const parentExists = (p) => { let q = p; while (q.length && !node(q)) q = q.slice(0, -1); return q; };
+
+const A = {
+  page: (e) => { S.page = e.dataset.id; S.sheet = null; S.launchOpen = false; render(); },
+  filter: (e) => { S.filter = e.dataset.id; render(); },
+  enter: (e) => { S.path = unpk(e.dataset.p); S.launchOpen = false; render(); },
+  up3: (e) => { S.p3 = e.dataset.p ? unpk(e.dataset.p) : null; render(); },
+  select: (e) => {
+    const p = unpk(e.dataset.p), k = p.join("|"), n = node(p);
+    if (n.dir && !n.locked) { if (S.sel.join("|") === k && S.open.has(k)) S.open.delete(k); else S.open.add(k); }
+    S.sel = p; render();
+  },
+  twist: (e) => { const k = unpk(e.dataset.p).join("|"); if (S.open.has(k)) S.open.delete(k); else S.open.add(k); render(); },
+  itemMenu: (e) => openSheet({ t: "item", p: unpk(e.dataset.p) }),
+  openFile: (e) => { S.sheet = null; S.full = { t: "file", p: unpk(e.dataset.p) }; render(); },
+  closeFull: () => { S.full = null; render(); },
+  edit: () => { S.full.edit = true; render(); },
+  cancelEdit: () => { S.full.edit = false; render(); },
+  saveFile: () => { const n = node(S.full.p); n.text = document.getElementById("editor").value; S.full.edit = false; showToast("Salvato sul PC"); render(); },
+  openTerm: (e) => { const p = unpk(e.dataset.p); addSession({ kind: "shell", label: "Terminale", cwd: disp(p) }); },
+  agentSheet: (e) => openSheet({ t: "agent", p: unpk(e.dataset.p), mode: "chat" }),
+  setAgent: (e) => { S.agent = e.dataset.id; render(); },
+  setMode: (e) => { S.sheet.mode = e.dataset.id; render(); },
+  startAgent: (e) => {
+    const p = unpk(e.dataset.p), cwd = disp(p), name = node(p).name;
+    if (S.sheet.mode === "term") return addSession({ kind: "term", cli: S.agent, label: `${agentName(S.agent)} · ${name}`, cwd, status: "idle", since: "ora" });
+    const first = document.getElementById("first")?.value.trim();
+    addSession({ kind: "chat", cli: S.agent, label: first || `${agentName(S.agent)} · ${name}`, cwd, status: first ? "busy" : "idle", since: "ora", first });
+  },
+  askStart: (e) => { const p = unpk(e.dataset.p), first = S.ask.trim(); S.ask = ""; addSession({ kind: "chat", cli: S.agent, label: first, cwd: disp(p), status: "busy", since: "ora", first }); },
+  homeStart: () => { const first = S.draft.trim(); if (!first) return; S.draft = ""; addSession({ kind: "chat", cli: S.agent, label: first, cwd: S.homeCwd, status: "busy", since: "ora", first }); },
+  rename: (e) => openSheet({ t: "name", mode: "rename", p: unpk(e.dataset.p) }),
+  newItem: (e) => openSheet({ t: "new", p: unpk(e.dataset.p) }),
+  newDir: () => openSheet({ t: "name", mode: "dir", p: S.sheet.p, value: "" }),
+  newFile: () => openSheet({ t: "name", mode: "file", p: S.sheet.p, value: "" }),
+  saveName: () => {
+    const h = S.sheet, raw = document.getElementById("name").value;
+    const target = h.mode === "rename" ? node(h.p) : null;
+    const parent = node(h.mode === "rename" ? h.p.slice(0, -1) : h.p);
+    const err = validName(raw, parent, target);
+    if (err) { h.err = err; h.value = raw; return render(); }
+    const v = raw.trim();
+    if (target) { if (v !== target.name) { const to = [...h.p.slice(0, -1), v]; relocate(h.p, to); target.name = v; S.sel = S.sel.length ? S.sel : to; } showToast("Rinominato"); }
+    else { parent.kids.push(h.mode === "dir" ? dir(v) : file(v, "0 KB", "")); showToast(h.mode === "dir" ? "Cartella creata" : "File creato"); if (variant === 2) S.open.add(h.p.join("|")); }
+    S.sheet = null; render();
+  },
+  move: (e) => openSheet({ t: "move", p: unpk(e.dataset.p) }),
+  moveTo: (e) => {
+    const from = S.sheet.p, n = node(from), dest = unpk(e.dataset.p), target = node(dest);
+    if (target.kids.some((k) => k.name === n.name)) { S.sheet = null; showToast("Lì c'è già un elemento con questo nome"); return render(); }
+    const parent = node(from.slice(0, -1));
+    parent.kids = parent.kids.filter((k) => k !== n);
+    target.kids.push(n);
+    relocate(from, [...dest, n.name]);
+    S.sheet = null; showToast(`Spostato in ${target.name}`); render();
+  },
+  del: (e) => openSheet({ t: "del", p: unpk(e.dataset.p) }),
+  doDel: (e) => {
+    const p = unpk(e.dataset.p), n = node(p), parent = node(p.slice(0, -1)), i = parent.kids.indexOf(n);
+    parent.kids.splice(i, 1);
+    S.sheet = null;
+    S.path = parentExists(S.path); S.sel = parentExists(S.sel);
+    if (S.p3) { S.p3 = parentExists(S.p3); if (!S.p3.length) S.p3 = null; }
+    showToast(`${n.name} nel Cestino`, () => { parent.kids.splice(i, 0, n); });
+    render();
+  },
+  undo: () => { S.toast?.undo?.(); S.toast = null; clearTimeout(toastTimer); render(); },
+  openSession: (e) => { S.sheet = null; S.full = { t: "session", id: e.dataset.id }; render(); },
+  sessionMenu: (e) => openSheet({ t: "session", id: e.dataset.id }),
+  askClose: () => { S.sheet.confirm = true; render(); },
+  doClose: (e) => { S.sessions = S.sessions.filter((s) => s.id !== e.dataset.id); S.sheet = null; render(); },
+  reveal: (e) => {
+    const p = pathOf(S.sessions.find((s) => s.id === e.dataset.id).cwd);
+    S.sheet = null; S.page = "files"; S.path = p; S.sel = p;
+    if (variant === 3) S.p3 = p;
+    p.forEach((_, i) => S.open.add(p.slice(0, i + 1).join("|")));
+    render();
+  },
+  newTermPick: () => openPicker("terminal"),
+  goFiles: () => { S.sheet = null; S.page = "files"; render(); },
+  pickAgent: () => openSheet({ t: "pick", what: "agent" }),
+  pickFolder: () => openPicker("home"),
+  pickDone: (e) => { S.agent = e.dataset.id; S.sheet = null; render(); },
+  closeSheet: () => { S.sheet = null; render(); },
+  toggleLaunch: () => { S.launchOpen = !S.launchOpen; render(); },
+  chooseAgentFolder: () => openPicker("agent"),
+  pickerHome: () => { S.picker.path = null; S.picker.query = ""; render(); },
+  pickerEnter: (e) => { S.picker.path = unpk(e.dataset.p); S.picker.query = ""; render(); },
+  pickerCancel: () => { const previous = S.picker.previous; S.picker = null; S.sheet = previous; render(); },
+  pickerBack: () => {
+    const h = S.picker;
+    if (h.path === null) return A.pickerCancel();
+    h.path = h.path.length ? h.path.slice(0,-1) : null; h.query = ""; render();
+  },
+  pickerConfirm: () => {
+    const h = S.picker, p = h.path, n = p === null ? null : node(p);
+    if (oldDesk || !p?.length || !n?.dir || n.locked) return;
+    S.picker = null;
+    if (h.context === "terminal") return addSession({ kind: "shell", label: "Terminale", cwd: disp(p) });
+    if (h.context === "agent") { S.sheet = h.previous; S.sheet.p = p.slice(); }
+    else S.homeCwd = disp(p);
+    render();
+  },
+};
+
+stage.addEventListener("click", (ev) => {
+  const el = ev.target.closest("[data-a]");
+  if (!el || el.disabled) return;
+  if (el.dataset.self && ev.target !== el) return;
+  A[el.dataset.a]?.(el);
+});
+stage.addEventListener("input", (ev) => {
+  if (ev.target.id === "first" && S.sheet?.t === "agent") S.sheet.first = ev.target.value;
+  if (ev.target.id === "folder-filter" && S.picker) {
+    S.picker.query = ev.target.value;
+    stage.querySelector(".picker-body").innerHTML = pickerRows();
+  }
+  if (ev.target.id === "draft") { S.draft = ev.target.value; document.getElementById("go").disabled = !S.draft.trim(); }
+  if (ev.target.id === "ask") { S.ask = ev.target.value; document.getElementById("askgo").disabled = !S.ask.trim(); }
+});
+stage.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && ev.target.id === "name") A.saveName();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  if (S.picker) A.pickerCancel();
+  else if (S.launchOpen) A.toggleLaunch();
+  else if (S.sheet) A.closeSheet();
+  else if (S.full) A.closeFull();
+});
+
+function note() {
+  const n = NOTES[variant];
+  const li = (a) => a.map((x) => `<li>${x}</li>`).join("");
+  document.getElementById("note").innerHTML = `<h2>${n.name} <span class="tag">${n.tag}</span></h2><p>${n.lead}</p><h3>Da provare</h3><ul>${li(n.how)}</ul><h3>A favore</h3><ul>${li(n.pro)}</ul><h3>Contro</h3><ul>${li(n.con)}</ul>`;
+}
+function setVariant(v) {
+  variant = v;
+  document.querySelectorAll("#variants button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.v === v)));
+  S.sheet = null; S.full = null; S.picker = null; S.launchOpen = false;
+  note(); render();
+}
+document.getElementById("variants").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setVariant(+b.dataset.v); });
+document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => { S.page = b.dataset.go; S.sheet = null; S.full = null; S.picker = null; S.launchOpen = false; render(); }));
+document.getElementById("noterm").addEventListener("change", (e) => { hideTerms = e.target.checked; render(); });
+document.getElementById("olddesk").addEventListener("change", (e) => { oldDesk = e.target.checked; render(); });
+document.getElementById("reset").addEventListener("click", () => { clearTimeout(toastTimer); hideTerms = false; oldDesk = false; document.getElementById("noterm").checked = false; document.getElementById("olddesk").checked = false; S = fresh(); render(); });
+document.getElementById("demo-picker").addEventListener("click", () => { S.full = null; S.sheet = null; S.page = "home"; openPicker("home"); });
+setVariant(1);
+</script>
+</body>
+</html>

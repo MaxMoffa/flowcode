@@ -6,6 +6,8 @@ import { onUsageFetched, retainUsage } from "./useUsageState";
 import { isRemoteLeader, watchRemoteLeader } from "../remote/leader";
 import type { UsageItem } from "../../shared/remote-types";
 import { metricText, usageFetcherFor, type UsageInfo } from "./usage";
+import { CLI_INFO } from "../agents/cliInfo";
+import { PROVIDER_AUTH_REQUIRED, type ProviderAuthenticated } from "../profiles/providerAuth";
 
 // What the phone app is shown (see docs/remote-protocol.md): the backend
 // keeps the latest of each and pushes it to connected phones, so publishing
@@ -58,7 +60,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
     const key = usageKey(pluginId, profile);
     // A failed probe keeps the last good value: one hiccup must not make the
     // item vanish from the phone.
-    if (usage.ok) {
+    if (usage.ok || usage.metrics.some((metric) => ["reauth", "loggedOut", "noApiKey"].includes(metric.kind))) {
       latest.set(key, {
         pluginId,
         label: labelOf(pluginId),
@@ -79,6 +81,14 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
     }
     if (!timer) timer = setTimeout(flush, PUBLISH_DELAY_MS);
   });
+  const authRequired = (event: Event) => {
+    const { cli, profile } = (event as CustomEvent<ProviderAuthenticated>).detail;
+    const pluginId = CLI_INFO[cli]?.pluginId;
+    if (!pluginId) return;
+    latest.set(usageKey(pluginId, profile ?? undefined), { pluginId, label: labelOf(pluginId), profile: profile ?? undefined, metrics: [{ kind: "reauth", label: metricText({ kind: "reauth" }).label, command: CLI_INFO[cli].loginCommand }] });
+    if (!timer) timer = setTimeout(flush, PUBLISH_DELAY_MS);
+  };
+  window.addEventListener(PROVIDER_AUTH_REQUIRED, authRequired);
 
   const held = new Map<string, () => void>();
   let disposed = false;
@@ -97,9 +107,9 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
     for (const id of Object.keys(PROFILE_CLI)) {
       if (!usageFetcherFor(id)) continue;
       const cli = PROFILE_CLI[id];
-      if (defaultSignedIn.has(cli)) wanted.set(usageKey(id), { id });
+      if (defaultInstalled.has(cli)) wanted.set(usageKey(id), { id });
       for (const p of profiles) {
-        if (p.logged_in[cli]) wanted.set(usageKey(id, p.id), { id, profile: p.id });
+        if (defaultInstalled.has(cli) || p.logged_in[cli]) wanted.set(usageKey(id, p.id), { id, profile: p.id });
       }
     }
     // A deleted profile or unpinned plugin must leave the phone too.
@@ -118,7 +128,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
   };
   /** The default profile's logins: not in the profiles store, so asked of the
    * backend (cheap, but it may spawn the CLI - hence only while publishing). */
-  const defaultSignedIn = new Set<string>();
+  const defaultInstalled = new Set<string>();
   let lastProbeAt = 0;
   /** `force`: the profile list changed, so ask again whatever the last probe's age. */
   const probeDefault = async (force = false) => {
@@ -128,8 +138,8 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
     for (const cli of new Set(Object.values(PROFILE_CLI))) {
       const st = await defaultCliStatus(cli, force);
       if (disposed) return;
-      if (st?.installed && st.logged_in) defaultSignedIn.add(cli);
-      else if (st) defaultSignedIn.delete(cli);
+      if (st?.installed) defaultInstalled.add(cli);
+      else if (st) defaultInstalled.delete(cli);
     }
     reconcile();
   };
@@ -159,6 +169,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
       disposed = true;
       clearInterval(probeTimer);
       stop();
+      window.removeEventListener(PROVIDER_AUTH_REQUIRED, authRequired);
       if (timer) clearTimeout(timer);
       unlisten.then((fn) => fn()).catch(() => {});
       unwatchLeader();

@@ -416,7 +416,7 @@ function UsagePane({ agent }: { agent: ActiveAgent }) {
             const warn = m.percent !== undefined && m.percent >= WARN_AT;
             const { label, detail, value } = metricText(m);
             return (
-              <div key={i} className={`plugin-usage-metric${warn ? " plugin-usage-metric--warn" : ""}`}>
+              <div key={i} className={`plugin-usage-metric${warn ? " plugin-usage-metric--warn" : ""}${["loggedOut", "reauth", "noApiKey"].includes(m.kind) ? " plugin-usage-metric--auth" : ""}`}>
                 <div className="plugin-usage-metric-top">
                   <span className="plugin-usage-metric-label">{label}</span>
                   {m.percent !== undefined ? (

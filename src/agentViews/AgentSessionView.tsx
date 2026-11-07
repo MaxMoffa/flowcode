@@ -17,8 +17,7 @@ import "../chat/chat.css";
 import "./builtins";
 import { AgentHeader } from "./AgentHeader";
 import { agentView, resolveAcpView, useAgentViews, viewLabel } from "./registry";
-
-const AUTH_PREFIX = "auth_required:";
+import { isProviderAuthError } from "../../shared/providerAuth";
 
 interface AgentSessionViewProps {
   agent: AgentCli;
@@ -94,6 +93,9 @@ export function AgentSessionView({
   const { model, phase, error, sessionId } = chat;
   // A new chat starting shows the conversation (the frog's pond); a resumed one waits behind the spinner.
   const showView = phase === "ready" || (phase === "starting" && !chat.resumed);
+  // Keep the composer mounted while restarting so its unsent draft and attachments survive authentication.
+  const mountedViewRef = useRef(false);
+  if (showView) mountedViewRef.current = true;
   const label = CLI_INFO[agent].label;
   const folder = basename(cwd);
   const subtitle = title === label ? folder : `${label} · ${folder}`;
@@ -187,7 +189,7 @@ export function AgentSessionView({
     }
   }
 
-  const authRequired = phase === "failed" && !!error?.startsWith(AUTH_PREFIX);
+  const authRequired = chat.authRequired || (phase === "failed" && !!error && isProviderAuthError(error));
 
   return (
     <FileLinkWslContext.Provider value={chat.wslDistro ?? null}>
@@ -252,13 +254,23 @@ export function AgentSessionView({
             }}
           </AgentHeader>
 
-          {showView ? (
-            View && (
+          {authRequired && showView && (
+            <div className="chat-auth-banner" role="alert">
+              <span className="chat-auth-symbol" aria-hidden="true">!</span>
+              <div><strong>{t("chat.auth.title", { agent: label })}</strong><p>{t("chat.auth.body", { agent: label })}</p></div>
+              <button type="button" className="chat-btn is-primary" onClick={() => onOpenLogin(CLI_INFO[agent].loginCommand)}>{t("chat.auth.open")}</button>
+            </div>
+          )}
+          {mountedViewRef.current && (
+            <div style={{ display: showView ? "contents" : "none" }}>
+            {View && (
               <Suspense fallback={null}>
-                <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.sub} onOpenSubagent={nav.open} onOpenDelegate={onOpenDelegate ? (delegate) => onOpenDelegate(delegate, chat.wslDistro) : undefined} />
+                <View session={chat} agent={agent} hidden={hidden || !showView} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.sub} onOpenSubagent={nav.open} onOpenDelegate={onOpenDelegate ? (delegate) => onOpenDelegate(delegate, chat.wslDistro) : undefined} />
               </Suspense>
-            )
-          ) : (
+            )}
+            </div>
+          )}
+          {!showView && (
             <div className="chat-column">
               <div className="chat-content">
               {phase === "starting" && (
@@ -269,11 +281,12 @@ export function AgentSessionView({
                 </div>
               )}
               {phase === "failed" && (
-                <div className="chat-state">
+                <div className={`chat-state${authRequired ? " chat-auth-callout" : ""}`}>
                   {authRequired ? (
                     <>
                       <div className="chat-state-title">{t("chat.auth.title", { agent: label })}</div>
-                      <div>{t("chat.auth.body", { agent: label, command: CLI_INFO[agent].loginCommand })}</div>
+                      <span className="chat-auth-symbol" aria-hidden="true">!</span>
+                      <div>{t("chat.auth.body", { agent: label })}</div>
                       <div className="chat-state-actions">
                         <button type="button" className="chat-btn is-primary" onClick={() => onOpenLogin(CLI_INFO[agent].loginCommand)}>
                           {t("chat.auth.open")}

@@ -27,6 +27,9 @@ export function useShortcuts(handlers: Handlers) {
     }
 
     function onKeyDown(e: KeyboardEvent) {
+      // Authentication can contain a password field or a provider-owned terminal.
+      // Its keys must never create, close or switch the workspace behind the dialog.
+      if (e.target instanceof Element && e.target.closest(".provider-auth-panel")) return;
       const action = byKey.get(canonicalCombo(eventToShortcutString(e)));
       const handler = action && handlersRef.current[action];
       // In a terminal, Ctrl+letter (and Ctrl+Alt+letter) without Shift is a

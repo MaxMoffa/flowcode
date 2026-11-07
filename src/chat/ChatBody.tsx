@@ -506,7 +506,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
 
   function submit() {
     autoSendRef.current = false;
-    if (phase !== "ready") return;
+    if (phase !== "ready" || chat.authRequired) return;
     if (!draft.trim() && attachments.length === 0 && !pickedCommand) return;
     const isClear = pickedCommand ? pickedCommand.kind === "flowcode" && pickedCommand.command.name === "clear" : draft.trim() === "/clear";
     if (chat.clear && attachments.length === 0 && isClear) {
@@ -1209,7 +1209,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                     className="chat-icon-btn is-send"
                     title={t("chat.send")}
                     aria-label={t("chat.send")}
-                    disabled={phase !== "ready" || (!draft.trim() && attachments.length === 0 && !pickedCommand)}
+                    disabled={phase !== "ready" || chat.authRequired || (!draft.trim() && attachments.length === 0 && !pickedCommand)}
                     onClick={submit}
                   >
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

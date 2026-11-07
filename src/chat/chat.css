@@ -18,6 +18,32 @@
 }
 
 /* --- header ------------------------------------------------------------ */
+.chat-auth-banner,
+.chat-auth-callout {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--ansi-yellow) 10%, var(--menu-surface));
+  border: 1px solid color-mix(in srgb, var(--ansi-yellow) 48%, var(--border));
+  border-radius: 9px;
+}
+.chat-auth-banner {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 16px 0;
+  padding: 12px 14px;
+  font-size: 12px;
+}
+.chat-auth-banner strong { color: var(--ansi-yellow); }
+.chat-auth-banner p { color: var(--fg-muted); margin: 3px 0 0; font-size: 11px; }
+.chat-auth-banner .chat-btn { flex: none; margin-left: auto; }
+.chat-auth-symbol { display: inline-grid; flex: none; place-items: center; width: 26px; height: 26px; border: 1px solid currentColor; border-radius: 7px; color: var(--ansi-yellow); font-weight: 700; }
+.chat-auth-callout { padding: 22px; }
+@media (max-width: 640px) {
+  .chat-auth-banner { flex-wrap: wrap; gap: 10px; margin: 10px; }
+  .chat-auth-banner > div { flex: 1; min-width: 180px; }
+}
+
 .chat-header {
   flex: 0 0 auto;
   height: 44px;

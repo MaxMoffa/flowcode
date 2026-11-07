@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Flowcode · trama sfondo chat · 3 varianti</title>
+<style>
+  :root[data-theme="light"] {
+    --page: #efe6d4; --bg: rgb(255 250 241); --fg: #3a2b17; --fg-muted: #8b7457;
+    --border: rgba(120,80,36,.16); --accent: #4f6e3a; --accent-2: #a8683a;
+    --ink: 120, 80, 36;      /* colore trama (RGB) */
+    --bubble: rgba(79,110,58,.12); --card: rgba(255,250,241,.85);
+    --tex-blend: multiply;
+  }
+  :root[data-theme="dark"] {
+    --page: #060403; --bg: rgb(14 10 7); --fg: #e7d8c5; --fg-muted: #a08a6f;
+    --border: rgba(232,184,128,.12); --accent: #9db984; --accent-2: #c9975a;
+    --ink: 232, 184, 128;
+    --bubble: rgba(139,168,118,.16); --card: rgba(30,22,15,.85);
+    --tex-blend: screen;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--page); color: var(--fg); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 24px; }
+  header { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 18px; font-weight: 600; }
+  .ctl { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 12px; }
+  button { background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  input[type=range] { accent-color: var(--accent); width: 140px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(300px, 1fr)); gap: 20px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+  .col h2 { font-size: 13px; margin-bottom: 2px; }
+  .col p.d { color: var(--fg-muted); font-size: 12px; margin-bottom: 10px; min-height: 54px; }
+
+  /* ---- il pannello chat ---- */
+  .chat { position: relative; height: 560px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; display: flex; flex-direction: column; isolation: isolate; }
+  /* livello trama: dietro a tutto, non cattura click */
+  .tex { position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: var(--tex-opacity, 1); mix-blend-mode: var(--tex-blend); }
+
+  /* A · Grana carta: rumore frattale, sfuma ai bordi */
+  .tex-a {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.62  0 0 0 0 0.45  0 0 0 0 0.25  0 0 0 .55 -.12'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    opacity: calc(var(--tex-opacity, 1) * .9);
+  }
+  /* B · Punti a griglia: dot grid sfumato verso il centro (il testo respira) */
+  .tex-b {
+    background-image: radial-gradient(circle, rgba(var(--ink), .30) 1px, transparent 1.4px);
+    background-size: 22px 22px;
+    -webkit-mask-image: radial-gradient(ellipse at 50% 45%, transparent 25%, #000 95%);
+            mask-image: radial-gradient(ellipse at 50% 45%, transparent 25%, #000 95%);
+  }
+  /* C · Increspature: cerchi concentrici da due angoli, richiamo allo stagno della rana */
+  .tex-c {
+    background:
+      repeating-radial-gradient(circle at 100% 100%, transparent 0 26px, rgba(var(--ink), .16) 26px 27px),
+      repeating-radial-gradient(circle at 0% 0%, transparent 0 34px, rgba(var(--ink), .10) 34px 35px);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, transparent 30%, #000 100%);
+            mask-image: radial-gradient(ellipse at 50% 50%, transparent 30%, #000 100%);
+  }
+
+  /* ---- mock messaggi ---- */
+  .head { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--fg-muted); display: flex; gap: 8px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .msgs { flex: 1; padding: 16px 14px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .u { align-self: flex-end; max-width: 80%; background: var(--bubble); padding: 8px 12px; border-radius: 12px 12px 3px 12px; }
+  .a { max-width: 92%; }
+  .tool { align-self: flex-start; font: 12px ui-monospace, Consolas, monospace; color: var(--fg-muted); border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 6px 10px; }
+  .tool b { color: var(--accent-2); font-weight: 500; }
+  code { font: 12px ui-monospace, Consolas, monospace; color: var(--accent); }
+  .comp { margin: 0 14px 14px; border: 1px solid var(--border); background: var(--card); border-radius: 10px; padding: 10px 12px; color: var(--fg-muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Trama sfondo chat · 3 varianti</h1>
+  <button id="theme">Tema: scuro</button>
+  <label class="ctl">Intensità <input id="int" type="range" min="0" max="200" value="100"> <span id="iv">100%</span></label>
+  <label class="ctl"><input id="off" type="checkbox"> confronta senza trama</label>
+</header>
+
+<div class="grid">
+  <section class="col">
+    <h2>A · Grana carta</h2>
+    <p class="d">Rumore fine uniforme, come carta calda. Quasi subliminale: dà materia al vetro senza disegnare nulla.</p>
+    <div class="chat"><div class="tex tex-a"></div>@@MOCK@@</div>
+  </section>
+  <section class="col">
+    <h2>B · Griglia di punti</h2>
+    <p class="d">Dot grid da blocco appunti, sfuma verso il centro così il testo resta pulito. Tono "strumento da dev".</p>
+    <div class="chat"><div class="tex tex-b"></div>@@MOCK@@</div>
+  </section>
+  <section class="col">
+    <h2>C · Increspature</h2>
+    <p class="d">Cerchi concentrici dagli angoli, come onde nello stagno. Si lega alla rana e allo stato "fine sessione".</p>
+    <div class="chat"><div class="tex tex-c"></div>@@MOCK@@</div>
+  </section>
+</div>
+
+<template id="mock">
+  <div class="head"><span class="dot"></span> Claude · flowcode · sonnet</div>
+  <div class="msgs">
+    <div class="u">Aggiungi un hook per salvare la bozza del composer quando cambio tab.</div>
+    <div class="tool"><b>Read</b> src/chat/composer.tsx</div>
+    <div class="a">Trovato: lo stato della bozza vive in <code>useComposerDraft</code> ma viene azzerato allo smontaggio. Lo sposto in uno store per sessione così sopravvive al cambio tab.</div>
+    <div class="tool"><b>Edit</b> src/chat/draft-store.ts +24 −3</div>
+    <div class="a">Fatto. Ho aggiunto anche il ripristino del cursore. Vuoi che aggiunga un test?</div>
+    <div class="u">Sì, e controlla anche mobile.</div>
+  </div>
+  <div class="comp">Scrivi un messaggio…</div>
+</template>
+
+<script>
+  const html = document.documentElement;
+  const mock = document.getElementById('mock').innerHTML;
+  document.querySelectorAll('.chat').forEach(c => c.innerHTML = c.innerHTML.replace('@@MOCK@@', '') + mock);
+  const set = () => {
+    const v = document.getElementById('off').checked ? 0 : document.getElementById('int').value / 100;
+    html.style.setProperty('--tex-opacity', v);
+    document.getElementById('iv').textContent = Math.round(v * 100) + '%';
+  };
+  document.getElementById('int').oninput = set;
+  document.getElementById('off').onchange = set;
+  document.getElementById('theme').onclick = e => {
+    const d = html.dataset.theme === 'dark';
+    html.dataset.theme = d ? 'light' : 'dark';
+    e.target.textContent = 'Tema: ' + (d ? 'chiaro' : 'scuro');
+  };
+</script>
+</body>
+</html>

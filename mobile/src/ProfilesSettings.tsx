@@ -4,7 +4,8 @@ import type { SheetVariant } from "./sheetLayout";
 import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { CloseIcon, Svg } from "./icons";
-import { profileAction, showToast, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
+import { profileAction, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
+import { openProviderAuth } from "./ProviderAuth";
 
 /** Preset badge colors, same as the desktop's profile editor. */
 const COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6", "#ec4899", "#64748b"];
@@ -118,8 +119,7 @@ function Agents({ id, name, loggedIn, onAdd, onLogout }: { id: string; name: str
             type="button"
             className="btn ghost prof-small"
             onClick={() => {
-              profileAction({ op: "login", id, cli: c.id });
-              showToast(t("profileLoginSent"));
+              openProviderAuth(c.id, id, name);
             }}
           >
             {t("profileRelogin")}
@@ -279,8 +279,7 @@ export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileI
             type="button"
             className="ps-row"
             onClick={() => {
-              if (add) profileAction({ op: "login", id: add.id, cli: c.id });
-              showToast(t("profileLoginSent"));
+              if (add) openProviderAuth(c.id, add.id, add.name);
               close();
             }}
           >

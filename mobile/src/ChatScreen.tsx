@@ -42,6 +42,8 @@ import { useReadyViews, viewFits, viewLabel } from "./viewCache";
 import { useWide } from "./wide";
 import { useCompactChat } from "./useCompactChat";
 import "./compact-chat.css";
+import { ProviderAuthNotice } from "./ProviderAuth";
+import { isProviderAuthError } from "../../shared/providerAuth";
 import { limitOf } from "../../src/chat/chatLimit";
 import { findSubagent, isGuardianReview, nestSubagents, subagentInfo, subagentState } from "../../src/chat/chatTimeline";
 
@@ -106,6 +108,15 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   }, [cleared]);
   const session = useMemo(() => stored ?? emptySession(), [stored]);
   const { model } = session;
+  // Provider errors only: never inspect tool output or text written by the model.
+  const providerError = useMemo(() => {
+    for (let i = model.items.length - 1; i >= 0; i--) {
+      const item = model.items[i];
+      if (item.type === "error" && isProviderAuthError(item.message)) return { message: item.message, id: item.id };
+      if (item.type === "agent" || item.type === "user") break;
+    }
+    return null;
+  }, [model.items]);
   // An open subagent: its own chat replaces the conversation until Back (header, Android button, Escape).
   const [openSub, setOpenSub] = useState<string | null>(null);
   const sub = useMemo(() => (openSub ? findSubagent(model.items, openSub) : null), [model.items, openSub]);
@@ -564,6 +575,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
               </button>
             )}
           </div>
+          {!sub && providerError && <ProviderAuthNotice cli={info.agent} profile={info.profile} error={providerError.message} errorId={providerError.id} />}
           <PermissionBar pending={pending} onAnswer={answerPermission} />
           {sub ? (
             <div className="chat-sub-foot">

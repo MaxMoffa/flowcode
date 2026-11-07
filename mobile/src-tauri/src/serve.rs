@@ -163,8 +163,9 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
         let mut last_rx = Instant::now();
         // Large frames from a desktop that can deflate them come smaller; it
         // switches when it reads this, ahead of anything else we ask for.
-        if session.caps.iter().any(|c| c == "compress") {
-            if let Err(e) = send_frame(&mut session.send, &ClientMsg::Hello { caps: vec!["compress".into()] }).await {
+        let phone_caps: Vec<String> = ["compress", "providerAuth"].iter().filter(|cap| session.caps.iter().any(|c| c == **cap)).map(|cap| (*cap).to_string()).collect();
+        if !phone_caps.is_empty() {
+            if let Err(e) = send_frame(&mut session.send, &ClientMsg::Hello { caps: phone_caps }).await {
                 return Exit::Lost(e);
             }
         }

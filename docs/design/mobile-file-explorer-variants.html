@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per sostituire la pagina Terminali del telefono con un esploratore di file e portare i terminali semplici nella home.">
+  <title>Flowcode mobile — pagina File e terminali in home · 3 varianti</title>
+  <style>
+    /* Token e misure copiati da mobile/src/ui.css e home.css. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-2: #c9975a; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --wait: #d1a752; --wait-bg: rgba(209, 167, 82, .08); --wait-border: rgba(209, 167, 82, .28);
+      --busy: #6f9bcf; --busy-bg: rgba(111, 155, 207, .09); --danger: #e2645c;
+      --glass-strong: rgba(14, 10, 7, .62);
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(.2, .8, .2, 1);
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:disabled { cursor: default; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+    svg.logo { fill: currentColor; stroke: none; }
+    .mono { font-family: var(--mono); }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1080px; margin: auto; padding: 28px 24px 56px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 150px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .layout { display: grid; grid-template-columns: 406px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .side { display: grid; gap: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; min-height: 32px; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .ctl { min-height: 32px; padding: 0 11px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--fg); font-size: 13px; }
+    .ctl:active { background: var(--surface-3); }
+    .note h2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .tag { padding: 1px 8px; border-radius: 999px; background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); color: var(--accent); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 62ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 62ch; }
+    code { font: 12.5px var(--mono); }
+    .section { margin-top: 44px; }
+    .section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .section > p { margin: 0 0 12px; color: var(--muted); max-width: 72ch; }
+    .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 13.5px; }
+    th { padding: 9px 14px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+    td { padding: 10px 14px; border-top: 1px solid var(--border); vertical-align: top; }
+    td:first-child { width: 25%; color: var(--muted); }
+    .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+    .box { padding: 14px 16px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
+    .box.warn { background: rgba(209, 167, 82, .07); box-shadow: inset 0 0 0 1px rgba(209, 167, 82, .24); }
+    .box h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+    .box.warn h3 { color: var(--wait); }
+    .box ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; }
+    @media (max-width: 880px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 390px; max-width: 100%; height: 780px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong), 0 30px 60px -30px #000; isolation: isolate; margin: 9px auto 0; }
+    .status { position: relative; z-index: 6; flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding: 0 14px 104px; display: flex; flex-direction: column; gap: 12px; }
+    .scroll::-webkit-scrollbar { display: none; }
+    .scroll.docked { padding-bottom: 178px; }
+    .aurora { position: absolute; inset: -26px 0 0; z-index: -1; pointer-events: none; opacity: .7;
+      -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.55) 44px, #000 124px); mask-image: linear-gradient(to bottom, rgba(0,0,0,.55) 44px, #000 124px);
+      background: radial-gradient(ellipse 105% 44% at 8% -4%, color-mix(in srgb, var(--accent) 58%, transparent), transparent 72%), radial-gradient(ellipse 88% 40% at 100% 10%, color-mix(in srgb, var(--accent-2) 50%, transparent), transparent 72%), radial-gradient(ellipse 80% 26% at 46% 36%, color-mix(in srgb, #b48ead 38%, transparent), transparent 74%); }
+
+    /* barra di navigazione */
+    .nav { position: absolute; left: 16px; right: 16px; bottom: 12px; z-index: 3; display: flex; gap: 4px; padding: 6px; border-radius: 28px; background: var(--glass-strong); -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%); border: 1px solid var(--border); }
+    .nav button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 52px; border-radius: 22px; color: var(--muted); font-size: 11px; font-weight: 600; }
+    .nav button.on { background: var(--accent-bg); color: var(--accent); }
+
+    /* ---- home ---- */
+    .hm-top { flex: none; display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 18px; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+    .hm-launch { padding: 14px; border-radius: 22px; background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--border-strong); -webkit-backdrop-filter: blur(16px) saturate(130%); backdrop-filter: blur(16px) saturate(130%); }
+    .hm-launch textarea { display: block; width: 100%; height: 50px; resize: none; padding: 0; border: 0; outline: 0; background: none; color: var(--fg); font: 17px/1.35 var(--font); }
+    .hm-launch textarea::placeholder { color: var(--muted); }
+    .hm-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+    .hm-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; max-width: 132px; padding: 0 10px; border-radius: 12px; background: var(--surface-3); font-size: 13px; white-space: nowrap; }
+    .hm-pill span { overflow: hidden; text-overflow: ellipsis; }
+    .hm-go { width: 44px; height: 44px; margin-left: auto; border-radius: 15px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
+    .hm-go:disabled { background: var(--surface-3); color: var(--muted); }
+    .hm-btn { display: grid; place-items: center; min-height: 44px; padding: 0 12px; border-radius: 13px; text-align: center; font-weight: 600; background: var(--surface-3); }
+    .hm-btn.primary { background: var(--accent); color: var(--on-accent); }
+    .hm-btn.danger { background: var(--danger); color: var(--bg); }
+    .hm-btn:disabled { opacity: .45; }
+    .hm-wait { padding: 14px; border-radius: 18px; background: linear-gradient(var(--wait-bg), var(--wait-bg)), color-mix(in srgb, var(--bg) 88%, transparent); border: 1px solid var(--wait-border); }
+    .hm-wait-top { display: flex; gap: 12px; align-items: center; }
+    .hm-wait-eye { font-size: 12px; font-weight: 600; color: var(--wait); }
+    .hm-wait-title { font-size: 16px; font-weight: 600; line-height: 1.25; }
+    .hm-wait .hm-btn { width: 100%; margin-top: 12px; }
+    .hm-usage { display: flex; gap: 8px; }
+    .hm-usage div { flex: 1; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 86%, transparent); font-size: 12px; color: var(--muted); }
+    .hm-usage b { display: block; color: var(--fg); font-size: 15px; font-weight: 600; }
+    .hm-usage i { display: block; height: 4px; margin-top: 6px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+    .hm-usage i::after { content: ""; display: block; height: 100%; width: var(--w); background: var(--accent); }
+    .hm-group { display: flex; flex-direction: column; gap: 8px; }
+    .hm-sec { display: flex; align-items: center; justify-content: space-between; min-height: 22px; margin: 6px 2px 0; font-size: 13px; font-weight: 600; color: color-mix(in srgb, var(--fg) 90%, var(--bg)); }
+    .hm-sec b { font-weight: 600; color: var(--fg); }
+    .hm-sec b.busy { color: color-mix(in srgb, var(--busy) 20%, var(--fg)); }
+    .hm-sec-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin: -12px 0; color: color-mix(in srgb, var(--accent) 20%, var(--fg)); font-size: 13px; font-weight: 600; }
+    .hm-list { border: 1px solid var(--border); border-radius: 18px; background: color-mix(in srgb, var(--surface) 86%, transparent); overflow: hidden; }
+    .hm-row { display: flex; align-items: center; gap: 4px; min-height: 64px; padding: 10px 4px 10px 14px; }
+    .hm-row + .hm-row { border-top: 1px solid var(--border); }
+    .hm-row.slim { min-height: 54px; padding-block: 5px; }
+    .hm-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 13px; min-height: 44px; }
+    .hm-txt { flex: 1; min-width: 0; display: grid; gap: 1px; }
+    .hm-txt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hm-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hm-since { flex: none; font-size: 11px; color: var(--muted); }
+    .hm-more { flex: none; width: 40px; height: 44px; display: grid; place-items: center; color: var(--muted); }
+    .hm-tile { position: relative; flex: none; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-3); }
+    .hm-tile.st-waiting { background: var(--wait-bg); color: var(--wait); box-shadow: inset 0 0 0 1px var(--wait-border); }
+    .hm-tile.st-idle, .hm-tile.st-shell { color: var(--muted); }
+    .hm-tile.st-busy { background: var(--busy-bg); color: var(--busy); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--busy) 42%, transparent); }
+    .hm-tile.st-shell { background: none; box-shadow: inset 0 0 0 1px var(--border-strong); }
+    .hm-tile .bub { position: absolute; right: -4px; bottom: -4px; width: 17px; height: 17px; border-radius: 6px; display: grid; place-items: center; background: var(--surface-2); box-shadow: 0 0 0 2px var(--surface); color: var(--fg); }
+    .hm-empty { padding: 14px 16px; border: 1px dashed var(--border-strong); border-radius: 16px; color: var(--muted); font-size: 13px; text-align: center; }
+    /* variante 2 */
+    .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; border-radius: 13px; background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--border); }
+    .seg button { min-height: 38px; border-radius: 10px; text-align: center; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .seg button small { margin-left: 3px; font-weight: 500; opacity: .75; font-size: 12px; }
+    .seg button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
+    /* variante 3 */
+    .strip { display: flex; gap: 8px; margin: 0 -14px; padding: 2px 14px; overflow-x: auto; scrollbar-width: none; }
+    .strip::-webkit-scrollbar { display: none; }
+    .chip { flex: none; display: flex; align-items: center; gap: 8px; max-width: 176px; min-height: 48px; padding: 0 12px 0 10px; border-radius: 14px; border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--surface) 86%, transparent); }
+    .chip > svg { color: var(--muted); }
+    .chip span { display: grid; min-width: 0; line-height: 1.2; }
+    .chip b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chip small { font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chip.add { padding: 0 14px; color: var(--muted); border-style: dashed; font-size: 13px; }
+
+    /* ---- pagina file ---- */
+    .fx-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 4px 8px 4px 18px; }
+    .fx-head.sub { padding-left: 4px; }
+    .fx-head h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+    .fx-head.sub h2 { font-size: 17px; }
+    .fx-head .t { flex: 1; min-width: 0; }
+    .fx-head small { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ib { flex: none; width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; color: var(--muted); }
+    .ib.solid { background: var(--surface-3); color: var(--fg); }
+    .crumbs { flex: none; display: flex; align-items: center; gap: 1px; padding: 0 14px 8px; overflow-x: auto; scrollbar-width: none; font-size: 13px; color: var(--muted); }
+    .crumbs::-webkit-scrollbar { display: none; }
+    .crumbs button { flex: none; min-height: 36px; padding: 0 6px; border-radius: 8px; }
+    .crumbs button.on { color: var(--fg); font-weight: 600; }
+    .crumbs svg { width: 12px; height: 12px; opacity: .6; }
+    .fx-list { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; }
+    .fx-row { display: flex; align-items: center; min-height: 56px; padding-right: 4px; }
+    .fx-row + .fx-row { border-top: 1px solid var(--border); }
+    .fx-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 4px 6px 14px; }
+    .fx-ico { flex: none; color: var(--muted); display: grid; place-items: center; }
+    .fx-ico.dir { color: var(--accent-2); }
+    .fx-txt { flex: 1; min-width: 0; display: grid; }
+    .fx-txt b { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fx-txt small { font-size: 12px; color: var(--muted); }
+    .live { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); font-size: 12px; font-weight: 600; }
+    .live.wait { background: var(--wait-bg); color: var(--wait); }
+    .live i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .fx-note { padding: 22px 18px; text-align: center; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 18px; }
+    .fx-note b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 2px; }
+    /* variante 1: barra apri qui */
+    .dock { position: absolute; left: 10px; right: 10px; bottom: 88px; z-index: 2; padding: 9px 10px 10px; border-radius: 20px; background: color-mix(in srgb, var(--surface-2) 92%, transparent); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: 1px solid var(--border-strong); box-shadow: var(--shadow); }
+    .dock-label { margin: 0 4px 7px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dock-label b { color: var(--fg); font-weight: 600; }
+    .dock-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .dock-acts .hm-btn { display: flex; justify-content: center; align-items: center; gap: 7px; }
+    /* variante 2: albero */
+    .tree { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; padding: 4px 0; }
+    .tn { display: flex; align-items: center; min-height: 44px; padding-right: 8px; }
+    .tn.on { background: var(--accent-bg); }
+    .tn-tw { flex: none; width: 28px; height: 44px; display: grid; place-items: center; color: var(--muted); }
+    .tn-tw svg { width: 13px; height: 13px; transition: transform .15s var(--ease); }
+    .tn.open .tn-tw svg { transform: rotate(90deg); }
+    .tn-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; min-height: 44px; font-size: 14px; }
+    .tn-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tn-name small { flex: none; margin-left: auto; font-size: 11px; color: var(--muted); }
+    .tn-acts { display: flex; gap: 6px; padding: 2px 8px 8px; background: var(--accent-bg); }
+    .tn-acts .hm-btn { flex: 1; display: flex; justify-content: center; align-items: center; gap: 6px; min-height: 40px; padding: 0 8px; font-size: 13px; }
+    .tn-acts .hm-btn.sq { flex: none; width: 44px; }
+    /* variante 3: progetti */
+    .pj { padding: 13px 14px 12px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface); }
+    .pj-top { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; }
+    .pj-tiles { flex: none; display: flex; }
+    .pj-tiles .hm-tile { width: 30px; height: 30px; border-radius: 10px; box-shadow: 0 0 0 2px var(--surface); }
+    .pj-tiles .hm-tile + .hm-tile { margin-left: -8px; }
+    .pj-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .pj-acts .hm-btn { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 42px; font-size: 13px; }
+    .ask { position: absolute; left: 10px; right: 10px; bottom: 88px; z-index: 2; display: flex; align-items: flex-end; gap: 6px; padding: 8px; border-radius: 20px; background: color-mix(in srgb, var(--surface-2) 94%, transparent); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: 1px solid var(--border-strong); box-shadow: var(--shadow); }
+    .ask-in { flex: 1; min-width: 0; }
+    .ask-in textarea { display: block; width: 100%; height: 40px; padding: 8px 4px 0; resize: none; border: 0; outline: 0; background: none; color: var(--fg); font: 15px/1.3 var(--font); }
+    .ask-in textarea::placeholder { color: var(--muted); }
+    .ask-row { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+    .ask .hm-pill { min-height: 36px; }
+    .ask .hm-go { margin: 0; }
+
+    /* ---- fogli ---- */
+    .scrim { position: absolute; inset: -26px 0 0; z-index: 7; display: flex; align-items: flex-end; background: rgba(8, 6, 4, .58); }
+    .sheet { width: 100%; max-height: 84%; display: flex; flex-direction: column; padding: 8px 14px 18px; border-radius: 24px 24px 0 0; background: var(--surface); box-shadow: 0 -1px 0 var(--border-strong), var(--shadow); overflow-y: auto; scrollbar-width: none; }
+    .sheet.in { animation: up .24s var(--ease); }
+    @keyframes up { from { transform: translateY(40px); opacity: .4; } }
+    .grab { width: 38px; height: 4px; margin: 2px auto 10px; border-radius: 2px; background: var(--border-strong); flex: none; }
+    .sheet h3 { margin: 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; }
+    .sheet .sub { margin: 1px 4px 12px; font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+    .sheet p { margin: 0 4px 12px; color: var(--muted); }
+    .sheet p.warn { color: var(--wait); }
+    .opts { display: grid; border-radius: 14px; background: var(--surface-2); overflow: hidden; margin-bottom: 10px; }
+    .opts button { display: flex; align-items: center; gap: 12px; min-height: 50px; padding: 4px 14px; font-size: 15px; }
+    .opts button + button { border-top: 1px solid var(--border); }
+    .opts button:active { background: var(--surface-3); }
+    .opts button.danger { color: var(--danger); }
+    .opts button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .opts button.on { color: var(--accent); }
+    .field { display: block; margin: 0 0 12px; }
+    .field span { display: block; margin: 0 4px 4px; font-size: 12px; color: var(--muted); }
+    .field input, .field textarea { width: 100%; min-height: 46px; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--fg); font: 15px/1.35 var(--font); resize: none; }
+    .err { margin: -6px 4px 10px; color: var(--danger); font-size: 13px; }
+    .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .acts.one { grid-template-columns: 1fr; }
+    .sheet .seg { margin-bottom: 12px; background: var(--surface-2); }
+
+    /* ---- schermate a tutto schermo ---- */
+    .full { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; background: var(--bg); }
+    .full-head { flex: none; display: flex; align-items: center; gap: 2px; min-height: 50px; padding: 2px 6px 2px 4px; border-bottom: 1px solid var(--border); }
+    .full-head .t { flex: 1; min-width: 0; }
+    .full-head b { display: block; font-size: 15px; font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .full-head small { display: block; font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txtbtn { flex: none; min-height: 40px; padding: 0 12px; border-radius: 11px; font-size: 13px; font-weight: 600; color: var(--accent); }
+    .txtbtn.fill { background: var(--accent); color: var(--on-accent); }
+    .txtbtn:disabled { color: var(--muted); }
+    .code { flex: 1; min-height: 0; margin: 0; padding: 14px; overflow: auto; font: 12.5px/1.6 var(--mono); white-space: pre; scrollbar-width: thin; }
+    textarea.code { width: 100%; border: 0; outline: 0; resize: none; background: var(--surface); color: var(--fg); }
+    .banner { flex: none; padding: 9px 14px; font-size: 13px; background: var(--wait-bg); color: var(--wait); border-bottom: 1px solid var(--wait-border); }
+    .term { flex: 1; padding: 12px 14px; font: 13px/1.6 var(--mono); background: #0e0a07; white-space: pre-wrap; }
+    .term i { font-style: normal; color: var(--accent); }
+    .chatmsg { width: fit-content; max-width: 82%; margin: 16px 14px 0 auto; padding: 9px 14px; border-radius: 18px 18px 5px 18px; background: var(--surface-2); font-size: 15px; }
+    .chatrail { margin: 12px 16px; color: var(--muted); font-size: 13px; }
+    .toast { position: absolute; left: 14px; right: 14px; bottom: 92px; z-index: 8; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 8px 6px 14px; border-radius: 14px; background: var(--surface-3); box-shadow: var(--shadow); font-size: 14px; }
+    .toast span { flex: 1; min-width: 0; }
+    @media (prefers-reduced-motion: reduce) { .sheet.in { animation: none; } .tn-tw svg { transition: none; } }
+  </style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · TELEFONO</div>
+  <h1>Pagina File al posto di Terminali</h1>
+  <p class="lead">La seconda scheda diventa un esploratore di file del computer, da cui aprire una cartella in un terminale o in un agente. I terminali semplici si spostano nella home, accanto agli agenti. Ogni variante propone sia la pagina File sia la home: i telefoni qui sotto funzionano davvero.</p>
+
+  <div class="variants" role="group" aria-label="Scegli la variante" id="variants">
+    <button type="button" data-v="1"><span>01</span>Sfoglia</button>
+    <button type="button" data-v="2"><span>02</span>Albero</button>
+    <button type="button" data-v="3"><span>03</span>Progetti</button>
+  </div>
+
+  <div class="layout">
+    <div class="phone" aria-label="Anteprima del telefono">
+      <div class="status"><span>9:41</span><span>5G · 82%</span></div>
+      <div id="stage"></div>
+    </div>
+    <div class="side">
+      <div class="controls">
+        <button type="button" class="ctl" data-go="home">Vai a Home</button>
+        <button type="button" class="ctl" data-go="files">Vai a File</button>
+        <label><input type="checkbox" id="noterm"> Nessun terminale</label>
+        <label><input type="checkbox" id="olddesk"> PC non aggiornato</label>
+        <button type="button" class="ctl" id="reset">Ricomincia</button>
+      </div>
+      <article class="note" id="note"></article>
+    </div>
+  </div>
+
+  <section class="section">
+    <h2>Confronto</h2>
+    <p>Pagina File e home sono indipendenti: si può prendere l'esploratore di una variante e la home di un'altra.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th></th><th>01 Sfoglia</th><th>02 Albero</th><th>03 Progetti</th></tr></thead>
+        <tbody>
+          <tr><td>Da dove parte</td><td>Ultima cartella aperta</td><td>Tutto il computer, con l'ultima cartella già espansa</td><td>Le cartelle dove lavori adesso</td></tr>
+          <tr><td>Aprire la cartella in cui sei</td><td>1 tocco, barra sempre visibile</td><td>2 tocchi: selezione, poi azione</td><td>1 tocco, o scrivi e invii direttamente</td></tr>
+          <tr><td>Capire dove sei</td><td>Percorso in alto</td><td>Si vede tutta la struttura</td><td>Nome e percorso in alto</td></tr>
+          <tr><td>Cartelle molto profonde</td><td>Bene</td><td>Male: i nomi si stringono</td><td>Bene</td></tr>
+          <tr><td>Terminali in home</td><td>Sezione sotto gli agenti</td><td>Filtro Tutti / Agenti / Terminali</td><td>Striscia sotto il campo di avvio</td></tr>
+          <tr><td>Con molti terminali</td><td>Home lunga</td><td>Regge bene</td><td>Quelli in fondo restano nascosti di lato</td></tr>
+          <tr><td>Codice già pronto</td><td>Molto: percorso, elenco, foglio di avvio</td><td>Poco: l'albero è nuovo</td><td>Abbastanza: riusa il launcher, servono le card</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Valido per tutte le varianti</h2>
+    <p>Il telefono oggi legge soltanto, e solo dentro la cartella di un terminale aperto. Il grosso del lavoro è qui, non nell'interfaccia.</p>
+    <div class="cols">
+      <div class="box">
+        <h3>Sul telefono</h3>
+        <ul>
+          <li>Scheda <code>terminals</code> sostituita da <code>files</code> in <code>App.tsx</code>; etichetta "File" già tradotta.</li>
+          <li><code>sessionsOf</code> oggi scarta le shell: la home deve riceverle a parte, senza stato perché il PC non ne manda.</li>
+          <li>Il pulsante "Nuovo" di Terminali deve restare raggiungibile dalla home, anche senza terminali aperti.</li>
+          <li><code>useOpenNew</code>, <code>PendingRow</code> e <code>BusyArc</code> escono da <code>Terminals.tsx</code>, perché la home li usa.</li>
+          <li>Si perde il raggruppamento per finestra del PC: tenerlo solo se usi più finestre.</li>
+          <li>Il tablet resta com'è: ha già il suo pannello file in <code>WideFiles</code>.</li>
+        </ul>
+      </div>
+      <div class="box warn">
+        <h3>Sul computer (nuovo)</h3>
+        <ul>
+          <li><code>ls</code> e <code>read</code> vogliono un <code>ptyId</code>: serve navigare senza terminali aperti, partendo da radici date dal PC (utente, dischi, WSL).</li>
+          <li>Nuove operazioni: crea, rinomina, sposta, elimina, salva. Una nuova capability nasconde tutto ai PC vecchi.</li>
+          <li>Il salvataggio deve rifiutare un file cambiato sul PC dopo la lettura, altrimenti sovrascrive il lavoro di un agente.</li>
+          <li><code>read</code> taglia a 1 MB: un file tagliato non deve mai essere salvabile, si perderebbe il resto.</li>
+          <li>Eliminare manda al Cestino di Windows. In WSL il Cestino non c'è: serve una scelta a parte.</li>
+          <li>Sicurezza: il telefono abbina già shell complete, quindi il rischio non cresce, ma cade la vecchia regola "solo nella cartella del terminale". Va rivista in <code>fsbrowse.rs</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const LOGOS = {"claude":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"},"codex":{"viewBox":"-0.82 -0.73 21.65 21.45","path":"M11.248 18.25q-.825 0-1.568-.314a4.3 4.3 0 0 1-1.32-.874 4 4 0 0 1-1.304.214 4 4 0 0 1-2.046-.544 4.27 4.27 0 0 1-1.518-1.485 4 4 0 0 1-.56-2.095q0-.48.131-1.04A4.4 4.4 0 0 1 2.04 10.71a4.07 4.07 0 0 1 .017-3.4 4.2 4.2 0 0 1 1.056-1.418 3.8 3.8 0 0 1 1.6-.842 3.9 3.9 0 0 1 .76-1.683q.593-.759 1.451-1.188a4.04 4.04 0 0 1 1.832-.429q.825 0 1.567.313.742.314 1.32.875a4 4 0 0 1 1.304-.215q1.106 0 2.046.545a4.14 4.14 0 0 1 1.501 1.485q.578.941.578 2.095 0 .48-.132 1.04.66.61 1.023 1.419.363.792.363 1.666 0 .892-.38 1.717a4.3 4.3 0 0 1-1.072 1.435 3.8 3.8 0 0 1-1.584.825 3.8 3.8 0 0 1-.775 1.683 4.06 4.06 0 0 1-1.436 1.188 4.04 4.04 0 0 1-1.832.429m-4.076-2.062q.825 0 1.435-.347l3.103-1.782a.36.36 0 0 0 .164-.313v-1.42L7.881 14.62a.67.67 0 0 1-.726 0l-3.118-1.798a.5.5 0 0 1-.017.115v.198q0 .841.396 1.551.413.693 1.139 1.089a3.2 3.2 0 0 0 1.617.412m.165-2.69a.4.4 0 0 0 .181.05q.083 0 .165-.05l1.238-.71-3.977-2.31a.7.7 0 0 1-.363-.643v-3.58q-.825.362-1.32 1.122a2.9 2.9 0 0 0-.495 1.65q0 .809.413 1.55.412.743 1.072 1.123zm3.91 3.663q.875 0 1.585-.396a2.96 2.96 0 0 0 1.534-2.64v-3.564a.32.32 0 0 0-.165-.297l-1.254-.726v4.604a.7.7 0 0 1-.363.643l-3.119 1.799a3 3 0 0 0 1.783.577m.627-6.039V8.878L10.01 7.822 8.129 8.878v2.244l1.881 1.056zM7.057 5.859a.7.7 0 0 1 .363-.644l3.119-1.798a3 3 0 0 0-1.782-.578q-.874 0-1.584.396A2.96 2.96 0 0 0 6.05 4.324a3.07 3.07 0 0 0-.396 1.551v3.547q0 .199.165.314l1.237.726zm8.383 7.887q.825-.364 1.303-1.123.495-.758.495-1.65a3.15 3.15 0 0 0-.412-1.55q-.413-.743-1.073-1.123l-3.086-1.782q-.099-.065-.181-.049a.3.3 0 0 0-.165.05l-1.238.692 3.993 2.327a.6.6 0 0 1 .264.264.64.64 0 0 1 .1.363zm-3.317-8.382a.63.63 0 0 1 .726 0l3.135 1.831v-.297q0-.792-.396-1.501a2.86 2.86 0 0 0-1.105-1.155q-.71-.43-1.65-.43-.825 0-1.436.347L8.294 5.941a.36.36 0 0 0-.165.314v1.418z"},"gemini":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"M12 0C12.7 6.7 17.3 11.3 24 12 17.3 12.7 12.7 17.3 12 24 11.3 17.3 6.7 12.7 0 12 6.7 11.3 11.3 6.7 12 0Z"},"vibe":{"viewBox":"-1.6 -1.6 27.2 27.2","path":"M2 2h4v4H2zM18 2h4v4h-4zM2 6h8v4H2zM14 6h8v4h-8zM2 10h20v4H2zM2 14h4v4H2zM10 14h4v4h-4zM18 14h4v4h-4zM2 18h4v4H2zM18 18h4v4h-4z"}};
+const AGENTS = [["claude", "Claude Code"], ["codex", "Codex"], ["vibe", "Mistral Vibe"], ["gemini", "Gemini CLI"]];
+const agentName = (id) => AGENTS.find((a) => a[0] === id)?.[1] ?? id;
+
+const NOTES = {
+  1: { name: "Sfoglia", tag: "consigliata", lead: "Il gestore file classico del telefono: un livello alla volta, con il percorso in alto e una barra fissa che apre la cartella in cui ti trovi.", how: ["Entra in <b>Progetti → flowcode</b> e usa la barra in basso", "Tocca <b>⋯</b> su una riga per rinominare, spostare, eliminare o aprire quella cartella senza entrarci", "In Home i terminali hanno una sezione loro, con <b>Nuovo</b>"], pro: ["Nessun gesto da imparare, regge qualsiasi profondità", "La barra rende ovvia la funzione principale", "Riusa percorso, elenco e foglio di avvio che esistono già"], con: ["La barra occupa spazio mentre leggi l'elenco", "Per saltare lontano devi risalire dal percorso"] },
+  2: { name: "Albero", tag: "per chi conosce il progetto", lead: "Come la barra laterale di un editor: le cartelle si aprono sul posto e le azioni compaiono sotto la riga selezionata.", how: ["Tocca una cartella: si espande e mostra le azioni", "Confronta due punti del progetto senza cambiare pagina", "In Home usa il filtro <b>Agenti / Terminali</b>"], pro: ["Si vede la struttura intera, spostarsi costa poco", "Nessuna barra fissa: tutto lo spazio è per i file", "Il filtro tiene corta la home anche con molti terminali"], con: ["A 390 px i nomi si stringono dopo 5-6 livelli", "Le azioni si raggiungono con un tocco in più", "Righe più basse, meno comode con una mano"] },
+  3: { name: "Progetti", tag: "la più veloce per avviare", lead: "La pagina parte da dove stai lavorando: ogni cartella in uso è una card con i suoi agenti. Dentro una cartella c'è un campo per scrivere subito all'agente.", how: ["Avvia dalla card, senza entrare nella cartella", "Entra in <b>flowcode</b> e scrivi nel campo in basso: parte una chat lì", "In Home i terminali sono una striscia sotto il campo di avvio"], pro: ["Dalla cartella all'agente in un gesto", "Stesso modello mentale del campo di avvio della home", "Mostra chi lavora dove"], con: ["Un livello in più per arrivare ai file", "La pagina iniziale somiglia un po' alla home", "Nella striscia i terminali non si possono chiudere senza aprirli"] },
+};
+
+const file = (name, size, text, extra) => ({ name, size, text: text ?? "", ...extra });
+const dir = (name, kids = [], extra) => ({ name, dir: true, kids, ...extra });
+const makeFs = () => dir("Computer", [
+  dir("massi", [
+    dir("Documenti", [
+      dir("Progetti", [
+        dir("flowcode", [
+          dir("docs", [dir("design", [file("mobile-home-variants.html", "60 KB", "<!doctype html>\n<html lang=\"it\">\n…")]), file("architecture.md", "9 KB", "# Architecture\n\nDesktop app, phone client over iroh.\n")]),
+          dir("mobile", [dir("src", [file("App.tsx", "13 KB", "import { HomeScreen } from \"./Home\";\n\ntype Page = \"agents\" | \"terminals\" | \"settings\";\n"), file("Home.tsx", "16 KB", "/** The phone's home. */\nexport function HomeScreen() {\n  // …\n}\n"), file("home.css", "14 KB", ".hm-launch {\n  padding: 14px;\n}\n")]), file("package.json", "1 KB", "{\n  \"name\": \"flowcode-mobile\"\n}\n")]),
+          dir("src", [dir("chat", [file("chat.ts", "22 KB", "export const chat = {};\n")]), file("main.tsx", "2 KB", "import { render } from \"react-dom\";\n")]),
+          file("build.log", "38 MB", "[12:04:11] vite v7 building for production…\n[12:04:12] transforming…\n[12:04:18] 2 412 modules transformed.\n", { cut: true }),
+          file("logo.png", "84 KB", "", { binary: true }),
+          file("package.json", "3 KB", "{\n  \"name\": \"flowcode\",\n  \"private\": true\n}\n"),
+          file("README.md", "6 KB", "# Flowcode\n\nTerminali e agenti, dal PC e dal telefono.\n\n## Sviluppo\n\nnpm install\nnpm run tauri dev\n"),
+          file("ROADMAP.md", "4 KB", "# Roadmap\n\n- Pagina File sul telefono\n- Terminali in home\n"),
+        ]),
+        dir("sito-velo", [dir("assets", [file("hero.jpg", "412 KB", "", { binary: true })]), file("index.html", "12 KB", "<!doctype html>\n<title>Velo</title>\n"), file("style.css", "8 KB", "body { margin: 0; }\n")]),
+        dir("note-lavoro", [file("idee.md", "1 KB", "# Idee\n\n- Rivedere il cestino in WSL\n")]),
+        dir("archivio"),
+      ]),
+      file("preventivo.pdf", "212 KB", "", { binary: true }),
+    ]),
+    dir("Download", [file("setup.exe", "96 MB", "", { binary: true })]),
+    dir("Desktop"),
+  ]),
+  dir("Disco C:", [dir("Programmi"), dir("System Volume Information", [], { locked: true }), dir("Utenti")]),
+  dir("WSL Ubuntu", [dir("home", [dir("massi", [dir("api", [file("main.py", "3 KB", "print('ok')\n")])])]), dir("etc")]),
+]);
+
+const PROJ = ["massi", "Documenti", "Progetti"];
+const makeSessions = () => [
+  { id: "c1", kind: "chat", cli: "claude", label: "Refactor del parser", cwd: "~/Documenti/Progetti/flowcode", status: "waiting", asks: "Chiede: modificare src/chat/chat.ts?" },
+  { id: "t1", kind: "term", cli: "codex", label: "Test mobile", cwd: "~/Documenti/Progetti/flowcode/mobile", status: "busy", since: "da 6 min" },
+  { id: "c2", kind: "chat", cli: "claude", label: "Landing page", cwd: "~/Documenti/Progetti/sito-velo", status: "idle", since: "da 2 h 05" },
+  { id: "s1", kind: "shell", label: "dev server", cwd: "~/Documenti/Progetti/flowcode" },
+  { id: "s2", kind: "shell", label: "PowerShell", cwd: "~/Documenti/Progetti/sito-velo" },
+  { id: "s3", kind: "shell", label: "bash", cwd: "/home/massi/api" },
+];
+
+const fresh = () => ({ fs: makeFs(), sessions: makeSessions(), page: "home", path: PROJ.slice(), p3: null, sel: PROJ.concat("flowcode"), open: new Set(["massi", "massi|Documenti", "massi|Documenti|Progetti", "massi|Documenti|Progetti|flowcode"]), sheet: null, full: null, toast: null, filter: "all", agent: "claude", homeCwd: "~/Documenti/Progetti/flowcode", draft: "", ask: "", seq: 1, anim: false });
+let S = fresh();
+let variant = 1, hideTerms = false, oldDesk = false, toastTimer = 0;
+
+/* ---- utilità ---- */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const pk = (p) => esc(p.join("|"));
+const unpk = (s) => (s ? s.split("|") : []);
+const I = (d, s = 20) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" stroke-width="1.8" aria-hidden="true">${d}</svg>`;
+const ic = {
+  folder: (s) => I('<path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>', s),
+  file: (s) => I('<path d="M7 3.5h6.5L18 8v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5A1.5 1.5 0 0 1 7.5 3.5z"/><path d="M13.5 3.5V8H18"/>', s),
+  term: (s) => I('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m7.5 10 2.5 2-2.5 2"/><path d="M13 14.5h3.5"/>', s),
+  plus: (s) => I('<path d="M12 5v14M5 12h14"/>', s),
+  dots: () => I('<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>'),
+  chev: (s) => I('<path d="m9 5 7 7-7 7"/>', s),
+  down: (s) => I('<path d="m6 9 6 6 6-6"/>', s),
+  back: () => I('<path d="m15 5-7 7 7 7"/>'),
+  pencil: () => I('<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>'),
+  move: () => I('<path d="M3.5 7.500a2 2 0 0 1 2-2h3.600l2 2.200h7.400a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M9 13h6m-2.500-2.500L15 13l-2.500 2.500"/>'),
+  trash: () => I('<path d="M4.500 7h15M9.500 7V4.500h5V7M6.500 7l1 12.500h9l1-12.500"/>'),
+  send: () => I('<path d="M12 19V6M6.500 11.500 12 6l5.500 5.500"/>'),
+  check: () => I('<path d="m5 12.500 4.500 4.500L19 7.500"/>'),
+  home: () => I('<path d="M4 11.500 12 5l8 6.500V19a1 1 0 0 1-1 1h-4.500v-5h-5v5H5a1 1 0 0 1-1-1z"/>', 22),
+  sliders: () => I('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>', 22),
+  bubble: (s) => I('<path d="M5 5.500h14a1.500 1.500 0 0 1 1.500 1.500v8a1.500 1.500 0 0 1-1.500 1.500h-8L6.500 20v-3.500H5A1.500 1.500 0 0 1 3.500 15V7A1.500 1.500 0 0 1 5 5.500z"/>', s),
+  disk: (s) => I('<rect x="3.500" y="6" width="17" height="12" rx="2.500"/><path d="M7 14.500h.01M11 14.500h6"/>', s),
+  open: () => I('<path d="M7 17 17 7M9 7h8v8"/>'),
+};
+const logo = (c, s = 18) => `<svg class="logo" width="${s}" height="${s}" viewBox="${LOGOS[c].viewBox}" aria-hidden="true"><path d="${LOGOS[c].path}"/></svg>`;
+const node = (p) => p.reduce((n, name) => n?.kids?.find((k) => k.name === name), S.fs);
+const disp = (p) => {
+  if (!p.length) return "Computer";
+  const [r, ...rest] = p;
+  const tail = rest.join("/");
+  return r === "massi" ? "~" + (tail ? "/" + tail : "") : r === "Disco C:" ? "C:/" + tail : "/" + tail;
+};
+const pathOf = (cwd) => (cwd.startsWith("~") ? ["massi", ...cwd.split("/").slice(1)] : cwd.startsWith("C:") ? ["Disco C:", ...cwd.slice(3).split("/").filter(Boolean)] : ["WSL Ubuntu", ...cwd.split("/").filter(Boolean)]);
+const shortCwd = (c) => { const a = c.split("/"); return a.length > 2 ? "…/" + a.slice(-2).join("/") : c; };
+const tail = (c) => c.split("/").pop() || c;
+const sessionsIn = (p) => { const d = disp(p); return S.sessions.filter((s) => s.cwd === d || s.cwd.startsWith(d + "/")); };
+const sortKids = (n) => [...(n.kids ?? [])].sort((a, b) => Number(!!b.dir) - Number(!!a.dir) || a.name.localeCompare(b.name, "it", { sensitivity: "base" }));
+const count = (n) => { const k = n.kids?.length ?? 0; return k === 0 ? "vuota" : k === 1 ? "1 elemento" : k + " elementi"; };
+const rootIcon = (n, s) => (n === "massi" ? ic.folder(s) : ic.disk(s));
+const rootName = (n) => (n === "massi" ? "massi · cartella utente" : n);
+const agents = () => S.sessions.filter((s) => s.kind !== "shell");
+const shells = () => (hideTerms ? [] : S.sessions.filter((s) => s.kind === "shell"));
+
+/* ---- pezzi condivisi ---- */
+function tile(s, size = 20) {
+  if (s.kind === "shell") return `<span class="hm-tile st-shell">${ic.term(size)}</span>`;
+  return `<span class="hm-tile st-${s.status}">${logo(s.cli, size)}${s.kind === "chat" ? `<span class="bub">${ic.bubble(11)}</span>` : ""}</span>`;
+}
+function row(s) {
+  const sub = s.kind === "shell" ? `<span class="mono">${esc(shortCwd(s.cwd))}</span>` : `${esc(agentName(s.cli))} · <span class="mono">${esc(shortCwd(s.cwd))}</span>`;
+  return `<div class="hm-row${s.kind === "shell" ? " slim" : ""}"><button type="button" class="hm-row-main" data-a="openSession" data-id="${s.id}">${tile(s)}<span class="hm-txt"><b>${esc(s.label)}</b><span class="hm-sub">${sub}</span></span>${s.since ? `<span class="hm-since">${esc(s.since)}</span>` : ""}</button><button type="button" class="hm-more" aria-label="Azioni per ${esc(s.label)}" data-a="sessionMenu" data-id="${s.id}">${ic.dots()}</button></div>`;
+}
+const group = (title, tone, list, link = "") => `<section class="hm-group"><div class="hm-sec"><b class="${tone}">${title}</b>${link || `<span>${list.length}</span>`}</div>${list.length ? `<div class="hm-list">${list.map(row).join("")}</div>` : ""}</section>`;
+const newTermLink = `<button type="button" class="hm-sec-link" data-a="newTermPick">${ic.plus(15)}Nuovo</button>`;
+
+function home() {
+  const waiting = agents().filter((s) => s.status === "waiting");
+  const working = agents().filter((s) => s.status === "busy" || s.status === "starting");
+  const idle = agents().filter((s) => s.status === "idle");
+  const sh = shells();
+  const agentGroups = group("Al lavoro", "busy", working).repeat(working.length ? 1 : 0) + group("Inattivi", "", idle).repeat(idle.length ? 1 : 0);
+  const launch = `<section class="hm-launch"><textarea id="draft" placeholder="Cosa vuoi fare?" aria-label="Cosa vuoi fare?">${esc(S.draft)}</textarea><div class="hm-bar"><button type="button" class="hm-pill" data-a="pickAgent">${logo(S.agent, 16)}<span>${esc(agentName(S.agent))}</span></button><button type="button" class="hm-pill mono" data-a="pickFolder">${ic.folder(16)}<span>${esc(tail(S.homeCwd))}</span></button><button type="button" class="hm-go" id="go" aria-label="Avvia" data-a="homeStart" ${S.draft.trim() ? "" : "disabled"}>${ic.send()}</button></div></section>`;
+  const wait = waiting.map((s) => `<section class="hm-wait"><div class="hm-wait-top">${tile(s)}<div><div class="hm-wait-eye">${esc(s.asks ?? "Ti aspetta")}</div><div class="hm-wait-title">${esc(s.label)}</div><div class="hm-sub">${esc(agentName(s.cli))} · <span class="mono">${esc(shortCwd(s.cwd))}</span></div></div></div><button type="button" class="hm-btn primary" data-a="openSession" data-id="${s.id}">Rispondi</button></section>`).join("");
+  const usage = `<div class="hm-usage"><div>Claude · 5 ore<b>42%</b><i style="--w:42%"></i></div><div>Codex · settimana<b>18%</b><i style="--w:18%"></i></div></div>`;
+  let body;
+  if (variant === 1) {
+    body = launch + wait + usage + agentGroups + `<section class="hm-group"><div class="hm-sec"><b>Terminali${sh.length ? ` · ${sh.length}` : ""}</b>${newTermLink}</div>${sh.length ? `<div class="hm-list">${sh.map(row).join("")}</div>` : `<div class="hm-empty">Nessun terminale aperto</div>`}</section>`;
+  } else if (variant === 2) {
+    const others = agents().filter((s) => s.status !== "waiting");
+    const shown = S.filter === "terms" ? sh : S.filter === "agents" ? others : [...others, ...sh];
+    const tab = (id, label, n) => `<button type="button" data-a="filter" data-id="${id}" aria-pressed="${S.filter === id}">${label}<small>${n}</small></button>`;
+    body = launch + wait + usage + `<div class="seg" role="group" aria-label="Filtra le sessioni">${tab("all", "Tutti", others.length + sh.length)}${tab("agents", "Agenti", others.length)}${tab("terms", "Terminali", sh.length)}</div>` + (shown.length ? `<div class="hm-list">${shown.map(row).join("")}</div>` : `<div class="hm-empty">Nessun terminale aperto</div>`) + (S.filter !== "agents" ? `<button type="button" class="hm-btn" data-a="newTermPick">Nuovo terminale</button>` : "");
+  } else {
+    const strip = `<section class="hm-group"><div class="hm-sec"><b>Terminali</b><span>${sh.length}</span></div><div class="strip">${sh.map((s) => `<button type="button" class="chip" data-a="openSession" data-id="${s.id}">${ic.term(18)}<span><b>${esc(s.label)}</b><small>${esc(tail(s.cwd))}</small></span></button>`).join("")}<button type="button" class="chip add" data-a="newTermPick">${ic.plus(16)}Nuovo</button></div></section>`;
+    body = launch + strip + wait + usage + agentGroups;
+  }
+  return `<div class="aurora"></div><header class="hm-top"><span>PC-Massi</span>${ic.down(18)}</header><div class="scroll" data-scroll="home">${body}</div>`;
+}
+
+function liveBadge(p) {
+  const list = sessionsIn(p);
+  if (!list.length) return "";
+  const waiting = list.some((s) => s.status === "waiting");
+  return `<span class="live${waiting ? " wait" : ""}" title="${list.length} sessioni aperte qui"><i></i>${list.length}</span>`;
+}
+function fsRow(p, n) {
+  const full = [...p, n.name];
+  const isRoot = p.length === 0;
+  const main = n.dir ? `data-a="enter" data-p="${pk(full)}"` : `data-a="openFile" data-p="${pk(full)}"`;
+  const ico = isRoot ? rootIcon(n.name, 22) : n.dir ? ic.folder(22) : ic.file(22);
+  return `<div class="fx-row"><button type="button" class="fx-main" ${main}><span class="fx-ico${n.dir ? " dir" : ""}">${ico}</span><span class="fx-txt"><b>${esc(isRoot ? rootName(n.name) : n.name)}</b><small>${n.dir ? (n.locked ? "accesso negato" : count(n)) : esc(n.size)}</small></span>${n.dir ? liveBadge(full) : ""}</button>${isRoot || n.locked ? "" : `<button type="button" class="hm-more" aria-label="Azioni per ${esc(n.name)}" data-a="itemMenu" data-p="${pk(full)}">${ic.dots()}</button>`}</div>`;
+}
+function listing(p) {
+  const n = node(p);
+  if (!n) return `<div class="fx-note"><b>Cartella sparita</b>È stata spostata o eliminata sul PC.</div>`;
+  if (n.locked) return `<div class="fx-note"><b>Accesso negato</b>Windows non permette di aprire questa cartella.</div>`;
+  const kids = sortKids(n);
+  if (!kids.length) return `<div class="fx-note"><b>Cartella vuota</b>Crea un file o aprila in un terminale.</div>`;
+  return `<div class="fx-list">${kids.map((k) => fsRow(p, k)).join("")}</div>`;
+}
+function crumbs(p) {
+  const parts = [`<button type="button" class="${p.length ? "" : "on"}" data-a="enter" data-p="">Computer</button>`];
+  p.forEach((name, i) => parts.push(ic.chev(12), `<button type="button" class="${i === p.length - 1 ? "on" : ""}" data-a="enter" data-p="${pk(p.slice(0, i + 1))}">${esc(name)}</button>`));
+  return `<nav class="crumbs" aria-label="Percorso" id="crumbs">${parts.join("")}</nav>`;
+}
+const fileHead = (add) => `<header class="fx-head"><div class="t"><h2>File</h2><small>PC-Massi</small></div>${add ? `<button type="button" class="ib solid" aria-label="Nuovo file o cartella" data-a="newItem" data-p="${pk(add)}">${ic.plus()}</button>` : ""}</header>`;
+
+function filesV1() {
+  const p = S.path, n = node(p), usable = p.length > 0 && n && !n.locked;
+  const dock = usable ? `<div class="dock"><p class="dock-label">Apri <b>${esc(n.name)}</b> in</p><div class="dock-acts"><button type="button" class="hm-btn" data-a="openTerm" data-p="${pk(p)}">${ic.term(18)}Terminale</button><button type="button" class="hm-btn primary" data-a="agentSheet" data-p="${pk(p)}">${logo(S.agent, 18)}Agente</button></div></div>` : "";
+  return fileHead(usable ? p : null) + crumbs(p) + `<div class="scroll${usable ? " docked" : ""}" data-scroll="f${pk(p)}">${listing(p)}</div>` + dock;
+}
+
+function treeRows(p, depth) {
+  const n = node(p);
+  return sortKids(n).map((k) => {
+    const full = [...p, k.name], key = full.join("|"), isOpen = S.open.has(key), on = S.sel.join("|") === key;
+    const pad = 4 + depth * 13;
+    const ico = depth === 0 ? rootIcon(k.name, 19) : k.dir ? ic.folder(19) : ic.file(19);
+    const r = `<div class="tn${on ? " on" : ""}${isOpen ? " open" : ""}" style="padding-left:${pad}px">${k.dir ? `<button type="button" class="tn-tw" aria-label="${isOpen ? "Chiudi" : "Apri"} ${esc(k.name)}" aria-expanded="${isOpen}" data-a="twist" data-p="${pk(full)}">${ic.chev()}</button>` : `<span class="tn-tw"></span>`}<button type="button" class="tn-name" data-a="select" data-p="${pk(full)}"><span class="fx-ico${k.dir ? " dir" : ""}">${ico}</span><span>${esc(depth === 0 ? rootName(k.name) : k.name)}</span>${k.dir ? liveBadge(full).replace('class="live', 'style="margin-left:auto" class="live') : `<small>${esc(k.size)}</small>`}</button></div>`;
+    let acts = "";
+    if (on && !k.locked) {
+      const more = depth > 0 ? `<button type="button" class="hm-btn sq" aria-label="Altre azioni" data-a="itemMenu" data-p="${pk(full)}">${ic.dots()}</button>` : "";
+      acts = k.dir
+        ? `<div class="tn-acts" style="padding-left:${pad + 28}px"><button type="button" class="hm-btn" data-a="openTerm" data-p="${pk(full)}">${ic.term(17)}Terminale</button><button type="button" class="hm-btn primary" data-a="agentSheet" data-p="${pk(full)}">${logo(S.agent, 17)}Agente</button>${more}</div>`
+        : `<div class="tn-acts" style="padding-left:${pad + 28}px"><button type="button" class="hm-btn" data-a="openFile" data-p="${pk(full)}">Apri</button>${more}</div>`;
+    } else if (on && k.locked) acts = `<div class="tn-acts" style="padding-left:${pad + 28}px;color:var(--muted);font-size:13px">Accesso negato da Windows</div>`;
+    const inner = k.dir && isOpen && !k.locked ? (k.kids.length ? treeRows(full, depth + 1) : `<div class="tn" style="padding-left:${pad + 56}px;color:var(--muted);font-size:13px">Cartella vuota</div>`) : "";
+    return r + acts + inner;
+  }).join("");
+}
+function filesV2() {
+  const n = node(S.sel);
+  const target = n?.dir ? S.sel : S.sel.slice(0, -1);
+  return fileHead(target.length ? target : null) + `<div class="scroll" data-scroll="tree"><div class="tree" role="tree">${treeRows([], 0)}</div></div>`;
+}
+
+function projects() {
+  const seen = new Map();
+  for (const s of S.sessions) {
+    if (s.kind === "shell" && hideTerms) continue;
+    const p = pathOf(s.cwd);
+    const key = (p[0] === "massi" && p[2] === "Progetti" ? p.slice(0, 4) : p).join("|");
+    if (!seen.has(key)) seen.set(key, []);
+    seen.get(key).push(s);
+  }
+  return [...seen.entries()].filter(([k]) => node(unpk(k)));
+}
+function filesV3() {
+  if (S.p3) {
+    const p = S.p3, n = node(p), up = p.length > 1 ? p.slice(0, -1) : "";
+    const usable = n && !n.locked;
+    const dock = usable ? `<div class="ask"><div class="ask-in"><textarea id="ask" placeholder="Chiedi a ${esc(agentName(S.agent))} in ${esc(n.name)}" aria-label="Messaggio per l'agente">${esc(S.ask)}</textarea><div class="ask-row"><button type="button" class="hm-pill" data-a="pickAgent">${logo(S.agent, 16)}<span>${esc(agentName(S.agent))}</span></button><button type="button" class="hm-pill" data-a="openTerm" data-p="${pk(p)}">${ic.term(16)}<span>Terminale</span></button></div></div><button type="button" class="hm-go" id="askgo" aria-label="Avvia una chat in ${esc(n.name)}" data-a="askStart" data-p="${pk(p)}" ${S.ask.trim() ? "" : "disabled"}>${ic.send()}</button></div>` : "";
+    return `<header class="fx-head sub"><button type="button" class="ib" aria-label="Indietro" data-a="up3" data-p="${up ? pk(up) : ""}">${ic.back()}</button><div class="t"><h2>${esc(n?.name ?? "")}</h2><small class="mono">${esc(disp(p))}</small></div>${usable ? `<button type="button" class="ib solid" aria-label="Nuovo file o cartella" data-a="newItem" data-p="${pk(p)}">${ic.plus()}</button>` : ""}</header><div class="scroll${usable ? " docked" : ""}" data-scroll="p${pk(p)}">${listing(p)}</div>${dock}`;
+  }
+  const cards = projects().map(([k, list]) => {
+    const p = unpk(k), n = node(p);
+    return `<section class="pj"><button type="button" class="pj-top" data-a="enter" data-p="${pk(p)}"><span class="fx-ico dir">${ic.folder(22)}</span><span class="fx-txt"><b style="font-weight:600">${esc(n.name)}</b><small class="mono">${esc(disp(p))}</small></span><span class="pj-tiles">${list.slice(0, 3).map((s) => tile(s, 16)).join("")}</span></button><div class="pj-acts"><button type="button" class="hm-btn" data-a="openTerm" data-p="${pk(p)}">${ic.term(17)}Terminale</button><button type="button" class="hm-btn primary" data-a="agentSheet" data-p="${pk(p)}">${logo(S.agent, 17)}Agente</button></div></section>`;
+  }).join("");
+  const recent = [PROJ.concat("note-lavoro"), PROJ.concat("archivio")].filter(node);
+  return fileHead(null) + `<div class="scroll" data-scroll="p3"><section class="hm-group"><div class="hm-sec"><b>In uso</b></div>${cards || `<div class="hm-empty">Nessuna cartella in uso</div>`}</section><section class="hm-group"><div class="hm-sec"><b>Recenti</b></div><div class="fx-list">${recent.map((p) => fsRow(p.slice(0, -1), node(p))).join("")}</div></section><section class="hm-group"><div class="hm-sec"><b>Tutto il computer</b></div><div class="fx-list">${sortKids(S.fs).map((k) => fsRow([], k)).join("")}</div></section></div>`;
+}
+
+function files() {
+  if (oldDesk) return fileHead(null) + `<div class="scroll"><div class="fx-note"><b>Aggiorna Flowcode sul computer</b>La pagina File richiede l'ultima versione del programma sul PC.</div></div>`;
+  return variant === 1 ? filesV1() : variant === 2 ? filesV2() : filesV3();
+}
+
+const nav = () => `<nav class="nav" aria-label="Principale">${[["home", "Home", ic.home()], ["files", "File", ic.folder(22)], ["settings", "Impostazioni", ic.sliders()]].map(([id, label, icon]) => `<button type="button" class="${S.page === id ? "on" : ""}" ${S.page === id ? 'aria-current="page"' : ""} data-a="page" data-id="${id}">${icon}<span>${label}</span></button>`).join("")}</nav>`;
+
+/* ---- fogli ---- */
+function sheet() {
+  const h = S.sheet;
+  if (!h) return "";
+  const wrap = (html) => `<div class="scrim" data-a="closeSheet" data-self="1"><div class="sheet${S.anim ? " in" : ""}" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
+  const opt = (a, icon, label, attrs = "", cls = "") => `<button type="button" class="${cls}" data-a="${a}" ${attrs}>${icon}<span>${label}</span></button>`;
+  if (h.t === "item") {
+    const n = node(h.p), P = `data-p="${pk(h.p)}"`;
+    return wrap(`<h3>${esc(n.name)}</h3><div class="sub">${esc(disp(h.p))}</div><div class="opts">${n.dir ? opt("openTerm", ic.term(), "Apri in un terminale", P) + opt("agentSheet", logo(S.agent, 20), "Apri in un agente", P) : opt("openFile", ic.open(), "Apri", P)}</div><div class="opts">${opt("rename", ic.pencil(), "Rinomina", P)}${opt("move", ic.move(), "Sposta", P)}${opt("del", ic.trash(), "Elimina", P, "danger")}</div>`);
+  }
+  if (h.t === "agent") {
+    const n = node(h.p);
+    return wrap(`<h3>Apri in un agente</h3><div class="sub">${esc(disp(h.p))}</div><div class="opts" role="radiogroup" aria-label="Agente">${AGENTS.map(([id, name]) => `<button type="button" role="radio" aria-checked="${id === S.agent}" class="${id === S.agent ? "on" : ""}" data-a="setAgent" data-id="${id}">${logo(id, 20)}<span>${esc(name)}</span>${id === S.agent ? ic.check() : ""}</button>`).join("")}</div><div class="seg" role="group" aria-label="Come aprirlo"><button type="button" data-a="setMode" data-id="chat" aria-pressed="${h.mode === "chat"}">Chat</button><button type="button" data-a="setMode" data-id="term" aria-pressed="${h.mode === "term"}">Terminale</button></div>${h.mode === "chat" ? `<label class="field"><span>Primo messaggio, se vuoi</span><textarea id="first" rows="2" placeholder="Cosa deve fare in ${esc(n.name)}?"></textarea></label>` : ""}<div class="acts one"><button type="button" class="hm-btn primary" data-a="startAgent" data-p="${pk(h.p)}">Avvia</button></div>`);
+  }
+  if (h.t === "name") {
+    const n = h.mode === "rename" ? node(h.p) : null;
+    const title = h.mode === "rename" ? `Rinomina ${n.dir ? "cartella" : "file"}` : h.mode === "dir" ? "Nuova cartella" : h.mode === "file" ? "Nuovo file" : "";
+    const live = h.mode === "rename" && n.dir ? sessionsIn(h.p).length : 0;
+    return wrap(`<h3>${title}</h3><div class="sub">${esc(disp(h.mode === "rename" ? h.p.slice(0, -1) : h.p))}</div>${live ? `<p class="warn">${live === 1 ? "Una sessione lavora" : live + " sessioni lavorano"} qui dentro: il cambio di nome può confonderle.</p>` : ""}<label class="field"><span>Nome</span><input id="name" value="${esc(h.value ?? (n?.name ?? ""))}" autocomplete="off" spellcheck="false"></label>${h.err ? `<p class="err" role="alert">${esc(h.err)}</p>` : ""}<div class="acts"><button type="button" class="hm-btn" data-a="closeSheet">Annulla</button><button type="button" class="hm-btn primary" data-a="saveName">${h.mode === "rename" ? "Rinomina" : "Crea"}</button></div>`);
+  }
+  if (h.t === "new") return wrap(`<h3>Crea in ${esc(node(h.p).name)}</h3><div class="sub">${esc(disp(h.p))}</div><div class="opts">${opt("newDir", ic.folder(), "Nuova cartella")}${opt("newFile", ic.file(), "Nuovo file")}</div>`);
+  if (h.t === "move") {
+    const n = node(h.p), parent = h.p.slice(0, -1).join("|"), self = h.p.join("|"), dest = [];
+    const walk = (p) => { for (const k of sortKids(node(p))) if (k.dir && !k.locked) { const f = [...p, k.name], j = f.join("|"); if (j === self) continue; if (j !== parent) dest.push(f); walk(f); } };
+    walk(PROJ);
+    return wrap(`<h3>Sposta ${esc(n.name)}</h3><div class="sub">Scegli la cartella di arrivo</div><div class="opts">${dest.slice(0, 7).map((d) => `<button type="button" data-a="moveTo" data-p="${pk(d)}">${ic.folder()}<span class="mono" style="font-size:13px">${esc(shortCwd(disp(d)))}</span></button>`).join("")}</div>`);
+  }
+  if (h.t === "del") {
+    const n = node(h.p), live = n.dir ? sessionsIn(h.p).length : 0, wsl = h.p[0] === "WSL Ubuntu";
+    return wrap(`<h3>Eliminare ${esc(n.name)}?</h3><div class="sub">${esc(disp(h.p))}</div><p>${wsl ? "In WSL non c'è il Cestino: non si potrà recuperare." : "Finisce nel Cestino del PC, da dove si può recuperare."}</p>${live ? `<p class="warn">${live === 1 ? "Una sessione è aperta" : live + " sessioni sono aperte"} qui dentro.</p>` : ""}<div class="acts"><button type="button" class="hm-btn" data-a="closeSheet">Annulla</button><button type="button" class="hm-btn danger" data-a="doDel" data-p="${pk(h.p)}">Elimina</button></div>`);
+  }
+  if (h.t === "session") {
+    const s = S.sessions.find((x) => x.id === h.id);
+    if (!s) return "";
+    return wrap(`<h3>${esc(s.label)}</h3><div class="sub">${esc(s.cwd)}</div>${h.confirm ? `<p>Chiudere ${s.kind === "chat" ? "questa chat" : "questo terminale"}? Se qualcosa è in esecuzione si interrompe.</p><div class="acts"><button type="button" class="hm-btn" data-a="closeSheet">Annulla</button><button type="button" class="hm-btn danger" data-a="doClose" data-id="${s.id}">Chiudi</button></div>` : `<div class="opts">${opt("openSession", ic.open(), "Apri", `data-id="${s.id}"`)}${opt("reveal", ic.folder(), "Mostra in File", `data-id="${s.id}"`)}${opt("askClose", ic.trash(), s.kind === "chat" ? "Chiudi la chat" : "Chiudi il terminale", `data-id="${s.id}"`, "danger")}</div>`}`);
+  }
+  if (h.t === "pick") {
+    const isAgent = h.what === "agent";
+    const list = isAgent ? AGENTS : [...new Set([S.homeCwd, ...S.sessions.map((s) => s.cwd)])].map((c) => [c, shortCwd(c)]);
+    const cur = isAgent ? S.agent : S.homeCwd;
+    return wrap(`<h3>${isAgent ? "Agente" : "Cartella"}</h3><div class="sub"></div><div class="opts">${list.map(([id, name]) => `<button type="button" class="${id === cur ? "on" : ""}" data-a="pickDone" data-id="${esc(id)}">${isAgent ? logo(id, 20) : ic.folder()}<span class="${isAgent ? "" : "mono"}">${esc(name)}</span>${id === cur ? ic.check() : ""}</button>`).join("")}</div>`);
+  }
+  if (h.t === "termWhere") {
+    const list = [...new Set([S.homeCwd, ...S.sessions.map((s) => s.cwd)])];
+    return wrap(`<h3>Nuovo terminale</h3><div class="sub">Scegli dove aprirlo, o cercalo in File</div><div class="opts">${list.slice(0, 4).map((c) => `<button type="button" data-a="openTerm" data-p="${pk(pathOf(c))}">${ic.folder()}<span class="mono" style="font-size:13px">${esc(shortCwd(c))}</span></button>`).join("")}${opt("goFiles", ic.chev(), "Altra cartella in File")}</div>`);
+  }
+  return "";
+}
+
+function full() {
+  const f = S.full;
+  if (!f) return "";
+  if (f.t === "file") {
+    const n = node(f.p);
+    if (!n) return "";
+    const head = (right) => `<header class="full-head"><button type="button" class="ib" aria-label="Indietro" data-a="closeFull">${ic.back()}</button><div class="t"><b>${esc(n.name)}</b><small>${esc(disp(f.p.slice(0, -1)))}</small></div>${right}</header>`;
+    if (n.binary) return `<div class="full">${head("")}<div class="scroll" style="padding-top:16px"><div class="fx-note"><b>File binario</b>Non si può mostrare sul telefono.</div></div></div>`;
+    if (f.edit) return `<div class="full">${head(`<button type="button" class="txtbtn" data-a="cancelEdit">Annulla</button><button type="button" class="txtbtn fill" data-a="saveFile">Salva</button>`)}<textarea class="code" id="editor" aria-label="Contenuto di ${esc(n.name)}" spellcheck="false">${esc(n.text)}</textarea></div>`;
+    return `<div class="full">${head(n.cut ? "" : `<button type="button" class="txtbtn" data-a="edit">Modifica</button>`)}${n.cut ? `<div class="banner">Mostrato solo il primo MB: non si può modificare da qui.</div>` : ""}<pre class="code">${esc(n.text)}</pre></div>`;
+  }
+  const s = S.sessions.find((x) => x.id === f.id);
+  if (!s) return "";
+  const body = s.kind === "chat" ? `${s.first ? `<div class="chatmsg">${esc(s.first)}</div>` : ""}<div class="chatrail">${s.status === "waiting" ? esc(s.asks) : s.first ? "Sto lavorando…" : `${esc(agentName(s.cli))} è pronto in ${esc(tail(s.cwd))}.`}</div>` : `<div class="term">${s.kind === "term" ? `<i>${esc(s.cli)}</i> avviato in ${esc(s.cwd)}\n\n` : ""}<i>${esc(s.cwd)}</i> $ _</div>`;
+  return `<div class="full"><header class="full-head"><button type="button" class="ib" aria-label="Indietro" data-a="closeFull">${ic.back()}</button><div class="t"><b>${esc(s.label)}</b><small>${esc(s.cwd)}</small></div></header>${body}</div>`;
+}
+
+/* ---- disegno ---- */
+const stage = document.getElementById("stage");
+const scrolls = {};
+function render() {
+  stage.querySelectorAll("[data-scroll]").forEach((el) => (scrolls[el.dataset.scroll] = el.scrollTop));
+  const page = S.page === "home" ? home() : S.page === "files" ? files() : `<div class="fx-head"><div class="t"><h2>Impostazioni</h2><small>Invariate</small></div></div>`;
+  stage.innerHTML = (S.page === "settings" ? page + `<div class="scroll"></div>` : page) + nav() + full() + sheet() + (S.toast ? `<div class="toast" role="status"><span>${esc(S.toast.text)}</span>${S.toast.undo ? `<button type="button" class="txtbtn" data-a="undo">Annulla</button>` : ""}</div>` : "");
+  stage.querySelectorAll("[data-scroll]").forEach((el) => (el.scrollTop = scrolls[el.dataset.scroll] ?? 0));
+  const c = document.getElementById("crumbs");
+  if (c) c.scrollLeft = c.scrollWidth;
+  if (S.anim) stage.querySelector(".sheet input, .sheet textarea")?.focus();
+  S.anim = false;
+}
+function showToast(text, undo) {
+  clearTimeout(toastTimer);
+  S.toast = { text, undo };
+  toastTimer = setTimeout(() => { S.toast = null; render(); }, 5000);
+}
+const openSheet = (h) => { S.sheet = h; S.anim = true; render(); };
+function addSession(s) {
+  s.id = "n" + S.seq++;
+  S.sessions.push(s);
+  S.sheet = null;
+  S.full = { t: "session", id: s.id };
+  render();
+}
+function validName(raw, parent, except) {
+  const v = raw.trim();
+  if (!v) return "Scrivi un nome.";
+  if (/[\\/:*?"<>|]/.test(v)) return "Il nome non può contenere \\ / : * ? \" < > |";
+  if (parent.kids.some((k) => k.name.toLowerCase() === v.toLowerCase() && k !== except)) return "Esiste già un elemento con questo nome.";
+  return null;
+}
+function relocate(from, to) {
+  const a = disp(from), b = disp(to);
+  for (const s of S.sessions) if (s.cwd === a || s.cwd.startsWith(a + "/")) s.cwd = b + s.cwd.slice(a.length);
+  const fix = (p) => (p.join("|") === from.join("|") || p.join("|").startsWith(from.join("|") + "|") ? [...to, ...p.slice(from.length)] : p);
+  S.path = fix(S.path); S.sel = fix(S.sel);
+  if (S.p3) S.p3 = fix(S.p3);
+  S.open = new Set([...S.open].map((k) => fix(k.split("|")).join("|")));
+}
+const parentExists = (p) => { let q = p; while (q.length && !node(q)) q = q.slice(0, -1); return q; };
+
+const A = {
+  page: (e) => { S.page = e.dataset.id; S.sheet = null; render(); },
+  filter: (e) => { S.filter = e.dataset.id; render(); },
+  enter: (e) => { const p = unpk(e.dataset.p); S.path = p; if (variant === 3) S.p3 = p.length ? p : null; render(); },
+  up3: (e) => { S.p3 = e.dataset.p ? unpk(e.dataset.p) : null; render(); },
+  select: (e) => {
+    const p = unpk(e.dataset.p), k = p.join("|"), n = node(p);
+    if (n.dir && !n.locked) { if (S.sel.join("|") === k && S.open.has(k)) S.open.delete(k); else S.open.add(k); }
+    S.sel = p; render();
+  },
+  twist: (e) => { const k = unpk(e.dataset.p).join("|"); if (S.open.has(k)) S.open.delete(k); else S.open.add(k); render(); },
+  itemMenu: (e) => openSheet({ t: "item", p: unpk(e.dataset.p) }),
+  openFile: (e) => { S.sheet = null; S.full = { t: "file", p: unpk(e.dataset.p) }; render(); },
+  closeFull: () => { S.full = null; render(); },
+  edit: () => { S.full.edit = true; render(); },
+  cancelEdit: () => { S.full.edit = false; render(); },
+  saveFile: () => { const n = node(S.full.p); n.text = document.getElementById("editor").value; S.full.edit = false; showToast("Salvato sul PC"); render(); },
+  openTerm: (e) => { const p = unpk(e.dataset.p); addSession({ kind: "shell", label: "Terminale", cwd: disp(p) }); },
+  agentSheet: (e) => openSheet({ t: "agent", p: unpk(e.dataset.p), mode: "chat" }),
+  setAgent: (e) => { S.agent = e.dataset.id; render(); },
+  setMode: (e) => { S.sheet.mode = e.dataset.id; render(); },
+  startAgent: (e) => {
+    const p = unpk(e.dataset.p), cwd = disp(p), name = node(p).name;
+    if (S.sheet.mode === "term") return addSession({ kind: "term", cli: S.agent, label: `${agentName(S.agent)} · ${name}`, cwd, status: "idle", since: "ora" });
+    const first = document.getElementById("first")?.value.trim();
+    addSession({ kind: "chat", cli: S.agent, label: first || `${agentName(S.agent)} · ${name}`, cwd, status: first ? "busy" : "idle", since: "ora", first });
+  },
+  askStart: (e) => { const p = unpk(e.dataset.p), first = S.ask.trim(); S.ask = ""; addSession({ kind: "chat", cli: S.agent, label: first, cwd: disp(p), status: "busy", since: "ora", first }); },
+  homeStart: () => { const first = S.draft.trim(); if (!first) return; S.draft = ""; addSession({ kind: "chat", cli: S.agent, label: first, cwd: S.homeCwd, status: "busy", since: "ora", first }); },
+  rename: (e) => openSheet({ t: "name", mode: "rename", p: unpk(e.dataset.p) }),
+  newItem: (e) => openSheet({ t: "new", p: unpk(e.dataset.p) }),
+  newDir: () => openSheet({ t: "name", mode: "dir", p: S.sheet.p, value: "" }),
+  newFile: () => openSheet({ t: "name", mode: "file", p: S.sheet.p, value: "" }),
+  saveName: () => {
+    const h = S.sheet, raw = document.getElementById("name").value;
+    const target = h.mode === "rename" ? node(h.p) : null;
+    const parent = node(h.mode === "rename" ? h.p.slice(0, -1) : h.p);
+    const err = validName(raw, parent, target);
+    if (err) { h.err = err; h.value = raw; return render(); }
+    const v = raw.trim();
+    if (target) { if (v !== target.name) { const to = [...h.p.slice(0, -1), v]; relocate(h.p, to); target.name = v; S.sel = S.sel.length ? S.sel : to; } showToast("Rinominato"); }
+    else { parent.kids.push(h.mode === "dir" ? dir(v) : file(v, "0 KB", "")); showToast(h.mode === "dir" ? "Cartella creata" : "File creato"); if (variant === 2) S.open.add(h.p.join("|")); }
+    S.sheet = null; render();
+  },
+  move: (e) => openSheet({ t: "move", p: unpk(e.dataset.p) }),
+  moveTo: (e) => {
+    const from = S.sheet.p, n = node(from), dest = unpk(e.dataset.p), target = node(dest);
+    if (target.kids.some((k) => k.name === n.name)) { S.sheet = null; showToast("Lì c'è già un elemento con questo nome"); return render(); }
+    const parent = node(from.slice(0, -1));
+    parent.kids = parent.kids.filter((k) => k !== n);
+    target.kids.push(n);
+    relocate(from, [...dest, n.name]);
+    S.sheet = null; showToast(`Spostato in ${target.name}`); render();
+  },
+  del: (e) => openSheet({ t: "del", p: unpk(e.dataset.p) }),
+  doDel: (e) => {
+    const p = unpk(e.dataset.p), n = node(p), parent = node(p.slice(0, -1)), i = parent.kids.indexOf(n);
+    parent.kids.splice(i, 1);
+    S.sheet = null;
+    S.path = parentExists(S.path); S.sel = parentExists(S.sel);
+    if (S.p3) { S.p3 = parentExists(S.p3); if (!S.p3.length) S.p3 = null; }
+    showToast(`${n.name} nel Cestino`, () => { parent.kids.splice(i, 0, n); });
+    render();
+  },
+  undo: () => { S.toast?.undo?.(); S.toast = null; clearTimeout(toastTimer); render(); },
+  openSession: (e) => { S.sheet = null; S.full = { t: "session", id: e.dataset.id }; render(); },
+  sessionMenu: (e) => openSheet({ t: "session", id: e.dataset.id }),
+  askClose: () => { S.sheet.confirm = true; render(); },
+  doClose: (e) => { S.sessions = S.sessions.filter((s) => s.id !== e.dataset.id); S.sheet = null; render(); },
+  reveal: (e) => {
+    const p = pathOf(S.sessions.find((s) => s.id === e.dataset.id).cwd);
+    S.sheet = null; S.page = "files"; S.path = p; S.sel = p;
+    if (variant === 3) S.p3 = p;
+    p.forEach((_, i) => S.open.add(p.slice(0, i + 1).join("|")));
+    render();
+  },
+  newTermPick: () => openSheet({ t: "termWhere" }),
+  goFiles: () => { S.sheet = null; S.page = "files"; render(); },
+  pickAgent: () => openSheet({ t: "pick", what: "agent" }),
+  pickFolder: () => openSheet({ t: "pick", what: "folder" }),
+  pickDone: (e) => { if (S.sheet.what === "agent") S.agent = e.dataset.id; else S.homeCwd = e.dataset.id; S.sheet = null; render(); },
+  closeSheet: () => { S.sheet = null; render(); },
+};
+
+stage.addEventListener("click", (ev) => {
+  const el = ev.target.closest("[data-a]");
+  if (!el || el.disabled) return;
+  if (el.dataset.self && ev.target !== el) return;
+  A[el.dataset.a]?.(el);
+});
+stage.addEventListener("input", (ev) => {
+  if (ev.target.id === "draft") { S.draft = ev.target.value; document.getElementById("go").disabled = !S.draft.trim(); }
+  if (ev.target.id === "ask") { S.ask = ev.target.value; document.getElementById("askgo").disabled = !S.ask.trim(); }
+});
+stage.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && ev.target.id === "name") A.saveName();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  if (S.sheet) A.closeSheet();
+  else if (S.full) A.closeFull();
+});
+
+function note() {
+  const n = NOTES[variant];
+  const li = (a) => a.map((x) => `<li>${x}</li>`).join("");
+  document.getElementById("note").innerHTML = `<h2>${n.name} <span class="tag">${n.tag}</span></h2><p>${n.lead}</p><h3>Da provare</h3><ul>${li(n.how)}</ul><h3>A favore</h3><ul>${li(n.pro)}</ul><h3>Contro</h3><ul>${li(n.con)}</ul>`;
+}
+function setVariant(v) {
+  variant = v;
+  document.querySelectorAll("#variants button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.v === v)));
+  S.sheet = null; S.full = null;
+  note(); render();
+}
+document.getElementById("variants").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setVariant(+b.dataset.v); });
+document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => { S.page = b.dataset.go; S.sheet = null; S.full = null; render(); }));
+document.getElementById("noterm").addEventListener("change", (e) => { hideTerms = e.target.checked; render(); });
+document.getElementById("olddesk").addEventListener("change", (e) => { oldDesk = e.target.checked; render(); });
+document.getElementById("reset").addEventListener("click", () => { S = fresh(); render(); });
+setVariant(1);
+</script>
+</body>
+</html>

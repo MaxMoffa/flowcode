@@ -7,6 +7,16 @@
   --usage-accent: var(--accent);
 }
 
+.plugin-usage-metric--auth {
+  margin: 8px 0;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--ansi-yellow) 42%, var(--border));
+  background: color-mix(in srgb, var(--ansi-yellow) 8%, transparent);
+  border-radius: 8px;
+}
+.plugin-usage-metric--auth .plugin-usage-metric-label { color: var(--ansi-yellow); font-weight: 600; }
+.plugin-usage-metric--auth .plugin-usage-metric-label::before { content: "!"; display: inline-grid; place-items: center; width: 17px; height: 17px; border: 1px solid currentColor; border-radius: 5px; margin-right: 7px; font-size: 11px; }
+
 .plugin-usage-btn {
   position: relative;
 }

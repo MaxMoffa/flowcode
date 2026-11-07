@@ -5,6 +5,7 @@ import { mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
 import { chatMock, chatMockCaps, chatMockConnect, mockViews } from "./devMockChat";
 import { termMock } from "./devMockTerm";
 import { explorerMock } from "./devMockExplorer";
+import { providerAuthMock } from "./devMockProviderAuth";
 import type { ClientMsg, Tab } from "../../shared/remote-types";
 
 const tabs: Tab[] = [
@@ -105,7 +106,7 @@ function mockTabs(msg: ClientMsg | undefined) {
 
 // What the desktop sends once the link is up: its features, the chats and the view plugins.
 async function chatHello() {
-  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", ...chatMockCaps] }]);
+  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", ...chatMockCaps] }]);
   await chatMockConnect();
   await emit("remote://msgs", [{ t: "views", views: mockViews }]);
 }
@@ -177,6 +178,7 @@ mockIPC(
       default:
         if (cmd === "send") mockTabs((args as { msg?: ClientMsg }).msg);
         if (cmd === "send") explorerMock((args as { msg?: ClientMsg }).msg);
+        if (cmd === "send") providerAuthMock((args as { msg?: ClientMsg }).msg);
         if (cmd === "send") chatMock((args as { msg?: Parameters<typeof chatMock>[0] }).msg);
         return termMock(cmd, args);
     }

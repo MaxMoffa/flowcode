@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per dare a chat e terminale di Flowcode mobile la stessa struttura.">
+  <title>Flowcode mobile — chat e terminale · 3 varianti</title>
+  <style>
+    /* Token e misure copiati da mobile/src/ui.css, chat.css e terminal.css: a runtime theme.ts li sovrascrive con la palette del desktop. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07;
+      --wait: #d1a752; --wait-bg: rgba(209, 167, 82, .08); --wait-border: rgba(209, 167, 82, .28);
+      --busy: #6f9bcf; --danger: #e2645c;
+      --term-bg: #0e0b09;
+      --glass-strong: rgba(14, 10, 7, .62); --blur-card: blur(16px) saturate(130%);
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .ic { flex: none; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    code { font: 12.5px var(--mono); }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1240px; margin: auto; padding: 28px 24px 48px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 760px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 150px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 14px; margin-bottom: 26px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; }
+    .controls select { padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface); color: var(--fg); font: inherit; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .stage { display: flex; flex-wrap: wrap; justify-content: center; gap: 44px; margin-bottom: 36px; }
+    .col { display: grid; gap: 14px; justify-items: center; min-width: 0; max-width: 100%; }
+    .col > span { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .notes { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+    .note h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+    .note h2 small { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--accent-bg); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 2px; }
+    .note p { margin: 0 0 12px; color: var(--muted); max-width: 66ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 66ch; }
+    .side { display: grid; gap: 18px; }
+    .check { padding: 14px 16px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    caption { text-align: left; margin-bottom: 6px; font-size: 14px; font-weight: 600; }
+    th, td { padding: 7px 8px 7px 0; border-top: 1px solid var(--border); text-align: left; vertical-align: top; font-weight: 400; }
+    thead th { color: var(--muted); font-size: 12px; border-top: 0; }
+    tr.on td, tr.on th { color: var(--accent); }
+    .limits { padding: 14px 16px; border-radius: 12px; background: rgba(209, 167, 82, .07); box-shadow: inset 0 0 0 1px rgba(209, 167, 82, .24); }
+    .limits h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--wait); }
+    .limits ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 390px; max-width: 100%; height: 780px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong), 0 30px 60px -30px #000; isolation: isolate; }
+    .status { flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    /* header: copia di .term-head / .chat-title */
+    .head { flex: none; display: flex; align-items: center; gap: 4px; height: 52px; padding: 0 6px 0 2px; }
+    .hbtn { position: relative; flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: var(--fg); }
+    .hbtn:active { background: var(--surface-2); }
+    .title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 6px; border-radius: 10px; }
+    .logo { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; background: var(--surface); color: #d98e66; }
+    .logo.shell { color: var(--accent); }
+    .ttext { min-width: 0; display: block; }
+    .tline { display: flex; align-items: center; gap: 4px; }
+    .tline b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15.5px; font-weight: 600; line-height: 1.25; }
+    .tline .ic { color: var(--muted); }
+    .tsub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 1.3; color: var(--muted); }
+    .dot { flex: none; width: 8px; height: 8px; margin: 0 6px; border-radius: 50%; background: var(--muted); opacity: .7; }
+    .dot.busy { background: var(--busy); opacity: 1; animation: pulse 1.2s ease-in-out infinite; }
+    .dot.waiting { background: var(--wait); opacity: 1; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .badge { position: absolute; top: 2px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center; border-radius: 9px; background: var(--wait); color: var(--on-accent); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    /* schede di sessione (03) */
+    .tabs { flex: none; display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--border); }
+    .tabs button { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; border-bottom: 2px solid transparent; color: var(--muted); font-size: 12.5px; }
+    .tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+
+    /* area centrale */
+    .wrap { position: relative; flex: 1; min-height: 0; }
+    .conv, .tview, .pagev { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+    .conv::-webkit-scrollbar, .tview::-webkit-scrollbar, .pagev::-webkit-scrollbar { display: none; }
+    .conv { padding: 14px 16px 12px; border-top: 1px solid var(--border); }
+    .tabs + .wrap .conv { border-top: 0; }
+    .msg-user { width: fit-content; max-width: 82%; margin: 0 0 16px auto; padding: 9px 14px; border-radius: 18px 18px 5px 18px; background: var(--surface-2); font-size: 15px; }
+    .msg { margin: 0 0 12px; font-size: 15px; line-height: 1.55; }
+    .msg code { padding: 1px 6px; border-radius: 6px; background: var(--surface-2); }
+    .rail { display: flex; align-items: center; gap: 9px; min-height: 40px; margin: 0 0 12px; padding: 0 12px; border-radius: 12px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); color: var(--muted); font-size: 13.5px; }
+    .rail i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+    .block { margin: 0 0 14px; overflow: hidden; border-radius: 16px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); }
+    .block-head { display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 6px 12px; }
+    .block-head b { display: block; font-size: 14px; font-weight: 500; line-height: 1.35; }
+    .block-head code { display: block; font-size: 12px; color: var(--muted); }
+    .block pre { margin: 0; padding: 8px 12px 10px; overflow: hidden; background: var(--bg); color: var(--muted); font: 12px/1.6 var(--mono); }
+    .pulse { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+    .working { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13.5px; }
+
+    /* terminale */
+    .tview { padding: 10px 12px; background: var(--term-bg); border-top: 1px solid var(--border); font: 12.5px/1.55 var(--mono); white-space: pre; color: var(--fg); cursor: text; }
+    .tabs + .wrap .tview { border-top: 0; }
+    .y { color: #d1a752; } .g { color: #9db984; } .r { color: #e2645c; } .d { color: #7f6d58; } .b { color: #6f9bcf; }
+    .caret { display: inline-block; width: .6em; height: 1.1em; vertical-align: -2px; background: var(--accent); animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* galleggianti */
+    .float { position: absolute; right: 14px; bottom: 10px; z-index: 2; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--glass-strong); -webkit-backdrop-filter: var(--blur-card); backdrop-filter: var(--blur-card); box-shadow: var(--shadow); }
+    .float .badge { top: -4px; right: -4px; background: var(--accent); }
+    .tpill { position: absolute; right: 14px; bottom: 14px; z-index: 2; display: grid; justify-items: center; gap: 4px; padding: 5px; border-radius: 28px; border: 1px solid var(--border-strong); background: rgba(28, 21, 15, .92); box-shadow: 0 10px 24px rgba(0, 0, 0, .5); }
+    .tpill button { position: relative; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 23px; }
+    .tpill button.kbk { background: var(--accent); color: var(--on-accent); }
+    .tpill i { width: 26px; height: 1px; background: var(--border-strong); }
+
+    /* risposta all'agente: card comune */
+    .perm { flex: none; margin: 8px 12px; padding: 12px 14px; border-radius: 18px; background: var(--wait-bg); box-shadow: inset 0 0 0 1px var(--wait-border); }
+    .perm small { display: block; font-size: 13px; font-weight: 600; color: var(--wait); }
+    .perm p { margin: 2px 0 10px; font: 13.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .perm div { display: flex; gap: 8px; }
+    .perm button { flex: 1; min-height: 44px; display: grid; place-items: center; border-radius: 22px; box-shadow: inset 0 0 0 1px var(--border-strong); font-size: 14px; font-weight: 500; }
+    .perm button.yes { background: var(--wait); color: var(--on-accent); box-shadow: none; }
+    .tstrip { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; background: var(--term-bg); border-top: 1px solid var(--border); color: var(--wait); font-size: 13px; }
+    .tstrip span { flex: 1; }
+    .tstrip button { min-width: 46px; height: 38px; display: grid; place-items: center; padding: 0 12px; border-radius: 10px; background: var(--surface); color: var(--fg); font-weight: 600; }
+    .tstrip button.yes { color: var(--accent); }
+
+    /* composer: copia di .chat-composer / .chat-card */
+    .composer { flex: none; padding: 8px 12px 10px; }
+    .card { padding: 14px 10px 10px 20px; border-radius: 28px; background: var(--surface-2); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); }
+    .card:focus-within { box-shadow: var(--shadow), 0 0 0 1px var(--accent-border); }
+    .input { display: block; width: 100%; min-height: 38px; padding: 0 10px 0 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--fg); font: 16px/1.45 var(--font); }
+    .input.mono { font: 15px/1.5 var(--mono); }
+    .input::placeholder { color: var(--muted); }
+    .actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; }
+    .fit { flex: 1 1 0; display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .start { display: flex; align-items: center; min-width: 0; height: 46px; border-radius: 23px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; }
+    .mode { flex: none; display: grid; place-items: center; height: 46px; padding: 0 10px 0 14px; }
+    .model { display: inline-flex; align-items: center; gap: 8px; min-width: 0; height: 46px; padding: 0 12px 0 10px; border-left: 1px solid var(--border-strong); font-size: 14px; white-space: nowrap; }
+    .pillb { display: inline-flex; align-items: center; gap: 7px; height: 46px; padding: 0 14px; border-radius: 23px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); font-size: 13.5px; white-space: nowrap; }
+    .pillb[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--accent-border); color: var(--accent); }
+    .slash { flex: none; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); font: 19px var(--mono); }
+    .end { flex: none; display: flex; align-items: center; gap: 6px; }
+    .round { flex: none; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; background: var(--bg); }
+    .round.send { background: var(--accent); color: var(--on-accent); }
+    .round.send:disabled { opacity: .45; cursor: default; }
+    .round.stop { background: var(--fg); color: var(--on-accent); font: 600 13px var(--mono); }
+    .direct { flex: none; display: flex; align-items: center; gap: 8px; min-height: 52px; margin: 8px 12px 10px; padding: 0 8px 0 16px; border-radius: 26px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--accent-border); font-size: 13.5px; color: var(--muted); }
+    .direct span { flex: 1; }
+    .direct button { min-height: 44px; padding: 0 12px; border-radius: 22px; color: var(--fg); }
+
+    /* dock compatto (02) */
+    .dock { flex: none; padding: 8px 10px 10px; }
+    .dock-line { display: flex; align-items: flex-end; gap: 8px; }
+    .dock .round { background: var(--surface-2); box-shadow: 0 0 0 1px var(--border-strong); }
+    .dock .round.send { background: var(--accent); box-shadow: none; }
+    .dock .round.stop { background: var(--fg); box-shadow: none; }
+    .field { flex: 1; min-width: 0; min-height: 46px; display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 23px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--border-strong); color: var(--muted); font-size: 15px; }
+    .field:focus-within, .field.on { box-shadow: 0 0 0 1px var(--accent-border); }
+    .field textarea { flex: 1; min-width: 0; height: 24px; padding: 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--fg); font: 15.5px/24px var(--font); }
+    .field textarea::placeholder { color: var(--muted); }
+    .acc { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .acc .start, .acc .slash, .acc .mode, .acc .model { height: 40px; }
+    .acc .slash { width: 40px; font-size: 17px; }
+
+    /* riga tasti: copia di .tm-keys */
+    .keys { flex: none; background: var(--term-bg); border-top: 1px solid var(--border); }
+    .dock .keys { margin: 0 -10px 8px; border-bottom: 1px solid var(--border); }
+    .krow { display: flex; align-items: stretch; height: 44px; overflow-x: auto; overscroll-behavior: contain; scrollbar-width: none; }
+    .krow::-webkit-scrollbar { display: none; }
+    .k { flex: none; min-width: 46px; display: grid; place-items: center; padding: 0 10px; font: 14px var(--mono); }
+    .k:active { background: var(--surface-2); }
+    .ksep { flex: none; width: 1px; margin: 10px 2px; background: rgba(232, 184, 128, .14); }
+    .kpad { height: 22px; display: grid; place-items: center; border-top: 1px solid var(--border); }
+    .kpad i { width: 42px; height: 3px; border-radius: 2px; background: var(--border-strong); }
+    .keys-line { display: flex; align-items: stretch; gap: 8px; padding: 0 14px 10px 8px; }
+    .keys-line .krow { flex: 1; min-width: 0; }
+    .keys-line .kopen { flex: none; width: 46px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: var(--accent); color: var(--on-accent); }
+
+    /* tastiera finta */
+    .kb { flex: none; height: 250px; padding: 8px 4px; display: grid; gap: 8px; align-content: start; background: #0f0c09; border-top: 1px solid var(--border); }
+    .kb div { display: flex; gap: 5px; justify-content: center; }
+    .kb span { flex: 0 1 33px; height: 46px; border-radius: 6px; background: var(--surface); }
+    .kb span.w { flex: 1 1 180px; }
+    .kb button { flex: 0 0 56px; height: 46px; display: grid; place-items: center; border-radius: 6px; background: var(--surface-2); }
+
+    /* drawer e sheet: stesso contenuto da chat e terminale */
+    .scrim { position: absolute; inset: 0; z-index: 4; background: rgba(0, 0, 0, .5); }
+    .drawer, .sheet { position: absolute; z-index: 5; display: flex; flex-direction: column; background: var(--surface); box-shadow: var(--shadow); }
+    .drawer { top: 0; right: 0; bottom: 0; width: 84%; padding: 34px 12px 16px; border-left: 1px solid var(--border-strong); animation: in-r .18s ease-out; }
+    .sheet { left: 0; right: 0; bottom: 0; max-height: 72%; padding: 8px 12px 16px; border-radius: 22px 22px 0 0; border-top: 1px solid var(--border-strong); animation: in-b .18s ease-out; }
+    @keyframes in-r { from { transform: translateX(24px); opacity: 0; } }
+    @keyframes in-b { from { transform: translateY(24px); opacity: 0; } }
+    .grab { width: 36px; height: 4px; margin: 2px auto 8px; border-radius: 2px; background: var(--border-strong); }
+    .shead { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+    .shead div { flex: 1; min-width: 0; }
+    .shead b { display: block; font-size: 16px; font-weight: 600; line-height: 1.3; }
+    .shead small { display: block; font: 12px var(--mono); color: var(--muted); }
+    .slabel { margin: 12px 4px 6px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .group { overflow: hidden; border-radius: 14px; background: var(--bg); box-shadow: 0 0 0 1px var(--border); }
+    .group + .group { margin-top: 10px; }
+    .row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 14px; font-size: 14.5px; }
+    .row + .row { border-top: 1px solid var(--border); }
+    .row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row small { flex: none; color: var(--muted); font-size: 12px; }
+    .row.on { color: var(--accent); }
+    .row.danger { color: var(--danger); }
+    .row.wait small { color: var(--wait); }
+    .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 4px 0 2px; }
+    .tile { display: grid; justify-items: center; gap: 6px; padding: 14px 2px 10px; border-radius: 16px; background: var(--bg); box-shadow: 0 0 0 1px var(--border); font-size: 12.5px; }
+    .pagev { padding: 12px; }
+    .addr { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; margin-bottom: 10px; border-radius: 22px; background: var(--bg); box-shadow: 0 0 0 1px var(--border); font: 13px var(--mono); color: var(--muted); }
+    .webpage { height: 300px; display: grid; place-items: center; padding: 18px; text-align: center; border-radius: 14px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); color: var(--muted); }
+
+    @media (max-width: 940px) {
+      .page { padding: 18px 14px 32px; }
+      .notes { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="eyebrow">FLOWCODE MOBILE · TELEFONO</div>
+    <h1>Chat e terminale con la stessa struttura</h1>
+    <p class="lead">Tre modi di avvicinare le due schermate. Ogni variante mostra chat e terminale fianco a fianco e i telefoni rispondono ai tocchi: prova il titolo, il robot, i campi di scrittura e gli strumenti.</p>
+
+    <div class="variants" id="variants" role="group" aria-label="Variante"></div>
+    <div class="controls">
+      <label>Stato della sessione
+        <select id="status">
+          <option value="waiting">Ti aspetta</option>
+          <option value="busy">Al lavoro</option>
+          <option value="idle">Inattivo</option>
+        </select>
+      </label>
+      <label>Nel terminale
+        <select id="shell">
+          <option value="agent">Agente</option>
+          <option value="shell">Shell semplice</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="kbctl"> Tastiera aperta</label>
+    </div>
+
+    <div class="stage">
+      <div class="col"><span>CHAT</span><section class="phone" id="p-chat" aria-label="Chat"></section></div>
+      <div class="col"><span>TERMINALE</span><section class="phone" id="p-term" aria-label="Terminale"></section></div>
+    </div>
+
+    <div class="notes">
+      <div class="note" id="note"></div>
+      <div class="side">
+        <div class="check">
+          <table>
+            <caption>A confronto</caption>
+            <thead><tr><th scope="col">Variante</th><th scope="col">Scrittura nel terminale</th><th scope="col">Strumenti</th><th scope="col">Righe di output (oggi 35)</th><th scope="col">Lavoro</th></tr></thead>
+            <tbody id="compare"></tbody>
+          </table>
+        </div>
+        <div class="limits">
+          <h3>Vale per tutte le varianti</h3>
+          <ul>
+            <li><b>File e Azioni in chat non esistono ancora.</b> <code>TermFiles</code> e <code>TermActions</code> lavorano su un <code>ptyId</code>, che una chat non ha: serve estendere il protocollo col desktop.</li>
+            <li><b>Nel terminale la risposta resta Sì o No.</b> L'app non legge la domanda dell'agente, quindi niente comando mostrato né «Sempre», a meno di interpretare l'output.</li>
+            <li><b>Passare da terminale a chat non è istantaneo.</b> Lo fa il desktop e non è possibile mentre l'agente lavora: per questo nessuna variante usa uno switch Chat | Terminale.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const ICONS = {
+      back: '<path d="m14.5 6-6 6 6 6"/>',
+      chev: '<path d="m7 10 5 5 5-5"/>',
+      robot: '<rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 7V4"/><circle cx="12" cy="3.5" r=".6"/><circle cx="9" cy="13" r=".8"/><circle cx="15" cy="13" r=".8"/>',
+      term: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m7.5 10 2.5 2-2.5 2"/><path d="M13 14.5h3.5"/>',
+      folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+      file: '<path d="M7 3.5h7l4 4V19a1.500 1.500 0 0 1-1.500 1.500h-9.500A1.500 1.500 0 0 1 5.500 19V5A1.500 1.500 0 0 1 7 3.500z"/><path d="M14 3.500V8h4"/>',
+      bolt: '<path d="M13 3 5.5 13.5H11L10 21l7.500-10.500H12z"/>',
+      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.600 2.600 3.800 5.600 3.800 9s-1.200 6.400-3.800 9c-2.600-2.600-3.800-5.600-3.800-9S9.400 5.600 12 3Z"/>',
+      kb: '<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>',
+      chat: '<path d="M5 5.500h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4.500 3.500V17.500H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/>',
+      dots: '<circle cx="5" cy="12" r="1.300" fill="currentColor"/><circle cx="12" cy="12" r="1.300" fill="currentColor"/><circle cx="19" cy="12" r="1.300" fill="currentColor"/>',
+      send: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+      enter: '<path d="M19 6v5a3 3 0 0 1-3 3H6"/><path d="m10 10-4 4 4 4"/>',
+      stop: '<rect x="7" y="7" width="10" height="10" rx="2"/>',
+      mic: '<rect x="9" y="3.500" width="6" height="11" rx="3"/><path d="M5.500 11.500a6.500 6.500 0 0 0 13 0M12 18v3"/>',
+      plus: '<path d="M12 5v14M5 12h14"/>',
+      hand: '<path d="M8 12V6.500a1.500 1.500 0 0 1 3 0V11m0-6a1.500 1.500 0 0 1 3 0v6m0-4.500a1.500 1.500 0 0 1 3 0V14a7 7 0 0 1-7 7c-2.500 0-4-1-5.200-2.800L3.500 14.500a1.500 1.500 0 0 1 2.500-1.600L8 15"/>',
+      cpu: '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>',
+      pencil: '<path d="m4 20 1-4.500L16 4.500a2 2 0 0 1 3 3L8 18.500z"/>',
+      x: '<path d="M6 6l12 12M18 6 6 18"/>',
+      check: '<path d="m5 12.500 4.500 4.500L19 7.500"/>',
+      spark: '<path d="M12 3v18M3 12h18M5.600 5.600l12.800 12.800M18.400 5.600 5.600 18.400"/>',
+    };
+    const ic = (name, size = 20) => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+
+    const VARIANTS = {
+      "00": {
+        name: "Oggi",
+        lead: "Le due schermate di adesso, per confronto. Stesso titolo, ma comandi, strumenti e risposte all'agente vivono in posti diversi.",
+        change: ["Chat: robot in alto, composer in basso, permessi in una card.", "Terminale: <code>⋯</code> in alto, pill flottante sopra l'output, Sì/No in una striscia.", "La shell semplice ha un header ancora diverso, senza logo né drawer."],
+        cost: [],
+      },
+      "01": {
+        name: "Stesso composer",
+        tag: "La più simile",
+        lead: "Il terminale riceve la stessa card di scrittura della chat: si compone una riga, poi la si invia. Header, drawer e card di risposta diventano identici.",
+        change: ["Terminale con testo corretto dalla tastiera del telefono, e dettatura.", "Riga dei tasti sopra il composer, aperta da «Tasti».", "«Diretta» riporta alla digitazione tasto per tasto per vim, TUI e password.", "File, Azioni e Browser passano nel drawer del titolo: niente pill sull'output."],
+        cost: ["Il testo nel composer è visibile: su una richiesta di password serve passare a «Diretta» a mano, l'app non può accorgersene.", "Due modi di scrivere nel terminale da spiegare.", "Il composer toglie circa 7 righe di output rispetto a oggi."],
+      },
+      "02": {
+        name: "Dock compatto",
+        tag: "Consigliata",
+        lead: "Stesso dock a una riga in entrambe: + a sinistra, campo al centro, azione a destra. Toccando il campo compare la riga accessoria: modalità e modello in chat, tasti nel terminale.",
+        change: ["Nel terminale il campo solleva la tastiera e si digita direttamente nel pty, come oggi: password e TUI non cambiano.", "Il + apre gli stessi strumenti in chat e terminale.", "Il tasto a destra segue lo stato: invia o Invio, stop o ^C.", "Anche la chat guadagna spazio per il thread."],
+        cost: ["In chat modalità e modello si vedono solo col campo attivo.", "Il campo del terminale sembra un input ma non contiene testo: il cursore è nell'output.", "Il composer della chat va ridisegnato, con le sue funzioni: allegati, dettatura, comandi."],
+      },
+      "03": {
+        name: "Schede sessione",
+        tag: "La più ricca",
+        lead: "Una sessione diventa un contenitore con schede sotto l'header: Sessione, File, Azioni, Browser. L'input resta quello nativo di ciascuna vista, a unirle è la cornice.",
+        change: ["Strumenti a un tocco e sempre visibili, a tutta pagina invece che in uno sheet.", "Nel terminale una riga tasti fissa sostituisce la pill: esc, tab, ctrl e frecce ci sono anche a tastiera chiusa.", "Le schede si nascondono con la tastiera aperta.", "Una richiesta dell'agente resta visibile in ogni scheda."],
+        cost: ["Sono le schermate meno simili nel punto più usato, cioè la scrittura.", "44 px fissi in più in alto, lontani dal pollice.", "File e Browser vanno riscritti come pagine: oggi sono drawer."],
+      },
+    };
+
+    const COMPARE = [
+      ["01", "Composer + modalità diretta", "Drawer del titolo", "@01", "Alto: nuovo input, gestione IME e modalità"],
+      ["02", "Diretta, come oggi", "Tasto + (sheet)", "@02", "Medio: nuovo dock, composer chat da rifare"],
+      ["03", "Diretta + riga tasti fissa", "Schede in alto", "@03", "Medio-alto: nuova cornice, pagine File e Browser"],
+    ];
+
+    const S = {
+      v: "02", status: "waiting", shell: false,
+      kb: { chat: false, term: false }, overlay: { chat: null, term: null }, tab: { chat: "session", term: "session" },
+      draft: { chat: "", term: "" }, sent: { chat: [], term: [] }, keys: false, direct: false, focus: null,
+    };
+    const $ = (selector) => document.querySelector(selector);
+    const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const stateOf = (k) => (k === "term" && S.shell && S.status === "waiting" ? "idle" : S.status);
+    const stateText = { idle: "Inattivo", busy: "Al lavoro", waiting: "Ti aspetta" };
+
+    /* ---------- pezzi comuni ---------- */
+    function header(k) {
+      const shell = k === "term" && S.shell;
+      const title = k === "chat" ? "Banner di riconnessione" : shell ? "zsh" : "flowcode";
+      const sub = shell ? "Shell · flowcode" : "Claude Code · flowcode";
+      const state = stateOf(k);
+      const dot = `<i class="dot ${state}" role="img" aria-label="${stateText[state]}"></i>`;
+      const logo = `<span class="logo${shell ? " shell" : ""}">${ic(shell ? "term" : "spark", 18)}</span>`;
+      const back = `<button class="hbtn" aria-label="Indietro">${ic("back", 22)}</button>`;
+      const robot = `<button class="hbtn" data-a="overlay" data-v="agents" aria-label="Agenti, 2 ti aspettano">${ic("robot")}<b class="badge">2</b></button>`;
+      if (S.v === "00" && shell) {
+        return `<header class="head">${back}<div class="title">${dot}<b style="font-size:16px">${title}</b><small style="color:var(--muted);font-size:13px">${stateText[state]}</small></div><button class="hbtn" data-a="overlay" data-v="today" aria-label="Altro">${ic("dots", 22)}</button></header>`;
+      }
+      const titleBtn = `<button class="title" data-a="overlay" data-v="drawer" aria-haspopup="dialog">${logo}<span class="ttext"><span class="tline"><b>${title}</b>${ic("chev", 15)}</span><span class="tsub">${sub}</span></span></button>`;
+      if (S.v === "00") {
+        return `<header class="head">${back}${titleBtn}${k === "chat" ? robot : dot + `<button class="hbtn" data-a="overlay" data-v="today" aria-label="Altro">${ic("dots", 22)}</button>`}</header>`;
+      }
+      return `<header class="head">${back}${titleBtn}${dot}${robot}</header>`;
+    }
+
+    function tabs(k) {
+      if (S.v !== "03" || S.kb[k]) return "";
+      const items = [["session", k === "chat" ? "chat" : "term", "Sessione"], ["files", "folder", "File"], ["actions", "bolt", "Azioni"], ["browser", "globe", "Browser"]];
+      return `<div class="tabs" role="tablist">${items.map(([id, icon, label]) => `<button role="tab" aria-selected="${S.tab[k] === id}" data-a="tab" data-v="${id}">${ic(icon, 17)}${label}</button>`).join("")}</div>`;
+    }
+
+    function chatBody() {
+      const state = stateOf("chat");
+      return `
+        <div class="msg-user">Sistema il reset di phase e attempt in Reconnect.tsx</div>
+        <div class="rail"><i></i>1 passaggio</div>
+        <p class="msg">Ho sistemato il reset di phase e attempt, ora ricontrollo i punti in cui <code>status</code> torna online.</p>
+        <div class="block">
+          <div class="block-head"><span class="pulse"></span><div><b>Controllo dei tipi</b><code>cargo check --tests</code></div></div>
+          <pre>Checking flowcode v0.28.0
+Finished dev in 4.21s</pre>
+        </div>
+        <p class="msg">Appena <code>cargo check</code> finisce guardo il risultato e ti dico com'è andata.</p>
+        ${S.sent.chat.map((text) => `<div class="msg-user">${esc(text)}</div>`).join("")}
+        ${state === "busy" ? '<div class="working"><span class="pulse"></span>Sto lavorando · 12 s</div>' : ""}`;
+    }
+
+    function termBody() {
+      const state = stateOf("term");
+      const caret = S.kb.term && !(S.v === "01" && !S.direct) ? '<i class="caret"></i>' : "";
+      const sent = S.sent.term.map((text) => `<span class="g">${S.shell ? "$" : ">"}</span> ${esc(text)}\n`).join("");
+      if (S.shell) {
+        return `<span class="g">$</span> npm run build
+
+<span class="d">&gt; flowcode@0.28.0 build</span>
+<span class="d">&gt; tsc &amp;&amp; vite build</span>
+
+<span class="b">vite v6.2.0</span> building for production...
+<span class="g">✓</span> 1284 modules transformed.
+dist/index.html          <span class="d">0.62 kB</span>
+dist/assets/index.css   <span class="d">48.20 kB</span>
+dist/assets/index.js   <span class="d">412.77 kB</span>
+<span class="g">✓ built in 3.84s</span>
+
+${sent}${state === "busy" ? '<span class="y">npm test</span> <span class="d">in esecuzione…</span>\n' : `<span class="g">$</span> ${caret}`}`;
+      }
+      const head = `<span class="r">●</span> Ho aggiornato <span class="y">Reconnect.tsx</span>.
+<span class="d">  ⎿  +42 −7</span>
+
+<span class="r">●</span> Ora eseguo la build per verificare.
+
+`;
+      if (state === "waiting") {
+        const line = (text, dim) => `<span class="y">│</span> ${dim ? `<span class="d">${text.padEnd(33)}</span>` : text.padEnd(33)}<span class="y">│</span>
+`;
+        return head + `<span class="y">╭─ Posso eseguire npm run build? ──╮</span>
+` + line("> 1. Sì") + line("  2. Sì, non chiedere più", true) + line("  3. No", true) + `<span class="y">╰${"─".repeat(34)}╯</span>
+`
+          + `${sent}`;
+      }
+      if (state === "busy") return head + `<span class="r">✻</span> Eseguo npm run build… <span class="d">(12 s)</span>\n${sent}`;
+      return head + `<span class="g">✓</span> Build riuscita in 3.84s.\n\n${sent}<span class="g">&gt;</span> ${caret}`;
+    }
+
+    function page(id) {
+      if (id === "browser") return `<div class="addr">${ic("globe", 16)}localhost:5173</div><div class="webpage">Anteprima del dev server, servita dal desktop.</div>`;
+      return `<div class="group">${id === "files" ? filesRows() : actionRows()}</div>`;
+    }
+    const filesRows = () => [["folder", "src"], ["folder", "docs"], ["file", "package.json", "312 B"], ["file", "README.md", "84 B"], ["file", "notes.txt", "1,4 kB"]]
+      .map(([icon, name, size]) => `<button class="row">${ic(icon, 18)}<span>${name}</span>${size ? `<small>${size}</small>` : ""}</button>`).join("");
+    const actionRows = () => [["Build", "npm run build"], ["Test", "npm test"], ["Lint", "npm run lint"]]
+      .map(([name, cmd]) => `<button class="row">${ic("bolt", 18)}<span>${name}</span><small>${cmd}</small></button>`).join("");
+
+    function reply(k) {
+      if (stateOf(k) !== "waiting") return "";
+      if (k === "chat") return `<div class="perm" role="status"><small>L'agente chiede il permesso</small><p>npm run build</p><div><button data-a="answer">Rifiuta</button><button data-a="answer">Sempre</button><button class="yes" data-a="answer">Consenti</button></div></div>`;
+      if (S.v === "00") return `<div class="tstrip" role="status"><span>Claude aspetta una risposta</span><button class="yes" data-a="answer">Sì</button><button data-a="answer">No</button></div>`;
+      return `<div class="perm" role="status"><small style="margin-bottom:10px">Claude aspetta una risposta</small><div><button data-a="answer">No</button><button class="yes" data-a="answer">Sì</button></div></div>`;
+    }
+
+    const keyItems = (full) => {
+      const key = (label) => `<button class="k" data-a="key" data-v="${esc(label)}">${esc(label)}</button>`;
+      const sep = '<i class="ksep"></i>';
+      if (!full) return ["esc", "tab", "ctrl"].map(key).join("") + sep + ["↑", "↓"].map(key).join("");
+      return ["esc", "tab", "ctrl", "alt"].map(key).join("") + sep + ["←", "↑", "↓", "→"].map(key).join("") + sep + ["~", "/", "|", "-"].map(key).join("");
+    };
+    const keyRow = () => `<div class="keys"><div class="krow" role="toolbar" aria-label="Tasti">${keyItems(true)}</div><div class="kpad"><i></i></div></div>`;
+    const modelPill = () => `<div class="start"><button class="mode" aria-label="Modalità: chiedi prima">${ic("hand")}</button><button class="model" aria-label="Modello">${ic("cpu", 18)}Opus 5.5${ic("chev", 14)}</button></div>`;
+    const stopBtn = (k) => (k === "chat" ? `<button class="round stop" data-a="stop" aria-label="Ferma il turno">${ic("stop")}</button>` : `<button class="round stop" data-a="stop" aria-label="Interrompi con Ctrl+C">^C</button>`);
+    const draftAttr = (k) => `data-input="${k}" rows="1" aria-label="Messaggio"`;
+
+    function chatComposer() {
+      const busy = stateOf("chat") === "busy";
+      return `<div class="composer"><div class="card">
+        <textarea class="input" ${draftAttr("chat")} placeholder="Scrivi all'agente...">${esc(S.draft.chat)}</textarea>
+        <div class="actions"><div class="fit">${modelPill()}<button class="slash" data-a="slash" aria-label="Comandi">/</button></div>
+        <div class="end">${busy ? stopBtn("chat") : `<button class="round" aria-label="Detta">${ic("mic")}</button><button class="round send" data-a="send" aria-label="Invia" ${S.draft.chat.trim() ? "" : "disabled"}>${ic("send")}</button>`}</div></div>
+      </div></div>`;
+    }
+
+    /* ---------- dock per variante ---------- */
+    function dock(k) {
+      const open = S.kb[k];
+      const busy = stateOf(k) === "busy";
+      if (S.v === "03" && S.tab[k] !== "session") return "";
+      if (S.v === "00") {
+        if (k === "chat") return chatComposer();
+        return open ? keyRow() : "";
+      }
+      if (S.v === "01") {
+        if (k === "chat") return chatComposer();
+        if (S.direct) return `${keyRow()}<div class="direct"><span>Digitazione diretta: i tasti vanno al terminale</span><button data-a="direct">Composer</button></div>`;
+        return `${S.keys || open ? keyRow() : ""}<div class="composer"><div class="card">
+          <textarea class="input mono" ${draftAttr("term")} placeholder="Scrivi al terminale...">${esc(S.draft.term)}</textarea>
+          <div class="actions"><div class="fit"><button class="pillb" data-a="keys" aria-pressed="${S.keys || open}">${ic("kb", 18)}Tasti</button><button class="pillb" data-a="direct">Diretta</button></div>
+          <div class="end">${busy ? stopBtn("term") : `<button class="round" aria-label="Detta">${ic("mic")}</button><button class="round send" data-a="send" aria-label="Invia con Invio" ${S.draft.term.trim() ? "" : "disabled"}>${ic("enter")}</button>`}</div></div>
+        </div></div>`;
+      }
+      if (S.v === "02") {
+        const plus = `<button class="round" data-a="overlay" data-v="tools" aria-label="Strumenti">${ic("plus")}</button>`;
+        if (k === "chat") {
+          const hasText = !!S.draft.chat.trim();
+          const right = busy ? stopBtn("chat") : hasText ? `<button class="round send" data-a="send" aria-label="Invia">${ic("send")}</button>` : `<button class="round" aria-label="Detta">${ic("mic")}</button>`;
+          return `<div class="dock">${open ? `<div class="acc">${modelPill()}<button class="slash" data-a="slash" aria-label="Comandi">/</button></div>` : ""}
+            <div class="dock-line">${plus}<div class="field"><textarea ${draftAttr("chat")} placeholder="Scrivi all'agente...">${esc(S.draft.chat)}</textarea></div>${right}</div></div>`;
+        }
+        const right = busy ? stopBtn("term") : open ? `<button class="round send" data-a="enter" aria-label="Invio">${ic("enter")}</button>` : `<button class="round" aria-label="Detta">${ic("mic")}</button>`;
+        return `<div class="dock">${open ? keyRow() : ""}
+          <div class="dock-line">${plus}<button class="field${open ? " on" : ""}" data-a="kbon">${open ? "Stai digitando nel terminale" : "Tocca per digitare..."}</button>${right}</div></div>`;
+      }
+      if (k === "chat") return chatComposer();
+      if (open) return keyRow();
+      return `<div class="keys"><div class="keys-line"><div class="krow" role="toolbar" aria-label="Tasti">${keyItems(false)}</div><button class="kopen" data-a="kbon" aria-label="Mostra la tastiera">${ic("kb", 22)}</button></div></div>`;
+    }
+
+    function middle(k) {
+      if (S.v === "03" && S.tab[k] !== "session" && !S.kb[k]) return `<div class="wrap"><div class="pagev">${page(S.tab[k])}</div></div>`;
+      if (k === "chat") {
+        const jump = `<button class="float" aria-label="2 terminali in corso">${ic("term")}<b class="badge">2</b></button>`;
+        return `<div class="wrap"><div class="conv" data-a="contentchat">${chatBody()}</div>${jump}</div>`;
+      }
+      const pill = S.v === "00" && !S.kb.term
+        ? `<div class="tpill" role="toolbar" aria-label="Strumenti"><button data-a="overlay" data-v="files" aria-label="File">${ic("folder")}</button><i></i><button data-a="overlay" data-v="agents" aria-label="Agenti">${ic("robot")}</button><button class="kbk" data-a="kbon" aria-label="Mostra la tastiera">${ic("kb", 21)}</button></div>`
+        : "";
+      return `<div class="wrap"><div class="tview" data-a="contentterm">${termBody()}</div>${pill}</div>`;
+    }
+
+    /* ---------- drawer e sheet ---------- */
+    function overlay(k) {
+      const kind = S.overlay[k];
+      if (!kind) return "";
+      const shell = k === "term" && S.shell;
+      const close = `<button class="hbtn" data-a="close" aria-label="Chiudi">${ic("x")}</button>`;
+      const title = k === "chat" ? "Banner di riconnessione" : shell ? "zsh" : "flowcode";
+      const scrim = '<div class="scrim" data-a="close"></div>';
+      const sheet = (name, sub, body) => `${scrim}<div class="sheet" role="dialog" aria-label="${name}"><div class="grab"></div><div class="shead"><div><b>${name}</b>${sub ? `<small>${sub}</small>` : ""}</div>${close}</div>${body}</div>`;
+      const tool = (id, icon, label) => `<button class="row" data-a="overlay" data-v="${id}">${ic(icon, 18)}<span>${label}</span></button>`;
+      if (kind === "drawer") {
+        const view = shell ? "" : `<div class="slabel">VEDI COME</div><div class="group" role="radiogroup" aria-label="Vedi come">
+          <button class="row${k === "chat" ? " on" : ""}" role="radio" aria-checked="${k === "chat"}">${ic("chat", 18)}<span>Chat</span>${k === "chat" ? ic("check", 18) : ""}</button>
+          <button class="row${k === "term" ? " on" : ""}" role="radio" aria-checked="${k === "term"}">${ic("term", 18)}<span>Terminale</span>${k === "term" ? ic("check", 18) : ""}</button></div>`;
+        const tools = S.v === "01" ? tool("files", "folder", "File") + tool("actions", "bolt", "Azioni rapide") + tool("browser", "globe", "Browser") : S.v === "00" && k === "chat" ? tool("browser", "globe", "Browser") : "";
+        return `${scrim}<aside class="drawer" role="dialog" aria-label="Sessione"><div class="shead"><span class="logo${shell ? " shell" : ""}">${ic(shell ? "term" : "spark", 18)}</span><div><b>${title}</b><small>${shell ? "Shell" : "Claude Code"} · ~/Progetti/flowcode</small></div>${close}</div>
+          ${view}<div class="slabel">SESSIONE</div><div class="group">${tools}<button class="row">${ic("pencil", 18)}<span>Rinomina</span></button></div>
+          <div class="group"><button class="row danger">${ic("stop", 18)}<span>${k === "chat" ? "Ferma l'agente" : "Interrompi"}</span></button><button class="row danger">${ic("x", 18)}<span>Chiudi</span></button></div></aside>`;
+      }
+      if (kind === "today") {
+        return sheet("Altro", "", `<div class="group">${tool("files", "folder", "File")}${tool("actions", "bolt", "Azioni rapide")}${tool("browser", "globe", "Browser")}</div>`);
+      }
+      if (kind === "tools") {
+        const tile = (id, icon, label) => `<button class="tile" data-a="overlay" data-v="${id}">${ic(icon, 22)}${label}</button>`;
+        return sheet("Strumenti", "", `<div class="tiles">${tile("files", "folder", "File")}${tile("actions", "bolt", "Azioni")}${tile("browser", "globe", "Browser")}${tile("keysheet", "kb", "Tastiera")}</div>`);
+      }
+      if (kind === "files") return sheet("File", "~/Progetti/flowcode", `<div class="group">${filesRows()}</div>`);
+      if (kind === "actions") return sheet("Azioni rapide", `Si avviano in ${title}`, `<div class="group">${actionRows()}</div>`);
+      if (kind === "browser") return sheet("Browser", "", `<div class="addr">${ic("globe", 16)}localhost:5173</div><div class="webpage" style="height:220px">Anteprima del dev server, servita dal desktop.</div>`);
+      return sheet("Agenti", "", `<div class="group">
+        <button class="row wait">${ic("spark", 18)}<span>Scelta del database</span><small>Ti aspetta</small></button>
+        <button class="row wait">${ic("spark", 18)}<span>Banner di riconnessione</span><small>Ti aspetta</small></button>
+        <button class="row">${ic("robot", 18)}<span>api-server</span><small>Al lavoro</small></button></div>`);
+    }
+
+    const keyboard = (k) => (S.kb[k] ? `<div class="kb" aria-hidden="false">
+      <div>${"<span></span>".repeat(10)}</div><div>${"<span></span>".repeat(9)}</div><div>${"<span></span>".repeat(7)}</div>
+      <div><span></span><span class="w"></span><button data-a="kboff" aria-label="Nascondi la tastiera">${ic("chev")}</button></div></div>` : "");
+
+    function renderPhone(k) {
+      const el = $(`#p-${k}`);
+      el.innerHTML = `<div class="status"><span>10:24</span><span>5G · 82%</span></div>${header(k)}${tabs(k)}${middle(k)}${reply(k)}${dock(k)}${keyboard(k)}${overlay(k)}`;
+      const scroller = el.querySelector(".conv, .tview");
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+      if (S.focus === k) {
+        const input = el.querySelector("[data-input]");
+        if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+      }
+    }
+
+    function renderNotes() {
+      const v = VARIANTS[S.v];
+      $("#note").innerHTML = `<h2>${S.v === "00" ? "" : S.v + " · "}${v.name}${v.tag ? `<small>${v.tag}</small>` : ""}</h2><p>${v.lead}</p>
+        <h3>${S.v === "00" ? "DIFFERENZE" : "COSA CAMBIA"}</h3><ul>${v.change.map((x) => `<li>${x}</li>`).join("")}</ul>
+        ${v.cost.length ? `<h3>A COSA RINUNCI</h3><ul>${v.cost.map((x) => `<li>${x}</li>`).join("")}</ul>` : ""}`;
+      $("#compare").innerHTML = COMPARE.map(([id, input, tools, lines, work]) => `<tr class="${id === S.v ? "on" : ""}"><th scope="row">${id} ${VARIANTS[id].name}</th><td>${input}</td><td>${tools}</td><td>${ROWS[lines] ?? ""}</td><td>${work}</td></tr>`).join("");
+      document.querySelectorAll("#variants button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === S.v)));
+      $("#kbctl").checked = S.kb.chat && S.kb.term;
+    }
+    /* Righe di terminale a tastiera chiusa e sessione inattiva, misurate su questo mockup a 12,5 px. */
+    const ROWS = { "@01": "28", "@02": "31", "@03": "30" };
+
+    function render() { renderPhone("chat"); renderPhone("term"); renderNotes(); }
+
+    /* ---------- eventi ---------- */
+    function sendDraft(k) {
+      const text = S.draft[k].trim();
+      if (!text) return;
+      S.sent[k].push(text);
+      S.draft[k] = "";
+    }
+    const ACTIONS = {
+      overlay(k, value) {
+        if (value === "keysheet") { S.overlay[k] = null; S.kb[k] = true; return; }
+        S.overlay[k] = value;
+      },
+      close(k) { S.overlay[k] = null; },
+      tab(k, value) { S.tab[k] = value; },
+      kbon(k) { S.kb[k] = true; },
+      kboff(k) { S.kb[k] = false; S.focus = null; },
+      keys() { S.keys = !S.keys; },
+      direct(k) { S.direct = !S.direct; S.kb[k] = S.direct; S.focus = null; },
+      send(k) { sendDraft(k); S.focus = k; },
+      enter() {},
+      stop() { S.status = "idle"; $("#status").value = "idle"; },
+      answer() { S.status = "busy"; $("#status").value = "busy"; },
+      slash() { S.draft.chat = "/" + S.draft.chat; S.kb.chat = true; S.focus = "chat"; },
+      key(k, value) { if (S.v === "01" && !S.direct && "~/|-".includes(value)) { S.draft.term += value; S.focus = "term"; } },
+      contentchat(k) { if (S.kb.chat) { S.kb.chat = false; S.focus = null; } },
+      contentterm(k) {
+        S.kb.term = true;
+        if (S.v === "01" && !S.direct) S.focus = "term";
+      },
+    };
+    document.addEventListener("click", (e) => {
+      const target = e.target.closest("[data-a]");
+      const phone = e.target.closest(".phone");
+      if (!target || !phone) return;
+      const k = phone.id === "p-chat" ? "chat" : "term";
+      ACTIONS[target.dataset.a]?.(k, target.dataset.v);
+      render();
+    });
+    document.addEventListener("focusin", (e) => {
+      const k = e.target.dataset?.input;
+      if (!k || S.kb[k]) return;
+      S.kb[k] = true; S.focus = k;
+      render();
+    });
+    document.addEventListener("input", (e) => {
+      const k = e.target.dataset?.input;
+      if (!k) return;
+      const had = !!S.draft[k].trim();
+      S.draft[k] = e.target.value;
+      if (had !== !!S.draft[k].trim()) { S.focus = k; renderPhone(k); }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { S.overlay.chat = S.overlay.term = null; render(); return; }
+      const k = e.target.dataset?.input;
+      if (k && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDraft(k); S.focus = k; renderPhone(k); }
+    });
+    $("#status").addEventListener("change", (e) => { S.status = e.target.value; render(); });
+    $("#shell").addEventListener("change", (e) => { S.shell = e.target.value === "shell"; render(); });
+    $("#kbctl").addEventListener("change", (e) => { S.kb.chat = S.kb.term = e.target.checked; S.focus = null; render(); });
+
+    $("#variants").innerHTML = Object.entries(VARIANTS).map(([id, v]) => `<button data-v="${id}" aria-pressed="false"><span>${id}</span>${v.name}</button>`).join("");
+    $("#variants").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      S.v = b.dataset.v;
+      S.overlay = { chat: null, term: null };
+      S.tab = { chat: "session", term: "session" };
+      S.keys = false; S.direct = false; S.focus = null;
+      render();
+    });
+    render();
+  </script>
+</body>
+</html>

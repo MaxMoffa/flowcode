@@ -87,8 +87,10 @@ import { loadPluginNewTabs } from "./newtab/pluginLayouts";
 import type { NewTabLaunch } from "./newtab/types";
 import { recordRecentTerminal } from "./newtab/recentTerminals";
 import { recordCommand } from "./newtab/commandHistory";
-import { profileForPath, refreshProfiles, useProfiles } from "./profiles/profiles";
+import { profileForPath, useProfiles } from "./profiles/profiles";
 import { ProfilePicker } from "./profiles/ProfilePicker";
+import { ProviderAuthHost } from "./profiles/ProviderAuthHost";
+import { openProviderAuth } from "./profiles/providerAuth";
 import { activeTabProfile } from "./profiles/activeTabProfile";
 import { Icons } from "./app/icons";
 import { useStartPath } from "./app/useStartPath";
@@ -655,7 +657,7 @@ function Shell() {
     setBrowserOpen,
   });
 
-  useCliLoginEvent(openTerminalWithCommand);
+  useCliLoginEvent();
 
   // A PC in front of the phone-style remote workspace takes the shortcuts.
   const remote = activeHost !== LOCAL_HOST ? activeHost : null;
@@ -744,8 +746,6 @@ function Shell() {
   const remoteChatRenameRef = useRef<(tabId: string, label: string) => void>(() => {});
   const remoteChatCloseRef = useRef<(tabId: string) => void>(() => {});
   const remoteNewChatRef = useRef<(cwd: string | null, cli: string, profile: string | null | undefined) => void>(() => {});
-  const remoteLoginTimerRef = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearInterval(remoteLoginTimerRef.current), []);
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
   const allPluginsRef = useRef<PluginDef[]>([]);
 
@@ -2045,10 +2045,9 @@ function Shell() {
    * the CLI is ready to launch: true when it is installed and logged in, or
    * when detection itself failed (don't block the launch over it); false after
    * a dialog was shown. `profileId` is the account profile the CLI will run
-   * under: its login state is the one checked, and the login offer opens a
-   * terminal under it. */
+   * under: its login state is the one checked, and the dedicated dialog uses
+   * that same profile. */
   async function ensureCliReady(cliBin: AgentCli, profileId?: string): Promise<boolean> {
-    const label = CLI_INFO[cliBin].label;
     let status: { installed: boolean; logged_in: boolean };
     try {
       status = await invoke("check_cli_status", { cli: cliBin, profile: profileId ?? null });
@@ -2064,14 +2063,7 @@ function Shell() {
     }
 
     if (!status.logged_in) {
-      const ok = await confirm({
-        title: t("app.cli.login.title", { name: label }),
-        // Vibe signs in with a Mistral API key, not an account login.
-        message: t(cliBin === "vibe" ? "app.cli.login.vibeMessage" : "app.cli.login.message", { name: label }),
-        confirmLabel: t("app.cli.login"),
-      });
-      if (ok) openTerminalWithCommand(CLI_INFO[cliBin].loginCommand, profileId);
-      return false;
+      return openProviderAuth(cliBin, profileId);
     }
 
     return true;
@@ -2109,8 +2101,7 @@ function Shell() {
     if (await ensureCliReady(cliBin, tab?.profileId)) await launchInTab(cliBin, launchCommand, term, tabId);
   }
 
-  /** Signs `cli` in under `profileId`: its login command in a fresh terminal
-   * started under that profile (Settings > Profiles). */
+  /** Opens the dedicated provider dialog under this profile (Settings > Profiles). */
   async function loginProfile(profileId: string | null, cli: AgentCli) {
     // A login command for a CLI that isn't installed would only print "command
     // not found" in the terminal - offer the install instead.
@@ -2121,20 +2112,12 @@ function Shell() {
       await offerCliInstall(cli);
       return;
     }
-    openTerminalWithCommand(CLI_INFO[cli].loginCommand, profileId ?? undefined);
+    await openProviderAuth(cli, profileId);
   }
 
   remoteProfileLoginRef.current = (profileId, cli) => {
     if (!(AGENT_CLIS as readonly string[]).includes(cli)) return;
     void loginProfile(profileId, cli as AgentCli);
-    // Signing in happens in the terminal, away from this window: keep re-reading
-    // the login state for a while so the phone's list catches up.
-    let left = 60;
-    window.clearInterval(remoteLoginTimerRef.current);
-    remoteLoginTimerRef.current = window.setInterval(() => {
-      void refreshProfiles();
-      if (--left <= 0) window.clearInterval(remoteLoginTimerRef.current);
-    }, 5000);
   };
 
   /** A profile id from the phone: "" = the default profile, an unknown id falls back to it, absent = automatic. */
@@ -3169,7 +3152,7 @@ function Shell() {
                             }}
                             onSwitchToTerminal={(sessionId, wslDistro) => switchChatToTerminal(tab, sessionId, wslDistro)}
                             onOpenFile={openFile}
-                            onOpenLogin={(command) => openTerminalWithCommand(command, tab.profileId)}
+                            onOpenLogin={() => { void openProviderAuth(tab.agent, tab.profileId); }}
                           />
                           </FileLinkCwdContext.Provider>
                         </Suspense>
@@ -3340,6 +3323,7 @@ export default function App() {
                 <ContextMenuProvider>
                   <ShortcutsProvider>
                     <Shell />
+                    <ProviderAuthHost />
                     <RemoteSettingsBridge />
                     <RemoteUpdateBridge />
                     <RemotePairConfirm />

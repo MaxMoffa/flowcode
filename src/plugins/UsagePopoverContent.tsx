@@ -237,7 +237,6 @@ export function UsagePopoverContent({
             onChange={onProfileChange}
             onMenuPointerEnter={onMenuPointerEnter}
             onMenuPointerLeave={onMenuPointerLeave}
-            filter={cliOfPlugin(pluginId) ? (p) => p.logged_in[cliOfPlugin(pluginId)!] : undefined}
           />}
       </div>
       {loading && !usage && <div className="plugin-usage-popover-loading">{t("common.checking")}</div>}
