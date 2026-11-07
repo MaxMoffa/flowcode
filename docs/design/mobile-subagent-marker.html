@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — subagent in chat: telefono allineato al desktop</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f; --accent: #9db984;
+      --tray: color-mix(in srgb, var(--fg) 5%, var(--surface));
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .page { max-width: 980px; margin: auto; padding: 28px 24px 40px; }
+    h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; }
+    .lead { margin: 0 0 24px; color: var(--muted); max-width: 760px; }
+    .stage { display: flex; flex-wrap: wrap; gap: 40px; justify-content: center; }
+    .col h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; text-align: center; }
+    .col h2 b { color: var(--fg); }
+    .phone { width: 360px; height: 680px; border-radius: 38px; border: 10px solid #000; background: var(--bg); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 0 0 1px var(--border-strong); }
+    .msgs { flex: 1; overflow: hidden; padding: 56px 14px 10px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+    .user { align-self: flex-end; max-width: 80%; padding: 8px 12px; border-radius: 14px; background: var(--surface); }
+    .text { color: var(--fg); }
+    .rail { color: var(--muted); font-size: 12.5px; padding-left: 10px; border-left: 2px solid var(--border-strong); }
+    .tag { padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; line-height: 20px; color: var(--muted); }
+    /* prima: card */
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .card { display: flex; flex-direction: column; gap: 6px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--fg) 4%, var(--surface)); min-width: 0; }
+    .card .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .card .name { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pill { padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 12.5px; }
+    .time { margin-left: auto; color: var(--muted); font-size: 12px; }
+    .live { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar { height: 3px; border-radius: 2px; background: var(--border-strong); overflow: hidden; }
+    .bar i { display: block; height: 100%; width: 45%; background: var(--accent); }
+    /* dopo: riga marker */
+    .marker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; margin: 4px 0; }
+    .marker > svg { color: var(--accent); }
+    .marker b { color: var(--fg); font-weight: 600; }
+    .marker .tag { color: inherit; }
+    /* tray + composer (uguale prima/dopo) */
+    .bottom { padding: 0 10px 14px; }
+    .tray { padding: 9px 16px 30px; margin-bottom: -22px; border-radius: 20px 20px 0 0; background: var(--tray); box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 16%, transparent); font-size: 12.5px; display: flex; align-items: center; gap: 8px; }
+    .tray .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+    .tray .hint { margin-left: auto; color: var(--muted); }
+    .composer { position: relative; border-radius: 20px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); padding: 14px 16px; color: var(--muted); }
+    .hl { outline: 2px dashed #e0a458; outline-offset: 4px; border-radius: 10px; }
+    .note { margin: 28px auto 0; max-width: 760px; color: var(--muted); font-size: 13.5px; }
+    .note li { margin: 4px 0; }
+    .note b { color: var(--fg); }
+  </style>
+</head>
+<body>
+<div class="page">
+  <h1>Subagent nella chat del telefono</h1>
+  <p class="lead">Quando l'agente avvia dei subagent, il desktop mette nella conversazione solo una riga ("2 subagent avviati" + un tag per ognuno) e lo stato in corso sta nella capsula sopra il composer. Il telefono oggi mostra la capsula <b>e</b> anche le card grandi dentro la chat. Il riquadro tratteggiato è quello che cambia.</p>
+
+  <div class="stage">
+    <div class="col">
+      <h2><b>Prima</b> · telefono oggi</h2>
+      <div class="phone">
+        <div class="msgs">
+          <div class="user">Controlla i test e la documentazione</div>
+          <div class="text">Avvio due subagent in parallelo.</div>
+          <div class="cards hl">
+            <div class="card">
+              <div class="row"><svg width="15" height="15" viewBox="0 0 24 24" style="color:var(--accent)"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/></svg><span class="name">Analizza test</span></div>
+              <div class="row"><span class="tag">Explore</span><span class="pill">4</span><span class="time">in corso</span></div>
+              <div class="live">Read src/chat/chatModel.ts</div>
+              <div class="bar"><i></i></div>
+            </div>
+            <div class="card">
+              <div class="row"><svg width="15" height="15" viewBox="0 0 24 24" style="color:var(--accent)"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/></svg><span class="name">Rivedi docs</span></div>
+              <div class="row"><span class="tag">general</span><span class="pill">2</span><span class="time">in corso</span></div>
+              <div class="live">Grep "subagent"</div>
+              <div class="bar"><i style="width:25%"></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="tray"><span class="dot"></span><b>2 subagent in corso</b><span class="hint">tocca per aprire ▴</span></div>
+          <div class="composer">Scrivi un messaggio…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h2><b>Dopo</b> · come il desktop</h2>
+      <div class="phone">
+        <div class="msgs">
+          <div class="user">Controlla i test e la documentazione</div>
+          <div class="text">Avvio due subagent in parallelo.</div>
+          <div class="marker hl">
+            <svg width="15" height="15" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/></svg>
+            <b>2 subagent avviati</b>
+            <span class="tag">Explore</span><span class="tag">general</span>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="tray"><span class="dot"></span><b>2 subagent in corso</b><span class="hint">tocca per aprire ▴</span></div>
+          <div class="composer">Scrivi un messaggio…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <ul class="note">
+    <li><b>Tag toccabili:</b> ogni tag apre la chat di quel subagent, come sul desktop (la capsula resta com'è).</li>
+    <li><b>Dentro la chat di un subagent</b> (se a sua volta ne avvia altri) restano le card, uguale al desktop.</li>
+    <li>Nessun cambio a tablet/desktop; solo <code>mobile/src/ChatBody.tsx</code> + due stringhe e poche righe di CSS.</li>
+  </ul>
+</div>
+</body>
+</html>

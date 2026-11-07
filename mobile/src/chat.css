@@ -1479,8 +1479,8 @@ button.chat-step-row {
 .chat-subtray {
   position: relative;
   z-index: 0;
-  margin: 0 4px -24px;
-  padding: 8px 12px 32px;
+  margin: 0 0 -24px;
+  padding: 5px 12px 29px;
   border-radius: 22px 22px 0 0;
   background: color-mix(in srgb, var(--fg) 5%, var(--surface));
   box-shadow: 0 0 0 1px var(--border-strong);
@@ -1498,7 +1498,7 @@ button.chat-step-row {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  max-height: 44px;
+  max-height: 36px;
   padding: 2px 0;
   overflow: hidden;
   font-size: 12.5px;
@@ -1510,17 +1510,17 @@ button.chat-step-row {
 .chat-subtray-name { flex: 0 1 auto; max-width: 30%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; white-space: nowrap; }
 .chat-subtray-task { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .chat-subtray-time { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.chat-subtray .chat-subcard-open { width: 44px; height: 40px; }
+.chat-subtray .chat-subcard-open { width: 40px; height: 32px; }
 /* Two or more subagents: one line against the card, the list opens upward. */
 .chat-subtray.is-grouped { padding: 0 0 24px; }
-.chat-subtray-head { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; border-radius: inherit; background: none; color: var(--muted); font: inherit; font-size: 12.5px; text-align: left; }
+.chat-subtray-head { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 38px; padding: 0 14px; border: 0; border-radius: inherit; background: none; color: var(--muted); font: inherit; font-size: 12.5px; text-align: left; }
 .chat-subtray-count { flex: none; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
 .chat-subtray-hint { flex: 1; min-width: 0; }
 .chat-subtray-chev { flex: none; transition: transform .18s; }
 .chat-subtray-head[aria-expanded="true"] .chat-subtray-chev { transform: rotate(180deg); }
 .chat-subtray.is-grouped .chat-subtray-list { padding: 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); animation: chat-subtray-list-in .18s ease-out; }
 @keyframes chat-subtray-list-in { from { opacity: 0; transform: translateY(8px); } }
-.chat-subtray.is-grouped .chat-subtray-row { width: 100%; min-height: 44px; padding: 0 8px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; }
+.chat-subtray.is-grouped .chat-subtray-row { width: 100%; min-height: 40px; max-height: 40px; padding: 0 8px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; }
 .chat-subtray.is-grouped button.chat-subtray-row:active { background: color-mix(in srgb, var(--fg) 6%, transparent); }
 .chat-subtray.is-grouped .chat-subtray-row.is-leaving { min-height: 0; max-height: 0; padding-block: 0; }
 .chat-subtray-go { flex: none; width: 22px; display: grid; place-items: center; color: var(--muted); }
@@ -2222,6 +2222,34 @@ button.chat-step-row {
 
 .chat-sub-mark.is-failed {
   color: var(--danger);
+}
+
+/* A subagent launch in the main chat: one line, a tag per subagent that opens its chat. */
+.chat-submark {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.chat-submark-text {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.chat-submark-tag {
+  min-height: 28px;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+}
+
+.chat-submark-tag:active {
+  border-color: var(--accent);
+  color: var(--fg);
 }
 
 /* Subagents launched together: one card each side by side (a lone one fills the row), the selected one opens under them. */

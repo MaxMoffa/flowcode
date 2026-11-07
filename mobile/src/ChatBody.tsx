@@ -396,8 +396,30 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
   }
 });
 
+/** In the main chat, a subagent launch as one line: the bot, how many started, and a tag per subagent that opens its chat. */
+function SubagentMarker({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id: string) => void }) {
+  return (
+    <div className="chat-submark">
+      {BOT_ICON}
+      <b className="chat-submark-text">{t(items.length === 1 ? "chatSubLaunched1" : "chatSubLaunchedN", { n: items.length })}</b>
+      {items.map((item) => {
+        const type = subagentInfo(item.call).type ?? "agent";
+        return onOpen ? (
+          <button key={item.id} type="button" className="chat-sub-tag chat-submark-tag" aria-label={t("chatSubOpen")} onClick={() => onOpen(item.id)}>
+            {type}
+          </button>
+        ) : (
+          <span key={item.id} className="chat-sub-tag">
+            {type}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 /** A turn's items in order, with each run of consecutive tool calls folded into one rail; a background terminal's launch stands on its own, as a block. */
-function Turn({ group: flat, onLink, onOpenSubagent }: { group: ChatItem[]; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void }) {
+function Turn({ group: flat, onLink, onOpenSubagent, nested }: { group: ChatItem[]; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void; nested?: boolean }) {
   const terminals = useContext(TerminalsContext);
   const out: ReactNode[] = [];
   // A subagent's tool calls fold into its own row, apart from the agent's run of calls.
@@ -413,7 +435,8 @@ function Turn({ group: flat, onLink, onOpenSubagent }: { group: ChatItem[]; onLi
         subs.push(next);
         i++;
       }
-      out.push(<SubagentCards key={item.id} items={subs} onOpen={onOpenSubagent} onLink={onLink} />);
+      // In the main chat a launch is one line, the running state lives in the tray; a subagent's own chat keeps the cards.
+      out.push(nested ? <SubagentCards key={item.id} items={subs} onOpen={onOpenSubagent} onLink={onLink} /> : <SubagentMarker key={item.id} items={subs} onOpen={onOpenSubagent} />);
       continue;
     }
     if (item.type !== "tool") {
@@ -463,7 +486,7 @@ export const SubagentBody = memo(function SubagentBody({ sub, agent, onLink, onO
         <span className="chat-task-label">{t("chatSubTask", { agent })}</span>
         {prompt ? <ChatMarkdown text={prompt} onLink={onLink} /> : sub.call.title}
       </div>
-      {items.length > 0 && <Turn group={items} onLink={onLink} onOpenSubagent={onOpenSubagent} />}
+      {items.length > 0 && <Turn group={items} onLink={onLink} onOpenSubagent={onOpenSubagent} nested />}
     </>
   );
 });
