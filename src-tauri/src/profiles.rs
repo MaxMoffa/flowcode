@@ -175,7 +175,13 @@ pub fn env_for(app: &AppHandle, profile: Option<&str>) -> Vec<(String, String)> 
         ("VIBE_TEST_DISABLE_KEYRING".to_string(), "1".to_string()),
     ]);
     }
-    env.extend(crate::provider_auth_keys::env_for(app, profile));
+    env
+}
+
+/// Credentials belong to this provider's process, never a general terminal.
+pub fn env_for_cli(app: &AppHandle, profile: Option<&str>, cli: &str) -> Vec<(String, String)> {
+    let mut env = env_for(app, profile);
+    env.extend(crate::provider_auth_keys::env_for_cli(app, profile, cli));
     env
 }
 

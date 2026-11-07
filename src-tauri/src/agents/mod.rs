@@ -298,9 +298,7 @@ fn find_agent_sessions(
     profiles: &HashMap<String, Option<String>>,
     chat_ids: &HashSet<String>,
 ) -> Vec<AgentSession> {
-    // Distro -> the tabs whose agent (if any) can only be found inside it.
-    let mut wsl_tabs: HashMap<Option<String>, HashSet<String>> = HashMap::new();
-    let mut sessions = crate::system::with_processes(|sys| {
+    let (mut sessions, codex_tabs, mut vibe_tabs, wsl_tabs) = crate::system::with_processes(|sys| {
         let mut children_of: HashMap<Pid, Vec<Pid>> = HashMap::new();
         for (pid, process) in sys.processes() {
             if let Some(parent) = process.parent() {
@@ -311,6 +309,8 @@ fn find_agent_sessions(
         let mut sessions = Vec::new();
         let mut codex_tabs: Vec<usize> = Vec::new();
         let mut vibe_tabs: Vec<usize> = Vec::new();
+        // Distro -> the tabs whose agent can only be found inside it.
+        let mut wsl_tabs: HashMap<Option<String>, HashSet<String>> = HashMap::new();
         for (pty_id, shell_pid) in shell_pids {
             let root = Pid::from_u32(shell_pid);
             if let Some((cli, cli_label, pid, started_at)) = find_agent(sys, root, &children_of) {
@@ -319,7 +319,7 @@ fn find_agent_sessions(
                     .and_then(|p| p.cwd())
                     .map(|c| c.to_string_lossy().trim_end_matches(['\\', '/']).to_string());
                 let profile = profiles.get(&pty_id).cloned().flatten();
-                let mut session = AgentSession {
+                let session = AgentSession {
                     pty_id,
                     cli: cli.to_string(),
                     cli_label: cli_label.to_string(),
@@ -334,33 +334,39 @@ fn find_agent_sessions(
                     codex_tabs.push(sessions.len());
                 } else if cli == "vibe" {
                     vibe_tabs.push(sessions.len());
-                } else if let Some(entry) = claude_registry_entry(pid, &homes.claude) {
-                    session.apply_claude_entry(&entry);
                 }
                 sessions.push(session);
             } else if let Some(distro) = find_wsl_client(sys, root, &children_of) {
                 wsl_tabs.entry(distro).or_default().insert(pty_id);
             }
         }
-        if !codex_tabs.is_empty() {
-            assign_codex_threads(&mut sessions, &codex_tabs, &host_live_threads(&homes.codex), chat_ids);
-        }
-        // Newest process first, so it takes the newest session; each session once.
-        vibe_tabs.sort_by_key(|&i| std::cmp::Reverse(sessions[i].started_at));
-        let mut claimed = chat_ids.clone();
-        for i in vibe_tabs {
-            let found = homes.vibe_of(&sessions[i].profile).and_then(|home| {
-                let cwd = sessions[i].cwd.as_deref()?;
-                crate::vibe::live_session_in(home, cwd, sessions[i].started_at, &claimed)
-            });
-            if let Some(found) = found {
-                claimed.insert(found.0.clone());
-                sessions[i].apply_vibe_session(found);
+        (sessions, codex_tabs, vibe_tabs, wsl_tabs)
+    });
+    // Registry/transcript reads can be slow: no filesystem I/O under the process lock.
+    for session in &mut sessions {
+        if !matches!(session.cli.as_str(), "codex" | "vibe") {
+            if let Some(entry) = claude_registry_entry(session.pid, &homes.claude) {
+                session.apply_claude_entry(&entry);
             }
         }
-        sessions
-    });
-    // Outside the process table's lock: this runs `wsl.exe`.
+    }
+    if !codex_tabs.is_empty() {
+        assign_codex_threads(&mut sessions, &codex_tabs, &host_live_threads(&homes.codex), chat_ids);
+    }
+    // Newest process first, so it takes the newest session; each session once.
+    vibe_tabs.sort_by_key(|&i| std::cmp::Reverse(sessions[i].started_at));
+    let mut claimed = chat_ids.clone();
+    for i in vibe_tabs {
+        let found = homes.vibe_of(&sessions[i].profile).and_then(|home| {
+            let cwd = sessions[i].cwd.as_deref()?;
+            crate::vibe::live_session_in(home, cwd, sessions[i].started_at, &claimed)
+        });
+        if let Some(found) = found {
+            claimed.insert(found.0.clone());
+            sessions[i].apply_vibe_session(found);
+        }
+    }
+    // This runs `wsl.exe`, also outside the process table's lock.
     for (distro, pty_ids) in wsl_tabs {
         sessions.extend(wsl_agents(distro.as_deref(), &pty_ids, chat_ids));
     }

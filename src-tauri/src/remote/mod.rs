@@ -2232,7 +2232,10 @@ impl Conn {
             self.error(tr("Agente sconosciuto", "Unknown agent"), None);
             return false;
         }
-        if cwd.as_deref().is_some_and(|c| c.len() > 4096 || !std::path::Path::new(c).is_dir()) {
+        if cwd.as_deref().is_some_and(|c| {
+            let path = std::path::Path::new(c);
+            c.len() > 4096 || !crate::fs::is_local_path(path, false) || !crate::fs::links_stay_local(path) || !path.is_dir()
+        }) {
             self.error(tr("Cartella non trovata sul computer", "Folder not found on the computer"), None);
             return false;
         }

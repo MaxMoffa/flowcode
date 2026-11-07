@@ -238,7 +238,7 @@ pub async fn run_claude_usage_probe(
         return Err("Unknown profile".to_string());
     }
     let mut cmd = std::process::Command::new("claude");
-    cmd.envs(crate::profiles::env_for(&app, profile.as_deref()))
+    cmd.envs(crate::profiles::env_for_cli(&app, profile.as_deref(), "claude"))
         .arg("-p")
         .arg("/usage")
         .stdin(std::process::Stdio::null())

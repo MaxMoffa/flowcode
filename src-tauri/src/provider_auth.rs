@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, Once};
 use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -61,15 +61,11 @@ enum Killer {
 }
 
 impl Killer {
-    /// Idempotent. On Windows the PTY child is `cmd.exe`; killing only it
-    /// would orphan the provider's node process, so take down the whole tree.
+    /// Idempotent: the PTY command can own a provider's process tree.
     fn kill(&mut self) {
         match std::mem::replace(self, Self::Done) {
             Self::Pty { mut killer, pid } => {
-                #[cfg(target_os = "windows")]
                 if let Some(pid) = pid { kill_process_tree(pid); }
-                #[cfg(not(target_os = "windows"))]
-                let _ = pid;
                 let _ = killer.kill();
             }
             Self::Process(pid) => kill_process_tree(pid),
@@ -78,16 +74,19 @@ impl Killer {
     }
 }
 
-fn kill_process_tree(pid: u32) {
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(flowcode_shared::CREATE_NO_WINDOW).stdout(Stdio::null()).stderr(Stdio::null()).status();
-    }
-    #[cfg(not(target_os = "windows"))]
-    { let _ = Command::new("kill").args(["-TERM", "--", &format!("-{}", pid)]).stdout(Stdio::null()).stderr(Stdio::null()).status(); }
+struct KillGuard(Option<Killer>);
+
+impl KillGuard {
+    fn release(mut self) -> Killer { self.0.take().unwrap_or(Killer::Done) }
 }
+
+impl Drop for KillGuard {
+    fn drop(&mut self) {
+        if let Some(killer) = self.0.as_mut() { killer.kill(); }
+    }
+}
+
+fn kill_process_tree(pid: u32) { crate::chat::kill_tree(pid); }
 
 struct AuthSession {
     owner: String,
@@ -102,6 +101,12 @@ struct AuthSession {
     operation: Mutex<()>,
 }
 
+impl Drop for AuthSession {
+    fn drop(&mut self) { lock(&self.killer).kill(); }
+}
+
+// Both browser and key reservations take this gate before their separate maps.
+static RESERVATIONS: Mutex<()> = Mutex::new(());
 static SESSIONS: LazyLock<Mutex<HashMap<String, Arc<AuthSession>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 /// API-key verifications in flight, keyed by (owner, cli, profile). A key has
 /// no session id, so `cancel` without one (dialog closed, phone disconnected)
@@ -226,13 +231,24 @@ fn append_output(session: &AuthSession, data: &str) {
 fn credential_stamp(app: &AppHandle, cli: &str, profile: Option<&str>) -> Vec<(PathBuf, Option<std::time::SystemTime>, u64)> {
     let Some(d) = crate::profiles::dirs(app, profile) else { return vec![]; };
     let paths = match cli {
-        "claude" => vec![d.claude.join(".credentials.json"), d.claude.join(".claude.json")],
+        "claude" => vec![d.claude.join(".credentials.json")],
         "codex" => vec![d.codex.join("auth.json")],
         "gemini" => vec![d.gemini.join(".gemini/oauth_creds.json")],
         "vibe" => vec![d.vibe.join(".env")],
         _ => vec![],
     };
     paths.into_iter().map(|p| { let m = std::fs::metadata(&p).ok(); let modified = m.as_ref().and_then(|m| m.modified().ok()); let len = m.map_or(0, |m| m.len()); (p, modified, len) }).collect()
+}
+
+type CredentialStamp = Vec<(PathBuf, Option<std::time::SystemTime>, u64)>;
+
+fn browser_ready_to_probe(cli: &str, exited: Option<bool>, before: &CredentialStamp, after: &CredentialStamp) -> bool {
+    if exited.is_some() { return exited == Some(true); }
+    // Claude/Codex login commands exit on success. Only Gemini stays in its REPL;
+    // unrelated credential refreshes must not finish another provider's login.
+    cli == "gemini" && after.iter().any(|(path, modified, len)| {
+        *len > 0 && modified.is_some() && !before.iter().any(|(old_path, old_modified, _)| old_path == path && old_modified == modified)
+    })
 }
 
 fn browser_env(app: &AppHandle, profile: Option<&str>) -> Vec<(String, String)> {
@@ -251,6 +267,9 @@ fn mark_error(session: &AuthSession, error: &str) {
     state.phase = "error".into(); state.error = Some(error.into()); state.url = None; state.code = None;
     // Native failure output can contain URLs/codes; do not retain it after failure.
     state.output.clear();
+    drop(state);
+    lock(&session.killer).kill();
+    lock(&session.settings).take();
 }
 
 fn finish(app: &AppHandle, session: &AuthSession) -> Result<(), String> {
@@ -273,7 +292,22 @@ fn reap_expired() {
         let ids: Vec<_> = sessions.iter().filter(|(_, s)| s.created.elapsed() > LIFETIME).map(|(id, _)| id.clone()).collect();
         ids.into_iter().filter_map(|id| sessions.remove(&id)).collect()
     };
-    for session in expired { lock(&session.killer).kill(); lock(&session.settings).take(); }
+    for session in expired {
+        let _operation = lock(&session.operation);
+        mark_error(&session, "auth_expired");
+        lock(&session.killer).kill();
+        lock(&session.settings).take();
+    }
+}
+
+fn start_reaper() {
+    static START: Once = Once::new();
+    START.call_once(|| {
+        std::thread::spawn(|| loop {
+            std::thread::sleep(Duration::from_secs(30));
+            reap_expired();
+        });
+    });
 }
 
 pub fn cancel_owner(owner: &str) {
@@ -334,6 +368,7 @@ fn read_vibe(app: AppHandle, session: Arc<AuthSession>, stdout: impl Read) {
 
 fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool) -> Result<AuthState, String> {
     reap_expired();
+    let _reservation = lock(&RESERVATIONS);
     let mut sessions = lock(&SESSIONS);
     if sessions.len() >= MAX_SESSIONS || sessions.values().any(|session| {
         let current = lock(&session.state);
@@ -361,15 +396,24 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool) -> Re
         command.current_dir(&neutral).envs(env).env("NoDefaultCurrentDirectoryInExePath", "1")
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         let mut child = command.spawn().map_err(|_| "browser_unsupported")?;
-        let stdout = child.stdout.take().ok_or("auth_failed")?;
-        let stdin = child.stdin.take().ok_or("auth_failed")?;
-        let session = Arc::new(AuthSession { owner: owner.into(), created: Instant::now(), state: Mutex::new(state.clone()), writer: Mutex::new(Box::new(stdin)), killer: Mutex::new(Killer::Process(child.id())), _master: None, exit: Mutex::new(None), stamp, settings: Mutex::new(settings), operation: Mutex::new(()) });
-        send_rpc(&session, 1, "initialize", json!({"protocolVersion":1,"clientInfo":{"name":"flowcode","version":env!("CARGO_PKG_VERSION")},"clientCapabilities":{"_meta":{"browser-auth-delegated":true}}}))?;
+        crate::process_job::assign(child.id());
+        let killer = KillGuard(Some(Killer::Process(child.id())));
+        let (Some(stdout), Some(stdin)) = (child.stdout.take(), child.stdin.take()) else {
+            drop(killer);
+            let _ = child.wait();
+            return Err("auth_failed".into());
+        };
+        let session = Arc::new(AuthSession { owner: owner.into(), created: Instant::now(), state: Mutex::new(state.clone()), writer: Mutex::new(Box::new(stdin)), killer: Mutex::new(killer.release()), _master: None, exit: Mutex::new(None), stamp, settings: Mutex::new(settings), operation: Mutex::new(()) });
+        if let Err(error) = send_rpc(&session, 1, "initialize", json!({"protocolVersion":1,"clientInfo":{"name":"flowcode","version":env!("CARGO_PKG_VERSION")},"clientCapabilities":{"_meta":{"browser-auth-delegated":true}}})) {
+            lock(&session.killer).kill();
+            let _ = child.wait();
+            return Err(error);
+        }
         sessions.insert(id, Arc::clone(&session));
         let handle = app.clone();
         let reader = Arc::clone(&session);
         std::thread::spawn(move || read_vibe(handle, reader, stdout));
-        std::thread::spawn(move || { let success = child.wait().is_ok_and(|s| s.success()); *lock(&session.exit) = Some(success); });
+        std::thread::spawn(move || { let success = child.wait().is_ok_and(|s| s.success()); *lock(&session.killer) = Killer::Done; *lock(&session.exit) = Some(success); });
     } else {
         #[cfg(target_os = "windows")]
         crate::pty::warmup_conpty();
@@ -384,10 +428,18 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool) -> Re
         command.env("TERM", "xterm-256color"); command.env("NoDefaultCurrentDirectoryInExePath", "1");
         command.env_remove("CLAUDECODE"); command.env_remove("CLAUDE_CODE_ENTRYPOINT");
         let mut child = pair.slave.spawn_command(command).map_err(|_| "auth_failed")?;
-        let reader = pair.master.try_clone_reader().map_err(|_| "auth_failed")?;
-        let writer = pair.master.take_writer().map_err(|_| "auth_failed")?;
+        if let Some(pid) = child.process_id() { crate::process_job::assign(pid); }
+        let killer = KillGuard(Some(Killer::Pty { killer: child.clone_killer(), pid: child.process_id() }));
+        let reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(_) => { drop(killer); let _ = child.wait(); return Err("auth_failed".into()); }
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(_) => { drop(killer); let _ = child.wait(); return Err("auth_failed".into()); }
+        };
         drop(pair.slave);
-        let session = Arc::new(AuthSession { owner: owner.into(), created: Instant::now(), state: Mutex::new(state.clone()), writer: Mutex::new(writer), killer: Mutex::new(Killer::Pty { killer: child.clone_killer(), pid: child.process_id() }), _master: Some(Mutex::new(pair.master)), exit: Mutex::new(None), stamp, settings: Mutex::new(settings), operation: Mutex::new(()) });
+        let session = Arc::new(AuthSession { owner: owner.into(), created: Instant::now(), state: Mutex::new(state.clone()), writer: Mutex::new(writer), killer: Mutex::new(killer.release()), _master: Some(Mutex::new(pair.master)), exit: Mutex::new(None), stamp, settings: Mutex::new(settings), operation: Mutex::new(()) });
         sessions.insert(id, Arc::clone(&session));
         let reader_session = Arc::clone(&session);
         std::thread::spawn(move || {
@@ -395,10 +447,10 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool) -> Re
             let mut bytes = [0; 4096];
             loop { match reader.read(&mut bytes) { Ok(0) | Err(_) => break, Ok(n) => append_output(&reader_session, &String::from_utf8_lossy(&bytes[..n])) } }
         });
-        std::thread::spawn(move || { let success = child.wait().is_ok_and(|s| s.success()); *lock(&session.exit) = Some(success); });
+        std::thread::spawn(move || { let success = child.wait().is_ok_and(|s| s.success()); *lock(&session.killer) = Killer::Done; *lock(&session.exit) = Some(success); });
     }
-    // Reap even when a frontend vanishes without another request.
-    std::thread::spawn(|| { std::thread::sleep(LIFETIME + Duration::from_secs(1)); reap_expired(); });
+    // One reaper bounds all sessions, including vanished frontends.
+    start_reaper();
     Ok(state)
 }
 
@@ -427,10 +479,11 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
             let mut state = state_for(app, &request.cli, request.profile.as_deref(), false);
             if !state.installed { return Err("provider_not_installed".into()); }
             let api_key = request.api_key.as_deref().ok_or("key_invalid")?;
-            if lock(&SESSIONS).values().any(|session| { let s = lock(&session.state); s.cli == request.cli && s.profile == request.profile && s.phase == "waiting" }) { return Err("auth_busy".into()); }
             let op: KeyOp = (owner.to_owned(), request.cli.clone(), request.profile.clone());
             let cancelled = Arc::new(AtomicBool::new(false));
             {
+                let _reservation = lock(&RESERVATIONS);
+                if lock(&SESSIONS).values().any(|session| { let state = lock(&session.state); state.cli == request.cli && state.profile == request.profile && state.phase == "waiting" }) { return Err("auth_busy".into()); }
                 let mut ops = lock(&KEY_OPS);
                 if ops.keys().any(|(_, c, p)| *c == op.1 && *p == op.2) { return Err("auth_busy".into()); }
                 ops.insert(op.clone(), Arc::clone(&cancelled));
@@ -468,13 +521,11 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
                 lock(&session.writer).write_all(normalized.as_bytes()).map_err(|_| "auth_session_ended")?;
             } else if request.cli != "vibe" {
                 let exited = *lock(&session.exit);
-                let changed = credential_stamp(app, &request.cli, request.profile.as_deref()) != session.stamp;
+                let stamp = credential_stamp(app, &request.cli, request.profile.as_deref());
                 if exited == Some(false) { mark_error(&session, "auth_failed"); }
-                else if exited == Some(true) || changed {
-                    let authenticated = match request.cli.as_str() {
-                        "gemini" => crate::profiles::dirs(app, request.profile.as_deref()).is_some_and(|dirs| crate::gemini::has_login(&dirs.gemini)),
-                        _ => crate::plugins::cli_is_logged_in(app, &request.cli, request.profile.as_deref()),
-                    };
+                else if browser_ready_to_probe(&request.cli, exited, &session.stamp, &stamp) {
+                    let env = browser_env(app, request.profile.as_deref());
+                    let authenticated = crate::plugins::cli_browser_is_logged_in(app, &request.cli, request.profile.as_deref(), &env);
                     if authenticated { finish(app, &session)?; }
                     else if exited.is_some() { mark_error(&session, "auth_failed"); }
                 }
@@ -487,13 +538,18 @@ pub fn handle(app: &AppHandle, owner: &str, mut request: AuthRequest) -> Result<
 }
 
 fn normalize_input(cli: &str, input: &str) -> Result<String, String> {
-    let trimmed = input.trim();
+    // Native login menus need these keys; pasted commands never need controls.
+    if matches!(input, "\r" | "\u{8}" | "\u{7f}" | "\u{1b}" | "\u{1b}[A" | "\u{1b}[B" | "\u{1b}[C" | "\u{1b}[D") { return Ok(input.into()); }
+    let line = input.strip_suffix('\r').unwrap_or(input);
+    if line.chars().any(char::is_control) { return Err("invalid_input".into()); }
+    let trimmed = line.trim();
     // A phone may receive a failed localhost redirect instead of a displayed
     // code. Forward only the OAuth code (and Claude's state), never fetch a URL.
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         let url: tauri::Url = trimmed.parse().map_err(|_| "invalid_input")?;
         let code = url.query_pairs().find(|(key, _)| key == "code").map(|(_, v)| v.into_owned()).ok_or("invalid_input")?;
         let state = url.query_pairs().find(|(key, _)| key == "state").map(|(_, v)| v.into_owned());
+        if code.is_empty() || code.chars().any(|c| c.is_control() || c.is_whitespace()) || state.as_deref().is_some_and(|state| state.chars().any(|c| c.is_control() || c.is_whitespace())) { return Err("invalid_input".into()); }
         return Ok(if cli == "claude" { state.map_or_else(|| format!("{code}\r"), |state| format!("{code}#{state}\r")) } else { format!("{code}\r") });
     }
     Ok(input.to_owned())
@@ -541,6 +597,52 @@ mod tests {
         assert!(a.load(Ordering::Acquire) && !b.load(Ordering::Acquire));
         lock(&KEY_OPS).remove(&mine);
         lock(&KEY_OPS).remove(&other);
+    }
+    #[test]
+    fn spawn_guard_kills_on_failure_and_transfers_ownership_on_success() {
+        #[derive(Clone, Debug)]
+        struct CountKiller(Arc<std::sync::atomic::AtomicUsize>);
+        impl ChildKiller for CountKiller {
+            fn kill(&mut self) -> std::io::Result<()> { self.0.fetch_add(1, Ordering::Relaxed); Ok(()) }
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> { Box::new(self.clone()) }
+        }
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let guarded = || KillGuard(Some(Killer::Pty { killer: Box::new(CountKiller(Arc::clone(&calls))), pid: None }));
+        drop(guarded());
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        let mut transferred = guarded().release();
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        transferred.kill();
+        transferred.kill();
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+    #[test]
+    fn browser_completion_ignores_unrelated_or_removed_credentials() {
+        let first = std::time::UNIX_EPOCH + Duration::from_secs(1);
+        let next = first + Duration::from_secs(1);
+        let stamp = |modified, len| vec![(PathBuf::from("oauth_creds.json"), modified, len)];
+        let old = stamp(Some(first), 100);
+        let written = stamp(Some(next), 100);
+        for cli in ["claude", "codex"] {
+            assert!(!browser_ready_to_probe(cli, None, &old, &written));
+            assert!(browser_ready_to_probe(cli, Some(true), &old, &old));
+            assert!(!browser_ready_to_probe(cli, Some(false), &old, &written));
+        }
+        assert!(browser_ready_to_probe("gemini", None, &old, &written));
+        assert!(!browser_ready_to_probe("gemini", None, &old, &old));
+        assert!(!browser_ready_to_probe("gemini", None, &old, &stamp(None, 0)));
+        assert!(!browser_ready_to_probe("gemini", None, &old, &stamp(Some(next), 0)));
+        assert!(!browser_ready_to_probe("gemini", Some(false), &old, &written));
+    }
+    #[test]
+    fn native_input_refuses_multiline_pastes_and_encoded_controls() {
+        for input in ["hello\n/shell whoami\r", "hello\r/shell whoami", "\u{1b}[200~pasted", "a\tbad", "http://localhost/?code=abc%0D%0Ashell", "http://localhost/?code=abc&state=x%0Dexit"] {
+            assert!(normalize_input("gemini", input).is_err(), "{input:?}");
+        }
+        assert_eq!(normalize_input("gemini", "code-value\r").unwrap(), "code-value\r");
+        for input in ["\r", "\u{7f}", "\u{1b}[A", "\u{1b}[B"] {
+            assert_eq!(normalize_input("gemini", input).unwrap(), input);
+        }
     }
     #[test]
     fn callback_urls_become_codes_and_are_never_fetched() {

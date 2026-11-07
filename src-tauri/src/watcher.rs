@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 /// How a window's folder is being followed. Dropping it stops the watching.
 enum Watch {
@@ -40,6 +40,16 @@ impl DirWatchers {
     /// A closed window's watcher goes with it.
     pub fn forget(&self, label: &str) {
         self.lock().remove(label);
+    }
+
+    fn adopt(&self, label: String, watcher: Watch, owner_live: impl FnOnce() -> bool) -> Result<(), String> {
+        self.lock().insert(label.clone(), watcher);
+        // Destroyed may have run while the watcher was starting, before it had anything to remove.
+        if !owner_live() {
+            self.forget(&label);
+            return Err("window_closed".into());
+        }
+        Ok(())
     }
 }
 
@@ -117,12 +127,42 @@ fn start(app: AppHandle, label: String, path: &str) -> Result<Watch, String> {
 pub fn watch_dir(app: AppHandle, window: WebviewWindow, state: State<'_, DirWatchers>, path: String) -> Result<(), String> {
     let label = window.label().to_string();
     state.forget(&label);
-    let watcher = start(app, label.clone(), &path)?;
-    state.lock().insert(label, watcher);
-    Ok(())
+    let watcher = start(app.clone(), label.clone(), &path)?;
+    state.adopt(label.clone(), watcher, || app.get_webview_window(&label).is_some())
 }
 
 #[tauri::command]
 pub fn unwatch_dir(window: WebviewWindow, state: State<'_, DirWatchers>) {
     state.forget(window.label());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_destroyed_before_insert_does_not_leave_a_watcher() {
+        let state = DirWatchers::default();
+        state.forget("main");
+        let stopped = Arc::new(AtomicBool::new(false));
+        assert_eq!(state.adopt("main".into(), Watch::Poll(stopped.clone()), || false), Err("window_closed".into()));
+        assert!(stopped.load(Ordering::Relaxed));
+        assert!(state.lock().is_empty());
+    }
+
+    #[test]
+    fn destruction_after_insert_and_a_live_owner_are_both_handled() {
+        let state = DirWatchers::default();
+        let stopped = Arc::new(AtomicBool::new(false));
+        assert!(state.adopt("main".into(), Watch::Poll(stopped.clone()), || {
+            state.forget("main");
+            false
+        }).is_err());
+        assert!(stopped.load(Ordering::Relaxed));
+        let live = Arc::new(AtomicBool::new(false));
+        assert!(state.adopt("other".into(), Watch::Poll(live.clone()), || true).is_ok());
+        assert!(!live.load(Ordering::Relaxed));
+        state.forget("other");
+        assert!(live.load(Ordering::Relaxed));
+    }
 }

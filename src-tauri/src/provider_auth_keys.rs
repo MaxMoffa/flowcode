@@ -92,15 +92,17 @@ fn record_env(cli: &str, record: &AuthRecord) -> Vec<(String, String)> {
     }).collect()
 }
 
+pub(crate) fn cli_record_env(cli: &str, path: &Path) -> Vec<(String, String)> {
+    path.parent().and_then(read_record).map(|record| record_env(cli, &record)).unwrap_or_default()
+}
+
 /// Append to the environment of a CLI launched for this profile. Empty values
 /// intentionally suppress inherited keys when the user chooses account login.
 /// This function must never call `profiles::env_for` (which calls it).
-pub fn env_for(app: &AppHandle, profile: Option<&str>) -> Vec<(String, String)> {
+pub fn env_for_cli(app: &AppHandle, profile: Option<&str>, cli: &str) -> Vec<(String, String)> {
     let Some(dirs) = crate::profiles::dirs(app, profile) else { return Vec::new() };
-    ["claude", "codex", "gemini", "vibe"].iter().flat_map(|cli| {
-        provider_dir(&dirs, cli).ok().and_then(|dir| read_record(&dir))
-            .map(|record| record_env(cli, &record)).unwrap_or_default()
-    }).collect()
+    provider_dir(&dirs, cli).ok().and_then(|dir| read_record(&dir))
+        .map(|record| record_env(cli, &record)).unwrap_or_default()
 }
 
 fn normalize_key(key: &str) -> Result<&str, String> {

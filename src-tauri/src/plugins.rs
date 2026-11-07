@@ -164,7 +164,7 @@ fn gemini_env_auth() -> bool {
 /// src/plugins/codexStatus.ts already uses against Codex's interactive
 /// screen - there's no more reliable signal available for it).
 pub(crate) fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
-    let envs = crate::profiles::env_for(app, profile);
+    let envs = crate::profiles::env_for_cli(app, profile, cli);
     match cli {
         "claude" => run_status_command("claude auth status", &envs)
             .ok()
@@ -191,6 +191,25 @@ pub(crate) fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>
             // Inherited key or Vertex setup: still valid unless a Flowcode
             // method is saved (its env then blanks these variables).
             || (crate::provider_auth_keys::method(app, cli, profile).is_none() && gemini_env_auth()),
+        _ => false,
+    }
+}
+
+/// A browser login must be verified without accepting an existing API key.
+pub(crate) fn cli_browser_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>, envs: &[(String, String)]) -> bool {
+    match cli {
+        "claude" => run_status_command("claude auth status", envs)
+            .ok().filter(|output| output.status.success())
+            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
+            .is_some_and(|status| claude_billing_mode(&status) == "subscription"),
+        "codex" => run_status_command("codex login status", envs)
+            .ok().is_some_and(|output| output.status.success() && codex_billing_mode(&combined_output(&output)) == "subscription"),
+        "gemini" => crate::profiles::dirs(app, profile).is_some_and(|dirs| {
+            let path = dirs.gemini.join(".gemini/oauth_creds.json");
+            if !std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file() && metadata.len() <= 64 * 1024) { return false; }
+            std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|credentials| ["access_token", "refresh_token"].iter().any(|key| credentials[*key].as_str().is_some_and(|token| !token.is_empty())))
+        }),
         _ => false,
     }
 }
@@ -238,7 +257,7 @@ pub async fn cli_billing_mode(
     profile: Option<String>,
 ) -> Result<&'static str, String> {
     crate::blocking(move || {
-        let envs = crate::profiles::env_for(&app, profile.as_deref());
+        let envs = crate::profiles::env_for_cli(&app, profile.as_deref(), &cli);
         Ok(match cli.as_str() {
             "claude" => run_status_command("claude auth status", &envs)
                 .ok()

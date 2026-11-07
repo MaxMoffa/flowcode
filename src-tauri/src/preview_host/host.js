@@ -4,6 +4,7 @@
   var ALLOWED = ["http://", "https://", "flowcode-preview://"];
   var frame = null;
   var current = null;
+  var sequence = 0;
 
   function clear() {
     if (frame) {
@@ -12,7 +13,7 @@
     }
   }
 
-  function load(url, sandbox) {
+  function load(url, sandbox, loadSequence) {
     clear();
     current = { url: url, sandbox: sandbox };
     var f = document.createElement("iframe");
@@ -22,7 +23,8 @@
     f.setAttribute("allow", "clipboard-write; fullscreen");
     f.setAttribute("referrerpolicy", "no-referrer");
     f.addEventListener("load", function () {
-      window.parent.postMessage({ type: "loaded" }, "*");
+      if (frame !== f || sequence !== loadSequence) return;
+      window.parent.postMessage({ type: "loaded", sequence: loadSequence }, "*");
     });
     f.src = url;
     document.body.appendChild(f);
@@ -33,13 +35,17 @@
     if (event.source !== window.parent) return;
     var msg = event.data;
     if (!msg || typeof msg !== "object") return;
+    if (!Number.isSafeInteger(msg.sequence) || msg.sequence <= sequence) return;
     if (msg.type === "load") {
       if (typeof msg.url !== "string" || typeof msg.sandbox !== "string") return;
       if (!ALLOWED.some(function (p) { return msg.url.indexOf(p) === 0; })) return;
-      load(msg.url, msg.sandbox);
+      sequence = msg.sequence;
+      load(msg.url, msg.sandbox, sequence);
     } else if (msg.type === "reload") {
-      if (current) load(current.url, current.sandbox);
+      sequence = msg.sequence;
+      if (current) load(current.url, current.sandbox, sequence);
     } else if (msg.type === "clear") {
+      sequence = msg.sequence;
       clear();
       current = null;
     }

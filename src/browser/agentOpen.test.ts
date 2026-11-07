@@ -1,5 +1,57 @@
-import { describe, expect, it } from "vitest";
-import { commandCwd, openCommandTarget, toolCommand } from "./agentOpen";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  preview: vi.fn(), system: vi.fn(),
+  settings: { local: "app", external: "ask", artifacts: "app" },
+}));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.system }));
+vi.mock("../lib/fileLinks", () => ({ checkPath: vi.fn() }));
+vi.mock("../i18n", () => ({ t: (key: string) => key }));
+vi.mock("./browserSettings", () => ({ getBrowserSettings: () => mocks.settings }));
+vi.mock("./browserStore", () => ({
+  isLocalUrl: (target: string) => new URL(target).hostname === "localhost",
+  normalizeLocalUrl: (target: string) => target,
+  openUrlInPreview: mocks.preview,
+  openFileInPreview: vi.fn(),
+}));
+import { routeAgentOpen, commandCwd, openCommandTarget, toolCommand } from "./agentOpen";
+
+describe("agent browser permission", () => {
+  beforeEach(() => { vi.clearAllMocks(); mocks.settings.external = "ask"; mocks.system.mockResolvedValue(undefined); });
+  const request = { target: "https://example.com/?private=value", cwd: "/repo", direct: true };
+
+  it("does not make a network request while confirmation is pending", async () => {
+    let resolve!: (allowed: boolean) => void;
+    const confirm = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
+    const opening = routeAgentOpen(request, null, confirm);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.system).not.toHaveBeenCalled();
+    resolve(true);
+    await opening;
+    expect(mocks.preview).toHaveBeenCalledWith(request.target);
+  });
+
+  it("fails closed when the adapter bypasses permission and no confirmation handler exists", async () => {
+    await routeAgentOpen(request, null);
+    await routeAgentOpen(request, null, async () => false);
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.system).not.toHaveBeenCalled();
+  });
+
+  it("also asks before opening the system browser", async () => {
+    mocks.settings.external = "system";
+    await routeAgentOpen(request, null, async () => false);
+    expect(mocks.system).not.toHaveBeenCalled();
+    await routeAgentOpen(request, null, async () => true);
+    expect(mocks.system).toHaveBeenCalledWith(request.target);
+  });
+
+  it("keeps loopback previews automatic", async () => {
+    await routeAgentOpen({ ...request, target: "http://localhost:3000" }, null);
+    expect(mocks.preview).toHaveBeenCalledWith("http://localhost:3000");
+  });
+});
 
 describe("openCommandTarget", () => {
   it("finds the artifact a Windows start opens", () => {

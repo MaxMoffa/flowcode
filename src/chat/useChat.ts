@@ -5,6 +5,7 @@ import type { AgentCli } from "../agents/cliInfo";
 import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
 import { t } from "../i18n";
 import { readAgentToolsConfig } from "../agents/agentToolsSettings";
+import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { NO_ACTIVITY, resumedActivity, trackActivity, type ChatActivity } from "./cacheWarning";
@@ -55,6 +56,9 @@ interface ChatEventPayload {
 /** Runs one agent behind a chat: starts it on mount, keeps the conversation
  * model fed from the backend's events, closes it on unmount. */
 export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
+  const confirmOpen = useConfirmDialog();
+  const confirmOpenRef = useRef(confirmOpen);
+  confirmOpenRef.current = confirmOpen;
   const [model, setModelState] = useState<ChatModelState>(initialChat);
   const [phase, setPhase] = useState<ChatPhase>("starting");
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +143,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       // An attached child's opens are routed by its orchestrator's chat, whether or not this tab exists.
       if (attachChatId) return;
       const open = trackOpen(ev);
-      if (open) void routeAgentOpen(open, distro);
+      if (open) void routeAgentOpen(open, distro, confirmOpenRef.current);
     };
 
     // Deferred a tick: React StrictMode mounts, unmounts and mounts again at
@@ -371,7 +375,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     void listen<ChatEventPayload>("chat-event", (e) => {
       if (!delegatesOf(modelRef.current.items).some((d) => d.childChatId === e.payload.chatId)) return;
       const open = track(e.payload.event);
-      if (open) void routeAgentOpen(open, wslDistroRef.current);
+      if (open) void routeAgentOpen(open, wslDistroRef.current, confirmOpenRef.current);
     }).then((stop) => (gone ? stop() : (off = stop)));
     return () => {
       gone = true;

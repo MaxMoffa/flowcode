@@ -171,6 +171,7 @@ fn plain(status: StatusCode, text: &str) -> Response<Vec<u8>> {
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+
     response
 }
 
@@ -255,6 +256,20 @@ async fn fetch(conn: &iroh::endpoint::Connection, route: &Route, request: Reques
         }
     }
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if !matches!(route.target, PreviewTarget::Port(_)) {
+        let (kind, id) = match &route.target {
+            PreviewTarget::Files(id) => ("f", id),
+            PreviewTarget::ChatFiles(id) => ("c", id),
+            _ => unreachable!(),
+        };
+        if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') { return Err("invalid preview id".into()); }
+        let sources = format!("flowcode-remote://localhost/{kind}/{id}/ http://flowcode-remote.localhost/{kind}/{id}/ https://flowcode-remote.localhost/{kind}/{id}/");
+        let csp = format!("default-src 'none'; script-src 'unsafe-inline' {sources}; style-src 'unsafe-inline' {sources}; connect-src {sources}; img-src {sources} data: blob:; media-src {sources} blob:; font-src {sources} data:; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'");
+        headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_str(&csp).map_err(|e| e.to_string())?);
+        // Artifacts have an opaque sandbox origin, including their sibling resources.
+        headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+        headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    }
     let mut out = Response::new(body.to_vec());
     *out.status_mut() = head.status;
     *out.headers_mut() = headers;

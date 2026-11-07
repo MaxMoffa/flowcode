@@ -1,4 +1,4 @@
-// Signs a release's SHA256SUMS with the release key and uploads SHA256SUMS.sig.
+// Binds SHA256SUMS to its release version, then uploads the manifest and signature.
 //
 //   node scripts/sign-release.mjs <tag> [--publish] [--key <pem path>]
 //   node scripts/sign-release.mjs --self-test       sign+verify a sample buffer, no network
@@ -14,6 +14,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const REPO = 'MaxMoffa/flowcode'
+const VERSION_HEADER = '# flowcode-version: '
 const args = process.argv.slice(2)
 
 const USAGE = `Usage: node scripts/sign-release.mjs <tag> [--publish] [--key <path>]
@@ -35,6 +36,25 @@ function signAndCheck(privateKey, data) {
   return signature
 }
 
+function releaseVersion(tag) {
+  const match = /^v?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.exec(tag)
+  if (!match) throw new Error('release tag must be a stable version such as v0.29.0')
+  return match[1]
+}
+
+function versionedManifest(raw, version) {
+  const lines = raw.toString('utf8').split(/\r?\n/)
+  const headers = lines.filter((line) => line.startsWith('# flowcode-version'))
+  if (headers.length > 0) {
+    if (headers.length !== 1 || lines[0] !== VERSION_HEADER + version) {
+      throw new Error('SHA256SUMS version header does not match the release tag')
+    }
+    return raw
+  }
+  // Keep every checksum byte unchanged for existing updater versions.
+  return Buffer.concat([Buffer.from(VERSION_HEADER + version + '\n'), raw])
+}
+
 if (args.includes('--help') || args.includes('-h') || args.length === 0) {
   console.log(USAGE)
   process.exit(args.length === 0 ? 1 : 0)
@@ -42,10 +62,25 @@ if (args.includes('--help') || args.includes('-h') || args.length === 0) {
 
 if (args.includes('--self-test')) {
   const { privateKey } = generateKeyPairSync('ed25519')
-  const sample = Buffer.from('abc123  Flowcode-Setup-0.0.0.exe\n')
+  const version = releaseVersion('v0.0.1')
+  const legacy = Buffer.from('abc123  Flowcode-Setup-0.0.1.exe\n')
+  const sample = versionedManifest(legacy, version)
+  if (!sample.subarray(Buffer.byteLength(VERSION_HEADER + version + '\n')).equals(legacy)) fail('self-test: checksum bytes changed')
+  if (!versionedManifest(sample, version).equals(sample)) fail('self-test: version header is not idempotent')
   const sig = signAndCheck(privateKey, sample)
-  const tampered = Buffer.from('abc124  Flowcode-Setup-0.0.0.exe\n')
+  const tampered = Buffer.from(sample.toString().replace('abc123', 'abc124'))
   if (verify(null, tampered, createPublicKey(privateKey), sig)) fail('self-test: tampered data was accepted')
+  const changedVersion = Buffer.from(sample.toString().replace(VERSION_HEADER + version, VERSION_HEADER + '9.9.9'))
+  if (verify(null, changedVersion, createPublicKey(privateKey), sig)) fail('self-test: tampered version was accepted')
+  const invalidManifests = [
+    [sample, '0.0.2'],
+    [Buffer.concat([sample, Buffer.from(VERSION_HEADER + version + '\n')]), version],
+  ]
+  for (const [candidate, expectedVersion] of invalidManifests) {
+    let refused = false
+    try { versionedManifest(candidate, expectedVersion) } catch { refused = true }
+    if (!refused) fail('self-test: mismatched or duplicate version header was accepted')
+  }
   console.log(`self-test ok (signature is ${sig.toString('hex').length} hex chars)`)
   process.exit(0)
 }
@@ -60,6 +95,7 @@ if (!tag) fail('missing release tag\n' + USAGE)
 const gh = (...a) => execFileSync('gh', a, { stdio: ['ignore', 'inherit', 'inherit'] })
 const work = mkdtempSync(join(tmpdir(), 'flowcode-sign-'))
 try {
+  const version = releaseVersion(tag)
   let privateKey
   try {
     privateKey = createPrivateKey(readFileSync(keyPath))
@@ -69,14 +105,17 @@ try {
 
   console.log(`[1/4] Downloading SHA256SUMS of ${tag}...`)
   gh('release', 'download', tag, '--repo', REPO, '-p', 'SHA256SUMS', '-D', work, '--clobber')
-  // Raw bytes: the app verifies the signature over exactly what GitHub serves.
-  const sums = readFileSync(join(work, 'SHA256SUMS'))
+  const sumsFile = join(work, 'SHA256SUMS')
+  const sums = versionedManifest(readFileSync(sumsFile), version)
+  // The app verifies exactly these bytes; the header is signed with the hashes.
+  writeFileSync(sumsFile, sums)
 
   console.log('[2/4] Signing and self-verifying...')
   const sigFile = join(work, 'SHA256SUMS.sig')
   writeFileSync(sigFile, signAndCheck(privateKey, sums).toString('hex') + '\n')
 
-  console.log('[3/4] Uploading SHA256SUMS.sig...')
+  console.log('[3/4] Uploading versioned SHA256SUMS, then SHA256SUMS.sig...')
+  gh('release', 'upload', tag, sumsFile, '--repo', REPO, '--clobber')
   gh('release', 'upload', tag, sigFile, '--repo', REPO, '--clobber')
 
   if (publish) {

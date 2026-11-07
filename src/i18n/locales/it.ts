@@ -1322,7 +1322,7 @@ export const it = {
   "settings.agentTools.open.label": "Apri nel browser",
   "settings.agentTools.open.desc": "L'agente può aprire un sito o un file (pagina, PDF, immagine) nel pannello Browser, secondo le impostazioni del Browser.",
   "settings.agentTools.openAuto.label": "Senza chiedere il permesso",
-  "settings.agentTools.openAuto.desc": "Aprire una pagina non richiede la tua conferma. Resta sempre una scelta per quella volta, mai per sempre.",
+  "settings.agentTools.openAuto.desc": "Consenti senza conferma i server locali e i file nella cartella della chat. I siti esterni richiedono sempre la tua conferma.",
   "settings.agentTools.delegate.label": "Delega ad altri agenti",
   "settings.agentTools.delegate.desc": "L'agente può affidare un compito a un altro agente: parte una chat vera che riceve solo quel testo e restituisce l'ultimo messaggio. Permessi e domande dei delegati arrivano sempre a te.",
   "settings.agentTools.agent.desc": "Può ricevere compiti dagli altri agenti ({agent}).",

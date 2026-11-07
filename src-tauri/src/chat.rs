@@ -7,7 +7,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -257,11 +257,11 @@ enum Incoming {
 /// Parses a stdout line; `None` for anything that isn't a JSON-RPC message
 /// (some adapters print logs to stdout).
 fn parse_line(line: &str) -> Option<Incoming> {
-    let value: Value = serde_json::from_str(line.trim()).ok()?;
+    let mut value: Value = serde_json::from_str(line.trim()).ok()?;
+    let params = value.as_object_mut()?.remove("params").unwrap_or(Value::Null);
     let obj = value.as_object()?;
     let method = obj.get("method").and_then(Value::as_str);
     let id = obj.get("id").filter(|id| !id.is_null());
-    let params = obj.get("params").cloned().unwrap_or(Value::Null);
     match (method, id) {
         (Some(method), Some(id)) => Some(Incoming::Request { id: id.clone(), method: method.to_string(), params }),
         (Some(method), None) => Some(Incoming::Notification { method: method.to_string(), params }),
@@ -284,7 +284,8 @@ fn parse_line(line: &str) -> Option<Incoming> {
 /// ACP signals "sign in first" with code -32000 / "Authentication required".
 fn is_auth_error(err: &RpcError) -> bool {
     let message = err.message.to_lowercase();
-    err.code == -32000 || message.contains("authenticat") || message.contains("auth_required")
+    message.contains("authenticat") || message.contains("auth_required") || message.contains("unauthorized") || message.contains("not logged in")
+        || (err.code == -32000 && (message.contains("sign in") || message.contains("log in")))
 }
 
 fn error_text(err: &RpcError) -> String {
@@ -305,8 +306,8 @@ fn launch_command(agent: &str) -> Option<(&'static str, &'static [&'static str])
     Some(match agent {
         "vibe" => ("vibe-acp", &[]),
         "gemini" => ("gemini", &["--experimental-acp"]),
-        "claude" => ("npx", &["-y", "@agentclientprotocol/claude-agent-acp"]),
-        "codex" => ("npx", &["-y", "@agentclientprotocol/codex-acp"]),
+        "claude" => ("npx", &["-y", "--ignore-scripts", "@agentclientprotocol/claude-agent-acp@0.101.0"]),
+        "codex" => ("npx", &["-y", "--ignore-scripts", "@agentclientprotocol/codex-acp@2.5.0"]),
         _ => return None,
     })
 }
@@ -814,13 +815,33 @@ fn file_uri(path: &std::path::Path) -> String {
 /// agent accepts; it opens the file with its own tools). For an agent running
 /// in WSL (`wsl`) the link is the file's Linux path (`/mnt/c/...` for a
 /// Windows file), the only kind it can open.
+const MAX_ATTACHMENT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_ATTACHMENTS_TOTAL: u64 = 256 * 1024 * 1024;
+static ATTACHMENT_STORE: Mutex<()> = Mutex::new(());
+
+pub(crate) fn purge_attachments() {
+    let _guard = lock(&ATTACHMENT_STORE);
+    let root = std::env::temp_dir().join("flowcode-attachments");
+    if !crate::fs::links_stay_local(&root) || std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) { return; }
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        if uuid::Uuid::parse_str(&entry.file_name().to_string_lossy()).is_err() { continue; }
+        let old = entry.metadata().and_then(|m| m.modified()).ok().and_then(|mtime| mtime.elapsed().ok())
+            .is_some_and(|age| age > Duration::from_secs(3 * 24 * 60 * 60));
+        if old { let _ = std::fs::remove_dir_all(entry.path()); }
+    }
+}
+
 fn attachment_block(a: &Attachment, images: bool, wsl: bool) -> Result<Value, String> {
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD;
+    if a.data.as_ref().is_some_and(|data| data.len() > MAX_ATTACHMENT_BYTES.div_ceil(3) * 4) {
+        return Err("attachment exceeds 32 MiB".into());
+    }
     if images && a.mime.starts_with("image/") {
         let data = match (&a.data, &a.path) {
             (Some(data), _) => data.clone(),
-            (None, Some(path)) => b64.encode(std::fs::read(path).map_err(|e| format!("could not read {path}: {e}"))?),
+            (None, Some(path)) => b64.encode(crate::chat_images::read_file(std::path::Path::new(path))?),
             _ => return Err(format!("attachment {} has no content", a.name)),
         };
         return Ok(json!({ "type": "image", "mimeType": a.mime, "data": data }));
@@ -828,7 +849,21 @@ fn attachment_block(a: &Attachment, images: bool, wsl: bool) -> Result<Value, St
     let path = match (&a.data, &a.path) {
         (Some(data), _) => {
             let bytes = b64.decode(data).map_err(|e| format!("bad attachment {}: {e}", a.name))?;
-            let dir = std::env::temp_dir().join("flowcode-attachments").join(uuid::Uuid::new_v4().to_string());
+            if bytes.len() > MAX_ATTACHMENT_BYTES { return Err("attachment exceeds 32 MiB".into()); }
+            let _guard = lock(&ATTACHMENT_STORE);
+            let root = std::env::temp_dir().join("flowcode-attachments");
+            if !crate::fs::links_stay_local(&root) || std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) { return Err("unsafe attachment directory".into()); }
+            let mut total = 0u64;
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    if !entry.file_type().is_ok_and(|kind| kind.is_dir()) { continue; }
+                    if let Ok(files) = std::fs::read_dir(entry.path()) {
+                        total = files.flatten().filter_map(|f| f.metadata().ok()).fold(total, |total, m| total.saturating_add(m.len()));
+                    }
+                }
+            }
+            if total.saturating_add(bytes.len() as u64) > MAX_ATTACHMENTS_TOTAL { return Err("temporary attachments exceed 256 MiB; remove old attachments before retrying".into()); }
+            let dir = root.join(uuid::Uuid::new_v4().to_string());
             std::fs::create_dir_all(&dir).map_err(|e| format!("could not save {}: {e}", a.name))?;
             let file = dir.join(sanitize_name(&a.name));
             std::fs::write(&file, bytes).map_err(|e| format!("could not save {}: {e}", a.name))?;
@@ -877,7 +912,10 @@ fn accumulate_answer(answer: &mut String, body: &ChatBody) {
             if let Some(("agent_message_chunk", _, text)) = text_chunk(update) {
                 let from_subagent = update.pointer("/_meta/claudeCode/parentToolUseId").is_some_and(|id| !id.is_null());
                 if !from_subagent && answer.len() < MAX_ANSWER_BYTES {
-                    answer.push_str(text);
+                    let room = MAX_ANSWER_BYTES - answer.len();
+                    let mut end = text.len().min(room);
+                    while !text.is_char_boundary(end) { end -= 1; }
+                    answer.push_str(&text[..end]);
                 }
             }
         }
@@ -909,7 +947,10 @@ struct Chat {
     link: Option<TaskLink>,
     /// The text of the agent's messages in the current turn - a delegated task's answer (kept for children only).
     answer: Mutex<String>,
+    final_answer: Mutex<String>,
     child: Mutex<Child>,
+    wsl_group: AtomicU32,
+    wsl_group_seen: AtomicBool,
     writer: Mutex<ChildStdin>,
     /// Replies the reader thread owes the agent, written by the chat's own
     /// writer thread (`write_replies`): the reader must never block on the
@@ -939,6 +980,7 @@ struct Chat {
     session_id: OnceLock<String>,
     /// The `modes` the agent announced when the session started.
     modes: OnceLock<Value>,
+    current_mode: Mutex<Option<String>>,
     /// The models the agent offers; unlike the modes they change after the
     /// start (`chat_set_model`, a `config_option_update`), hence the mutex.
     models: Mutex<Option<ChatModels>>,
@@ -983,10 +1025,15 @@ impl Chat {
         let live = is_live(before, &body);
         if self.link.is_some() {
             accumulate_answer(&mut lock(&self.answer), &body);
+            let mut final_answer = lock(&self.final_answer);
+            if matches!(&body, ChatBody::Update { update } if update.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call") && update.pointer("/_meta/claudeCode/parentToolUseId").is_none_or(Value::is_null)) {
+                final_answer.clear();
+            }
+            accumulate_answer(&mut final_answer, &body);
         }
         let event = log.push(body, now_ms());
         let _ = self.feed.send(event.clone());
-        if !self.closed.load(Ordering::Relaxed) {
+        if before != ChatStatus::Starting && !self.closed.load(Ordering::Relaxed) {
             let _ = self.app.emit_to(&self.owner, "chat-event", json!({ "chatId": self.id, "event": event }));
         }
         drop(log);
@@ -1203,6 +1250,9 @@ impl Chat {
     /// The agent pushed new config options: stores the model and thinking
     /// parts, if they moved.
     fn config_options_changed(&self, options: &Value) {
+        if let Some(mode) = options.as_array().and_then(|options| options.iter().find(|option| option.get("category").and_then(Value::as_str) == Some("mode"))) {
+            *lock(&self.current_mode) = mode.get("currentValue").and_then(Value::as_str).map(str::to_string);
+        }
         let next = {
             let mut models = lock(&self.models);
             let next = models_after_config_update(models.as_ref(), options);
@@ -1253,7 +1303,7 @@ impl Chat {
             Incoming::Request { id, method, params } => {
                 // A reply that could not be queued falls through to the prompt.
                 let auto_allowed = (method == "session/request_permission")
-                    .then(|| crate::chat_mcp::auto_allow(&self.tools, &params))
+                    .then(|| crate::chat_mcp::auto_allow(&self.tools, &self.cwd, &params))
                     .flatten()
                     .is_some_and(|option_id| {
                         let reply = json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "selected", "optionId": option_id } } });
@@ -1298,6 +1348,9 @@ impl Chat {
             Incoming::Notification { method, params } => {
                 if method == "session/update" {
                     if let Some(update) = params.get("update") {
+                        if update.get("sessionUpdate").and_then(Value::as_str) == Some("current_mode_update") && !self.is_stale(&params) {
+                            *lock(&self.current_mode) = update.get("currentModeId").and_then(Value::as_str).map(str::to_string);
+                        }
                         log_native_subagent(&self.id.to_string(), &params, update);
                         if update.get("sessionUpdate").and_then(Value::as_str) == Some("config_option_update")
                             && !self.is_stale(&params)
@@ -1465,6 +1518,7 @@ impl Chat {
     fn kill(&self) {
         self.closed.store(true, Ordering::Relaxed);
         self.release_token();
+        self.kill_wsl_group();
         let mut child = lock(&self.child);
         kill_if_running(&mut child);
         // Briefly, until it is really gone (`chat_close` promises a dead
@@ -1474,6 +1528,19 @@ impl Chat {
                 break;
             }
             std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    fn kill_wsl_group(&self) {
+        #[cfg(target_os = "windows")]
+        if self.wsl {
+            let group = self.wsl_group.swap(0, Ordering::AcqRel);
+            if group > 1 {
+                let mut cmd = Command::new("wsl.exe");
+                if let Some(distro) = &self.wsl_distro { cmd.arg("-d").arg(distro); }
+                cmd.args(["--exec", "kill", "-KILL", "--", &format!("-{group}")]);
+                let _ = crate::system::run_wsl(cmd);
+            }
         }
     }
 }
@@ -1546,12 +1613,28 @@ pub(crate) fn kill_tree(pid: u32) {
 /// `spawn_agent`), so the whole group can be signalled.
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn kill_tree(pid: u32) {
-    let _ = Command::new("kill")
+    let killed_group = Command::new("kill")
         .args(["-KILL", "--", &format!("-{pid}")])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status();
+        .status().is_ok_and(|status| status.success());
+    if !killed_group {
+        use sysinfo::{Pid, System};
+        let sys = System::new_all();
+        let mut descendants = vec![Pid::from_u32(pid)];
+        let mut index = 0;
+        while index < descendants.len() {
+            let parent = descendants[index];
+            for (id, process) in sys.processes() {
+                if process.parent() == Some(parent) && !descendants.contains(id) { descendants.push(*id); }
+            }
+            index += 1;
+        }
+        for id in descendants.into_iter().rev() {
+            if let Some(process) = sys.process(id) { process.kill(); }
+        }
+    }
 }
 
 fn read_stdout(chat: Arc<Chat>, stdout: impl Read) {
@@ -1568,9 +1651,7 @@ fn read_stdout(chat: Arc<Chat>, stdout: impl Read) {
             }
             Ok(Some(false)) => {
                 eprintln!("chat {}: skipped an agent message over {MAX_LINE_BYTES} bytes", chat.id);
-                chat.emit(ChatBody::Error {
-                    message: format!("the agent sent a message over {} MiB; it was skipped", MAX_LINE_BYTES >> 20),
-                });
+                chat.emit(ChatBody::Ext { method: "_flowcode/warning".into(), params: json!({ "message": format!("the agent sent a message over {} MiB; it was skipped", MAX_LINE_BYTES >> 20) }) });
             }
         }
     }
@@ -1587,7 +1668,17 @@ fn read_stderr(chat: Weak<Chat>, mut stderr: impl Read) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
                 let Some(chat) = chat.upgrade() else { return };
-                push_tail(&mut lock(&chat.stderr), &buf[..n], STDERR_TAIL);
+                let mut tail = lock(&chat.stderr);
+                push_tail(&mut tail, &buf[..n], STDERR_TAIL);
+                if chat.wsl && !chat.wsl_group_seen.load(Ordering::Acquire) {
+                    let text = String::from_utf8_lossy(&tail);
+                    if let Some(group) = text.split("FLOWCODE_PROCESS_GROUP=").nth(1).and_then(|text| text.split_once('\n')).and_then(|(pid, _)| pid.trim().parse::<u32>().ok()).filter(|pid| *pid > 1) {
+                        chat.wsl_group.store(group, Ordering::Release);
+                        chat.wsl_group_seen.store(true, Ordering::Release);
+                    }
+                }
+                drop(tail);
+                if chat.closed.load(Ordering::Acquire) { chat.kill_wsl_group(); }
             }
         }
     }
@@ -1629,6 +1720,11 @@ impl Default for ChatState {
 }
 
 impl ChatState {
+    pub(crate) fn shutdown(&self) {
+        let sessions = std::mem::take(&mut *lock(&self.sessions));
+        for session in sessions.values() { self.delegations.forget_parent(&session.chat.id); }
+        drop(sessions);
+    }
     fn changed(&self) {
         self.changes.send_modify(|n| *n += 1);
     }
@@ -1687,6 +1783,7 @@ impl ChatState {
     /// be sent, an `Error` closes it (back to idle) - unless the agent's exit
     /// already failed the registered prompt, which emits that `Error` itself.
     pub(crate) fn prompt(&self, chat_id: &str, text: String, attachments: Vec<Attachment>) -> Result<(), String> {
+        if attachments.len() > 16 { return Err("at most 16 attachments per prompt".into()); }
         let chat = self.get(chat_id)?;
         let session_id = chat.session_id()?.to_string();
         // File IO first: a failure here must not leave a turn open.
@@ -1756,6 +1853,7 @@ impl ChatState {
         crate::blocking(move || {
             let session_id = chat.session_id()?.to_string();
             chat.request("session/set_mode", json!({ "sessionId": session_id, "modeId": mode_id }), MODE_TIMEOUT)?;
+            *lock(&chat.current_mode) = Some(mode_id.clone());
             chat.emit(ChatBody::Update { update: json!({ "sessionUpdate": "current_mode_update", "currentModeId": mode_id }) });
             Ok(())
         })
@@ -1779,11 +1877,18 @@ impl ChatState {
     /// absolute paths resolve.
     pub(crate) fn image_file(&self, chat_id: Option<&str>, path: &str) -> Result<std::path::PathBuf, String> {
         let chat = chat_id.map(|id| self.get(id)).transpose()?;
-        match &chat {
+        let file = match &chat {
             // `Some("")`: in WSL but the distro is unknown (only `/mnt` paths resolve).
             Some(c) => crate::chat_images::resolve_file(path, Some(&c.cwd), c.wsl.then(|| c.wsl_distro.as_deref().unwrap_or(""))),
             None => crate::chat_images::resolve_file(path, None, None),
+        }?;
+        if let Some(chat) = &chat {
+            if !crate::fs::is_local_path(&file, false) || !crate::fs::links_stay_local(&file) { return Err("image is not local".into()); }
+            let root = self.preview_root(&chat.id)?.canonicalize().map_err(|e| e.to_string())?;
+            let real = file.canonicalize().map_err(|e| e.to_string())?;
+            if !real.starts_with(root) { return Err("image is outside the chat folder".into()); }
         }
+        Ok(file)
     }
 
     /// The authenticated preview server scopes every chat file to this folder.
@@ -1887,11 +1992,12 @@ pub fn chat_adapter_ready(app: AppHandle, agent: String) -> bool {
 fn wsl_script(agent: &str) -> Option<(String, String)> {
     let (program, args) = launch_command(agent)?;
     let fallback = std::iter::once(program).chain(args.iter().copied()).collect::<Vec<_>>().join(" ");
+    let version = crate::acp_adapters::package_spec(agent).and_then(|spec| spec.rsplit_once('@')).map(|(_, version)| version).unwrap_or_default();
     Some(match crate::acp_adapters::package(agent) {
         Some(_) => (
             format!(
                 "d=\"$HOME/.local/share/flowcode/acp-adapters/{agent}\"; e=$(cat \"$d/current\" 2>/dev/null); \
-                 if [ -n \"$e\" ] && [ -f \"$e\" ]; then exec node \"$e\"; fi; exec {fallback}"
+                 case \"$e\" in \"$d/{version}/\"*) if [ -f \"$e\" ]; then exec node \"$e\"; fi;; esac; mkdir -p \"$HOME/.local/share/flowcode/adapter-launch\"; cd \"$HOME/.local/share/flowcode/adapter-launch\" || exit 1; exec {fallback}"
             ),
             format!("wsl: node <adapter> || {fallback}"),
         ),
@@ -1913,10 +2019,12 @@ fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, w
         }
         // `--exec`: without it wsl.exe runs the line through the default shell, which expands the script's `$`.
         // `-l` but not `-i`: a login shell finds node (nvm...), while an interactive one lets .bashrc print into the ACP stream.
-        cmd.arg("--cd").arg(&wsl.cwd).arg("--exec").args(["bash", "-lc"]).arg(script);
+        let script = format!("printf 'FLOWCODE_PROCESS_GROUP=%s\\n' \"$$\" >&2; {script}");
+        cmd.arg("--cd").arg(&wsl.cwd).arg("--exec").args(["setsid", "bash", "-lc"]).arg(script);
         // No profile env: it holds Windows paths, meaningless in the distro (as for the terminals).
         cmd.creation_flags(CREATE_NO_WINDOW).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         let child = cmd.spawn().map_err(|e| format!("could not start `{line}`: {e}"))?;
+        crate::process_job::assign(child.id());
         return Ok((child, line));
     }
     #[cfg(not(target_os = "windows"))]
@@ -1966,11 +2074,15 @@ fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, w
         cmd.process_group(0);
         cmd
     };
-    cmd.current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    for (k, v) in crate::profiles::env_for(app, profile) {
+    let neutral = app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("adapter-launch");
+    std::fs::create_dir_all(&neutral).map_err(|e| e.to_string())?;
+    cmd.current_dir(if program == "npx" && installed.is_none() { neutral.as_path() } else { std::path::Path::new(cwd) })
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    for (k, v) in crate::profiles::env_for_cli(app, profile, agent) {
         cmd.env(k, v);
     }
     let child = cmd.spawn().map_err(|e| format!("could not start `{line}`: {e}"))?;
+    crate::process_job::assign(child.id());
     Ok((child, line))
 }
 
@@ -2234,7 +2346,10 @@ fn start_once(
         token,
         link: extras.link,
         answer: Mutex::new(String::new()),
+        final_answer: Mutex::new(String::new()),
         child: Mutex::new(child),
+        wsl_group: AtomicU32::new(0),
+        wsl_group_seen: AtomicBool::new(false),
         writer: Mutex::new(stdin),
         replies,
         next_id: AtomicU64::new(1),
@@ -2250,6 +2365,7 @@ fn start_once(
         closed: AtomicBool::new(false),
         session_id: OnceLock::new(),
         modes: OnceLock::new(),
+        current_mode: Mutex::new(None),
         models: Mutex::new(None),
         thought: Mutex::new(None),
         stale_session: Mutex::new(None),
@@ -2274,7 +2390,9 @@ fn start_once(
             let _ = chat.session_id.set(session_id.clone());
             if let Some(modes) = result.get("modes") {
                 let _ = chat.modes.set(modes.clone());
+                *lock(&chat.current_mode) = modes.get("currentModeId").and_then(Value::as_str).map(str::to_string);
             }
+            if let Some(options) = result.get("configOptions") { chat.config_options_changed(options); }
             let models = normalize_models(&result);
             *lock(&chat.models) = models.clone();
             let thought = result.get("configOptions").and_then(thought_from_config_options);
@@ -2506,7 +2624,7 @@ mod tests {
         assert_eq!(answer, "");
         accumulate_answer(&mut answer, &text("agent_message_chunk", &"x".repeat(MAX_ANSWER_BYTES + 5)));
         accumulate_answer(&mut answer, &text("agent_message_chunk", "more"));
-        assert_eq!(answer.len(), MAX_ANSWER_BYTES + 5, "past the cap nothing more is kept");
+        assert_eq!(answer.len(), MAX_ANSWER_BYTES, "the cap also bounds a single oversized chunk");
     }
 
     #[test]
@@ -2637,6 +2755,7 @@ mod tests {
         let err = |code, message: &str| RpcError { code, message: message.to_string() };
         assert_eq!(error_text(&err(-32000, "Authentication required")), "auth_required: Authentication required");
         assert!(is_auth_error(&err(1, "please authenticate first")));
+        assert!(!is_auth_error(&err(-32000, "server is busy")));
         assert_eq!(error_text(&err(-32602, "Invalid params")), "Invalid params");
     }
 

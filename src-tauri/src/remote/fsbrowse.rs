@@ -24,10 +24,15 @@ fn confine(root: &Path, rel: &str) -> Result<PathBuf, String> {
     if candidate.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(outside_error());
     }
+    if !crate::fs::is_local_path(root, false) || !crate::fs::links_stay_local(root)
+        || !crate::fs::is_local_path(candidate, false) {
+        return Err(outside_error());
+    }
     let root = root
         .canonicalize()
         .map_err(|_| tr("Cartella non disponibile", "Folder not available").to_string())?;
     let full = if candidate.is_absolute() { candidate.to_path_buf() } else { root.join(candidate) };
+    if !crate::fs::links_stay_local(&full) { return Err(outside_error()); }
     let full = full
         .canonicalize()
         .map_err(|_| tr("Percorso non trovato", "Path not found").to_string())?;
@@ -50,6 +55,7 @@ pub(super) fn list_dir(root: &Path, rel: &str) -> Result<(String, Vec<LsEntry>),
     let dir = confine(root, rel)?;
     let mut entries: Vec<LsEntry> = Vec::new();
     for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten().take(MAX_LS_ENTRIES) {
+        if !crate::fs::links_stay_local(&entry.path()) { continue; }
         // `metadata` follows symlinks so a link to a folder lists as one; a
         // dangling link falls back to the link's own type.
         let (is_dir, size) = match std::fs::metadata(entry.path()) {
@@ -109,6 +115,14 @@ pub(super) fn read_text(root: &Path, rel: &str) -> Result<(String, String, bool)
 mod tests {
     use super::super::scratch;
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn unc_paths_are_refused_before_filesystem_access() {
+        let root = std::env::temp_dir();
+        assert!(confine(&root, r"\\attacker.invalid\share\secret.txt").is_err());
+        assert!(confine(Path::new(r"\\attacker.invalid\share"), "file.txt").is_err());
+    }
 
     #[test]
     fn ls_stays_inside_the_tab_folder() {

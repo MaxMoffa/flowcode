@@ -281,6 +281,14 @@ impl Delegations {
     fn reserve(&self, task: &Arc<Task>, max: usize) -> Result<(), String> {
         let max = max.max(1);
         let mut tasks = lock(&self.tasks);
+        // Keep recent results queryable without retaining every prompt forever.
+        let mut retired: Vec<_> = tasks.values().filter_map(|old| {
+            let state = lock(&old.state);
+            (old.parent_chat_id == task.parent_chat_id && state.retired).then_some((old.started_at, old.id.clone()))
+        }).collect();
+        retired.sort();
+        let excess = retired.len().saturating_sub(99);
+        for (_, id) in retired.into_iter().take(excess) { tasks.remove(&id); }
         let running = tasks.values().filter(|t| t.parent_chat_id == task.parent_chat_id && !t.is_terminal()).count();
         if running >= max {
             return Err(format!("{running} tasks are already running (at most {max} at once): wait for one with get_task_result, or cancel one"));
@@ -378,7 +386,10 @@ fn emit_delegate(parent: &Chat, task: &Task) {
 pub(super) fn child_event(chat: &Chat, body: &ChatBody) {
     let (Some(link), Some(state)) = (&chat.link, chat.app.try_state::<ChatState>()) else { return };
     let Some(task) = state.delegations.get(&link.task_id) else { return };
-    let answer = if matches!(body, ChatBody::TurnEnd { .. }) { lock(&chat.answer).clone() } else { String::new() };
+    let answer = if matches!(body, ChatBody::TurnEnd { .. }) {
+        let final_answer = lock(&chat.final_answer).clone();
+        if final_answer.trim().is_empty() { lock(&chat.answer).clone() } else { final_answer }
+    } else { String::new() };
     let changed = {
         let mut task_state = lock(&task.state);
         let changed = task_state.apply(body, chat.closed.load(Ordering::Relaxed), &answer, now_ms());
@@ -523,7 +534,7 @@ fn open_in_browser(chat: &Chat, args: &Value) -> Result<String, String> {
     }
     let target = chat_mcp::open_target(string_arg(args, "target")?, &chat.cwd, &homes, chat.wsl.then_some(chat.wsl_distro.as_deref().unwrap_or("")))?;
     chat.emit(ChatBody::Ext { method: OPEN_METHOD.to_string(), params: json!({ "target": target, "cwd": chat.cwd }) });
-    Ok("Opened in Flowcode.".to_string())
+    Ok("Sent to Flowcode. External links require user confirmation before opening.".to_string())
 }
 
 fn list_agents(app: &AppHandle, state: &ChatState, chat: &Chat) -> String {
@@ -570,6 +581,16 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &Chat, task: &Task, d
         child.kill();
         return Err(error);
     }
+    let inherited = inherited_mode(parent.agent == child.agent, lock(&parent.current_mode).as_deref(), child.modes.get());
+    let inherit = inherited.and_then(|mode| {
+        if let Some(mode) = mode {
+            child.request("session/set_mode", json!({ "sessionId": child.session_id()?, "modeId": mode }), super::MODE_TIMEOUT)?;
+            *lock(&child.current_mode) = Some(mode.clone());
+            child.emit(ChatBody::Update { update: json!({ "sessionUpdate": "current_mode_update", "currentModeId": mode }) });
+        }
+        Ok(())
+    });
+    if let Err(error) = inherit { child.kill(); return Err(error); }
     state.adopt(app, Arc::clone(&child))?;
     if let Err(error) = check() {
         close_child(state, &child.id);
@@ -637,11 +658,29 @@ fn cancel(app: &AppHandle, task: &Task) -> Result<(), String> {
         emit_delegate(&parent, task);
     }
     let result = match task.child_chat_id.get() {
-        Some(child) => state.cancel(child),
+        Some(child) => {
+            let result = state.cancel(child);
+            close_child(&state, child);
+            result
+        }
         None => Ok(()),
     };
     prune_finished(app, &state, &task.parent_chat_id);
     result
+}
+
+fn inherited_mode(same_agent: bool, parent: Option<&str>, modes: Option<&Value>) -> Result<Option<String>, String> {
+    let available: Vec<&str> = modes.and_then(|m| m.get("availableModes")).and_then(Value::as_array)
+        .into_iter().flatten().filter_map(|m| m.get("id").and_then(Value::as_str)).collect();
+    if same_agent {
+        if let Some(mode) = parent {
+            if available.contains(&mode) { return Ok(Some(mode.to_string())); }
+        } else if modes.is_none() { return Ok(None); }
+    }
+    for safe in ["read-only", "readonly", "read_only", "plan", "architect"] {
+        if available.contains(&safe) { return Ok(Some(safe.to_string())); }
+    }
+    Err("delegation refused: the child's permission mode cannot preserve the parent's restrictions".into())
 }
 
 /// Stops a delegated task (the "Interrompi" of its chat): cancels the child's turn.
@@ -657,6 +696,17 @@ pub async fn delegate_cancel(app: AppHandle, task_id: String) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn children_preserve_modes_or_fail_closed() {
+        let modes = json!({ "availableModes": [{ "id": "default" }, { "id": "plan" }, { "id": "bypassPermissions" }] });
+        assert_eq!(inherited_mode(true, Some("plan"), Some(&modes)).unwrap().as_deref(), Some("plan"));
+        assert_eq!(inherited_mode(false, Some("default"), Some(&modes)).unwrap().as_deref(), Some("plan"));
+        let unsafe_only = json!({ "availableModes": [{ "id": "bypassPermissions" }] });
+        assert!(inherited_mode(false, Some("plan"), Some(&unsafe_only)).is_err());
+        assert!(inherited_mode(true, Some("read-only"), Some(&unsafe_only)).is_err());
+        assert_eq!(inherited_mode(true, None, None).unwrap(), None);
+    }
 
     fn on() -> ToolsConfig {
         ToolsConfig { enabled: true, open: true, open_auto_allow: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2 }

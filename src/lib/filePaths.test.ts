@@ -159,6 +159,9 @@ describe("isExecutablePath", () => {
   it("lets documents through", () => {
     for (const p of ["a.ts", "b.png", "c.pdf", "README", "x.txt", "dir/"]) expect(isExecutablePath(p)).toBe(false);
   });
+  it("refuses unreviewed handlers and active documents", () => {
+    for (const p of ["a.rdp", "a.theme", "a.themepack", "a.msh1", "a.docm", "a.html", "a.svg", "a.unknown"]) expect(isExecutablePath(p), p).toBe(true);
+  });
 });
 
 describe("shortenPath", () => {

@@ -11,6 +11,7 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::io::Read;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -32,6 +33,8 @@ pub(crate) const GET_TASK_RESULT: &str = "get_task_result";
 pub(crate) const CANCEL_TASK: &str = "cancel_task";
 
 const POLL: Duration = Duration::from_millis(150);
+const IDLE_POLL: Duration = Duration::from_secs(1);
+const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 /// Request and response files older than this are leftovers (a script that gave up, an app that died).
 const STALE: Duration = Duration::from_secs(10 * 60);
 const SWEEP_EVERY: Duration = Duration::from_secs(5 * 60);
@@ -122,12 +125,21 @@ struct Setup {
 }
 
 fn setup(app: &AppHandle) -> Option<&'static Setup> {
-    static SETUP: OnceLock<Option<Setup>> = OnceLock::new();
-    SETUP
-        .get_or_init(|| {
+    static SETUP: OnceLock<Setup> = OnceLock::new();
+    static INIT: Mutex<()> = Mutex::new(());
+    let _init = lock(&INIT);
+    if SETUP.get().is_none() {
+        let initialized = (|| -> Option<Setup> {
             let root = app.path().app_local_data_dir().ok()?.join("mcp");
             let dir = root.join("ipc");
             std::fs::create_dir_all(&dir).ok()?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                for path in [&root, &dir] {
+                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).ok()?;
+                }
+            }
             let script = root.join("flowcode-mcp.cjs");
             if std::fs::read_to_string(&script).ok().as_deref() != Some(SCRIPT) {
                 std::fs::write(&script, SCRIPT).ok()?;
@@ -136,8 +148,13 @@ fn setup(app: &AppHandle) -> Option<&'static Setup> {
             let (app, watched) = (app.clone(), dir.clone());
             std::thread::spawn(move || poll(app, watched));
             Some(Setup { script, dir })
-        })
-        .as_ref()
+        })();
+        match initialized {
+            Some(setup) => { let _ = SETUP.set(setup); }
+            None => eprintln!("mcp: setup failed; the next chat will retry"),
+        }
+    }
+    SETUP.get()
 }
 
 /// `path` as the agent sees it: a Linux path when it runs in WSL.
@@ -246,12 +263,22 @@ fn take_requests(dir: &Path) -> Vec<(String, String)> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut taken = Vec::new();
     for entry in entries.flatten() {
+        if taken.len() >= MAX_IN_FLIGHT { break; }
         let name = entry.file_name();
         let Some(id) = name.to_str().and_then(|n| n.strip_prefix("req-")).and_then(|n| n.strip_suffix(".json")) else { continue };
         if !is_safe_id(id) {
             continue;
         }
-        let text = std::fs::read_to_string(entry.path());
+        // Do not follow links, and bound the read even if the file grows meanwhile.
+        let text = (|| -> std::io::Result<String> {
+            if !entry.file_type()?.is_file() || entry.metadata()?.len() > MAX_REQUEST_BYTES {
+                return Err(std::io::Error::other("request is not a bounded regular file"));
+            }
+            let mut text = String::new();
+            std::fs::File::open(entry.path())?.take(MAX_REQUEST_BYTES + 1).read_to_string(&mut text)?;
+            if text.len() as u64 > MAX_REQUEST_BYTES { return Err(std::io::Error::other("request too large")); }
+            Ok(text)
+        })();
         let _ = std::fs::remove_file(entry.path());
         if let Ok(text) = text {
             taken.push((id.to_string(), text));
@@ -299,7 +326,9 @@ fn poll(app: AppHandle, dir: PathBuf) {
     let in_flight = Arc::new(AtomicUsize::new(0));
     let mut swept = std::time::Instant::now();
     loop {
-        for (id, text) in take_requests(&dir) {
+        let requests = take_requests(&dir);
+        let idle = requests.is_empty() && in_flight.load(Ordering::Acquire) == 0;
+        for (id, text) in requests {
             let Some(slot) = InFlight::enter(&in_flight) else {
                 write_response(&dir, &id, &Err("Flowcode is busy with too many tool calls".into()));
                 continue;
@@ -315,7 +344,7 @@ fn poll(app: AppHandle, dir: PathBuf) {
             sweep(&dir, STALE);
             swept = std::time::Instant::now();
         }
-        std::thread::sleep(POLL);
+        std::thread::sleep(if idle { IDLE_POLL } else { POLL });
     }
 }
 
@@ -422,11 +451,24 @@ pub(crate) fn open_target(target: &str, cwd: &str, homes: &[String], wsl_distro:
 /// is for the open tool and the chat allows that: the call itself does nothing,
 /// and what the app then opens is bound by the Browser settings. Never the
 /// "always" option: nothing is written to the user's agent settings.
-pub(crate) fn auto_allow(cfg: &ToolsConfig, params: &Value) -> Option<String> {
+pub(crate) fn auto_allow(cfg: &ToolsConfig, cwd: &str, params: &Value) -> Option<String> {
     if !(cfg.enabled && cfg.open && cfg.open_auto_allow) || !is_open_call(params.get("toolCall")?) {
         return None;
     }
+    let target = params.pointer("/toolCall/rawInput/target")?.as_str()?;
+    if !safe_auto_open(target, cwd) { return None; }
     allow_once_option(params)
+}
+
+fn safe_auto_open(target: &str, cwd: &str) -> bool {
+    if let Ok(url) = tauri::Url::parse(target) {
+        if matches!(url.scheme(), "http" | "https") {
+            let host = url.host_str().unwrap_or_default().trim_matches(['[', ']']);
+            return url.username().is_empty() && url.password().is_none()
+                && (host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback()));
+        }
+    }
+    open_target(target, cwd, &[], None).is_ok()
 }
 
 /// Whether a permission request's tool call is Flowcode's `open_in_browser`.
@@ -436,11 +478,13 @@ pub(crate) fn auto_allow(cfg: &ToolsConfig, params: &Value) -> Option<String> {
 /// `command`). Unsure means the user is asked.
 fn is_open_call(tool_call: &Value) -> bool {
     if let Some(tool) = tool_call.pointer("/_meta/claudeCode/toolName").and_then(Value::as_str) {
-        return tool == CLAUDE_OPEN_TOOL;
+        return tool == CLAUDE_OPEN_TOOL
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/name").and_then(Value::as_str) == Some(SERVER_NAME)
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/source").and_then(Value::as_str) == Some("dynamic");
     }
     let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
     let only_target = tool_call.get("rawInput").and_then(Value::as_object).is_some_and(|input| input.len() == 1 && input.contains_key("target"));
-    title.contains(OPEN) && title.contains(SERVER_NAME) && only_target
+    matches!(title.as_str(), "flowcode/open_in_browser" | "tool: flowcode/open_in_browser") && only_target
 }
 
 fn allow_once_option(params: &Value) -> Option<String> {
@@ -452,6 +496,10 @@ fn allow_once_option(params: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn auto_allow(cfg: &ToolsConfig, params: &Value) -> Option<String> {
+        super::auto_allow(cfg, "/repo", params)
+    }
 
     fn open_target(target: &str, cwd: &str) -> Result<String, String> {
         super::open_target(target, cwd, &["/home/alice".into(), "C:/Users/Alice".into()], None)
@@ -480,13 +528,22 @@ mod tests {
     }
 
     fn claude(tool: &str) -> Value {
-        request(json!({ "_meta": { "claudeCode": { "toolName": tool } } }))
+        request(json!({ "rawInput": { "target": "http://localhost:3000" }, "_meta": { "claudeCode": { "toolName": tool, "mcpServer": { "name": "flowcode", "source": "dynamic" } } } }))
     }
 
     fn temp_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("flowcode-mcp-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn oversized_requests_are_removed_without_being_dispatched() {
+        let dir = temp_dir();
+        std::fs::write(dir.join("req-large.json"), vec![b'x'; MAX_REQUEST_BYTES as usize + 1]).unwrap();
+        assert!(take_requests(&dir).is_empty());
+        assert!(!dir.join("req-large.json").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -707,7 +764,8 @@ mod tests {
     fn other_adapters_are_matched_only_by_a_title_and_input_a_command_cannot_fake() {
         let call = |title: &str, input: Value| request(json!({ "title": title, "rawInput": input }));
         let cfg = on();
-        assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/open_in_browser", json!({ "target": "https://a.b" }))).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/open_in_browser", json!({ "target": "https://a.b" }))), None);
+        assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/open_in_browser", json!({ "target": "http://127.0.0.1:3000" }))).as_deref(), Some("once"));
         // A shell command that mentions both words is not the tool.
         assert_eq!(auto_allow(&cfg, &call("echo flowcode open_in_browser", json!({ "command": "echo flowcode open_in_browser" }))), None);
         assert_eq!(auto_allow(&cfg, &call("Tool: other/open_in_browser", json!({ "target": "x" }))), None);
@@ -717,5 +775,18 @@ mod tests {
         claude_other["toolCall"]["title"] = json!("flowcode open_in_browser");
         claude_other["toolCall"]["rawInput"] = json!({ "target": "x" });
         assert_eq!(auto_allow(&cfg, &claude_other), None);
+    }
+
+    #[test]
+    fn auto_open_rejects_external_hosts_spoofed_metadata_and_home_files() {
+        for target in ["https://attacker.invalid/?secret=abc", "http://localhost.attacker.invalid", "http://localhost@attacker.invalid", "http://192.168.1.1", "/home/alice/a.html"] {
+            assert!(!safe_auto_open(target, "/repo"), "{target}");
+        }
+        for target in ["http://localhost:3000", "http://127.0.0.1", "http://[::1]:80", "docs/a.html"] {
+            assert!(safe_auto_open(target, "/repo"), "{target}");
+        }
+        let mut params = claude(CLAUDE_OPEN_TOOL);
+        params["toolCall"]["_meta"]["claudeCode"]["mcpServer"]["source"] = json!("project");
+        assert_eq!(auto_allow(&on(), &params), None);
     }
 }

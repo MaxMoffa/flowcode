@@ -110,7 +110,24 @@ struct Sink {
 
 /// Events a remote subscriber may have queued before output starts being
 /// dropped (events are pty reads, at most 8 KiB each: ~4 MiB per phone).
-const REMOTE_QUEUE: usize = 512;
+const REMOTE_QUEUE: usize = 128;
+const OUTPUT_BATCH_BYTES: usize = 32 * 1024;
+const OUTPUT_BATCH_DELAY: Duration = Duration::from_millis(4);
+
+/// Bound both latency and memory while preserving the order of decoded chunks.
+fn batch_output(rx: std::sync::mpsc::Receiver<String>, mut emit: impl FnMut(String)) {
+    while let Ok(mut batch) = rx.recv() {
+        let deadline = Instant::now() + OUTPUT_BATCH_DELAY;
+        while batch.len() < OUTPUT_BATCH_BYTES {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break };
+            match rx.recv_timeout(remaining) {
+                Ok(chunk) => batch.push_str(&chunk),
+                Err(_) => break,
+            }
+        }
+        emit(batch);
+    }
+}
 
 /// One remote client's feed. The queue is bounded so a phone that stopped
 /// reading can't grow the PC's memory; when it is full the output is dropped
@@ -215,6 +232,13 @@ pub fn profile_of(state: &PtyState, pty_id: &str) -> Option<String> {
 }
 
 impl PtyState {
+    pub(crate) fn shutdown(&self) {
+        let sessions = std::mem::take(&mut *lock(&self.0));
+        for mut session in sessions.into_values() {
+            if let Some(pid) = session.pid { crate::chat::kill_tree(pid); }
+            let _ = session.killer.kill();
+        }
+    }
     /// Queues a write to a session's pty - what `pty_write` and remote
     /// clients' input both go through. Never blocks: the session's writer
     /// thread does the actual write (which can block while the program isn't
@@ -424,6 +448,7 @@ pub fn pty_spawn(
         for (k, v) in crate::profiles::env_for(&app, profile.as_deref()) {
             cmd.env(k, v);
         }
+        if let Some(path) = crate::provider_launcher::install(&app, profile.as_deref())? { cmd.env("PATH", path); }
     }
     // Tags everything started in this tab with the tab's session id, WSL
     // included (WSLENV carries it across into the distro) - the only way to
@@ -481,6 +506,7 @@ pub fn pty_spawn(
     }
 
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    if let Some(pid) = child.process_id() { crate::process_job::assign(pid); }
     drop(pair.slave);
 
     // The shell is already running: a failure past this point must not leave
@@ -550,12 +576,15 @@ pub fn pty_spawn(
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         let mut pending: Vec<u8> = Vec::new();
-        let emit = |data: String| {
-            let mut sink = lock(&sink);
+        let (output_tx, output_rx) = std::sync::mpsc::sync_channel(16);
+        let output_sink = Arc::clone(&sink);
+        let output = std::thread::spawn(move || batch_output(output_rx, |data| {
+            let mut sink = lock(&output_sink);
             sink.seq += 1;
             let seq = sink.seq;
             sink.push(PtyEvent::Output { data, seq });
-        };
+        }));
+        let emit = |data: String| { let _ = output_tx.send(data); };
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
@@ -583,6 +612,8 @@ pub fn pty_spawn(
         if !pending.is_empty() {
             emit(String::from_utf8_lossy(&pending).into_owned());
         }
+        drop(output_tx);
+        let _ = output.join();
         lock(&sink).push(PtyEvent::Exit);
         // The session is over either way (shell exited, or the tab killed it):
         // drop it from the map so its handles are released now rather than
@@ -758,6 +789,29 @@ fn process_stem(process: &sysinfo::Process) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batching_preserves_order_utf8_and_flushes_before_disconnect() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send("first ".to_string()).unwrap();
+        tx.send("日本語 ".to_string()).unwrap();
+        tx.send("last".to_string()).unwrap();
+        drop(tx);
+        let mut events = Vec::new();
+        batch_output(rx, |batch| events.push(batch));
+        assert_eq!(events, ["first 日本語 last"]);
+    }
+
+    #[test]
+    fn batching_caps_continuous_output() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        for _ in 0..10 { tx.send("x".repeat(8192)).unwrap(); }
+        drop(tx);
+        let mut events = Vec::new();
+        batch_output(rx, |batch| events.push(batch));
+        assert!(events.iter().all(|event| event.len() <= OUTPUT_BATCH_BYTES));
+        assert_eq!(events.concat().len(), 81920);
+    }
 
     #[test]
     fn input_queue_caps_the_sum_and_rejects_oversized_pastes() {

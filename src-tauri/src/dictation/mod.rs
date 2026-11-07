@@ -105,6 +105,17 @@ impl DictationState {
         self.session.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
 
+    fn take_thread(&self, id: std::thread::ThreadId) -> Option<Session> {
+        let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
+        if session.as_ref().is_some_and(|s| s.thread.thread().id() == id) { session.take() } else { None }
+    }
+
+    fn stop_thread(&self, id: std::thread::ThreadId) {
+        if let Some(session) = self.take_thread(id) {
+            let _ = session.signals.send(Signal::Stop { notify: false });
+        }
+    }
+
     /// A closed window ends its session, silently: nothing is left to tell.
     pub fn forget(&self, label: &str) {
         let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
@@ -219,13 +230,22 @@ pub async fn dictation_start(
         .name("dictation".into())
         .spawn(move || run(job, inbox, ready_tx))
         .map_err(|e| e.to_string())?;
-    *state.session.lock().unwrap_or_else(|e| e.into_inner()) = Some(Session { label, signals, thread });
+    let thread_id = thread.thread().id();
+    *state.session.lock().unwrap_or_else(|e| e.into_inner()) = Some(Session { label: label.clone(), signals, thread });
+    // Insert before checking the window map so neither this path nor Destroyed can miss the session.
+    if app.get_webview_window(&label).is_none() {
+        state.stop_thread(thread_id);
+        return Err("window_closed".into());
+    }
     let ready = ready_rx.await.map_err(|e| e.to_string()).and_then(|r| r);
     if ready.is_err() {
         // The thread is gone already: don't keep a dead session around.
-        if let Some(dead) = state.take() {
+        if let Some(dead) = state.take_thread(thread_id) {
             let _ = dead.thread.join();
         }
+    } else if app.get_webview_window(&label).is_none() {
+        state.stop_thread(thread_id);
+        return Err("window_closed".into());
     }
     ready
 }
@@ -495,4 +515,48 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
             job.emit("dictation://end", json!({ "reason": reason, "message": message }));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(label: &str) -> (Session, mpsc::Receiver<bool>) {
+        let (signals, inbox) = mpsc::channel();
+        let (stopped, observed) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            if let Ok(Signal::Stop { notify }) = inbox.recv() { let _ = stopped.send(notify); }
+        });
+        (Session { label: label.into(), signals, thread }, observed)
+    }
+
+    #[test]
+    fn a_start_that_lost_its_window_stops_only_its_own_worker() {
+        let state = DictationState::default();
+        let (session, stopped) = session("main");
+        let id = session.thread.thread().id();
+        *state.session.lock().unwrap() = Some(session);
+        state.stop_thread(id);
+        state.stop_thread(id);
+        assert!(!stopped.recv_timeout(Duration::from_secs(1)).unwrap());
+        assert!(state.take().is_none());
+    }
+
+    #[test]
+    fn late_start_cleanup_preserves_another_windows_replacement() {
+        let state = DictationState::default();
+        let (old, stopped) = session("main");
+        let old_id = old.thread.thread().id();
+        *state.session.lock().unwrap() = Some(old);
+        state.forget("main");
+        assert!(!stopped.recv_timeout(Duration::from_secs(1)).unwrap());
+        let (replacement, replacement_stopped) = session("other");
+        let replacement_id = replacement.thread.thread().id();
+        *state.session.lock().unwrap() = Some(replacement);
+        assert!(state.take_thread(old_id).is_none());
+        state.stop_thread(old_id);
+        assert!(matches!(replacement_stopped.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        state.take_thread(replacement_id).unwrap().finish(false);
+        assert!(!replacement_stopped.recv_timeout(Duration::from_secs(1)).unwrap());
+    }
 }

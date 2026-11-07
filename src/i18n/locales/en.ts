@@ -1314,7 +1314,7 @@ export const en: Record<MessageKey, string> = {
   "settings.agentTools.open.label": "Open in browser",
   "settings.agentTools.open.desc": "The agent can open a site or a file (page, PDF, image) in the Browser panel, as the Browser settings say.",
   "settings.agentTools.openAuto.label": "Without asking permission",
-  "settings.agentTools.openAuto.desc": "Opening a page needs no confirmation from you. It is only ever allowed for that one time, never for good.",
+  "settings.agentTools.openAuto.desc": "Allow local servers and files inside the chat folder without asking. External sites always require your confirmation.",
   "settings.agentTools.delegate.label": "Delegate to other agents",
   "settings.agentTools.delegate.desc": "The agent can hand a task to another agent: a real chat starts, receives only that text and returns its last message. Delegates' permissions and questions always come to you.",
   "settings.agentTools.agent.desc": "Can receive tasks from the other agents ({agent}).",

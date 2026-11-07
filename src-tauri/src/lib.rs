@@ -14,6 +14,9 @@ mod newtab_background;
 mod notify;
 mod plugins;
 mod profiles;
+mod process_job;
+mod provider_launcher;
+pub use provider_launcher::run_if_requested as run_provider_cli;
 mod provider_auth;
 mod provider_auth_keys;
 mod preview;
@@ -91,6 +94,7 @@ pub fn run() {
             }
             // Pictures of past chats; replayed history stores the ones it needs again.
             std::thread::spawn(chat_images::purge_old);
+            std::thread::spawn(chat::purge_attachments);
             let remote = remote::RemoteState::load(app.handle());
             remote.autostart();
             app.manage(remote);
@@ -291,6 +295,12 @@ pub fn run() {
             remote_client::remote_host_cached,
             remote_client::remote_host_log,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<chat::ChatState>().shutdown();
+                app.state::<PtyState>().shutdown();
+            }
+        });
 }

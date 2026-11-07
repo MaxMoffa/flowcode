@@ -199,8 +199,12 @@ fn resolve_file(root: &Path, request_path: &str) -> Option<PathBuf> {
     let decoded = crate::view_plugins::percent_decode(raw.trim_start_matches('/'))?;
     let decoded = decoded.trim_end_matches('/');
     let rel = if decoded.is_empty() { "index.html".to_string() } else { crate::view_plugins::sanitize_path(decoded)? };
+    if rel.split('/').any(|part| part.starts_with('.')) { return None; }
+    if !crate::fs::is_local_path(root, false) || !crate::fs::links_stay_local(root) { return None; }
     let root = root.canonicalize().ok()?;
-    let mut file = root.join(&rel).canonicalize().ok()?;
+    let file = root.join(&rel);
+    if !crate::fs::links_stay_local(&file) { return None; }
+    let mut file = file.canonicalize().ok()?;
     if file.is_dir() {
         file = file.join("index.html").canonicalize().ok()?;
     }

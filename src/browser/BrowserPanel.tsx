@@ -100,25 +100,31 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const page = pages.find((p) => p.id === activeId) ?? null;
 
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const [hostReady, setHostReady] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const loadSequence = useRef(0);
+  const [readyHost, setReadyHost] = useState<{ url: string; source: Window } | null>(null);
+  const [loading, setLoading] = useState<number | null>(null);
   const [blockedUrl, setBlockedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
-  const hostUrl = pluginFileUrl(convertFileSrc("host", "flowcode-preview"), "index.html");
+  const hostUrl = pluginFileUrl(convertFileSrc("host", "flowcode-preview"), page?.kind === "file" ? "artifact.html" : "index.html");
+  const hostUrlRef = useRef(hostUrl);
+  hostUrlRef.current = hostUrl;
+  const hostReady = readyHost?.url === hostUrl && readyHost.source === frameRef.current?.contentWindow;
 
   const post = (message: Record<string, unknown>) => frameRef.current?.contentWindow?.postMessage(message, "*");
 
   // The host only talks to its parent, and so do we only to it.
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (e.source !== frameRef.current?.contentWindow) return;
-      const type = (e.data as { type?: string } | null)?.type;
-      if (type === "ready") setHostReady(true);
-      else if (type === "loaded") setLoading(false);
+      const source = frameRef.current?.contentWindow;
+      if (!source || e.source !== source) return;
+      const message = e.data as { type?: string; sequence?: number } | null;
+      const type = message?.type;
+      if (type === "ready") setReadyHost({ url: hostUrlRef.current, source });
+      else if (type === "loaded" && message?.sequence === loadSequence.current) setLoading(null);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -129,37 +135,39 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   useEffect(() => {
     if (!hostReady) return;
     let stale = false;
+    const sequence = ++loadSequence.current;
+    const current = () => !stale && sequence === loadSequence.current;
     setBlockedUrl(null);
     if (!page) {
-      post({ type: "clear" });
-      setLoading(false);
+      post({ type: "clear", sequence });
+      setLoading(null);
       return;
     }
-    setLoading(true);
+    setLoading(sequence);
     if (page.kind === "file") {
       void invoke<string>("preview_register_root", { dir: parentPath(page.path) }).then(
         (token) => {
-          if (stale) return;
+          if (!current()) return;
           const src = `${convertFileSrc("f", "flowcode-preview")}/${token}/${encodeURIComponent(basename(page.path))}`;
-          post({ type: "load", url: src, sandbox: artifactScripts ? "allow-scripts" : "" });
+          post({ type: "load", sequence, url: src, sandbox: artifactScripts ? "allow-scripts" : "" });
         },
-        () => !stale && setLoading(false),
+        () => current() && setLoading(null),
       );
     } else if (isLocalUrl(page.url)) {
-      post({ type: "load", url: page.url, sandbox: WEB_SANDBOX });
+      post({ type: "load", sequence, url: page.url, sandbox: WEB_SANDBOX });
     } else {
       // An iframe doesn't report X-Frame-Options / CSP refusals, so ask first.
       void invoke<{ blocked: boolean }>("preview_frame_check", { url: page.url }).then(
         ({ blocked }) => {
-          if (stale) return;
+          if (!current()) return;
           if (blocked) {
-            post({ type: "clear" });
+            post({ type: "clear", sequence });
             setBlockedUrl(page.url);
-            setLoading(false);
-          } else post({ type: "load", url: page.url, sandbox: WEB_SANDBOX });
+            setLoading(null);
+          } else post({ type: "load", sequence, url: page.url, sandbox: WEB_SANDBOX });
         },
         // The check itself failing says nothing about the site: try it.
-        () => !stale && post({ type: "load", url: page.url, sandbox: WEB_SANDBOX }),
+        () => current() && post({ type: "load", sequence, url: page.url, sandbox: WEB_SANDBOX }),
       );
     }
     return () => {
@@ -170,7 +178,9 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
 
   useEffect(() => {
     if (!loading) return;
-    const timer = setTimeout(() => setLoading(false), LOAD_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      if (loading === loadSequence.current) setLoading(null);
+    }, LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [loading]);
 
@@ -180,16 +190,17 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     if (!hostReady || !filePath || !autoReloadArtifacts) return;
     let last: number | null | undefined;
     let busy = false;
+    let stale = false;
     const timer = setInterval(async () => {
       if (busy) return;
       busy = true;
       try {
         const mtime = await invoke<number | null>("preview_file_mtime", { path: filePath });
+        if (stale) return;
         // A file missing mid-write says nothing: wait for it to come back.
         if (mtime == null) return;
         if (last !== undefined && mtime !== last) {
-          setLoading(true);
-          post({ type: "reload" });
+          setReloadNonce((n) => n + 1);
         }
         last = mtime;
       } catch {
@@ -198,7 +209,10 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
         busy = false;
       }
     }, MTIME_POLL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      stale = true;
+      clearInterval(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostReady, filePath, autoReloadArtifacts]);
 
@@ -220,12 +234,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
 
   const reload = () => {
     if (!page) return;
-    if (blockedUrl) {
-      setReloadNonce((n) => n + 1);
-      return;
-    }
-    setLoading(true);
-    post({ type: "reload" });
+    // Reload uses the same sequence and timeout lifecycle as navigation.
+    setReloadNonce((n) => n + 1);
   };
 
   const openExternal = () => {
@@ -349,7 +359,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
 
       <div className={"browser-panel-viewport" + (dragging ? " is-dragging" : "") + (page ? " has-page" : "")}>
         {loading && <div className="browser-panel-loadbar" />}
-        <iframe ref={frameRef} className="browser-panel-frame" src={hostUrl} title={t("browser.title")} />
+        <iframe key={hostUrl} ref={frameRef} className="browser-panel-frame" src={hostUrl} title={t("browser.title")} />
         {!page && (
           <div className="browser-panel-state">
             <div className="browser-panel-state-icon">

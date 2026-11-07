@@ -124,7 +124,7 @@ fn is_local_name(host: &str) -> bool {
 }
 
 /// ureq's resolver: refuses a host that is, or resolves to, anything internal.
-struct PublicOnly;
+pub(crate) struct PublicOnly;
 
 impl ureq::Resolver for PublicOnly {
     fn resolve(&self, netloc: &str) -> io::Result<Vec<SocketAddr>> {

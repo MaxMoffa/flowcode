@@ -51,6 +51,8 @@ const EXECUTABLE_EXT = new Set(
   ).split(" "),
 );
 
+const SAFE_OPEN_EXT = new Set("txt md markdown json jsonc toml yaml yml ini cfg conf log csv tsv xml css scss sass less ts tsx jsx rs go c cc cpp h hpp cs fs java kt swift sql graphql proto vue svelte astro pdf png jpg jpeg gif webp bmp ico avif tif tiff mp3 wav flac ogg m4a mp4 webm mov mkv zip tar gz tgz 7z docx xlsx pptx odt ods odp".split(" "));
+
 const LEADING = /[([{*]/;
 const TRAILING = /[.,;:!?)\]}>]/;
 /** Characters that end an unquoted token. */
@@ -73,7 +75,8 @@ function extension(path: string): string {
 export function isExecutablePath(path: string): boolean {
   // Windows drops a trailing dot or space when opening: `run.exe.` is `run.exe`.
   if (/[. ]$/.test(path)) return true;
-  return EXECUTABLE_EXT.has(extension(path));
+  const ext = extension(path);
+  return EXECUTABLE_EXT.has(ext) || (ext !== "" && !SAFE_OPEN_EXT.has(ext));
 }
 
 /** A long path cut down for a menu header, keeping its end (the file name). */

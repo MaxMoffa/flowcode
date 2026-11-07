@@ -3,8 +3,8 @@
 //! `update_check` asks GitHub for the latest release and picks this
 //! platform's installer out of its assets (the names `release.yml` gives
 //! them). `update_install` downloads that installer (progress streamed over a
-//! `Channel`), checks it against the release's `SHA256SUMS` when there is
-//! one, and starts it in its silent `--update` mode (see the installer's
+//! `Channel`), verifies its checksum and version against signed `SHA256SUMS`,
+//! and starts it in its silent `--update` mode (see the installer's
 //! main.rs): it waits for this process to exit, installs over the current
 //! install folder and relaunches Flowcode - no wizard. Everything open is
 //! saved beforehand (see `session::session_flush_all`), so the new version
@@ -30,6 +30,7 @@ const RELEASES_URL: &str = "https://api.github.com/repos/MaxMoffa/flowcode/relea
 const USER_AGENT: &str = concat!("flowcode/", env!("CARGO_PKG_VERSION"));
 const CHECKSUMS_ASSET: &str = "SHA256SUMS";
 const SIGNATURE_ASSET: &str = "SHA256SUMS.sig";
+const VERSION_HEADER: &str = "# flowcode-version: ";
 /// Every asset (installer, checksums, signature) must come from this
 /// repository's release downloads, so a tampered API answer can't point the
 /// updater at some other host.
@@ -399,14 +400,29 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 /// Verifies the release signature over SHA256SUMS, then checks `sha256`
 /// against the `<hex>  <file name>` line for `asset_name`. The signature
 /// comes first: until it holds, nothing in SHA256SUMS is trusted.
-fn verify_checksum(checksums_url: &str, signature_url: &str, asset_name: &str, sha256: &str) -> Result<(), String> {
+fn verify_checksum(checksums_url: &str, signature_url: &str, asset_name: &str, sha256: &str, version: &str) -> Result<(), String> {
     let sums = fetch_bytes(checksums_url)
         .map_err(|e| if is_italian() { format!("Impossibile scaricare i checksum: {e}") } else { format!("Couldn't download the checksums: {e}") })?;
     let sig = fetch_bytes(signature_url).map_err(|_| bad_signature())?;
-    verify_signature(&RELEASE_PUBLIC_KEY, &sums, &String::from_utf8_lossy(&sig))?;
-    let sums = String::from_utf8_lossy(&sums);
+    verify_manifest(&RELEASE_PUBLIC_KEY, &sums, &String::from_utf8_lossy(&sig), asset_name, sha256, version, env!("CARGO_PKG_VERSION"))
+}
+
+/// The signed version prevents replaying an older installer under a newer tag.
+fn verify_manifest(key: &[u8; 32], sums: &[u8], signature: &str, asset_name: &str, sha256: &str, version: &str, current: &str) -> Result<(), String> {
+    verify_signature(key, sums, signature)?;
+    let sums = std::str::from_utf8(sums).map_err(|_| bad_signature())?;
+    let bad_version = || tr("La versione firmata della release manca o non corrisponde: aggiornamento annullato.", "The signed release version is missing or does not match: update cancelled.").to_string();
+    let signed = sums.lines().next().and_then(|line| line.strip_prefix(VERSION_HEADER)).ok_or_else(bad_version)?;
+    let signed_version = parse_version(signed).ok_or_else(bad_version)?;
+    let current_version = parse_version(current).ok_or_else(bad_version)?;
+    if signed != version || signed != format!("{}.{}.{}", signed_version.0, signed_version.1, signed_version.2)
+        || signed_version <= current_version || sums.lines().filter(|line| line.starts_with("# flowcode-version")).count() != 1
+    {
+        return Err(bad_version());
+    }
     let expected = sums
         .lines()
+        .filter(|line| !line.starts_with('#'))
         .filter_map(|line| {
             let mut parts = line.split_whitespace();
             let hash = parts.next()?;
@@ -533,7 +549,7 @@ impl Drop for WorkDirGuard {
 }
 
 async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel<UpdateProgress>) -> Result<(), String> {
-    let (asset_name, asset_url, checksums_url, signature_url, size) = {
+    let (asset_name, asset_url, checksums_url, signature_url, version, size) = {
         let pending = crate::util::lock(&state.0);
         let pending = pending.as_ref().ok_or(tr("Nessun aggiornamento disponibile: controlla di nuovo.", "No update available: check again."))?;
         (
@@ -541,6 +557,7 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel
             pending.asset_url.clone(),
             pending.checksums_url.clone(),
             pending.signature_url.clone(),
+            pending.info.version.clone(),
             pending.info.size,
         )
     };
@@ -562,7 +579,7 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel
         // user's rights, so skipping the check isn't a safe fallback.
         let url = checksums_url.ok_or(tr("La release non contiene SHA256SUMS: aggiornamento annullato.", "The release has no SHA256SUMS: update cancelled."))?;
         let sig_url = signature_url.ok_or_else(bad_signature)?;
-        verify_checksum(&url, &sig_url, &asset_name, &sha256)?;
+        verify_checksum(&url, &sig_url, &asset_name, &sha256, &version)?;
         let installer = prepare_installer(&downloaded, &work_dir)?;
         Ok((installer, guard))
     })
@@ -582,7 +599,7 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, on_progress: Channel
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_hex, is_trusted_url, parse_version, verify_signature};
+    use super::{decode_hex, is_trusted_url, parse_version, verify_manifest, verify_signature};
     use ed25519_dalek::{Signer, SigningKey};
 
     fn sign(sums: &[u8]) -> ([u8; 32], String) {
@@ -602,6 +619,31 @@ mod tests {
     fn rejects_tampered_sums() {
         let (key, sig) = sign(b"abc  Flowcode-Setup-1.0.0.exe\n");
         assert!(verify_signature(&key, b"abd  Flowcode-Setup-1.0.0.exe\n", &sig).is_err());
+    }
+
+    #[test]
+    fn signed_manifest_binds_the_checksum_to_a_newer_release_version() {
+        let sums = b"# flowcode-version: 1.2.3\nabc  Flowcode-Setup.exe\n";
+        let (key, sig) = sign(sums);
+        assert!(verify_manifest(&key, sums, &sig, "Flowcode-Setup.exe", "abc", "1.2.3", "1.2.2").is_ok());
+        assert!(verify_manifest(&key, sums, &sig, "Flowcode-Setup.exe", "abc", "1.2.4", "1.2.2").is_err());
+        assert!(verify_manifest(&key, sums, &sig, "Flowcode-Setup.exe", "abc", "1.2.3", "1.2.3").is_err());
+        assert!(verify_manifest(&key, sums, &sig, "Flowcode-Setup.exe", "abc", "1.2.3", "2.0.0").is_err());
+        assert!(verify_manifest(&key, sums, &sig, "Flowcode-Setup.exe", "abd", "1.2.3", "1.2.2").is_err());
+        assert!(verify_manifest(&key, b"# flowcode-version: 9.9.9\nabc  Flowcode-Setup.exe\n", &sig, "Flowcode-Setup.exe", "abc", "9.9.9", "1.2.2").is_err());
+    }
+
+    #[test]
+    fn signed_manifest_requires_one_canonical_version_header() {
+        for sums in [
+            "abc  Flowcode-Setup.exe\n",
+            "# flowcode-version: 1.2.3\n# flowcode-version: 1.2.3\nabc  Flowcode-Setup.exe\n",
+            "# flowcode-version: 1.2.3.4\nabc  Flowcode-Setup.exe\n",
+            "# flowcode-version: 01.2.3\nabc  Flowcode-Setup.exe\n",
+        ] {
+            let (key, sig) = sign(sums.as_bytes());
+            assert!(verify_manifest(&key, sums.as_bytes(), &sig, "Flowcode-Setup.exe", "abc", "1.2.3", "1.2.2").is_err());
+        }
     }
 
     #[test]

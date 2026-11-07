@@ -5,15 +5,17 @@
 //! the plugin and preview schemes, so an agent-view plugin iframe can't
 //! navigate itself to an outside site to exfiltrate data. Rather than widening
 //! the app CSP to `http: https:`, the panel frames a host page served here
-//! (preview scheme), and that page - whose own CSP allows `frame-src http:
-//! https:` - frames the real page. The host only obeys `postMessage`s whose
+//! (preview scheme), and a web host page whose CSP allows `frame-src http:
+//! https:` frames web pages. Artifacts use a separate host whose CSP permits
+//! only preview-file URLs, including when a script navigates its own iframe.
+//! The host only obeys `postMessage`s whose
 //! `event.source === window.parent`, so a sibling plugin frame can't use it as
 //! a proxy, and it ignores its query string, so a URL can't be smuggled in
 //! through navigation either.
 //!
 //! Files of a previewed folder are served too, from a root the frontend
-//! registered first. Those carry no CSP (an artifact may load CDN scripts);
-//! what isolates them is the sandbox of the iframe they are shown in.
+//! registered first. A response CSP confines artifact resources to that root;
+//! the iframe sandbox also keeps them away from the app's origin.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
@@ -35,6 +37,10 @@ const HOST_JS: &str = include_str!("preview_host/host.js");
 /// inline), and it may frame web pages and preview files and nothing else.
 const HOST_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; \
 frame-src http: https: flowcode-preview:; base-uri 'none'; form-action 'none'; object-src 'none'";
+/// The parent policy also blocks an artifact's own navigations, which its connect-src cannot cover.
+const ARTIFACT_HOST_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; \
+frame-src http://flowcode-preview.localhost/f/ flowcode-preview://localhost/f/; \
+base-uri 'none'; form-action 'none'; object-src 'none'";
 
 const FRAME_CHECK_USER_AGENT: &str = "Mozilla/5.0 (compatible; Flowcode browser panel)";
 const FRAME_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -57,7 +63,9 @@ fn random_token() -> Result<String, String> {
 /// gets the same token, so reopening a preview keeps its URLs stable.
 #[tauri::command]
 pub fn preview_register_root(state: State<PreviewRoots>, dir: String) -> Result<String, String> {
-    let root = PathBuf::from(&dir).canonicalize().map_err(|e| e.to_string())?;
+    let root = PathBuf::from(&dir);
+    if !crate::fs::is_local_path(&root, false) || !crate::fs::links_stay_local(&root) { return Err("network paths cannot be previewed".into()); }
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
     if !root.is_dir() {
         return Err(format!("{dir}: not a directory"));
     }
@@ -94,6 +102,15 @@ pub struct FrameCheck {
     pub blocked: bool,
 }
 
+fn local_frame_target(url: &str) -> bool {
+    let Ok(url) = tauri::Url::parse(url) else { return false };
+    if !matches!(url.scheme(), "http" | "https") { return false; }
+    let Some(host) = url.host_str() else { return false };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "localhost" || host.ends_with(".localhost") || host.trim_matches(['[', ']']).parse::<IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
+}
+
 /// Asks a site whether it lets itself be framed, so the panel can say so
 /// instead of showing a blank iframe. Only headers are read. A network error
 /// is not a verdict: the iframe is left to try.
@@ -102,10 +119,12 @@ pub async fn preview_frame_check(url: String) -> Result<FrameCheck, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("only http(s) URLs can be checked".to_string());
     }
+    if local_frame_target(&url) { return Ok(FrameCheck { blocked: false }); }
     tauri::async_runtime::spawn_blocking(move || {
         let agent = ureq::AgentBuilder::new()
             .timeout(FRAME_CHECK_TIMEOUT)
             .redirects(FRAME_CHECK_REDIRECTS)
+            .resolver(crate::link_preview::PublicOnly)
             .user_agent(FRAME_CHECK_USER_AGENT)
             .build();
         let response = match agent.get(&url).call() {
@@ -142,11 +161,11 @@ pub fn preview_file_mtime(path: String) -> Option<u64> {
     Some(modified.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64)
 }
 
-fn host_response(kind: &str, body: &'static str) -> Response<Vec<u8>> {
+fn host_response(kind: &str, body: &'static str, csp: &'static str) -> Response<Vec<u8>> {
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", kind)
-        .header("Content-Security-Policy", HOST_CSP)
+        .header("Content-Security-Policy", csp)
         .header("X-Content-Type-Options", "nosniff")
         .header("Cache-Control", "no-store")
         .header("Referrer-Policy", "no-referrer")
@@ -157,13 +176,22 @@ fn host_response(kind: &str, body: &'static str) -> Response<Vec<u8>> {
 /// A previewed file. CORS is open because the artifact runs in a sandboxed
 /// iframe with an opaque origin, which makes fetching its own sibling files
 /// (ES modules included) a cross-origin request.
-fn file_response(kind: &str, body: Vec<u8>) -> Response<Vec<u8>> {
+pub(crate) fn artifact_csp(sources: &str) -> String {
+    format!("default-src 'none'; script-src 'unsafe-inline' {sources}; style-src 'unsafe-inline' {sources}; \
+connect-src {sources}; img-src {sources} data: blob:; font-src {sources} data:; media-src {sources} blob:; \
+worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'")
+}
+
+fn file_response(kind: &str, body: Vec<u8>, token: &str) -> Response<Vec<u8>> {
+    let sources = format!("http://flowcode-preview.localhost/f/{token}/ flowcode-preview://localhost/f/{token}/");
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", kind)
         .header("X-Content-Type-Options", "nosniff")
         .header("Cache-Control", "no-store")
         .header("Access-Control-Allow-Origin", "*")
+        .header("Content-Security-Policy", artifact_csp(&sources))
+        .header("Referrer-Policy", "no-referrer")
         .body(body)
         .unwrap_or_default()
 }
@@ -206,8 +234,11 @@ fn resolve_preview_file(app: &AppHandle, decoded_path: &str) -> Option<(String, 
     let rest = decoded_path.strip_prefix("f/")?;
     let (token, rel) = rest.split_once('/')?;
     let rel = sanitize_path(rel)?;
+    if rel.split('/').any(|part| part.starts_with('.')) { return None; }
     let root = lock(&app.state::<PreviewRoots>().0).get(token)?.clone();
-    let file = root.join(&rel).canonicalize().ok()?;
+    let file = root.join(&rel);
+    if !crate::fs::links_stay_local(&file) { return None; }
+    let file = file.canonicalize().ok()?;
     (file.starts_with(&root) && file.is_file()).then_some((rel, file))
 }
 
@@ -223,14 +254,16 @@ pub fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         return status_response(StatusCode::NOT_FOUND);
     };
     match path.as_str() {
-        "host/index.html" => host_response("text/html; charset=utf-8", HOST_HTML),
-        "host/host.js" => host_response("text/javascript; charset=utf-8", HOST_JS),
+        "host/index.html" => host_response("text/html; charset=utf-8", HOST_HTML, HOST_CSP),
+        "host/artifact.html" => host_response("text/html; charset=utf-8", HOST_HTML, ARTIFACT_HOST_CSP),
+        "host/host.js" => host_response("text/javascript; charset=utf-8", HOST_JS, HOST_CSP),
         _ => match resolve_preview_file(app, &path) {
             Some((rel, file)) => match std::fs::read(file) {
                 Ok(body) => {
                     let kind = content_type(&rel);
                     let body = if kind.starts_with("text/html") { inject_scrollbar_style(body) } else { body };
-                    file_response(kind, body)
+                    let token = path.strip_prefix("f/").and_then(|p| p.split('/').next()).unwrap_or_default();
+                    file_response(kind, body, token)
                 }
                 Err(_) => status_response(StatusCode::NOT_FOUND),
             },
@@ -262,6 +295,26 @@ mod tests {
     #[test]
     fn unrestricted_responses_are_not_blocked() {
         assert!(!frame_blocked(None, &[]));
+    }
+
+    #[test]
+    fn artifact_host_refuses_outside_navigation_but_web_host_can_frame_web_pages() {
+        let artifact = host_response("text/html", HOST_HTML, ARTIFACT_HOST_CSP);
+        let csp = artifact.headers()["Content-Security-Policy"].to_str().unwrap();
+        let frames = csp.split(';').find(|part| part.trim_start().starts_with("frame-src ")).unwrap();
+        assert_eq!(frames.trim(), "frame-src http://flowcode-preview.localhost/f/ flowcode-preview://localhost/f/");
+        assert!(HOST_CSP.contains("frame-src http: https:"));
+        assert!(!csp.contains("allow-same-origin"));
+    }
+
+    #[test]
+    fn only_loopback_and_localhost_targets_skip_the_network_frame_check() {
+        for url in ["http://localhost:3000", "https://dev.localhost/", "http://localhost./", "http://127.0.0.2/", "http://[::1]/", "http://0.0.0.0/"] {
+            assert!(local_frame_target(url), "{url}");
+        }
+        for url in ["https://example.com/", "http://169.254.169.254/", "http://192.168.1.1/", "http://localhost.attacker.test/", "http://localhost@attacker.test/", "file://localhost/a"] {
+            assert!(!local_frame_target(url), "{url}");
+        }
     }
 
     #[test]

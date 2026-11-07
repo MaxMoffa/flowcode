@@ -192,16 +192,22 @@ const DENIED_OPEN_EXT: &str = concat!(
     "library-ms searchconnector-ms settingcontent-ms iso img vhd vhdx desktop appimage run bin deb rpm pkg dmg apk tool workflow",
 );
 
+const SAFE_OPEN_EXT: &str = "txt md markdown json jsonc toml yaml yml ini cfg conf log csv tsv xml css scss sass less ts tsx jsx rs go c cc cpp h hpp cs fs java kt swift sql graphql proto vue svelte astro pdf png jpg jpeg gif webp bmp ico avif tif tiff mp3 wav flac ogg m4a mp4 webm mov mkv zip tar gz tgz 7z docx xlsx pptx odt ods odp";
+
 /// Whether opening `path` with the OS default handler would run code. Judged
 /// by extension (case-insensitive) everywhere, plus the exec bit on Unix. A
 /// name ending in `.`/space (Windows trims it: `run.exe.` opens `run.exe`) or
 /// naming an alternate data stream (`a.txt:x.exe`) counts as executable.
 fn is_executable_file(p: &std::path::Path) -> bool {
+    if p.is_dir() { return false; }
     let name = p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
     if name.ends_with('.') || name.ends_with(' ') || name.contains(':') {
         return true;
     }
     if p.extension().is_some_and(|e| DENIED_OPEN_EXT.split(' ').any(|d| e.eq_ignore_ascii_case(d))) {
+        return true;
+    }
+    if p.extension().is_some_and(|e| !SAFE_OPEN_EXT.split(' ').any(|safe| e.eq_ignore_ascii_case(safe))) {
         return true;
     }
     #[cfg(unix)]
@@ -367,7 +373,7 @@ mod tests {
     #[test]
     fn executables_are_refused_by_extension_and_trimmed_name() {
         for bad in ["a.exe", "RUN.BAT", "x.chm", "a.xll", "p.appx", "i.ISO", "d.vhdx", "s.settingcontent-ms", "w.website",
-            "a.exe.", "a.exe ", "a.txt.", "a.txt:x.exe", "s.ps1"]
+            "a.exe.", "a.exe ", "a.txt.", "a.txt:x.exe", "s.ps1", "a.rdp", "a.theme", "a.docm", "a.html", "a.svg", "a.unknown"]
         {
             assert!(is_executable_file(Path::new(bad)), "{bad:?}");
         }
@@ -427,5 +433,13 @@ mod tests {
         front.sort_unstable();
         back.sort_unstable();
         assert_eq!(front, back);
+    }
+
+    #[test]
+    fn safe_extensions_match_the_frontend_allowlist() {
+        let ts = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/filePaths.ts")).unwrap();
+        let block = &ts[ts.find("const SAFE_OPEN_EXT").unwrap()..];
+        let front: Vec<&str> = block.split('"').nth(1).unwrap().split_whitespace().collect();
+        assert_eq!(front, SAFE_OPEN_EXT.split_whitespace().collect::<Vec<_>>());
     }
 }

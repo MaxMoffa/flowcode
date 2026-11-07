@@ -40,6 +40,7 @@ export const FileLinkWslContext = createContext<string | null>(null);
 
 /** How long an answer is trusted: a file can be created or deleted meanwhile. */
 const CHECK_TTL_MS = 5000;
+const PATH_SETTLE_MS = 275;
 const CACHE_MAX = 500;
 const cache = new Map<string, { at: number; value: Promise<PathTarget | null> }>();
 
@@ -154,10 +155,11 @@ export function useOpenPath(): (event: { clientX: number; clientY: number }, tar
           actions.openInPreview(target.path);
           return;
         }
-        if (artifacts === "system") {
+        if (artifacts === "system" && !isExecutablePath(target.path)) {
           invoke("open_with_default_app", { path: target.path }).catch(() => {});
           return;
         }
+        if (artifacts === "system") { actions.openInPreview(target.path); return; }
       }
       show(event.clientX, event.clientY, pathMenuItems(target, actions, line));
     },
@@ -173,18 +175,26 @@ export function ChatPathLink({ parsed, children }: { parsed: ParsedPath; childre
   const open = useOpenPath();
   // A WSL agent writes Linux paths (`/mnt/c/...`): map them to the Windows ones the disk check and the opener need.
   const path = distro && parsed.path.startsWith("/") ? toWindowsPath(distro, parsed.path) : parsed.path;
-  const [target, setTarget] = useState<PathTarget | null>(null);
+  const key = `${cwd ?? ""}\0${path}`;
+  const [resolved, setResolved] = useState<{ key: string; target: PathTarget | null } | null>(null);
+  const target = cwd !== null && resolved?.key === key ? resolved.target : null;
   useEffect(() => {
-    setTarget(null);
     if (cwd === null) return;
     let live = true;
-    void checkPath(path, cwd).then((found) => {
-      if (live) setTarget(found);
-    });
+    const resolve = () => {
+      void checkPath(path, cwd).then((found) => {
+        if (live) setResolved({ key, target: found });
+      });
+    };
+    const hit = cache.get(key);
+    // Partial paths change with each streamed chunk; cached paths stay immediate.
+    const timer = hit && Date.now() - hit.at < CHECK_TTL_MS ? null : window.setTimeout(resolve, PATH_SETTLE_MS);
+    if (timer === null) resolve();
     return () => {
       live = false;
+      if (timer !== null) window.clearTimeout(timer);
     };
-  }, [path, cwd]);
+  }, [path, cwd, key]);
   if (!target) return <>{children}</>;
   // A span, not a <button>: a long path must wrap with the text around it.
   return (
