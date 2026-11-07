@@ -324,6 +324,18 @@ pub fn cancel_owner(owner: &str) {
     }
 }
 
+/// Exit also covers phone-owned login sessions and exits without window destruction.
+pub(crate) fn shutdown() {
+    let _reservation = lock(&RESERVATIONS);
+    cancel_key_ops(|_| true);
+    let sessions = std::mem::take(&mut *lock(&SESSIONS));
+    for session in sessions.into_values() {
+        let _operation = lock(&session.operation);
+        lock(&session.killer).kill();
+        lock(&session.settings).take();
+    }
+}
+
 fn send_rpc(session: &AuthSession, id: u64, method: &str, params: Value) -> Result<(), String> {
     let mut writer = lock(&session.writer);
     serde_json::to_writer(&mut *writer, &json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})).map_err(|_| "auth_failed".to_string())?;

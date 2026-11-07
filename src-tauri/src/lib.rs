@@ -299,6 +299,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                provider_auth::shutdown();
                 app.state::<chat::ChatState>().shutdown();
                 app.state::<PtyState>().shutdown();
             }
