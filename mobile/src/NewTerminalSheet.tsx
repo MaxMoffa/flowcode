@@ -6,7 +6,7 @@ import { launchPath } from "./explorerPaths";
 import { useBackHandler, useEscape } from "./back";
 import { shortCwd } from "./common";
 import { t } from "./i18n";
-import { AgentLogo, ArrowUpRightIcon, CheckIcon, ChevronIcon, FolderIcon, TerminalIcon } from "./icons";
+import { AgentLogo, CheckIcon, ChevronIcon, FolderIcon, TerminalIcon } from "./icons";
 import { send, useRemoteSelector, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
 import { safeStorage } from "./store";
 import { useUiZoom } from "./uiScale";
@@ -229,11 +229,9 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate, initialCwd 
             </span>
             <div className="nts-recents">
               {recents.map((r) => (
-                <button key={`${r.cwd}|${r.cli}|${r.profile}`} type="button" className="nts-chip" onClick={() => create(r)}>
-                  {agentIcon(r.cli)}
-                  <span className="nts-chip-text">{r.cwd ? `${agentName(r.cli)} · ${shortCwd(r.cwd)}` : `${agentName(r.cli)} · ${t("newTermStartFolder")}`}</span>
-                  {r.profile !== null && <Dot color={profileColor(r.profile)} />}
-                  <ArrowUpRightIcon />
+                <button key={`${r.cwd}|${r.cli}|${r.profile}`} type="button" className="nts-chip" aria-label={`${agentName(r.cli)} · ${r.cwd ? shortCwd(r.cwd) : t("newTermStartFolder")}`} onClick={() => create(r)}>
+                  <span className="nts-chip-head">{agentIcon(r.cli)}<span className="nts-chip-text">{agentName(r.cli)}</span>{r.profile !== null && <Dot color={profileColor(r.profile)} />}</span>
+                  <span className="nts-chip-cwd">{r.cwd ? shortCwd(r.cwd) : t("newTermStartFolder")}</span>
                 </button>
               ))}
             </div>

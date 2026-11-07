@@ -130,6 +130,8 @@ export interface LsEntry {
   name: string;
   dir: boolean;
   size?: number;
+  /** Hidden on the desktop (the Windows attribute); dot-files are recognised by name. */
+  hidden?: boolean;
 }
 
 /** Standalone filesystem operations on the paired desktop (`fileExplorer`). */

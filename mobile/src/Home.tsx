@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import "./home.css";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { FolderPicker } from "./FolderPicker";
@@ -12,7 +13,7 @@ import { groupSessions, lastInWindow, sessionsOf, useStateSince, type Session } 
 import { leftText } from "./homeUsage";
 import { UsageSection } from "./HomeUsageCards";
 import { t } from "./i18n";
-import { AgentLogo, ArrowUpRightIcon, ChatIcon, CheckIcon, CloseIcon, DotsIcon, FolderIcon, PencilIcon, PlusIcon, SendIcon, TerminalIcon } from "./icons";
+import { AgentLogo, ArrowUpRightIcon, ChatIcon, CheckIcon, ChevronDownIcon, CloseIcon, DotsIcon, FolderIcon, PencilIcon, PlusIcon, SendIcon, TerminalIcon } from "./icons";
 import { AGENTS, loadRecents, recentsKey, NewTerminalSheet } from "./NewTerminalSheet";
 import type { Pending } from "./pending";
 import { send, useRemoteSelector, useSupports, type Tab } from "./remote";
@@ -45,25 +46,44 @@ function SessionTile({ s }: { s: Session }) {
 }
 
 /** A small picker sheet: one radio list, the choice closes it. */
-function PickerSheet<V extends string | null>({ title, options, value, onPick, onClose }: { title: string; options: { value: V; label: string; icon: ReactNode; mono?: boolean }[]; value: V; onPick: (v: V) => void; onClose: () => void }) {
+/** The launcher's agent menu: anchored to its pill (below, or above when the keyboard leaves no room), portalled so the blurred card cannot clip it. */
+function AgentMenu({ anchor, options, value, onPick, onClose }: { anchor: HTMLElement | null; options: { value: string; label: string; icon: ReactNode }[]; value: string; onPick: (v: string) => void; onClose: () => void }) {
   useBackHandler(true, onClose);
   useEscape(true, onClose);
-  return (
-    <AdaptiveSheet open family="nts" variant="dialog" onClose={onClose} label={title}>
-      <div className="nts-grab" aria-hidden="true" />
-      <h2>{title}</h2>
-      <div className="nts-body">
-        <div className="chat-menu-group" role="radiogroup" aria-label={title}>
-          {options.map((o) => (
-            <button key={o.value ?? "\0"} type="button" role="radio" aria-checked={o.value === value} className={o.value === value ? "on" : ""} onClick={() => onPick(o.value)}>
-              {o.icon}
-              <span className={o.mono ? "mono" : ""}>{o.label}</span>
-              {o.value === value && <CheckIcon />}
-            </button>
-          ))}
-        </div>
+  const menu = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<CSSProperties>({ visibility: "hidden" });
+  useLayoutEffect(() => {
+    const place = () => {
+      if (!anchor || !menu.current) return;
+      const r = anchor.getBoundingClientRect();
+      const h = menu.current.offsetHeight;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - menu.current.offsetWidth - 8));
+      setPos(r.bottom + 6 + h <= vh - 8 || r.top - 6 - h < 8 ? { left, top: r.bottom + 6 } : { left, top: r.top - 6 - h, transformOrigin: "bottom left" });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+    };
+  }, [anchor]);
+  return createPortal(
+    <>
+      <div className="hm-menu-scrim" onClick={onClose} />
+      <div ref={menu} className="hm-menu" role="radiogroup" aria-label={t("newTermAgent")} style={pos}>
+        <small>{t("newTermAgent")}</small>
+        {options.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className={o.value === value ? "on" : ""} onClick={() => onPick(o.value)}>
+            {o.icon}
+            <span>{o.label}</span>
+            {o.value === value && <CheckIcon />}
+          </button>
+        ))}
       </div>
-    </AdaptiveSheet>
+    </>,
+    document.body,
   );
 }
 
@@ -81,6 +101,7 @@ function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | un
   if (folder.key !== key) setFolder({ key, cwd: safeStorage.get(key) || null });
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<"agent" | "folder" | null>(null);
+  const agentPill = useRef<HTMLButtonElement>(null);
 
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
   const cwd = folder.cwd;
@@ -115,9 +136,10 @@ function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | un
     <section className="hm-launch">
       <textarea value={draft} placeholder={t("homePlaceholder")} aria-label={t("homePlaceholder")} onChange={(e) => setDraft(e.target.value)} />
       <div className="hm-bar">
-        <button type="button" className="hm-pill" aria-label={t("newTermAgent")} onClick={() => setPicker("agent")}>
+        <button ref={agentPill} type="button" className={"hm-pill" + (picker === "agent" ? " on" : "")} aria-label={t("newTermAgent")} aria-haspopup="true" aria-expanded={picker === "agent"} onClick={() => setPicker("agent")}>
           {agent && <AgentLogo cli={agent.id} size={16} />}
           <span>{agent?.name}</span>
+          <i className="hm-pill-chev" aria-hidden="true"><ChevronDownIcon /></i>
         </button>
         <button type="button" className="hm-pill mono" aria-label={t("newTermFolder")} onClick={() => setPicker("folder")}>
           <FolderIcon />
@@ -128,8 +150,8 @@ function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | un
         </button>
       </div>
       {picker === "agent" && (
-        <PickerSheet
-          title={t("newTermAgent")}
+        <AgentMenu
+          anchor={agentPill.current}
           value={agent?.id ?? ""}
           options={agents.map((a) => ({ value: a.id as string, label: a.name, icon: <AgentLogo cli={a.id} size={18} /> }))}
           onClose={() => setPicker(null)}

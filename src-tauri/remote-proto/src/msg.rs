@@ -487,6 +487,9 @@ pub struct LsEntry {
     pub dir: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+    /// Windows' hidden attribute; dot-files are recognised by name on the phone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 #[cfg(test)]

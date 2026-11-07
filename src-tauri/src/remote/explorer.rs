@@ -47,6 +47,15 @@ fn mutable(path: &str, config: Option<&Path>) -> Result<PathBuf, String> {
     Ok(full)
 }
 
+/// Windows' hidden attribute, read without following links.
+#[cfg(windows)]
+fn hidden(entry: &std::fs::DirEntry) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    entry.metadata().is_ok_and(|m| m.file_attributes() & 0x2 != 0)
+}
+#[cfg(not(windows))]
+fn hidden(_: &std::fs::DirEntry) -> bool { false }
+
 pub(super) fn roots() -> FsResponse {
     let mut roots = Vec::new();
     if let Some(home) = crate::fs::user_home() {
@@ -112,7 +121,7 @@ pub(super) fn run(request: FsRequest, config: Option<&Path>) -> Result<FsRespons
                 if entries.len() == MAX_ENTRIES { truncated = true; break; }
                 // Do not follow arbitrary UNC symlinks while listing a directory.
                 let meta = if crate::fs::links_stay_local(&entry.path()) { std::fs::metadata(entry.path()).ok() } else { None };
-                entries.push(LsEntry { name: entry.file_name().to_string_lossy().into_owned(), dir: meta.as_ref().is_some_and(|m| m.is_dir()), size: meta.filter(|m| m.is_file()).map(|m| m.len()) });
+                entries.push(LsEntry { name: entry.file_name().to_string_lossy().into_owned(), dir: meta.as_ref().is_some_and(|m| m.is_dir()), size: meta.filter(|m| m.is_file()).map(|m| m.len()), hidden: hidden(&entry) });
             }
             entries.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
             // WSL share roots can report a server-only parent; it is not a directory.

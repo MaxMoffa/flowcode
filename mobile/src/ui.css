@@ -1510,9 +1510,19 @@ button.set-row.danger {
 
 .nts-recents {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 16px;
+  margin: 0 -16px;
+  padding: 0 16px 2px;
   scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 28px), transparent);
+}
+
+.nts-recents::-webkit-scrollbar {
+  display: none;
 }
 
 .nts-chip,
@@ -1539,11 +1549,15 @@ button.set-row.danger {
 /* Action pills: one tap opens the terminal, unlike the select rows below. */
 .nts-chip {
   flex: none;
-  gap: 8px;
-  max-width: 100%;
-  min-height: 40px;
-  padding: 0 10px 0 12px;
-  border-radius: 999px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  max-width: 220px;
+  min-height: 56px;
+  padding: 8px 12px;
+  scroll-snap-align: start;
+  border-radius: 14px;
   border-color: var(--accent-border);
   background: var(--accent-bg);
   white-space: nowrap;
@@ -1560,8 +1574,19 @@ button.set-row.danger {
   text-overflow: ellipsis;
 }
 
-.nts-chip > svg:last-child {
-  color: var(--accent);
+.nts-chip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.nts-chip-cwd {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font: 11.5px var(--mono);
 }
 
 .nts-or {

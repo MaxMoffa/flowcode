@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode mobile — ritocchi 2026-11-07</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --danger: #e2645c;
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    .ic { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; width: 16px; height: 16px; flex: none; }
+    .mono { font-family: var(--mono); }
+    .page { max-width: 1100px; margin: auto; padding: 28px 24px 60px; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 22px; color: var(--muted); max-width: 760px; }
+    nav.toc { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 28px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; position: sticky; top: 8px; z-index: 5; }
+    nav.toc a { flex: 1 1 140px; padding: 8px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 13px; }
+    nav.toc a:hover { background: var(--surface-2); color: var(--fg); }
+    nav.toc a span { font: 12px var(--mono); opacity: .6; margin-right: 6px; }
+    section.item { display: grid; grid-template-columns: minmax(0, 1fr) 340px 340px; gap: 24px; align-items: start; padding: 28px 0; border-top: 1px solid var(--border); }
+    .note h2 { margin: 0 0 6px; font-size: 19px; font-weight: 600; }
+    .note h2 span { font: 13px var(--mono); color: var(--muted); margin-right: 8px; }
+    .note p { margin: 0 0 10px; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 4px; }
+    .note b { color: var(--fg); font-weight: 500; }
+    code { font: 12.5px var(--mono); color: var(--fg); }
+    .col h4 { margin: 0 0 8px; font-size: 11px; letter-spacing: .12em; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+    .col h4.after { color: var(--accent); }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 340px; height: 620px; border-radius: 34px; background: var(--bg); box-shadow: 0 0 0 8px #0b0806, 0 0 0 9px #2a231d, 0 24px 60px rgba(0,0,0,.5); overflow: hidden; }
+    .status { height: 28px; display: flex; justify-content: space-between; padding: 8px 22px 0; font-size: 11px; color: var(--muted); }
+    .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+    .hint { position: absolute; left: 12px; right: 12px; bottom: 10px; padding: 6px 10px; border-radius: 8px; background: rgba(226,100,92,.14); color: #f0a49f; font-size: 11.5px; text-align: center; }
+    .hint.ok { background: var(--accent-bg); color: var(--accent); }
+
+    /* home */
+    .hm-title { padding: 10px 18px 6px; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+    .launch { position: relative; margin: 6px 14px; padding: 12px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); }
+    .launch .ta { height: 54px; color: var(--muted); font-size: 14px; }
+    .bar { display: flex; gap: 6px; align-items: center; }
+    .pill { display: inline-flex; gap: 6px; align-items: center; height: 30px; padding: 0 10px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12.5px; white-space: nowrap; }
+    .pill.on { border-color: var(--accent-border); background: var(--accent-bg); }
+    .pill .chev { width: 12px; height: 12px; opacity: .6; }
+    .go { margin-left: auto; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; }
+    .logo { width: 16px; height: 16px; border-radius: 5px; display: grid; place-items: center; font: 700 9px var(--font); color: #120e0b; flex: none; }
+    .logo.c { background: #d97757; } .logo.x { background: #e7d8c5; } .logo.g { background: #6f9bcf; } .logo.o { background: #9db984; }
+    .cards { margin: 10px 14px; display: grid; gap: 8px; }
+    .card { height: 58px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+    /* bug: foglio dentro il box */
+    .inbox { position: absolute; left: 0; right: 0; top: 18px; height: 70px; overflow: hidden; border-radius: 18px; }
+    .inbox .sheetbit { margin: 30px 10px 0; padding: 8px 12px; background: var(--surface-2); border-radius: 14px 14px 0 0; font-size: 12px; color: var(--muted); }
+    .inbox .sheetbit i { display: block; width: 30px; height: 3px; background: var(--border-strong); border-radius: 3px; margin: 0 auto 6px; }
+    /* menu contestuale */
+    .ctx { position: absolute; left: 14px; top: 132px; width: 210px; padding: 6px; border-radius: 14px; background: var(--surface-3); border: 1px solid var(--border-strong); box-shadow: 0 18px 40px rgba(0,0,0,.6); z-index: 3; transform-origin: top left; animation: pop .16s ease-out; }
+    @keyframes pop { from { opacity: 0; transform: scale(.94) translateY(-4px); } }
+    .ctx .lbl { padding: 4px 10px 6px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+    .ctx button { display: flex; width: 100%; gap: 10px; align-items: center; height: 40px; padding: 0 10px; border-radius: 9px; font-size: 14px; }
+    .ctx button.on { background: var(--accent-bg); }
+    .ctx button .ic.check { margin-left: auto; color: var(--accent); }
+    .ctx hr { border: 0; height: 1px; background: var(--border); margin: 4px 6px; }
+    .dim { position: absolute; inset: 0; background: rgba(0,0,0,.28); z-index: 2; }
+
+    /* drawer cartella */
+    .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 22px 22px 0 0; z-index: 3; box-shadow: 0 -12px 40px rgba(0,0,0,.5); }
+    .sheet.dialog { left: 14px; right: 14px; bottom: auto; top: 60px; border-radius: 18px; }
+    .grab { width: 38px; height: 4px; border-radius: 4px; background: var(--border-strong); margin: 9px auto 2px; }
+    .fx-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+    .fx-header.bordered { border-top: 1px solid var(--border-strong); margin-top: 6px; }
+    .fx-header h3 { margin: 0; flex: 1; font-size: 16px; font-weight: 600; text-align: center; }
+    .icb { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--muted); }
+    .fp-body { padding: 4px 14px 10px; }
+    .fp-body h5 { margin: 10px 2px 6px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    .fp-list { border-radius: 12px; background: var(--surface-2); overflow: hidden; }
+    .fp-row { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--border); font-size: 13.5px; }
+    .fp-row:first-child { border-top: 0; }
+    .fp-row small { display: block; color: var(--muted); font: 11px var(--mono); }
+    .fp-row .ic:last-child { margin-left: auto; opacity: .5; }
+    .fp-row .ic.f { color: var(--accent); }
+    .fp-row.dot { opacity: .5; }
+    .fp-foot { padding: 10px 14px 16px; border-top: 1px solid var(--border); display: grid; gap: 8px; }
+    .btn { height: 42px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-weight: 600; display: grid; place-items: center; }
+    .mark { outline: 2px dashed var(--danger); outline-offset: -1px; }
+
+    /* file */
+    .fx-top { display: flex; align-items: center; gap: 6px; padding: 6px 10px; }
+    .fx-top h3 { margin: 0; flex: 1; font-size: 17px; font-weight: 600; }
+    .crumbs { display: flex; gap: 4px; padding: 0 14px 8px; font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; }
+    .crumbs span { padding: 3px 8px; border-radius: 99px; background: var(--surface-2); }
+    .crumbs span.cur { color: var(--fg); background: var(--accent-bg); }
+    .menu3 { position: absolute; right: 12px; top: 74px; width: 220px; padding: 6px; border-radius: 14px; background: var(--surface-3); border: 1px solid var(--border-strong); box-shadow: 0 18px 40px rgba(0,0,0,.6); z-index: 3; }
+    .menu3 button { display: flex; gap: 10px; align-items: center; width: 100%; height: 40px; padding: 0 10px; border-radius: 9px; font-size: 13.5px; }
+    .switch { margin-left: auto; width: 32px; height: 18px; border-radius: 99px; background: var(--surface); border: 1px solid var(--border-strong); position: relative; }
+    .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: .15s; }
+    .switch.on { background: var(--accent); border-color: var(--accent); }
+    .switch.on::after { left: 16px; background: var(--on-accent); }
+    .cnt { margin-left: 6px; font-size: 11px; color: var(--muted); }
+
+    /* nuovo terminale */
+    .nts { position: absolute; left: 0; right: 0; bottom: 0; top: 70px; background: var(--surface); border-radius: 22px 22px 0 0; z-index: 3; }
+    .nts h3 { margin: 4px 18px 10px; font-size: 17px; font-weight: 600; }
+    .nts .lab { padding: 0 18px 6px; font-size: 12px; color: var(--muted); }
+    .nts .lab small { display: block; font-size: 11px; opacity: .8; }
+    .chips-v { display: grid; gap: 6px; padding: 0 18px; }
+    .chips-h { display: flex; gap: 8px; padding: 0 18px 4px; overflow-x: auto; scroll-snap-type: x proximity; scroll-padding-inline: 18px; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 28px), transparent); }
+    .chips-h::-webkit-scrollbar { display: none; }
+    .chip { display: flex; gap: 8px; align-items: center; height: 40px; padding: 0 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; white-space: nowrap; }
+    .chips-h .chip { flex: none; scroll-snap-align: start; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; height: 56px; min-width: 128px; padding: 0 12px; }
+    .chips-h .chip .t { display: flex; gap: 6px; align-items: center; font-weight: 500; }
+    .chips-h .chip small { font: 11px var(--mono); color: var(--muted); }
+    .chip .ic:last-child { margin-left: auto; opacity: .5; }
+    .or { margin: 14px 18px; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11.5px; }
+    .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+    .field { margin: 0 18px 10px; }
+    .field .l { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .sel { height: 42px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 13px; }
+
+    /* chat */
+    .chatwrap { position: absolute; inset: 28px 0 0; overflow: hidden; }
+    .thread { position: absolute; inset: 0; overflow: hidden; padding: 0 16px; }
+    .thread .inner { padding-top: 70px; display: grid; gap: 10px; animation: drift 9s linear infinite alternate; }
+    @keyframes drift { from { transform: translateY(0); } to { transform: translateY(-260px); } }
+    .msg { padding: 10px 12px; border-radius: 14px; background: var(--surface); font-size: 13px; color: var(--fg); }
+    .msg.me { justify-self: end; max-width: 80%; background: var(--surface-3); }
+    .msg .ln { height: 8px; border-radius: 4px; background: var(--surface-3); margin: 6px 0; }
+    .msg.me .ln { background: #4a443d; }
+    .floats { position: absolute; top: 8px; left: 12px; right: 12px; display: flex; gap: 8px; z-index: 2; }
+    .fbtn { width: 38px; height: 38px; border-radius: 50%; background: rgba(48,43,38,.9); border: 1px solid var(--border-strong); display: grid; place-items: center; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+    .ftitle { flex: 1; height: 38px; border-radius: 99px; background: rgba(48,43,38,.9); border: 1px solid var(--border-strong); display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 13px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+    .fadectl { margin-top: 10px; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+    .fadectl input { flex: 1; accent-color: var(--accent); }
+  </style>
+</head>
+<body>
+<div class="page">
+  <h1>Ritocchi mobile · 2026-11-07</h1>
+  <p class="lead">Cinque punti che hai chiesto, ognuno con <b>prima</b> (come è oggi) e <b>dopo</b> (come ho capito). Le schermate sono mock statici: servono a verificare che abbiamo capito la stessa cosa prima di toccare il codice.</p>
+  <nav class="toc">
+    <a href="#s1"><span>01</span>Selettore agente</a>
+    <a href="#s2"><span>02</span>Drawer cartella</a>
+    <a href="#s3"><span>03</span>File: home + nascosti</a>
+    <a href="#s4"><span>04</span>Chip nuovo terminale</a>
+    <a href="#s5"><span>05</span>Sfumatura chat</a>
+  </nav>
+
+  <!-- 01 -->
+  <section class="item" id="s1">
+    <div class="note">
+      <h2><span>01</span>Selettore agente nella home</h2>
+      <p><b>Bug trovato:</b> il foglio agente (<code>PickerSheet</code> in <code>Home.tsx</code>) non usa <code>portal</code>, a differenza del selettore cartella. Finisce quindi renderizzato dentro il box del launcher, tagliato, e non si riesce a toccare.</p>
+      <p><b>Proposta:</b> sostituirlo con un <b>menu contestuale</b> ancorato alla pillola dell'agente: si apre subito sotto, sopra un leggero oscuramento, con logo + nome e spunta sull'agente attivo. Un tocco sceglie e chiude; tocco fuori o Indietro chiude.</p>
+      <ul>
+        <li>Renderizzato in portal → mai tagliato dal box.</li>
+        <li>Se non c'è spazio sotto (tastiera aperta), si apre sopra la pillola.</li>
+        <li>La pillola prende un piccolo chevron ▾ per far capire che è un menu.</li>
+      </ul>
+    </div>
+    <div class="col"><h4>Prima</h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="hm-title">Agenti</div>
+        <div class="launch">
+          <div class="ta">Cosa deve fare l'agente?</div>
+          <div class="bar"><span class="pill"><span class="logo c">C</span>Claude</span><span class="pill mono"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg>flowcode</span><span class="go">➤</span></div>
+          <div class="inbox"><div class="sheetbit"><i></i>Agente…</div></div>
+        </div>
+        <div class="cards"><div class="card"></div><div class="card"></div><div class="card"></div></div>
+        <div class="hint">Il foglio appare tagliato dentro il box, non selezionabile</div>
+      </div>
+    </div>
+    <div class="col"><h4 class="after">Dopo</h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="hm-title">Agenti</div>
+        <div class="launch" style="z-index:3">
+          <div class="ta">Cosa deve fare l'agente?</div>
+          <div class="bar"><span class="pill on"><span class="logo c">C</span>Claude<svg class="ic chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span><span class="pill mono"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg>flowcode</span><span class="go">➤</span></div>
+        </div>
+        <div class="dim"></div>
+        <div class="ctx">
+          <div class="lbl">Agente</div>
+          <button class="on"><span class="logo c">C</span>Claude<svg class="ic check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg></button>
+          <button><span class="logo x">X</span>Codex</button>
+          <button><span class="logo g">G</span>Gemini</button>
+          <button><span class="logo o">O</span>OpenCode</button>
+        </div>
+        <div class="cards"><div class="card"></div><div class="card"></div><div class="card"></div></div>
+        <div class="hint ok">Menu ancorato alla pillola, sopra tutto</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section class="item" id="s2">
+    <div class="note">
+      <h2><span>02</span>Selettore cartella come drawer</h2>
+      <p>Contenuto invariato (suggerite, sfoglia, filtro, "Usa questa cartella"). Cambia la forma: oggi è un <b>dialog</b> centrato; diventa un <b>drawer dal basso</b>, agganciato al bordo dello schermo, con la <b>maniglia</b> in alto per far capire che si trascina (giù per chiudere).</p>
+      <p>Rimosso il <b>bordino sopra l'header</b> "Scegli cartella" (tratteggiato in rosso nel prima), che sembrava un secondo pannello.</p>
+      <ul>
+        <li>Stesso drawer anche dove la cartella si sceglie dal foglio "Nuovo terminale".</li>
+        <li>Altezza ~85% schermo, angoli arrotondati solo sopra.</li>
+      </ul>
+    </div>
+    <div class="col"><h4>Prima</h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="scrim"></div>
+        <div class="sheet dialog">
+          <div class="fx-header bordered mark"><span class="icb">‹</span><h3>Scegli cartella</h3><span class="icb">✕</span></div>
+          <div class="fp-body">
+            <h5>Suggerite</h5>
+            <div class="fp-list">
+              <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>flowcode<small>~/Progetti/flowcode</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+              <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>square<small>~/Progetti/square</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+            </div>
+            <h5>Sfoglia</h5>
+            <div class="fp-list"><div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg><span>Computer<small>Dischi e cartelle</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div></div>
+          </div>
+          <div class="fp-foot"><div class="btn" style="opacity:.4">Usa questa cartella</div></div>
+        </div>
+        <div class="hint">Dialog flottante + bordo sopra l'header</div>
+      </div>
+    </div>
+    <div class="col"><h4 class="after">Dopo</h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="scrim"></div>
+        <div class="sheet" style="top:96px">
+          <div class="grab"></div>
+          <div class="fx-header"><span class="icb">‹</span><h3>Scegli cartella</h3><span class="icb">✕</span></div>
+          <div class="fp-body">
+            <h5>Suggerite</h5>
+            <div class="fp-list">
+              <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>flowcode<small>~/Progetti/flowcode</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+              <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>square<small>~/Progetti/square</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+            </div>
+            <h5>Sfoglia</h5>
+            <div class="fp-list"><div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg><span>Computer<small>Dischi e cartelle</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div></div>
+          </div>
+          <div class="fp-foot" style="position:absolute;left:0;right:0;bottom:0"><div class="btn" style="opacity:.4">Usa questa cartella</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section class="item" id="s3">
+    <div class="note">
+      <h2><span>03</span>Pagina File: parte dalla cartella utente</h2>
+      <p>Oggi apre sulla lista dei dischi (<code>C:\</code>, <code>D:\</code>…). Diventa: apre direttamente in <b>cartella utente</b> (<code>C:\Users\massi</code> / <code>~</code> in WSL o Linux). Le briciole permettono comunque di risalire a disco e "Computer".</p>
+      <p><b>File e cartelle nascosti</b> (che iniziano con <code>.</code>, più attributo nascosto su Windows) <b>nascosti di default</b>. Menu <b>⋮</b> in alto a destra con interruttore "Mostra file nascosti", scelta ricordata sul telefono.</p>
+      <ul>
+        <li>Contatore discreto "3 nascosti" nell'header quando ce ne sono.</li>
+        <li>Stessa regola nel selettore cartella (punto 02), che legge la stessa preferenza.</li>
+      </ul>
+      <p style="margin-top:10px">Prova l'interruttore nel mock →</p>
+    </div>
+    <div class="col"><h4>Prima</h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="fx-top"><span class="icb">‹</span><h3>File</h3></div>
+        <div class="crumbs"><span class="cur">Computer</span></div>
+        <div class="fp-body"><div class="fp-list">
+          <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/></svg><span>Disco locale<small>C:\</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+          <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/></svg><span>Dati<small>D:\</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+          <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/></svg><span>Ubuntu<small>\\wsl$\Ubuntu</small></span><svg class="ic" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+        </div></div>
+        <div class="hint">Serve scendere C:\ → Users → massi ogni volta</div>
+      </div>
+    </div>
+    <div class="col"><h4 class="after">Dopo</h4>
+      <div class="phone" id="filesPhone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="fx-top"><span class="icb">‹</span><h3>File<span class="cnt" id="hidCnt">· 3 nascosti</span></h3><button class="icb" id="dots" aria-label="Altro">⋮</button></div>
+        <div class="crumbs"><span>C:</span><span>Users</span><span class="cur">massi</span></div>
+        <div class="fp-body"><div class="fp-list" id="flist">
+          <div class="fp-row dot hid"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>.claude</span></div>
+          <div class="fp-row dot hid"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>.vscode</span></div>
+          <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>Desktop</span></div>
+          <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>Documents</span></div>
+          <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>Downloads</span></div>
+          <div class="fp-row"><svg class="ic f" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>Pictures</span></div>
+          <div class="fp-row dot hid"><svg class="ic" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/></svg><span>.gitconfig</span></div>
+          <div class="fp-row"><svg class="ic" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/></svg><span>note.txt</span></div>
+        </div></div>
+        <div class="menu3" id="menu3" hidden>
+          <button id="tog">Mostra file nascosti<span class="switch" id="sw"></span></button>
+          <button>Vai alla cartella utente</button>
+          <button>Computer (dischi)</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section class="item" id="s4">
+    <div class="note">
+      <h2><span>04</span>Chip "Recenti" nel nuovo terminale</h2>
+      <p>Oggi i suggerimenti sono righe impilate una sotto l'altra e spingono giù i campi veri. Diventano una <b>fila orizzontale scorrevole</b>: card compatte con agente in alto e cartella sotto in mono, snap allo scorrimento, bordo destro sfumato che suggerisce "ce n'è altre".</p>
+      <ul>
+        <li>Altezza fissa (~56 px) qualunque sia il numero di recenti.</li>
+        <li>Pallino colore profilo resta accanto al nome agente.</li>
+        <li>Prova a scorrere la fila nel mock →</li>
+      </ul>
+    </div>
+    <div class="col"><h4>Prima</h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="scrim"></div>
+        <div class="nts">
+          <div class="grab"></div><h3>Nuovo terminale</h3>
+          <div class="lab">Recenti<small>Un tocco e riparte</small></div>
+          <div class="chips-v">
+            <div class="chip"><span class="logo c">C</span>Claude · flowcode<svg class="ic" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></div>
+            <div class="chip"><span class="logo x">X</span>Codex · square<svg class="ic" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></div>
+            <div class="chip"><span class="logo c">C</span>Claude · site<svg class="ic" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></div>
+            <div class="chip"><span class="logo g">G</span>Gemini · Cartella iniziale<svg class="ic" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></div>
+          </div>
+          <div class="or">oppure personalizza</div>
+          <div class="field"><div class="l">Cartella</div><div class="sel mono">flowcode</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="col"><h4 class="after">Dopo</h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="scrim"></div>
+        <div class="nts">
+          <div class="grab"></div><h3>Nuovo terminale</h3>
+          <div class="lab">Recenti<small>Un tocco e riparte</small></div>
+          <div class="chips-h">
+            <button class="chip"><span class="t"><span class="logo c">C</span>Claude</span><small>flowcode</small></button>
+            <button class="chip"><span class="t"><span class="logo x">X</span>Codex</span><small>square</small></button>
+            <button class="chip"><span class="t"><span class="logo c">C</span>Claude</span><small>site</small></button>
+            <button class="chip"><span class="t"><span class="logo g">G</span>Gemini</span><small>Cartella iniziale</small></button>
+            <button class="chip"><span class="t"><span class="logo o">O</span>OpenCode</span><small>mobile</small></button>
+          </div>
+          <div class="or">oppure personalizza</div>
+          <div class="field"><div class="l">Cartella</div><div class="sel mono">flowcode</div></div>
+          <div class="field"><div class="l">Agente</div><div class="sel"><span class="logo c">C</span>Claude</div></div>
+          <div class="field"><div class="l">Profilo</div><div class="sel">Predefinito</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section class="item" id="s5">
+    <div class="note">
+      <h2><span>05</span>Sfumatura sotto i pulsanti flottanti della chat</h2>
+      <p>Oggi la conversazione svanisce in <b>~30 px</b> (maschera da 34 a 64 px in <code>chat.css</code>): il passaggio è secco e il testo arriva quasi a toccare i pulsanti. Proposta: sfumatura lunga <b>~70 px</b> (trasparente fino a 40, piena a 110), più morbida, e padding iniziale della chat alzato di conseguenza.</p>
+      <ul>
+        <li>Solo telefono, solo pagina chat con pulsanti flottanti.</li>
+        <li>Usa lo slider sul "dopo" per trovare il valore che ti piace: dimmi il numero.</li>
+      </ul>
+    </div>
+    <div class="col"><h4>Prima · 34→64 px</h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="chatwrap">
+          <div class="thread" style="-webkit-mask-image:linear-gradient(to bottom,transparent 0,transparent 34px,#000 64px);mask-image:linear-gradient(to bottom,transparent 0,transparent 34px,#000 64px)"><div class="inner" id="t1"></div></div>
+          <div class="floats"><span class="fbtn">‹</span><span class="ftitle"><span class="logo c">C</span>Claude · flowcode</span><span class="fbtn">⋮</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="col"><h4 class="after">Dopo · <span id="fadeLbl">40→110 px</span></h4>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●●</span></div>
+        <div class="chatwrap">
+          <div class="thread" id="fadeT"><div class="inner" id="t2"></div></div>
+          <div class="floats"><span class="fbtn">‹</span><span class="ftitle"><span class="logo c">C</span>Claude · flowcode</span><span class="fbtn">⋮</span></div>
+        </div>
+      </div>
+      <div class="fadectl"><span>Fine sfumatura</span><input type="range" id="fade" min="64" max="160" value="110"><span id="fadeV" class="mono">110</span></div>
+    </div>
+  </section>
+</div>
+<script>
+  // 03: menu ⋮ e file nascosti
+  const menu = document.getElementById("menu3"), sw = document.getElementById("sw"), cnt = document.getElementById("hidCnt");
+  let show = false;
+  const apply = () => {
+    document.querySelectorAll("#flist .hid").forEach((r) => (r.style.display = show ? "" : "none"));
+    sw.classList.toggle("on", show);
+    cnt.style.visibility = show ? "hidden" : "visible";
+  };
+  document.getElementById("dots").onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; };
+  document.getElementById("tog").onclick = (e) => { e.stopPropagation(); show = !show; apply(); };
+  document.getElementById("filesPhone").onclick = () => (menu.hidden = true);
+  apply();
+
+  // 05: finta conversazione + slider
+  const fill = (el) => {
+    let h = "";
+    for (let i = 0; i < 9; i++) {
+      h += i % 3 === 1
+        ? `<div class="msg me"><div class="ln" style="width:150px"></div><div class="ln" style="width:110px"></div></div>`
+        : `<div class="msg">Modifico <span class="mono">Home.tsx</span> e aggiungo il portal al menu.<div class="ln"></div><div class="ln" style="width:70%"></div><div class="ln" style="width:85%"></div></div>`;
+    }
+    el.innerHTML = h;
+  };
+  fill(document.getElementById("t1")); fill(document.getElementById("t2"));
+  const t = document.getElementById("fadeT"), r = document.getElementById("fade");
+  const setFade = () => {
+    const end = +r.value, start = 40;
+    const m = `linear-gradient(to bottom, transparent 0, transparent ${start}px, #000 ${end}px)`;
+    t.style.webkitMaskImage = m; t.style.maskImage = m;
+    document.getElementById("fadeV").textContent = end;
+    document.getElementById("fadeLbl").textContent = `${start}→${end} px`;
+  };
+  r.oninput = setFade; setFade();
+</script>
+</body>
+</html>

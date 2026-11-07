@@ -42,7 +42,8 @@
 .fx-viewer .fx-notice { margin: 6px 12px; }
 .fx-editor, .fx-code { flex: 1; min-height: 0; margin: 0; padding: 14px; overflow: auto; font: 12.5px/1.6 var(--mono); white-space: pre; }
 .fx-editor { width: 100%; border: 0; resize: none; background: var(--surface); color: var(--fg); }
-.fp-panel.nts { top: var(--safe-t); max-height: none; padding: 0 0 var(--safe-b); gap: 0; border-radius: 0; background: var(--bg); }
+.fp-panel.nts { top: auto; height: calc(88% - var(--safe-t)); max-height: none; padding: 0 0 var(--safe-b); gap: 0; border-top: 0; border-radius: 24px 24px 0 0; background: var(--bg); }
+.fp-panel .fp-grab { flex: none; margin: 10px auto 0; }
 .fp-panel.as-panel { height: min(760px, 90vh); padding: 0; gap: 0; }
 .fp-panel .fx-header { border-bottom: 1px solid var(--border); }
 .fp-panel .fx-crumbs { padding-block: 2px; border-bottom: 1px solid var(--border); }
@@ -59,3 +60,13 @@
 .hm-new-terminal svg { width: 15px; height: 15px; }
 .hm-shell { min-height: 56px; }
 .hm-tile.st-shell { color: var(--muted); background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.fx-header { position: relative; }
+.fx-menu-scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .28); }
+.fx-menu { position: absolute; top: calc(100% - 4px); right: 10px; z-index: 21; width: 248px; display: flex; flex-direction: column; padding: 6px; border-radius: 18px; border: 1px solid var(--border-strong); background: var(--surface); box-shadow: 0 18px 40px rgba(0, 0, 0, .6); transform-origin: top right; animation: fx-menu-in .14s ease-out; }
+.fx-menu button { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: var(--fg); font: 14.5px var(--font); text-align: left; }
+.fx-menu button span { flex: 1; }
+.fx-menu button > svg { flex: none; width: 18px; height: 18px; color: var(--muted); }
+.fx-menu button:active { background: var(--surface-3); }
+.fx-menu hr { width: calc(100% - 24px); margin: 4px 12px; border: 0; border-top: 1px solid var(--border); }
+@keyframes fx-menu-in { from { transform: scale(.94); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .fx-menu { animation: none; } }

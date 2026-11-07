@@ -3,6 +3,7 @@ import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { folderName, useExplorer } from "./explorerRemote";
 import { t } from "./i18n";
+import { isHidden, useShowHidden } from "./hiddenFiles";
 import { BackIcon, ChevronIcon, CloseIcon, FolderIcon } from "./icons";
 import { useSupports } from "./remote";
 import "./explorer.css";
@@ -16,11 +17,13 @@ export function FolderPicker({ value, suggestions, onPick, onClose, allowDefault
   const [path, setPath] = useState<string | null | undefined>(undefined);
   const [query, setQuery] = useState("");
   const canBrowse = useSupports("fileExplorer");
+  const showHidden = useShowHidden();
   const crumbs = useRef<HTMLElement>(null);
   useLayoutEffect(() => { if (crumbs.current) crumbs.current.scrollLeft = crumbs.current.scrollWidth; }, [path]);
   const state = useExplorer(path ?? null, 0, canBrowse && path !== undefined);
   const response = state.response;
   const listing = path !== undefined && response?.kind === "list" ? response : undefined;
+  const folders = listing ? listing.entries.filter((e) => e.dir && (showHidden || !isHidden(e)) && e.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())) : [];
   const roots = response?.kind === "roots" ? response.roots : [];
   const suggested = [...new Set([value, ...suggestions].filter((p): p is string => !!p))].slice(0, 5);
   const enter = (p: string | null | undefined) => { setQuery(""); setPath(p); };
@@ -34,6 +37,7 @@ export function FolderPicker({ value, suggestions, onPick, onClose, allowDefault
   );
   return (
     <AdaptiveSheet open portal family="nts" variant="dialog" panelClass="fp-panel" onClose={onClose} label={title ?? t("filesChooseFolder")}>
+      <div className="nts-grab fp-grab" aria-hidden="true" />
       <header className="fx-header"><button type="button" className="fx-icon" aria-label={t("back")} onClick={back}><BackIcon /></button><h2>{title ?? t("filesChooseFolder")}</h2><button type="button" className="fx-icon" aria-label={t("profileCancel")} onClick={onClose}><CloseIcon /></button></header>
       {path !== undefined && <nav ref={crumbs} className="fx-crumbs" aria-label={t("path")}><button type="button" onClick={() => enter(undefined)}>{t("filesSuggested")}</button><button type="button" onClick={() => enter(null)}>{t("filesComputer")}</button>{path && pathCrumbs(path).map((c) => <button type="button" key={c.path} onClick={() => enter(c.path)}>{c.label}</button>)}</nav>}
       {listing && <input className="fp-filter" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("filesFilterFolders")} aria-label={t("filesFilterFolders")} />}
@@ -44,8 +48,8 @@ export function FolderPicker({ value, suggestions, onPick, onClose, allowDefault
           <h3>{t("filesBrowse")}</h3><div className="fp-list">{row(t("filesComputer"), null, t("filesComputerHint"))}</div>
         </> : <>
           {state.error ? <p className="fx-notice" role="alert">{state.error}</p> : !response ? <p className="fx-hint" role="status">{t("loading")}</p> : listing ? <>
-            <div className="fp-list">{listing.entries.filter((e) => e.dir && e.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map((e) => row(e.name, `${listing.path.replace(/\/$/, "")}/${e.name}`))}</div>
-            {!listing.entries.some((e) => e.dir && e.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && <p className="fx-hint">{query ? t("filesNoMatch") : t("filesNoFolders")}</p>}
+            <div className="fp-list">{folders.map((e) => row(e.name, `${listing.path.replace(/\/$/, "")}/${e.name}`))}</div>
+            {folders.length === 0 && <p className="fx-hint">{query ? t("filesNoMatch") : t("filesNoFolders")}</p>}
             {listing.truncated && <p className="fx-notice">{t("filesListingTruncated")}</p>}
           </> : <div className="fp-list">{roots.map((r) => row(r.name, r.path, r.path))}</div>}
         </>}

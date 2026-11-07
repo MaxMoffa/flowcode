@@ -743,3 +743,94 @@
   font-size: 12px;
   color: var(--muted);
 }
+
+/* The launcher's agent menu: anchored to its pill, above every layer. */
+.hm-pill.on {
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.hm-pill-chev {
+  display: flex;
+  margin-left: -2px;
+  opacity: 0.6;
+}
+
+.hm-pill-chev svg {
+  width: 13px;
+  height: 13px;
+}
+
+.hm-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.hm-menu {
+  position: fixed;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  width: 228px;
+  padding: 6px;
+  border-radius: 18px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+  transform-origin: top left;
+  animation: hm-menu-in 0.14s ease-out;
+}
+
+@keyframes hm-menu-in {
+  from {
+    transform: scale(0.94);
+    opacity: 0;
+  }
+}
+
+.hm-menu small {
+  padding: 6px 12px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.hm-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--fg);
+  font: 15px var(--font);
+  text-align: left;
+}
+
+.hm-menu button span {
+  flex: 1;
+}
+
+.hm-menu button.on {
+  background: var(--accent-bg);
+}
+
+.hm-menu button.on > svg:last-child {
+  color: var(--accent);
+}
+
+.hm-menu button:active {
+  background: var(--surface-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-menu {
+    animation: none;
+  }
+}

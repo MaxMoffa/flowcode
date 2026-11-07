@@ -56,7 +56,7 @@ pub(super) fn list_dir(root: &Path, rel: &str) -> Result<(String, Vec<LsEntry>),
             Ok(m) => (m.is_dir(), (!m.is_dir()).then_some(m.len())),
             Err(_) => (entry.file_type().map(|t| t.is_dir()).unwrap_or(false), None),
         };
-        entries.push(LsEntry { name: entry.file_name().to_string_lossy().into_owned(), dir: is_dir, size });
+        entries.push(LsEntry { name: entry.file_name().to_string_lossy().into_owned(), dir: is_dir, size, hidden: false });
     }
     entries.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     Ok((display_path(root, &dir), entries))

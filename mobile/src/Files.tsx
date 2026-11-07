@@ -8,9 +8,10 @@ import { folderName, fullPath, requestFs, useExplorer } from "./explorerRemote";
 import { FolderPicker } from "./FolderPicker";
 import { launchPath, pathCrumbs } from "./explorerPaths";
 import { t } from "./i18n";
-import { AgentLogo, BackIcon, CloseIcon, DotsIcon, FileIcon, FolderIcon, PlusIcon, RefreshIcon, TerminalIcon } from "./icons";
+import { AgentLogo, BackIcon, CloseIcon, DotsIcon, FileIcon, FolderIcon, HomeIcon, KebabIcon, MonitorIcon, PlusIcon, RefreshIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
 import { sendChecked, showToast, useRemoteSelector, useSupports, type Tab } from "./remote";
+import { isHidden, setShowHidden, useShowHidden } from "./hiddenFiles";
 import { safeStorage } from "./store";
 import { PendingRow, useOpenNew } from "./Terminals";
 import "./explorer.css";
@@ -20,8 +21,12 @@ const pathKey = (host?: string) => "files.path." + (host ?? "");
 
 export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void }) {
   const key = pathKey(hostName);
-  const [location, setLocation] = useState(() => ({ key, path: safeStorage.get(key) || null as string | null }));
-  if (location.key !== key) setLocation({ key, path: safeStorage.get(key) || null });
+  // Nothing remembered: open the home folder (the desktop lists it first among the roots) instead of the drives.
+  const initial = () => { const path = safeStorage.get(key) || null; return { key, path, home: !path }; };
+  const [location, setLocation] = useState(initial);
+  if (location.key !== key) setLocation(initial());
+  const showHidden = useShowHidden();
+  const [more, setMore] = useState(false);
   const canBrowse = useSupports("fileExplorer");
   const status = useRemoteSelector((r) => r.status);
   const chats = useRemoteSelector((r) => r.chats);
@@ -29,6 +34,8 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
   const state = useExplorer(location.path, revision, canBrowse);
   const listing = state.response?.kind === "list" ? state.response : undefined;
   const roots = state.response?.kind === "roots" ? state.response.roots : [];
+  const entries = listing ? listing.entries.filter((e) => showHidden || !isHidden(e)) : [];
+  const hiddenCount = listing ? listing.entries.length - entries.length : 0;
   const crumbs = useRef<HTMLElement>(null);
   useLayoutEffect(() => { if (crumbs.current) crumbs.current.scrollLeft = crumbs.current.scrollWidth; }, [location.path]);
   const [launch, setLaunch] = useState(false);
@@ -41,15 +48,18 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
   const [file, setFile] = useState<string | null>(null);
   const { pending, onCreate } = useOpenNew(tabs, onOpen);
   const folders = useMemo(() => [...new Set([...(tabs ?? []).map((x) => x.cwd), ...(chats ?? []).map((x) => x.cwd)].filter(Boolean))], [tabs, chats]);
-  const navigate = (path: string | null) => { setLaunch(false); setLocation({ key, path }); safeStorage.set(key, path ?? ""); };
+  const navigate = (path: string | null) => { setLaunch(false); setMore(false); setLocation({ key, path, home: false }); safeStorage.set(key, path ?? ""); };
   const closeSheet = () => { if (!busy) setSheet(null); };
+  useEffect(() => { if (location.home && location.path === null && roots[0]) navigate(roots[0].path); }, [location.home, location.path, roots[0]?.path]);
+  useBackHandler(more, () => setMore(false));
+  useEscape(more, () => setMore(false));
   useBackHandler(launch, () => setLaunch(false));
   useEscape(launch, () => setLaunch(false));
   useBackHandler(sheet !== null, closeSheet);
   useEscape(sheet !== null, closeSheet);
   // The server's canonical path makes links and Windows separators unambiguous.
   useEffect(() => { if (listing && listing.path !== location.path) navigate(listing.path); }, [listing?.path]);
-  useEffect(() => { setLaunch(false); setAgent(null); setSheet(null); setMove(null); setFile(null); }, [hostName]);
+  useEffect(() => { setLaunch(false); setMore(false); setAgent(null); setSheet(null); setMove(null); setFile(null); }, [hostName]);
   useEffect(() => { if (status !== "online") setLaunch(false); }, [status]);
 
   const openSheet = (next: Sheet) => { setLaunch(false); setName("path" in next ? folderName(next.path) : ""); setError(""); setSheet(next); };
@@ -78,12 +88,18 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
   const actionButton = (label: string, onClick: () => void, danger = false) => <button type="button" className={danger ? "danger" : ""} onClick={onClick}>{label}</button>;
 
   return <div className="fx-screen">
-    <header className="fx-header"><div><h1>{t("files")}</h1><small>{hostName}</small></div><button type="button" className="fx-icon" aria-label={t("filesRefresh")} onClick={() => setRevision((n) => n + 1)}><RefreshIcon /></button>{currentPath && <button type="button" className="fx-icon" aria-label={t("filesNewFile")} onClick={() => openSheet({ kind: "new" })}><PlusIcon /></button>}</header>
+    <header className="fx-header"><div><h1>{t("files")}</h1><small>{hostName}{hiddenCount > 0 && ` · ${t("filesHiddenCount", { n: hiddenCount })}`}</small></div><button type="button" className="fx-icon" aria-label={t("filesRefresh")} onClick={() => setRevision((n) => n + 1)}><RefreshIcon /></button>{currentPath && <button type="button" className="fx-icon" aria-label={t("filesNewFile")} onClick={() => openSheet({ kind: "new" })}><PlusIcon /></button>}<button type="button" className="fx-icon" aria-label={t("filesMore")} aria-haspopup="true" aria-expanded={more} onClick={() => { setLaunch(false); setMore((v) => !v); }}><KebabIcon /></button>
+      {more && <><div className="fx-menu-scrim" onClick={() => setMore(false)} /><div className="fx-menu" role="menu" aria-label={t("filesMore")}>
+        <button type="button" role="menuitemcheckbox" aria-checked={showHidden} onClick={() => setShowHidden(!showHidden)}><span>{t("filesShowHidden")}</span><i className={"switch" + (showHidden ? " on" : "")} aria-hidden="true" /></button>
+        <hr />
+        <button type="button" role="menuitem" onClick={() => { setMore(false); setLocation({ key, path: null, home: true }); safeStorage.set(key, ""); }}><HomeIcon /><span>{t("filesHome")}</span></button>
+        <button type="button" role="menuitem" onClick={() => navigate(null)}><MonitorIcon /><span>{t("filesComputer")}</span></button>
+      </div></>}</header>
     <nav ref={crumbs} className="fx-crumbs" aria-label={t("path")}><button type="button" onClick={() => navigate(null)}>{t("filesComputer")}</button>{location.path && pathCrumbs(location.path).map((c) => <button type="button" className={c.path === currentPath ? "on" : ""} key={c.path} onClick={() => navigate(c.path)}>{c.label}</button>)}</nav>
     <div className="fx-body"><PendingRow pending={pending} />
       {!canBrowse ? <p className="fx-notice">{t("filesUpgrade")}</p> : state.error ? <p className="fx-notice" role="alert">{state.error}</p> : !state.response ? <p className="fx-hint" role="status">{t("loading")}</p> : listing ? <>
-        {listing.entries.length === 0 && <p className="fx-notice">{t("noEntries")}</p>}
-        <div className="fx-list">{listing.entries.map((entry) => { const path = fullPath(listing.path, entry.name); return <div className="fx-row" key={entry.name}><button type="button" className="fx-entry" onClick={() => entry.dir ? navigate(path) : setFile(path)}>{entry.dir ? <FolderIcon /> : <FileIcon />}<span><b>{entry.name}</b>{!entry.dir && <small>{formatSize(entry.size)}</small>}</span></button><button type="button" className="fx-icon" aria-label={t("filesActions", { name: entry.name })} onClick={() => openSheet({ kind: "item", path, dir: entry.dir })}><DotsIcon /></button></div>; })}</div>
+        {entries.length === 0 && <p className="fx-notice">{t("noEntries")}</p>}
+        <div className="fx-list">{entries.map((entry) => { const path = fullPath(listing.path, entry.name); return <div className="fx-row" key={entry.name}><button type="button" className="fx-entry" onClick={() => entry.dir ? navigate(path) : setFile(path)}>{entry.dir ? <FolderIcon /> : <FileIcon />}<span><b>{entry.name}</b>{!entry.dir && <small>{formatSize(entry.size)}</small>}</span></button><button type="button" className="fx-icon" aria-label={t("filesActions", { name: entry.name })} onClick={() => openSheet({ kind: "item", path, dir: entry.dir })}><DotsIcon /></button></div>; })}</div>
         {listing.truncated && <p className="fx-notice">{t("filesListingTruncated")}</p>}
       </> : <div className="fx-list">{roots.map((root) => <button type="button" key={root.path} className="fp-row" onClick={() => navigate(root.path)}><FolderIcon /><span><b>{root.name}</b><small className="mono">{root.path}</small></span></button>)}</div>}
     </div>

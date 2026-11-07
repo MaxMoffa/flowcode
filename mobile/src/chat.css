@@ -134,12 +134,12 @@
 }
 
 .has-floating-top .chat-thread {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 34px, #000 64px);
-  mask-image: linear-gradient(to bottom, transparent 0, transparent 34px, #000 64px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 40px, #000 110px);
+  mask-image: linear-gradient(to bottom, transparent 0, transparent 40px, #000 110px);
 }
 
 .has-floating-top .chat-thread-inner {
-  padding-top: 64px;
+  padding-top: 110px;
 }
 
 .chat-empty,
