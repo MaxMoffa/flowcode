@@ -3,7 +3,7 @@ import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
 import { folderName, useExplorer } from "./explorerRemote";
 import { t } from "./i18n";
-import { isHidden, useShowHidden } from "./hiddenFiles";
+import { isHidden, setShowHidden, useShowHidden } from "./hiddenFiles";
 import { BackIcon, ChevronIcon, CloseIcon, FolderIcon } from "./icons";
 import { useSupports } from "./remote";
 import "./explorer.css";
@@ -42,6 +42,7 @@ export function FolderPicker({ value, suggestions, onPick, onClose, allowDefault
       {path !== undefined && <nav ref={crumbs} className="fx-crumbs" aria-label={t("path")}><button type="button" onClick={() => enter(undefined)}>{t("filesSuggested")}</button><button type="button" onClick={() => enter(null)}>{t("filesComputer")}</button>{path && pathCrumbs(path).map((c) => <button type="button" key={c.path} onClick={() => enter(c.path)}>{c.label}</button>)}</nav>}
       {listing && <input className="fp-filter" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("filesFilterFolders")} aria-label={t("filesFilterFolders")} />}
       <div className="fp-body">
+        {canBrowse && listing && <button type="button" className="fp-row" role="switch" aria-checked={showHidden} onClick={() => setShowHidden(!showHidden)}><span>{t("filesShowHidden")}</span><i className={"switch" + (showHidden ? " on" : "")} aria-hidden="true" /></button>}
         {!canBrowse ? <p className="fx-notice">{t("filesUpgrade")}</p> : path === undefined ? <>
           <p className="fx-hint">{t("filesPickerHint")}</p>
           {suggested.length > 0 && <><h3>{t("filesSuggested")}</h3><div className="fp-list">{suggested.map((p) => row(folderName(p), p, p))}</div></>}

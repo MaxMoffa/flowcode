@@ -704,6 +704,11 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     });
 
     let disposed = false;
+    const startupPolls = new Set<number>();
+    const clearStartupPoll = (id: number) => {
+      window.clearInterval(id);
+      startupPolls.delete(id);
+    };
     const mountGen = ++mountGenRef.current;
     let unlistenWriteError: (() => void) | undefined;
     const showWriteError = (error: PtyWriteError) => {
@@ -1030,12 +1035,13 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
               lastOutputAtRef.current > 0 &&
               ((idle > 60 && cursorLineLooksLikePrompt()) || (!isWsl && idle > 600));
             if (disposed) {
-              window.clearInterval(startPoll);
+              clearStartupPoll(startPoll);
             } else if (ready || now - startedAt > (isWsl ? 10000 : 5000)) {
-              window.clearInterval(startPoll);
+              clearStartupPoll(startPoll);
               sendStartInput();
             }
           }, 30);
+          startupPolls.add(startPoll);
         }
         // Shells that never set a title: the prompt is up once the output
         // has gone quiet.
@@ -1044,12 +1050,13 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
           const now = performance.now();
           const quiet = lastOutputAtRef.current > 0 && now - lastOutputAtRef.current > 150;
           if (disposed || promptShownRef.current || now - spawnedAt > 3000) {
-            window.clearInterval(poll);
+            clearStartupPoll(poll);
           } else if (quiet) {
-            window.clearInterval(poll);
+            clearStartupPoll(poll);
             reportPromptShown();
           }
         }, 50);
+        startupPolls.add(poll);
       });
     })();
 
@@ -1101,6 +1108,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
 
     return () => {
       disposed = true;
+      for (const id of startupPolls) window.clearInterval(id);
+      startupPolls.clear();
       unlistenWriteError?.();
       pendingInput.length = 0;
       pendingInputBytes = 0;

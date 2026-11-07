@@ -53,5 +53,5 @@ const same = (a: ActiveAgent | null, b: ActiveAgent | null) =>
 const store = createStore<ActiveAgent | null>(null, same);
 
 export const setActiveAgent = store.set;
-export type { ActiveAgent, DelegateOf };
+export type { ActiveAgent };
 export const useActiveAgent = store.use;

@@ -23,6 +23,7 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
   const [dragging, setDragging] = useState(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(width);
+  const captureRef = useRef<{ target: Element; pointerId: number; lost: () => void } | null>(null);
 
   useEffect(() => {
     if (!dragging) return;
@@ -59,11 +60,22 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
     window.addEventListener("pointercancel", onUp);
     window.addEventListener("blur", onUp);
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       setLayoutDragging(false);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
       window.removeEventListener("blur", onUp);
+      const capture = captureRef.current;
+      captureRef.current = null;
+      if (capture) {
+        capture.target.removeEventListener("lostpointercapture", capture.lost);
+        try {
+          if (capture.target.hasPointerCapture(capture.pointerId)) capture.target.releasePointerCapture(capture.pointerId);
+        } catch {
+          // The handle can disappear while its panel closes.
+        }
+      }
     };
   }, [dragging, handleSide, min, max]);
 
@@ -76,6 +88,25 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
 
   const onHandlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      if (e.button !== 0 || captureRef.current) return;
+      const target = e.currentTarget;
+      const pointerId = e.pointerId;
+      const lost = () => {
+        captureRef.current = null;
+        setLayoutDragging(false);
+        setDragging(false);
+      };
+      captureRef.current = { target, pointerId, lost };
+      // Attach before React's effect: a quick release may happen before that effect runs.
+      target.addEventListener("lostpointercapture", lost, { once: true });
+      try {
+        target.setPointerCapture(pointerId);
+      } catch {
+        // A detached handle cannot safely start a drag.
+        target.removeEventListener("lostpointercapture", lost);
+        captureRef.current = null;
+        return;
+      }
       startXRef.current = e.clientX;
       startWidthRef.current = width;
       setDragging(true);

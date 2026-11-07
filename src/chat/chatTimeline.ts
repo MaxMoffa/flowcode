@@ -104,8 +104,8 @@ export function subagentItems(sub: SubagentItem): ChatItem[] {
 }
 
 /** What a subagent's own chat draws on the desktop. */
-export function subagentTimeline(sub: SubagentItem): TimelineSegment[] {
-  return buildTimeline(subagentItems(sub));
+export function subagentTimeline(sub: SubagentItem, previous?: TimelineSegment[]): TimelineSegment[] {
+  return buildTimeline(subagentItems(sub), previous);
 }
 
 /** The subagent's final report: the text of its launch call once that finished (before, the content is the prompt it was given). */
@@ -172,7 +172,7 @@ function categoryOf(call: ChatToolCall): StepCategory {
  * permission requests answered between them) form one group, the steps of an
  * agent turn. Pending permission requests are left out - they are drawn above
  * the composer, not in the flow. */
-export function buildTimeline(items: ChatItem[]): TimelineSegment[] {
+export function buildTimeline(items: ChatItem[], previous: TimelineSegment[] = []): TimelineSegment[] {
   const segments: TimelineSegment[] = [];
   for (const item of nestSubagents(items)) {
     if (item.type !== "subagent" && (hiddenGuardian(item) || hiddenDelegateTool(item))) continue;
@@ -200,7 +200,39 @@ export function buildTimeline(items: ChatItem[]): TimelineSegment[] {
       segments.push({ type: "item", item });
     }
   }
-  return segments;
+  return reuseSegments(segments, previous);
+}
+
+function sameItems<T>(a: T[], b: T[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+/** Keep the previous pass's objects when their model items did not change. */
+function reuseSegments(segments: TimelineSegment[], previous: TimelineSegment[]): TimelineSegment[] {
+  if (!previous.length) return segments.length ? segments : previous;
+  const key = (segment: TimelineSegment) => `${segment.type}:${segment.type === "item" ? segment.item.id : segment.id}`;
+  const oldById = new Map(previous.map((segment) => [key(segment), segment]));
+  const reused = segments.map((segment) => {
+    const old = oldById.get(key(segment));
+    switch (segment.type) {
+      case "item":
+        return old?.type === "item" && old.item === segment.item ? old : segment;
+      case "group":
+        return old?.type === "group" && sameItems(old.steps, segment.steps) ? old : segment;
+      case "delegates":
+        return old?.type === "delegates" && sameItems(old.items, segment.items) ? old : segment;
+      case "subagents": {
+        if (old?.type !== "subagents") return segment;
+        const oldItems = new Map(old.items.map((item) => [item.id, item]));
+        segment.items = segment.items.map((item) => {
+          const previousItem = oldItems.get(item.id);
+          return previousItem && previousItem.call === item.call && sameItems(previousItem.steps, item.steps) && sameItems(previousItem.children, item.children) ? previousItem : item;
+        });
+        return sameItems(old.items, segment.items) ? old : segment;
+      }
+    }
+  });
+  return sameItems(previous, reused) ? previous : reused;
 }
 
 export interface GroupSummary {
@@ -233,14 +265,14 @@ export function hiddenGuardian(item: ChatItem): boolean {
 const DELEGATE_TOOLS = /(delegate_task|get_task_result|cancel_task|list_agents)/;
 
 /** A call to one of Flowcode's delegation tools: the task's card says it all. Agents name the call differently (Claude's tool name is `mcp__flowcode__delegate_task`, others put "flowcode" and the tool in the title). */
-export function isDelegateToolCall(call: ChatToolCall): boolean {
+function isDelegateToolCall(call: ChatToolCall): boolean {
   if (call.toolName?.startsWith("mcp__flowcode__")) return DELEGATE_TOOLS.test(call.toolName);
   const title = call.title ?? "";
   return /flowcode/i.test(title) && DELEGATE_TOOLS.test(title);
 }
 
 /** Delegation tool calls stay out of the conversation, except a failed one (it explains why no card appeared). */
-export function hiddenDelegateTool(item: ChatItem): boolean {
+function hiddenDelegateTool(item: ChatItem): boolean {
   return item.type === "tool" && isDelegateToolCall(item.call) && item.call.status !== "failed";
 }
 

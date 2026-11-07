@@ -141,10 +141,10 @@ export const MODEL_EXT_METHOD = "_flowcode/model";
 export const THOUGHT_EXT_METHOD = "_flowcode/thought";
 
 /** The backend's events about delegated tasks: on the orchestrator `delegate`, `delegate_request` and `delegate_request_resolved`, on the child `task`. */
-export const DELEGATE_EXT_METHOD = "_flowcode/delegate";
-export const DELEGATE_REQUEST_EXT_METHOD = "_flowcode/delegate_request";
-export const DELEGATE_RESOLVED_EXT_METHOD = "_flowcode/delegate_request_resolved";
-export const TASK_EXT_METHOD = "_flowcode/task";
+const DELEGATE_EXT_METHOD = "_flowcode/delegate";
+const DELEGATE_REQUEST_EXT_METHOD = "_flowcode/delegate_request";
+const DELEGATE_RESOLVED_EXT_METHOD = "_flowcode/delegate_request_resolved";
+const TASK_EXT_METHOD = "_flowcode/task";
 
 const DELEGATE_STATUSES: readonly string[] = ["running", "waiting_for_user", "done", "failed", "cancelled"];
 
@@ -157,7 +157,7 @@ const requestIdOf = (v: unknown): string | null => (typeof v === "string" && v !
 const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {});
 
 /** The `_flowcode/delegate` params, checked; null when they are not a delegate. */
-export function parseDelegate(raw: unknown): DelegateInfo | null {
+function parseDelegate(raw: unknown): DelegateInfo | null {
   const p = record(raw);
   const taskId = str(p.taskId);
   const childChatId = str(p.childChatId);
@@ -184,7 +184,7 @@ export function parseDelegate(raw: unknown): DelegateInfo | null {
 export const delegateRequestKey = (childChatId: string, requestId: string) => JSON.stringify([childChatId, requestId]);
 
 /** The `_flowcode/delegate_request` params, checked. */
-export function parseDelegateRequest(raw: unknown): DelegateRequest | null {
+function parseDelegateRequest(raw: unknown): DelegateRequest | null {
   const p = record(raw);
   const taskId = str(p.taskId);
   const childChatId = str(p.childChatId);
@@ -203,7 +203,7 @@ export function parseDelegateRequest(raw: unknown): DelegateRequest | null {
 }
 
 /** The `_flowcode/task` params, checked. */
-export function parseTask(raw: unknown): ChatTaskInfo | null {
+function parseTask(raw: unknown): ChatTaskInfo | null {
   const p = record(raw);
   const taskId = str(p.taskId);
   const parentChatId = str(p.parentChatId);

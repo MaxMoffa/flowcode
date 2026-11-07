@@ -404,13 +404,18 @@ function SubagentMarker({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id
       <b className="chat-submark-text">{t(items.length === 1 ? "chatSubLaunched1" : "chatSubLaunchedN", { n: items.length })}</b>
       {items.map((item) => {
         const type = subagentInfo(item.call).type ?? "agent";
+        const state = subagentState(item);
+        const status = state.running ? "live" : state.failed ? "failed" : "done";
+        const label = t(state.running ? "chatSubRunning" : state.failed ? "chatSubFailed" : "chatSubDone");
+        const color = `var(--${state.failed ? "danger" : state.running ? "accent" : "muted"})`;
+        const tag = <><span aria-hidden="true" style={{ display: "inline-block", width: 6, height: 6, marginRight: 6, borderRadius: "50%", background: "currentColor", verticalAlign: "middle" }} />{type}</>;
         return onOpen ? (
-          <button key={item.id} type="button" className="chat-sub-tag chat-submark-tag" aria-label={t("chatSubOpen")} onClick={() => onOpen(item.id)}>
-            {type}
+          <button key={item.id} type="button" className={`chat-sub-tag chat-submark-tag is-${status}`} style={{ color }} title={label} aria-label={`${t("chatSubOpen")}: ${type}, ${label}`} onClick={() => onOpen(item.id)}>
+            {tag}
           </button>
         ) : (
-          <span key={item.id} className="chat-sub-tag">
-            {type}
+          <span key={item.id} className={`chat-sub-tag is-${status}`} style={{ color }} title={label} aria-label={`${type}: ${label}`}>
+            {tag}
           </span>
         );
       })}

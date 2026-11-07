@@ -54,19 +54,29 @@ function AgentMenu({ anchor, options, value, onPick, onClose }: { anchor: HTMLEl
   const [pos, setPos] = useState<CSSProperties>({ visibility: "hidden" });
   useLayoutEffect(() => {
     const place = () => {
-      if (!anchor || !menu.current) return;
+      if (!menu.current) return;
+      if (!anchor) {
+        setPos({ left: 8, top: (window.visualViewport?.offsetTop ?? 0) + 8 });
+        return;
+      }
       const r = anchor.getBoundingClientRect();
       const h = menu.current.offsetHeight;
-      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
       const left = Math.max(8, Math.min(r.left, window.innerWidth - menu.current.offsetWidth - 8));
-      setPos(r.bottom + 6 + h <= vh - 8 || r.top - 6 - h < 8 ? { left, top: r.bottom + 6 } : { left, top: r.top - 6 - h, transformOrigin: "bottom left" });
+      const below = r.bottom + 6;
+      const above = r.top - 6 - h;
+      const top = below + h <= viewportBottom - 8 || above < viewportTop + 8 ? below : above;
+      setPos({ left, top: Math.max(viewportTop + 8, Math.min(top, viewportBottom - h - 8)), transformOrigin: top === above ? "bottom left" : "top left" });
     };
     place();
     window.addEventListener("resize", place);
     window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
     return () => {
       window.removeEventListener("resize", place);
       window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
     };
   }, [anchor]);
   return createPortal(

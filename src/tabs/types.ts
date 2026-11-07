@@ -99,7 +99,7 @@ export interface ChatTab {
 }
 
 /** What makes a chat tab a delegated child's view. */
-export interface DelegateTab {
+interface DelegateTab {
   /** The child's chat (`chat_start` of the delegation), the one the tab attaches to. */
   chatId: string;
   taskId: string;

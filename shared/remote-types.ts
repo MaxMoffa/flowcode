@@ -143,7 +143,7 @@ export type FsRequest =
   | { op: "move"; path: string; destination: string }
   | { op: "write"; path: string; text: string; version: string };
 
-export interface FsRoot { name: string; path: string }
+interface FsRoot { name: string; path: string }
 
 export type FsResponse =
   | { kind: "roots"; roots: FsRoot[] }

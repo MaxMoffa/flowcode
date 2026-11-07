@@ -18,11 +18,15 @@ import "./explorer.css";
 
 type Sheet = { kind: "item" | "rename" | "delete"; path: string; dir: boolean } | { kind: "new" | "file" | "folder" };
 const pathKey = (host?: string) => "files.path." + (host ?? "");
+const COMPUTER_PATH = "flowcode:computer";
 
 export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tabs: Tab[] | null; onOpen: (ptyId: string) => void }) {
   const key = pathKey(hostName);
   // Nothing remembered: open the home folder (the desktop lists it first among the roots) instead of the drives.
-  const initial = () => { const path = safeStorage.get(key) || null; return { key, path, home: !path }; };
+  const initial = () => {
+    const saved = safeStorage.get(key);
+    return { key, path: saved === COMPUTER_PATH ? null : saved || null, home: !saved };
+  };
   const [location, setLocation] = useState(initial);
   if (location.key !== key) setLocation(initial());
   const showHidden = useShowHidden();
@@ -48,7 +52,7 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
   const [file, setFile] = useState<string | null>(null);
   const { pending, onCreate } = useOpenNew(tabs, onOpen);
   const folders = useMemo(() => [...new Set([...(tabs ?? []).map((x) => x.cwd), ...(chats ?? []).map((x) => x.cwd)].filter(Boolean))], [tabs, chats]);
-  const navigate = (path: string | null) => { setLaunch(false); setMore(false); setLocation({ key, path, home: false }); safeStorage.set(key, path ?? ""); };
+  const navigate = (path: string | null) => { setLaunch(false); setMore(false); setLocation({ key, path, home: false }); safeStorage.set(key, path ?? COMPUTER_PATH); };
   const closeSheet = () => { if (!busy) setSheet(null); };
   useEffect(() => { if (location.home && location.path === null && roots[0]) navigate(roots[0].path); }, [location.home, location.path, roots[0]?.path]);
   useBackHandler(more, () => setMore(false));

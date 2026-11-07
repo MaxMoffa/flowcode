@@ -1,5 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["scripts/*.mjs"],
+  "entry": ["scripts/*.mjs", "mobile/src/main.tsx", "sdk/agent-view/index.ts", "src-tauri/src/flowcode-mcp.cjs", "src-tauri/src/preview_host/host.js"],
   "ignore": ["docs/**"]
 }

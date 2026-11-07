@@ -15,7 +15,7 @@ export interface DelegateChild {
 /** Orchestrator session id -> its delegated children, with when it last changed (for the cap). */
 export type DelegateHistory = Record<string, { at: number; children: DelegateChild[] }>;
 
-export const MAX_ORCHESTRATORS = 200;
+const MAX_ORCHESTRATORS = 200;
 const KEY = "flowcode.delegateHistory";
 
 const isChild = (v: unknown): v is DelegateChild => {

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { useI18n } from "../i18n";
 import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
@@ -8,7 +8,7 @@ import { useCacheWarning } from "./useCacheWarning";
 import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMarker, SubagentTray, ToolGroup } from "./ChatItems";
 import { BackgroundTerminalsCard } from "../../shared/BackgroundTerminalsCard";
 import { backgroundTerminals } from "./backgroundTerminals";
-import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
+import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline, type TimelineSegment } from "./chatTimeline";
 import { CLI_INFO, cliName } from "../agents/cliInfo";
 import { delegatesOf } from "./chatModel";
 import { DelegateCards, DelegateRequests } from "./DelegateCards";
@@ -123,6 +123,32 @@ function ComposerSweep() {
 /** A delegate card in a view that cannot open tabs does nothing. */
 const NO_OPEN = () => {};
 const NO_REQUESTS: never[] = [];
+
+/** Composer edits never need to walk the transcript. Keep its direct DOM children for compaction styling. */
+const TranscriptRows = memo(function TranscriptRows({ timeline, nested, liveGroup, onAnswer, onOpenSubagent, onOpenDelegate }: {
+  timeline: TimelineSegment[];
+  nested: boolean;
+  liveGroup: TimelineSegment | null;
+  onAnswer: AgentViewProps["session"]["answerPermission"];
+  onOpenSubagent?: (id: string) => void;
+  onOpenDelegate: NonNullable<AgentViewProps["onOpenDelegate"]>;
+}) {
+  return <>{timeline.map((segment) =>
+    segment.type === "subagents" ? (
+      nested ? (
+        <SubagentCards key={segment.id} items={segment.items} onOpen={onOpenSubagent} />
+      ) : (
+        <SubagentMarker key={segment.id} items={segment.items} onOpen={onOpenSubagent} />
+      )
+    ) : segment.type === "delegates" ? (
+      <DelegateCards key={segment.id} items={segment.items} onOpen={onOpenDelegate} />
+    ) : segment.type === "group" ? (
+      <ToolGroup key={segment.id} steps={segment.steps} live={segment === liveGroup} />
+    ) : (
+      <ChatItemView key={segment.item.id} item={segment.item} onAnswer={onAnswer} />
+    ),
+  )}</>;
+});
 
 /** The built-in "chat" view: the conversation as a timeline (messages, tool
  * activity on a rail, permission requests) and a floating composer under it. */
@@ -253,12 +279,17 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
 
   // A delegated child's chat: read-only, owned by its orchestrator.
   const attached = !!chat.attached;
-  const mainTimeline = useMemo(() => (sub ? null : buildTimeline(model.items)), [sub, model.items, agent]);
-  const subTimeline = useMemo(() => (sub ? subagentTimeline(sub) : null), [sub]);
+  const timelineCache = useRef<{ main: TimelineSegment[]; sub: TimelineSegment[] }>({ main: [], sub: [] });
+  const mainTimeline = useMemo(() => (sub ? null : buildTimeline(model.items, timelineCache.current.main)), [sub, model.items, agent]);
+  const subTimeline = useMemo(() => (sub ? subagentTimeline(sub, timelineCache.current.sub) : null), [sub]);
+  useLayoutEffect(() => {
+    if (mainTimeline) timelineCache.current.main = mainTimeline;
+    if (subTimeline) timelineCache.current.sub = subTimeline;
+  }, [mainTimeline, subTimeline]);
   const timeline = subTimeline ?? mainTimeline ?? [];
-  const pending = model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined);
+  const pending = useMemo(() => model.items.filter((i): i is Extract<typeof i, { type: "permission" }> => i.type === "permission" && i.resolved === undefined), [model.items]);
   // The agent's open question: it takes the composer's place until answered.
-  const openAsk = model.items.find((i): i is Extract<typeof i, { type: "ask" }> => i.type === "ask" && i.resolved === undefined);
+  const openAsk = useMemo(() => model.items.find((i): i is Extract<typeof i, { type: "ask" }> => i.type === "ask" && i.resolved === undefined), [model.items]);
   // The plan's usage limit, reached in this turn: the frog's pond stands in for the composer until the reset (or "write anyway").
   const limit = useMemo(() => (sub || attached ? null : limitOf(model.items)), [sub, attached, model.items]);
   const [dismissedLimitId, setDismissedLimitId] = useState<string | null>(null);
@@ -274,7 +305,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     !!limit && phase === "ready" && status === "idle" && !working && pending.length === 0 && !openAsk && limit.id !== dismissedLimitId && (limitResetAt === null || limitResetAt > limitNow);
   const lastSegment = timeline[timeline.length - 1];
   // In the main chat, the subagents still running, for the tray behind the composer.
-  const runningSubs = sub ? [] : timeline.flatMap((s) => (s.type === "subagents" ? s.items.filter((i) => subagentState(i).running) : []));
+  const runningSubs = useMemo(() => sub ? [] : timeline.flatMap((s) => (s.type === "subagents" ? s.items.filter((i) => subagentState(i).running) : [])), [sub, timeline]);
   const liveGroup = (sub ? !!subState?.running : model.turnActive) && lastSegment?.type === "group" ? lastSegment : null;
   const running = liveTool(sub ? sub.children : model.items);
   const showLive = (sub ? !!subState?.running : working) && !notice && pending.length === 0 && !openAsk;
@@ -766,21 +797,14 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
               </ul>
             </details>
           )}
-          {timeline.map((segment) =>
-            segment.type === "subagents" ? (
-              sub ? (
-                <SubagentCards key={segment.id} items={segment.items} onOpen={onOpenSubagent ? openSub : undefined} />
-              ) : (
-                <SubagentMarker key={segment.id} items={segment.items} onOpen={onOpenSubagent ? openSub : undefined} />
-              )
-            ) : segment.type === "delegates" ? (
-              <DelegateCards key={segment.id} items={segment.items} onOpen={onOpenDelegate ?? NO_OPEN} />
-            ) : segment.type === "group" ? (
-              <ToolGroup key={segment.id} steps={segment.steps} live={segment === liveGroup} />
-            ) : (
-              <ChatItemView key={segment.item.id} item={segment.item} onAnswer={chat.answerPermission} />
-            ),
-          )}
+          <TranscriptRows
+            timeline={timeline}
+            nested={!!sub}
+            liveGroup={liveGroup}
+            onAnswer={chat.answerPermission}
+            onOpenSubagent={onOpenSubagent ? openSub : undefined}
+            onOpenDelegate={onOpenDelegate ?? NO_OPEN}
+          />
           {showLive && (
             <div className="chat-working">
               <FrogThinking

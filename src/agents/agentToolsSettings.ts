@@ -43,7 +43,6 @@ function load(): AgentToolsSettings {
 // Settings flips it, the chat hook reads it when a chat starts, and they sit far apart in the tree.
 const store = createStore<AgentToolsSettings>(load());
 
-export const getAgentToolsSettings = store.get;
 export const useAgentToolsSettings = store.use;
 
 export function setAgentToolsSetting<K extends keyof AgentToolsSettings>(key: K, value: AgentToolsSettings[K]) {

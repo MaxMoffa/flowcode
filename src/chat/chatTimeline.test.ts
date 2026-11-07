@@ -10,6 +10,21 @@ const agent = (id: string): ChatItem => ({ type: "agent", id, text: "x" });
 const perm = (id: string, resolved?: string | null): ChatItem =>
   ({ type: "permission", id, requestId: id, toolCall: { toolCallId: "t" }, options: [], resolved }) as ChatItem;
 
+describe("timeline identity", () => {
+  it("reuses completed groups when only a later message changes", () => {
+    const first = tool("read", "read", "completed");
+    const old = buildTimeline([first, agent("answer")]);
+    const next = buildTimeline([first, { type: "agent", id: "answer", text: "more text" }], old);
+    expect(next[0]).toBe(old[0]);
+    expect(next[1]).not.toBe(old[1]);
+  });
+  it("invalidates a group when a tool status changes", () => {
+    const old = buildTimeline([tool("read", "read", "in_progress")]);
+    const next = buildTimeline([tool("read", "read", "completed")], old);
+    expect(next[0]).not.toBe(old[0]);
+  });
+});
+
 describe("Codex subagents", () => {
   const update = (seq: number, toolCallId: string, fields: Record<string, unknown>): ChatEvent => ({
     kind: "update", seq, at: seq * 1000,

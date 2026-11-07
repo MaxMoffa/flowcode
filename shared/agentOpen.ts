@@ -65,7 +65,7 @@ function agentOpen(update: Record<string, unknown>, cwd: string): AgentOpen | nu
 }
 
 /** The backend's event for a call to Flowcode's `open_in_browser` tool (params: `{ target, cwd }`). */
-export const OPEN_EXT_METHOD = "_flowcode/open";
+const OPEN_EXT_METHOD = "_flowcode/open";
 
 function extOpen(params: unknown, cwd: string): AgentOpen | null {
   const { target, cwd: from } = (params && typeof params === "object" ? params : {}) as { target?: unknown; cwd?: unknown };
