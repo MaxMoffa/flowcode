@@ -741,15 +741,17 @@ button.card:active {
 
 /* ---- bottom nav --------------------------------------------------------- */
 
+/* Capsule: a narrow centred pill of icons; the current page fills with the accent and widens to show its label. */
 .nav {
   position: fixed;
-  left: 16px;
-  right: 16px;
+  left: 50%;
   bottom: calc(12px + var(--safe-b));
+  transform: translateX(-50%);
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  max-width: calc(100vw - 32px);
   padding: 6px;
-  border-radius: 28px;
+  border-radius: 999px;
   background-color: var(--glass-strong);
   background-image: var(--grain);
   background-size: 200px 200px;
@@ -763,43 +765,76 @@ button.card:active {
 }
 
 .nav button {
-  flex: 1;
+  position: relative;
+  flex: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-height: 52px;
+  min-width: 48px;
+  height: 48px;
+  padding: 0 13px;
   border: 0;
-  border-radius: 22px;
+  border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 600;
+  transition:
+    background-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    padding 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.nav button {
-  position: relative;
-}
-
-.nav-dot {
-  position: absolute;
-  top: 8px;
-  left: calc(50% + 6px);
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
+/* Collapsed, not hidden: screen readers still read the label of every item. */
+.nav button span {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition:
+    max-width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.2s;
 }
 
 .nav button svg {
+  flex: none;
   width: 22px;
   height: 22px;
 }
 
 .nav button.on {
-  background: var(--accent-bg);
-  color: var(--accent);
+  padding: 0 18px 0 15px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.nav button.on span {
+  max-width: 140px;
+  margin-left: 8px;
+  opacity: 1;
+}
+
+.nav-dot {
+  position: absolute;
+  top: 9px;
+  left: 28px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.nav button.on .nav-dot {
+  background: var(--on-accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav button,
+  .nav button span {
+    transition: none;
+  }
 }
 
 /* ---- pairing ------------------------------------------------------------ */

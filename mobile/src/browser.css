@@ -5,7 +5,8 @@
   right: 0;
   top: calc(var(--app-h, 100dvh) - var(--br-h));
   height: var(--br-h);
-  z-index: 11;
+  /* Above the session top buttons (.st-top, 20), so a full drawer is not covered. */
+  z-index: 25;
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -113,6 +113,11 @@ button.st-capsule:active {
   background: var(--danger);
 }
 
+/* An open menu lifts the whole top over the browser and agents drawers. */
+.st-top:has(> .st-scrim) {
+  z-index: 30;
+}
+
 .st-scrim {
   position: fixed;
   inset: 0;

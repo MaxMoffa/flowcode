@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte interattive per la barra di navigazione in basso di Flowcode mobile.">
+  <title>Flowcode mobile — barra di navigazione · 3 varianti</title>
+  <style>
+    /* Token copiati da mobile/src/ui.css: a runtime theme.ts li sovrascrive con la palette del desktop. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --accent-2: #c9975a;
+      --glass-strong: rgba(41, 36, 32, .78);
+      --wait: #d1a752; --busy: #6f9bcf;
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(.2, .8, .2, 1);
+    }
+    .light {
+      color-scheme: light;
+      --bg: #fffaf1; --surface: #f3ebdd; --surface-2: #ebe1d0; --surface-3: #ded2bd;
+      --border: rgba(58, 43, 23, .12); --border-strong: rgba(58, 43, 23, .22);
+      --fg: #3a2b17; --muted: #7a6448;
+      --accent: #4f6e3a; --accent-bg: rgba(79, 110, 58, .12); --accent-border: rgba(79, 110, 58, .3);
+      --on-accent: #fff; --accent-2: #a8683a;
+      --glass-strong: rgba(255, 250, 241, .8);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: #120e0b; color: #e7d8c5; font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .ic { flex: none; display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---- pagina ---- */
+    .page { max-width: 1240px; margin: auto; padding: 28px 24px 48px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: #a08a6f; margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: #a08a6f; max-width: 760px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 12px; background: #1a1511; border: 1px solid rgba(232,184,128,.12); border-radius: 12px; }
+    .variants button { flex: 1 1 150px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: #a08a6f; font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: #302b26; color: #e7d8c5; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 14px; margin-bottom: 26px; background: #1a1511; border: 1px solid rgba(232,184,128,.12); border-radius: 12px; font-size: 13px; color: #a08a6f; }
+    .controls label { display: flex; gap: 7px; align-items: center; }
+    .controls input { accent-color: #9db984; width: 16px; height: 16px; }
+    .stage { display: flex; flex-wrap: wrap; justify-content: center; gap: 44px; margin-bottom: 36px; }
+    .col { display: grid; gap: 14px; justify-items: center; }
+    .col > span { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: #a08a6f; }
+    .notes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+    .note h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+    .note h2 small { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: rgba(157,185,132,.12); color: #9db984; font-size: 11px; font-weight: 600; vertical-align: 2px; }
+    .note p { margin: 0 0 12px; color: #a08a6f; max-width: 66ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: #a08a6f; }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+    .check { padding: 14px 16px; border-radius: 12px; background: #1a1511; border: 1px solid rgba(232,184,128,.12); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    caption { text-align: left; margin-bottom: 6px; font-size: 14px; font-weight: 600; }
+    th, td { padding: 7px 8px 7px 0; border-top: 1px solid rgba(232,184,128,.12); text-align: left; vertical-align: top; font-weight: 400; }
+    thead th { color: #a08a6f; font-size: 12px; border-top: 0; }
+    tr.on td, tr.on th { color: #9db984; }
+    @media (max-width: 860px) { .notes { grid-template-columns: 1fr; } }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 360px; height: 740px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); color: var(--fg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px rgba(231,216,197,.2), 0 30px 60px -30px #000; isolation: isolate; --safe-b: 14px; }
+    .aurora { position: absolute; inset: 0; z-index: -1; opacity: .7; background:
+      radial-gradient(60% 40% at 15% 8%, rgba(157,185,132,.35), transparent 70%),
+      radial-gradient(55% 35% at 90% 20%, rgba(201,151,90,.32), transparent 70%),
+      radial-gradient(70% 45% at 50% 95%, rgba(111,155,207,.18), transparent 70%); }
+    .status { flex: none; height: 26px; display: flex; justify-content: space-between; align-items: end; padding: 0 26px; font-size: 12px; color: var(--muted); }
+    .bar { flex: none; height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; }
+    .bar b { font-size: 17px; font-weight: 600; }
+    .bar small { display: block; font-size: 12px; color: var(--muted); }
+    .scroll { flex: 1; overflow-y: auto; padding: 4px 16px 120px; scrollbar-width: none; }
+    .scroll::-webkit-scrollbar { display: none; }
+    .sec { margin: 14px 2px 8px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .card { display: flex; gap: 12px; align-items: center; padding: 12px 14px; margin-bottom: 8px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter: blur(12px); border: 1px solid var(--border); }
+    .logo { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: var(--surface-3); font: 600 13px var(--mono); }
+    .card b { display: block; font-size: 14px; font-weight: 600; }
+    .card small { color: var(--muted); font-size: 12px; }
+    .card .st { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    .card .st.busy { background: var(--busy); } .card .st.wait { background: var(--wait); }
+    .ph { display: grid; place-items: center; height: 520px; color: var(--muted); font-size: 13px; text-align: center; padding: 0 30px; }
+
+    /* ---- OGGI: copia di .nav in ui.css ---- */
+    .n0 { position: absolute; left: 16px; right: 16px; bottom: calc(12px + var(--safe-b)); display: flex; gap: 4px; padding: 6px; border-radius: 28px; background: var(--glass-strong); backdrop-filter: blur(24px) saturate(160%); border: 1px solid var(--border); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 12px 32px rgba(0,0,0,.35); }
+    .n0 button { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 52px; border-radius: 22px; color: var(--muted); font-size: 11px; font-weight: 600; }
+    .n0 button.on { background: var(--accent-bg); color: var(--accent); }
+    .dot { position: absolute; top: 8px; left: calc(50% + 6px); width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+
+    /* ---- 01 CAPSULA: icone sole, la voce attiva si allarga e mostra l'etichetta ---- */
+    .n1 { position: absolute; left: 50%; bottom: calc(12px + var(--safe-b)); transform: translateX(-50%); display: flex; gap: 2px; padding: 6px; border-radius: 99px; background: var(--glass-strong); backdrop-filter: blur(24px) saturate(160%); border: 1px solid var(--border); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 12px 32px rgba(0,0,0,.35); }
+    .n1 button { position: relative; display: flex; align-items: center; height: 48px; padding: 0 13px; border-radius: 99px; color: var(--muted); transition: background .3s var(--ease), color .3s var(--ease), padding .3s var(--ease); }
+    .n1 button span { max-width: 0; overflow: hidden; white-space: nowrap; font-size: 13.5px; font-weight: 600; opacity: 0; transition: max-width .35s var(--ease), opacity .2s, margin .35s var(--ease); }
+    .n1 button.on { background: var(--accent); color: var(--on-accent); padding: 0 18px 0 15px; }
+    .n1 button.on span { max-width: 110px; opacity: 1; margin-left: 8px; }
+    .n1 .dot { top: 9px; left: 28px; }
+    .n1 button.on .dot { background: var(--on-accent); box-shadow: 0 0 0 2px var(--accent); }
+
+    /* ---- 02 BASE: barra piena ancorata al bordo, indicatore che scorre sopra l'icona ---- */
+    .n2 { position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr); padding: 6px 8px var(--safe-b); background: var(--glass-strong); backdrop-filter: blur(24px) saturate(160%); border-top: 1px solid var(--border); }
+    .n2 .ind { position: absolute; top: 6px; left: 8px; width: calc((100% - 16px) / 3); height: 32px; display: grid; place-items: center; pointer-events: none; transition: transform .35s var(--ease); }
+    .n2 .ind::before { content: ""; width: 60px; height: 32px; border-radius: 99px; background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); }
+    .n2 button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 0 8px; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .n2 button svg { height: 32px; width: 22px; }
+    .n2 button.on { color: var(--accent); }
+    .n2 .dot { top: 8px; left: calc(50% + 9px); }
+    .phone.v2 .scroll { padding-bottom: 100px; }
+
+    /* ---- 03 ISOLA + AZIONE: tre voci a sinistra, "+" separato, si riduce scorrendo ---- */
+    .n3 { position: absolute; left: 16px; right: 16px; bottom: calc(12px + var(--safe-b)); display: flex; gap: 10px; align-items: center; pointer-events: none; }
+    .n3 > * { pointer-events: auto; }
+    .n3 .isle { flex: 1; display: flex; padding: 5px; border-radius: 99px; background: var(--glass-strong); backdrop-filter: blur(24px) saturate(160%); border: 1px solid var(--border); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 12px 32px rgba(0,0,0,.35); transition: flex .35s var(--ease); position: relative; }
+    .n3 .pill { position: absolute; top: 5px; bottom: 5px; left: 5px; width: calc((100% - 10px) / 3); border-radius: 99px; background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); transition: transform .35s var(--ease); }
+    .n3 .isle button { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; height: 50px; color: var(--muted); font-size: 11px; font-weight: 600; transition: height .3s var(--ease); }
+    .n3 .isle button span { transition: opacity .2s, max-height .3s var(--ease); max-height: 16px; }
+    .n3 .isle button.on { color: var(--accent); }
+    .n3 .fab { flex: none; width: 60px; height: 60px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--on-accent); box-shadow: 0 10px 26px rgba(0,0,0,.4); transition: transform .35s var(--ease), width .3s var(--ease), height .3s var(--ease); }
+    .n3 .fab svg { width: 26px; height: 26px; stroke-width: 2.2; }
+    .n3 .dot { top: 7px; left: calc(50% + 6px); }
+    .n3.mini { left: 70px; right: 70px; }
+    .n3.mini .isle button { height: 40px; }
+    .n3.mini .isle button span { opacity: 0; max-height: 0; }
+    .n3.mini .fab { width: 50px; height: 50px; }
+    .phone.v3 .n3 { transition: left .35s var(--ease), right .35s var(--ease); }
+    /* foglio "Nuovo" */
+    .sheet { position: absolute; inset: 0; z-index: 5; display: flex; align-items: flex-end; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .25s; }
+    .sheet.open { opacity: 1; pointer-events: auto; }
+    .sheet .sh { width: 100%; padding: 10px 14px calc(18px + var(--safe-b)); border-radius: 24px 24px 0 0; background: var(--surface); border-top: 1px solid var(--border-strong); transform: translateY(100%); transition: transform .35s var(--ease); }
+    .sheet.open .sh { transform: none; }
+    .grab { width: 36px; height: 4px; margin: 0 auto 12px; border-radius: 4px; background: var(--border-strong); }
+    .sh h4 { margin: 0 4px 10px; font-size: 15px; }
+    .opt { display: flex; gap: 12px; align-items: center; width: 100%; padding: 12px; border-radius: 14px; text-align: left; }
+    .opt:active { background: var(--surface-2); }
+    .opt small { display: block; color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · DESIGN</div>
+  <h1>Barra di navigazione in basso — 3 varianti</h1>
+  <p class="lead">A sinistra la barra di oggi (<code>BottomNav</code> in <code>App.tsx</code>, stile <code>.nav</code> in <code>ui.css</code>), a destra la variante scelta. Tocca le voci, scorri la lista e attiva il pallino aggiornamento per vedere i comportamenti.</p>
+
+  <div class="variants" role="group" aria-label="Variante">
+    <button type="button" data-v="1" aria-pressed="true"><span>01</span>Capsula</button>
+    <button type="button" data-v="2" aria-pressed="false"><span>02</span>Base</button>
+    <button type="button" data-v="3" aria-pressed="false"><span>03</span>Isola + azione</button>
+  </div>
+  <div class="controls">
+    <label><input type="checkbox" id="upd" checked> Aggiornamento disponibile (pallino su Impostazioni)</label>
+    <label><input type="checkbox" id="light"> Tema chiaro</label>
+  </div>
+
+  <div class="stage">
+    <div class="col"><span>OGGI</span><div class="phone" id="p0"></div></div>
+    <div class="col"><span id="vlabel">VARIANTE 01</span><div class="phone" id="p1"></div></div>
+  </div>
+
+  <div class="notes">
+    <div class="note" id="note"></div>
+    <div class="check">
+      <table>
+        <caption>Confronto rapido</caption>
+        <thead><tr><th></th><th>Etichette</th><th>Spazio occupato</th><th>Novità</th></tr></thead>
+        <tbody>
+          <tr data-r="0"><th>Oggi</th><td>sempre</td><td>~90 px, flottante</td><td>—</td></tr>
+          <tr data-r="1"><th>01 Capsula</th><td>solo attiva</td><td>~76 px, centrata e stretta</td><td>animazione di espansione</td></tr>
+          <tr data-r="2"><th>02 Base</th><td>sempre</td><td>~72 px, a tutta larghezza</td><td>indicatore che scorre</td></tr>
+          <tr data-r="3"><th>03 Isola + azione</th><td>sempre, spariscono scorrendo</td><td>~86 px → ~70 px</td><td>pulsante “+” per nuova chat/terminale</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const ICON = {
+  agents: '<svg class="ic" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 7V4"/><circle cx="12" cy="3.5" r=".6"/><circle cx="9" cy="13" r=".8"/><circle cx="15" cy="13" r=".8"/></svg>',
+  files: '<svg class="ic" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>',
+  settings: '<svg class="ic" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>',
+  plus: '<svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  chat: '<svg class="ic" viewBox="0 0 24 24"><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H10l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>',
+  term: '<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7 10l3 2.5L7 15M12.5 15H17"/></svg>',
+};
+const ITEMS = [["agents", "Agenti"], ["files", "File"], ["settings", "Impostazioni"]];
+const NOTES = {
+  1: `<h2>01 · Capsula <small>più pulita</small></h2>
+      <p>Pillola stretta e centrata con solo icone; la voce attiva si riempie di accento e si allarga mostrando l'etichetta. Lascia libero più contenuto ai lati e dà un punto focale chiaro.</p>
+      <h3>PRO</h3><ul><li>Occupa meno: niente barra a tutta larghezza sopra le card.</li><li>Stato attivo leggibilissimo (pieno accento, non solo tinta).</li></ul>
+      <h3>CONTRO</h3><ul><li>Le voci inattive non hanno testo: va bene con 3 icone note, peggio se le voci crescono.</li><li>Il bersaglio delle inattive è 48×48: al limite ma conforme.</li></ul>`,
+  2: `<h2>02 · Base <small>più nativa</small></h2>
+      <p>Barra classica ancorata al bordo, stile Material 3 / iOS: etichette sempre visibili, una pillola dietro l'icona scorre verso la voce scelta. Niente ombra flottante, il contenuto scorre sotto il vetro.</p>
+      <h3>PRO</h3><ul><li>Familiare su Android e iOS, bersagli larghi un terzo dello schermo.</li><li>Usa l'area sicura in basso invece di galleggiarci sopra.</li></ul>
+      <h3>CONTRO</h3><ul><li>Meno carattere della pillola di oggi.</li><li>Il bordo superiore taglia l'aurora della home.</li></ul>`,
+  3: `<h2>03 · Isola + azione <small>più funzionale</small></h2>
+      <p>Le tre voci restano in un'isola di vetro a sinistra, a destra un pulsante tondo “+” apre un foglio per avviare chat o terminale da qualunque pagina. Scorrendo verso il basso la barra si riduce (etichette nascoste), verso l'alto torna piena.</p>
+      <h3>PRO</h3><ul><li>Azione principale (nuova sessione) sempre a un tocco, anche da File e Impostazioni.</li><li>La riduzione allo scorrimento restituisce spazio alla lista.</li></ul>
+      <h3>CONTRO</h3><ul><li>Duplica il launcher già presente nella home: andrebbe deciso se toglierlo o tenerli entrambi.</li><li>Più logica (scroll listener, foglio).</li></ul>`,
+};
+
+let variant = 1;
+const state = { 0: "agents", 1: "agents" };
+
+function content(page) {
+  if (page === "agents") {
+    const rows = [["CC", "flowcode", "Claude · sta scrivendo", "busy"], ["CX", "api-server", "Codex · in attesa di permesso", "wait"], ["$", "pwsh", "Terminale · pronto", ""], ["GM", "site", "Gemini · inattivo", ""], ["CC", "docs", "Claude · pronto", ""], ["$", "wsl · ubuntu", "Terminale · pronto", ""], ["CX", "mobile", "Codex · pronto", ""], ["CC", "scripts", "Claude · pronto", ""]];
+    return `<div class="sec">SESSIONI APERTE</div>` + rows.map(([l, t, s, st]) => `<div class="card"><div class="logo">${l}</div><div><b>${t}</b><small>${s}</small></div><i class="st ${st}"></i></div>`).join("") + `<div class="sec">RECENTI</div>` + rows.slice(0, 5).map(([l, t]) => `<div class="card"><div class="logo">${l}</div><div><b>${t}</b><small>ieri</small></div></div>`).join("");
+  }
+  return `<div class="ph">${page === "files" ? "Pagina File" : "Pagina Impostazioni"}<br>(contenuto non rilevante per la navbar)</div>`;
+}
+
+function navHtml(v, page) {
+  const upd = document.getElementById("upd").checked;
+  const dot = (id) => (id === "settings" && upd ? '<i class="dot" aria-label="Aggiornamento disponibile"></i>' : "");
+  const btns = (cls) => ITEMS.map(([id, label]) => `<button type="button" data-p="${id}" class="${page === id ? "on" : ""}" aria-current="${page === id ? "page" : "false"}" aria-label="${label}">${ICON[id]}<span>${label}</span>${dot(id)}</button>`).join("");
+  const idx = ITEMS.findIndex(([id]) => id === page);
+  if (v === 0) return `<nav class="n0" aria-label="Navigazione principale">${btns()}</nav>`;
+  if (v === 1) return `<nav class="n1" aria-label="Navigazione principale">${btns()}</nav>`;
+  if (v === 2) return `<nav class="n2" aria-label="Navigazione principale"><i class="ind" style="transform:translateX(${idx * 100}%)"></i>${btns()}</nav>`;
+  return `<nav class="n3" aria-label="Navigazione principale"><div class="isle"><i class="pill" style="transform:translateX(${idx * 100}%)"></i>${btns()}</div><button type="button" class="fab" aria-label="Nuova sessione">${ICON.plus}</button></nav>
+    <div class="sheet"><div class="sh"><div class="grab"></div><h4>Nuova sessione</h4>
+      <button type="button" class="opt">${ICON.chat}<div>Nuova chat<small>Claude, Codex o Gemini</small></div></button>
+      <button type="button" class="opt">${ICON.term}<div>Nuovo terminale<small>PowerShell, WSL…</small></div></button>
+    </div></div>`;
+}
+
+function render(slot) {
+  const el = document.getElementById("p" + slot);
+  const v = slot === 0 ? 0 : variant;
+  const page = state[slot];
+  const titles = { agents: "Agenti", files: "File", settings: "Impostazioni" };
+  el.className = "phone v" + v + (document.getElementById("light").checked ? " light" : "");
+  el.innerHTML = `<div class="aurora"></div><div class="status"><span>9:41</span><span>5G ▮▮▮</span></div>
+    <div class="bar"><div><b>${titles[page]}</b><small>DESKTOP-MASSI</small></div></div>
+    <div class="scroll">${content(page)}</div>${navHtml(v, page)}`;
+  el.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => {
+    if (state[slot] === b.dataset.p) return;
+    state[slot] = b.dataset.p;
+    // aggiorna solo lo stato della barra per lasciare correre le transizioni
+    const nav = el.querySelector("nav");
+    nav.querySelectorAll("[data-p]").forEach((x) => { const on = x.dataset.p === state[slot]; x.classList.toggle("on", on); x.setAttribute("aria-current", on ? "page" : "false"); });
+    const idx = ITEMS.findIndex(([id]) => id === state[slot]);
+    const mover = nav.querySelector(".ind, .pill");
+    if (mover) mover.style.transform = `translateX(${idx * 100}%)`;
+    el.querySelector(".bar b").textContent = titles[state[slot]];
+    const sc = el.querySelector(".scroll");
+    sc.innerHTML = content(state[slot]);
+    sc.scrollTop = 0;
+    el.querySelector(".n3")?.classList.remove("mini");
+  }));
+  if (v === 3) {
+    const nav = el.querySelector(".n3"), sheet = el.querySelector(".sheet"), sc = el.querySelector(".scroll");
+    el.querySelector(".fab").addEventListener("click", () => sheet.classList.add("open"));
+    sheet.addEventListener("click", (e) => { if (e.target === sheet || e.target.closest(".opt")) sheet.classList.remove("open"); });
+    let last = 0;
+    sc.addEventListener("scroll", () => {
+      const y = sc.scrollTop;
+      if (Math.abs(y - last) < 6) return;
+      nav.classList.toggle("mini", y > last && y > 40);
+      last = y;
+    }, { passive: true });
+  }
+}
+
+function renderAll() {
+  render(0); render(1);
+  document.getElementById("vlabel").textContent = "VARIANTE 0" + variant;
+  document.getElementById("note").innerHTML = NOTES[variant];
+  document.querySelectorAll("tr[data-r]").forEach((r) => r.classList.toggle("on", r.dataset.r === String(variant)));
+}
+
+document.querySelectorAll(".variants button").forEach((b) => b.addEventListener("click", () => {
+  variant = +b.dataset.v;
+  document.querySelectorAll(".variants button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  renderAll();
+}));
+document.getElementById("upd").addEventListener("change", renderAll);
+document.getElementById("light").addEventListener("change", renderAll);
+renderAll();
+</script>
+</body>
+</html>
