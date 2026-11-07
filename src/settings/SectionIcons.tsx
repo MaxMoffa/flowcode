@@ -31,6 +31,8 @@ const PATHS: Record<SettingsSection, ReactNode> = {
       <path d="M14.5 4.5v15" />
     </>
   ),
+  // A wrench, for the tools agents are given.
+  agentTools: <path d="M14.5 6.5a4 4 0 0 0-5.2 5.1L4 17l3 3 5.4-5.3a4 4 0 0 0 5.1-5.2l-2.6 2.6-2.4-.6-.6-2.4z" />,
   // Microphone, for dictation.
   dictation: (
     <>

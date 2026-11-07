@@ -9,7 +9,9 @@ import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMar
 import { BackgroundTerminalsCard } from "../../shared/BackgroundTerminalsCard";
 import { backgroundTerminals } from "./backgroundTerminals";
 import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline } from "./chatTimeline";
-import { CLI_INFO } from "../agents/cliInfo";
+import { CLI_INFO, cliName } from "../agents/cliInfo";
+import { delegatesOf } from "./chatModel";
+import { DelegateCards, DelegateRequests } from "./DelegateCards";
 import type { ChatAttachment, ChatCommand } from "./chatTypes";
 import { buildMenu, commandText, displayName, type CommandKind, type MenuEntry } from "./commandMenu";
 import { CommandChip, KindIcon, UserText } from "./CommandChip";
@@ -118,9 +120,13 @@ function ComposerSweep() {
   );
 }
 
+/** A delegate card in a view that cannot open tabs does nothing. */
+const NO_OPEN = () => {};
+const NO_REQUESTS: never[] = [];
+
 /** The built-in "chat" view: the conversation as a timeline (messages, tool
  * activity on a rail, permission requests) and a floating composer under it. */
-export default function ChatBody({ session: chat, agent, hidden, cwd, openSubagent: sub = null, onOpenSubagent }: AgentViewProps) {
+export default function ChatBody({ session: chat, agent, hidden, cwd, openSubagent: sub = null, onOpenSubagent, onOpenDelegate }: AgentViewProps) {
   const { t } = useI18n();
   const { model, phase, queued } = chat;
   const status = model.status;
@@ -165,7 +171,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
       if (text.trim()) dictatedRef.current = true;
       setDraft((d) => appendDictation(d, text));
     },
-    !hidden && !sub,
+    !hidden && !sub && !chat.attached,
     () => {
       // Not when the session ended because this view was hidden or a subagent opened over it.
       if (dictatedRef.current && getDictationAutoSend() && !hidden && !sub) autoSendRef.current = true;
@@ -245,6 +251,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     }
   }, [subId]);
 
+  // A delegated child's chat: read-only, owned by its orchestrator.
+  const attached = !!chat.attached;
   const mainTimeline = useMemo(() => (sub ? null : buildTimeline(model.items)), [sub, model.items, agent]);
   const subTimeline = useMemo(() => (sub ? subagentTimeline(sub) : null), [sub]);
   const timeline = subTimeline ?? mainTimeline ?? [];
@@ -252,7 +260,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   // The agent's open question: it takes the composer's place until answered.
   const openAsk = model.items.find((i): i is Extract<typeof i, { type: "ask" }> => i.type === "ask" && i.resolved === undefined);
   // The plan's usage limit, reached in this turn: the frog's pond stands in for the composer until the reset (or "write anyway").
-  const limit = useMemo(() => (sub ? null : limitOf(model.items)), [sub, model.items]);
+  const limit = useMemo(() => (sub || attached ? null : limitOf(model.items)), [sub, attached, model.items]);
   const [dismissedLimitId, setDismissedLimitId] = useState<string | null>(null);
   const limitResetAt = limit ? (limit.at ?? accountBlockedUntil(CLI_INFO[agent].pluginId, chat.profileId ?? undefined) ?? null) : null;
   const [limitNow, setLimitNow] = useState(() => Date.now());
@@ -275,7 +283,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   // A Claude chat idle past the prompt cache's lifetime: the next message re-reads everything uncached.
   const cacheWarning = useCacheWarning({
     agent,
-    idle: !sub && phase === "ready" && status === "idle" && pending.length === 0 && !openAsk && queued.length === 0,
+    idle: !sub && !attached && phase === "ready" && status === "idle" && pending.length === 0 && !openAsk && queued.length === 0,
     items: model.items,
     lastActivityAt: chat.lastActivityAt,
     usageTokens: chat.usageTokens,
@@ -286,6 +294,18 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     chatId: chat.chatId ?? "",
   });
   const showCacheCard = cacheWarning.show && !draft;
+
+  // The delegates' open requests take the composer's place, like the agent's own question (which goes first).
+  const delegateRequests = attached || !chat.answerDelegatePermission || !chat.answerDelegateAsk ? NO_REQUESTS : model.delegateRequests;
+  const delegateAsk = delegateRequests.length > 0 && !openAsk;
+  // The delegate behind a request, for its "open the chat" button.
+  const openDelegateOf = useCallback(
+    (taskId: string) => {
+      const delegate = delegatesOf(model.items).find((d) => d.taskId === taskId);
+      if (delegate) onOpenDelegate?.(delegate);
+    },
+    [model.items, onOpenDelegate],
+  );
 
   // Follow the conversation while the reader is at its end.
   useLayoutEffect(() => {
@@ -722,6 +742,12 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
               {subagentPrompt(sub.call) ? <ChatMarkdown text={subagentPrompt(sub.call)} /> : sub.call.title}
             </div>
           )}
+          {attached && model.task && (
+            <div className="chat-user is-task">
+              <span className="chat-task-label">{t("chat.delegate.task", { agent: cliName(model.task.parentAgent) })}</span>
+              <ChatMarkdown text={model.task.prompt} />
+            </div>
+          )}
           {!sub && model.plan && model.plan.length > 0 && (
             <details className="chat-plan" open>
               <summary>
@@ -747,6 +773,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
               ) : (
                 <SubagentMarker key={segment.id} items={segment.items} onOpen={onOpenSubagent ? openSub : undefined} />
               )
+            ) : segment.type === "delegates" ? (
+              <DelegateCards key={segment.id} items={segment.items} onOpen={onOpenDelegate ?? NO_OPEN} />
             ) : segment.type === "group" ? (
               <ToolGroup key={segment.id} steps={segment.steps} live={segment === liveGroup} />
             ) : (
@@ -814,7 +842,31 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
 
       {/* Inside the scroller and sticky, so messages slide behind the composer. */}
       <div className="chat-footer" ref={footerRef} onKeyDown={onFooterKeyDown}>
-        {sub ? (
+        {attached ? (
+          <div className="chat-composer-wrap">
+            {/* Its own permissions and questions are answered here as in any chat; the orchestrator's composer shows the same ones. */}
+            {pending.map((item) => (
+              <PermissionCard key={item.id} item={item} onAnswer={chat.answerPermission} />
+            ))}
+            {openAsk && <AskComposer key={openAsk.id} item={openAsk} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
+            <div className="chat-sub-footer">
+              <span className="lock">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="5" y="11" width="14" height="9" rx="2" />
+                  <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                </svg>
+                <span>{t(working ? "chat.delegate.locked" : "chat.delegate.lockedDone").split("**").map((part, i) => (i % 2 === 1 ? <b key={i}>{part}</b> : part))}</span>
+              </span>
+              {working && model.task && (
+                <span className="acts">
+                  <button type="button" className="chat-btn is-danger" onClick={chat.cancel}>
+                    {t("chat.delegate.stop")}
+                  </button>
+                </span>
+              )}
+            </div>
+          </div>
+        ) : sub ? (
           <div className="chat-composer-wrap">
             {pending.map((item) => (
               <PermissionCard key={item.id} item={item} onAnswer={chat.answerPermission} />
@@ -977,8 +1029,17 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
             />
             {/* The textarea stays mounted (hidden) so a half-typed message survives the question. */}
             {openAsk && <AskComposer key={openAsk.id} item={openAsk} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
+            {delegateAsk && (
+              <DelegateRequests
+                requests={delegateRequests}
+                onPermission={chat.answerDelegatePermission!}
+                onAsk={chat.answerDelegateAsk!}
+                onOpen={(request) => openDelegateOf(request.taskId)}
+                autoFocus={!hidden}
+              />
+            )}
             {/* The expired-cache card takes the composer's place (the composer stays mounted, hidden). */}
-            {showCacheCard && !openAsk && (
+            {showCacheCard && !openAsk && !delegateAsk && (
               <div className="chat-cache-card" role="status">
                 <button type="button" className="chat-cache-x" aria-label={t("chat.dictate.dismiss")} title={t("chat.dictate.dismiss")} onClick={cacheWarning.dismiss}>
                   {"✕"}
@@ -1009,7 +1070,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 </div>
               </div>
             )}
-            <div className={`chat-composer${openAsk || showCacheCard ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
+            <div className={`chat-composer${openAsk || delegateAsk || showCacheCard ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
               {transcribing && <ComposerSweep />}
               {(listening || transcribing) && (
                 <div className="chat-listening" aria-live="polite">
@@ -1178,7 +1239,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
         )}
       </div>
       </div>
-      {!sub && (phase === "ready" || phase === "starting") && status !== "exited" && !working && model.items.length === 0 && queued.length === 0 && !model.plan?.length && (
+      {!sub && !attached && (phase === "ready" || phase === "starting") && status !== "exited" && !working && model.items.length === 0 && queued.length === 0 && !model.plan?.length && (
         <ChatEmptyFrog key={chat.clearCount} hidden={hidden} starting={phase === "starting"} cleared={cleared} />
       )}
       {!atBottom && (

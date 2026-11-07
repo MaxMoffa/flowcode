@@ -153,6 +153,7 @@ pub fn run() {
             chat::chat_set_model,
             chat::chat_set_thought,
             chat::chat_close,
+            chat::delegate::delegate_cancel,
             chat::chat_adapter_ready,
             chat::chat_events,
             chat::chat_image,

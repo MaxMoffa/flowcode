@@ -268,3 +268,97 @@
   color: var(--fg-muted);
   font-size: 11.5px;
 }
+
+/* An orchestrator's delegated chats: the chip on its row, and the rows folded under it. */
+.agent-history-delegates {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.agent-history-pips {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.agent-history-pips i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--fg-muted);
+}
+
+.agent-history-pips i.is-running {
+  background: var(--accent);
+}
+
+.agent-history-pips i.is-waiting {
+  background: var(--ansi-bright-yellow);
+}
+
+.agent-history-pips i.is-failed {
+  background: var(--ansi-bright-red);
+}
+
+.agent-history-delegates-chev {
+  transition: transform 0.15s;
+}
+
+.agent-history-delegates[aria-expanded="true"] .agent-history-delegates-chev {
+  transform: rotate(90deg);
+}
+
+.agent-history-meta:has(.agent-history-delegates) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: visible;
+}
+
+.agent-history-kids {
+  position: relative;
+  margin: 0 0 3px 23px;
+}
+
+.agent-history-kids::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 18px;
+  width: 1px;
+  background: var(--border);
+}
+
+.agent-history-row.is-child {
+  position: relative;
+  width: calc(100% - 18px);
+  min-height: 34px;
+  margin: 1px 6px 1px 12px;
+  padding: 3px 8px;
+}
+
+.agent-history-row.is-child::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 9px;
+  height: 1px;
+  background: var(--border);
+}
+
+.agent-history-row.is-child .agent-history-icon,
+.agent-history-row.is-child .agent-history-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.agent-history-row.is-child .agent-history-title {
+  font-size: 12.5px;
+}
+
+.agent-history-dot--off {
+  background: var(--fg-muted);
+}

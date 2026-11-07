@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — chat delegate ad altri agenti · 3 varianti</title>
+  <style>
+    /* ------------------------------------------------------------------
+       Pagina (fuori dalla finestra)
+       ------------------------------------------------------------------ */
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: #e7d8c5; font: 13.5px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; }
+    button { font: inherit; color: inherit; }
+    code { font: 12px ui-monospace, Consolas, monospace; }
+    .page { max-width: 1340px; margin: auto; padding: 28px 24px 48px; }
+    .pg-eyebrow { font-size: 11px; letter-spacing: .13em; color: #a08a6f; margin-bottom: 6px; }
+    .pg-h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .pg-lead { margin: 0 0 18px; color: #a08a6f; max-width: 860px; }
+    .pg-seg { display: flex; gap: 4px; padding: 4px; background: #1a1511; border: 1px solid rgba(232,184,128,.12); border-radius: 12px; margin-bottom: 14px; }
+    .pg-seg button { flex: 1; min-height: 44px; padding: 6px 14px; border: 0; border-radius: 9px; background: none; color: #a08a6f; text-align: left; cursor: pointer; }
+    .pg-seg button b { display: block; color: #e7d8c5; font-weight: 600; }
+    .pg-seg button[aria-pressed="true"] { background: #302b26; box-shadow: inset 0 0 0 1px rgba(231,216,197,.2); }
+    .pg-note { background: #292420; border: 1px solid rgba(232,184,128,.12); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; color: #a08a6f; }
+    .pg-note b { color: #e7d8c5; }
+    .pg-note ul { margin: 6px 0 0; padding-left: 18px; }
+    .pg-foot { margin-top: 12px; color: #a08a6f; font-size: 12.5px; }
+
+    /* ------------------------------------------------------------------
+       Tema scuro predefinito (src/themes/themes.css, palette di default)
+       ------------------------------------------------------------------ */
+    .app-shell {
+      --panel-header-h: 38px;
+      --card-radius: 10px;
+      --card-border: color-mix(in srgb, var(--fg) 16%, transparent);
+      --card-bg: rgb(0 0 0 / 0.22);
+      --surface-rgb: 14 10 7;
+      --surface-alpha: 0.7; /* Windows */
+      --surface: rgb(var(--surface-rgb) / var(--surface-alpha));
+      --bg-elevated: var(--surface);
+      --fg: #e7d8c5;
+      --fg-muted: #a08a6f;
+      --border: rgba(232, 184, 128, 0.12);
+      --window-border: rgba(0, 0, 0, 0.55);
+      --accent: #9db984;
+      --accent-2: #c9975a;
+      --accent-tint: var(--accent);
+      --on-accent: #fff;
+      --danger: var(--ansi-red);
+      --ctrl-fg: rgba(240, 224, 204, 0.85);
+      --ctrl-hover-bg: rgba(232, 184, 128, 0.12);
+      --radius-ctl: 6px;
+      --glass-blur: 16px;
+      --sidebar-bg: var(--surface);
+      --sidebar-hover: rgba(232, 184, 128, 0.07);
+      --sidebar-selected-bg: rgba(139, 168, 118, 0.22);
+      --sidebar-selected-fg: #eef2e6;
+      --term-bg: var(--surface);
+      --term-fg: #f2e6d6;
+      --menu-surface: rgb(var(--surface-rgb) / 0.96);
+      --ansi-red: #e2645c;
+      --ansi-green: #9db984;
+      --ansi-yellow: #d1a752;
+      --ansi-blue: #6f9bcf;
+      --ansi-bright-red: #f08079;
+      --ansi-bright-green: #b6d19d;
+      --ansi-bright-yellow: #e0bd72;
+      --ansi-bright-blue: #8fb4e0;
+      --c-mem: #e0b252; --c-skill: #d0709a; --c-msg: var(--accent); --c-free: var(--sidebar-hover);
+      --font-mono: ui-monospace, Consolas, monospace;
+      color: var(--fg);
+      font: 16px/normal -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .app-shell button { font-family: inherit; }
+    .app-shell svg { flex: none; }
+    .app-shell ::-webkit-scrollbar { width: 10px; height: 10px; }
+    .app-shell ::-webkit-scrollbar-track { background: transparent; }
+    .app-shell ::-webkit-scrollbar-thumb { background-color: var(--border); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+
+    /* ------------------------------------------------------------------
+       App.css
+       ------------------------------------------------------------------ */
+    .app-shell {
+      display: flex; flex-direction: column; width: 1280px; height: 760px;
+      border-radius: 8px; border: 1px solid var(--window-border); overflow: hidden; position: relative;
+      /* Sfondo dietro il vetro (Mica): in app e' il desktop. */
+      background: #2d241b;
+      --app-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.95 0 0 0 0 0.88 0 0 0 0 0.78 0.1 0 0 0 -0.04'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    .app-shell::after {
+      content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit;
+      background-image: var(--app-grain),
+        radial-gradient(ellipse 70% 60% at 12% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+        radial-gradient(ellipse 60% 55% at 95% 100%, color-mix(in srgb, var(--accent-2, var(--accent)) 5%, transparent), transparent 70%);
+      background-size: 200px 200px, auto, auto;
+    }
+    .app-headerbar { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 8px; background: var(--bg-elevated); flex: none; }
+    .header-right { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; margin-left: 6px; }
+    .window-controls { display: flex; align-items: center; gap: 2px; margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--border); }
+    .icon-button { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: var(--ctrl-fg); cursor: pointer; padding: 0; border-radius: var(--radius-ctl); transition: background .15s ease, color .15s ease; flex: 0 0 auto; }
+    .icon-button svg { width: 16px; height: 16px; stroke: currentColor; fill: none; }
+    .icon-button:hover { background: var(--ctrl-hover-bg); }
+    .icon-button.is-active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--fg); }
+    .icon-button-close:hover { background: var(--danger); color: #fff; }
+    .quick-actions { display: flex; align-items: center; gap: 2px; margin-left: 4px; padding-left: 6px; border-left: 1px solid var(--border); }
+    .app-body { position: relative; flex: 1; display: flex; min-height: 0; padding: 0 8px 8px; background: var(--bg-elevated); gap: 8px; }
+    .resizable-panel { position: relative; z-index: 2; display: flex; flex: 0 0 auto; min-width: 0; }
+    .panel-card { flex: 1 1 auto; min-width: 0; display: flex; border: 1px solid var(--card-border); background: var(--card-bg); border-radius: var(--card-radius); overflow: hidden; }
+    .panel-card-content { flex: none; display: flex; height: 100%; }
+    .terminal-stack { position: relative; z-index: 2; flex: 1 1 auto; min-width: 0; display: flex; border: 1px solid var(--card-border); background: var(--card-bg); border-radius: var(--card-radius); overflow: hidden; }
+
+    /* tabstrip.css */
+    .tab-strip { display: flex; align-items: flex-end; gap: 2px; flex: 1 1 auto; min-width: 0; padding: 0 4px; overflow: hidden; }
+    .tab-strip-scroller { position: relative; display: flex; flex: 0 1 auto; min-width: 0; align-self: stretch; align-items: flex-end; }
+    .tab-strip-viewport { position: relative; display: flex; gap: 2px; flex: 0 1 auto; min-width: 0; padding-block: 1px; margin-block: -1px; overflow: hidden; }
+    .term-tab { box-sizing: border-box; position: relative; display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 10px; background: rgba(0,0,0,.03); border: 1px solid var(--border); color: var(--fg-muted); font: 500 12.5px/1 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; width: 160px; flex: 0 0 160px; cursor: pointer; user-select: none; }
+    .term-tab.is-active { background: color-mix(in srgb, var(--accent-tint) 22%, transparent); border-color: color-mix(in srgb, var(--accent-tint) 55%, transparent); color: var(--sidebar-selected-fg); font-weight: 700; }
+    .term-tab-agent { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; }
+    .term-tab-agent-logo { display: inline-flex; width: 13px; height: 13px; }
+    .term-tab-agent-logo svg { width: 13px; height: 13px; }
+    .term-tab.attn-waiting { border-color: color-mix(in srgb, var(--ansi-bright-yellow) 65%, transparent); }
+    .term-tab.attn-busy { border-color: color-mix(in srgb, var(--ansi-bright-blue) 25%, transparent); }
+    .term-tab.attn-done { border-color: color-mix(in srgb, var(--ansi-bright-green) 65%, transparent); }
+    .term-tab-sweep { position: absolute; top: -.25px; left: -.25px; width: calc(100% + .5px); height: calc(100% + .5px); overflow: visible; pointer-events: none; }
+    .term-tab-sweep rect { fill: none; stroke: var(--ansi-bright-blue); stroke-width: 1.5; stroke-dasharray: 22 78; animation: term-tab-sweep 1.6s linear infinite; }
+    @keyframes term-tab-sweep { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
+    .term-tab-agent-logo.is-waiting { color: var(--ansi-bright-yellow); }
+    .term-tab-agent-logo.is-busy { color: var(--ansi-bright-blue); }
+    .term-tab-agent-logo.is-done { color: var(--ansi-bright-green); }
+    .term-tab-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .term-tab-close { width: 14px; height: 14px; padding: 0; margin-left: 2px; border: none; background: transparent; color: currentColor; opacity: .55; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; flex: 0 0 auto; cursor: pointer; }
+    .term-tab-close:hover { opacity: 1; background: var(--ctrl-hover-bg); }
+    .term-tab-close svg { width: 10px; height: 10px; stroke: currentColor; fill: none; }
+    .term-tab-new { width: 26px; height: 26px; margin-left: 2px; margin-bottom: 2px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: var(--ctrl-fg); border-radius: var(--radius-ctl); cursor: pointer; }
+    .term-tab-new:hover { background: var(--ctrl-hover-bg); }
+    .term-tab-new svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
+
+    /* segmented-switch.css, sidebar.css */
+    .segmented-switch { display: flex; flex: 0 0 auto; gap: 2px; margin: 6px 8px; padding: 2px; border-radius: 6px; background: var(--sidebar-hover); border: 1px solid var(--border); }
+    .segmented-switch-option { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 22px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--fg-muted); font: inherit; font-size: 11px; cursor: pointer; }
+    .segmented-switch-option:hover { color: var(--fg); }
+    .segmented-switch-option.is-selected { background: var(--sidebar-selected-bg); color: var(--sidebar-selected-fg); }
+    .segmented-switch-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .segmented-switch-count { flex: 0 0 auto; font-size: 10px; line-height: 14px; min-width: 14px; padding: 0 4px; border-radius: 999px; text-align: center; background: color-mix(in srgb, var(--ansi-bright-blue) 25%, transparent); color: var(--ansi-bright-blue); }
+    .sidebar { width: 100%; min-width: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); font-size: 12.5px; color: var(--fg); }
+    .sidebar-switch { flex: 0 0 auto; padding: 2px 0; }
+    .sidebar-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+
+    /* agent-history.css */
+    .agent-history { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+    .agent-history-search { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; margin: 0 8px 8px; padding: 0 8px; height: 26px; border: 1px solid var(--border); border-radius: var(--radius-ctl); background: var(--bg-elevated); color: var(--fg-muted); }
+    .agent-history-search input { flex: 1 1 auto; min-width: 0; border: none; outline: none; background: none; color: var(--fg); font-size: 12px; font-family: inherit; }
+    .agent-history-search input::placeholder { color: var(--fg-muted); }
+    .agent-history-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 6px; border-top: 1px solid var(--border); }
+    .agent-history-group { margin: 8px 12px 2px; color: var(--fg-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+    .agent-history-row { display: flex; align-items: center; gap: 8px; width: calc(100% - 12px); min-height: 38px; margin: 1px 6px; padding: 4px 8px; border: none; border-radius: var(--radius-ctl); background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+    .agent-history-row:hover { background: var(--sidebar-hover); }
+    .agent-history-row.is-current { background: var(--sidebar-selected-bg); color: var(--sidebar-selected-fg); }
+    .agent-history-icon { display: inline-flex; flex: 0 0 auto; width: 18px; height: 18px; }
+    .agent-history-icon svg { width: 18px; height: 18px; }
+    .agent-history-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .agent-history-title, .agent-history-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agent-history-meta { color: var(--fg-muted); font-size: 11px; }
+    .agent-history-status--busy { color: var(--ansi-bright-red); }
+    .agent-history-status--waiting { color: var(--ansi-bright-yellow); }
+    .agent-history-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 999px; background: var(--ansi-bright-green); }
+    .agent-history-dot--busy { background: var(--ansi-bright-red); }
+    .agent-history-dot--waiting { background: var(--ansi-bright-yellow); }
+    .agent-history-dot--stopped { background: var(--fg-muted); opacity: .6; }
+    .agent-history-footer { position: relative; flex: 0 0 auto; padding: 8px; border-top: 1px solid var(--border); }
+    .agent-history-split { display: flex; width: 100%; height: 28px; border: 1px solid var(--border); border-radius: var(--radius-ctl); overflow: hidden; }
+    .agent-history-new { display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; min-width: 0; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; }
+    .agent-history-caret { display: grid; place-items: center; width: 26px; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--fg-muted); cursor: pointer; }
+    .agent-history-new:hover, .agent-history-caret:hover { background: var(--sidebar-hover); }
+
+    /* agents-sidebar.css, agent-insight.css */
+    .agents-sidebar { width: 100%; min-width: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); font-size: 12.5px; color: var(--fg); }
+    .agents-sidebar-head { flex: 0 0 auto; border-bottom: 1px solid var(--border); }
+    .agents-sidebar-header { display: flex; align-items: center; gap: 6px; position: relative; height: var(--panel-header-h); padding: 0 10px; font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
+    .agents-sidebar-close { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: none; border-radius: var(--radius-ctl); background: transparent; color: var(--fg-muted); cursor: pointer; }
+    .agents-sidebar-close:hover { background: var(--sidebar-hover); color: var(--fg); }
+    .agents-sidebar-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .agents-sidebar-row { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 8px; margin: 1px 0; border-radius: var(--radius-ctl); cursor: pointer; color: var(--fg); width: 100%; border: 0; background: none; text-align: left; font: inherit; }
+    .agents-sidebar-row:hover { background: var(--sidebar-hover); }
+    .agents-sidebar-row.is-active { background: var(--sidebar-selected-bg); color: var(--sidebar-selected-fg); }
+    .agents-sidebar-icon { display: inline-flex; flex: 0 0 auto; width: 18px; height: 18px; position: relative; }
+    .agents-sidebar-icon svg { width: 18px; height: 18px; }
+    .agents-sidebar-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .agents-sidebar-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agents-sidebar-meta { display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); font-size: 11px; }
+    .agents-sidebar-chip { flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; background: var(--sidebar-hover); font-size: 10px; font-weight: 700; line-height: 1.6; white-space: nowrap; }
+    .agents-sidebar-chip--busy { color: var(--ansi-bright-red); }
+    .agents-sidebar-chip--waiting { color: var(--ansi-bright-yellow); }
+    .agents-sidebar-chip--idle { color: var(--ansi-bright-green); }
+    .agents-sidebar-chip--running { color: var(--accent); }
+    .agents-sidebar-chip--saved { color: var(--fg-muted); }
+    .agents-sidebar-stop { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: none; border-radius: var(--radius-ctl); background: transparent; color: var(--fg-muted); cursor: pointer; }
+    .agents-sidebar-stop:hover { background: var(--sidebar-hover); color: var(--ansi-bright-red); }
+    .agent-insight { flex: 1 1 auto; min-height: 0; }
+    .agent-insight-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .agent-insight-top { flex: 0 0 auto; padding: 10px 10px 0; border-bottom: 1px solid var(--border); }
+    .agent-insight-top .segmented-switch { margin: 0 0 8px; }
+    .agent-insight-chip { display: inline-block; max-width: 100%; margin-bottom: 8px; padding: 1px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--border); border-radius: 999px; color: var(--fg-muted); font-size: 11px; }
+    .agent-insight-hero { display: flex; align-items: baseline; gap: 8px; }
+    .agent-insight-hero-detail { flex: 1 1 auto; min-width: 0; }
+    .agent-insight-big { font-size: 26px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    .agent-insight-muted { color: var(--fg-muted); }
+    .agent-insight-btn { flex: none; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-ctl); background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+    .agent-insight-btn:hover:not(:disabled) { background: var(--sidebar-hover); }
+    .agent-insight-btn:disabled { opacity: .5; cursor: default; }
+    .agent-insight-meter { height: 6px; margin: 8px 0 12px; overflow: hidden; border-radius: 3px; background: var(--sidebar-hover); }
+    .agent-insight-meter i { display: block; height: 100%; background: var(--accent); }
+    .agent-insight-pane { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px; }
+    .agent-insight-stack { display: flex; gap: 1px; height: 14px; margin-bottom: 8px; overflow: hidden; border-radius: 5px; background: var(--c-free); }
+    .agent-insight-stack i { display: block; height: 100%; }
+    .agent-insight-row { display: flex; align-items: center; gap: 8px; padding: 4px 2px; }
+    .agent-insight-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agent-insight-row-value { flex: none; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+    .agent-insight-sw { flex: none; width: 9px; height: 9px; border-radius: 2px; }
+    .agent-insight-sw--free { background: var(--c-free); border: 1px solid var(--border); }
+    .agent-insight-section { margin-bottom: 14px; }
+    .agent-insight-title { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--fg-muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+    .agent-insight-title b { color: var(--fg); letter-spacing: 0; }
+    .agent-insight-title .aside { margin-left: auto; text-transform: none; letter-spacing: 0; }
+    .agent-insight-note { color: var(--fg-muted); font-size: 11px; line-height: 1.4; }
+    /* nuovo: blocco "Delegati" dentro .agent-insight-top, stesso ritmo delle sezioni del pannello */
+    .agent-insight-deleg { margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .agent-insight-deleg .agents-sidebar-row { min-height: 38px; }
+    .agent-insight-deleg .live { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.4 var(--font-mono); color: var(--fg-muted); }
+    .agent-insight-deleg .mini { display: block; height: 3px; margin-top: 3px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--fg) 10%, transparent); }
+    .agent-insight-deleg .mini i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+    .agent-insight-deleg .mini.wait i { background: var(--ansi-bright-yellow); }
+    .agent-insight-deleg .mini.run i { background: linear-gradient(90deg, var(--accent-2), var(--accent), var(--accent-2)); background-size: 200% 100%; animation: chat-subcard-shimmer 1.6s linear infinite; }
+    .agent-insight-peek { margin-top: 6px; }
+    .agent-insight-peek .chat-subcards-detail { font-size: 12.5px; }
+    .agent-insight-peek .chat-step { font-size: 12px; padding: 0; }
+    .agent-insight-peek .chat-step-row { min-height: 24px; }
+    .agent-insight-peek .peek-perm { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 6px 8px; border: 1px solid color-mix(in srgb, var(--ansi-bright-yellow) 55%, transparent); border-radius: 8px; font-size: 12px; }
+    .agent-insight-peek .peek-perm span { flex: 1; min-width: 0; }
+    .agent-insight-peek .peek-perm b { color: var(--ansi-bright-yellow); font-weight: 600; display: block; font-size: 11.5px; }
+    .agent-insight-btn.sm { padding: 2px 9px; font-size: 12px; }
+
+    /* ------------------------------------------------------------------
+       chat.css
+       ------------------------------------------------------------------ */
+    .chat-view { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; background: var(--term-bg); color: var(--fg); font-size: 14.5px; line-height: 1.6; position: relative; isolation: isolate; }
+    .chat-header { flex: 0 0 auto; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--border); color: var(--fg); font-size: 14.5px; line-height: 1.6; }
+    .chat-menu-anchor { position: relative; min-width: 0; margin-right: auto; }
+    .chat-session { max-width: 100%; display: inline-flex; align-items: center; gap: 8px; padding: 5px 8px; border: none; border-radius: var(--radius-ctl); background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+    .chat-session:hover { background: var(--sidebar-hover); }
+    .chat-session-icon { flex: 0 0 auto; display: inline-flex; width: 18px; height: 18px; }
+    .chat-session-icon svg { width: 100%; height: 100%; }
+    .chat-session-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .chat-session-agent { flex: 0 0 auto; color: var(--fg-muted); font-size: 12px; }
+    .chat-session-chevron { flex: 0 0 auto; color: var(--fg-muted); }
+    .chat-status-text { flex: 0 0 auto; color: var(--fg-muted); font-size: 12px; }
+    .chat-status-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); opacity: .6; }
+    .chat-status-dot.is-busy { background: var(--ansi-bright-blue, var(--accent)); opacity: 1; }
+    .chat-status-dot.is-waiting { background: var(--ansi-bright-yellow); opacity: 1; }
+    .chat-column-wrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .chat-column { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 24px; display: flex; flex-direction: column; mask-image: linear-gradient(to top, transparent 18px, #000 18px); }
+    .chat-content { flex: 1 0 auto; width: 100%; max-width: 740px; padding-bottom: 48px; margin: 0 auto; display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; }
+    .chat-user { align-self: flex-end; max-width: 70%; margin-top: 6px; padding: 8px 15px; border-radius: 18px 18px 4px 18px; background: var(--sidebar-selected-bg); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .chat-user.is-task { align-self: stretch; max-width: none; border-radius: 12px; border: 1px solid var(--card-border); background: var(--card-bg); }
+    .chat-task-label { display: block; margin-bottom: 2px; color: var(--fg-muted); font-size: 11.5px; font-weight: 600; }
+    .chat-md { overflow-wrap: anywhere; }
+    .chat-md p { margin: 0 0 8px; }
+    .chat-md > :last-child { margin-bottom: 0; }
+    .chat-md code { padding: 1px 5px; border-radius: 4px; background: var(--card-bg); font-family: var(--font-mono); font-size: .92em; }
+    .chat-md strong { font-weight: 600; }
+    .chat-md.is-report { margin: 0; padding: 7px 9px; border: 1px solid var(--card-border); border-radius: 7px; background: var(--card-bg); font-size: 12.5px; }
+    .chat-spinner { flex: 0 0 auto; width: 12px; height: 12px; box-sizing: border-box; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: chat-spin .8s linear infinite; }
+    @keyframes chat-spin { to { transform: rotate(360deg); } }
+    /* rail / dot / tool group */
+    .chat-rail { position: relative; padding-left: 24px; }
+    .chat-rail::before { content: ""; position: absolute; left: 5px; top: 12px; bottom: 12px; width: 1px; background: var(--border); }
+    .chat-dot { position: absolute; left: -24px; top: 50%; box-sizing: border-box; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; border: 1.5px solid var(--fg-muted); background: var(--surface); }
+    .chat-dot.is-done { background: var(--fg-muted); }
+    .chat-dot.is-live { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
+    .chat-rail > .chat-dot.is-warn { left: 0; }
+    .chat-dot.is-warn { top: 22px; margin-top: 0; border-color: var(--ansi-bright-yellow); background: var(--ansi-bright-yellow); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ansi-bright-yellow) 35%, transparent); }
+    .chat-group-toggle { position: relative; display: flex; align-items: center; gap: 6px; max-width: 100%; height: 28px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--fg-muted); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+    .chat-group-toggle:hover { color: var(--fg); }
+    .chat-group-chevron { flex: 0 0 auto; transition: transform .12s; }
+    .chat-tools.is-open .chat-group-chevron { transform: rotate(90deg); }
+    .chat-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-group-summary.is-live { color: var(--fg); font-family: var(--font-mono); font-size: 12.5px; }
+    .chat-group-count { flex: 0 0 auto; min-width: 18px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); font-size: 11.5px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+    .chat-step-num { flex: 0 0 auto; min-width: 16px; text-align: right; color: var(--fg-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+    .chat-step { position: relative; font-size: 13px; }
+    .chat-step-row { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; color: var(--fg-muted); }
+    .chat-step-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+    .chat-step-file { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12.5px; }
+    .chat-tools { border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--fg) 4%, var(--surface)); overflow: hidden; }
+    .chat-tools-head { height: auto; width: 100%; max-width: 100%; padding: 7px 10px; border-radius: 0; }
+    .chat-tools-head:hover { background: color-mix(in srgb, var(--fg) 7%, var(--surface)); }
+    .chat-tools-status { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--ansi-green); }
+    .chat-tools-list { max-height: 280px; overflow: auto; border-top: 1px solid var(--border); }
+    .chat-tools-list > .chat-step { padding: 4px 10px 4px 12px; }
+    .chat-tools-list > .chat-step + .chat-step { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+    .chat-tools .chat-dot, .chat-subcards-detail .chat-dot { position: static; flex: 0 0 auto; width: 7px; height: 7px; margin: 0; border: none; box-shadow: none; background: var(--fg-muted); }
+    .chat-tools .chat-dot.is-done, .chat-subcards-detail .chat-dot.is-done { background: var(--ansi-green); }
+    .chat-tools .chat-dot.is-live, .chat-subcards-detail .chat-dot.is-live { background: var(--accent); }
+    .chat-tools .chat-dot.is-wait, .chat-subcards-detail .chat-dot.is-wait { background: var(--ansi-bright-yellow); }
+    /* permission, buttons */
+    .chat-permission { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--ansi-bright-yellow); border-radius: 14px; background: var(--menu-surface); }
+    .chat-permission-text { flex: 1 1 240px; min-width: 0; }
+    .chat-permission-label { color: var(--ansi-bright-yellow); font-size: 12.5px; font-weight: 600; }
+    .chat-permission-title { overflow-wrap: anywhere; }
+    .chat-permission-options { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chat-btn { padding: 5px 14px; border: 1px solid var(--card-border); border-radius: 16px; background: transparent; color: var(--fg); font: inherit; font-size: 13px; line-height: 1.6; cursor: pointer; }
+    .chat-btn:hover { background: var(--sidebar-hover); }
+    .chat-btn.is-primary { border-color: transparent; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+    .chat-btn.is-primary:hover { background: var(--accent); filter: brightness(1.1); }
+    .chat-btn.is-danger { color: var(--ansi-bright-red); border-color: color-mix(in srgb, var(--ansi-bright-red) 40%, transparent); }
+    .chat-btn.is-danger:hover { background: color-mix(in srgb, var(--ansi-bright-red) 12%, transparent); }
+    /* footer / composer */
+    .chat-footer { flex: 0 0 auto; position: sticky; bottom: 0; z-index: 2; margin: 0 -24px; padding: 0 24px 20px; }
+    .chat-composer-wrap { position: relative; max-width: 740px; margin: 0 auto; }
+    .chat-composer-wrap > * + * { margin-top: 10px; }
+    .chat-composer { position: relative; z-index: 1; padding: 14px 12px 10px 18px; border-radius: 24px; background: color-mix(in srgb, var(--fg) 7%, rgb(var(--surface-rgb))); box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 24%, transparent); }
+    .chat-input-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+    .chat-input { display: block; width: auto; flex: 1 1 160px; min-width: 160px; box-sizing: border-box; min-height: 44px; padding: 0; border: none; outline: none; resize: none; background: transparent; color: var(--fg); font: inherit; font-size: 14.5px; line-height: 1.5; }
+    .chat-input::placeholder { color: var(--fg-muted); }
+    .chat-composer-actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+    .chat-actions-spacer { flex: 1 1 auto; }
+    .chat-mode-anchor { position: relative; min-width: 0; }
+    .chat-mode-pill { max-width: 100%; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border: none; border-radius: 16px; background: var(--card-bg); color: var(--fg); font: inherit; font-size: 13px; line-height: 1.6; cursor: pointer; }
+    .chat-mode-pill:hover { background: var(--sidebar-hover); }
+    .chat-mode-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-model-level { flex: 0 0 auto; color: var(--fg-muted); font-size: 12px; }
+    .chat-icon-btn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: none; border-radius: 50%; background: transparent; color: var(--fg-muted); cursor: pointer; }
+    .chat-icon-btn:hover { background: var(--sidebar-hover); color: var(--fg); }
+    .chat-icon-btn.is-send { width: 40px; height: 40px; background: var(--fg); color: var(--surface); }
+    .chat-icon-btn.is-send:hover { background: var(--fg); color: var(--surface); filter: brightness(1.1); }
+    .chat-sub-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 8px 8px 14px; border: 1px solid var(--card-border); border-radius: 14px; background: linear-gradient(var(--card-bg), var(--card-bg)), var(--menu-surface); color: var(--fg-muted); font-size: 13px; }
+    .chat-sub-footer .acts { display: flex; gap: 8px; flex: none; }
+    .chat-sub-footer .lock { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .chat-sub-footer .lock svg { color: var(--fg-muted); }
+    .chat-sub-footer .lock b { color: var(--fg); font-weight: 600; }
+    /* subagent chrome */
+    .chat-back { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-right: -2px; padding: 0; border: none; border-radius: var(--radius-ctl); background: transparent; color: var(--fg); cursor: pointer; }
+    .chat-back:hover { background: var(--sidebar-hover); }
+    .chat-crumb { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 8px; margin-right: auto; order: 0; }
+    .chat-crumb-sep { color: var(--fg-muted); }
+    .chat-crumb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .chat-header:has(.chat-crumb) .chat-menu-anchor { flex: 0 1 auto; margin-right: 0; max-width: 30%; }
+    .chat-sub-icon { flex: 0 0 auto; color: var(--accent); }
+    .chat-sub-tag { flex: 0 0 auto; padding: 0 6px; border: 1px solid var(--card-border); border-radius: 5px; font-size: 11px; line-height: 18px; white-space: nowrap; }
+    .chat-sub-mark { color: var(--accent); }
+    .chat-sub-mark.is-wait { color: var(--ansi-bright-yellow); }
+    .chat-sub-mark.is-stop { color: var(--fg-muted); }
+    .chat-submark { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 12.5px; margin: 4px 0 -6px; }
+    .chat-submark > svg { color: var(--accent); flex: 0 0 auto; }
+    .chat-submark-text b { color: var(--fg); font-weight: 600; }
+    .chat-submark-tag { background: none; color: inherit; font-family: inherit; cursor: pointer; }
+    .chat-submark-tag:hover { border-color: var(--accent); color: var(--fg); }
+    .chat-subcards { display: flex; flex-direction: column; gap: 8px; }
+    .chat-subcards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+    .chat-subcard-wrap { position: relative; display: flex; min-width: 0; }
+    .chat-subcard { display: flex; flex: 1 1 auto; flex-direction: column; gap: 5px; min-width: 0; height: auto; max-width: 100%; padding: 8px 9px; border: 1px solid var(--card-border); border-radius: 9px; background: var(--card-bg); color: var(--fg); font: inherit; text-align: left; cursor: pointer; transition: border-color .15s, transform .15s; }
+    .chat-subcard:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); transform: translateY(-1px); }
+    .chat-subcard.is-selected { border-color: var(--accent); }
+    .chat-subcard.is-wait { border-color: color-mix(in srgb, var(--ansi-bright-yellow) 55%, transparent); }
+    .chat-subcard-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .chat-subcard-row.has-open { padding-right: 22px; }
+    .chat-subcard-row > svg { width: 14px; height: 14px; color: var(--fg); }
+    .chat-subcard-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+    .chat-subcard-pill { flex: 0 0 auto; padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .chat-subcard-time { flex: 0 0 auto; margin-left: auto; color: var(--fg-muted); font-size: 11px; }
+    .chat-subcard-live { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 17px; color: var(--fg-muted); font-size: 11.5px; }
+    .chat-subcard-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-subcard-text.is-mono { color: var(--fg); font-family: var(--font-mono); }
+    .chat-subcard-bar { display: block; height: 3px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--fg) 10%, transparent); }
+    .chat-subcard-bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+    .chat-subcard-bar.is-running i { background: linear-gradient(90deg, var(--accent-2), var(--accent), var(--accent-2)); background-size: 200% 100%; animation: chat-subcard-shimmer 1.6s linear infinite; }
+    .chat-subcard-bar.is-wait i { background: var(--ansi-bright-yellow); }
+    .chat-subcard-bar.is-stop i { background: var(--fg-muted); }
+    @keyframes chat-subcard-shimmer { to { background-position: -200% 0; } }
+    .chat-subcard-open { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--fg-muted); font-size: 15px; line-height: 1; cursor: pointer; }
+    .chat-subcard-open:hover { background: var(--sidebar-hover); color: var(--fg); }
+    .chat-subcard-open.is-floating { position: absolute; top: 6px; right: 6px; }
+    .chat-subcards-detail { display: flex; flex-direction: column; padding: 7px 9px; border: 1px solid var(--card-border); border-radius: 9px; background: var(--card-bg); }
+    .chat-subcards-detail-head { display: flex; align-items: center; gap: 7px; min-width: 0; margin-bottom: 3px; font-size: 12.5px; }
+    .chat-subcards-detail-head b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-subcards-report { margin-top: 6px; padding: 7px 9px; border: 1px solid var(--card-border); border-radius: 7px; background: var(--card-bg); font-size: 12.5px; line-height: 1.5; }
+    .chat-subcards-report-label { display: block; margin-bottom: 2px; color: var(--fg-muted); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+    .chat-subcards-report-label.sm { margin-top: 6px; }
+
+    /* nuovo: figli delegati nella cronologia, stesso ritmo delle righe di Cronologia */
+    .agent-history-tree { position: relative; }
+    .agent-history-tree .agent-history-row { padding-right: 34px; }
+    .agent-history-fold { position: absolute; right: 12px; top: 50%; margin-top: -9px; width: 18px; height: 18px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-ctl); background: transparent; color: var(--fg-muted); cursor: pointer; }
+    .agent-history-fold:hover { background: var(--sidebar-hover); color: var(--fg); }
+    .agent-history-fold svg { transition: transform .15s; }
+    .agent-history-kids { position: relative; margin: 0 0 3px 23px; }
+    .agent-history-kids::before { content: ""; position: absolute; left: 0; top: 0; bottom: 18px; width: 1px; background: var(--border); }
+    .agent-history-row.is-child { position: relative; width: calc(100% - 18px); min-height: 34px; margin: 1px 6px 1px 12px; padding: 3px 8px; }
+    .agent-history-row.is-child::before { content: ""; position: absolute; left: -12px; top: 50%; width: 9px; height: 1px; background: var(--border); }
+    .agent-history-row.is-child .agent-history-icon, .agent-history-row.is-child .agent-history-icon svg { width: 16px; height: 16px; }
+    .agent-history-row.is-child .agent-history-title { font-size: 12.5px; }
+    .chat-header:has(.chat-sub-tag.hdr) .chat-menu-anchor { margin-right: 0; }
+    .chat-sub-tag.hdr { margin-right: auto; }
+    .agents-sidebar-stop svg { width: 12px; height: 12px; }
+    .agent-insight-badge { padding: 1px 6px; border-radius: 4px; background: var(--sidebar-hover); font-size: 10px; }
+    .agent-insight-subtitle { display: flex; align-items: center; gap: 6px; margin: 10px 0 6px; color: var(--fg-muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+    .agent-insight-refresh { margin-left: auto; }
+    .agent-insight-spark { display: flex; align-items: flex-end; gap: 2px; height: 46px; }
+    .agent-insight-spark i { flex: 1; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .75; }
+    .agent-insight-spark i.is-hi { background: #e0b252; opacity: 1; }
+    .agent-insight-cost { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-top: 10px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--sidebar-hover); }
+    .agent-insight-cost b { margin-left: auto; font-size: 18px; }
+    /* nuovo: legenda del contesto a gruppi apribili (Strumenti confluisce qui) */
+    .agent-insight-grp-head { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--radius-ctl); }
+    .agent-insight-grp-head:hover { background: var(--sidebar-hover); }
+    .grp-chev { color: var(--fg-muted); transition: transform .12s; margin-left: 1px; }
+    .agent-insight-grp-head.is-open .grp-chev { transform: rotate(90deg); }
+    .grp-pad { width: 11px; flex: none; margin-left: 1px; }
+    .agent-insight-sw--mcp { border: 1.5px solid var(--ansi-bright-blue); background: transparent; }
+    .agent-insight-grp-body { margin: 0 0 6px 19px; padding-left: 8px; border-left: 1px solid var(--border); font-size: 12px; }
+    .agent-insight-grp-body .agent-insight-row { padding: 3px 2px; }
+    .agent-insight-grp-sub { display: flex; align-items: center; color: var(--fg-muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin: 2px 0; }
+    /* AskComposer (chat.css): la richiesta di un figlio al posto del composer */
+    .chat-ask, .chat-ask:focus-within { padding: 16px 18px 12px; outline: none; box-shadow: 0 0 0 1.5px var(--accent); }
+    @keyframes chat-ask-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .chat-ask-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; color: var(--ansi-bright-yellow); min-width: 0; }
+    .chat-ask-tag::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: chat-ask-pulse 1.6s infinite; }
+    @keyframes chat-ask-pulse { 50% { opacity: .35; } }
+    .ask-logo { display: inline-flex; width: 14px; height: 14px; color: var(--fg); }
+    .ask-logo svg { width: 14px; height: 14px; }
+    .ask-head { display: flex; align-items: center; gap: 10px; }
+    .ask-nav { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+    .chat-ask-btn.sm { padding: 0 8px; line-height: 20px; font-size: 15px; }
+    .chat-ask-q { margin: 4px 0 10px; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+    .chat-ask kbd { padding: 3px 6px; border: 1px solid var(--card-border); border-radius: 5px; background: rgba(255,255,255,.03); color: var(--fg-muted); font: 600 11px/1 ui-monospace, Consolas, monospace; }
+    .chat-ask-hint { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-size: 12px; }
+    .chat-ask-opts { display: flex; flex-direction: column; gap: 2px; margin: 0 0 4px; padding: 0; list-style: none; }
+    .chat-ask-opt { display: flex; align-items: center; gap: 12px; padding: 6px 10px; border: 1px solid transparent; border-radius: 12px; cursor: pointer; }
+    .chat-ask-opt:hover, .chat-ask-opt.is-cur { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+    .chat-ask-opt.is-cur { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+    .chat-ask-txt { flex: 1; min-width: 0; }
+    .chat-ask-txt b { font-weight: 600; }
+    .chat-ask-txt small { display: block; color: var(--fg-muted); font-size: 12.5px; }
+    .chat-ask-badge { margin-left: 8px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 99px; color: var(--accent); font-size: 10.5px; font-weight: 500; }
+    .chat-ask-free { flex: 1; min-width: 0; padding: 2px 0; border: none; outline: none; background: transparent; color: var(--fg); font: inherit; font-size: 14px; }
+    .chat-ask-free::placeholder { color: var(--fg-muted); }
+    .chat-ask-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .chat-ask-btn { padding: 6px 14px; border: none; border-radius: 99px; background: color-mix(in srgb, var(--fg) 12%, transparent); color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+    .chat-ask-btn.is-ghost { background: none; color: var(--fg-muted); }
+    .chat-ask-btn.is-ghost:hover { color: var(--fg); }
+    .chat-ask-dot { width: 14px; height: 4px; border-radius: 3px; background: color-mix(in srgb, var(--fg) 18%, transparent); }
+    .chat-ask-dot.is-on { background: var(--accent); }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="pg-eyebrow">FLOWCODE · DESKTOP · ORCHESTRAZIONE</div>
+  <h1 class="pg-h1">Dove vedere le chat delegate ad altri agenti</h1>
+  <p class="pg-lead">La chat principale (Claude) fa da orchestratore e delega a Codex e Gemini con <code>start_task</code>. Ogni figlio è una chat ACP vera che riceve <b>solo il prompt</b>, come un subagent: lavora, restituisce l'ultimo messaggio all'orchestratore e si chiude. Clicca le chat delegate per aprirle.</p>
+
+  <div class="pg-seg" role="group" aria-label="Variante">
+    <button type="button" data-v="a" aria-pressed="true"><b>A · Sottochat nella cronologia</b>Albero a sinistra sotto l'orchestratore</button>
+    <button type="button" data-v="b" aria-pressed="false"><b>B · Card agente a destra</b>Sezione "Delegati" con anteprima live</button>
+    <button type="button" data-v="c" aria-pressed="false"><b>C · Ibrido</b>Contatore a sinistra, card a destra, tab in alto</button>
+  </div>
+
+  <div class="pg-note" id="note"></div>
+  <div class="app-shell" id="win"></div>
+  <p class="pg-foot">Comune a tutte: una chat delegata non ha composer libero (il figlio riceve solo il prompt dell'orchestratore, come un subagent). Tu puoi leggerla, rispondere alle sue richieste di permesso e interromperla. Quando finisce resta consultabile nella cronologia. Se un delegato chiede un permesso o pone una domanda, la richiesta compare nella chat dell'orchestratore al posto del composer (con contatore se sono più d'una) e anche nella chat del delegato: rispondere in un posto la chiude nell'altro. Le risposte sono sempre tue, mai automatiche.</p>
+</div>
+
+<script>
+const LOGOS = {"claude":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"},"codex":{"viewBox":"-0.82 -0.73 21.65 21.45","path":"M11.248 18.25q-.825 0-1.568-.314a4.3 4.3 0 0 1-1.32-.874 4 4 0 0 1-1.304.214 4 4 0 0 1-2.046-.544 4.27 4.27 0 0 1-1.518-1.485 4 4 0 0 1-.56-2.095q0-.48.131-1.04A4.4 4.4 0 0 1 2.04 10.71a4.07 4.07 0 0 1 .017-3.4 4.2 4.2 0 0 1 1.056-1.418 3.8 3.8 0 0 1 1.6-.842 3.9 3.9 0 0 1 .76-1.683q.593-.759 1.451-1.188a4.04 4.04 0 0 1 1.832-.429q.825 0 1.567.313.742.314 1.32.875a4 4 0 0 1 1.304-.215q1.106 0 2.046.545a4.14 4.14 0 0 1 1.501 1.485q.578.941.578 2.095 0 .48-.132 1.04.66.61 1.023 1.419.363.792.363 1.666 0 .892-.38 1.717a4.3 4.3 0 0 1-1.072 1.435 3.8 3.8 0 0 1-1.584.825 3.8 3.8 0 0 1-.775 1.683 4.06 4.06 0 0 1-1.436 1.188 4.04 4.04 0 0 1-1.832.429m-4.076-2.062q.825 0 1.435-.347l3.103-1.782a.36.36 0 0 0 .164-.313v-1.42L7.881 14.62a.67.67 0 0 1-.726 0l-3.118-1.798a.5.5 0 0 1-.017.115v.198q0 .841.396 1.551.413.693 1.139 1.089a3.2 3.2 0 0 0 1.617.412m.165-2.69a.4.4 0 0 0 .181.05q.083 0 .165-.05l1.238-.71-3.977-2.31a.7.7 0 0 1-.363-.643v-3.58q-.825.362-1.32 1.122a2.9 2.9 0 0 0-.495 1.65q0 .809.413 1.55.412.743 1.072 1.123zm3.91 3.663q.875 0 1.585-.396a2.96 2.96 0 0 0 1.534-2.64v-3.564a.32.32 0 0 0-.165-.297l-1.254-.726v4.604a.7.7 0 0 1-.363.643l-3.119 1.799a3 3 0 0 0 1.783.577m.627-6.039V8.878L10.01 7.822 8.129 8.878v2.244l1.881 1.056zM7.057 5.859a.7.7 0 0 1 .363-.644l3.119-1.798a3 3 0 0 0-1.782-.578q-.874 0-1.584.396A2.96 2.96 0 0 0 6.05 4.324a3.07 3.07 0 0 0-.396 1.551v3.547q0 .199.165.314l1.237.726zm8.383 7.887q.825-.364 1.303-1.123.495-.758.495-1.65a3.15 3.15 0 0 0-.412-1.55q-.413-.743-1.073-1.123l-3.086-1.782q-.099-.065-.181-.049a.3.3 0 0 0-.165.05l-1.238.692 3.993 2.327a.6.6 0 0 1 .264.264.64.64 0 0 1 .1.363zm-3.317-8.382a.63.63 0 0 1 .726 0l3.135 1.831v-.297q0-.792-.396-1.501a2.86 2.86 0 0 0-1.105-1.155q-.71-.43-1.65-.43-.825 0-1.436.347L8.294 5.941a.36.36 0 0 0-.165.314v1.418z"},"gemini":{"viewBox":"-3.6 -3.6 31.2 31.2","path":"M12 0C12.7 6.7 17.3 11.3 24 12 17.3 12.7 12.7 17.3 12 24 11.3 17.3 6.7 12.7 0 12 6.7 11.3 11.3 6.7 12 0Z"}}; // da shared/agentLogos.ts
+const ICON = {
+  chat: `<svg viewBox="0 0 24 24" width="13" height="13" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 8.7 8.7 0 0 1-3.6-.8L3.5 20.5l1.6-4.8A8.1 8.1 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3.2 8.4 8.4 0 0 1 21 11.5z"/></svg>`,
+  folder: `<svg viewBox="0 0 24 24" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>`,
+  robot: `<svg viewBox="0 0 24 24" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 7V4"/><circle cx="12" cy="3.5" r="0.6"/><circle cx="9" cy="13" r="0.8"/><circle cx="15" cy="13" r="0.8"/></svg>`,
+  globe: `<svg viewBox="0 0 24 24" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"/></svg>`,
+  term: `<svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><polyline points="7 9.5 10.5 12.5 7 15.5"/><line x1="12.5" y1="15.5" x2="16.5" y2="15.5"/></svg>`,
+  min: `<svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>`,
+  max: `<svg viewBox="0 0 24 24" stroke-width="1.6"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>`,
+  close: `<svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/></svg>`,
+  tabx: `<svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  search: `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2l3.3 3.3"/></svg>`,
+  plus16: `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>`,
+  caret: `<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M4 6h8l-4 5z"/></svg>`,
+  chevDown: `<svg class="chat-session-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
+  chevRight: `<svg class="chat-group-chevron" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`,
+  back: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>`,
+  bot: `<svg class="chat-sub-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M9 16.5h6"/></svg>`,
+  open: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>`,
+  lock: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`,
+  wand: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L15 9"/><path d="M14 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1zM19 12l.7 1.3L21 14l-1.3.7L19 16l-.7-1.3L17 14l1.3-.7z"/></svg>`,
+  chip: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M10 10h4v4h-4zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>`,
+  clip: `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.4 11.6-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>`,
+  mic: `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>`,
+  stop: `<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`,
+  send: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>`,
+};
+const logo = (ag) => `<svg viewBox="${LOGOS[ag].viewBox}"><path d="${LOGOS[ag].path}" fill="currentColor" stroke="none"/></svg>`;
+const label = { claude: "Claude", codex: "Codex", gemini: "Gemini" };
+const cli = { claude: "Claude Code", codex: "Codex CLI", gemini: "Gemini CLI" };
+
+const kids = [
+  { id: "k1", ag: "codex", name: "Refactor modulo auth", st: "wait", time: "2 min", model: "GPT-5.5 · Alto", ctx: 34, tokens: "68k",
+    prompt: "Rifattorizza src/auth/session.ts: estrai il refresh del token in refresh.ts, mantieni l'API pubblica e fai girare i test del modulo.",
+    say: "Parto dal file di sessione, poi sposto il refresh in un modulo a parte.",
+    steps: [["Read", "session.ts"], ["Edit", "refresh.ts", "+84"], ["Edit", "session.ts", "−61 +12"]], live: "Edit session.ts", pct: 62, out: null },
+  { id: "k2", ag: "gemini", name: "Rivedi copy onboarding", st: "wait", time: "40 s", model: "Gemini 3 Pro", ctx: 12, tokens: "24k",
+    prompt: "Leggi docs/onboarding.md e proponi una versione più breve, massimo 300 parole. Non modificare altri file.",
+    say: "Ho letto il testo: lo riscrivo in forma più breve e lo salvo in un file nuovo.",
+    steps: [["Read", "onboarding.md"]], live: "chiede permesso", pct: 45,
+    perm: "Scrivere docs/onboarding.short.md", out: null },
+  { id: "k3", ag: "codex", name: "Test per parser CSV", st: "done", time: "4 min", model: "GPT-5.5 · Medio", ctx: 27, tokens: "54k",
+    prompt: "Aggiungi test unitari per src/csv/parse.ts coprendo virgolette, righe vuote e BOM.",
+    say: "Scrivo i test partendo dai casi limite più insidiosi.",
+    steps: [["Read", "parse.ts"], ["Edit", "parse.test.ts", "+120"], ["npm test -- csv", ""]], live: "14 test, tutti verdi", pct: 100,
+    out: "Aggiunti **14 test** in `src/csv/parse.test.ts`, tutti verdi. Ho trovato un bug con il BOM iniziale: l'ho segnalato nel test ma **non l'ho corretto**." },
+];
+const stText = { run: "al lavoro", wait: "chiede input", done: "conclusa", stop: "interrotta" };
+const chipCls = { run: "running", wait: "waiting", done: "idle", stop: "saved" };
+const histCls = { run: "busy", wait: "waiting", done: "idle", stop: "stopped" };
+const statusTxt = { run: "In corso", wait: "In attesa di permesso", done: "Conclusa", stop: "Interrotta" };
+
+const notes = {
+  a: `<b>A · Sottochat nella cronologia.</b> I figli sono righe indentate sotto la chat orchestratore, nella lista del progetto (stesse righe di Cronologia, con stato e agente). Si aprono al centro come una chat normale, con freccia e breadcrumb per tornare.
+      <ul><li>Pro: tutte le chat in un posto solo; restano in cronologia anche dopo la fine.</li><li>Contro: con molte deleghe la lista si allunga (si chiude il gruppo con la freccia); a destra non c'è nessun riepilogo.</li></ul>`,
+  b: `<b>B · Card agente a destra.</b> Nel pannello Agente, sotto il contesto dell'orchestratore, una sezione "Delegati" (righe come nell'elenco agenti). Clic su una riga: anteprima live sotto (attività, permessi, risultato). "Apri" la porta al centro con breadcrumb.
+      <ul><li>Pro: la chat principale resta sempre davanti; stato a colpo d'occhio, accanto a contesto e consumi.</li><li>Contro: il pannello destro è stretto per leggere molto e può essere chiuso.</li></ul>`,
+  c: `<b>C · Ibrido.</b> A sinistra solo un chip "3 delegati" sull'orchestratore (espandibile). A destra una scheda "Delegati" con lo stato live (Strumenti confluisce in Contesto, in gruppi apribili). Aprire un figlio crea una scheda accanto a quella dell'orchestratore nella barra in alto, chiudibile, con il bordo giallo se chiede un permesso.
+      <ul><li>Pro: passare avanti e indietro tra orchestratore e figli è un clic; la lista a sinistra resta corta; il permesso si vede anche dalla scheda.</li><li>Contro: tre punti di accesso, più cose da mantenere coerenti.</li></ul>`,
+};
+
+const params = new URLSearchParams(location.search);
+let v = ["a", "b", "c"].includes(params.get("v")) ? params.get("v") : "a";
+let open = kids.some((k) => k.id === params.get("open")) ? params.get("open") : null;
+let peek = open || "k1", expanded = v !== "c" || params.get("exp") === "1", tabs = [];
+if (v === "c" && open) tabs = [open];
+let ptab = ["context", "usage", "delegates"].includes(params.get("tab")) ? params.get("tab") : "context";
+let grp = new Set(["skill", "memory", "mcp"].filter((g) => g === params.get("grp")));
+
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+const md = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`(.+?)`/g, "<code>$1</code>");
+const byId = (id) => kids.find((k) => k.id === id);
+const active = () => kids.filter((k) => k.st === "run" || k.st === "wait").length;
+const ORCH = "Release 0.30";
+
+/* ---------- barra del titolo + schede ---------- */
+const sweep = `<svg class="term-tab-sweep" aria-hidden="true"><rect width="100%" height="100%" rx="9.25" pathLength="100"/></svg>`;
+function tab(opts) {
+  const { id, label: lb, icon, state, activeTab, closable } = opts;
+  return `<div class="term-tab${activeTab ? " is-active" : ""}${state ? " attn-" + state : ""}" data-open="${id}" role="tab" aria-selected="${!!activeTab}" title="${esc(lb)}">
+    ${state === "busy" ? sweep : ""}<span class="term-tab-agent"><span class="term-tab-agent-logo is-${state || "idle"}">${icon}</span></span>
+    <span class="term-tab-label">${esc(lb)}</span>
+    <button type="button" class="term-tab-close" aria-label="Chiudi ${esc(lb)}" ${closable ? `data-close="${id}"` : ""}>${ICON.tabx}</button></div>`;
+}
+function headerBar() {
+  const tabsHtml = [tab({ id: "", label: ORCH, icon: ICON.chat, state: "busy", activeTab: open === null || v !== "c" || false, closable: false })];
+  if (v === "c") {
+    tabsHtml[0] = tab({ id: "", label: ORCH, icon: ICON.chat, state: "busy", activeTab: open === null, closable: false });
+    tabs.forEach((id) => {
+      const k = byId(id);
+      const st = k.st === "run" ? "busy" : k.st === "wait" ? "waiting" : k.st === "done" ? "done" : "";
+      tabsHtml.push(tab({ id, label: k.name, icon: logo(k.ag), state: st, activeTab: open === id, closable: true }));
+    });
+  }
+  tabsHtml.push(tab({ id: "x", label: "Fix layout tablet", icon: ICON.chat, state: "", activeTab: false, closable: true }).replace('data-open="x"', ""));
+  return `<header class="app-headerbar">
+    <button class="icon-button is-active" aria-label="Mostra o nascondi la barra laterale">${ICON.folder}</button>
+    <div class="tab-strip"><div class="tab-strip-scroller"><div class="tab-strip-viewport" role="tablist">${tabsHtml.join("")}</div></div>
+      <button class="term-tab-new" aria-label="Nuovo terminale">${ICON.plus}</button></div>
+    <div class="header-right">
+      <div class="quick-actions"><button class="icon-button" aria-label="Nuovo terminale">${ICON.term}</button><button class="icon-button" aria-label="Browser">${ICON.globe}</button><button class="icon-button is-active" aria-label="Agente">${ICON.robot}</button></div>
+      <div class="window-controls"><button class="icon-button">${ICON.min}</button><button class="icon-button">${ICON.max}</button><button class="icon-button icon-button-close">${ICON.close}</button></div>
+    </div></header>`;
+}
+
+/* ---------- sinistra: Cronologia ---------- */
+function histRow(o) {
+  return `<button type="button" class="agent-history-row${o.cur ? " is-current" : ""}${o.cls ? " " + o.cls : ""}" ${o.attrs || ""}>
+    <span class="agent-history-icon">${logo(o.ag)}</span>
+    <span class="agent-history-body"><span class="agent-history-title">${esc(o.title)}</span><span class="agent-history-meta">${o.meta}</span></span>
+    ${o.extra || ""}${o.dot ? `<span class="agent-history-dot agent-history-dot--${o.dot}" aria-hidden="true"></span>` : ""}</button>`;
+}
+function delegChip() {
+  const pips = kids.map((k) => `<i style="width:5px;height:5px;border-radius:50%;display:inline-block;background:${k.st === "run" ? "var(--accent)" : k.st === "wait" ? "var(--ansi-bright-yellow)" : "var(--fg-muted)"}"></i>`).join("");
+  const waiting = kids.some((k) => k.st === "wait");
+  return `<span class="agents-sidebar-chip agents-sidebar-chip--${waiting ? "waiting" : "running"} deleg-chip" data-toggle title="${kids.length} delegati: mostra o nascondi" style="display:inline-flex;align-items:center;gap:5px">
+    <span style="display:inline-flex;gap:2px">${pips}</span>${kids.length} delegati
+    <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .15s;${expanded ? "transform:rotate(90deg)" : ""}"><polyline points="9 6 15 12 9 18"/></svg></span>`;
+}
+function history() {
+  const orchMeta = `<span style="display:flex;align-items:center;gap:6px;overflow:visible">${v === "c" ? "" : "ora · "}<span class="agent-history-status--busy">al lavoro</span>${v === "c" ? delegChip() : ""}</span>`;
+  const chev = v === "a" ? "" : "";
+  let kidsHtml = "";
+  if (v !== "b" && expanded) {
+    kidsHtml = `<div class="agent-history-kids">${kids.map((k) => histRow({
+      ag: k.ag, title: k.name, cls: "is-child", cur: open === k.id, attrs: `data-open="${k.id}"`,
+      meta: `${label[k.ag]} · <span class="${k.st === "run" ? "agent-history-status--busy" : k.st === "wait" ? "agent-history-status--waiting" : ""}">${stText[k.st]}</span>`,
+      dot: histCls[k.st],
+    })).join("")}</div>`;
+  }
+  const orch = histRow({ ag: "claude", title: ORCH, cur: open === null, attrs: `data-open=""`, meta: orchMeta, dot: "busy" });
+  const orchBlock = v === "a" ? `<div class="agent-history-tree">${orch}<button type="button" class="agent-history-fold" data-toggle aria-expanded="${expanded}" title="${expanded ? "Nascondi" : "Mostra"} le chat delegate">${`<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="${expanded ? "transform:rotate(90deg)" : ""}"><polyline points="9 6 15 12 9 18"/></svg>`}</button></div>${kidsHtml}` : orch + kidsHtml;
+  return `<div class="sidebar"><div class="sidebar-switch"><div class="segmented-switch" role="tablist">
+      <button class="segmented-switch-option is-selected" role="tab"><span class="segmented-switch-text">Cronologia</span></button>
+      <button class="segmented-switch-option" role="tab"><span class="segmented-switch-text">Esplora</span></button>
+      <button class="segmented-switch-option" role="tab"><span class="segmented-switch-text">Git</span><span class="segmented-switch-count">4</span></button></div></div>
+    <div class="sidebar-panel"><div class="agent-history">
+      <label class="agent-history-search">${ICON.search}<input type="text" placeholder="Cerca sessioni" aria-label="Cerca sessioni"></label>
+      <div class="agent-history-list">
+        <section><div class="agent-history-group">Oggi</div>${orchBlock}
+          ${histRow({ ag: "claude", title: "Fix layout tablet", meta: "2 h fa", dot: "idle" })}</section>
+        <section><div class="agent-history-group">Ieri</div>
+          ${histRow({ ag: "codex", title: "Migrazione schema", meta: "ieri" })}
+          ${histRow({ ag: "claude", title: "Test e2e del login", meta: "ieri · ⎇ feat/login-e2e" })}
+          ${histRow({ ag: "gemini", title: "Revisione traduzioni", meta: "ieri" })}</section>
+        <section><div class="agent-history-group">3 novembre</div>
+          ${histRow({ ag: "claude", title: "Pulizia dipendenze", meta: "3 gg fa" })}
+          ${histRow({ ag: "codex", title: "Indice per le ricerche", meta: "3 gg fa" })}</section>
+      </div>
+      <div class="agent-history-footer"><div class="agent-history-split"><button class="agent-history-new">${ICON.plus16}Nuova sessione</button><button class="agent-history-caret" aria-label="Scegli agente">${ICON.caret}</button></div></div>
+    </div></div></div>`;
+}
+
+/* ---------- domande e permessi dei figli ---------- */
+const asks = [
+  { id: "a1", kid: "k2", type: "perm", q: "Scrivere docs/onboarding.short.md?",
+    opts: [{ t: "Consenti", r: "allow" }, { t: "Nega", r: "deny" }] },
+  { id: "a2", kid: "k1", type: "q", q: "Mantengo l'export default di session.ts per compatibilità?",
+    opts: [{ t: "Sì, mantienilo", rec: true }, { t: "No, rimuovilo" }] },
+];
+let askIdx = 0;
+const askOf = (k) => asks.find((a) => a.kid === k.id);
+const liveOf = (k) => { const a = askOf(k); return a ? (a.type === "q" ? "chiede una risposta" : "chiede permesso") : k.live; };
+function answer(id, i, custom) {
+  const a = asks.find((x) => x.id === id); if (!a) return;
+  asks.splice(asks.indexOf(a), 1);
+  const k = byId(a.kid);
+  if (a.type === "perm") {
+    if (a.opts[i].r === "allow") { k.st = "run"; k.live = "Edit onboarding.short.md"; k.steps.push(["Edit", "onboarding.short.md", "+34"]); k.pct = 70; }
+    else { k.st = "stop"; k.live = "permesso negato"; }
+  } else { k.st = "run"; k.live = k.steps[k.steps.length - 1][0]; }
+  askIdx = 0;
+}
+
+/* ---------- centro ---------- */
+function stepRows(k, live) {
+  return k.steps.map((s, i) => {
+    const last = i === k.steps.length - 1;
+    const running = live && last && k.st === "run";
+    return `<div class="chat-step"><div class="chat-step-row"><span class="chat-step-num">${i + 1}</span><span class="chat-dot ${running ? "is-live" : "is-done"}"></span>${running ? `<span class="chat-spinner"></span>` : ""}<span class="chat-step-title">${esc(s[0])}</span>${s[1] ? `<span class="chat-step-file">${esc(s[1])}${s[2] ? " " + esc(s[2]) : ""}</span>` : ""}</div></div>`;
+  }).join("");
+}
+function delegCard(k) {
+  const lv = liveOf(k);
+  const live = k.st === "run" ? `<span class="chat-spinner"></span><span class="chat-subcard-text is-mono">${esc(lv)}</span>`
+    : k.st === "wait" ? `<span class="chat-sub-mark is-wait">●</span><span class="chat-subcard-text">${esc(lv)}</span>`
+    : k.st === "stop" ? `<span class="chat-sub-mark is-stop">■</span><span class="chat-subcard-text">interrotta da te</span>`
+    : `<span class="chat-sub-mark">✓</span><span class="chat-subcard-text">${esc(lv)}</span>`;
+  const t = k.st === "run" ? "in corso" : k.st === "wait" ? "in attesa" : k.time;
+  return `<div class="chat-subcard-wrap"><button type="button" class="chat-subcard${k.st === "wait" ? " is-wait" : ""}" data-open="${k.id}" title="Delegato a ${label[k.ag]} · ${esc(k.name)}">
+      <span class="chat-subcard-row has-open"><span style="display:inline-flex">${logo(k.ag)}</span><span class="chat-subcard-name">${esc(k.name)}</span></span>
+      <span class="chat-subcard-row"><span class="chat-sub-tag">Delegato a ${label[k.ag]}</span><span class="chat-subcard-pill">${k.steps.length}</span><span class="chat-subcard-time">${t}</span></span>
+      <span class="chat-subcard-live">${live}</span>
+      <span class="chat-subcard-bar${k.st === "run" ? " is-running" : k.st === "wait" ? " is-wait" : k.st === "stop" ? " is-stop" : ""}"><i style="width:${k.pct}%"></i></span></button>
+    <button type="button" class="chat-subcard-open is-floating" tabindex="-1" aria-label="Apri la chat di questo delegato" data-open="${k.id}">${ICON.open}</button></div>`;
+}
+function composer() {
+  return `<div class="chat-footer"><div class="chat-composer-wrap"><div class="chat-composer">
+      <div class="chat-input-row"><textarea class="chat-input" rows="1" placeholder="Scrivi un messaggio…" aria-label="Scrivi un messaggio"></textarea></div>
+      <div class="chat-composer-actions">
+        <div class="chat-mode-anchor"><button type="button" class="chat-mode-pill is-auto">${ICON.wand}<span class="chat-mode-name">Auto</span></button></div>
+        <div class="chat-mode-anchor"><button type="button" class="chat-mode-pill chat-model-pill">${ICON.chip}<span class="chat-mode-name">Opus 4.7</span><span class="chat-model-level">· Alto</span></button></div>
+        <span class="chat-actions-spacer"></span>
+        <button type="button" class="chat-icon-btn" aria-label="Allega file">${ICON.clip}</button>
+        <button type="button" class="chat-icon-btn" aria-label="Detta">${ICON.mic}</button>
+        <button type="button" class="chat-icon-btn is-send is-stop" aria-label="Ferma">${ICON.stop}</button>
+      </div></div></div></div>`;
+}
+/* La richiesta di un figlio prende il posto del composer, come la domanda di un agente (AskComposer). */
+function askCard() {
+  if (askIdx >= asks.length) askIdx = 0;
+  const a = asks[askIdx], k = byId(a.kid);
+  const nav = asks.length > 1
+    ? `<span class="ask-nav"><button type="button" class="chat-ask-btn is-ghost sm" data-askgo="-1" aria-label="Richiesta precedente">‹</button>${asks.map((x, i) => `<span class="chat-ask-dot${i === askIdx ? " is-on" : ""}"></span>`).join("")}<span class="chat-ask-hint">${askIdx + 1} di ${asks.length}</span><button type="button" class="chat-ask-btn is-ghost sm" data-askgo="1" aria-label="Richiesta successiva">›</button></span>` : "";
+  const opts = a.opts.map((o, i) => `<li class="chat-ask-opt${i === 0 ? " is-cur" : ""}" data-ask="${a.id}:${i}"><kbd>${i + 1}</kbd><div class="chat-ask-txt"><b>${esc(o.t)}</b>${o.rec ? `<span class="chat-ask-badge">consigliata</span>` : ""}${o.s ? `<small>${esc(o.s)}</small>` : ""}</div></li>`).join("");
+  const other = a.type === "q" ? `<li class="chat-ask-opt is-other"><kbd>${a.opts.length + 1}</kbd><input class="chat-ask-free" data-askfree="${a.id}" placeholder="Altro… scrivi la tua risposta" aria-label="Altra risposta"></li>` : "";
+  return `<div class="chat-footer"><div class="chat-composer-wrap"><div class="chat-composer chat-ask" role="group" aria-label="${label[k.ag]} chiede">
+      <div class="ask-head"><span class="chat-ask-tag"><span class="ask-logo">${logo(k.ag)}</span>${label[k.ag]} · ${esc(k.name)} chiede</span>${nav}</div>
+      <div class="chat-ask-q">${esc(a.q)}</div>
+      <ul class="chat-ask-opts">${opts}${other}</ul>
+      <div class="chat-ask-actions"><span class="chat-ask-hint"><kbd>↑</kbd><kbd>↓</kbd> scegli · <kbd>↵</kbd> seleziona</span><span class="chat-actions-spacer"></span><button type="button" class="chat-ask-btn is-ghost" data-open="${k.id}">Apri la chat</button></div>
+    </div></div></div>`;
+}
+function header(o) {
+  return `<div class="chat-header">${o.back ? `<button type="button" class="chat-back" data-open="" title="Torna alla conversazione (Esc)" aria-label="Torna alla conversazione">${ICON.back}</button>` : ""}
+    <div class="chat-menu-anchor"><button type="button" class="chat-session"><span class="chat-session-icon">${logo(o.ag)}</span><span class="chat-session-title">${esc(o.title)}</span>${o.sub ? `<span class="chat-session-agent">${o.sub}</span>` : ""}${ICON.chevDown}</button></div>
+    ${o.crumb || ""}${o.tag || ""}<span class="chat-status-text">${o.status}</span><span class="chat-status-dot is-${o.dot}"></span></div>`;
+}
+function orchestrator() {
+  return `<div class="chat-view">${header({ ag: "claude", title: ORCH, sub: "Claude Code · orchestratore", status: "Al lavoro", dot: "busy" })}
+    <div class="chat-column-wrap"><div class="chat-column"><div class="chat-content">
+      <div class="chat-user">Prepara la 0.30: rifattorizza l'auth, aggiungi i test del parser CSV e accorcia il copy dell'onboarding. Delega dove ha senso.</div>
+      <div class="chat-tools"><button type="button" class="chat-group-toggle chat-tools-head">${ICON.chevRight}<span class="chat-group-count">5</span><span class="chat-tools-status"></span><span class="chat-group-summary">3 file letti · 2 ricerche</span></button></div>
+      <div class="chat-md"><p>Divido il lavoro: il refactor e i test sono compiti di codice ben delimitati, li affido a <strong>Codex</strong>. Il testo dell'onboarding va a <strong>Gemini</strong>. Intanto io preparo il changelog.</p></div>
+      <div class="chat-submark">${ICON.bot}<span class="chat-submark-text"><b>${kids.length} deleghe avviate</b></span>${kids.map((k) => `<button type="button" class="chat-sub-tag chat-submark-tag" data-open="${k.id}" title="Apri la chat di questo delegato">${label[k.ag]}</button>`).join("")}</div>
+      <div class="chat-subcards"><div class="chat-subcards-grid">${kids.map(delegCard).join("")}</div></div>
+      <div class="chat-md"><p>Codex ha finito i test del CSV: <strong>14 verdi</strong>, ma segnala un bug con il BOM iniziale. Attendo gli altri due prima di chiudere il changelog.</p></div>
+    </div>${asks.length ? askCard() : composer()}</div></div></div>`;
+}
+function child(k, mode) {
+  const crumb = mode === "crumb" ? `<span class="chat-crumb"><span class="chat-crumb-sep">›</span><span class="chat-crumb-label">${esc(k.name)}</span>${k.st === "run" ? `<span class="chat-spinner"></span>` : `<span class="chat-sub-mark${k.st === "wait" ? " is-wait" : k.st === "stop" ? " is-stop" : ""}">${k.st === "wait" ? "●" : k.st === "stop" ? "■" : "✓"}</span>`}</span>` : "";
+  const hdr = mode === "crumb"
+    ? header({ back: true, ag: "claude", title: ORCH, crumb, status: statusTxt[k.st], dot: dotOf(k) })
+    : header({ ag: k.ag, title: k.name, sub: cli[k.ag], tag: `<span class="chat-sub-tag hdr" title="Riceve solo il prompt dell'orchestratore">Delegata da Claude</span>`, status: statusTxt[k.st], dot: dotOf(k) });
+  const live = k.st === "run";
+  const head = live ? `<span class="chat-spinner"></span><span class="chat-group-summary is-live">${esc(k.live)}</span>` : `<span class="chat-tools-status"></span><span class="chat-group-summary">${k.steps.length} ${k.steps.length === 1 ? "passaggio" : "passaggi"}</span>`;
+  const a = askOf(k);
+  const perm = a
+    ? `<div class="chat-rail"><span class="chat-dot is-warn"></span><div class="chat-permission" role="group"><div class="chat-permission-text"><div class="chat-permission-label">${a.type === "q" ? "Serve una risposta" : "Serve un permesso"}</div><div class="chat-permission-title">${esc(a.q)}</div></div>
+        <div class="chat-permission-options">${a.opts.map((o, i) => `<button type="button" class="chat-btn${i === 0 ? " is-primary" : ""}" data-ask="${a.id}:${i}">${esc(o.t)}</button>`).join("")}</div></div></div>` : "";
+  const closeLbl = mode === "crumb" ? "Torna alla conversazione" : "Chiudi scheda";
+  const footLabel = k.st === "done" ? `Conclusa · <b>risultato restituito a Claude</b>` : k.st === "stop" ? `Interrotta · <b>Claude è stato avvisato</b>` : `<b>Gestita dall'orchestratore</b> · sola lettura`;
+  const foot = `<div class="chat-sub-footer"><span class="lock">${ICON.lock}<span>${footLabel}</span></span><span class="acts">${k.st === "run" || k.st === "wait" ? `<button type="button" class="chat-btn is-danger" data-stop="${k.id}">Interrompi</button>` : ""}<button type="button" class="chat-btn" ${mode === "crumb" ? `data-open=""` : `data-close="${k.id}"`}>${closeLbl}</button></span></div>`;
+  return `<div class="chat-view">${hdr}
+    <div class="chat-column-wrap"><div class="chat-column"><div class="chat-content">
+      <div class="chat-user is-task"><span class="chat-task-label">Compito da Claude</span>${esc(k.prompt)}</div>
+      <div class="chat-md"><p>${esc(k.say)}</p></div>
+      <div class="chat-tools is-open"><button type="button" class="chat-group-toggle chat-tools-head">${ICON.chevRight}<span class="chat-group-count">${k.steps.length}</span>${head}</button>
+        <div class="chat-tools-list">${stepRows(k, live)}</div></div>
+      ${k.out ? `<div class="chat-md"><p>${md(k.out)}</p></div>` : ""}
+    </div><div class="chat-footer"><div class="chat-composer-wrap">${perm}${foot}</div></div></div></div></div>`;
+}
+const dotOf = (k) => (k.st === "run" ? "busy" : k.st === "wait" ? "waiting" : "idle");
+
+/* ---------- destra: pannello Agente ---------- */
+const chevG = `<svg class="grp-chev" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
+const refreshI = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v4.5h-4.5"/></svg>`;
+const badge = (t) => `<span class="agent-insight-badge">${t}</span>`;
+const SKILLS = [["caveman", "utente", "0,6k"], ["flowcode-plugin", "progetto", "0,5k"], ["code-review", "utente", "0,5k"], ["simplify", "utente", "0,4k"], ["investigate-first", "utente", "0,4k"], ["lean-build", "utente", "0,4k"], ["surgical-patch", "utente", "0,4k"], ["safe-refactor", "utente", "0,4k"], ["migration", "utente", "0,3k"], ["verify-and-stop", "utente", "0,3k"], ["run", "utente", "0,3k"], ["init", "utente", "0,3k"]];
+const MCPS = [["context7", "http", "utente"], ["playwright", "stdio", "utente"], ["figma", "http", "progetto"], ["flowcode", "stdio", "progetto"]];
+function ctxPane(pct, tokens) {
+  const mem = 4, skill = 6, conv = Math.max(0, pct - mem - skill);
+  const k = open ? byId(open) : null;
+  const modelRow = `<div class="agent-insight-section" style="margin-top:12px"><div class="agent-insight-row"><span class="agent-insight-row-name">Modello</span><span class="agent-insight-row-value">${k ? esc(k.model) : "Opus 4.7"}</span></div>
+    <div class="agent-insight-row"><span class="agent-insight-row-name">Scheda</span><span class="agent-insight-row-value">${k ? esc(k.name) : ORCH}</span></div></div>`;
+  const stack = `<div class="agent-insight-stack"><i style="width:${mem * .4}%;background:var(--c-mem)"></i><i style="width:${skill * .4}%;background:var(--c-skill)"></i><i style="width:${conv}%;background:var(--c-msg)"></i></div>`;
+  const sw = (c) => `<span class="agent-insight-sw" style="background:${c}"></span>`;
+  const plain = (c, n, val) => `<div class="agent-insight-row">${v === "c" ? `<span class="grp-pad"></span>` : ""}${c}<span class="agent-insight-row-name">${n}</span><span class="agent-insight-row-value">${val}</span></div>`;
+  if (v !== "c") {
+    return `${stack}${plain(sw("var(--c-mem)"), "CLAUDE.md e memoria", "3,1k")}${plain(sw("var(--c-skill)"), "Skill", "4,8k")}${plain(sw("var(--c-msg)"), "Conversazione", tokens)}${plain(`<span class="agent-insight-sw agent-insight-sw--free"></span>`, `<span class="agent-insight-muted">Libero</span>`, `${100 - pct}%`)}${modelRow}`;
+  }
+  const G = (key, name, swatch, value, head, body) => `<div class="agent-insight-grp"><button type="button" class="agent-insight-row agent-insight-grp-head${grp.has(key) ? " is-open" : ""}" data-grp="${key}" aria-expanded="${grp.has(key)}">${chevG}${swatch}<span class="agent-insight-row-name">${name}</span><span class="agent-insight-row-value">${value}</span></button>${grp.has(key) ? `<div class="agent-insight-grp-body">${head || ""}${body}</div>` : ""}</div>`;
+  const mfiles = k ? [["AGENTS.md", "progetto", "1,2k"], ["~/.codex/AGENTS.md", "utente", "0,9k"]] : [["CLAUDE.md", "progetto", "1,4k"], ["~/.claude/CLAUDE.md", "utente", "1,1k"], ["MEMORY.md", "memoria", "0,6k"]];
+  const mem1 = G("memory", "CLAUDE.md e memoria", sw("var(--c-mem)"), `${mfiles.length} · 3,1k`, "", mfiles.map((f) => `<div class="agent-insight-row" title="${f[0]}"><span class="agent-insight-row-name">${f[0]}</span><span class="agent-insight-row-value">${badge(f[1])} ~${f[2]} token</span></div>`).join(""));
+  const sk = G("skill", "Skill", sw("var(--c-skill)"), `${SKILLS.length} · 4,8k`, "", SKILLS.map((s) => `<div class="agent-insight-row"><span class="agent-insight-row-name">${s[0]}</span><span class="agent-insight-row-value">${badge(s[1])} ~${s[2]} token</span></div>`).join(""));
+  const mcp = G("mcp", "Server MCP", `<span class="agent-insight-sw agent-insight-sw--mcp"></span>`, `${MCPS.length}`,
+    `<div class="agent-insight-grp-sub"><span>Configurati</span><button type="button" class="agents-sidebar-close agent-insight-refresh" title="Aggiorna" aria-label="Aggiorna">${refreshI}</button></div>`,
+    MCPS.map((m) => `<div class="agent-insight-row"><span class="agent-insight-row-name">${m[0]}</span><span class="agent-insight-row-value">${badge(m[1])} ${badge(m[2])}</span></div>`).join(""));
+  return `${stack}${mem1}${sk}${mcp}${plain(sw("var(--c-msg)"), "Conversazione", tokens)}${plain(`<span class="agent-insight-sw agent-insight-sw--free"></span>`, `<span class="agent-insight-muted">Libero</span>`, `${100 - pct}%`)}
+    ${grp.size ? `<div class="agent-insight-note" style="margin-top:8px">Configurati per questa cartella; lo stato di connessione non è disponibile.</div>` : ""}${modelRow}`;
+}
+function usagePane(k) {
+  const bars = [20, 28, 35, 30, 48, 42, 60, 55, 92, 50, 58, 66];
+  return `<div class="agent-insight-section"><div class="agent-insight-title">Sessione</div>
+    <div class="agent-insight-row"><span class="agent-insight-row-name">Input</span><span class="agent-insight-row-value">${k ? "310k" : "412k"}</span></div>
+    <div class="agent-insight-row"><span class="agent-insight-row-name">Output</span><span class="agent-insight-row-value">${k ? "21k" : "38k"}</span></div>
+    <div class="agent-insight-row"><span class="agent-insight-row-name">Cache letta</span><span class="agent-insight-row-value">${k ? "1,2M" : "2,1M"}</span></div>
+    <div class="agent-insight-subtitle">Token per turno</div>
+    <div class="agent-insight-spark">${bars.map((h, i) => `<i${i === 8 ? ' class="is-hi"' : ""} style="height:${h}%"></i>`).join("")}</div>
+    <div class="agent-insight-cost"><span class="agent-insight-muted">Costo stimato</span><b>${k ? "$1,36" : "$4,82"}</b></div></div>`;
+}
+function delegRow(k, rich, clickAttr) {
+  const meta = rich
+    ? `<span class="live">${esc(liveOf(k))}</span><span class="mini ${k.st}"><i style="width:${k.pct}%"></i></span>`
+    : `<span class="agents-sidebar-meta"><span>${label[k.ag]} · ${k.time}</span></span>`;
+  return `<button type="button" class="agents-sidebar-row${peek === k.id ? " is-active" : ""}" ${clickAttr}="${k.id}">
+    <span class="agents-sidebar-icon">${logo(k.ag)}</span>
+    <span class="agents-sidebar-row-body"><span class="agents-sidebar-tab-label">${esc(k.name)}</span>${meta}</span>
+    <span class="agents-sidebar-chip agents-sidebar-chip--${chipCls[k.st]}">${stText[k.st]}</span>
+    ${rich ? `<span class="agents-sidebar-stop" role="button" tabindex="0" title="Apri la chat" aria-label="Apri la chat" data-open="${k.id}">${ICON.open}</span>` : ""}</button>`;
+}
+function peekCard(k) {
+  const steps = k.steps.slice(-3).map((s, i, arr) => {
+    const running = k.st === "run" && i === arr.length - 1;
+    return `<div class="chat-step"><div class="chat-step-row"><span class="chat-dot ${running ? "is-live" : "is-done"}"></span>${running ? `<span class="chat-spinner"></span>` : ""}<span class="chat-step-title">${esc(s[0])}</span>${s[1] ? `<span class="chat-step-file">${esc(s[1])}</span>` : ""}</div></div>`;
+  }).join("");
+  const a = askOf(k);
+  const perm = a ? `<div class="peek-perm"><span><b>${a.type === "q" ? "Serve una risposta" : "Serve un permesso"}</b>${esc(a.q)}</span><button type="button" class="agent-insight-btn sm" data-askgo="@${a.id}">Rispondi</button></div>` : "";
+  const out = k.out ? `<div class="chat-subcards-report"><span class="chat-subcards-report-label">Risultato restituito</span>${md(k.out)}</div>` : "";
+  return `<div class="agent-insight-peek"><div class="chat-subcards-detail">
+    <div class="chat-subcards-detail-head"><span class="chat-sub-tag">${label[k.ag]}</span><b title="${esc(k.name)}">${esc(k.name)}</b><button type="button" class="agent-insight-btn sm" data-open="${k.id}">Apri ${ICON.open.replace('width="12" height="12"', 'width="10" height="10"')}</button></div>
+    ${steps}${perm}</div>${out}</div>`;
+}
+const parentBlock = () => `<div class="agent-insight-title">Delegata da</div>
+  <button type="button" class="agents-sidebar-row" data-open=""><span class="agents-sidebar-icon">${logo("claude")}</span><span class="agents-sidebar-row-body"><span class="agents-sidebar-tab-label">${ORCH}</span><span class="agents-sidebar-meta"><span>Riceve solo il prompt · torna qui</span></span></span><span class="agents-sidebar-stop" aria-hidden="true">${ICON.back.replace('width="16" height="16"', 'width="12" height="12"')}</span></button>`;
+function delegPane() {
+  if (open) return parentBlock() + `<div class="agent-insight-note" style="margin-top:8px">Il delegato non ha un composer: lavora sul prompt ricevuto e restituisce l'ultimo messaggio.</div>`;
+  if (!kids.length) return `<div class="agent-insight-note">Nessuna delega in corso. Quando l'orchestratore ne avvia una, la trovi qui.</div>`;
+  return `<div class="agent-insight-title">Delegati <b>${kids.length}</b><span class="aside">${active()} attivi</span></div>${kids.map((x) => delegRow(x, true, "data-peek")).join("")}${peekCard(byId(peek))}`;
+}
+function rightPanel() {
+  const k = open ? byId(open) : null;
+  const pct = k ? k.ctx : 41;
+  const chipTxt = k ? `${cli[k.ag]} · ${k.model.split(" · ")[0]} · chat · delegata` : "Claude Code · Opus 4.7 · chat";
+  const used = k ? `${k.tokens} su 200k` : "82k su 200k";
+  const isC = v === "c";
+  let block = "";
+  if (!isC) {
+    if (k) block = `<div class="agent-insight-deleg">${parentBlock()}</div>`;
+    else if (v === "b") block = `<div class="agent-insight-deleg"><div class="agent-insight-title">Delegati <b>${kids.length}</b><span class="aside">${active()} attivi</span></div>${kids.map((x) => delegRow(x, false, "data-peek")).join("")}${peekCard(byId(peek))}</div>`;
+  }
+  const defs = isC ? [["context", "Contesto"], ["usage", "Consumi"], ["delegates", "Delegati", active()]] : [["context", "Contesto"], ["usage", "Consumi"], ["tools", "Strumenti"]];
+  const sw = `<div class="segmented-switch" role="tablist">${defs.map((d) => `<button class="segmented-switch-option${(isC ? ptab : "context") === d[0] ? " is-selected" : ""}" role="tab" ${isC ? `data-tab="${d[0]}"` : ""}><span class="segmented-switch-text">${d[1]}</span>${d[2] ? `<span class="segmented-switch-count">${d[2]}</span>` : ""}</button>`).join("")}</div>`;
+  const pane = !isC ? ctxPane(pct, k ? k.tokens : "74k") : ptab === "usage" ? usagePane(k) : ptab === "delegates" ? delegPane() : ctxPane(pct, k ? k.tokens : "74k");
+  return `<div class="agents-sidebar agent-insight"><div class="agents-sidebar-head"><div class="agents-sidebar-header">
+      <button type="button" class="agents-sidebar-close" aria-label="Chiudi"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <span class="agents-sidebar-title">Agente</span></div></div>
+    <div class="agent-insight-body"><div class="agent-insight-top">
+      <div class="agent-insight-chip" title="${esc(chipTxt)}">${esc(chipTxt)}</div>
+      <div class="agent-insight-hero"><span class="agent-insight-big">${pct}%</span><span class="agent-insight-muted agent-insight-hero-detail">${used}</span><button type="button" class="agent-insight-btn" disabled>Compatta</button></div>
+      <div class="agent-insight-meter"><i style="width:${pct}%"></i></div>
+      ${block}${sw}
+    </div><div class="agent-insight-pane">${pane}</div></div></div>`;
+}
+
+/* ---------- finestra ---------- */
+function render() {
+  document.querySelectorAll(".pg-seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === v));
+  document.getElementById("note").innerHTML = notes[v];
+  const centre = open ? child(byId(open), v === "c" ? "tab" : "crumb") : orchestrator();
+  document.getElementById("win").innerHTML = `${headerBar()}
+    <div class="app-body">
+      <div class="resizable-panel" style="width:240px"><div class="panel-card"><div class="panel-card-content" style="width:238px">${history()}</div></div></div>
+      <div class="terminal-stack">${centre}</div>
+      <div class="resizable-panel" style="width:290px"><div class="panel-card"><div class="panel-card-content" style="width:288px">${rightPanel()}</div></div></div>
+    </div>`;
+}
+
+document.querySelector(".pg-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  v = b.dataset.v; open = null; tabs = []; expanded = v !== "c"; ptab = "context"; grp = new Set(); render();
+});
+const win = document.getElementById("win");
+win.addEventListener("keydown", (e) => {
+  const f = e.target.closest("[data-askfree]");
+  if (f && e.key === "Enter" && f.value.trim()) { answer(f.dataset.askfree, -1, f.value); render(); }
+});
+win.addEventListener("click", (e) => {
+  const close = e.target.closest("[data-close]");
+  if (close) {
+    const id = close.dataset.close;
+    tabs = tabs.filter((x) => x !== id);
+    if (open === id) open = null;
+    render(); return;
+  }
+  const ans = e.target.closest("[data-ask]");
+  if (ans) { const [id, i] = ans.dataset.ask.split(":"); answer(id, +i); render(); return; }
+  const go = e.target.closest("[data-askgo]");
+  if (go) {
+    const d = go.dataset.askgo;
+    if (d[0] === "@") { const i = asks.findIndex((a) => a.id === d.slice(1)); if (i >= 0) askIdx = i; open = null; }
+    else askIdx = (askIdx + +d + asks.length) % asks.length;
+    render(); return;
+  }
+  const tb = e.target.closest("[data-tab]");
+  if (tb) { ptab = tb.dataset.tab; render(); return; }
+  const gp = e.target.closest("[data-grp]");
+  if (gp) { const g = gp.dataset.grp; grp.has(g) ? grp.delete(g) : grp.add(g); render(); return; }
+  const stop = e.target.closest("[data-stop]");
+  if (stop) { const k = byId(stop.dataset.stop); const a = askOf(k); if (a) asks.splice(asks.indexOf(a), 1); k.st = "stop"; k.pct = Math.min(k.pct, 60); k.live = "interrotta"; render(); return; }
+  if (e.target.closest("[data-toggle]")) { expanded = !expanded; render(); return; }
+  const o = e.target.closest("[data-open]");
+  if (o) {
+    const id = o.dataset.open || null;
+    if (v === "c" && id && !tabs.includes(id)) tabs.push(id);
+    open = id; if (id) peek = id; render(); return;
+  }
+  const pk = e.target.closest("[data-peek]");
+  if (pk) { peek = pk.dataset.peek; render(); }
+});
+render();
+</script>
+</body>
+</html>

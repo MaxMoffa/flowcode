@@ -15,6 +15,57 @@ import type {
 import { parseAskQuestions, type AskQuestion } from "./askQuestions";
 import { closeCodexSubagents, isCodexSubagentLaunch, updateCodexSubagents } from "./codexSubagents";
 
+/** How a delegated task stands (the backend's `_flowcode/delegate` status). */
+export type DelegateStatus = "running" | "waiting_for_user" | "done" | "failed" | "cancelled";
+
+/** A task this chat's agent handed to another agent (the `_flowcode/delegate` event; the latest one per task wins). */
+export interface DelegateInfo {
+  taskId: string;
+  /** The child's own chat: opened in a tab, and where its permissions and questions are answered. */
+  childChatId: string;
+  /** The child's agent session id, once it has one: the history finds the conversation again with it. */
+  childSessionId?: string;
+  /** The delegate's agent CLI id (`codex`, `gemini`, ...). */
+  agent: string;
+  title: string;
+  prompt: string;
+  status: DelegateStatus;
+  /** Event time of the start, ms. */
+  startedAt: number;
+  endedAt?: number;
+  steps: number;
+  result?: string;
+  error?: string;
+  /** The child's latest tool call title, or "thinking". */
+  lastActivity?: string;
+}
+
+/** A permission or question a delegate asked, waiting for the user (`_flowcode/delegate_request`). */
+export interface DelegateRequest {
+  taskId: string;
+  childChatId: string;
+  agent: string;
+  title: string;
+  kind: "permission" | "ask";
+  requestId: string;
+  /** `permission`: what the child wants to do, and the choices. */
+  toolCall?: ChatToolCall;
+  options?: ChatPermissionOption[];
+  /** `ask`: the question(s), as the composer shows them. */
+  message?: string;
+  questions?: AskQuestion[];
+}
+
+/** What a delegated child chat was asked and by whom (its `_flowcode/task` event). */
+export interface ChatTaskInfo {
+  taskId: string;
+  parentChatId: string;
+  /** The orchestrator's agent CLI id. */
+  parentAgent: string;
+  parentTitle: string | null;
+  prompt: string;
+}
+
 /** One thing in the conversation, in the order it happened. */
 export type ChatItem =
   /** `local`: sent from this app (a `user` event), as opposed to history the agent replayed. */
@@ -44,6 +95,8 @@ export type ChatItem =
     }
   /** `local`: raised here (a send or an answer the backend refused), not an event of the agent's stream. */
   | { type: "error"; id: string; message: string; local?: boolean }
+  /** A delegated task, anchored where its first event arrived (right after the tool call that started it). */
+  | { type: "delegate"; id: string; delegate: DelegateInfo }
   /** A turn that ended for another reason than finishing or being cancelled (ACP `stopReason`: `max_tokens`, `max_turn_requests`, `refusal`, ...). */
   | { type: "stop"; id: string; reason: string }
   /** The agent compacted its context (ACP `compaction_update`): a divider at that point, everything above it is now only a summary for the agent. `status`: `in_progress`, `completed`, `failed` or `cancelled`; `manual`: the user asked for it (`/compact`), as opposed to the agent's own. */
@@ -71,10 +124,14 @@ export interface ChatModelState {
   turn: { startedAt: number; outChars: number } | null;
   /** Native ACP subagents announced (`subagent_update`) whose launch id (the `session_message` that follows) isn't known yet, by child session id. */
   nativeSubagents?: Record<string, { title?: string; description?: string }>;
+  /** Delegates' permission requests and questions still open, oldest first: the composer asks them in turn. */
+  delegateRequests: DelegateRequest[];
+  /** Set on a delegated child chat: the task it runs and who asked. */
+  task: ChatTaskInfo | null;
 }
 
 export function initialChat(): ChatModelState {
-  return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null };
+  return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null, delegateRequests: [], task: null };
 }
 
 /** The backend's event saying the chat's model changed (params: the normalized `ChatModels`). */
@@ -82,6 +139,95 @@ export const MODEL_EXT_METHOD = "_flowcode/model";
 
 /** The backend's event saying the chat's thinking levels (or the current one) changed (params: the normalized `ChatThought`). */
 export const THOUGHT_EXT_METHOD = "_flowcode/thought";
+
+/** The backend's events about delegated tasks: on the orchestrator `delegate`, `delegate_request` and `delegate_request_resolved`, on the child `task`. */
+export const DELEGATE_EXT_METHOD = "_flowcode/delegate";
+export const DELEGATE_REQUEST_EXT_METHOD = "_flowcode/delegate_request";
+export const DELEGATE_RESOLVED_EXT_METHOD = "_flowcode/delegate_request_resolved";
+export const TASK_EXT_METHOD = "_flowcode/task";
+
+const DELEGATE_STATUSES: readonly string[] = ["running", "waiting_for_user", "done", "failed", "cancelled"];
+
+/** A delegate is over: it will not change again. */
+export const delegateFinished = (d: Pick<DelegateInfo, "status">): boolean => d.status === "done" || d.status === "failed" || d.status === "cancelled";
+
+/** A JSON-RPC request id as the backend sends it: a string or a number, handed back as it came. */
+const requestIdOf = (v: unknown): string | null => (typeof v === "string" && v !== "") || typeof v === "number" ? (v as string) : null;
+
+const record = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {});
+
+/** The `_flowcode/delegate` params, checked; null when they are not a delegate. */
+export function parseDelegate(raw: unknown): DelegateInfo | null {
+  const p = record(raw);
+  const taskId = str(p.taskId);
+  const childChatId = str(p.childChatId);
+  if (!taskId || !childChatId) return null;
+  const status = DELEGATE_STATUSES.includes(p.status as string) ? (p.status as DelegateStatus) : "running";
+  return {
+    taskId,
+    childChatId,
+    agent: str(p.agent) ?? "",
+    title: str(p.title) ?? "",
+    prompt: typeof p.prompt === "string" ? p.prompt : "",
+    status,
+    startedAt: typeof p.startedAt === "number" ? p.startedAt : 0,
+    steps: typeof p.steps === "number" ? p.steps : 0,
+    ...(str(p.childSessionId) ? { childSessionId: str(p.childSessionId)! } : {}),
+    ...(typeof p.endedAt === "number" ? { endedAt: p.endedAt } : {}),
+    ...(str(p.result) ? { result: str(p.result)! } : {}),
+    ...(str(p.error) ? { error: str(p.error)! } : {}),
+    ...(str(p.lastActivity) ? { lastActivity: str(p.lastActivity)! } : {}),
+  };
+}
+
+/** Request ids are the children's own JSON-RPC ids: only unique within one child chat. */
+export const delegateRequestKey = (childChatId: string, requestId: string) => JSON.stringify([childChatId, requestId]);
+
+/** The `_flowcode/delegate_request` params, checked. */
+export function parseDelegateRequest(raw: unknown): DelegateRequest | null {
+  const p = record(raw);
+  const taskId = str(p.taskId);
+  const childChatId = str(p.childChatId);
+  const requestId = requestIdOf(p.requestId);
+  if (!taskId || !childChatId || requestId === null) return null;
+  const base = { taskId, childChatId, requestId, agent: str(p.agent) ?? "", title: str(p.title) ?? "" };
+  if (p.kind === "permission") {
+    const options = Array.isArray(p.options) ? (p.options as ChatPermissionOption[]) : [];
+    return { ...base, kind: "permission", toolCall: record(p.toolCall) as unknown as ChatToolCall, options };
+  }
+  if (p.kind === "ask") {
+    const message = typeof p.message === "string" ? p.message : "";
+    return { ...base, kind: "ask", message, questions: parseAskQuestions(p.schema, message) };
+  }
+  return null;
+}
+
+/** The `_flowcode/task` params, checked. */
+export function parseTask(raw: unknown): ChatTaskInfo | null {
+  const p = record(raw);
+  const taskId = str(p.taskId);
+  const parentChatId = str(p.parentChatId);
+  if (!taskId || !parentChatId) return null;
+  return { taskId, parentChatId, parentAgent: str(p.parentAgent) ?? "", parentTitle: str(p.parentTitle), prompt: typeof p.prompt === "string" ? p.prompt : "" };
+}
+
+/** Every delegate of the conversation, in the order they started. */
+export function delegatesOf(items: ChatItem[]): DelegateInfo[] {
+  return items.flatMap((i) => (i.type === "delegate" ? [i.delegate] : []));
+}
+
+/** Keeps the latest state per task: patched in place when the task is known (so its card stays where it first appeared), appended otherwise. A finished task's open requests are dropped (nobody can answer them any more). */
+function upsertDelegate(state: ChatModelState, delegate: DelegateInfo): ChatModelState {
+  const id = `delegate-${delegate.taskId}`;
+  // A status snapshot taken before cancellation can be emitted after it by another reader thread.
+  const previous = state.items.find((i) => i.id === id);
+  if (previous?.type === "delegate" && delegateFinished(previous.delegate)) return state;
+  const known = state.items.some((i) => i.id === id);
+  const item = { type: "delegate" as const, id, delegate };
+  const items = known ? state.items.map((i) => (i.id === id ? item : i)) : [...state.items, item];
+  const delegateRequests = delegateFinished(delegate) ? state.delegateRequests.filter((r) => r.taskId !== delegate.taskId) : state.delegateRequests;
+  return { ...state, items, delegateRequests };
+}
 
 /** The current value of the model option among ACP session config options (category `model`, else id `model`); null without one. */
 export function configModelValue(configOptions: unknown): string | null {
@@ -164,6 +310,12 @@ function withItems(state: ChatModelState, items: ChatItem[], turnActive = state.
 export function settleChat(state: ChatModelState): ChatModelState {
   if (state.status === "exited") return state;
   return { ...state, items: closeWokenSteps(state.items), turnActive: false, turn: null, status: statusOf(state.items, false, "idle") };
+}
+
+/** An attached chat is up: leaves "starting" like `settleChat`, but keeps the turn it is in (it runs on, owned by someone else). */
+export function settleAttached(state: ChatModelState): ChatModelState {
+  if (state.status === "exited") return state;
+  return { ...state, status: statusOf(state.items, state.turnActive, "idle") };
 }
 
 /** The tool calls still open under a subagent whose launch already finished (it was woken by a message and its turn is over): marked completed, so it does not stay "running". */
@@ -495,6 +647,28 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
         // Normalized by the backend: the whole list, `available: []` when the agent offers none any more.
         return { ...state, thought: normalizeThought(params) };
       }
+      if (ev.method === DELEGATE_EXT_METHOD) {
+        const delegate = parseDelegate(ev.params);
+        return delegate ? upsertDelegate(state, delegate) : state;
+      }
+      if (ev.method === DELEGATE_REQUEST_EXT_METHOD) {
+        const request = parseDelegateRequest(ev.params);
+        if (!request || state.delegateRequests.some((r) => r.childChatId === request.childChatId && r.requestId === request.requestId)) return state;
+        if (state.items.some((i) => i.type === "delegate" && i.delegate.taskId === request.taskId && delegateFinished(i.delegate))) return state;
+        return { ...state, delegateRequests: [...state.delegateRequests, request] };
+      }
+      if (ev.method === DELEGATE_RESOLVED_EXT_METHOD) {
+        const params = record(ev.params);
+        const requestId = requestIdOf(params.requestId);
+        const childChatId = str(params.childChatId);
+        if (requestId === null || !childChatId) return state;
+        const same = (r: DelegateRequest) => r.childChatId === childChatId && r.requestId === requestId;
+        return state.delegateRequests.some(same) ? { ...state, delegateRequests: state.delegateRequests.filter((r) => !same(r)) } : state;
+      }
+      if (ev.method === TASK_EXT_METHOD) {
+        const task = parseTask(ev.params);
+        return task ? { ...state, task } : state;
+      }
       // A retry reported after the turn ended (e.g. it was cancelled) is stale.
       if (ev.method !== "_session/retrying" || !state.turnActive) return state;
       const params = (ev.params ?? {}) as Record<string, unknown>;
@@ -570,7 +744,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
                 : i,
           )
         : woken;
-      return { ...state, items, turnActive: false, status: "exited", notice: null, turn: null };
+      return { ...state, items, turnActive: false, status: "exited", notice: null, turn: null, delegateRequests: [] };
     }
     default:
       // A kind added by a newer desktop: an older phone or view plugin must not break on it.

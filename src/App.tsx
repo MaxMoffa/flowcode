@@ -113,6 +113,8 @@ import { newTabId } from "./tabs/tabId";
 import { isDialogTab, listedTabs, makeTermTab, patchTermTab } from "./tabs/tabState";
 import "./App.css";
 import { AGENT_CLIS, CLI_INFO, cliOfPlugin, type AgentCli } from "./agents/cliInfo";
+import type { DelegateInfo } from "./chat/chatModel";
+import { staleDelegateTabs, useAllTabDelegations } from "./chat/delegateStore";
 
 const appWindow = getCurrentWindow();
 /** The window Flowcode starts with - the one that restores the saved session
@@ -1553,8 +1555,13 @@ function Shell() {
       appWindow.close();
       return;
     }
-    const next = current.tabs.filter((t) => t.id !== id);
-    if (id === current.activeTabId) {
+    // A chat's delegated children's tabs go with it (the backend closes the children).
+    const next = current.tabs.filter((t) => t.id !== id && !(t.kind === "chat" && t.delegate?.parentTabId === id));
+    if (next.length === 0) {
+      appWindow.close();
+      return;
+    }
+    if (id === current.activeTabId || !next.some((t) => t.id === current.activeTabId)) {
       const fallback = next[Math.max(0, idx - 1)] ?? next[0];
       if (fallback) setActiveTabId(fallback.id);
     }
@@ -1563,7 +1570,7 @@ function Shell() {
       // no terminal is in front until a new one opens.
       setActiveTerminalId(next.find((t) => t.kind === "terminal")?.id ?? "");
     }
-    setTabs((prev) => prev.filter((t) => t.id !== id));
+    setTabs((prev) => prev.filter((t) => t.id !== id && !(t.kind === "chat" && t.delegate?.parentTabId === id)));
     forgetTab(id);
   }
 
@@ -1930,6 +1937,7 @@ function Shell() {
     activeTerminal?.label,
     frontChat,
     activeTerminal && { id: activeTerminal.id, cwd: activeTerminal.cwd ?? "" },
+    frontChat?.delegate ? tabs.find((t): t is ChatTab => t.id === frontChat.delegate?.parentTabId && t.kind === "chat") : undefined,
   );
   useEffect(watchLimitResets, []);
   useUsageWatch(allPluginsRef, quickActionIds);
@@ -1967,7 +1975,15 @@ function Shell() {
     [customPlugins, language],
   );
   const terminalTabs = useMemo(() => stripTabs.filter((t): t is TermTab => t.kind === "terminal"), [stripTabs]);
-  const chatTabs = useMemo(() => tabs.filter((t): t is ChatTab => t.kind === "chat"), [tabs]);
+  // The history lists conversations: a delegated child's tab is none of them.
+  const chatTabs = useMemo(() => tabs.filter((t): t is ChatTab => t.kind === "chat" && !t.delegate), [tabs]);
+  const delegateTabs = useMemo(() => tabs.filter((t): t is ChatTab => t.kind === "chat" && !!t.delegate), [tabs]);
+  // A delegate's tab goes when its orchestrator's chat ends (cleared, restarted, exited, switched away): the child is closed with it.
+  const tabDelegations = useAllTabDelegations();
+  useEffect(() => {
+    for (const id of staleDelegateTabs(delegateTabs, tabDelegations)) void closeTab(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [delegateTabs, tabDelegations]);
 
   // The quick actions a paired phone may trigger.
   const remoteActionsKey = useMemo(
@@ -2249,6 +2265,35 @@ function Shell() {
   function dropTerminal(terminalId: string) {
     forgetTab(terminalId);
     setActiveTerminalId((active) => (active === terminalId ? (latestRef.current.tabs.find((t) => t.kind === "terminal" && t.id !== terminalId)?.id ?? "") : active));
+  }
+
+  /** Opens the chat of a task `parentTabId`'s agent delegated, in a tab next to its orchestrator's (and the ones of its other
+   * delegates). The tab attaches to the child's running chat; opening the same task again brings its tab to the front. */
+  function openDelegateTab(parentTabId: string, delegate: DelegateInfo, wslDistro: string | null) {
+    const { tabs: all } = latestRef.current;
+    const open = all.find((t) => t.kind === "chat" && t.delegate?.taskId === delegate.taskId);
+    if (open) {
+      setActiveTabId(open.id);
+      return;
+    }
+    const parent = all.find((t): t is ChatTab => t.id === parentTabId && t.kind === "chat");
+    if (!parent) return;
+    const id = newTabId("chat");
+    const agent = (AGENT_CLIS as readonly string[]).includes(delegate.agent) ? (delegate.agent as AgentCli) : parent.agent;
+    const tab: ChatTab = {
+      kind: "chat",
+      id,
+      agent,
+      cwd: parent.cwd,
+      label: delegate.title || CLI_INFO[agent].name,
+      profileId: parent.profileId,
+      shell: parent.shell,
+      delegate: { chatId: delegate.childChatId, taskId: delegate.taskId, parentTabId, wslDistro },
+    };
+    // After the orchestrator and the delegate tabs already open next to it.
+    const last = all.reduce((at, t, i) => (t.id === parentTabId || (t.kind === "chat" && t.delegate?.parentTabId === parentTabId) ? i : at), -1);
+    setTabs((prev) => insertTabAt(prev, tab, last + 1 || undefined));
+    setActiveTabId(id);
   }
 
   /** Patches a chat tab's fields as its view reports them. */
@@ -2671,6 +2716,7 @@ function Shell() {
                   sessions={agentSessions}
                   tabs={terminalTabs}
                   chatTabs={chatTabs}
+                  delegateTabs={delegateTabs}
                   getPtyId={(id) => termRefs.current.get(id)?.getPtyId() ?? null}
                   onOpenTab={openHistoryTab}
                   onResume={resumeAgentSession}
@@ -3092,6 +3138,10 @@ function Shell() {
                             strictResume={!!handoff}
                             shell={tab.shell}
                             lastActiveAt={pane.lastActiveAt}
+                            attachChatId={tab.delegate?.chatId}
+                            attachWslDistro={tab.delegate?.wslDistro}
+                            tabId={pane.shown ? tab.id : undefined}
+                            onOpenDelegate={(delegate, wslDistro) => openDelegateTab(tab.id, delegate, wslDistro)}
                             viewId={pane.viewId}
                             hidden={tab.id !== activeTabId || !pane.shown}
                             title={pane.label}
@@ -3231,6 +3281,8 @@ function Shell() {
                 <AgentInsightPanel
                   onClose={() => setAgentsSidebarOpen(false)}
                   onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.paneKey ?? frontChat.id)?.compact() : undefined}
+                  onOpenDelegate={openDelegateTab}
+                  onFocusTab={setActiveTabId}
                 />
               </div>
             </div>

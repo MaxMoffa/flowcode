@@ -3,6 +3,7 @@ import type { AgentCli } from "../agents/cliInfo";
 import type { MessageKey } from "../i18n";
 import type { ChatSession } from "../chat/useChat";
 import type { SubagentItem } from "../chat/chatTimeline";
+import type { DelegateInfo } from "../chat/chatModel";
 import type { ViewPluginDevice } from "../../shared/agentViewBridge";
 
 /** How a view reaches the agent: "acp" is a chat session hosted by the app,
@@ -27,6 +28,8 @@ export interface AgentViewProps {
   /** The subagent whose chat the tab shows instead of the conversation; the host owns it so its header can navigate back. Views that ignore it keep showing the conversation. */
   openSubagent?: SubagentItem | null;
   onOpenSubagent?: (id: string | null) => void;
+  /** Opens a delegated task's chat in a tab of its own, next to this one. */
+  onOpenDelegate?: (delegate: DelegateInfo) => void;
 }
 
 /** One way to look at an agent session, picked from the registry. */

@@ -16,7 +16,8 @@ export interface WindowSnapshotState {
 
 export function windowSnapshot(state: WindowSnapshotState, bounds?: SavedWindow["bounds"]): SavedWindow {
   const { terminals, restoredContent, restoreContent } = state;
-  const kept = state.tabs.filter((tab) => tab.kind !== "diff" && !isDialogTab(tab) && (tab.kind !== "terminal" || state.restoredTabIds.has(tab.id) || terminals.get(tab.id)?.wasUsed()));
+  // A delegated child's tab is a view of a chat that dies with the app: nothing to restore.
+  const kept = state.tabs.filter((tab) => tab.kind !== "diff" && !(tab.kind === "chat" && tab.delegate) && !isDialogTab(tab) && (tab.kind !== "terminal" || state.restoredTabIds.has(tab.id) || terminals.get(tab.id)?.wasUsed()));
   return {
     bounds,
     activeIndex: Math.max(0, kept.findIndex((tab) => tab.id === state.activeTabId)),

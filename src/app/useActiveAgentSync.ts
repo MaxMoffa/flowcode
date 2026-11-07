@@ -12,6 +12,8 @@ export function useActiveAgentSync(
   tabLabel: string | undefined,
   chatTab?: ChatTab,
   terminalTab?: { id: string; cwd: string },
+  /** The orchestrator's tab, when `chatTab` is a delegated child. */
+  parentTab?: ChatTab,
 ) {
   const [aaCli, aaId, aaProfile, aaWsl, aaLabel, aaPty, aaStatus] = chatTab
     ? [chatTab.agent as string, chatTab.sessionId ?? null, chatTab.profileId ?? null, false, chatTab.label, "", chatTab.status ?? null]
@@ -27,6 +29,10 @@ export function useActiveAgentSync(
   const aaKind = chatTab ? "chat" : "terminal";
   const aaTabId = chatTab ? chatTab.id : (terminalTab?.id ?? null);
   const aaCwd = chatTab ? chatTab.cwd : (terminalTab?.cwd ?? "");
+  const aaTaskId = chatTab?.delegate?.taskId ?? null;
+  const aaParentId = chatTab?.delegate?.parentTabId ?? null;
+  const aaParentLabel = parentTab?.label ?? "";
+  const aaParentAgent = parentTab?.agent ?? "";
   useEffect(() => {
     setActiveAgent(
       aaCli
@@ -41,8 +47,9 @@ export function useActiveAgentSync(
             kind: aaKind,
             tabId: aaTabId,
             cwd: aaCwd,
+            delegateOf: aaTaskId && aaParentId ? { taskId: aaTaskId, parentTabId: aaParentId, parentLabel: aaParentLabel, parentAgent: aaParentAgent } : null,
           }
         : null,
     );
-  }, [aaCli, aaId, aaProfile, aaWsl, aaLabel, aaPty, aaStatus, aaKind, aaTabId, aaCwd]);
+  }, [aaCli, aaId, aaProfile, aaWsl, aaLabel, aaPty, aaStatus, aaKind, aaTabId, aaCwd, aaTaskId, aaParentId, aaParentLabel, aaParentAgent]);
 }

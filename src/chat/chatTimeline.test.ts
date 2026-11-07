@@ -274,3 +274,38 @@ describe("subagent transcripts", () => {
     expect(findSubagent(items, "s2")?.steps.map((c) => c.id)).toEqual(["r1"]);
   });
 });
+
+describe("delegation in the timeline", () => {
+  const delegate = (taskId: string): ChatItem =>
+    ({ type: "delegate", id: `delegate-${taskId}`, delegate: { taskId, childChatId: `c-${taskId}`, agent: "codex", title: taskId, prompt: "", status: "running", startedAt: 0, steps: 0 } }) as ChatItem;
+  const call = (id: string, fields: Record<string, unknown>): ChatItem => ({ type: "tool", id, call: { toolCallId: id, status: "completed", ...fields } }) as ChatItem;
+
+  it("groups consecutive delegates and hides the delegation tool calls between them", () => {
+    const segments = buildTimeline([
+      agent("a1"),
+      call("t1", { toolName: "mcp__flowcode__delegate_task" }),
+      delegate("a"),
+      call("t2", { title: "flowcode: delegate_task" }),
+      delegate("b"),
+      call("t3", { toolName: "mcp__flowcode__get_task_result" }),
+    ]);
+    expect(segments.map((s) => s.type)).toEqual(["item", "delegates"]);
+    const group = segments[1];
+    expect(group.type === "delegates" && group.items.map((d) => d.taskId)).toEqual(["a", "b"]);
+  });
+
+  it("keeps other tool calls, the open tool and a failed delegation call", () => {
+    const segments = buildTimeline([
+      call("o", { toolName: "mcp__flowcode__open_in_browser" }),
+      call("x", { toolName: "mcp__other__delegate_task" }),
+      call("f", { toolName: "mcp__flowcode__delegate_task", status: "failed" }),
+    ]);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].type === "group" && segments[0].steps.map((s) => s.id)).toEqual(["o", "x", "f"]);
+  });
+
+  it("separates delegates that the agent's words come between", () => {
+    const segments = buildTimeline([delegate("a"), agent("m"), delegate("b")]);
+    expect(segments.map((s) => s.type)).toEqual(["delegates", "item", "delegates"]);
+  });
+});

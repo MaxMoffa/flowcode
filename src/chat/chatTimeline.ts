@@ -1,4 +1,4 @@
-import { isSubagentLaunch, streamOf, type ChatItem } from "./chatModel";
+import { isSubagentLaunch, streamOf, type ChatItem, type DelegateInfo } from "./chatModel";
 import type { ChatToolCall } from "./chatTypes";
 
 type ToolItem = Extract<ChatItem, { type: "tool" }>;
@@ -11,7 +11,9 @@ export type TimelineStep = ToolItem | (PermissionItem & { resolved: string | nul
 export type TimelineSegment =
   | { type: "item"; item: ChatItem }
   | { type: "group"; id: string; steps: TimelineStep[] }
-  | { type: "subagents"; id: string; items: SubagentItem[] };
+  | { type: "subagents"; id: string; items: SubagentItem[] }
+  /** Tasks handed to other agents (Flowcode's delegation), side by side as one block of cards. */
+  | { type: "delegates"; id: string; items: DelegateInfo[] };
 
 /** A subagent: the Agent/Task tool call that launched it, and the tool calls it made (in order). */
 export interface SubagentItem {
@@ -173,7 +175,13 @@ function categoryOf(call: ChatToolCall): StepCategory {
 export function buildTimeline(items: ChatItem[]): TimelineSegment[] {
   const segments: TimelineSegment[] = [];
   for (const item of nestSubagents(items)) {
-    if (item.type !== "subagent" && hiddenGuardian(item)) continue;
+    if (item.type !== "subagent" && (hiddenGuardian(item) || hiddenDelegateTool(item))) continue;
+    if (item.type === "delegate") {
+      const last = segments[segments.length - 1];
+      if (last?.type === "delegates") last.items.push(item.delegate);
+      else segments.push({ type: "delegates", id: item.id, items: [item.delegate] });
+      continue;
+    }
     if (item.type === "subagent") {
       const last = segments[segments.length - 1];
       if (last?.type === "subagents") last.items.push(item);
@@ -219,6 +227,21 @@ export function isGuardianReview(call: ChatToolCall): boolean {
 /** A guardian review that stays out of the conversation: approved or still running. Denied, aborted or timed-out ones stay, since they explain why a command did not run. */
 export function hiddenGuardian(item: ChatItem): boolean {
   return item.type === "tool" && isGuardianReview(item.call) && item.call.status !== "failed";
+}
+
+/** The names of Flowcode's delegation tools (its MCP server, `chat_mcp.rs`). */
+const DELEGATE_TOOLS = /(delegate_task|get_task_result|cancel_task|list_agents)/;
+
+/** A call to one of Flowcode's delegation tools: the task's card says it all. Agents name the call differently (Claude's tool name is `mcp__flowcode__delegate_task`, others put "flowcode" and the tool in the title). */
+export function isDelegateToolCall(call: ChatToolCall): boolean {
+  if (call.toolName?.startsWith("mcp__flowcode__")) return DELEGATE_TOOLS.test(call.toolName);
+  const title = call.title ?? "";
+  return /flowcode/i.test(title) && DELEGATE_TOOLS.test(title);
+}
+
+/** Delegation tool calls stay out of the conversation, except a failed one (it explains why no card appeared). */
+export function hiddenDelegateTool(item: ChatItem): boolean {
+  return item.type === "tool" && isDelegateToolCall(item.call) && item.call.status !== "failed";
 }
 
 /** The tool call the agent is working on right now, if any. */

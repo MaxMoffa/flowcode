@@ -31,6 +31,7 @@ import { DEFAULT_ACP_VIEW, useAgentViews } from "../agentViews/registry";
 import { setDefaultAgentView, useDefaultAgentView } from "../agentViews/defaultView";
 import { AgentViewPicker } from "./AgentViewPicker";
 import { DictationSettings } from "./DictationSettings";
+import { AgentToolsSettings } from "./AgentToolsSettings";
 import "../agentViews/builtins";
 import { useNewTabSettings } from "../newtab/newTabSettings";
 import { isWindowsPlatform } from "../lib/path";
@@ -637,6 +638,8 @@ export function SettingsPage({
             </SettingsGroup>
           </>
         )}
+
+        {section === "agentTools" && <AgentToolsSettings />}
 
         {section === "dictation" && <DictationSettings />}
 

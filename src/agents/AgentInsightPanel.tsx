@@ -6,7 +6,11 @@ import { readEnum, usePersistentState, writeString } from "../lib/storage";
 import { formatTokens, metricText, modelDisplayName } from "../plugins/usage";
 import { useUsageState } from "../plugins/useUsageState";
 import { writePty } from "../terminal/ptyClient";
+import { useTabDelegation } from "../chat/delegateStore";
+import type { DelegateInfo } from "../chat/chatModel";
 import { useActiveAgent, type ActiveAgent } from "./activeAgent";
+import { useAgentToolsSettings } from "./agentToolsSettings";
+import { DelegatesPane } from "./DelegatesPane";
 import { CLI_INFO, type AgentCli } from "./cliInfo";
 import {
   cacheHitRatio,
@@ -29,7 +33,7 @@ interface AgentContext {
   model: string | null;
 }
 
-const TABS = ["context", "usage", "tools"] as const;
+const TABS = ["context", "usage", "delegates"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_KEY = "flowcode.agentPanel.tab";
 const CONTEXT_POLL_MS = 5000;
@@ -65,9 +69,18 @@ function RobotIcon() {
   );
 }
 
+interface AgentInsightPanelProps {
+  onClose: () => void;
+  onCompactChat?: () => void;
+  /** Opens a delegate's chat in a tab next to its orchestrator's. */
+  onOpenDelegate?: (parentTabId: string, delegate: DelegateInfo, wslDistro: string | null) => void;
+  /** Brings a tab to the front. */
+  onFocusTab?: (tabId: string) => void;
+}
+
 /** The right-hand panel for the agent in front (chat or terminal): context
- * fill with a "compact" action, then usage and tools tabs. */
-export function AgentInsightPanel({ onClose, onCompactChat }: { onClose: () => void; onCompactChat?: () => void }) {
+ * fill with a "compact" action, then context (with the tools it is made of), usage and delegates tabs. */
+export function AgentInsightPanel({ onClose, onCompactChat, onOpenDelegate, onFocusTab }: AgentInsightPanelProps) {
   const { t } = useI18n();
   const agent = useActiveAgent();
   return (
@@ -81,7 +94,7 @@ export function AgentInsightPanel({ onClose, onCompactChat }: { onClose: () => v
         </div>
       </div>
       {agent ? (
-        <AgentBody agent={agent} onCompactChat={onCompactChat} />
+        <AgentBody agent={agent} onCompactChat={onCompactChat} onOpenDelegate={onOpenDelegate} onFocusTab={onFocusTab} />
       ) : (
         <div className="agent-insight-empty">
           <RobotIcon />
@@ -93,9 +106,14 @@ export function AgentInsightPanel({ onClose, onCompactChat }: { onClose: () => v
   );
 }
 
-function AgentBody({ agent, onCompactChat }: { agent: ActiveAgent; onCompactChat?: () => void }) {
+function AgentBody({ agent, onCompactChat, onOpenDelegate, onFocusTab }: { agent: ActiveAgent; onCompactChat?: () => void } & Pick<AgentInsightPanelProps, "onOpenDelegate" | "onFocusTab">) {
   const { t } = useI18n();
-  const [tab, setTab] = usePersistentState<Tab>(TAB_KEY, (k) => readEnum(k, TABS, "context"), writeString);
+  const agentTools = useAgentToolsSettings();
+  const delegation = useTabDelegation(agent.kind === "chat" ? agent.tabId : null);
+  // Only a chat can delegate; the tab shows while the feature is on, or when this chat has (or is) a delegate.
+  const showDelegates = agent.kind === "chat" && ((agentTools.enabled && agentTools.delegate) || delegation.delegates.length > 0 || !!agent.delegateOf);
+  const [storedTab, setTab] = usePersistentState<Tab>(TAB_KEY, (k) => readEnum(k, TABS, "context"), writeString);
+  const tab: Tab = storedTab === "delegates" && !showDelegates ? "context" : storedTab;
   const cli = agent.cli;
   const readable = (cli === "claude" || cli === "codex") && !agent.wsl && !!agent.sessionId;
   const context = usePolled(
@@ -104,7 +122,7 @@ function AgentBody({ agent, onCompactChat }: { agent: ActiveAgent; onCompactChat
     CONTEXT_POLL_MS,
     readable,
   );
-  const { tools, supported: toolsSupported, reload } = useAgentTools(cli, agent.cwd, agent.profile, tab !== "usage");
+  const { tools, supported: toolsSupported, reload } = useAgentTools(cli, agent.cwd, agent.profile, tab === "context");
 
   const ctx = context ?? null;
   const percent = ctx && ctx.window > 0 ? Math.min(1, ctx.used / ctx.window) : null;
@@ -144,14 +162,14 @@ function AgentBody({ agent, onCompactChat }: { agent: ActiveAgent; onCompactChat
           options={[
             { id: "context", label: t("agentPanel.tab.context") },
             { id: "usage", label: t("agentPanel.tab.usage") },
-            { id: "tools", label: t("agentPanel.tab.tools") },
+            ...(showDelegates ? [{ id: "delegates" as const, label: t("agentPanel.tab.delegates"), count: delegation.delegates.length }] : []),
           ]}
         />
       </div>
       <div className="agent-insight-pane" role="tabpanel" id={`agent-insight-panel-${tab}`} aria-labelledby={`agent-insight-tab-${tab}`}>
-        {tab === "context" && <ContextPane agent={agent} ctx={ctx} tools={tools} warn={warn} />}
+        {tab === "context" && <ContextPane agent={agent} ctx={ctx} tools={tools} toolsSupported={toolsSupported} onRefresh={reload} warn={warn} />}
         {tab === "usage" && <UsagePane agent={agent} />}
-        {tab === "tools" && <ToolsPane supported={toolsSupported} tools={tools} onRefresh={reload} />}
+        {tab === "delegates" && <DelegatesPane agent={agent} onOpenDelegate={onOpenDelegate} onFocusTab={onFocusTab} />}
       </div>
     </div>
   );
@@ -217,36 +235,159 @@ function Row({ swatch, name, value, title, muted }: { swatch?: ReactNode; name: 
   );
 }
 
-function ContextPane({ agent, ctx, tools, warn }: { agent: ActiveAgent; ctx: AgentContext | null; tools: Loaded<AgentTools>; warn: boolean }) {
+type GroupId = "memory" | "skill" | "mcp";
+
+/** A legend row that opens onto the list behind its number (collapsed until asked). */
+function Group({ open, onToggle, swatch, name, value, children }: { open: boolean; onToggle: () => void; swatch: ReactNode; name: ReactNode; value?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="agent-insight-grp">
+      <button type="button" className={"agent-insight-row agent-insight-grp-head" + (open ? " is-open" : "")} aria-expanded={open} onClick={onToggle}>
+        <ChevronIcon />
+        {swatch}
+        <span className="agent-insight-row-name">{name}</span>
+        {value !== undefined && <span className="agent-insight-row-value">{value}</span>}
+      </button>
+      {open && <div className="agent-insight-grp-body">{children}</div>}
+    </div>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <svg className="agent-insight-grp-chev" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="9 6 15 12 9 18" />
+    </svg>
+  );
+}
+
+function ContextPane({
+  agent,
+  ctx,
+  tools,
+  toolsSupported,
+  onRefresh,
+  warn,
+}: {
+  agent: ActiveAgent;
+  ctx: AgentContext | null;
+  tools: Loaded<AgentTools>;
+  toolsSupported: boolean;
+  onRefresh: () => void;
+  warn: boolean;
+}) {
   const { t } = useI18n();
-  const seg = ctx
-    ? contextSegments(ctx.used, ctx.window, tools?.memoryChars ?? 0, tools?.skills.reduce((n, s) => n + s.estTokens, 0) ?? 0)
-    : null;
-  const items = seg
-    ? [
-        { key: "mem", color: "var(--c-mem)", name: t("agentPanel.ctx.memory"), n: seg.memory },
-        { key: "skill", color: "var(--c-skill)", name: t("agentPanel.ctx.skills"), n: seg.skills },
-        { key: "conv", color: "var(--c-msg)", name: t("agentPanel.ctx.conversation"), n: seg.conversation },
-      ]
-    : [];
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<GroupId>>(new Set());
+  const toggle = (id: GroupId) =>
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  const skillTokens = tools?.skills.reduce((n, s) => n + s.estTokens, 0) ?? 0;
+  const seg = ctx ? contextSegments(ctx.used, ctx.window, tools?.memoryChars ?? 0, skillTokens) : null;
+  const memoryTokens = seg ? seg.memory : estTokensOfChars(tools?.memoryChars ?? 0);
+  const skillsShown = seg ? seg.skills : skillTokens;
+  /** The expanded group's content while the tools are not (yet) there. */
+  const toolsNote = !toolsSupported ? (
+    <div className="agent-insight-note">{t("agentPanel.tools.unsupported")}</div>
+  ) : tools === undefined ? (
+    <div className="agent-insight-note">{t("common.checking")}</div>
+  ) : tools === null ? (
+    <>
+      <div className="agent-insight-note">{t("agentPanel.tools.unavailable")}</div>
+      <RefreshButton onRefresh={onRefresh} />
+    </>
+  ) : null;
+  const none = <div className="agent-insight-note">{t("agentPanel.tools.none")}</div>;
+  const count = (n: number | undefined) => (n === undefined ? "" : `${n} · `);
+  const pad = <span className="agent-insight-grp-pad" />;
   return (
     <>
       {ctx && seg ? (
-        <>
-          <div className="agent-insight-stack">
-            {items.map((i) => (
-              <i key={i.key} style={{ width: `${(i.n / ctx.window) * 100}%`, background: i.color }} />
-            ))}
-          </div>
-          {items.map((i) => (
-            <Row key={i.key} swatch={<span className="agent-insight-sw" style={{ background: i.color }} />} name={i.name} value={formatTokens(i.n)} />
+        <div className="agent-insight-stack">
+          {[
+            { key: "mem", color: "var(--c-mem)", n: seg.memory },
+            { key: "skill", color: "var(--c-skill)", n: seg.skills },
+            { key: "conv", color: "var(--c-msg)", n: seg.conversation },
+          ].map((i) => (
+            <i key={i.key} style={{ width: `${(i.n / ctx.window) * 100}%`, background: i.color }} />
           ))}
-          <Row swatch={<span className="agent-insight-sw agent-insight-sw--free" />} name={t("agentPanel.ctx.free")} value={formatTokens(seg.free)} muted />
-          {warn && <div className="agent-insight-tip">{t("agentPanel.ctx.full")}</div>}
-        </>
+        </div>
       ) : (
         <div className="agent-insight-note">{t("usage.context.unavailable")}</div>
       )}
+      <Group
+        open={openGroups.has("memory")}
+        onToggle={() => toggle("memory")}
+        swatch={<span className="agent-insight-sw" style={{ background: "var(--c-mem)" }} />}
+        name={t("agentPanel.ctx.memory")}
+        value={`${count(tools?.memoryFiles.length)}${formatTokens(memoryTokens)}`}
+      >
+        {toolsNote ??
+          (tools && tools.memoryFiles.length > 0
+            ? tools.memoryFiles.map((f) => <Row key={f} name={f.split(/[\/]/).pop()} title={f} />)
+            : none)}
+      </Group>
+      <Group
+        open={openGroups.has("skill")}
+        onToggle={() => toggle("skill")}
+        swatch={<span className="agent-insight-sw" style={{ background: "var(--c-skill)" }} />}
+        name={t("agentPanel.ctx.skills")}
+        value={`${count(tools?.skills.length)}${formatTokens(skillsShown)}`}
+      >
+        {toolsNote ??
+          (tools && tools.skills.length > 0
+            ? tools.skills.map((s) => (
+                <Row
+                  key={`${s.scope}:${s.name}`}
+                  name={s.name}
+                  value={
+                    <>
+                      <span className="agent-insight-badge">{s.scope}</span> {t("agentPanel.tools.estTokens", { n: formatTokens(s.estTokens) })}
+                    </>
+                  }
+                />
+              ))
+            : none)}
+      </Group>
+      <Group
+        open={openGroups.has("mcp")}
+        onToggle={() => toggle("mcp")}
+        swatch={<span className="agent-insight-sw agent-insight-sw--mcp" />}
+        name={t("agentPanel.ctx.mcp")}
+        value={tools ? tools.mcp.length : undefined}
+      >
+        {toolsNote ?? (
+          <>
+            <div className="agent-insight-grp-sub">
+              <span>{t("agentPanel.ctx.configured")}</span>
+              <RefreshButton onRefresh={onRefresh} />
+            </div>
+            {tools && tools.mcp.length > 0
+              ? tools.mcp.map((m) => (
+                  <Row
+                    key={`${m.scope}:${m.name}`}
+                    name={m.name}
+                    title={m.target}
+                    value={
+                      <>
+                        <span className="agent-insight-badge">{m.transport}</span> <span className="agent-insight-badge">{m.scope}</span>
+                      </>
+                    }
+                  />
+                ))
+              : none}
+          </>
+        )}
+      </Group>
+      {seg && (
+        <>
+          <Row swatch={<>{pad}<span className="agent-insight-sw" style={{ background: "var(--c-msg)" }} /></>} name={t("agentPanel.ctx.conversation")} value={formatTokens(seg.conversation)} />
+          <Row swatch={<>{pad}<span className="agent-insight-sw agent-insight-sw--free" /></>} name={t("agentPanel.ctx.free")} value={formatTokens(seg.free)} muted />
+          {warn && <div className="agent-insight-tip">{t("agentPanel.ctx.full")}</div>}
+        </>
+      )}
+      {openGroups.size > 0 && tools && <div className="agent-insight-note agent-insight-foot">{t("agentPanel.tools.note")}</div>}
       <div className="agent-insight-section">
         {ctx?.model && <Row name={t("agentPanel.ctx.model")} value={modelDisplayName(ctx.model)} />}
         {agent.tabLabel && <Row name={t("agentPanel.ctx.tab")} value={agent.tabLabel} />}
@@ -342,68 +483,6 @@ function SessionBlock({ session, showCost }: { session: Loaded<SessionUsage>; sh
           <span className="agent-insight-note">{t("agentPanel.session.costNote")}</span>
         </div>
       )}
-    </>
-  );
-}
-
-function ToolsPane({ supported, tools, onRefresh }: { supported: boolean; tools: Loaded<AgentTools>; onRefresh: () => void }) {
-  const { t } = useI18n();
-  if (!supported) return <div className="agent-insight-note">{t("agentPanel.tools.unsupported")}</div>;
-  if (tools === undefined) return <div className="agent-insight-note">{t("common.checking")}</div>;
-  if (tools === null)
-    return (
-      <>
-        <div className="agent-insight-note">{t("agentPanel.tools.unavailable")}</div>
-        <RefreshButton onRefresh={onRefresh} />
-      </>
-    );
-  return (
-    <>
-      <div className="agent-insight-section">
-        <div className="agent-insight-title">
-          {t("agentPanel.tools.mcp")} <b>{tools.mcp.length}</b>
-          <RefreshButton onRefresh={onRefresh} />
-        </div>
-        {tools.mcp.length === 0 && <div className="agent-insight-note">{t("agentPanel.tools.none")}</div>}
-        {tools.mcp.map((m) => (
-          <Row
-            key={`${m.scope}:${m.name}`}
-            name={m.name}
-            title={m.target}
-            value={
-              <>
-                <span className="agent-insight-badge">{m.transport}</span> <span className="agent-insight-badge">{m.scope}</span>
-              </>
-            }
-          />
-        ))}
-      </div>
-      <div className="agent-insight-section">
-        <div className="agent-insight-title">
-          {t("agentPanel.tools.skills")} <b>{tools.skills.length}</b>
-        </div>
-        {tools.skills.length === 0 && <div className="agent-insight-note">{t("agentPanel.tools.none")}</div>}
-        {tools.skills.map((s) => (
-          <Row
-            key={`${s.scope}:${s.name}`}
-            name={s.name}
-            value={
-              <>
-                <span className="agent-insight-badge">{s.scope}</span> {t("agentPanel.tools.estTokens", { n: formatTokens(s.estTokens) })}
-              </>
-            }
-          />
-        ))}
-      </div>
-      <div className="agent-insight-section">
-        <div className="agent-insight-title">{t("agentPanel.tools.memory")}</div>
-        <Row
-          name={tools.memoryFiles.length > 0 ? tools.memoryFiles.map((f) => f.split(/[\\/]/).pop()).join(", ") : t("agentPanel.tools.none")}
-          title={tools.memoryFiles.join("\n")}
-          value={t("agentPanel.tools.estTokens", { n: formatTokens(estTokensOfChars(tools.memoryChars)) })}
-        />
-      </div>
-      <div className="agent-insight-note">{t("agentPanel.tools.note")}</div>
     </>
   );
 }

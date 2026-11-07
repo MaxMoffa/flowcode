@@ -4,10 +4,11 @@ import { listen } from "@tauri-apps/api/event";
 import type { AgentCli } from "../agents/cliInfo";
 import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
 import { t } from "../i18n";
+import { readAgentToolsConfig } from "../agents/agentToolsSettings";
 import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { NO_ACTIVITY, resumedActivity, trackActivity, type ChatActivity } from "./cacheWarning";
-import { applyEvent,applyLocalError, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleChat, type ChatModelState } from "./chatModel";
+import { applyEvent, applyLocalError, delegatesOf, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleAttached, settleChat, type ChatModelState } from "./chatModel";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 
 /** A message waiting for the agent to be idle. */
@@ -34,6 +35,10 @@ interface UseChatOptions {
   shell?: string;
   /** When the resumed conversation last had real activity (ms epoch); unknown (absent) counts as long ago. Read once per start. */
   initialActivityAt?: number;
+  /** Attach mode: shows a chat that already runs (a delegated child, owned by its orchestrator) instead of starting one. Nothing is started, resumed or closed here: the chat is read-only for this hook, and closing its tab only detaches. */
+  attachChatId?: string;
+  /** Attach mode: the WSL distro the attached chat runs in (the orchestrator's), for its Linux paths. */
+  attachWslDistro?: string | null;
   /** The agent's session id, once it is up (the terminal can resume it). */
   onSessionId: (sessionId: string) => void;
   /** The chat's status; `error` is why it failed to start, when it did. */
@@ -47,7 +52,7 @@ interface ChatEventPayload {
 
 /** Runs one agent behind a chat: starts it on mount, keeps the conversation
  * model fed from the backend's events, closes it on unmount. */
-export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
+export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, initialActivityAt, onSessionId, onStatus }: UseChatOptions) {
   const [model, setModelState] = useState<ChatModelState>(initialChat);
   const [phase, setPhase] = useState<ChatPhase>("starting");
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +82,9 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   const talkedRef = useRef(!!resumeSessionId);
   const modelRef = useRef(model);
   modelRef.current = model;
+  // Attach mode: the chat belongs to its orchestrator, so this hook neither writes to it nor closes it.
+  const attachedRef = useRef(false);
+  attachedRef.current = !!attachChatId;
   const onSessionIdRef = useRef(onSessionId);
   onSessionIdRef.current = onSessionId;
   // The start in flight (resolves once the agent is up or failed): `close` waits for it, so an agent still starting is never left behind.
@@ -113,6 +121,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const trackOpen = createAgentOpenTracker(cwd);
     let distro: string | null = null;
     const followOpen = (ev: ChatEvent) => {
+      // An attached child's opens are routed by its orchestrator's chat, whether or not this tab exists.
+      if (attachChatId) return;
       const open = trackOpen(ev);
       if (open) void routeAgentOpen(open, distro);
     };
@@ -124,20 +134,26 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
         try {
           await teardownRef.current;
           if (cancelled) return;
-          const started = await invoke<ChatStartResult>("chat_start", {
-            agent,
-            cwd,
-            profile: profileId ?? null,
-            resumeSessionId: resumeId ?? null,
-            strictResume: strictResume ?? false,
-            // The chat runs where the user's terminal runs (inside WSL when the default shell is WSL).
-            shell: shell ?? getConfiguredShell(),
-          });
-          startedId = started.chatId;
+          // Attach mode joins a running chat instead of starting one; its id and distro are known already.
+          const started: ChatStartResult = attachChatId
+            ? { chatId: attachChatId, sessionId: "", modes: null, models: null, thought: null, loaded: false, wslDistro: attachWslDistro ?? null }
+            : await invoke<ChatStartResult>("chat_start", {
+                agent,
+                cwd,
+                profile: profileId ?? null,
+                resumeSessionId: resumeId ?? null,
+                strictResume: strictResume ?? false,
+                // The chat runs where the user's terminal runs (inside WSL when the default shell is WSL).
+                shell: shell ?? getConfiguredShell(),
+                // What the agent may do through Flowcode's own tools, as the settings say now.
+                tools: await readAgentToolsConfig(),
+              });
+          // Only a chat started here is this hook's to close.
+          if (!attachChatId) startedId = started.chatId;
           // Cancelled meanwhile: the cleanup closes it (it waits for this start).
           if (cancelled) return;
           chatIdRef.current = started.chatId;
-          sessionIdRef.current = started.sessionId;
+          if (!attachChatId) sessionIdRef.current = started.sessionId;
           // A resume that fell back to a new session (`loaded: false`) has nothing on disk yet either.
           talkedRef.current = started.loaded;
           setLoaded(started.loaded);
@@ -147,7 +163,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           setModes(started.modes);
           setAnnouncedModels(started.models ?? null);
           setAnnouncedThought(started.thought ?? null);
-          onSessionIdRef.current(started.sessionId);
+          // An attached chat's session is its owner's business: no tab saves it.
+          if (!attachChatId) onSessionIdRef.current(started.sessionId);
           // Subscribe before fetching the replay, and hold what arrives
           // meanwhile: applied first, a live event would raise `lastSeq` past
           // the replay, whose events would then be skipped as already seen.
@@ -166,7 +183,18 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
             return;
           }
           unlisten = stop;
-          const past = await invoke<ChatEvent[]>("chat_events", { chatId: started.chatId, afterSeq: 0 });
+          let past: ChatEvent[];
+          try {
+            past = await invoke<ChatEvent[]>("chat_events", { chatId: started.chatId, afterSeq: 0 });
+          } catch (err) {
+            if (cancelled) return;
+            if (!attachChatId || !String(err).includes("unknown chat")) throw err;
+            // The attached chat is gone (its child was closed): the tab shows it as ended, not as a failed start.
+            buffer = null;
+            setModelState((m) => applyEvent(m, { kind: "exit", seq: Number.MAX_SAFE_INTEGER, at: Date.now(), code: null }));
+            setPhase("ready");
+            return;
+          }
           if (cancelled) return;
           const events = mergeReplay(past, buffer);
           buffer = null;
@@ -176,6 +204,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           // A resumed session replays its history with no turn running; settling leaves "starting".
           setModelState((m) => {
             const replayed = events.reduce(applyEvent, m);
+            // An attached chat may be mid-turn: leaving "starting" must keep the turn it is in.
+            if (attachChatId) return replayed.status === "starting" ? settleAttached(replayed) : replayed;
             return started.loaded || replayed.status === "starting" ? settleChat(replayed) : replayed;
           });
           setPhase("ready");
@@ -203,7 +233,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       setChatId(null);
       setWslDistro(null);
     };
-  }, [agent, cwd, profileId, attempt]);
+  }, [agent, cwd, profileId, attachChatId, attempt]);
 
   const status: ChatStatus = phase === "failed" ? "exited" : model.status;
   useEffect(() => {
@@ -240,6 +270,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   const send = useCallback(
     (text: string, attachments: ChatAttachment[] = []) => {
+      if (attachedRef.current) return;
       const trimmed = text.trim();
       if ((!trimmed && attachments.length === 0) || (!chatIdRef.current && !closedRef.current)) return;
       if (closedRef.current) setQueued((q) => [...q, { text: trimmed, attachments }]);
@@ -261,6 +292,12 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   }, [model.status, model.lastSeq, queued, dispatch]);
 
   const cancel = useCallback(() => {
+    // A delegated child is stopped through its task, so the orchestrator hears of it (status `cancelled`).
+    const taskId = modelRef.current.task?.taskId;
+    if (attachedRef.current) {
+      if (taskId) invoke("delegate_cancel", { taskId }).catch(() => {});
+      return;
+    }
     if (chatIdRef.current) invoke("chat_cancel", { chatId: chatIdRef.current }).catch(() => {});
   }, []);
 
@@ -288,6 +325,35 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const id = chatIdRef.current;
     if (id) invoke("chat_ask", { chatId: id, requestId, action, content }).catch((err) => failed(id, err));
   }, [failed]);
+
+  /** Answers a permission request one of this chat's delegates asked, in the child's own chat. */
+  const answerDelegatePermission = useCallback((childChatId: string, requestId: string, optionId: string | null) => {
+    invoke("chat_permission", { chatId: childChatId, requestId, optionId }).catch((err) => failed(chatIdRef.current ?? "", err));
+  }, [failed]);
+
+  /** Answers a question one of this chat's delegates asked. */
+  const answerDelegateAsk = useCallback((childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => {
+    invoke("chat_ask", { chatId: childChatId, requestId, action, content }).catch((err) => failed(chatIdRef.current ?? "", err));
+  }, [failed]);
+
+  // The pages this chat's delegates open (their own events reach no one when their tab is closed): live events only, from the chat's own window.
+  const wslDistroRef = useRef(wslDistro);
+  wslDistroRef.current = wslDistro;
+  useEffect(() => {
+    if (attachChatId) return;
+    let off: (() => void) | null = null;
+    let gone = false;
+    const track = createAgentOpenTracker(cwd);
+    void listen<ChatEventPayload>("chat-event", (e) => {
+      if (!delegatesOf(modelRef.current.items).some((d) => d.childChatId === e.payload.chatId)) return;
+      const open = track(e.payload.event);
+      if (open) void routeAgentOpen(open, wslDistroRef.current);
+    }).then((stop) => (gone ? stop() : (off = stop)));
+    return () => {
+      gone = true;
+      off?.();
+    };
+  }, [attachChatId, cwd]);
 
   const setMode = useCallback((modeId: string) => {
     const id = chatIdRef.current;
@@ -343,7 +409,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   // the model (a switch can reset it), so it goes second, when the wanted model is the live one.
   const restoredRef = useRef<{ chatId: string; model: boolean; thought: boolean } | null>(null);
   useEffect(() => {
-    if (!chatId || phase !== "ready" || resumedRef.current || loaded) return;
+    if (!chatId || phase !== "ready" || resumedRef.current || loaded || attachChatId) return;
     if (restoredRef.current?.chatId !== chatId) restoredRef.current = { chatId, model: false, thought: false };
     const done = restoredRef.current;
     const wantedModel = readString(lastModelKey(agent));
@@ -360,7 +426,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     done.thought = true;
     const wantedThought = readString(lastThoughtKey(agent));
     if (wantedThought && wantedThought !== thought.currentId && thought.available.some((l) => l.id === wantedThought)) setThought(wantedThought);
-  }, [chatId, phase, loaded, agent, models, thought, setModel, setThought]);
+  }, [chatId, phase, loaded, attachChatId, agent, models, thought, setModel, setThought]);
 
   const unqueue = useCallback((index: number) => setQueued((q) => q.filter((_, i) => i !== index)), []);
 
@@ -382,6 +448,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   /** Ends the agent now and resolves once the backend has killed it: a terminal
    * about to resume the same session must never run beside it. */
   const close = useCallback(async () => {
+    if (attachedRef.current) return;
     await startRef.current;
     await teardownRef.current;
     const id = chatIdRef.current;
@@ -391,11 +458,16 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, setMode, setModel, setThought, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "clear"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached"> & {
   /** Starts a fresh conversation in the same tab; absent for a chat running on another PC. */
   clear?: () => void;
+  /** Answer a permission request or question one of the chat's delegates asked (in the child's own chat); absent for a chat running on another PC, whose delegates are not shown. */
+  answerDelegatePermission?: (childChatId: string, requestId: string, optionId: string | null) => void;
+  answerDelegateAsk?: (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  /** A delegated child's chat shown read-only (see `useChat`'s `attachChatId`). */
+  attached?: boolean;
 };

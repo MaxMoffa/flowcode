@@ -267,7 +267,7 @@ function tabIcon(tab: AppTab, agent?: TabAgent, done = false, profile?: ProfileI
     const icon = (
       <span className="term-tab-agent">
         <span className={"term-tab-agent-logo is-" + chatAttention(tab)}>
-          <ChatIcon size={13} strokeWidth={1.8} />
+          {tab.delegate ? agentCliIcon(tab.agent) : <ChatIcon size={13} strokeWidth={1.8} />}
         </span>
       </span>
     );
@@ -453,7 +453,8 @@ export function TabStrip({
       // knowing that gesture exists.
       { label: t("tabs.rename"), icon: MenuIcons.rename, onSelect: () => startEditing(tab) },
     ];
-    if (tab.kind === "terminal" || tab.kind === "editor" || tab.kind === "chat") {
+    // A delegated child's view has no agent of its own to start a second time.
+    if (tab.kind === "terminal" || tab.kind === "editor" || (tab.kind === "chat" && !tab.delegate)) {
       items.push({ label: t("tabs.duplicate"), icon: MenuIcons.duplicate, onSelect: () => onDuplicate(tab.id) });
     }
     if (tab.kind === "terminal") {

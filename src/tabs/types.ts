@@ -87,11 +87,26 @@ export interface ChatTab {
   explorerPath?: string;
   /** When the conversation last had real activity (ms epoch): a turn started or ended here, or the history said so for a session resumed from it. Saved; drives the "prompt cache expired" notice. */
   lastActiveAt?: number;
+  /** A delegated child's chat shown read-only next to its orchestrator's tab (see src/chat/DelegateCards): the tab attaches to
+   * the child's running chat instead of starting an agent, and closing it only detaches. Never saved: after a restart the
+   * child is gone, and so is the tab. */
+  delegate?: DelegateTab;
   /** Stable key of the conversation shown (its view keeps running across swaps); absent = the tab id. Not saved. */
   paneKey?: string;
   /** Other conversations of this tab (same agent, folder, profile and shell), kept running in the background
    * while another is shown; picking one in the History swaps it in. Not saved. */
   parked?: ChatPane[];
+}
+
+/** What makes a chat tab a delegated child's view. */
+export interface DelegateTab {
+  /** The child's chat (`chat_start` of the delegation), the one the tab attaches to. */
+  chatId: string;
+  taskId: string;
+  /** The orchestrator's tab: the child's tab sits next to it and goes with it. */
+  parentTabId: string;
+  /** The WSL distro the child runs in (its orchestrator's), for its Linux paths. */
+  wslDistro: string | null;
 }
 
 /** The per-conversation fields of a chat tab: those of the shown one live on the tab itself, parked ones here. */

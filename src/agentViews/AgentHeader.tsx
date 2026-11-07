@@ -15,11 +15,13 @@ interface AgentHeaderProps {
   keepFocus?: boolean;
   /** A subagent's chat is open: the header shows a back arrow and its breadcrumb. */
   subagent?: { label: string; state: "running" | "done" | "failed"; onBack: () => void } | null;
+  /** A small tag after the title: a delegated child says who asked for its task. */
+  tag?: { text: string; title: string } | null;
 }
 
 /** The header of an agent session - icon, name, status - with its discreet
  * session menu. Shared by the chat and by a terminal tab running an agent. */
-export function AgentHeader({ icon, title, subtitle, status, children, keepFocus, subagent }: AgentHeaderProps) {
+export function AgentHeader({ icon, title, subtitle, status, children, keepFocus, subagent, tag }: AgentHeaderProps) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -57,6 +59,11 @@ export function AgentHeader({ icon, title, subtitle, status, children, keepFocus
           </div>
         )}
       </div>
+      {tag && (
+        <span className="chat-sub-tag is-header" title={tag.title}>
+          {tag.text}
+        </span>
+      )}
       {subagent && (
         <span className="chat-crumb" title={subagent.label}>
           <span className="chat-crumb-sep" aria-hidden="true">{"›"}</span>

@@ -1,0 +1,107 @@
+/* Delegation: tasks an agent hands to other agents. The cards reuse the subagent cards (chat.css) and the
+   requests reuse the ask card; what is only theirs is here. */
+
+/* A card whose delegate waits for the user: the subagent card's outline in the "needs you" yellow. */
+.chat-subcard.is-wait {
+  border-color: color-mix(in srgb, var(--ansi-bright-yellow) 55%, transparent);
+}
+
+.chat-sub-mark.is-wait {
+  color: var(--ansi-bright-yellow);
+}
+
+.chat-sub-mark.is-stop {
+  color: var(--fg-muted);
+}
+
+.chat-subcard-bar.is-wait i {
+  background: var(--ansi-bright-yellow);
+}
+
+.chat-subcard-bar.is-stop i {
+  background: var(--fg-muted);
+}
+
+/* The agent's logo in front of the card's title. */
+.chat-delegate-logo {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--fg);
+}
+
+.chat-delegate-logo svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* A delegate's request in the composer: who asks (with its logo), and the way through the queue. */
+.ask-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ask-logo {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  color: var(--fg);
+}
+
+.ask-logo svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ask-nav {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-ask-btn.sm {
+  padding: 0 8px;
+  line-height: 20px;
+  font-size: 15px;
+}
+
+/* A delegated chat's locked footer: what it is, and the stop button while it runs. */
+.chat-sub-footer .lock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-sub-footer .lock b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.chat-sub-footer .acts {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.chat-btn.is-danger {
+  color: var(--ansi-bright-red);
+  border-color: color-mix(in srgb, var(--ansi-bright-red) 40%, transparent);
+}
+
+.chat-btn.is-danger:hover {
+  background: color-mix(in srgb, var(--ansi-bright-red) 12%, transparent);
+}
+
+/* "Delegated by <agent>" in a child chat's header: right after the title, pushing the status to the right. */
+.chat-sub-tag.is-header {
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.chat-header:has(.chat-sub-tag.is-header) .chat-menu-anchor {
+  margin-right: 0;
+}

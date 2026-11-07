@@ -3,6 +3,16 @@ import { askSummary, buildAskContent, parseAskQuestions } from "./askQuestions";
 
 const opt = (label: string, description?: string) => ({ const: label, title: label, ...(description ? { description } : {}) });
 
+it("answers permission options by id even when their labels match", () => {
+  const question = { key: "question_0", text: "Allow?", multi: false, options: [
+    { label: "Allow", value: "once", recommended: true },
+    { label: "Allow", value: "always", recommended: false },
+    { label: "Allow (2)", value: "other", recommended: false },
+  ] };
+  expect(buildAskContent([question], [{ picked: [1], custom: "" }])).toEqual({ question_0: "always" });
+  expect(buildAskContent([question], [{ picked: [2], custom: "" }])).toEqual({ question_0: "other" });
+});
+
 describe("parseAskQuestions", () => {
   it("reads a single question, using the message as its text and stripping (Recommended)", () => {
     const schema = {

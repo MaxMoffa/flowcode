@@ -2,11 +2,14 @@ import { Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent 
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useI18n } from "../i18n";
-import { CLI_INFO, type AgentCli } from "../agents/cliInfo";
+import { CLI_INFO, cliName, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import { FileLinkWslContext } from "../lib/fileLinks";
 import { basename } from "../lib/path";
 import type { ChatStatus } from "../chat/chatTypes";
+import { delegatesOf, type DelegateInfo } from "../chat/chatModel";
+import { publishTabDelegation } from "../chat/delegateStore";
+import { interruptDelegates, recordDelegates } from "../agents/delegateHistory";
 import { useChat } from "../chat/useChat";
 import { LocalChatImageProvider } from "../chat/chatImages";
 import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
@@ -29,6 +32,14 @@ interface AgentSessionViewProps {
   shell?: string;
   /** When the tab's conversation last had real activity (ms epoch), for a resumed chat: the replayed events only carry the load time. */
   lastActiveAt?: number;
+  /** Shows a delegated child's chat that already runs (read-only, owned by its orchestrator) instead of starting one; closing the tab only detaches. */
+  attachChatId?: string;
+  /** The WSL distro the attached chat runs in. */
+  attachWslDistro?: string | null;
+  /** The tab this session is the shown conversation of: it publishes its delegation state for the agents panel under it. */
+  tabId?: string;
+  /** A delegate card or request asked for its chat: opens its tab, next to this one. */
+  onOpenDelegate?: (delegate: DelegateInfo, wslDistro: string | null) => void;
   /** The registered view the session is shown with (absent: the default). */
   viewId?: string;
   /** Another tab is in front: the view stays mounted (the agent keeps running). */
@@ -61,6 +72,10 @@ export function AgentSessionView({
   strictResume,
   shell,
   lastActiveAt,
+  attachChatId,
+  attachWslDistro,
+  tabId,
+  onOpenDelegate,
   viewId,
   hidden,
   title,
@@ -75,7 +90,7 @@ export function AgentSessionView({
 }: AgentSessionViewProps) {
   const { t, language } = useI18n();
   const views = useAgentViews();
-  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, initialActivityAt: lastActiveAt, onSessionId, onStatus });
+  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, initialActivityAt: lastActiveAt, onSessionId, onStatus });
   const { model, phase, error, sessionId } = chat;
   // A new chat starting shows the conversation (the frog's pond); a resumed one waits behind the spinner.
   const showView = phase === "ready" || (phase === "starting" && !chat.resumed);
@@ -96,6 +111,23 @@ export function AgentSessionView({
       live = false;
     };
   }, [phase, agent]);
+  // The agents panel and the History read the delegation state from here.
+  const { items: modelItems, delegateRequests, task } = model;
+  useEffect(() => {
+    if (!tabId) return;
+    const delegates = delegatesOf(modelItems);
+    publishTabDelegation(tabId, { delegates, requests: delegateRequests, task, wslDistro: chat.wslDistro, ended: status === "exited" });
+    if (sessionId && !chat.attached) {
+      recordDelegates(sessionId, delegates);
+      if (status === "exited") interruptDelegates(sessionId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabId, modelItems, delegateRequests, task, sessionId, chat.wslDistro, status]);
+  useEffect(() => (tabId ? () => publishTabDelegation(tabId, null) : undefined), [tabId]);
+  useEffect(() => {
+    if (!chat.chatId || !sessionId || chat.attached) return;
+    return () => interruptDelegates(sessionId);
+  }, [chat.chatId, sessionId, chat.attached]);
   const nav = useOpenSubagent(model.items, hidden);
   const subHeader = nav.sub ? subagentHeader(nav.sub, nav.back) : null;
   const current = resolveAcpView(viewId);
@@ -133,7 +165,8 @@ export function AgentSessionView({
   }, [closeChat, restartChat, clearChat, compactChat]);
   /** Switching needs the session id only when there is a conversation to resume, and never mid-turn: the terminal would resume a session the agent is still writing. */
   // Not while starting either: the agent is still being spawned (and, resumed, loading the session), and the terminal would race it for the session.
-  const canSwitch = phase !== "starting" && !working && (!talked || !!sessionId);
+  // Not for an attached delegate: its session is its orchestrator's, there is nothing here to hand to a terminal.
+  const canSwitch = !chat.attached && phase !== "starting" && !working && (!talked || !!sessionId);
   const switchToTerminal = () => onSwitchToTerminal(talked ? (sessionId ?? null) : null, chat.wslDistro);
 
   function onViewKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -160,7 +193,7 @@ export function AgentSessionView({
     <FileLinkWslContext.Provider value={chat.wslDistro ?? null}>
       <LocalChatImageProvider chatId={chat.chatId}>
         <div className="chat-view" style={hidden ? { display: "none" } : undefined} onKeyDown={onViewKeyDown}>
-          <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status} subagent={subHeader}>
+          <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status} subagent={subHeader} tag={model.task ? { text: t("chat.delegate.from", { agent: cliName(model.task.parentAgent) }), title: t("chat.delegate.fromHint") } : null}>
             {(close) => {
               const menuAction = (action: () => void) => {
                 close();
@@ -222,7 +255,7 @@ export function AgentSessionView({
           {showView ? (
             View && (
               <Suspense fallback={null}>
-                <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.sub} onOpenSubagent={nav.open} />
+                <View session={chat} agent={agent} hidden={hidden} cwd={cwd} title={title} onSwitchView={switchView} onOpenFile={onOpenFile} openSubagent={nav.sub} onOpenSubagent={nav.open} onOpenDelegate={onOpenDelegate ? (delegate) => onOpenDelegate(delegate, chat.wslDistro) : undefined} />
               </Suspense>
             )
           ) : (

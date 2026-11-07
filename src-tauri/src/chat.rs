@@ -17,7 +17,11 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{broadcast, watch};
 
+use crate::chat_mcp::ToolsConfig;
 use crate::util::{lock, now_ms};
+
+pub(crate) mod delegate;
+use delegate::{Delegations, TaskLink};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -315,7 +319,7 @@ struct WslTarget {
 
 /// A Windows path as the distro sees it: `C:\a\b` -> `/mnt/c/a/b`, a WSL UNC
 /// path -> its Linux path. `None` for anything else (and off Windows).
-fn to_wsl_path(path: &str) -> Option<String> {
+pub(crate) fn to_wsl_path(path: &str) -> Option<String> {
     if !cfg!(windows) {
         return None;
     }
@@ -861,6 +865,26 @@ fn shown_image(a: &Attachment) -> Option<UserImage> {
     }
 }
 
+/// Most of an agent's answer kept for a delegated task: it goes back into another model's context.
+const MAX_ANSWER_BYTES: usize = 200_000;
+
+/// Keeps `answer` as the text of the agent's messages in the current turn: a
+/// prompt starts it over, thoughts and a native subagent's text are left out.
+fn accumulate_answer(answer: &mut String, body: &ChatBody) {
+    match body {
+        ChatBody::User { .. } => answer.clear(),
+        ChatBody::Update { update } => {
+            if let Some(("agent_message_chunk", _, text)) = text_chunk(update) {
+                let from_subagent = update.pointer("/_meta/claudeCode/parentToolUseId").is_some_and(|id| !id.is_null());
+                if !from_subagent && answer.len() < MAX_ANSWER_BYTES {
+                    answer.push_str(text);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Everything about one running agent; shared by the commands and the
 /// session's reader thread.
 struct Chat {
@@ -875,6 +899,16 @@ struct Chat {
     /// The WSL distro it runs in (`None` for a Windows chat, or when even the default one is unknown).
     wsl_distro: Option<String>,
     profile: Option<String>,
+    /// The terminal shell the chat was started for (`wsl`, `wsl:<distro>`...): a delegated child runs in the same one.
+    shell: Option<String>,
+    /// What the agent may do through Flowcode's MCP server (`chat_start`'s `tools`); a child inherits its parent's.
+    tools: ToolsConfig,
+    /// The chat's token for that server, valid while the chat lives; `None` when it gets no tool.
+    token: Option<String>,
+    /// Set on a chat that carries out a delegated task: who asked, and what for.
+    link: Option<TaskLink>,
+    /// The text of the agent's messages in the current turn - a delegated task's answer (kept for children only).
+    answer: Mutex<String>,
     child: Mutex<Child>,
     writer: Mutex<ChildStdin>,
     /// Replies the reader thread owes the agent, written by the chat's own
@@ -947,6 +981,9 @@ impl Chat {
             (before, *status)
         };
         let live = is_live(before, &body);
+        if self.link.is_some() {
+            accumulate_answer(&mut lock(&self.answer), &body);
+        }
         let event = log.push(body, now_ms());
         let _ = self.feed.send(event.clone());
         if !self.closed.load(Ordering::Relaxed) {
@@ -958,6 +995,10 @@ impl Chat {
         }
         if live {
             self.alert(&event.body);
+        }
+        // After the log lock is released: this emits on the parent chat, which takes its own.
+        if self.link.is_some() {
+            delegate::child_event(self, &event.body);
         }
         Ok(())
     }
@@ -1205,14 +1246,14 @@ impl Chat {
                             let stop_reason = value.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
                             self.emit(ChatBody::TurnEnd { stop_reason: stop_reason.to_string() });
                         }
-                        Err(message) => self.emit(ChatBody::Error { message }),
+                        Err(message) => self.prompt_failed(message),
                     },
                 }
             }
             Incoming::Request { id, method, params } => {
                 // A reply that could not be queued falls through to the prompt.
                 let auto_allowed = (method == "session/request_permission")
-                    .then(|| crate::chat_mcp::auto_allow(&params))
+                    .then(|| crate::chat_mcp::auto_allow(&self.tools, &params))
                     .flatten()
                     .is_some_and(|option_id| {
                         let reply = json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "selected", "optionId": option_id } } });
@@ -1330,6 +1371,11 @@ impl Chat {
         }
     }
 
+    fn prompt_failed(&self, message: String) {
+        self.emit(ChatBody::Error { message: message.clone() });
+        delegate::prompt_failed(self, &message);
+    }
+
     /// The agent's stdout ended: collect its exit code, fail everything still
     /// waiting on it and tell the window.
     fn finish(&self) {
@@ -1372,6 +1418,11 @@ impl Chat {
             }
         }
         self.emit(ChatBody::Exit { code });
+        self.release_token();
+        // Tasks it delegated have no one left to report to.
+        if let Some(state) = self.app.try_state::<ChatState>() {
+            state.close_children(self);
+        }
     }
 
     /// Waits (briefly) for the process to be gone, killing it if it lingers -
@@ -1389,10 +1440,31 @@ impl Chat {
         child.wait().ok().and_then(|status| status.code())
     }
 
+    /// The chat can no longer call Flowcode's tools.
+    fn release_token(&self) {
+        if let Some(token) = &self.token {
+            crate::chat_mcp::unregister(token);
+        }
+    }
+
+    /// The `mcpServers` of this chat's session.
+    fn mcp_servers(&self) -> Value {
+        match &self.token {
+            Some(token) => crate::chat_mcp::servers(&self.app, &self.tools, self.depth(), token, self.wsl),
+            None => json!([]),
+        }
+    }
+
+    /// 0 for a chat of the user's, 1 for one that carries out a delegated task.
+    fn depth(&self) -> u8 {
+        u8::from(self.link.is_some())
+    }
+
     /// Kills the agent and what it started (an `npx` adapter runs the real
     /// agent as a child of its own). The reader thread reaps it.
     fn kill(&self) {
         self.closed.store(true, Ordering::Relaxed);
+        self.release_token();
         let mut child = lock(&self.child);
         kill_if_running(&mut child);
         // Briefly, until it is really gone (`chat_close` promises a dead
@@ -1541,6 +1613,8 @@ pub struct ChatState {
     /// remote access server hears of them.
     changes: watch::Sender<u64>,
     alerts: broadcast::Sender<ChatAlert>,
+    /// The tasks chats delegated to other agents.
+    delegations: Delegations,
 }
 
 impl Default for ChatState {
@@ -1549,6 +1623,7 @@ impl Default for ChatState {
             sessions: Mutex::new(HashMap::new()),
             changes: watch::channel(0).0,
             alerts: broadcast::channel(32).0,
+            delegations: Delegations::default(),
         }
     }
 }
@@ -1629,7 +1704,7 @@ impl ChatState {
         let id = match chat.register(Pending::Prompt) {
             Ok(id) => id,
             Err(message) => {
-                chat.emit(ChatBody::Error { message: message.clone() });
+                chat.prompt_failed(message.clone());
                 return Err(message);
             }
         };
@@ -1642,7 +1717,7 @@ impl ChatState {
         if let Err(message) = chat.send(&request) {
             // Whoever takes the pending prompt out reports its failure.
             if lock(&chat.pending).remove(&id).is_some() {
-                chat.emit(ChatBody::Error { message: message.clone() });
+                chat.prompt_failed(message.clone());
             }
             return Err(message);
         }
@@ -1721,6 +1796,60 @@ impl ChatState {
         Ok(std::path::PathBuf::from(&chat.cwd))
     }
 
+    /// Lists a started chat as a session of its owner window. Refused when that
+    /// window closed while the agent was starting, and its `kill_owned_by` (run
+    /// by `on_window_event` on `Destroyed`) then had nothing to kill. Tauri takes
+    /// a destroyed window out of its map *before* running the `Destroyed`
+    /// handlers, so inserting first and looking the window up after can't miss
+    /// both ways: either the insert came first and `kill_owned_by` takes the
+    /// chat, or it came after that handler ran - and so after the window left
+    /// the map - and the lookup finds no window.
+    fn adopt(&self, app: &AppHandle, chat: Arc<Chat>) -> Result<(), String> {
+        let (chat_id, owner) = (chat.id.clone(), chat.owner.clone());
+        lock(&self.sessions).insert(chat_id.clone(), ChatSession { chat });
+        if app.get_webview_window(&owner).is_none() {
+            // `None` if `kill_owned_by` got it first; either way it dies.
+            let orphan = lock(&self.sessions).remove(&chat_id);
+            self.changed();
+            if let Some(orphan) = orphan {
+                std::thread::spawn(move || drop(orphan));
+            }
+            return Err("window_closed".into());
+        }
+        self.changed();
+        Ok(())
+    }
+
+    /// Takes out the chats carrying out the tasks `parent_id` delegated, and
+    /// forgets those tasks; dropping what is returned kills the agents.
+    fn take_children(&self, parent: &Chat) -> Vec<ChatSession> {
+        let parent_id = parent.id.as_str();
+        for task in self.delegations.forget_parent(parent_id) {
+            parent.emit(ChatBody::Ext { method: "_flowcode/delegate".into(), params: task.params() });
+        }
+        let kids: Vec<ChatSession> = {
+            let mut sessions = lock(&self.sessions);
+            let ids: Vec<String> = sessions
+                .iter()
+                .filter(|(_, s)| s.chat.link.as_ref().is_some_and(|l| l.parent_chat_id == parent_id))
+                .map(|(id, _)| id.clone())
+                .collect();
+            ids.iter().filter_map(|id| sessions.remove(id)).collect()
+        };
+        if !kids.is_empty() {
+            self.changed();
+        }
+        kids
+    }
+
+    /// Closes the children of `parent_id` (its agent is gone or going), off this thread.
+    fn close_children(&self, parent: &Chat) {
+        let kids = self.take_children(parent);
+        if !kids.is_empty() {
+            std::thread::spawn(move || drop(kids));
+        }
+    }
+
     fn get(&self, chat_id: &str) -> Result<Arc<Chat>, String> {
         lock(&self.sessions).get(chat_id).map(|s| Arc::clone(&s.chat)).ok_or_else(|| "unknown chat".to_string())
     }
@@ -1734,6 +1863,10 @@ impl ChatState {
                 sessions.iter().filter(|(_, s)| s.chat.owner == label).map(|(id, _)| id.clone()).collect();
             ids.iter().filter_map(|id| sessions.remove(id)).collect()
         };
+        // Children share their parent's window, so they are in `doomed` too.
+        for session in &doomed {
+            self.delegations.forget_parent(&session.chat.id);
+        }
         if !doomed.is_empty() {
             self.changed();
             std::thread::spawn(move || drop(doomed));
@@ -1860,7 +1993,7 @@ fn session_in_use(error: &str) -> bool {
 }
 
 fn new_session(chat: &Chat, cwd: &str) -> Result<(Value, String, bool), String> {
-    let mcp = crate::chat_mcp::servers(&chat.app, &chat.agent, chat.wsl);
+    let mcp = chat.mcp_servers();
     let result = chat.request("session/new", json!({ "cwd": cwd, "mcpServers": mcp }), SETUP_TIMEOUT)?;
     let session_id = result
         .get("sessionId")
@@ -1975,7 +2108,7 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool, gate:
                 }
                 loaded = chat.request(
                     "session/load",
-                    json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": crate::chat_mcp::servers(&chat.app, &chat.agent, chat.wsl) }),
+                    json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": chat.mcp_servers() }),
                     SETUP_TIMEOUT,
                 );
                 if !loaded.as_ref().err().is_some_and(|e| session_in_use(e)) || chat.exited.load(Ordering::Acquire) {
@@ -2026,6 +2159,14 @@ fn start_gate(agent: &str) -> Option<StartGate> {
     (agent == "codex").then(|| lock(&CODEX))
 }
 
+/// What a chat gets from Flowcode besides the agent itself.
+#[derive(Clone, Default)]
+struct Extras {
+    tools: ToolsConfig,
+    /// Set for a chat that carries out a delegated task.
+    link: Option<TaskLink>,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn start_blocking(
     app: AppHandle,
@@ -2036,11 +2177,12 @@ fn start_blocking(
     resume: Option<String>,
     strict: bool,
     shell: Option<String>,
+    extras: Extras,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
     let mut attempt = 0;
     loop {
         let gate = start_gate(&agent);
-        let started = start_once(app.clone(), owner.clone(), agent.clone(), cwd.clone(), profile.clone(), resume.clone(), strict, shell.clone(), gate);
+        let started = start_once(app.clone(), owner.clone(), agent.clone(), cwd.clone(), profile.clone(), resume.clone(), strict, shell.clone(), extras.clone(), gate);
         match started {
             Err(e) if attempt < START_RETRIES && transient_start_failure(&agent, &e) => {
                 attempt += 1;
@@ -2062,6 +2204,7 @@ fn start_once(
     resume: Option<String>,
     strict: bool,
     shell: Option<String>,
+    extras: Extras,
     mut gate: Option<StartGate>,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
     let wsl = wsl_target(&cwd, shell.as_deref());
@@ -2074,6 +2217,8 @@ fn start_once(
         return Err(format!("could not open the pipes of `{line}`"));
     };
     let chat_id = uuid::Uuid::new_v4().to_string();
+    let depth = u8::from(extras.link.is_some());
+    let token = (!crate::chat_mcp::enabled_tools(&extras.tools, depth).is_empty()).then(|| crate::chat_mcp::register(&chat_id, depth));
     let (replies, queued) = mpsc::sync_channel(REPLY_QUEUE);
     let chat = Arc::new(Chat {
         id: chat_id.clone(),
@@ -2084,6 +2229,11 @@ fn start_once(
         wsl: wsl.is_some(),
         wsl_distro: wsl.as_ref().and_then(|w| w.distro.clone().or_else(crate::util::wsl_default_distro)),
         profile,
+        shell,
+        tools: extras.tools,
+        token,
+        link: extras.link,
+        answer: Mutex::new(String::new()),
         child: Mutex::new(child),
         writer: Mutex::new(stdin),
         replies,
@@ -2159,32 +2309,16 @@ pub async fn chat_start(
     resume_session_id: Option<String>,
     strict_resume: Option<bool>,
     shell: Option<String>,
+    tools: Option<ToolsConfig>,
 ) -> Result<ChatStarted, String> {
     let owner = window.label().to_string();
+    let extras = Extras { tools: tools.unwrap_or_default(), link: None };
     let (chat, started) = {
-        let (app, owner) = (app.clone(), owner.clone());
-        crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id, strict_resume.unwrap_or(false), shell))
+        let app = app.clone();
+        crate::blocking(move || start_blocking(app, owner, agent, cwd, profile, resume_session_id, strict_resume.unwrap_or(false), shell, extras))
             .await?
     };
-    // The window may have closed while the agent was starting, and its
-    // `kill_owned_by` (run by `on_window_event` on `Destroyed`) then had
-    // nothing to kill. Tauri takes a destroyed window out of its map *before*
-    // running the `Destroyed` handlers, so inserting first and looking the
-    // window up after can't miss both ways: either the insert came first and
-    // `kill_owned_by` takes the chat, or it came after that handler ran - and
-    // so after the window left the map - and the lookup finds no window.
-    let chat_id = started.chat_id.clone();
-    lock(&state.sessions).insert(chat_id.clone(), ChatSession { chat });
-    if app.get_webview_window(&owner).is_none() {
-        // `None` if `kill_owned_by` got it first; either way it dies.
-        let orphan = lock(&state.sessions).remove(&chat_id);
-        state.changed();
-        if let Some(orphan) = orphan {
-            std::thread::spawn(move || drop(orphan));
-        }
-        return Err("window_closed".into());
-    }
-    state.changed();
+    state.adopt(&app, chat)?;
     Ok(started)
 }
 
@@ -2243,11 +2377,14 @@ pub async fn chat_set_thought(state: State<'_, ChatState>, chat_id: String, valu
 pub async fn chat_close(app: AppHandle, chat_id: String) -> Result<(), String> {
     let state = app.state::<ChatState>();
     let session = lock(&state.sessions).remove(&chat_id);
+    // Closing a chat closes the tasks it delegated.
+    let children = session.as_ref().map_or_else(Vec::new, |session| state.take_children(&session.chat));
     state.changed();
     // Dropping the session kills the agent - `taskkill` / `kill` and the
     // wait for the exit included: not on an async worker.
     crate::blocking(move || {
         drop(session);
+        drop(children);
         Ok(())
     })
     .await
@@ -2345,6 +2482,28 @@ mod tests {
         // The main session is untouched.
         let mut main_config = json!({ "sessionUpdate": "config_option_update" });
         assert!(route_child_update(&mut children, &main, &mut main_config));
+    }
+
+    #[test]
+    fn a_tasks_answer_is_the_agents_text_of_the_last_turn() {
+        let text = |kind: &str, text: &str| ChatBody::Update { update: json!({ "sessionUpdate": kind, "content": { "type": "text", "text": text } }) };
+        let user = ChatBody::User { text: "go".into(), attachments: Vec::new(), images: Vec::new() };
+        let mut answer = String::new();
+        accumulate_answer(&mut answer, &text("agent_message_chunk", "Hel"));
+        accumulate_answer(&mut answer, &text("agent_thought_chunk", "hmm"));
+        accumulate_answer(&mut answer, &text("agent_message_chunk", "lo"));
+        accumulate_answer(&mut answer, &ChatBody::Update { update: json!({ "sessionUpdate": "tool_call", "title": "Read" }) });
+        let nested = ChatBody::Update {
+            update: json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "SUB" }, "_meta": { "claudeCode": { "parentToolUseId": "t" } } }),
+        };
+        accumulate_answer(&mut answer, &nested);
+        assert_eq!(answer, "Hello");
+        // The next prompt starts over.
+        accumulate_answer(&mut answer, &user);
+        assert_eq!(answer, "");
+        accumulate_answer(&mut answer, &text("agent_message_chunk", &"x".repeat(MAX_ANSWER_BYTES + 5)));
+        accumulate_answer(&mut answer, &text("agent_message_chunk", "more"));
+        assert_eq!(answer.len(), MAX_ANSWER_BYTES + 5, "past the cap nothing more is kept");
     }
 
     #[test]

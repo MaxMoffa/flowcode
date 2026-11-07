@@ -19,6 +19,15 @@ interface ActiveAgent {
   tabId: string | null;
   /** The tab's working directory ("" when unknown). */
   cwd: string;
+  /** Set when the chat is a delegated child: who asked for the task, and where that chat's tab is. */
+  delegateOf: DelegateOf | null;
+}
+
+interface DelegateOf {
+  taskId: string;
+  parentTabId: string;
+  parentLabel: string;
+  parentAgent: string;
 }
 
 const same = (a: ActiveAgent | null, b: ActiveAgent | null) =>
@@ -34,11 +43,15 @@ const same = (a: ActiveAgent | null, b: ActiveAgent | null) =>
     a.status === b.status &&
     a.kind === b.kind &&
     a.tabId === b.tabId &&
-    a.cwd === b.cwd);
+    a.cwd === b.cwd &&
+    a.delegateOf?.taskId === b.delegateOf?.taskId &&
+    a.delegateOf?.parentTabId === b.delegateOf?.parentTabId &&
+    a.delegateOf?.parentLabel === b.delegateOf?.parentLabel &&
+    a.delegateOf?.parentAgent === b.delegateOf?.parentAgent);
 
 // App knows the active tab, the popovers live in portals far from it.
 const store = createStore<ActiveAgent | null>(null, same);
 
 export const setActiveAgent = store.set;
-export type { ActiveAgent };
+export type { ActiveAgent, DelegateOf };
 export const useActiveAgent = store.use;

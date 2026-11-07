@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { buildAskContent, type AskAnswer, type AskOption, type AskQuestion } from "./askQuestions";
 import type { ChatItem } from "./chatModel";
@@ -11,10 +11,24 @@ interface AskComposerProps {
   onAnswer: Answer;
   /** Take the keyboard when it appears (not when the chat is behind another view). */
   autoFocus: boolean;
+  /** Replaces the "agent asks" tag: a delegate's request says who asks, and may carry a way through the queue. */
+  head?: ReactNode;
+  /** More buttons beside "Skip" (a delegate's "open its chat"). */
+  actions?: ReactNode;
+  /** The free-text "Other..." row; off for a permission request, whose answer is one of its options. */
+  allowOther?: boolean;
+}
+
+/** What the pieces below share with the composer. */
+interface AskLook {
+  head?: ReactNode;
+  actions?: ReactNode;
+  allowOther: boolean;
 }
 
 /** The composer turned into the agent's question(s): a list for one, a stepper with a review for several. Keys: arrows move, 1-9 pick, Enter confirms, Esc skips. */
-export function AskComposer({ item, onAnswer, autoFocus }: AskComposerProps) {
+export function AskComposer({ item, onAnswer, autoFocus, head, actions, allowOther = true }: AskComposerProps) {
+  const look: AskLook = { head, actions, allowOther };
   // A question the schema couldn't be read for still shows its message, with a way to skip it.
   const questions: AskQuestion[] = item.questions.length ? item.questions : [{ key: "question_0", text: item.message, multi: false, options: [] }];
   // The first answer wins: a second one (double click, Enter then click) would reach the backend as an unknown request.
@@ -26,9 +40,9 @@ export function AskComposer({ item, onAnswer, autoFocus }: AskComposerProps) {
   };
   const skip = () => answer(item.requestId, "decline");
   return questions.length === 1 ? (
-    <AskList question={questions[0]} autoFocus={autoFocus} onSkip={skip} onSend={(a) => answer(item.requestId, "accept", buildAskContent(questions, [a]))} />
+    <AskList question={questions[0]} autoFocus={autoFocus} look={look} onSkip={skip} onSend={(a) => answer(item.requestId, "accept", buildAskContent(questions, [a]))} />
   ) : (
-    <AskSteps questions={questions} autoFocus={autoFocus} onSkip={skip} onSend={(a) => answer(item.requestId, "accept", buildAskContent(questions, a))} />
+    <AskSteps questions={questions} autoFocus={autoFocus} look={look} onSkip={skip} onSend={(a) => answer(item.requestId, "accept", buildAskContent(questions, a))} />
   );
 }
 
@@ -49,7 +63,7 @@ function inInput(e: KeyboardEvent) {
 }
 
 /** Variant for one question: numbered rows, the last one "Other..." with a text input. */
-function AskList({ question, autoFocus, onSkip, onSend }: { question: AskQuestion; autoFocus: boolean; onSkip: () => void; onSend: (a: AskAnswer) => void }) {
+function AskList({ question, autoFocus, look, onSkip, onSend }: { question: AskQuestion; autoFocus: boolean; look: AskLook; onSkip: () => void; onSend: (a: AskAnswer) => void }) {
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   const otherRef = useRef<HTMLInputElement>(null);
@@ -57,7 +71,7 @@ function AskList({ question, autoFocus, onSkip, onSend }: { question: AskQuestio
   const [picked, setPicked] = useState<number[]>([]);
   const [custom, setCustom] = useState("");
   const n = question.options.length;
-  const total = n + 1;
+  const total = n + (look.allowOther ? 1 : 0);
   const multi = question.multi;
   const canSend = picked.length > 0 || custom.trim() !== "";
 
@@ -105,7 +119,7 @@ function AskList({ question, autoFocus, onSkip, onSend }: { question: AskQuestio
 
   return (
     <div ref={rootRef} className="chat-composer chat-ask" tabIndex={-1} role="group" aria-label={t("chat.ask.tag")} onKeyDown={onKeyDown}>
-      <span className="chat-ask-tag">{t("chat.ask.tag")}</span>
+      {look.head ?? <span className="chat-ask-tag">{t("chat.ask.tag")}</span>}
       <div className="chat-ask-q">{question.text}</div>
       <ul className="chat-ask-opts">
         {question.options.map((option, i) => (
@@ -116,17 +130,19 @@ function AskList({ question, autoFocus, onSkip, onSend }: { question: AskQuestio
             </div>
           </li>
         ))}
-        <li className={`chat-ask-opt is-other${cur === n ? " is-cur" : ""}`} onClick={() => choose(n)}>
-          <kbd>{n + 1}</kbd>
-          <input
-            ref={otherRef}
-            className="chat-ask-free"
-            value={custom}
-            placeholder={t("chat.ask.otherPlaceholder")}
-            onFocus={() => setCur(n)}
-            onChange={(e) => setCustom(e.target.value)}
-          />
-        </li>
+        {look.allowOther && (
+          <li className={`chat-ask-opt is-other${cur === n ? " is-cur" : ""}`} onClick={() => choose(n)}>
+            <kbd>{n + 1}</kbd>
+            <input
+              ref={otherRef}
+              className="chat-ask-free"
+              value={custom}
+              placeholder={t("chat.ask.otherPlaceholder")}
+              onFocus={() => setCur(n)}
+              onChange={(e) => setCustom(e.target.value)}
+            />
+          </li>
+        )}
       </ul>
       <div className="chat-ask-actions">
         <span className="chat-ask-hint">
@@ -134,6 +150,7 @@ function AskList({ question, autoFocus, onSkip, onSend }: { question: AskQuestio
           <kbd>{"↓"}</kbd> {t("chat.ask.hint.move")} {"·"} <kbd>{"↵"}</kbd> {multi ? t("chat.ask.hint.confirm") : t("chat.ask.hint.select")} {"·"} <kbd>Esc</kbd> {t("chat.ask.hint.skip")}
         </span>
         <span className="chat-actions-spacer" />
+        {look.actions}
         <button type="button" className="chat-ask-btn is-ghost" onClick={onSkip}>
           {t("chat.ask.skip")}
         </button>
@@ -148,7 +165,7 @@ function AskList({ question, autoFocus, onSkip, onSend }: { question: AskQuestio
 }
 
 /** Variant for several questions: one at a time as cards, then a review before sending. */
-function AskSteps({ questions, autoFocus, onSkip, onSend }: { questions: AskQuestion[]; autoFocus: boolean; onSkip: () => void; onSend: (a: AskAnswer[]) => void }) {
+function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: AskQuestion[]; autoFocus: boolean; look: AskLook; onSkip: () => void; onSend: (a: AskAnswer[]) => void }) {
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   const otherRef = useRef<HTMLTextAreaElement>(null);
@@ -224,7 +241,7 @@ function AskSteps({ questions, autoFocus, onSkip, onSend }: { questions: AskQues
 
   return (
     <div ref={rootRef} className="chat-composer chat-ask" tabIndex={-1} role="group" aria-label={t("chat.ask.tag")} onKeyDown={onKeyDown}>
-      <span className="chat-ask-tag">{t("chat.ask.tag")}</span>
+      {look.head ?? <span className="chat-ask-tag">{t("chat.ask.tag")}</span>}
       {dots}
       {review ? (
         <>
@@ -280,6 +297,7 @@ function AskSteps({ questions, autoFocus, onSkip, onSend }: { questions: AskQues
                 {t("chat.ask.skipAll")}
               </button>
             )}
+            {look.actions}
             <span className="chat-actions-spacer" />
             <button type="button" className="chat-ask-btn is-primary" onClick={() => go(step + 1)}>
               {step === count - 1 ? t("chat.ask.review") : t("chat.ask.next")}

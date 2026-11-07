@@ -2,6 +2,8 @@
 
 export interface AskOption {
   label: string;
+  /** Stable answer value when display labels are not unique (permission options). */
+  value?: string;
   description?: string;
   /** The agent marked it "(Recommended)". */
   recommended: boolean;
@@ -67,7 +69,7 @@ export function buildAskContent(questions: AskQuestion[], answers: AskAnswer[]):
   questions.forEach((q, i) => {
     const a = answers[i];
     if (!a) return;
-    const labels = [...a.picked].sort((x, y) => x - y).map((p) => q.options[p]?.label).filter((l): l is string => typeof l === "string");
+    const labels = [...a.picked].sort((x, y) => x - y).map((p) => q.options[p]?.value ?? q.options[p]?.label).filter((l): l is string => typeof l === "string");
     if (q.multi) {
       if (labels.length) content[q.key] = labels;
     } else if (labels.length) {

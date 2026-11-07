@@ -671,3 +671,80 @@ describe("native subagents (ACP subagent_update)", () => {
     expect(tool(state, "L")).toMatchObject({ status: "failed", content: [{ content: { text: "hello" } }] });
   });
 });
+
+describe("delegation events", () => {
+  const ext = (method: string, params: unknown, s = next()): ChatEvent => ({ kind: "ext", seq: s, at: 0, method, params });
+  const delegate = (taskId: string, extra: Record<string, unknown> = {}) =>
+    ext("_flowcode/delegate", { taskId, childChatId: `c-${taskId}`, agent: "codex", title: `Task ${taskId}`, prompt: "do it", status: "running", startedAt: 1000, steps: 0, ...extra });
+  const delegates = (state: ChatModelState) => state.items.filter((i) => i.type === "delegate");
+
+  it("keeps the latest state per task, in the place the task first appeared", () => {
+    const s = run([delegate("a"), chunk("agent_message_chunk", "intanto"), delegate("b"), delegate("a", { status: "done", steps: 4, result: "fatto\nbene", endedAt: 5000 })]);
+    expect(s.items.map((i) => i.id)).toEqual(["delegate-a", "agent-" + (s.items[1] as { id: string }).id.split("-")[1], "delegate-b"]);
+    const a = s.items[0];
+    expect(a).toMatchObject({ type: "delegate", delegate: { taskId: "a", status: "done", steps: 4, result: "fatto\nbene", endedAt: 5000, childChatId: "c-a" } });
+    expect(delegates(s)).toHaveLength(2);
+  });
+
+  it("keeps the child's session id when the event has one", () => {
+    const s = run([delegate("a"), delegate("a", { childSessionId: "sess-1" })]);
+    expect(s.items.find((i) => i.type === "delegate")).toMatchObject({ delegate: { childSessionId: "sess-1" } });
+    expect(JSON.stringify(run([delegate("b")]).items[0])).not.toContain("childSessionId");
+  });
+
+  it("ignores a delegate event that names no task or child", () => {
+    expect(delegates(run([ext("_flowcode/delegate", { title: "x" })]))).toHaveLength(0);
+  });
+
+  it("does not make the chat wait or start a turn", () => {
+    const s = run([delegate("a", { status: "waiting_for_user" })]);
+    expect(s.status).toBe("idle");
+    expect(s.turnActive).toBe(false);
+  });
+
+  it("queues a child's requests and drops them once resolved", () => {
+    const permission = ext("_flowcode/delegate_request", { taskId: "a", childChatId: "c-a", agent: "codex", title: "T", kind: "permission", requestId: 7, toolCall: { toolCallId: "t", title: "rm -rf" }, options: [{ optionId: "yes", name: "Allow", kind: "allow_once" }] });
+    const ask = ext("_flowcode/delegate_request", {
+      taskId: "b", childChatId: "c-b", agent: "gemini", title: "U", kind: "ask", requestId: "r2", message: "Which?",
+      schema: { type: "object", properties: { question_0: { type: "string", oneOf: [{ const: "A" }, { const: "B" }] } } },
+    });
+    let s = run([permission, ask, permission]);
+    expect(s.delegateRequests.map((r) => [r.kind, r.requestId, r.childChatId])).toEqual([["permission", 7, "c-a"], ["ask", "r2", "c-b"]]);
+    expect(s.delegateRequests[1].questions?.[0].options.map((o) => o.label)).toEqual(["A", "B"]);
+    s = run([ext("_flowcode/delegate_request_resolved", { taskId: "a", childChatId: "c-a", requestId: 7 })], s);
+    expect(s.delegateRequests.map((r) => r.requestId)).toEqual(["r2"]);
+  });
+
+  it("tells apart requests of two children that share a request id", () => {
+    const request = (child: string) => ext("_flowcode/delegate_request", { taskId: child, childChatId: child, kind: "permission", requestId: 1, options: [] });
+    let s = run([request("c-a"), request("c-b")]);
+    expect(s.delegateRequests.map((r) => r.childChatId)).toEqual(["c-a", "c-b"]);
+    s = run([ext("_flowcode/delegate_request_resolved", { taskId: "c-a", childChatId: "c-a", requestId: 1 })], s);
+    expect(s.delegateRequests.map((r) => r.childChatId)).toEqual(["c-b"]);
+  });
+
+  it("drops the requests of a task that ended, and of an exited chat", () => {
+    const request = (taskId: string, requestId: string) => ext("_flowcode/delegate_request", { taskId, childChatId: `c-${taskId}`, kind: "permission", requestId, options: [] });
+    let s = run([request("a", "1"), request("b", "2"), delegate("a", { status: "cancelled" })]);
+    expect(s.delegateRequests.map((r) => r.requestId)).toEqual(["2"]);
+    s = run([{ kind: "exit", seq: next(), at: 0, code: 0 }], s);
+    expect(s.delegateRequests).toEqual([]);
+  });
+
+  it("does not revive a cancelled task or its requests when a stale reader event arrives", () => {
+    const s = run([
+      delegate("a", { status: "cancelled" }),
+      delegate("a", { status: "running" }),
+      ext("_flowcode/delegate_request", { taskId: "a", childChatId: "c-a", kind: "permission", requestId: 1, options: [] }),
+    ]);
+    const item = s.items.find((i) => i.type === "delegate");
+    expect(item?.type === "delegate" && item.delegate.status).toBe("cancelled");
+    expect(s.delegateRequests).toEqual([]);
+  });
+
+  it("reads the task a child chat was given", () => {
+    const s = run([ext("_flowcode/task", { taskId: "a", parentChatId: "p", parentAgent: "claude", parentTitle: null, prompt: "Fai X" })]);
+    expect(s.task).toEqual({ taskId: "a", parentChatId: "p", parentAgent: "claude", parentTitle: null, prompt: "Fai X" });
+    expect(initialChat().task).toBeNull();
+  });
+});

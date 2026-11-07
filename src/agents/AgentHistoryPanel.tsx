@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatTab, TermTab } from "../tabs/types";
 import { agentCliIcon } from "../plugins/icons";
@@ -7,11 +7,13 @@ import { relativeCommitTime } from "../lib/time";
 import type { AgentSession } from "./agentSessions";
 import { gitRepoRoot, gitWorktrees, isWorktreeCapable, type GitWorktree } from "./git";
 import { inProject, keepIfSame } from "./agentScope";
-import { AGENT_CLIS, CLI_INFO, type AgentCli } from "./cliInfo";
+import { AGENT_CLIS, CLI_INFO, cliName, type AgentCli } from "./cliInfo";
 import { useAvailableClis } from "./useAvailableClis";
 import { useProfiles } from "../profiles/profiles";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useOutsideClose } from "../hooks/useOutsideClose";
+import { childKeys, useDelegateHistory, type DelegateChild } from "./delegateHistory";
+import { historyDot, TONE_LABEL, delegateTone } from "./delegateView";
 import type { ClaudeSessionEntry, CodexSessionEntry, VibeSessionEntry } from "./entryTypes";
 import "./agent-history.css";
 
@@ -32,6 +34,8 @@ interface AgentHistoryPanelProps {
   sessions: AgentSession[] | null;
   tabs: TermTab[];
   chatTabs: ChatTab[];
+  /** The open tabs of delegated children (not among `chatTabs`): a child still running is opened by its task. */
+  delegateTabs: ChatTab[];
   getPtyId: (tabId: string) => string | null;
   /** `sessionId`: the conversation to show, when the tab holds several. */
   onOpenTab: (tabId: string, sessionId?: string) => void;
@@ -58,6 +62,43 @@ interface HistoryRow {
 
 const isAgentCli = (cli: string): cli is AgentCli => (AGENT_CLIS as readonly string[]).includes(cli);
 
+/** "N delegates" on an orchestrator's row, with a pip per delegate; opens and closes the list of their chats. */
+function DelegateChip({ kids, open, onToggle }: { kids: DelegateChild[]; open: boolean; onToggle: () => void }) {
+  const { t } = useI18n();
+  const waiting = kids.some((k) => k.status === "waiting_for_user");
+  const label = t(kids.length === 1 ? "history.delegates.one" : "history.delegates.other", { count: kids.length });
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      title={t("history.delegates.toggle")}
+      className={`agents-sidebar-chip agents-sidebar-chip--${waiting ? "waiting" : "running"} agent-history-delegates`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggle();
+        }
+      }}
+    >
+      <span className="agent-history-pips" aria-hidden="true">
+        {kids.map((k) => (
+          <i key={k.taskId} className={`is-${delegateTone(k.status)}`} />
+        ))}
+      </span>
+      {label}
+      <svg className="agent-history-delegates-chev" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polyline points="9 6 15 12 9 18" />
+      </svg>
+    </span>
+  );
+}
+
 /** The sessions of the project the active agent tab works in - saved ones
  * from disk plus those open in a tab - newest first, grouped by day. */
 export function AgentHistoryPanel({
@@ -69,6 +110,7 @@ export function AgentHistoryPanel({
   sessions,
   tabs,
   chatTabs,
+  delegateTabs,
   getPtyId,
   onOpenTab,
   onResume,
@@ -86,6 +128,9 @@ export function AgentHistoryPanel({
   // The profile list is portaled to the body, so it counts as inside.
   useOutsideClose(menuOpen, [footerRef], () => setMenuOpen(false), { escape: true, ignore: (el) => !!el.closest("[data-profile-select-menu]") });
   const [query, setQuery] = useState("");
+  const delegateHistory = useDelegateHistory();
+  /** Orchestrator sessions whose delegated chats are listed under them. */
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   const [claude, setClaude] = useState<ClaudeSessionEntry[]>([]);
   const [codex, setCodex] = useState<CodexSessionEntry[]>([]);
   const [vibe, setVibe] = useState<VibeSessionEntry[]>([]);
@@ -204,7 +249,10 @@ export function AgentHistoryPanel({
     }
     // The same session can appear twice (two live tabs, or a live and a saved row): one row per key.
     const unique = new Map<string, HistoryRow>();
+    // Delegated children are listed under their orchestrator, not as conversations of their own.
+    const children = childKeys(delegateHistory);
     for (const row of [...byKey.values(), ...live]) {
+      if (children.has(row.key)) continue;
       const prev = unique.get(row.key);
       if (!prev || (row.tabId !== undefined && prev.tabId === undefined) || (row.tabId !== undefined === (prev.tabId !== undefined) && row.at > prev.at)) {
         unique.set(row.key, row);
@@ -212,7 +260,7 @@ export function AgentHistoryPanel({
     }
     return [...unique.values()].sort((a, b) => b.at - a.at);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claude, codex, vibe, sessions, tabs, chatTabs, rootsKey, wslDistro]);
+  }, [claude, codex, vibe, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro]);
 
   const needle = query.trim().toLowerCase();
   const titleOf = (row: HistoryRow) => row.title || `${CLI_INFO[row.cli].label} · ${row.sessionId.slice(0, 8)}`;
@@ -241,6 +289,19 @@ export function AgentHistoryPanel({
 
   /** The linked worktree a folder is in, if any. */
   const branchOf = (cwd: string) => worktrees.find((w) => !w.is_main && inProject(cwd, null, w.path, undefined))?.branch ?? null;
+  const toggleKids = (sessionId: string) =>
+    setUnfolded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(sessionId)) next.add(sessionId);
+      return next;
+    });
+  /** A child still open in its delegate tab comes to the front; otherwise its conversation resumes as a normal chat. */
+  const openChild = (row: HistoryRow, child: DelegateChild) => {
+    const tab = delegateTabs.find((x) => x.delegate?.taskId === child.taskId);
+    if (tab) return onOpenTab(tab.id);
+    if (!isAgentCli(child.agent)) return;
+    onResume(row.cwd, child.childSessionId, child.agent, row.wslDistro ?? undefined, child.agent === row.cli ? (row.profile ?? undefined) : undefined, undefined);
+  };
   const timeOf = (row: HistoryRow) => {
     if (row.at <= 0) return "";
     return Date.now() - row.at < 60_000 ? t("history.now") : relativeCommitTime(row.at / 1000);
@@ -269,9 +330,11 @@ export function AgentHistoryPanel({
             {group.rows.map((row) => {
               const branch = branchOf(row.cwd);
               const time = timeOf(row);
+              const kids = row.sessionId ? (delegateHistory[row.sessionId]?.children ?? []) : [];
+              const unfoldedKids = kids.length > 0 && unfolded.has(row.sessionId);
               return (
+                <Fragment key={row.key}>
                 <button
-                  key={row.key}
                   type="button"
                   className={"agent-history-row" + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "")}
                   aria-current={row.sessionId && row.sessionId === currentSessionId ? "true" : undefined}
@@ -287,6 +350,9 @@ export function AgentHistoryPanel({
                     <span className="agent-history-meta">
                       {time}
                       {branch && `${time ? " · " : ""}⎇ ${branch}`}
+                      {kids.length > 0 && (
+                        <DelegateChip kids={kids} open={unfoldedKids} onToggle={() => toggleKids(row.sessionId)} />
+                      )}
                       {row.status && row.status !== "idle" && (
                         <span className={`agent-history-status agent-history-status--${row.status}`}>
                           {`${time || branch ? " · " : ""}${row.status === "busy" ? t("agents.status.busy") : t("agents.status.waiting")}`}
@@ -296,6 +362,27 @@ export function AgentHistoryPanel({
                   </span>
                   {row.tabId && <span className={`agent-history-dot agent-history-dot--${row.status ?? "idle"}`} aria-hidden="true" />}
                 </button>
+                {unfoldedKids && (
+                  <div className="agent-history-kids">
+                    {kids.map((child) => (
+                      <button
+                        key={child.taskId}
+                        type="button"
+                        className="agent-history-row is-child"
+                        title={child.title}
+                        onClick={() => openChild(row, child)}
+                      >
+                        <span className="agent-history-icon">{agentCliIcon(child.agent)}</span>
+                        <span className="agent-history-body">
+                          <span className="agent-history-title">{child.title || cliName(child.agent)}</span>
+                          <span className="agent-history-meta">{`${cliName(child.agent)} · ${t(TONE_LABEL[delegateTone(child.status)])}`}</span>
+                        </span>
+                        <span className={`agent-history-dot agent-history-dot--${historyDot(child.status)}`} aria-hidden="true" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                </Fragment>
               );
             })}
           </section>
