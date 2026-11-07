@@ -29,17 +29,22 @@ export function useCacheWarning(opts: {
   /** The transcript is readable from here (not a remote chat). */
   local: boolean;
   chatId: string;
+  /** Reads the cache info some other way than the local command (a remote chat). Must be stable (memoized). */
+  loadInfo?: (sessionId: string) => Promise<{ ttlMs: number; lastCallAt: string | null }>;
 }) {
-  const { agent, idle, items, lastActivityAt, usageTokens, sessionId, profileId, wslDistro, local, chatId } = opts;
+  const { agent, idle, items, lastActivityAt, usageTokens, sessionId, profileId, wslDistro, local, chatId, loadInfo } = opts;
   const [stale, setStale] = useState(false);
   const [, bump] = useState(0);
   const [fetched, setFetched] = useState<{ sid: string; info: CacheInfo | null } | null>(null);
 
-  const wantsInfo = local && agent === "claude" && !!sessionId;
+  const wantsInfo = (local || !!loadInfo) && agent === "claude" && !!sessionId;
   useEffect(() => {
     if (!wantsInfo || !sessionId) return;
     let alive = true;
-    invoke<{ ttlMs: number; lastCallAt: string | null }>("chat_cache_info", { sessionId, profile: profileId, wslDistro })
+    const load = loadInfo
+      ? loadInfo(sessionId)
+      : invoke<{ ttlMs: number; lastCallAt: string | null }>("chat_cache_info", { sessionId, profile: profileId, wslDistro });
+    load
       .then((r) => {
         const last = r.lastCallAt ? Date.parse(r.lastCallAt) : NaN;
         if (alive) setFetched({ sid: sessionId, info: Number.isFinite(last) && r.ttlMs > 0 ? { ttlMs: r.ttlMs, lastCallMs: last } : null });
@@ -50,7 +55,7 @@ export function useCacheWarning(opts: {
     return () => {
       alive = false;
     };
-  }, [wantsInfo, sessionId, profileId, wslDistro, idle]);
+  }, [wantsInfo, sessionId, profileId, wslDistro, idle, loadInfo]);
 
   // undefined: still loading (no notice); null: unavailable (fall back to the defaults).
   const info: CacheInfo | null | undefined = !wantsInfo ? null : fetched?.sid === sessionId ? fetched.info : undefined;

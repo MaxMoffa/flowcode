@@ -324,6 +324,8 @@ export type ServerMsg =
   | { t: "linkpreview"; url: string; preview: LinkPreview | null }
   /** Reply to `agentinsight`; `key` is the requested `ptyId` or `chatId` verbatim. Each part is null/absent when the desktop cannot read it (no session yet, an agent it cannot inspect, WSL...). Needs the "agentInsight" cap. */
   | { t: "agentinsight"; key: string; cli?: string | null; context?: { used: number; window: number; model?: string } | null; usage?: AgentSessionUsage | null; tools?: AgentToolsInfo | null }
+  /** Reply to `chatcacheinfo`: the cache lifetime in ms and the ISO-8601 time of the last model call; both null/absent when the desktop cannot read them (not Claude, no session, no transcript). Needs the "chatCacheInfo" cap, which is not in `RemoteCap`. */
+  | { t: "chatcacheinfo"; chatId: string; ttlMs?: number | null; lastCallAt?: string | null }
   /** One chunk of an image of a chat (reply to `chatimage`), base64; `key` is the requested `id`, else the requested `path`, verbatim. A missing or unreadable one is a single message with `total: 0, missing: true`; an empty file is one chunk with `total: 0`. Needs the "chatImage" cap, which is not in `RemoteCap`: an older desktop just shows no images. */
   | { t: "chatimage"; key: string; offset: number; total: number; data: string; mime?: string; missing?: boolean }
   | { t: "pong" };
@@ -383,6 +385,8 @@ export type ClientMsg =
   /** Sent by the core itself when the app goes out of sight; listed for completeness. */
   /** The context, session usage and tools of the agent in a terminal tab (`ptyId`) or a chat (`chatId`), exactly one of the two; answered with `agentinsight`. Needs the "agentInsight" cap. */
   | { t: "agentinsight"; ptyId?: string; chatId?: string }
+  /** The prompt-cache lifetime and last model call of a Claude chat; answered with `chatcacheinfo`. Needs the "chatCacheInfo" cap, which is not in `RemoteCap`: an older desktop leaves the phone on the 5-minute default, nothing to warn about. */
+  | { t: "chatcacheinfo"; chatId: string }
   /** The preview of a link in a chat (answered with `linkpreview`). */
   | { t: "linkpreview"; url: string }
   /** An image of a chat, by the `id` the desktop stored it under or by `path` (a file on the chat's PC, resolved against its cwd/WSL) or by web `url` (downloaded by the desktop only if its `chatWebImages` setting is on, else `missing`; the reply `key` is the url); answered with `chatimage` chunks. Needs the "chatImage" cap (not in `RemoteCap`); `url` also needs "chatWebImages". */

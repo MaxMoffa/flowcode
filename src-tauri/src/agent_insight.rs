@@ -538,7 +538,7 @@ pub async fn agent_session_usage(
 /// Prompt-cache lifetime of a Claude session and when it last called the model.
 #[derive(Serialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct CacheInfo {
+pub(crate) struct CacheInfo {
     /// How long the prompt cache lives after a call: 1 h when the session writes 1-hour cache entries, else 5 min.
     pub ttl_ms: u64,
     /// `timestamp` (ISO-8601 string, as in the transcript) of the last main-context model call; None if none found.
@@ -588,7 +588,8 @@ fn cache_info_from_tail(text: &str) -> CacheInfo {
     CacheInfo { ttl_ms: ttl_ms.unwrap_or(CACHE_TTL_5M), last_call_at }
 }
 
-fn read_cache_info(
+/// Reads the cache lifetime and last model call of a Claude session from its transcript.
+pub(crate) fn read_cache_info(
     app: &tauri::AppHandle,
     session_id: &str,
     profile: Option<String>,

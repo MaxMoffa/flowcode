@@ -26,6 +26,7 @@ import { chatModels, chatModes, chatThought, chatStatus, emptySession, pendingAs
 import { useTwoFingerSwipe } from "./chatSwipe";
 import { eventsActivity } from "../../src/chat/cacheWarning";
 import { useCacheWarning } from "../../src/chat/useCacheWarning";
+import { loadChatCacheInfo } from "./chatCacheInfo";
 import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName, shortCwd } from "./common";
 import { defaultViewFor } from "./defaultView";
@@ -54,6 +55,9 @@ const BOTTOM_SLACK = 80;
 const THINKING_VERBS = ["chatVerb1", "chatVerb2", "chatVerb3", "chatVerb4", "chatVerb5", "chatVerb6", "chatVerb7", "chatVerb8"] as const;
 
 const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ?? cwd;
+
+/** A context size as "118k" (rounded), or the plain number under a thousand. */
+const formatCacheTokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 /** `embedded`: the wide layout's main card, whose tab strip already says which chat this is, so there is no back button. `onTerminal` hands the session to a desktop terminal tab (App opens it once it appears). `onSwitch` opens another terminal from the agents drawer. */
 /** Chats whose default mode was already tried, so it is applied at most once per chat. */
@@ -196,6 +200,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const showLimit = !!limit && status === "idle" && !working && pending.length === 0 && !openAsk && limit.id !== dismissedLimitId && (limit.at === null || limit.at > limitNow);
   // A Claude chat idle past the prompt cache's lifetime: the next message re-reads everything uncached.
   const activity = useMemo(() => eventsActivity(session.events), [session.events]);
+  const loadInfo = useCallback(() => loadChatCacheInfo(chatId), [chatId]);
   const cacheWarning = useCacheWarning({
     agent: info?.agent ?? "",
     idle: !sub && session.loaded && status === "idle" && pending.length === 0 && !openAsk && session.queued.length === 0,
@@ -207,7 +212,10 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
     wslDistro: null,
     local: false,
     chatId,
+    loadInfo,
   });
+  // Like the desktop: no card over a draft the user is writing, and the question / usage limit go first.
+  const showCacheCard = cacheWarning.show && !hasComposerDraft && !openAsk && !showLimit;
   const answerAsk = useCallback(
     (requestId: string, action: "accept" | "decline", content?: Record<string, unknown>) =>
       answerChatAsk(chatId, requestId, action, content).then((ok) => {
@@ -588,12 +596,36 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
             <ChatPondEnd kind="ended" resetAt={null} />
           ) : (
             <>
-              {cacheWarning.show && !openAsk && !showLimit && (
-                <div className="chat-sub-foot" role="status">
-                  <span>{t("chatCacheExpired")}</span>
-                  <button type="button" onClick={cacheWarning.dismiss}>
-                    {t("chatCacheDismiss")}
+              {/* The expired-cache card takes the composer's place (the composer stays mounted, hidden, so its draft survives). */}
+              {showCacheCard && (
+                <div className="chat-cache-card" role="status">
+                  <button type="button" className="chat-cache-x" aria-label={t("chatCacheDismiss")} title={t("chatCacheDismiss")} onClick={cacheWarning.dismiss}>
+                    <CloseIcon />
                   </button>
+                  <span className="chat-cache-ico" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+                      <path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5" />
+                    </svg>
+                  </span>
+                  <div className="chat-cache-title">{t("chatCacheTitle")}</div>
+                  <div className="chat-cache-text">
+                    {t(cacheWarning.tokens === null ? "chatCacheBodyNoTokens" : "chatCacheBody", {
+                      min: Math.max(1, Math.round(cacheWarning.idleMs / 60_000)),
+                      tokens: cacheWarning.tokens === null ? "" : formatCacheTokens(cacheWarning.tokens),
+                    })
+                      .split("**")
+                      .map((part, i) => (i % 2 === 1 ? <b key={i}>{part}</b> : part))}
+                  </div>
+                  <div className="chat-cache-actions">
+                    {canClear && (
+                      <button type="button" className="chat-cache-btn is-main" onClick={() => clearChat(chatId)}>
+                        {t("chatCacheClear")}
+                      </button>
+                    )}
+                    <button type="button" className="chat-cache-btn" onClick={cacheWarning.dismiss}>
+                      {t("chatCacheKeep")}
+                    </button>
+                  </div>
                 </div>
               )}
               {openAsk && <AskPanel ask={openAsk} agent={agentName(info.agent)} onAnswer={answerAsk} />}
@@ -615,11 +647,11 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                   </button>
                 </div>
               )}
-              <div className="chat-ask-keep" hidden={!!openAsk || showLimit}>
+              <div className="chat-ask-keep" hidden={!!openAsk || showLimit || showCacheCard}>
                 <ChatComposer
                   ref={composerRef}
                   compact={compact}
-                  expanded={composerOpen && !sub && !exited && !openAsk && !showLimit}
+                  expanded={composerOpen && !sub && !exited && !openAsk && !showLimit && !showCacheCard}
                   onClose={() => setComposerOpen(false)}
                   onOpen={() => setComposerOpen(true)}
                   onDraftChange={setHasComposerDraft}

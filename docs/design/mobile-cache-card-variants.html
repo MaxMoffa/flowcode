@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — avviso cache scaduta sul telefono</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f; --accent: #9db984;
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .page { max-width: 1240px; margin: auto; padding: 28px 24px 40px; }
+    h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; }
+    .lead { margin: 0 0 24px; color: var(--muted); max-width: 820px; }
+    .stage { display: flex; flex-wrap: wrap; gap: 36px; justify-content: center; }
+    .col { width: 360px; }
+    .col h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; text-align: center; }
+    .col h2 b { color: var(--fg); }
+    .note { margin: 12px 4px 0; color: var(--muted); font-size: 13px; }
+    .note b { color: var(--fg); font-weight: 600; }
+    .phone { width: 360px; height: 680px; border-radius: 38px; border: 10px solid #000; background: var(--bg); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 0 0 1px var(--border-strong); position: relative; }
+    .topbtns { position: absolute; top: 14px; left: 12px; right: 12px; display: flex; justify-content: space-between; }
+    .fab { width: 36px; height: 36px; border-radius: 50%; background: color-mix(in srgb, var(--fg) 8%, var(--surface)); display: grid; place-items: center; color: var(--muted); }
+    .msgs { flex: 1; overflow: hidden; padding: 62px 14px 10px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; -webkit-mask-image: linear-gradient(to bottom, transparent 40px, #000 90px); mask-image: linear-gradient(to bottom, transparent 40px, #000 90px); }
+    .user { align-self: flex-end; max-width: 80%; padding: 8px 12px; border-radius: 14px; background: var(--surface); }
+    .text { color: var(--fg); }
+    .text code { font-size: 12.5px; padding: 1px 5px; border-radius: 5px; background: var(--surface); }
+    .bottom { padding: 0 10px 14px; }
+
+    /* composer normale (ref) */
+    .composer { border-radius: 24px; padding: 10px 12px; background: color-mix(in srgb, var(--fg) 7%, var(--surface)); display: flex; align-items: center; gap: 8px; color: var(--muted); }
+    .composer .ph { flex: 1; }
+    .send { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #1a1511; display: grid; place-items: center; }
+
+    /* PRIMA: striscia */
+    .strip { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--fg) 4%, var(--surface)); color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+    .strip button { flex: none; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; }
+
+    /* A: card del desktop, al posto del composer */
+    .card { position: relative; padding: 20px 18px 16px; text-align: center; border-radius: 24px; background: color-mix(in srgb, var(--fg) 7%, var(--surface)); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+    .x { position: absolute; top: 10px; right: 14px; color: var(--muted); font-size: 14px; }
+    .ico { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 auto 10px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+    .title { font-weight: 700; font-size: 15px; }
+    .body { margin: 6px 0 16px; color: var(--muted); font-size: 13.5px; }
+    .body b, .cbody b { color: var(--fg); font-weight: 600; }
+    .acts { display: flex; gap: 8px; justify-content: center; }
+    .btn { padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px; background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
+    .btn.main { background: var(--accent); color: #1a1511; }
+    .acts.full .btn { flex: 1; text-align: center; }
+
+    /* B: card compatta, icona a sinistra */
+    .ccard { position: relative; padding: 14px 14px 12px; border-radius: 22px; background: color-mix(in srgb, var(--fg) 7%, var(--surface)); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+    .ccard .head { display: flex; gap: 12px; align-items: flex-start; padding-right: 18px; }
+    .ccard .ico { width: 36px; height: 36px; margin: 0; }
+    .ccard .title { font-size: 14.5px; }
+    .cbody { margin-top: 2px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .ccard .acts { margin-top: 12px; }
+    .ccard .btn { padding: 9px 14px; font-size: 13.5px; }
+
+    .legend { margin: 30px auto 0; max-width: 820px; color: var(--muted); font-size: 13.5px; }
+    .legend li { margin: 4px 0; }
+    .legend b { color: var(--fg); }
+  </style>
+</head>
+<body>
+<div class="page">
+  <h1>Avviso cache scaduta sul telefono</h1>
+  <p class="lead">Oggi il telefono mostra una striscia di testo sopra il composer. Sul desktop c'è la card A, che prende il posto del composer. Qui sotto: com'è adesso, A portata sul telefono così com'è, e B, una versione compatta che lascia più spazio alla chat.</p>
+
+  <div class="stage">
+    <!-- PRIMA -->
+    <div class="col">
+      <h2><b>Adesso</b> · striscia</h2>
+      <div class="phone">
+        <div class="topbtns"><span class="fab">‹</span><span class="fab">⋯</span></div>
+        <div class="msgs">
+          <div class="user">Sistema il bug del login su Android</div>
+          <div class="text">Ho trovato il problema in <code>auth.ts</code>: il token veniva letto prima che lo storage fosse pronto. Ho aggiunto un await e un test.</div>
+          <div class="text">Vuoi che controlli anche il flusso di logout?</div>
+        </div>
+        <div class="bottom">
+          <div class="strip"><span>La cache del prompt è probabilmente scaduta: il prossimo messaggio rielabora tutta la conversazione e consuma molto più del limite di sessione. Usa /clear per ripartire da zero o /compact per riassumere prima.</span><button>Chiudi</button></div>
+          <div class="composer"><span class="ph">Scrivi un messaggio…</span><span class="send">↑</span></div>
+        </div>
+      </div>
+      <p class="note">Testo lungo, nessuna azione diretta: per ripartire bisogna scrivere <b>/clear</b> a mano.</p>
+    </div>
+
+    <!-- A -->
+    <div class="col">
+      <h2><b>A</b> · card del desktop</h2>
+      <div class="phone">
+        <div class="topbtns"><span class="fab">‹</span><span class="fab">⋯</span></div>
+        <div class="msgs">
+          <div class="user">Sistema il bug del login su Android</div>
+          <div class="text">Ho trovato il problema in <code>auth.ts</code>: il token veniva letto prima che lo storage fosse pronto. Ho aggiunto un await e un test.</div>
+          <div class="text">Vuoi che controlli anche il flusso di logout?</div>
+        </div>
+        <div class="bottom">
+          <div class="card">
+            <span class="x">✕</span>
+            <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5"/></svg></span>
+            <div class="title">La cache del prompt è scaduta</div>
+            <div class="body">Chat ferma da <b>72 min</b>. Il prossimo messaggio rielabora <b>~84k token</b> senza cache e pesa molto sul limite di sessione.</div>
+            <div class="acts full"><span class="btn main">Nuova chat</span><span class="btn">Continua questa</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Identica al desktop: stessi testi, icona, bordo verde. Bottoni a tutta larghezza per il pollice. <b>Nuova chat</b> fa /clear con la rana di attesa già esistente.</p>
+    </div>
+
+    <!-- B -->
+    <div class="col">
+      <h2><b>B</b> · card compatta</h2>
+      <div class="phone">
+        <div class="topbtns"><span class="fab">‹</span><span class="fab">⋯</span></div>
+        <div class="msgs">
+          <div class="user">Sistema il bug del login su Android</div>
+          <div class="text">Ho trovato il problema in <code>auth.ts</code>: il token veniva letto prima che lo storage fosse pronto. Ho aggiunto un await e un test.</div>
+          <div class="text">Vuoi che controlli anche il flusso di logout?</div>
+        </div>
+        <div class="bottom">
+          <div class="ccard">
+            <span class="x">✕</span>
+            <div class="head">
+              <span class="ico"><svg width="19" height="19" viewBox="0 0 24 24"><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5"/></svg></span>
+              <div>
+                <div class="title">La cache del prompt è scaduta</div>
+                <div class="cbody">Ferma da <b>72 min</b> · il prossimo messaggio rielabora <b>~84k token</b> senza cache.</div>
+              </div>
+            </div>
+            <div class="acts full"><span class="btn main">Nuova chat</span><span class="btn">Continua questa</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Stessi contenuti ed elementi di A, ma circa 60px più bassa: si vede più chat. Testo accorciato solo sul telefono.</p>
+    </div>
+  </div>
+
+  <ul class="legend">
+    <li>In tutte e due le varianti la card <b>prende il posto del composer</b> (come sul desktop): niente card se c'è una bozza scritta.</li>
+    <li><b>Continua questa</b> e la ✕ chiudono la card fino alla prossima pausa; <b>Nuova chat</b> appare solo se il desktop supporta /clear dal telefono.</li>
+    <li>Tempo e TTL arrivano dal desktop (transcript): con la cache da 1 ora la card esce dopo 1 ora, non dopo 5 minuti.</li>
+  </ul>
+</div>
+</body>
+</html>

@@ -110,6 +110,9 @@ export const useRemoteSelector = store.useSelector;
 /** Whether the connected desktop supports a feature (true while it is not known yet). */
 export const useSupports = (cap: RemoteCap): boolean => store.useSelector((s) => supports(s.host, cap));
 
+/** Whether the connected desktop advertised a capability by name (false while it is not known yet); for caps outside `RemoteCap`, outside React. */
+export const hostSupports = (cap: string): boolean => !!store.get().host?.caps.includes(cap);
+
 export const dismissCompat = () => set({ compatDismissed: true });
 
 /** Raw server messages, for screens that care about replies (ls, file, output...). */

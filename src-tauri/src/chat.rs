@@ -214,6 +214,8 @@ pub(crate) struct ChatSummary {
     pub models: Option<Value>,
     /// The normalized thinking levels (`ThoughtLevels::to_json`), when the agent offers any.
     pub thought: Option<Value>,
+    /// The WSL distro the agent runs in; `None` on Windows.
+    pub wsl_distro: Option<String>,
     pub status: ChatStatus,
 }
 
@@ -1756,6 +1758,7 @@ impl ChatState {
                 modes: s.chat.modes.get().cloned(),
                 models: lock(&s.chat.models).as_ref().map(ChatModels::to_json),
                 thought: lock(&s.chat.thought).as_ref().map(ThoughtLevels::to_json),
+                wsl_distro: if s.chat.wsl { s.chat.wsl_distro.clone() } else { None },
                 status: *lock(&s.chat.status),
             })
             .collect()

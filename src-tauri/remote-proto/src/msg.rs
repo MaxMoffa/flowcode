@@ -181,6 +181,8 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chat_id: Option<String>,
     },
+    /// The prompt-cache lifetime and last model call of a Claude chat, answered with `ServerMsg::ChatCacheInfo`.
+    ChatCacheInfo { chat_id: String },
     /// An image of a chat (answered with `ServerMsg::ChatImage` chunks): a stored
     /// one by `id`, or a file the agent mentioned by `path` (resolved in the
     /// chat `chat_id`'s folder), or a web image by `url` (fetched by the desktop,
@@ -309,6 +311,16 @@ pub enum ServerMsg {
         usage: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tools: Option<serde_json::Value>,
+    },
+    /// Reply to `chatcacheinfo`. `ttl_ms` is the prompt-cache lifetime and
+    /// `last_call_at` the ISO-8601 time of the last model call; both are left
+    /// out when unreadable (not Claude, no session, no transcript).
+    ChatCacheInfo {
+        chat_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ttl_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_call_at: Option<String>,
     },
     /// One chunk of a chat image (base64), `offset` and `total` in raw bytes,
     /// in order. `key` is the requested `id` (else `path`), verbatim. `mime` is
@@ -752,6 +764,20 @@ mod tests {
         );
         let none = ServerMsg::AgentInsight { key: "p1".into(), cli: None, context: None, usage: None, tools: None };
         assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "agentinsight", "key": "p1" }));
+    }
+
+    #[test]
+    fn chat_cache_info_messages_round_trip() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatcacheinfo","chatId":"c1"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatCacheInfo { chat_id: "c1".into() });
+        assert_eq!(serde_json::to_value(&msg).unwrap(), serde_json::json!({ "t": "chatcacheinfo", "chatId": "c1" }));
+        let reply = ServerMsg::ChatCacheInfo { chat_id: "c1".into(), ttl_ms: Some(3_600_000), last_call_at: Some("t1".into()) };
+        assert_eq!(
+            serde_json::to_value(reply).unwrap(),
+            serde_json::json!({ "t": "chatcacheinfo", "chatId": "c1", "ttlMs": 3600000, "lastCallAt": "t1" })
+        );
+        let none = ServerMsg::ChatCacheInfo { chat_id: "c1".into(), ttl_ms: None, last_call_at: None };
+        assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "chatcacheinfo", "chatId": "c1" }));
     }
 
     #[test]

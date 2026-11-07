@@ -1191,6 +1191,91 @@ button.chat-step-row {
   opacity: 0.5;
 }
 
+/* ---- the expired-cache card (in the composer's place, like the desktop's) ----- */
+
+.chat-cache-card {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  /* The composer's own inset (`.chat-composer` padding), so the card sits where the composer was. */
+  width: calc(100% - 24px);
+  max-width: calc(var(--chat-col) - 24px);
+  margin: 0 auto 10px;
+  padding: 20px 18px 16px;
+  text-align: center;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--fg) 7%, var(--surface));
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.chat-cache-x {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.chat-cache-x svg {
+  width: 16px;
+  height: 16px;
+}
+
+.chat-cache-ico {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.chat-cache-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.chat-cache-text {
+  margin: 6px 0 16px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.chat-cache-text b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.chat-cache-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-cache-btn {
+  flex: 1;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.chat-cache-btn.is-main {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
 /* ---- the agent's question (in the composer's place) --------------------------- */
 
 .chat-ask-keep {

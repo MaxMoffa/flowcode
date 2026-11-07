@@ -2178,6 +2178,31 @@ impl Conn {
         });
     }
 
+    /// Answers a `chatcacheinfo`: the prompt-cache lifetime and last model call
+    /// of a Claude chat, read from its transcript. Both are left out when
+    /// unreadable (not Claude, no session, no transcript).
+    fn send_chat_cache_info(&self, chat_id: String) {
+        let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let chat = shared.app.state::<ChatState>().list().into_iter().find(|c| c.chat_id == chat_id);
+            let info = match chat {
+                Some(c) if c.agent == "claude" => match c.session_id {
+                    Some(sid) => {
+                        let app = shared.app.clone();
+                        crate::blocking(move || crate::agent_insight::read_cache_info(&app, &sid, c.profile, c.wsl_distro)).await.ok()
+                    }
+                    None => None,
+                },
+                _ => None,
+            };
+            let (ttl_ms, last_call_at) = match info {
+                Some(i) => (Some(i.ttl_ms), i.last_call_at),
+                None => (None, None),
+            };
+            let _ = out.send(ServerMsg::ChatCacheInfo { chat_id, ttl_ms, last_call_at }).await;
+        });
+    }
+
     /// Runs a call on a chat on the blocking pool (it writes to the agent) and
     /// reports a failure to the phone.
     fn spawn_chat<F>(&self, work: F)
@@ -2557,6 +2582,7 @@ impl Conn {
                     self.send_agent_insight(pty_id, chat_id);
                 }
             }
+            ClientMsg::ChatCacheInfo { chat_id } => self.send_chat_cache_info(chat_id),
             ClientMsg::Set { key, value } => {
                 if key.is_empty() || key.len() > 64 {
                     self.error(tr("Impostazione non valida", "Invalid setting"), None);

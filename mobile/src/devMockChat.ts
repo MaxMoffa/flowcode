@@ -151,7 +151,7 @@ export async function chatMockConnect() {
   await emit("remote://msgs", [{ t: "chats", chats: [...infos] }]);
 }
 
-export const chatMockCaps = ["chat", "agentViews", "agentInsight", "chatModel", "chatClear", "chatRename", "chatCloseTab"];
+export const chatMockCaps = ["chat", "agentViews", "agentInsight", "chatModel", "chatClear", "chatRename", "chatCloseTab", "chatCacheInfo"];
 
 export const mockViews = [
   {
@@ -214,6 +214,9 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
     case "chatcancel":
       push(chatId, [{ kind: "turnEnd", stopReason: "cancelled" }]);
       setStatus(chatId, "idle");
+      break;
+    case "chatcacheinfo":
+      later(80, () => void emit("remote://msgs", [{ t: "chatcacheinfo", chatId: msg.chatId, ttlMs: 3_600_000, lastCallAt: new Date(Date.now() - 70 * 60_000).toISOString() }]));
       break;
     case "agentinsight": {
       const key = msg.chatId ?? msg.ptyId ?? "";
