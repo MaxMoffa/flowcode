@@ -308,6 +308,7 @@ fn launch_command(agent: &str) -> Option<(&'static str, &'static [&'static str])
     Some(match agent {
         "vibe" => ("vibe-acp", &[]),
         "gemini" => ("gemini", &["--experimental-acp"]),
+        "opencode" => ("opencode", &["acp"]),
         "claude" => ("npx", &["-y", "--ignore-scripts", "@agentclientprotocol/claude-agent-acp@0.101.0"]),
         "codex" => ("npx", &["-y", "--ignore-scripts", "@agentclientprotocol/codex-acp@2.5.0"]),
         _ => return None,
@@ -3125,6 +3126,7 @@ mod tests {
     #[test]
     fn knows_how_to_launch_each_agent() {
         assert_eq!(launch_command("vibe"), Some(("vibe-acp", &[][..])));
+        assert_eq!(launch_command("opencode"), Some(("opencode", &["acp"][..])));
         assert_eq!(launch_command("gemini"), Some(("gemini", &["--experimental-acp"][..])));
         assert_eq!(launch_command("claude").map(|c| c.0), Some("npx"));
         assert_eq!(launch_command("codex").map(|c| c.0), Some("npx"));

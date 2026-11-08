@@ -32,6 +32,8 @@ fn provider_dir(dirs: &crate::profiles::ProfileDirs, cli: &str) -> Result<PathBu
         "codex" => Ok(dirs.codex.clone()),
         "gemini" => Ok(dirs.gemini.join(".gemini")),
         "vibe" => Ok(dirs.vibe.clone()),
+        // Only holds Flowcode's sign-in-method record: OpenCode has no Flowcode API-key flow.
+        "opencode" => Ok(dirs.opencode_config.clone()),
         _ => Err("unsupported_provider".into()),
     }
 }
@@ -354,6 +356,10 @@ fn codex_login(dir: &Path, key: &str) -> Result<(), String> {
 /// blocking operation off the UI thread and serialize logins for this account.
 pub fn save_key_cancellable(app: &AppHandle, cli: &str, profile: Option<&str>, key: &str, cancelled: &AtomicBool) -> Result<(), String> {
     check_cancelled(cancelled)?;
+    if cli == "opencode" {
+        // Keys are managed inside OpenCode itself.
+        return Err("opencode_keys_unsupported".into());
+    }
     let key = normalize_key(key)?;
     let dir = dir(app, cli, profile)?;
     let validation = validate_key(cli, key);

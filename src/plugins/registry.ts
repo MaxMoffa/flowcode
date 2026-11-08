@@ -37,6 +37,14 @@ export function builtinPlugins(): PluginDef[] {
       action: "openInVsCode",
       builtin: true,
     },
+    {
+      id: "opencode",
+      label: "OpenCode",
+      description: t("plugin.cli.description", { name: "OpenCode" }),
+      action: "runCommand",
+      command: "opencode",
+      icon: "M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM9 9h6v6H9z",
+    },
   ];
 }
 

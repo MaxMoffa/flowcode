@@ -59,7 +59,7 @@ impl ProbePids {
 /// launcher (uv/pip) starting Python, elsewhere a script whose process takes
 /// its name - and `vibe-rs` when it runs its Rust TUI.
 const AGENT_BINARIES: &[(&str, &str)] =
-    &[("claude", "Claude Code"), ("codex", "Codex CLI"), ("vibe", "Mistral Vibe"), ("gemini", "Gemini CLI")];
+    &[("claude", "Claude Code"), ("codex", "Codex CLI"), ("vibe", "Mistral Vibe"), ("gemini", "Gemini CLI"), ("opencode", "OpenCode")];
 
 /// Matches a process name against `AGENT_BINARIES` - the binary itself or a
 /// `<bin>-...` variant of it, except for Vibe's editor/desktop servers
@@ -159,6 +159,10 @@ fn find_agent(
                     if node_runs_gemini(&args) {
                         let started_at = process.start_time().checked_mul(1000);
                         return Some(("gemini", "Gemini CLI", pid.as_u32(), started_at));
+                    }
+                    if node_runs_opencode(&args) {
+                        let started_at = process.start_time().checked_mul(1000);
+                        return Some(("opencode", "OpenCode", pid.as_u32(), started_at));
                     }
                 }
                 if own_name == Some(name.as_str()) {
@@ -558,6 +562,15 @@ fn node_runs_gemini(args: &[String]) -> bool {
     })
 }
 
+/// Whether a `node` command line runs OpenCode: its script lives in the
+/// `opencode-ai` package or is named `opencode` (either slash).
+fn node_runs_opencode(args: &[String]) -> bool {
+    args.iter().skip(1).take(3).any(|a| {
+        let a = a.to_lowercase().replace('\\', "/");
+        a.contains("opencode-ai") || a.ends_with("opencode")
+    })
+}
+
 /// Which agent CLI a Linux process is: by its own name, or - for a Node
 /// wrapper (`node .../codex.js`, `node .../claude/cli.js`) or Python
 /// (`python .../bin/vibe`) - by the script it runs.
@@ -690,6 +703,11 @@ mod tests {
         assert_eq!(agent_of("gemini", "gemini --resume latest").map(|a| a.0), Some("gemini"));
         assert!(super::node_runs_gemini(&["node".into(), r"C:\Users\u\AppData\Roaming\npm\node_modules\@google\gemini-cli\dist\index.js".into()]));
         assert!(!super::node_runs_gemini(&["node".into(), "server.js".into()]));
+        assert_eq!(agent_of("opencode", "opencode --standalone").map(|a| a.0), Some("opencode"));
+        assert_eq!(agent_of("node", "node /usr/lib/node_modules/opencode-ai/bin/opencode").map(|a| a.0), Some("opencode"));
+        assert!(super::node_runs_opencode(&["node".into(), r"C:\npm\node_modules\opencode-ai\bin\opencode.js".into()]));
+        assert!(super::node_runs_opencode(&["node".into(), "/usr/bin/opencode".into()]));
+        assert!(!super::node_runs_opencode(&["node".into(), "server.js".into()]));
         assert_eq!(agent_of("node", "node server.js"), None);
         assert_eq!(agent_of("bash", "bash"), None);
     }

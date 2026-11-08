@@ -191,6 +191,9 @@ pub(crate) fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>
             // Inherited key or Vertex setup: still valid unless a Flowcode
             // method is saved (its env then blanks these variables).
             || (crate::provider_auth_keys::method(app, cli, profile).is_none() && gemini_env_auth()),
+        // Credentials sit in OpenCode's sqlite: ask the CLI. Named profiles
+        // need `--standalone` or the shared background service answers.
+        "opencode" => crate::opencode::is_logged_in(&envs, profile.is_some(), STATUS_TIMEOUT) == Some(true),
         _ => false,
     }
 }
@@ -204,6 +207,7 @@ pub(crate) fn cli_browser_is_logged_in(app: &AppHandle, cli: &str, profile: Opti
             .is_some_and(|status| claude_billing_mode(&status) == "subscription"),
         "codex" => run_status_command("codex login status", envs)
             .ok().is_some_and(|output| output.status.success() && codex_billing_mode(&combined_output(&output)) == "subscription"),
+        "opencode" => crate::opencode::is_logged_in(envs, profile.is_some(), STATUS_TIMEOUT) == Some(true),
         "gemini" => crate::profiles::dirs(app, profile).is_some_and(|dirs| {
             let path = dirs.gemini.join(".gemini/oauth_creds.json");
             if !std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file() && metadata.len() <= 64 * 1024) { return false; }

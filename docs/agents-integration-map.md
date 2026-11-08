@@ -2,7 +2,9 @@
 
 Stato al 2026-11-08 (dopo la release 0.30.0). Elenca ogni punto del codice in cui Flowcode tratta un agente in modo specifico, così da sapere cosa serve per aggiungerne uno nuovo con supporto completo.
 
-Agenti supportati (`src/agents/cliInfo.ts`, `AGENT_CLIS`): **claude** (Claude Code), **codex** (Codex CLI), **vibe** (Mistral Vibe), **gemini** (Gemini CLI).
+Agenti supportati (`src/agents/cliInfo.ts`, `AGENT_CLIS`): **claude** (Claude Code), **codex** (Codex CLI), **vibe** (Mistral Vibe), **gemini** (Gemini CLI), **opencode** (OpenCode, multi-provider: OpenRouter, Ollama, LM Studio…).
+
+OpenCode (aggiunto il 2026-11-08) ha un supporto di livello Gemini più il resume reale (`opencode [--standalone] --session <id>`): non è ancora nella matrice qui sotto. Fatti, peculiarità (`--standalone` per i profili nominati, credenziali e sessioni in `opencode.db`) e Fase 2 sono in `docs/design/opencode-plan.md`.
 
 Legenda: ✅ completo · 🟡 parziale/approssimato · ❌ assente · — non applicabile
 

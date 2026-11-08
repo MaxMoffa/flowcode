@@ -103,8 +103,9 @@ const sent = { current: "" };
 /** The text field that starts a chat: what to do, with which agent, in which folder. */
 function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | undefined; tabs: Tab[] | null; onCreate: (asChat: boolean, label: string, firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void; pending: Pending | null }) {
   const canGemini = useSupports("gemini");
+  const canOpencode = useSupports("opencode");
   const chats = useRemoteSelector((r) => r.chats);
-  const agents = useMemo(() => AGENTS.filter((a) => a.id !== "gemini" || canGemini), [canGemini]);
+  const agents = useMemo(() => AGENTS.filter((a) => (a.id !== "gemini" || canGemini) && (a.id !== "opencode" || canOpencode)), [canGemini, canOpencode]);
   const key = cwdKey(hostName);
   const [agentId, setAgentId] = useState<string>(() => safeStorage.get(AGENT_KEY) ?? "");
   const [folder, setFolder] = useState(() => ({ key, cwd: safeStorage.get(key) || null }));

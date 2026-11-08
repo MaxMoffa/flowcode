@@ -14,6 +14,7 @@ const CLIS: { id: ProfileCli; name: string }[] = [
   { id: "codex", name: "Codex" },
   { id: "vibe", name: "Mistral Vibe" },
   { id: "gemini", name: "Gemini CLI" },
+  { id: "opencode", name: "OpenCode" },
 ];
 
 type LoggedIn = Record<ProfileCli, boolean>;
@@ -106,9 +107,10 @@ function Agents({ id, name, loggedIn, onAdd, onLogout }: { id: string; name: str
   const canLogin = useSupports("profileLogin");
   const canLogout = useSupports("profileAgents");
   const canGemini = useSupports("gemini");
+  const canOpencode = useSupports("opencode");
   if (!canLogin) return null;
-  const on = CLIS.filter((c) => loggedIn[c.id] && (c.id !== "gemini" || canGemini));
-  const off = CLIS.filter((c) => !loggedIn[c.id] && (c.id !== "gemini" || canGemini));
+  const on = CLIS.filter((c) => loggedIn[c.id] && (c.id !== "gemini" || canGemini) && (c.id !== "opencode" || canOpencode));
+  const off = CLIS.filter((c) => !loggedIn[c.id] && (c.id !== "gemini" || canGemini) && (c.id !== "opencode" || canOpencode));
   return (
     <>
       {on.length === 0 && <div className="prof-cli prof-none">{t("profileNoAgents")}</div>}
@@ -227,6 +229,7 @@ export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileI
   const [open, setOpen] = useState(false);
   const canAgents = useSupports("profileAgents");
   const canGemini = useSupports("gemini");
+  const canOpencode = useSupports("opencode");
   const show = (s: SheetState) => {
     setSheet(s);
     setOpen(true);
@@ -273,7 +276,7 @@ export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileI
 
       <NewProfileSheet open={open && sheet?.kind === "new"} onClose={close} />
       <Sheet open={open && sheet?.kind === "add"} onClose={close} variant="drawer" title={t("profileAddAgent")} subtitle={add?.name}>
-        {CLIS.filter((c) => add?.off.includes(c.id) && (c.id !== "gemini" || canGemini)).map((c) => (
+        {CLIS.filter((c) => add?.off.includes(c.id) && (c.id !== "gemini" || canGemini) && (c.id !== "opencode" || canOpencode)).map((c) => (
           <button
             key={c.id}
             type="button"

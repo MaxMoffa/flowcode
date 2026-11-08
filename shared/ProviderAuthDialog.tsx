@@ -8,7 +8,7 @@ import { AGENT_CAPS } from "./agentRegistry";
 import type { AuthMethod, ProviderAuthRequest, ProviderAuthState, ProviderAuthTarget, ProviderAuthTransport } from "./providerAuth";
 import "./provider-auth.css";
 
-const NAMES = { claude: "Claude Code", codex: "Codex CLI", gemini: "Gemini CLI", vibe: "Mistral Vibe" };
+const NAMES = { claude: "Claude Code", codex: "Codex CLI", gemini: "Gemini CLI", vibe: "Mistral Vibe", opencode: "OpenCode" };
 const COPY = {
   it: {
     title: "Accesso provider", profile: "Profilo", close: "Chiudi", cancel: "Annulla", loading: "Controllo dei metodi di accesso…",
@@ -28,6 +28,7 @@ const COPY = {
     invalid: "La chiave non è valida o non consente l’accesso. Controlla chiave e permessi.", unsupported: "Questa versione del provider non supporta il login guidato. Aggiorna la CLI oppure usa una chiave API.",
     busy: "È già in corso un accesso a questo provider e profilo. Completa o annulla l’altro accesso.", failed: "Il provider non ha confermato l’accesso. Riprova o scegli un altro metodo.",
     disconnected: "Collegamento con il PC interrotto. Riconnettiti e riprova.", session: "La sessione di accesso non è più disponibile. Riprova.",
+    chooseProvider: "Scegli il provider (OpenRouter, Ollama, Anthropic, OpenAI…) nel terminale qui sotto e completa l’accesso.",
     copy: "Copia link", copied: "Link copiato", noAuto: "Conversazione e bozza restano disponibili.", keyUnsupported: "Metodo non disponibile per questa configurazione.",
   },
   en: {
@@ -48,6 +49,7 @@ const COPY = {
     invalid: "The key is invalid or does not allow access. Check the key and its permissions.", unsupported: "This provider version does not support guided sign-in. Update the CLI or use an API key.",
     busy: "Another sign-in is in progress for this provider and profile. Complete or cancel it first.", failed: "The provider did not confirm sign-in. Try again or choose another method.",
     disconnected: "The connection to the PC was lost. Reconnect and try again.", session: "This sign-in session is no longer available. Try again.",
+    chooseProvider: "Choose the provider (OpenRouter, Ollama, Anthropic, OpenAI…) in the terminal below and finish signing in.",
     copy: "Copy link", copied: "Link copied", noAuto: "Your conversation and draft remain available.", keyUnsupported: "This method is unavailable for this configuration.",
   },
 };
@@ -71,7 +73,7 @@ export function ProviderAuthDialog({ target, transport, remote = false, language
   const [manual, setManual] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
-  const [details, setDetails] = useState(false);
+  const [details, setDetails] = useState(target.cli === "opencode");
   const [copied, setCopied] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -208,7 +210,7 @@ export function ProviderAuthDialog({ target, transport, remote = false, language
     if (sessionId) void latest.current.transport({ ...base, op: "cancel", sessionId }).catch(() => {});
     currentSession.current = null;
     setSnapshot(previous => previous ? { ...previous, phase: "idle", sessionId: null, output: "", error: undefined, url: undefined, code: undefined } : null);
-    setFailure(""); setKey(""); setManual(""); setBusy(false); setDetails(false); setCopied(false); notified.current = false;
+    setFailure(""); setKey(""); setManual(""); setBusy(false); setDetails(target.cli === "opencode"); setCopied(false); notified.current = false;
     if (!snapshot) void request({ ...base, op: "status" });
   }
 
@@ -231,9 +233,9 @@ export function ProviderAuthDialog({ target, transport, remote = false, language
           {failure && <div className="provider-auth-error" role="alert"><strong>{text.error}</strong><p>{errorMessage(failure)}</p><button type="button" className="provider-auth-link" onClick={restart}>{text.retry}</button></div>}
           {success ? <><div className="provider-auth-success" aria-hidden="true">✓</div><button type="button" className="provider-auth-button is-primary" onClick={close}>{text.done}</button></> : !snapshot && !failure ? <p className="provider-auth-progress"><span className="provider-auth-spinner" />{text.loading}</p> : snapshot && !snapshot.installed ? <div className="provider-auth-error" role="alert">{text.missing}</div> : waiting ? <>
             {snapshot.code && <div className="provider-auth-code"><span>{text.code}</span><strong>{snapshot.code}</strong></div>}
-            {snapshot.url ? <div className="provider-auth-browser-actions"><button type="button" className="provider-auth-button is-primary" onClick={() => void Promise.resolve(onOpenUrl(snapshot.url!)).catch(() => setFailure("browser_open_failed"))}>{text.open} ↗</button><button type="button" className="provider-auth-link" onClick={() => void navigator.clipboard.writeText(snapshot.url!).then(() => setCopied(true)).catch(() => setFailure("clipboard_failed"))}>{copied ? text.copied : text.copy}</button></div> : <p className="provider-auth-progress"><span className="provider-auth-spinner" />{text.preparing}</p>}
+            {snapshot.url ? <div className="provider-auth-browser-actions"><button type="button" className="provider-auth-button is-primary" onClick={() => void Promise.resolve(onOpenUrl(snapshot.url!)).catch(() => setFailure("browser_open_failed"))}>{text.open} ↗</button><button type="button" className="provider-auth-link" onClick={() => void navigator.clipboard.writeText(snapshot.url!).then(() => setCopied(true)).catch(() => setFailure("clipboard_failed"))}>{copied ? text.copied : text.copy}</button></div> : target.cli === "opencode" ? null : <p className="provider-auth-progress"><span className="provider-auth-spinner" />{text.preparing}</p>}
             {AGENT_CAPS[target.cli].authManualCode && <form className="provider-auth-manual" onSubmit={event => { event.preventDefault(); const value = manual.trim(); if (value) { inputRef.current(value + "\r"); setManual(""); } }}><label htmlFor="provider-auth-code-input">{text.manual}</label><p>{text.manualHint}</p><input id="provider-auth-code-input" value={manual} autoComplete="off" spellCheck={false} onChange={event => setManual(event.target.value)} /><button type="submit" className="provider-auth-button" disabled={!manual.trim()}>{text.submit}</button></form>}
-            {AGENT_CAPS[target.cli].authNativeTerminal && <><button type="button" className="provider-auth-link" aria-expanded={details} onClick={() => setDetails(value => !value)}>{text.details} {details ? '−' : '+'}</button>{details && <div className="provider-auth-native"><p>{text.nativeHint}</p><div className="provider-auth-terminal" ref={terminalRef} /><div className="provider-auth-native-buttons"><button type="button" onClick={() => inputRef.current("\u001b[A")}>{text.up}</button><button type="button" onClick={() => inputRef.current("\u001b[B")}>{text.down}</button><button type="button" onClick={() => inputRef.current("\r")}>{text.enter}</button></div></div>}</>}
+            {AGENT_CAPS[target.cli].authNativeTerminal && <><button type="button" className="provider-auth-link" aria-expanded={details} onClick={() => setDetails(value => !value)}>{text.details} {details ? '−' : '+'}</button>{details && <div className="provider-auth-native"><p>{target.cli === "opencode" ? text.chooseProvider : text.nativeHint}</p><div className="provider-auth-terminal" ref={terminalRef} /><div className="provider-auth-native-buttons"><button type="button" onClick={() => inputRef.current("\u001b[A")}>{text.up}</button><button type="button" onClick={() => inputRef.current("\u001b[B")}>{text.down}</button><button type="button" onClick={() => inputRef.current("\r")}>{text.enter}</button></div></div>}</>}
           </> : snapshot && snapshot.installed ? <>
             <div className="provider-auth-methods" role="radiogroup" aria-label={text.title}>{(["browser", "apiKey"] as const).map(value => <button type="button" role="radio" aria-checked={method === value} disabled={busy || (value === "browser" ? !snapshot.canBrowser : !snapshot.canApiKey)} className={"provider-auth-method" + (method === value ? " is-selected" : "")} key={value} onClick={() => { setMethod(value); setFailure(""); setKey(""); }}><span className="provider-auth-radio" /><span><strong>{value === "browser" ? text.browser : text.key}</strong><small>{value === "browser" ? text.browserHint : text.keyHint}</small></span></button>)}</div>
             <form onSubmit={event => { event.preventDefault(); if (busy) return; if (method === "apiKey") { const apiKey = key.trim(); if (!apiKey) return; setKey(""); void request({ ...base, op: "key", method, apiKey }); } else void request({ ...base, op: "start", method }); }}>

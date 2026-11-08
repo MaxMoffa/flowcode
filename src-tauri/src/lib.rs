@@ -29,6 +29,7 @@ mod system;
 mod updater;
 mod util;
 mod gemini;
+mod opencode;
 mod link_preview;
 mod vibe;
 mod view_plugins;

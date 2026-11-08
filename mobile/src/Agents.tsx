@@ -54,10 +54,10 @@ export interface ProfileGroup {
   items: UsageItem[];
 }
 
-const AGENT_ORDER = ["claude-code", "codex-cli", "mistral-vibe", "gemini-cli"];
+const AGENT_ORDER = ["claude-code", "codex-cli", "mistral-vibe", "gemini-cli", "opencode"];
 
 /** Usage plugin of each agent CLI (`Tab.cli`). */
-const PLUGIN_OF: Record<string, string> = { claude: "claude-code", codex: "codex-cli", vibe: "mistral-vibe", gemini: "gemini-cli" };
+const PLUGIN_OF: Record<string, string> = { claude: "claude-code", codex: "codex-cli", vibe: "mistral-vibe", gemini: "gemini-cli", opencode: "opencode" };
 
 /** The agent CLI (`Tab.cli`) of each usage plugin. */
 export const CLI_OF: Record<string, string> = Object.fromEntries(Object.entries(PLUGIN_OF).map(([cli, plugin]) => [plugin, cli]));

@@ -151,6 +151,7 @@ import {
   PLUGINS_MIGRATED_KEY,
   VIBE_PLUGIN_SEEDED_KEY,
   GEMINI_PLUGIN_SEEDED_KEY,
+  OPENCODE_PLUGIN_SEEDED_KEY,
   PLUGIN_APPROVALS_KEY,
   FAVORITES_BUTTON_VISIBLE_KEY,
   SIDEBAR_COLLAPSED_KEY,
@@ -419,6 +420,10 @@ function Shell() {
         const gemini = examplePlugins().find((p) => p.id === CLI_INFO.gemini.pluginId);
         if (gemini) await invoke("save_plugin", { plugin: gemini });
       }
+      if (seededBefore && !chosen && !readString(OPENCODE_PLUGIN_SEEDED_KEY) && !byId.has(CLI_INFO.opencode.pluginId)) {
+        const opencode = examplePlugins().find((p) => p.id === CLI_INFO.opencode.pluginId);
+        if (opencode) await invoke("save_plugin", { plugin: opencode });
+      }
     } catch {
       /* plugins folder unavailable (e.g. dev in a plain browser) */
     }
@@ -426,6 +431,7 @@ function Shell() {
     writeString(PLUGINS_SEEDED_KEY, "1");
     writeString(VIBE_PLUGIN_SEEDED_KEY, "1");
     writeString(GEMINI_PLUGIN_SEEDED_KEY, "1");
+    writeString(OPENCODE_PLUGIN_SEEDED_KEY, "1");
   }
 
   async function reloadCustomPlugins() {
@@ -1008,10 +1014,12 @@ function Shell() {
   }
 
   /** The command that resumes `sessionId` in `cli` - host (`wsl` false) gets the Codex launch flags. */
-  async function resumeCommand(cli: AgentCli, sessionId: string, host: boolean): Promise<string> {
+  async function resumeCommand(cli: AgentCli, sessionId: string, host: boolean, profileId?: string): Promise<string> {
     if (cli === "claude") return `claude --resume ${sessionId}`;
     if (cli === "vibe") return `vibe --resume ${sessionId}`;
     if (cli === "gemini") return `gemini --resume ${sessionId}`;
+    // A named profile has its own data dir: --standalone keeps opencode off the shared background service (default profile).
+    if (cli === "opencode") return `opencode${profileId ? " --standalone" : ""} --session ${sessionId}`;
     return host ? await withCodexLaunchFlags(`codex resume ${sessionId}`) : `codex resume ${sessionId}`;
   }
 
@@ -1030,12 +1038,12 @@ function Shell() {
       // Saved inside WSL: resumed by the distro's own CLI, in a WSL tab
       // opened on that folder (`cwd` is a Linux path there). The
       // `--no-daemon` check is about Windows' Job Object - not WSL's concern.
-      const command = await resumeCommand(cli, sessionId, false);
+      const command = await resumeCommand(cli, sessionId, false, profileId);
       const id = addTab(toWindowsPath(wslDistro, cwd), wslShellId(wslDistro));
       pendingCommandsRef.current.set(id, command);
       return;
     }
-    const command = await resumeCommand(cli, sessionId, true);
+    const command = await resumeCommand(cli, sessionId, true, profileId);
     const id = newTabId("tab");
     pendingCommandsRef.current.set(id, command);
     setTabs((prev) => insertTabAt(prev, makeTermTab(id, cwd, { profileId }), at));
@@ -1579,7 +1587,7 @@ function Shell() {
    * folder instead of running in the terminal. A line with arguments, and a
    * prompt that isn't a plain host shell (busy, WSL, ssh, an agent), runs as typed. */
   function interceptCommandLine(tabId: string, line: string): boolean {
-    const match = line.trim().match(/^(claude|codex|vibe|gemini)(?:\.exe)?$/i);
+    const match = line.trim().match(/^(claude|codex|vibe|gemini|opencode)(?:\.exe)?$/i);
     if (!match || !defaultOpensChat()) return false;
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     if (!tab || tab.busy || tab.nestedShell || wslDistroOfShell(tabShell(tab)) !== undefined) return false;
@@ -1622,7 +1630,7 @@ function Shell() {
     // Same tracking as `markAgentLaunching` (see its doc comment), but for
     // the CLI typed straight into the prompt rather than launched through a
     // shortcut - `checkCliAndMaybeLaunch` only ever sees the shortcut path.
-    if (/^(claude|codex|vibe|gemini)(\.exe)?(?:\s|$)/i.test(trimmed)) {
+    if (/^(claude|codex|vibe|gemini|opencode)(\.exe)?(?:\s|$)/i.test(trimmed)) {
       setTabs((prev) => patchTermTab(prev, tabId, { nestedShell: "agent", wslDistro: undefined }));
     }
   }
@@ -2458,7 +2466,7 @@ function Shell() {
 
   /** Resumes `sessionId` again in terminal tab `tabId`, whose agent a handoff ended: the shell is back at its prompt. */
   function resumeInTerminal(tabId: string, cli: AgentCli, sessionId: string) {
-    void resumeCommand(cli, sessionId, true).then((command) => termRefs.current.get(tabId)?.runCommandSilently(command));
+    void resumeCommand(cli, sessionId, true, (latestRef.current.tabs.find((t) => t.id === tabId && t.kind === "terminal") as TermTab | undefined)?.profileId ?? undefined).then((command) => termRefs.current.get(tabId)?.runCommandSilently(command));
   }
 
   /** The chat resumed the session: the terminal it took over closes. */

@@ -32,6 +32,10 @@ pub struct ProfileDirs {
     pub vibe: PathBuf,
     /// Gemini CLI's `GEMINI_CLI_HOME`: the folder it creates `.gemini` in.
     pub gemini: PathBuf,
+    /// OpenCode's config folder (`OPENCODE_CONFIG_DIR` for a named profile).
+    pub opencode_config: PathBuf,
+    /// OpenCode's sqlite database (sessions and credentials; `OPENCODE_DB`).
+    pub opencode_db: PathBuf,
 }
 
 /// On-disk shape of `profiles.json`.
@@ -50,6 +54,7 @@ pub struct LoginState {
     pub codex: bool,
     pub vibe: bool,
     pub gemini: bool,
+    pub opencode: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -133,13 +138,18 @@ fn default_dirs() -> Option<ProfileDirs> {
         claude: env_dir("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")),
         codex: env_dir("CODEX_HOME").unwrap_or_else(|| home.join(".codex")),
         vibe: crate::vibe::vibe_home()?,
+        opencode_config: home.join(".config").join("opencode"),
+        opencode_db: home.join(".local").join("share").join("opencode").join("opencode.db"),
         gemini: env_dir("GEMINI_CLI_HOME").unwrap_or(home),
     })
 }
 
 fn profile_dirs(root: &Path, id: &str) -> ProfileDirs {
     let base = root.join(id);
-    ProfileDirs { claude: base.join("claude"), codex: base.join("codex"), vibe: base.join("vibe"), gemini: base.join("gemini") }
+    ProfileDirs { claude: base.join("claude"), codex: base.join("codex"), vibe: base.join("vibe"), gemini: base.join("gemini"),
+        opencode_config: base.join("opencode").join("config"),
+        opencode_db: base.join("opencode").join("opencode.db"),
+    }
 }
 
 /// The folders of `profile` (`None` = default). `None` back when the home
@@ -168,6 +178,8 @@ pub fn env_for(app: &AppHandle, profile: Option<&str>) -> Vec<(String, String)> 
         ("CODEX_HOME".to_string(), s(&d.codex)),
         ("VIBE_HOME".to_string(), s(&d.vibe)),
         ("GEMINI_CLI_HOME".to_string(), s(&d.gemini)),
+        ("OPENCODE_CONFIG_DIR".to_string(), s(&d.opencode_config)),
+        ("OPENCODE_DB".to_string(), s(&d.opencode_db)),
         // Vibe stores its API key in the OS keyring, which is shared by the
         // whole OS user and would make every profile (and the default one)
         // use the same key. With the keyring off it falls back to
@@ -222,11 +234,15 @@ fn login_state(app: &AppHandle, d: &ProfileDirs, profile: Option<&str>, use_keyr
     // with it off, see `env_for`).
     let vibe = crate::vibe::has_api_key(Some(&d.vibe), use_keyring);
     let gemini = crate::gemini::has_login(&d.gemini);
+    // OpenCode keeps its credentials inside the sqlite database, unreadable
+    // here: a database that has content is the best file-only hint.
+    let opencode = std::fs::metadata(&d.opencode_db).is_ok_and(|m| m.len() > 0);
     LoginState {
         claude: claude || crate::provider_auth_keys::has_key(app, "claude", profile),
         codex: codex || crate::provider_auth_keys::has_key(app, "codex", profile),
         vibe: vibe || crate::provider_auth_keys::has_key(app, "vibe", profile),
         gemini: gemini || crate::provider_auth_keys::has_key(app, "gemini", profile),
+        opencode,
     }
 }
 
@@ -380,6 +396,11 @@ fn copy_settings_from_default(new: &ProfileDirs) {
     copy_items(&def.codex, &new.codex, &["config.toml", "AGENTS.md", "prompts"]);
     copy_items(&def.vibe, &new.vibe, &["config.toml", "prompts", "agents"]);
     copy_items(&def.gemini.join(".gemini"), &new.gemini.join(".gemini"), &["settings.json", "GEMINI.md", "commands"]);
+    copy_items(
+        &def.opencode_config,
+        &new.opencode_config,
+        &["opencode.json", "opencode.jsonc", "AGENTS.md", "agent", "agents", "command", "commands", "skills", "plugin", "plugins"],
+    );
 }
 
 #[tauri::command]
@@ -419,7 +440,7 @@ pub async fn profile_create(
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let id = format!("{}-{}", slug(&name), &suffix[..6]);
         let d = profile_dirs(&profiles_root(&app)?, &id);
-        for dir in [&d.claude, &d.codex, &d.vibe, &d.gemini.join(".gemini")] {
+        for dir in [&d.claude, &d.codex, &d.vibe, &d.gemini.join(".gemini"), &d.opencode_config] {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         if copy_settings {
@@ -500,6 +521,7 @@ pub async fn profile_logout(app: AppHandle, id: Option<String>, cli: String) -> 
             "codex" => "codex logout",
             "vibe" => return crate::vibe::remove_api_key(&d.vibe, id.is_none()),
             "gemini" => return crate::gemini::logout(&d.gemini),
+            "opencode" => return crate::opencode::logout(&env_for(&app, id), id.is_some(), LOGOUT_TIMEOUT),
             _ => return Err(format!("unknown CLI: {cli}")),
         };
         let out = flowcode_shared::run_command_blocking_timeout(command, &env_for(&app, id), LOGOUT_TIMEOUT)

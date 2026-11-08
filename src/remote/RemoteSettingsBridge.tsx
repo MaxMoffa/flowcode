@@ -95,11 +95,11 @@ export function RemoteSettingsBridge() {
   // CLIs' files, so it is re-read when the window regains focus (the usual way
   // back from signing in) and for a while after the phone asked for a login.
   const profileList: ProfileInfo[] = useMemo(
-    () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe, gemini: p.logged_in.gemini } })),
+    () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe, gemini: p.logged_in.gemini, opencode: p.logged_in.opencode } })),
     [profiles],
   );
   const defaultLogin = useMemo(
-    () => (defaultLoggedIn ? { claude: defaultLoggedIn.claude, codex: defaultLoggedIn.codex, vibe: defaultLoggedIn.vibe, gemini: defaultLoggedIn.gemini } : null),
+    () => (defaultLoggedIn ? { claude: defaultLoggedIn.claude, codex: defaultLoggedIn.codex, vibe: defaultLoggedIn.vibe, gemini: defaultLoggedIn.gemini, opencode: defaultLoggedIn.opencode } : null),
     [defaultLoggedIn],
   );
   useEffect(() => {

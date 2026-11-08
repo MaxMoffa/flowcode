@@ -6,11 +6,11 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) })
 vi.mock("../remote/leader", () => ({ isRemoteLeader: () => true, watchRemoteLeader: () => () => {} }));
 vi.mock("../profiles/profiles", () => ({
   ensureProfilesLoaded: () => {}, onProfilesChanged: () => () => {}, profileById: () => undefined,
-  getProfilesState: () => ({ profiles: [{ id: "work", name: "Work", logged_in: { claude: false, codex: false, gemini: false, vibe: false } }] }),
+  getProfilesState: () => ({ profiles: [{ id: "work", name: "Work", logged_in: { claude: false, codex: false, gemini: false, vibe: false, opencode: false } }] }),
 }));
 vi.mock("../agents/cliInfo", () => ({
   defaultCliStatus: async () => ({ installed: true, logged_in: false }),
-  CLI_INFO: { claude: { pluginId: "claude-code", loginCommand: "claude auth login" }, codex: { pluginId: "codex-cli", loginCommand: "codex login" }, gemini: { pluginId: "gemini-cli", loginCommand: "gemini" }, vibe: { pluginId: "mistral-vibe", loginCommand: "vibe --setup" } },
+  CLI_INFO: { claude: { pluginId: "claude-code", loginCommand: "claude auth login" }, codex: { pluginId: "codex-cli", loginCommand: "codex login" }, gemini: { pluginId: "gemini-cli", loginCommand: "gemini" }, vibe: { pluginId: "mistral-vibe", loginCommand: "vibe --setup" }, opencode: { pluginId: "opencode", loginCommand: "opencode auth login" } },
 }));
 vi.mock("./usage", () => ({ metricText: () => ({ label: "Sign-in expired" }), usageFetcherFor: () => () => {} }));
 vi.mock("./useUsageState", () => ({ onUsageFetched: (listener: typeof fixture.fetched) => { fixture.fetched = listener; return () => {}; }, retainUsage: fixture.retain }));

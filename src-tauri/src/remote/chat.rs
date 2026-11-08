@@ -147,6 +147,7 @@ pub(super) fn agent_name(agent: &str) -> String {
         "codex" => "Codex",
         "vibe" => "Vibe",
         "gemini" => "Gemini",
+        "opencode" => "OpenCode",
         other => other,
     }
     .to_string()

@@ -21,6 +21,8 @@ export const PLUGINS_MIGRATED_KEY = "flowcode.pluginsActionMigrated";
 export const VIBE_PLUGIN_SEEDED_KEY = "flowcode.vibePluginSeeded";
 /** Same, for the Gemini CLI plugin. */
 export const GEMINI_PLUGIN_SEEDED_KEY = "flowcode.geminiPluginSeeded";
+/** Same, for the OpenCode plugin. */
+export const OPENCODE_PLUGIN_SEEDED_KEY = "flowcode.opencodePluginSeeded";
 
 /** Plugin commands the user has OK'd: `<plugin id>:<hash of the command>`
  * entries, so editing a plugin's command asks again. */

@@ -464,11 +464,23 @@ async function fetchGeminiUsage(profile?: string): Promise<UsageInfo> {
   }
 }
 
+/** OpenCode has no quota of its own (it fronts many providers); show its authentication state instead. */
+async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
+  try {
+    const auth = await invoke<ProviderAuthState>("provider_auth", { request: { op: "status", cli: "opencode", profile: profile ?? null } });
+    if (!auth.installed) return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "unavailable" }] };
+    return { fetchedAt: Date.now(), ok: auth.authenticated, metrics: auth.authenticated ? [{ kind: "other", label: t("usage.connected") }] : [{ kind: "loggedOut", command: "opencode auth login" }] };
+  } catch (error) {
+    return unavailable("OpenCode", { Error: String(error) });
+  }
+}
+
 const FETCHERS: Record<string, UsageFetcher> = {
   "codex-cli": fetchCodexUsage,
   "claude-code": fetchClaudeUsage,
   "mistral-vibe": fetchVibeUsage,
   "gemini-cli": fetchGeminiUsage,
+  opencode: fetchOpencodeUsage,
 };
 
 export function usageFetcherFor(id: string): UsageFetcher | undefined {

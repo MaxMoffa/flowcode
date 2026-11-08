@@ -1,5 +1,5 @@
 /** The agent CLIs' marks as SVG path data, shared by the desktop and the phone. */
-export const AGENT_LOGOS: Record<"claude" | "codex" | "vibe" | "gemini", { viewBox: string; path: string }> = {
+export const AGENT_LOGOS: Record<"claude" | "codex" | "vibe" | "gemini" | "opencode", { viewBox: string; path: string }> = {
   claude: {
     // The official mark is drawn edge-to-edge (no built-in margin) - unlike
     // this app's own hand-drawn icons, which sit inset by roughly 15% on
@@ -20,6 +20,12 @@ export const AGENT_LOGOS: Record<"claude" | "codex" | "vibe" | "gemini", { viewB
     // simple concave star; no third-party asset is embedded).
     viewBox: "-3.6 -3.6 31.2 31.2",
     path: "M12 0C12.7 6.7 17.3 11.3 24 12 17.3 12.7 12.7 17.3 12 24 11.3 17.3 6.7 12.7 0 12 6.7 11.3 11.3 6.7 12 0Z",
+  },
+  opencode: {
+    // A framed square: a rounded outline with a solid inner square, drawn
+    // here on a 24px grid (even-odd fill; no third-party asset is embedded).
+    viewBox: "-3.6 -3.6 31.2 31.2",
+    path: "M3 0h18a3 3 0 0 1 3 3v18a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3zm1 4v16h16V4zm4 4h8v8H8z",
   },
   vibe: {
     // Mistral's pixel-block "M", redrawn here on a 4px grid (no single-path

@@ -2,7 +2,7 @@ import { t } from "./i18n";
 import { authProvider, openProviderAuth } from "./ProviderAuth";
 import { useSupports, type UsageItem } from "./remote";
 
-const providerOf: Record<string, string> = { "claude-code": "claude", "codex-cli": "codex", "gemini-cli": "gemini", "mistral-vibe": "vibe" };
+const providerOf: Record<string, string> = { "claude-code": "claude", "codex-cli": "codex", "gemini-cli": "gemini", "mistral-vibe": "vibe", opencode: "opencode" };
 
 export function ProviderUsageAuth({ item }: { item: UsageItem }) {
   const canAuth = useSupports("providerAuth");

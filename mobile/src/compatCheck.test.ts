@@ -31,6 +31,13 @@ describe("desktop compatibility", () => {
     expect(supports(host, "chat")).toBe(false);
   });
 
+  it("hides OpenCode quietly on a desktop that lacks it", () => {
+    const host = hostInfoFrom({ appVersion: "0.30.0", proto: 2, caps: ["rename", "closeTab", "profiles", "profileLogin", "profileAgents", "newTabProfile", "background", "gemini"] });
+    expect(checkCompat(host)).toEqual({ level: "ok", missing: [] });
+    expect(supports(host, "opencode")).toBe(false);
+    expect(supports({ ...host, caps: [...host.caps, "opencode"] }, "opencode")).toBe(true);
+  });
+
   it("blocks a protocol below the minimum and says nothing before connecting", () => {
     expect(checkCompat({ proto: 0, caps: [], legacy: false }).level).toBe("blocked");
     expect(checkCompat(null).level).toBe("ok");

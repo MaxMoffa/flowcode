@@ -48,14 +48,15 @@ const usage = [
     ],
   },
   { pluginId: "gemini-cli", label: "Gemini CLI", metrics: [{ kind: "loggedOut", label: "Non collegato", command: "gemini" }] },
+  { pluginId: "opencode", label: "OpenCode", metrics: [{ kind: "other", label: "Collegato" }] },
   { pluginId: "codex-cli", label: "Codex", metrics: gauges(0.09, 0.78) },
   { pluginId: "claude-code", label: "Claude Code", metrics: gauges(0.42, 0.18) },
   { pluginId: "codex-cli", label: "Codex", ...L, metrics: gauges(1, 0.95) },
 ];
 
 const mockProfiles = [
-  { id: "lavoro-1fa968", name: "Lavoro", color: "#6f9bcf", loggedIn: { claude: true, codex: true, vibe: false, gemini: false } },
-  { id: "personale-22b1c0", name: "Personale", color: "#22c55e", loggedIn: { claude: true, codex: false, vibe: false, gemini: false } },
+  { id: "lavoro-1fa968", name: "Lavoro", color: "#6f9bcf", loggedIn: { claude: true, codex: true, vibe: false, gemini: false, opencode: false } },
+  { id: "personale-22b1c0", name: "Personale", color: "#22c55e", loggedIn: { claude: true, codex: false, vibe: false, gemini: false, opencode: false } },
 ];
 
 const mockSettings = {
@@ -106,7 +107,7 @@ function mockTabs(msg: ClientMsg | undefined) {
 
 // What the desktop sends once the link is up: its features, the chats and the view plugins.
 async function chatHello() {
-  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "closeTab", ...chatMockCaps] }]);
+  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", ...chatMockCaps] }]);
   await chatMockConnect();
   await emit("remote://msgs", [{ t: "views", views: mockViews }]);
 }

@@ -60,18 +60,23 @@ pub(crate) fn install(
         ("codex", dirs.codex),
         ("gemini", dirs.gemini.join(".gemini")),
         ("vibe", dirs.vibe),
+        ("opencode", dirs.opencode_config),
     ] {
         let Some(program) = find_program(cli) else {
             continue;
         };
         let record = record_dir.join(".flowcode-auth.json");
-        let args = [
+        let mut args = vec![
             exe.to_string_lossy(),
             ARGUMENT.into(),
             cli.into(),
             record.to_string_lossy(),
             program.to_string_lossy(),
         ];
+        // A named profile must not attach to OpenCode's shared background service.
+        if cli == "opencode" && profile.is_some() {
+            args.push("--standalone".into());
+        }
         #[cfg(windows)]
         let (path, script) = {
             let quoted = args

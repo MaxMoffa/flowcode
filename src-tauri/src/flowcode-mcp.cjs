@@ -54,7 +54,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        agent: { type: "string", description: "Which agent runs the task: one of the ids returned by list_agents (for example claude, codex, gemini)." },
+        agent: { type: "string", description: "Which agent runs the task: one of the ids returned by list_agents (for example claude, codex, gemini, opencode)." },
         prompt: { type: "string", description: "The complete task. It is the only thing the agent receives, so include every detail it needs and say what the answer should contain." },
         title: { type: "string", description: "A short label for the task, 60 characters at most, shown to the user." },
       },

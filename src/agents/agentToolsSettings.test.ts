@@ -15,7 +15,7 @@ describe("agent tools config", () => {
     }
   });
   it("allows every agent by default", () => {
-    expect(toolsConfig(defaults)).toEqual({ enabled: true, open: true, openAutoAllow: true, delegate: true, delegateAgents: ["claude", "codex", "vibe", "gemini"], maxParallel: 3 });
+    expect(toolsConfig(defaults)).toEqual({ enabled: true, open: true, openAutoAllow: true, delegate: true, delegateAgents: ["claude", "codex", "vibe", "gemini", "opencode"], maxParallel: 3 });
   });
   it("offers only the available agents by default, but the chosen ones as they are", () => {
     expect(toolsConfig(defaults, ["claude", "codex"]).delegateAgents).toEqual(["claude", "codex"]);

@@ -20,6 +20,8 @@ export const CLI_INFO: Record<AgentCli, CliInfo> = {
   vibe: { pluginId: "mistral-vibe", name: "Mistral Vibe", label: "Mistral Vibe", loginCommand: "vibe --setup" },
   // Gemini signs in from its own first-run screen (Google account or API key).
   gemini: { pluginId: "gemini-cli", name: "Gemini", label: "Gemini CLI", loginCommand: "gemini" },
+  // OpenCode signs in with a multi-provider picker (OpenRouter, Ollama, Anthropic, OpenAI...) in the terminal.
+  opencode: { pluginId: "opencode", name: "OpenCode", label: "OpenCode", loginCommand: "opencode auth login" },
 };
 
 export const cliOfPlugin = (pluginId: string): AgentCli | undefined => AGENT_CLIS.find((c) => CLI_INFO[c].pluginId === pluginId);

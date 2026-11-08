@@ -241,6 +241,11 @@
   --usage-accent: var(--ansi-blue);
 }
 
+/* OpenCode: a neutral grey. */
+[data-plugin="opencode"] {
+  --usage-accent: var(--ansi-white, #9ca3af);
+}
+
 /* A value that's a name (Vibe's model), not a figure. */
 .plugin-usage-metric-pct--text {
   font-family: inherit;

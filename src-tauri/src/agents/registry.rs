@@ -3,7 +3,7 @@
 //! `shared/agentRegistry.ts`; see docs/agents-integration-map.md).
 
 /// Ids of the supported agent CLIs.
-pub(crate) const AGENT_CLIS: &[&str] = &["claude", "codex", "vibe", "gemini"];
+pub(crate) const AGENT_CLIS: &[&str] = &["claude", "codex", "vibe", "gemini", "opencode"];
 
 /// Whether `cli` is a supported agent (ids also end up in shell command lines: only these pass).
 pub(crate) fn is_known(cli: &str) -> bool {
@@ -24,6 +24,6 @@ mod tests {
         assert!(AGENT_CLIS.iter().all(|c| is_known(c)));
         assert!(!is_known("bash"));
         assert!(reads_sessions("claude") && reads_sessions("codex"));
-        assert!(!reads_sessions("vibe") && !reads_sessions("gemini"));
+        assert!(!reads_sessions("vibe") && !reads_sessions("gemini") && !reads_sessions("opencode"));
     }
 }

@@ -21,6 +21,7 @@ export const PROFILE_CLI: Record<string, AgentCli> = {
   "codex-cli": "codex",
   "mistral-vibe": "vibe",
   "gemini-cli": "gemini",
+  opencode: "opencode",
 };
 
 /** Usage changes are coalesced: a refresh round fetches several plugins and
