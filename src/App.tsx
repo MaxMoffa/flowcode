@@ -2711,6 +2711,7 @@ function Shell() {
                   getPtyId={(id) => termRefs.current.get(id)?.getPtyId() ?? null}
                   onOpenTab={openHistoryTab}
                   onResume={resumeAgentSession}
+                  onOpenDelegate={openDelegateTab}
                   currentProfileId={historyAgent.profileId}
                   onNewSession={(cli, cwd, profileId) => {
                     // An idle chat in front starts its new conversation in place, like "/clear" -

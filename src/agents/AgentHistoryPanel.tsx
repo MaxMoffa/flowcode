@@ -13,6 +13,8 @@ import { useProfiles } from "../profiles/profiles";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useOutsideClose } from "../hooks/useOutsideClose";
 import { childKeys, useDelegateHistory, type DelegateChild } from "./delegateHistory";
+import { useAllTabDelegations } from "../chat/delegateStore";
+import type { DelegateInfo } from "../chat/chatModel";
 import { historyDot, TONE_LABEL, delegateTone } from "./delegateView";
 import type { ClaudeSessionEntry, CodexSessionEntry, OpencodeSessionEntry, VibeSessionEntry } from "./entryTypes";
 import "./agent-history.css";
@@ -40,6 +42,8 @@ interface AgentHistoryPanelProps {
   /** `sessionId`: the conversation to show, when the tab holds several. */
   onOpenTab: (tabId: string, sessionId?: string) => void;
   onResume: (cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number) => void;
+  /** Opens a delegated child's live chat next to its orchestrator's tab (what the task cards do). */
+  onOpenDelegate?: (parentTabId: string, delegate: DelegateInfo, wslDistro: string | null) => void;
   /** `profileId`: the account profile the session runs under (`undefined` = default). */
   onNewSession: (cli: AgentCli, cwd: string, profileId: string | undefined) => void;
   /** The active tab's profile: where the "New session" menu starts. */
@@ -114,6 +118,7 @@ export function AgentHistoryPanel({
   getPtyId,
   onOpenTab,
   onResume,
+  onOpenDelegate,
   onNewSession,
   currentProfileId,
 }: AgentHistoryPanelProps) {
@@ -129,6 +134,7 @@ export function AgentHistoryPanel({
   useOutsideClose(menuOpen, [footerRef], () => setMenuOpen(false), { escape: true, ignore: (el) => !!el.closest("[data-profile-select-menu]") });
   const [query, setQuery] = useState("");
   const delegateHistory = useDelegateHistory();
+  const delegations = useAllTabDelegations();
   /** Orchestrator sessions whose delegated chats are listed under them. */
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   const [claude, setClaude] = useState<ClaudeSessionEntry[]>([]);
@@ -307,6 +313,13 @@ export function AgentHistoryPanel({
   const openChild = (row: HistoryRow, child: DelegateChild) => {
     const tab = delegateTabs.find((x) => x.delegate?.taskId === child.taskId);
     if (tab) return onOpenTab(tab.id);
+    // Its chat still runs under a live orchestrator: attach to it. Resuming would load the session a second time,
+    // which the agent refuses while that chat holds it (Codex: "session is in use by another Codex client").
+    for (const [parentTabId, delegation] of Object.entries(delegations)) {
+      if (delegation.ended) continue;
+      const live = delegation.delegates.find((d) => d.taskId === child.taskId);
+      if (live && onOpenDelegate) return onOpenDelegate(parentTabId, live, delegation.wslDistro);
+    }
     if (!isAgentCli(child.agent)) return;
     onResume(row.cwd, child.childSessionId, child.agent, row.wslDistro ?? undefined, child.agent === row.cli ? (row.profile ?? undefined) : undefined, undefined);
   };
