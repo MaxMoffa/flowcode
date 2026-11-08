@@ -12,7 +12,7 @@ pub(crate) fn is_known(cli: &str) -> bool {
 
 /// Whether Flowcode reads `cli`'s session transcripts (context fill, agent insight).
 pub(crate) fn reads_sessions(cli: &str) -> bool {
-    matches!(cli, "claude" | "codex")
+    matches!(cli, "claude" | "codex" | "opencode")
 }
 
 #[cfg(test)]
@@ -23,7 +23,7 @@ mod tests {
     fn known_agents_and_capabilities() {
         assert!(AGENT_CLIS.iter().all(|c| is_known(c)));
         assert!(!is_known("bash"));
-        assert!(reads_sessions("claude") && reads_sessions("codex"));
-        assert!(!reads_sessions("vibe") && !reads_sessions("gemini") && !reads_sessions("opencode"));
+        assert!(reads_sessions("claude") && reads_sessions("codex") && reads_sessions("opencode"));
+        assert!(!reads_sessions("vibe") && !reads_sessions("gemini"));
     }
 }

@@ -1,5 +1,5 @@
 //! Optional post-processing of a dictated phrase: one headless call to an
-//! agent CLI (`claude -p` / `codex exec`) that fixes speech-to-text slips. The
+//! agent CLI (`claude -p` / `codex exec` / `opencode run`) that fixes speech-to-text slips. The
 //! frontend opts in and falls back to the raw text on any `Err`.
 
 use crate::agents::ProbePids;
@@ -63,14 +63,15 @@ fn postprocess(raw: &str, input: &str) -> Result<String, String> {
 fn run(agent: &str, model: Option<String>, prompt: String, probe_pids: &ProbePids) -> Result<String, String> {
     let (bin, out_file) = match agent {
         "claude" => ("claude", None),
+        "opencode" => ("opencode", None),
         "codex" => {
             let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
             ("codex", Some(std::env::temp_dir().join(format!("flowcode-cleanup-{}-{nanos}.txt", std::process::id()))))
         }
         _ => return Err("unknown agent".to_string()),
     };
-    // On Windows codex is an npm `.cmd` shim, which Command only finds when named.
-    let program = if cfg!(windows) && bin == "codex" { "codex.cmd" } else { bin };
+    // npm installs both as `.cmd` shims on Windows, which `Command` does not resolve by bare name.
+    let program = match bin { "codex" if cfg!(windows) => "codex.cmd", "opencode" if cfg!(windows) => "opencode.cmd", _ => bin };
     let mut cmd = Command::new(program);
     if let Some(file) = &out_file {
         cmd.args(["exec", "--skip-git-repo-check", "-s", "read-only", "--ephemeral", "-o"]).arg(file);
@@ -79,6 +80,13 @@ fn run(agent: &str, model: Option<String>, prompt: String, probe_pids: &ProbePid
         }
         // Neutral cwd; "-" = prompt from stdin.
         cmd.current_dir(std::env::temp_dir()).arg("-");
+    } else if bin == "opencode" {
+        // `opencode run "<message>"`: one non-interactive turn; `--archived` keeps it out of the user's session lists.
+        cmd.args(["run", "--archived", "--format", "default"]);
+        if let Some(m) = &model {
+            cmd.arg("--model").arg(m);
+        }
+        cmd.current_dir(std::env::temp_dir()).arg(&prompt);
     } else {
         cmd.args(["-p", "--tools", "", "--no-session-persistence", "--output-format", "text"]);
         if let Some(m) = &model {
@@ -102,7 +110,10 @@ fn run(agent: &str, model: Option<String>, prompt: String, probe_pids: &ProbePid
     probe_pids.track(pid);
     if let Some(mut stdin) = child.stdin.take() {
         // A write error (child died early) surfaces through its exit status.
-        let _ = stdin.write_all(prompt.as_bytes());
+        // `opencode run` takes the prompt as its argument (stdin just closes).
+        if bin != "opencode" {
+            let _ = stdin.write_all(prompt.as_bytes());
+        }
     }
     let result = flowcode_shared::wait_with_timeout(child, TIMEOUT);
     probe_pids.untrack(pid);

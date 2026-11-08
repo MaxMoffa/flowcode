@@ -409,14 +409,14 @@ export function modelDisplayName(id: string): string {
  * session transcripts on this machine and priced at list prices (see
  * spend.rs), which the popup says: the vendor's console stays the
  * authority for the bill. */
-async function fetchCliSpend(cli: "claude" | "codex", name: string, profile?: string): Promise<UsageInfo> {
+async function fetchCliSpend(cli: "claude" | "codex" | "opencode", name: string, profile?: string, withBilling = true): Promise<UsageInfo> {
   let usage: CliSpend;
   try {
     usage = await invoke<CliSpend>("cli_spend", { cli, todayStart: todayStart(), profile: profile ?? null });
   } catch (e) {
     return unavailable(name, { Error: String(e) });
   }
-  const metrics: UsageMetric[] = [{ kind: "billing" }, ...spendMetrics(usage)];
+  const metrics: UsageMetric[] = [...(withBilling ? [{ kind: "billing" } as UsageMetric] : []), ...spendMetrics(usage)];
   if (usage.lastModel) metrics.push({ kind: "model", label: modelDisplayName(usage.lastModel) });
   if (usage.unpricedModels.length > 0) metrics.push({ kind: "unpriced", label: usage.unpricedModels.join(", ") });
   return { fetchedAt: Date.now(), ok: true, metrics };
@@ -469,7 +469,11 @@ async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
   try {
     const auth = await invoke<ProviderAuthState>("provider_auth", { request: { op: "status", cli: "opencode", profile: profile ?? null } });
     if (!auth.installed) return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "unavailable" }] };
-    return { fetchedAt: Date.now(), ok: auth.authenticated, metrics: auth.authenticated ? [{ kind: "other", label: t("usage.connected") }] : [{ kind: "loggedOut", command: "opencode auth login" }] };
+    if (!auth.authenticated) return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "loggedOut", command: "opencode auth login" }] };
+    // The cost is stored by OpenCode itself; when it can't be read, fall back to the connected state.
+    const spend = await fetchCliSpend("opencode", "OpenCode", profile, false);
+    const connected: UsageMetric = { kind: "other", label: t("usage.connected") };
+    return spend.ok ? { ...spend, metrics: [connected, ...spend.metrics] } : { fetchedAt: Date.now(), ok: true, metrics: [connected] };
   } catch (error) {
     return unavailable("OpenCode", { Error: String(error) });
   }

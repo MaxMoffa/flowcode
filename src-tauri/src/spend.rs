@@ -8,7 +8,8 @@
 //! priced with the vendors' public list prices, so it's an estimate: a
 //! negotiated rate, a partner platform's own pricing (Bedrock, Vertex) or a
 //! session run on another machine isn't reflected. Mistral Vibe records its
-//! own cost per session instead - see vibe.rs.
+//! own cost per session instead - see vibe.rs; so does OpenCode, in its sqlite database
+//! (opencode_db.rs).
 //!
 //! Transcripts only ever grow and can reach hundreds of megabytes, so each
 //! file is read incrementally: what was already parsed stays cached (by
@@ -528,8 +529,8 @@ impl Totals {
     }
 }
 
-/// Spend of an agent CLI on this machine - `cli` is `"claude"` or
-/// `"codex"` - today (from the frontend's local midnight, `today_start`)
+/// Spend of an agent CLI on this machine - `cli` is `"claude"`,
+/// `"codex"` or `"opencode"` - today (from the frontend's local midnight, `today_start`)
 /// and over the last 7 / 30 days. See the module docs for what it counts.
 /// `profile` picks the account profile whose folders are read (`None`: the
 /// default one). The transcript cache is keyed by full file path, so two
@@ -546,6 +547,14 @@ pub async fn cli_spend(
         let now = now_ms();
         let today = today_start.filter(|t| *t <= now).unwrap_or(now - now % DAY_MS);
         let since = now.saturating_sub(31 * DAY_MS);
+        if cli == "opencode" {
+            // OpenCode records its own cost on every assistant message (sub-agent sessions included).
+            let mut totals = Totals::new(now, today);
+            for c in crate::opencode_db::cost_calls(&dirs.opencode_db, since) {
+                totals.add(&Call { at: c.at, cost: c.cost, tokens: c.tokens, model: c.model, session: c.session, key: 0 });
+            }
+            return Ok(totals.finish());
+        }
         let mut files = Vec::new();
         let (root, filter, parse): (PathBuf, LineFilter, ParseLine) = match cli.as_str() {
             "claude" => {

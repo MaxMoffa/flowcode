@@ -41,13 +41,17 @@ function launchOf(call: ChatToolCall, agent: string): { command: string; shell: 
   if (i.is_background === true) return { command, shell: /PID:\s*(\d+)/ };
   // Vibe's managed bash: the result carries `session_id`.
   if (agent === "vibe" && i.background === true) return { command, shell: /session_id["']?\s*[:=]\s*["']?([A-Za-z0-9_-]+)/ };
+  // OpenCode's shell: `background: true`, or a foreground command moved there mid-run;
+  // both finish with "Command moved to the background (shell ID: x)".
+  if (agent === "opencode" && (i.background === true || /moved to the background \(shell ID:/.test(text(call))))
+    return { command, shell: /shell ID:\s*([A-Za-z0-9_-]+)/ };
   return null;
 }
 
 /** Which background shell a later output read / kill call addresses. */
 function targetOf(call: ChatToolCall): string | null {
   const i = input(call);
-  const id = i.bash_id ?? i.shell_id ?? i.task_id ?? i.session_id ?? i.pid;
+  const id = i.bash_id ?? i.shell_id ?? i.shellID ?? i.task_id ?? i.session_id ?? i.pid;
   return typeof id === "string" && id !== "" ? id : typeof id === "number" ? String(id) : null;
 }
 

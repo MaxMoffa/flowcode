@@ -14,7 +14,7 @@ import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useOutsideClose } from "../hooks/useOutsideClose";
 import { childKeys, useDelegateHistory, type DelegateChild } from "./delegateHistory";
 import { historyDot, TONE_LABEL, delegateTone } from "./delegateView";
-import type { ClaudeSessionEntry, CodexSessionEntry, VibeSessionEntry } from "./entryTypes";
+import type { ClaudeSessionEntry, CodexSessionEntry, OpencodeSessionEntry, VibeSessionEntry } from "./entryTypes";
 import "./agent-history.css";
 
 const POLL_MS = 5000;
@@ -134,6 +134,7 @@ export function AgentHistoryPanel({
   const [claude, setClaude] = useState<ClaudeSessionEntry[]>([]);
   const [codex, setCodex] = useState<CodexSessionEntry[]>([]);
   const [vibe, setVibe] = useState<VibeSessionEntry[]>([]);
+  const [opencode, setOpencode] = useState<OpencodeSessionEntry[]>([]);
   const [repo, setRepo] = useState<{ cwd: string; roots: string[]; worktrees: GitWorktree[] } | null>(null);
 
   // The repo's worktrees count as the project; looked up when the folder changes.
@@ -182,6 +183,9 @@ export function AgentHistoryPanel({
       invoke<VibeSessionEntry[]>("list_vibe_sessions", { fresh: false })
         .then((r) => !cancelled && setVibe((prev) => keepIfSame(prev, r)))
         .catch(() => {});
+      invoke<OpencodeSessionEntry[]>("list_opencode_sessions", { fresh: false })
+        .then((r) => !cancelled && setOpencode((prev) => keepIfSame(prev, r)))
+        .catch(() => {});
     }
     load();
     const interval = setInterval(() => {
@@ -216,6 +220,10 @@ export function AgentHistoryPanel({
     for (const s of vibe) {
       if (!inRoots(s.cwd, s.wslDistro)) continue;
       add({ cli: "vibe", sessionId: s.sessionId, title: s.name, cwd: s.cwd, at: s.startedAt ?? 0, profile: s.profile, wslDistro: s.wslDistro });
+    }
+    for (const s of opencode) {
+      if (!inRoots(s.cwd, s.wslDistro)) continue;
+      add({ cli: "opencode", sessionId: s.sessionId, title: s.name, cwd: s.cwd, at: s.startedAt ?? 0, profile: s.profile, wslDistro: s.wslDistro });
     }
     const live: HistoryRow[] = [];
     /** Marks the saved row open in `tabId`, or lists a not-yet-saved session. */
@@ -260,7 +268,7 @@ export function AgentHistoryPanel({
     }
     return [...unique.values()].sort((a, b) => b.at - a.at);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claude, codex, vibe, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro]);
+  }, [claude, codex, vibe, opencode, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro]);
 
   const needle = query.trim().toLowerCase();
   const titleOf = (row: HistoryRow) => row.title || `${CLI_INFO[row.cli].label} · ${row.sessionId.slice(0, 8)}`;

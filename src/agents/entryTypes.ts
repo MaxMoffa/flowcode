@@ -38,6 +38,10 @@ export interface VibeSessionEntry {
   profile: string | null;
 }
 
+/** One saved OpenCode session (read from its database) - same shape as Vibe's;
+ * see `list_opencode_sessions` in src-tauri. */
+export type OpencodeSessionEntry = VibeSessionEntry;
+
 /** One saved Claude Code conversation, read off its transcript on disk - see
  * `list_claude_sessions` in src-tauri. Unlike `ClaudeAgentEntry` it covers
  * sessions that are no longer running; newest first. */

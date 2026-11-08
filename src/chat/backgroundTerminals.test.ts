@@ -56,6 +56,18 @@ describe("backgroundTerminals for the other agents", () => {
     expect(backgroundTerminals(items.slice(0, 1), "claude")).toHaveLength(0);
   });
 
+  it("OpenCode: background shell or one moved there mid-run, the shell ID names it", () => {
+    const moved = "Command moved to the background (shell ID: sh_7). Output is streaming to: /tmp/x";
+    const items = [
+      tool("a", { toolName: "shell", kind: "execute", status: "completed", rawInput: { command: "npm run dev", background: true }, content: result(moved) }),
+      tool("b", { toolName: "shell", kind: "execute", status: "completed", rawInput: { command: "make" }, content: result(moved.replace("sh_7", "sh_8")) }),
+      tool("c", { toolName: "shell", kind: "execute", status: "completed", rawInput: { command: "ls" }, content: result("a b") }),
+    ];
+    const list = backgroundTerminals(items, "opencode");
+    expect(list.map((t) => t.shellId)).toEqual(["sh_7", "sh_8"]);
+    expect(list[0]).toMatchObject({ command: "npm run dev", running: true });
+  });
+
   it("Codex: a command call left open once the agent moved on is a background terminal", () => {
     const run = tool("c", { kind: "execute", status: "in_progress", title: "npm run dev" });
     const talk = { type: "agent", id: "a", text: "Server started" } as ChatItem;

@@ -23,7 +23,7 @@ export const AGENT_CAPS: Record<AgentCli, AgentCaps> = {
   codex: { readsSessions: true, usageLimit: true, cacheWarning: false, authManualCode: false, authNativeTerminal: true },
   vibe: { readsSessions: false, usageLimit: false, cacheWarning: false, authManualCode: false, authNativeTerminal: false },
   gemini: { readsSessions: false, usageLimit: false, cacheWarning: false, authManualCode: true, authNativeTerminal: true },
-  opencode: { readsSessions: false, usageLimit: false, cacheWarning: false, authManualCode: true, authNativeTerminal: true },
+  opencode: { readsSessions: true, usageLimit: false, cacheWarning: false, authManualCode: true, authNativeTerminal: true },
 };
 
 export const isAgentCli = (value: unknown): value is AgentCli => (AGENT_CLIS as readonly unknown[]).includes(value);

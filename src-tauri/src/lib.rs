@@ -32,6 +32,7 @@ mod gemini;
 mod opencode;
 mod link_preview;
 mod vibe;
+mod opencode_db;
 mod view_plugins;
 mod watcher;
 mod windows;
@@ -255,6 +256,7 @@ pub fn run() {
             newtab_background::newtab_background_get,
             newtab_background::newtab_background_clear,
             vibe::list_vibe_sessions,
+            opencode_db::list_opencode_sessions,
             vibe::vibe_usage_stats,
             vibe::vibe_ensure_model,
             link_preview::link_preview,

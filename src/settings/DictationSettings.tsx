@@ -548,7 +548,7 @@ export function DictationSettings() {
               >
                 <Segmented<CleanupAgent>
                   value={cleanupAgent}
-                  options={CLEANUP_AGENTS.map((a) => ({ value: a, label: a === "claude" ? "Claude" : "Codex" }))}
+                  options={CLEANUP_AGENTS.map((a) => ({ value: a, label: a === "claude" ? "Claude" : a === "codex" ? "Codex" : "OpenCode" }))}
                   onChange={setCleanupAgent}
                   ariaLabel={t("settings.dictation.cleanup.agent.label")}
                 />

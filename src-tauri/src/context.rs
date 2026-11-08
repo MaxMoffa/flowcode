@@ -127,6 +127,19 @@ fn codex_context(path: &Path) -> Option<AgentContext> {
     Some(AgentContext { used, window: window?, window_estimated: false, model })
 }
 
+/// OpenCode keeps no transcript to read: the latest assistant message in its
+/// database says what the last call had in context, and the window comes
+/// from the models.dev catalog it caches there (200K when it isn't known).
+fn opencode_context(db: &Path, session_id: &str) -> Option<AgentContext> {
+    let read = crate::opencode_db::latest_context(db, session_id)?;
+    let limit = read
+        .provider
+        .as_deref()
+        .zip(read.model.as_deref())
+        .and_then(|(provider, model)| crate::opencode_db::context_limit(db, provider, model));
+    Some(AgentContext { used: read.used, window: limit.unwrap_or(CLAUDE_DEFAULT_WINDOW), window_estimated: limit.is_none(), model: read.model })
+}
+
 pub(crate) fn plain_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
@@ -196,6 +209,9 @@ pub(crate) fn read_context(
     let Some(dirs) = crate::profiles::dirs(app, profile.as_deref()) else {
         return Err(format!("unknown profile {profile:?}"));
     };
+    if cli == "opencode" {
+        return Ok(opencode_context(&dirs.opencode_db, session_id));
+    }
     let key = (cli.to_string(), profile, session_id.to_string());
     let cached = lock(&PATHS).get(&key).cloned().filter(|p| p.is_file());
     let path = match cached {

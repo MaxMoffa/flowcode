@@ -996,6 +996,8 @@ struct Chat {
     stale_session: Mutex<Option<String>>,
     /// Native subagents (`subagent_update`): each child session id, with the launch id (the `session_message` that opens it) once known.
     children: Mutex<HashMap<String, Option<String>>>,
+    /// OpenCode: `subagent` tool calls not yet matched to a child session, as (session that ran it, tool call id).
+    launches: Mutex<Vec<(String, String)>>,
     /// The agent announced it takes image blocks in a prompt (`promptCapabilities.image`).
     prompt_images: AtomicBool,
 }
@@ -1355,6 +1357,10 @@ impl Chat {
                             *lock(&self.current_mode) = update.get("currentModeId").and_then(Value::as_str).map(str::to_string);
                         }
                         log_native_subagent(&self.id.to_string(), &params, update);
+                        if self.agent == "opencode" {
+                            let session = params.get("sessionId").and_then(Value::as_str).unwrap_or("");
+                            note_opencode_launch(&mut lock(&self.launches), &mut lock(&self.children), session, update);
+                        }
                         if update.get("sessionUpdate").and_then(Value::as_str) == Some("config_option_update")
                             && !self.is_stale(&params)
                         {
@@ -1374,6 +1380,15 @@ impl Chat {
                         crate::chat_images::stash_images(&mut update);
                         let _ = self.emit_when(ChatBody::Update { update }, stale);
                     }
+                } else if method.trim_start_matches('_') == OPENCODE_CHILD_UPDATE {
+                    // OpenCode (sub-agents): the children's work comes as extension notifications, not `session/update`.
+                    let Some((child_params, mut update)) = opencode_child_update(&mut lock(&self.launches), &mut lock(&self.children), &params) else { return };
+                    let stale = |_| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
+                    if !route_child_update(&mut lock(&self.children), &child_params, &mut update) {
+                        return;
+                    }
+                    crate::chat_images::stash_images(&mut update);
+                    let _ = self.emit_when(ChatBody::Update { update }, stale);
                 } else if method.starts_with('_') {
                     self.emit(ChatBody::Ext { method, params });
                 }
@@ -2164,6 +2179,60 @@ fn route_child_update(children: &mut HashMap<String, Option<String>>, params: &V
     true
 }
 
+/// OpenCode's extension notification carrying a child (sub-agent) session's activity.
+const OPENCODE_CHILD_UPDATE: &str = "opencode/session/child_update";
+
+/// Whether an OpenCode tool call is the one that launches a sub-agent (`subagent`, `task` in sessions migrated from v1).
+fn is_opencode_launch(update: &Value) -> bool {
+    ["name", "title"].iter().any(|k| {
+        update.get(*k).and_then(Value::as_str).is_some_and(|n| n.eq_ignore_ascii_case("subagent") || n.eq_ignore_ascii_case("task"))
+    })
+}
+
+/// Remembers a `subagent` tool call of `session` until its child session shows up, and - from the finished
+/// call's `rawOutput.metadata.sessionID` - links a child that was never matched.
+fn note_opencode_launch(launches: &mut Vec<(String, String)>, children: &mut HashMap<String, Option<String>>, session: &str, update: &Value) {
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
+    match update.get("sessionUpdate").and_then(Value::as_str) {
+        Some("tool_call") if is_opencode_launch(update) => {
+            if !launches.iter().any(|(_, l)| l == id) {
+                launches.push((session.to_string(), id.to_string()));
+            }
+        }
+        Some("tool_call_update") => {
+            let Some(child) = update.pointer("/rawOutput/metadata/sessionID").and_then(Value::as_str) else { return };
+            launches.retain(|(_, l)| l != id);
+            let launch = children.entry(child.to_string()).or_insert(None);
+            if launch.is_none() {
+                *launch = Some(id.to_string());
+            }
+        }
+        _ => {}
+    }
+}
+
+/// An `opencode/session/child_update` as a plain `session/update` of the child session: `(params, update)` for
+/// `route_child_update`. A child is nested under the sub-agent tool call that started it: OpenCode names no link, so the
+/// oldest unmatched `subagent` call of the child's parent session is taken (children are created in launch order).
+/// Status notifications only register the child (the launching tool call reports its end itself); `None` when there is nothing to show.
+fn opencode_child_update(launches: &mut Vec<(String, String)>, children: &mut HashMap<String, Option<String>>, params: &Value) -> Option<(Value, Value)> {
+    let child = params.get("childSessionId").and_then(Value::as_str)?;
+    let parent = params.get("parentSessionId").and_then(Value::as_str).unwrap_or("");
+    let launch = children.entry(child.to_string()).or_insert(None);
+    if launch.is_none() {
+        if let Some(i) = launches.iter().position(|(session, _)| session == parent) {
+            *launch = Some(launches.remove(i).1);
+        }
+    }
+    if params.get("type").and_then(Value::as_str) != Some("update") {
+        return None;
+    }
+    let update = params.get("update")?.clone();
+    // A sub-agent started by the child itself nests under the child's tool call.
+    note_opencode_launch(launches, children, child, &update);
+    Some((json!({ "sessionId": child }), update))
+}
+
 /// Whether the native-subagents experiment is on (`FLOWCODE_NATIVE_SUBAGENTS=1`).
 fn native_subagents_enabled() -> bool {
     std::env::var("FLOWCODE_NATIVE_SUBAGENTS").is_ok_and(|v| v == "1")
@@ -2194,6 +2263,10 @@ fn handshake(chat: &Chat, cwd: &str, resume: Option<String>, strict: bool, gate:
     // Claude only: Codex then sends no launch message (its tool calls vanish) and puts the child's model options on the main stream.
     if native_subagents_enabled() && chat.agent == "claude" {
         capabilities["subagents"] = json!({});
+    }
+    // OpenCode only reports its sub-agents' work to clients that ask for it (see `opencode_child_update`).
+    if chat.agent == "opencode" {
+        capabilities["_meta"]["opencode/child-session-updates"] = json!(true);
     }
     let init = chat.request(
         "initialize",
@@ -2374,6 +2447,7 @@ fn start_once(
         thought: Mutex::new(None),
         stale_session: Mutex::new(None),
         children: Mutex::new(HashMap::new()),
+        launches: Mutex::new(Vec::new()),
         prompt_images: AtomicBool::new(false),
     });
     {
@@ -2607,6 +2681,40 @@ mod tests {
         // The main session is untouched.
         let mut main_config = json!({ "sessionUpdate": "config_option_update" });
         assert!(route_child_update(&mut children, &main, &mut main_config));
+    }
+
+    #[test]
+    fn opencode_children_nest_under_the_subagent_call() {
+        let (mut launches, mut children) = (Vec::new(), HashMap::new());
+        // Root session sends two sub-agent launches and an ordinary tool call.
+        for (id, name) in [("call_a", "subagent"), ("call_b", "subagent"), ("call_c", "shell")] {
+            note_opencode_launch(&mut launches, &mut children, "ses_root", &json!({ "sessionUpdate": "tool_call", "toolCallId": id, "name": name, "title": name }));
+        }
+        assert_eq!(launches.len(), 2);
+        let created = json!({ "rootSessionId": "ses_root", "childSessionId": "ses_k1", "parentSessionId": "ses_root", "depth": 1, "title": "Explore", "type": "status", "status": "created" });
+        assert!(opencode_child_update(&mut launches, &mut children, &created).is_none());
+        assert_eq!(children["ses_k1"].as_deref(), Some("call_a"));
+        let tool = json!({
+            "rootSessionId": "ses_root", "childSessionId": "ses_k1", "parentSessionId": "ses_root", "depth": 1, "type": "update",
+            "update": { "sessionUpdate": "tool_call", "toolCallId": "ses_k1:call_z", "title": "Explore: ls", "_meta": { "opencode/child-session": { "id": "ses_k1", "parentID": "ses_root", "depth": 1 } } }
+        });
+        let (child_params, mut update) = opencode_child_update(&mut launches, &mut children, &tool).unwrap();
+        assert_eq!(child_params["sessionId"], "ses_k1");
+        assert!(route_child_update(&mut children, &child_params, &mut update));
+        assert_eq!(update["_meta"]["claudeCode"]["parentToolUseId"], "call_a");
+        assert_eq!(update["_meta"]["opencode/child-session"]["id"], "ses_k1");
+        // The second child, first seen through an update, takes the second call.
+        let second = json!({ "childSessionId": "ses_k2", "parentSessionId": "ses_root", "type": "update", "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "hi" } } });
+        let (p, mut u) = opencode_child_update(&mut launches, &mut children, &second).unwrap();
+        assert!(route_child_update(&mut children, &p, &mut u));
+        assert_eq!(u["_meta"]["claudeCode"]["parentToolUseId"], "call_b");
+        // The finished launch names its child (metadata.sessionID) when no link was made.
+        note_opencode_launch(&mut launches, &mut children, "ses_root", &json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call_q", "rawOutput": { "metadata": { "sessionID": "ses_k3", "status": "completed" } } }));
+        assert_eq!(children["ses_k3"].as_deref(), Some("call_q"));
+        // The notification is accepted with or without the extension underscore; chatter of a child is dropped.
+        assert_eq!("_opencode/session/child_update".trim_start_matches('_'), OPENCODE_CHILD_UPDATE);
+        let mut chatter = json!({ "sessionUpdate": "usage_update" });
+        assert!(!route_child_update(&mut children, &json!({ "sessionId": "ses_k1" }), &mut chatter));
     }
 
     #[test]

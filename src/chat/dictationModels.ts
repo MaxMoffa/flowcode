@@ -369,13 +369,14 @@ export const useDictationGpus = (): readonly DictationGpu[] => useSyncExternalSt
 
 // --- cleanup of the dictated text through an agent's model (opt-in) --------
 
-export type CleanupAgent = "claude" | "codex";
-export const CLEANUP_AGENTS: readonly CleanupAgent[] = ["claude", "codex"];
+export type CleanupAgent = "claude" | "codex" | "opencode";
+export const CLEANUP_AGENTS: readonly CleanupAgent[] = ["claude", "codex", "opencode"];
 
 /** Known model aliases per agent; empty = only the agent's default (free text still allowed). */
 export const CLEANUP_MODEL_PRESETS: Record<CleanupAgent, readonly string[]> = {
   claude: ["haiku", "sonnet", "opus"],
   codex: [],
+  opencode: [],
 };
 
 /** Same character set and length the backend accepts. */
@@ -397,7 +398,10 @@ const CLEANUP_KEY = "flowcode.dictation.cleanup";
 const CLEANUP_AGENT_KEY = "flowcode.dictation.cleanup.agent";
 const cleanupModelKey = (agent: CleanupAgent) => `flowcode.dictation.cleanup.model.${agent}`;
 
-const readCleanupAgent = (): CleanupAgent => (readString(CLEANUP_AGENT_KEY) === "codex" ? "codex" : "claude");
+const readCleanupAgent = (): CleanupAgent => {
+  const stored = readString(CLEANUP_AGENT_KEY);
+  return stored === "codex" || stored === "opencode" ? stored : "claude";
+};
 
 let cleanup = {
   enabled: readBool(CLEANUP_KEY, false),
@@ -405,6 +409,7 @@ let cleanup = {
   models: {
     claude: sanitizeCleanupModel(readString(cleanupModelKey("claude"))),
     codex: sanitizeCleanupModel(readString(cleanupModelKey("codex"))),
+    opencode: sanitizeCleanupModel(readString(cleanupModelKey("opencode"))),
   } as Record<CleanupAgent, string>,
 };
 

@@ -23,6 +23,7 @@ const infos: Info[] = [
   { chatId: "c4", tabId: "tc4", window: WINDOW, label: "Scelta del database", agent: "claude", cwd: "C:/Users/massi/Progetti/api", sessionId: "d4a1c3f0-5b7e-42a9-8c16-9e0b7f2a6d41", status: "waiting", modes },
   { chatId: "c2", tabId: "tc2", window: WINDOW, label: "Documentazione API", agent: "codex", cwd: "C:/Users/massi/api", sessionId: "b21e07aa-91c4-48e3-8d0f-3a7c55d0e9f2", status: "busy" },
   { chatId: "c3", tabId: "tc3", window: "w2", label: "Idee", agent: "gemini", cwd: "C:/Users/massi/Progetti/docs", sessionId: "0c5a8d41-6e2b-4f7a-b3c9-e84d1a27f6b3", status: "idle" },
+  { chatId: "c5", tabId: "tc5", window: "w2", label: "Prova OpenCode", agent: "opencode", cwd: "C:/Users/massi/Progetti/lab", sessionId: "ses_5a1c0e7d3b2fXk9", status: "idle" },
 ];
 
 const update = (sessionUpdate: string, rest: Record<string, unknown>): Ev => ({ kind: "update", update: { sessionUpdate, ...rest } });
@@ -220,6 +221,23 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
       break;
     case "agentinsight": {
       const key = msg.chatId ?? msg.ptyId ?? "";
+      if (infos.find((i) => i.chatId === key)?.agent === "opencode" || key === "p5") {
+        const oc = {
+          t: "agentinsight",
+          key,
+          cli: "opencode",
+          context: { used: 31000, window: 128000, model: "openrouter/anthropic/claude-sonnet-4.5" },
+          usage: { input: 24000, output: 7000, cacheRead: 90000, cacheWrite: 12000, turns: [4000, 9000, 6000, 12000], cost: 0.73, model: "openrouter/anthropic/claude-sonnet-4.5" },
+          tools: {
+            mcp: [{ name: "context7", scope: "user", transport: "http", target: "https://mcp.context7.com/mcp" }],
+            skills: [],
+            memoryChars: 1800,
+            memoryFiles: ["C:/Users/massi/Progetti/lab/AGENTS.md"],
+          },
+        };
+        later(80, () => void emit("remote://msgs", [oc]));
+        break;
+      }
       const reply = {
         t: "agentinsight",
         key,

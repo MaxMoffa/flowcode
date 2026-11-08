@@ -12,6 +12,7 @@ const tabs: Tab[] = [
   { ptyId: "p1", tabId: "t1", window: "w1", label: "flowcode", cwd: "C:/Users/massi/Progetti/flowcode", cols: 80, rows: 24, cli: "claude", status: "waiting", context: { used: 16000, window: 200000 } },
   { ptyId: "p2", tabId: "t2", window: "w1", label: "api-server", cwd: "C:/Users/massi/api", cols: 80, rows: 24, cli: "codex", status: "busy", context: { used: 48000, window: 200000 } },
   { ptyId: "p3", tabId: "t3", window: "w1", label: "docs", cwd: "C:/Users/massi/Progetti/docs", cols: 80, rows: 24 },
+  { ptyId: "p5", tabId: "t5", window: "w1", label: "opencode-lab", cwd: "C:/Users/massi/Progetti/lab", cols: 80, rows: 24, cli: "opencode", status: "idle", context: { used: 31000, window: 128000 } },
   { ptyId: "p4", tabId: "t4", window: "w2", label: "PowerShell", cwd: "C:/Users/massi", cols: 80, rows: 24 },
 ];
 
@@ -19,6 +20,7 @@ const mockActions = [{ id: "commit", label: "Commit" }, { id: "usage", label: "U
   { id: "pull", label: "Pull" },
   { id: "claude-code", label: "Claude Code", cli: "claude" },
   { id: "codex-cli", label: "Codex CLI", cli: "codex" },
+  { id: "opencode", label: "OpenCode", cli: "opencode" },
 ];
 
 /** A reset about two hours ahead, worded the way Claude Code words it ("3pm"). */
@@ -48,7 +50,16 @@ const usage = [
     ],
   },
   { pluginId: "gemini-cli", label: "Gemini CLI", metrics: [{ kind: "loggedOut", label: "Non collegato", command: "gemini" }] },
-  { pluginId: "opencode", label: "OpenCode", metrics: [{ kind: "other", label: "Collegato" }] },
+  {
+    pluginId: "opencode",
+    label: "OpenCode",
+    metrics: [
+      { kind: "other", label: "Collegato" },
+      { kind: "spend", label: "Oggi", period: "today", cost: 0.73, tokens: 180_000, sessions: 2 },
+      { kind: "spend", label: "7 giorni", period: "week", cost: 4.1, tokens: 960_000, sessions: 9 },
+      { kind: "spend", label: "30 giorni", period: "month", cost: 12.5, tokens: 3_200_000, sessions: 31 },
+    ],
+  },
   { pluginId: "codex-cli", label: "Codex", metrics: gauges(0.09, 0.78) },
   { pluginId: "claude-code", label: "Claude Code", metrics: gauges(0.42, 0.18) },
   { pluginId: "codex-cli", label: "Codex", ...L, metrics: gauges(1, 0.95) },

@@ -123,6 +123,34 @@ fn mcp_from_json(servers: Option<&serde_json::Value>, scope: &str, out: &mut Vec
     }
 }
 
+/// The `mcp` object of an `opencode.json`: `type` "local" (a `command` array)
+/// or "remote" (a `url`); servers with `enabled: false` aren't loaded. Env and
+/// headers are never looked at.
+fn mcp_from_opencode(servers: Option<&serde_json::Value>, scope: &str, out: &mut Vec<McpServer>) {
+    let Some(map) = servers.and_then(|s| s.as_object()) else { return };
+    for (name, def) in map {
+        if !def.is_object() || def.get("enabled").and_then(|e| e.as_bool()) == Some(false) || out.iter().any(|m| m.name == *name && m.scope == scope) {
+            continue;
+        }
+        let (transport, target) = match def.get("url").and_then(|u| u.as_str()).filter(|u| !u.is_empty()) {
+            Some(url) => ("http", sanitize_url(url)),
+            None => {
+                let mut parts: Vec<String> = Vec::new();
+                match def.get("command") {
+                    Some(serde_json::Value::Array(a)) => parts.extend(a.iter().filter_map(|a| a.as_str()).map(str::to_string)),
+                    Some(serde_json::Value::String(s)) => parts.push(s.clone()),
+                    _ => {}
+                }
+                if let Some(args) = def.get("args").and_then(|a| a.as_array()) {
+                    parts.extend(args.iter().filter_map(|a| a.as_str()).map(str::to_string));
+                }
+                ("stdio", parts.join(" "))
+            }
+        };
+        out.push(McpServer { name: name.clone(), scope: scope.to_string(), transport: transport.to_string(), target });
+    }
+}
+
 /// The `[mcp_servers.<name>]` tables of a Codex `config.toml`. Env and
 /// headers sub-tables are never looked at. An invalid file gives nothing.
 fn mcp_from_codex_toml(text: &str) -> Vec<McpServer> {
@@ -276,6 +304,17 @@ pub(crate) fn read_tools(app: &tauri::AppHandle, cli: &str, cwd: &str, profile: 
             memory.push(dirs.claude.join("CLAUDE.md"));
         }
         skills_in(&dirs.claude.join("skills"), "user", &mut tools.skills);
+    } else if cli == "opencode" {
+        mcp_from_opencode(crate::opencode_db::read_config(&dirs.opencode_config).as_ref().and_then(|c| c.get("mcp")), "user", &mut tools.mcp);
+        skills_in(&dirs.opencode_config.join("skills"), "user", &mut tools.skills);
+        memory.push(dirs.opencode_config.join("AGENTS.md"));
+        if let Some(cwd_path) = &cwd_path {
+            for dir in [cwd_path.clone(), cwd_path.join(".opencode")] {
+                mcp_from_opencode(crate::opencode_db::read_config(&dir).as_ref().and_then(|c| c.get("mcp")), "project", &mut tools.mcp);
+            }
+            skills_in(&cwd_path.join(".opencode").join("skills"), "project", &mut tools.skills);
+            memory.push(cwd_path.join("AGENTS.md"));
+        }
     } else {
         if let Ok(text) = std::fs::read_to_string(dirs.codex.join("config.toml")) {
             tools.mcp = mcp_from_codex_toml(&text);
@@ -295,7 +334,7 @@ pub(crate) fn read_tools(app: &tauri::AppHandle, cli: &str, cwd: &str, profile: 
 }
 
 /// The MCP servers, skills and memory files a `cli` (`"claude"` or
-/// `"codex"`) session started in `cwd` loads. Missing or unreadable files are
+/// `"codex"` / `"opencode"`) session started in `cwd` loads. Missing or unreadable files are
 /// skipped; any other `cli` gives an empty answer.
 #[tauri::command]
 pub async fn agent_tools(
@@ -500,6 +539,19 @@ pub(crate) fn read_usage(
     let Some(dirs) = crate::profiles::dirs(app, profile.as_deref()) else {
         return Err(format!("unknown profile {profile:?}"));
     };
+    if cli == "opencode" {
+        let read = crate::opencode_db::session_usage(&dirs.opencode_db, session_id, MAX_TURNS)
+            .ok_or_else(|| format!("no opencode session {session_id}"))?;
+        return Ok(SessionUsage {
+            input: read.input,
+            output: read.output,
+            cache_read: read.cache_read,
+            cache_write: read.cache_write,
+            turns: read.turns,
+            cost: Some(read.cost),
+            model: read.model,
+        });
+    }
     let found = match cli {
         "claude" => crate::context::find_claude_transcript(&dirs.claude, session_id),
         "codex" => crate::agents::find_codex_rollout(&dirs.codex.join("sessions"), session_id),
@@ -744,6 +796,17 @@ mod tests {
         assert_eq!(out.len(), 3);
         mcp_from_json(None, "user", &mut out);
         assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn parses_opencode_mcp() {
+        let config = json(r#"{"mcp":{"fs":{"type":"local","command":["npx","-y","srv"],"environment":{"K":"secret"}},"web":{"type":"remote","url":"https://u:p@h.io/mcp?token=x"},"off":{"type":"local","command":["x"],"enabled":false}}}"#);
+        let mut out = Vec::new();
+        mcp_from_opencode(config.get("mcp"), "user", &mut out);
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(out.len(), 2);
+        assert_eq!((out[0].name.as_str(), out[0].transport.as_str(), out[0].target.as_str()), ("fs", "stdio", "npx -y srv"));
+        assert_eq!((out[1].transport.as_str(), out[1].target.as_str()), ("http", "https://h.io/mcp"));
     }
 
     #[test]

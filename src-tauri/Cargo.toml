@@ -55,6 +55,8 @@ fs-watch = { package = "notify", version = "8" }
 # Registering a model in Mistral Vibe's config.toml (vibe.rs) without
 # disturbing the rest of the user's file.
 toml_edit = "0.25"
+# Read-only access to OpenCode's sqlite database (opencode_db.rs).
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Remote access (remote.rs): an iroh endpoint (QUIC with NAT traversal and
 # relay fallback, authenticated end-to-end by the peers' keys) speaking the
