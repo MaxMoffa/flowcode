@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, watch, Notify};
 
 /// A deep link that was not picked up by the pairing screen goes stale.
 pub(crate) const PENDING_LINK_TTL: Duration = Duration::from_secs(120);
@@ -60,6 +60,12 @@ pub(crate) struct StateEvent {
 impl StateEvent {
     pub(crate) fn new(status: Status) -> Self {
         StateEvent { status, ..Default::default() }
+    }
+
+    /// The OS can freeze the WebView before it reports hidden. Refresh an
+    /// apparently online link too, but never cancel an already visible dial.
+    pub(crate) fn restart_on_resume(&self, was_hidden: bool) -> bool {
+        was_hidden || self.status == Status::Online || self.status == Status::Offline || self.phase == Some(Phase::Waiting)
     }
 
     pub(crate) fn host(mut self, host_name: Option<String>) -> Self {
@@ -117,14 +123,10 @@ pub(crate) struct Remote {
     /// Created lazily and rebuilt after repeated failures (`reset_endpoint`).
     pub(crate) endpoint: tokio::sync::Mutex<Option<Endpoint>>,
     pub(crate) inner: Mutex<Inner>,
-    /// Cuts the backoff sleep short (`retry_now`). Only `notify_waiters` is
-    /// used, so a call with nobody waiting leaves no permit behind to skip a
-    /// later backoff.
-    pub(crate) retry: Notify,
-    /// The app came back to the foreground: probe an online link. Signalled
-    /// with `notify_one` so a resume that lands while `serve` is busy writing
-    /// is kept (the future is recreated every iteration of its select).
-    pub(crate) resume: Notify,
+    /// Interrupts dial, handshake, serve, or backoff and resets failures.
+    /// A watch version retains events between stages without leaving stale
+    /// permits for a new loop after suspension.
+    pub(crate) restart: watch::Sender<()>,
     /// A `pair` is running; a second one is refused.
     pub(crate) pairing: AtomicBool,
     /// Serializes read-modify-write of computers.json.
@@ -268,6 +270,19 @@ impl Remote {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_replaces_background_work_and_backoff_without_cancelling_a_fresh_dial() {
+        for phase in [Phase::Dialing, Phase::Handshake] {
+            let state = StateEvent::new(Status::Connecting).phase(phase, 4, None);
+            assert!(state.restart_on_resume(true));
+            assert!(!state.restart_on_resume(false));
+        }
+        assert!(StateEvent::new(Status::Offline).phase(Phase::Waiting, 8, None).restart_on_resume(false));
+        assert!(StateEvent::new(Status::Online).restart_on_resume(true));
+        // A missing hidden event must not leave an apparently online zombie.
+        assert!(StateEvent::new(Status::Online).restart_on_resume(false));
+    }
 
     #[test]
     fn state_serializes_lowercase() {

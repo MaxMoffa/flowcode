@@ -210,40 +210,51 @@ pub fn send(remote: State<'_, Arc<Remote>>, msg: serde_json::Value) -> Result<()
 pub fn retry_now(remote: State<'_, Arc<Remote>>) {
     if remote.lock().state.phase == Some(Phase::Waiting) {
         remote.log.push("retry requested by the user");
-        remote.retry.notify_waiters();
+        remote.restart.send_replace(());
     }
 }
 
-/// The app is visible again (call on `visibilitychange` -> visible). The
-/// network may have changed while it was in the background and Android gives
-/// native code no notification, so: tell iroh, redial at once if the link is in
-/// backoff, probe it if it looks online, restart the loop if it is not running.
+/// Resume replaces background work immediately. Repeated visible events leave
+/// a fresh cold-start dial alone.
 #[tauri::command]
 pub async fn app_resumed(app: AppHandle, remote: State<'_, Arc<Remote>>) -> Result<(), String> {
     let remote = Arc::clone(&remote);
     remote.log.push("app resumed");
-    // First, so it reaches the desktop before the webview opens its streams.
-    remote.visible.store(true, Ordering::SeqCst);
+    let was_hidden = !remote.visible.swap(true, Ordering::SeqCst);
     remote.hide_gen.fetch_add(1, Ordering::SeqCst);
     remote.bg_capped.store(false, Ordering::SeqCst);
     if remote.bg_settings().enabled {
         remote.queue(ClientMsg::Background { on: false });
     }
-    remote.network_change().await;
-    let (running, phase) = {
-        let inner = remote.lock();
-        (inner.task.is_some(), inner.state.phase)
-    };
-    if !running {
-        if store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() && !remote.pairing.load(Ordering::SeqCst) {
-            remote.ensure_task(&app);
-        }
-    } else if phase == Some(Phase::Waiting) {
-        remote.retry.notify_waiters();
-    } else {
-        remote.resume.notify_one();
+    let restart = remote.lock().state.restart_on_resume(was_hidden);
+    recover_link(&app, &remote, restart).await;
+    Ok(())
+}
+
+/// Network recovery does not mark a hidden app visible or bypass pairing.
+#[tauri::command]
+pub async fn network_changed(app: AppHandle, remote: State<'_, Arc<Remote>>) -> Result<(), String> {
+    let remote = Arc::clone(&remote);
+    remote.log.push("network changed");
+    if !remote.idle() {
+        recover_link(&app, &remote, true).await;
     }
     Ok(())
+}
+
+async fn recover_link(app: &AppHandle, remote: &Arc<Remote>, restart_running: bool) {
+    remote.network_change().await;
+    if remote.pairing.load(Ordering::SeqCst) {
+        return;
+    }
+    let running = remote.lock().task.is_some();
+    if running {
+        if restart_running {
+            remote.restart.send_replace(());
+        }
+    } else if store::load_pairing(&remote.pairing_path(), &remote.codec).is_paired() {
+        remote.ensure_task(app);
+    }
 }
 
 /// The app went out of sight (call on `visibilitychange` -> hidden). With the

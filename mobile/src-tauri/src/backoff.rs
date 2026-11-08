@@ -8,12 +8,9 @@ pub(crate) const PING_EVERY: Duration = Duration::from_secs(20);
 /// even though QUIC has not noticed yet. (The QUIC idle timeout is 90 s, see
 /// `link::IDLE_TIMEOUT`, so this timer always fires first.)
 pub(crate) const DEAD_AFTER: Duration = Duration::from_secs(60);
-/// When the app comes back to the foreground the link may be a zombie (the OS
-/// froze the process, or Wi-Fi/mobile data switched meanwhile): a ping must be
-/// answered within this long or the link is dropped and redialed at once.
-/// (Right after a network switch the first round trip can take several
-/// seconds, so a shorter fuse falsely killed healthy links.)
-pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+/// Foreground liveness is independent of QUIC's longer background tolerance.
+pub(crate) const FOREGROUND_PING_EVERY: Duration = Duration::from_secs(5);
+pub(crate) const FOREGROUND_DEAD_AFTER: Duration = Duration::from_secs(15);
 /// A link that dies sooner than this after coming online counts as a failed
 /// attempt for the backoff (a desktop that accepts and immediately hangs up
 /// must not be redialed once a second forever).
@@ -41,9 +38,29 @@ pub(crate) fn failures_after_link(failures: u32, lived: Duration) -> u32 {
     }
 }
 
+/// A stable foreground session gets one immediate redial, just like launch.
+/// Failed dials and short-lived links still back off; hidden links save battery.
+pub(crate) fn retry_after_link(failures: u32, lived: Duration, visible: bool, idle: bool) -> (u32, Duration) {
+    if visible && lived >= STABLE_AFTER {
+        (0, Duration::ZERO)
+    } else {
+        let failures = failures_after_link(failures, lived);
+        (failures, backoff_delay(failures, idle))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stable_foreground_links_redial_immediately_but_flapping_links_back_off() {
+        assert_eq!(retry_after_link(7, STABLE_AFTER, true, false), (0, Duration::ZERO));
+        assert_eq!(retry_after_link(3, Duration::from_secs(2), true, false), (4, Duration::from_secs(8)));
+        assert_eq!(retry_after_link(7, STABLE_AFTER, false, true), (1, Duration::from_secs(1)));
+        // A hidden app with background mode enabled still avoids immediate redials.
+        assert_eq!(retry_after_link(7, STABLE_AFTER, false, false), (1, Duration::from_secs(1)));
+    }
 
     #[test]
     fn backoff_doubles_up_to_eight_seconds() {

@@ -1,17 +1,19 @@
 //! The reconnect side of `Remote`: the backoff sleep, starting and stopping
 //! the loop task, and the loop that dials, serves and redials.
 
-use crate::backoff::{backoff_delay, failures_after_link, REBUILD_ENDPOINT_EVERY};
+use crate::backoff::{backoff_delay, retry_after_link, REBUILD_ENDPOINT_EVERY};
 use crate::link::{self, LinkError, Session};
 use crate::serve::{serve, Exit};
 use crate::state::{Phase, Remote, StateEvent, Status};
 use crate::store::{self, Pairing};
 use flowcode_remote_proto::{ClientMsg, ServerMsg};
 use serde::Serialize;
+use std::future::Future;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
+use tokio::sync::watch;
 
 impl Remote {
     /// Stops the loop while the app is out of sight and the link is not wanted
@@ -38,20 +40,12 @@ impl Remote {
         self.set_state(app, Status::Offline, host_name, None);
     }
 
-    /// Backoff sleep that `retry_now` can end early.
+    /// Backoff sleep; the outer recovery select can interrupt this entire stage.
     pub(crate) async fn wait(&self, app: &AppHandle, host: Option<String>, error: String, attempt: u32, delay: Duration) {
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64) + delay.as_millis() as u64;
-        // Registered before the state is published: a `retry_now` the UI sends
-        // on seeing "waiting" can then never slip in between.
-        let notified = self.retry.notified();
-        tokio::pin!(notified);
-        notified.as_mut().enable();
         self.log.push(format!("attempt failed ({error}); retry in {} s (failure {attempt})", delay.as_secs()));
         self.emit(app, StateEvent::new(Status::Offline).host(host).error(Some(error)).phase(Phase::Waiting, attempt, Some(at)));
-        tokio::select! {
-            _ = tokio::time::sleep(delay) => {}
-            _ = &mut notified => {}
-        }
+        tokio::time::sleep(delay).await;
     }
 
     /// Stops the reconnect loop (if any) and drops its outbound queue.
@@ -59,6 +53,9 @@ impl Remote {
         let mut inner = self.lock();
         inner.generation += 1;
         inner.out = None;
+        if let Some(conn) = inner.conn.take() {
+            conn.close(0u32.into(), b"suspended");
+        }
         if let Some(task) = inner.task.take() {
             task.abort();
         }
@@ -85,9 +82,10 @@ impl Remote {
         if let Some(task) = inner.task.take() {
             task.abort();
         }
+        let restart = self.restart.subscribe();
         let (remote, app) = (Arc::clone(self), app.clone());
         inner.task = Some(tauri::async_runtime::spawn(async move {
-            reconnect_loop(&app, &remote, initial).await;
+            reconnect_loop(&app, &remote, initial, restart, generation).await;
             let mut inner = remote.lock();
             if inner.generation == generation {
                 inner.task = None;
@@ -126,7 +124,38 @@ pub(crate) async fn connect_once(app: &AppHandle, remote: &Remote, pairing: &Pai
 
 /// Connects, serves, and reconnects until the pairing is gone or the task is
 /// aborted. `initial` is a session `pair` already established.
-pub(crate) async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Option<Session>) {
+async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut initial: Option<Session>, mut restart: watch::Receiver<()>, generation: u64) {
+    loop {
+        if !until_restart(&mut restart, connection_run(app, remote, initial.take())).await {
+            return;
+        }
+        // Cancelling serve drops its guard, including a blocked writer. Clear
+        // published handles too: its normal cleanup is skipped on cancellation.
+        let mut inner = remote.lock();
+        // A task replaced concurrently may still finish its current poll before
+        // abort takes effect. It must not clear the new task's connection.
+        if inner.generation != generation {
+            return;
+        }
+        inner.out = None;
+        if let Some(conn) = inner.conn.take() {
+            conn.close(0u32.into(), b"reconnecting");
+        }
+        remote.log.push("recovery requested: redialing immediately, backoff reset");
+    }
+}
+
+/// The watch version covers events during writes and between connection stages.
+/// Prefer recovery over a simultaneously completed failure/backoff.
+async fn until_restart(restart: &mut watch::Receiver<()>, work: impl Future<Output = ()>) -> bool {
+    tokio::select! {
+        biased;
+        Ok(()) = restart.changed() => true,
+        () = work => false,
+    }
+}
+
+async fn connection_run(app: &AppHandle, remote: &Arc<Remote>, mut initial: Option<Session>) {
     let mut failures: u32 = 0;
     remote.log.push("connection loop started");
     loop {
@@ -189,8 +218,13 @@ pub(crate) async fn reconnect_loop(app: &AppHandle, remote: &Arc<Remote>, mut in
                 remote.log.push(format!("link closed after {} s: {message}", lived.as_secs()));
                 // A link that held is a fresh start; one that died at once keeps
                 // counting, so the backoff grows and the endpoint gets rebuilt.
-                failures = failures_after_link(failures, lived);
-                remote.wait(app, Some(host_name), message, failures, backoff_delay(failures, remote.idle())).await;
+                let (next_failures, delay) = retry_after_link(failures, lived, remote.visible.load(Ordering::SeqCst), remote.idle());
+                failures = next_failures;
+                if delay.is_zero() {
+                    remote.log.push("stable foreground link lost: redialing immediately");
+                } else {
+                    remote.wait(app, Some(host_name), message, failures, delay).await;
+                }
             }
         }
     }
@@ -217,4 +251,49 @@ pub(crate) fn forget(app: &AppHandle, remote: &Arc<Remote>, host_name: &str, mes
     }
     remote.rearm_with(false);
     remote.set_state(app, Status::Unpaired, None, Some(message));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct Cancelled(Arc<AtomicBool>);
+    impl Drop for Cancelled {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_interrupts_stalled_work_and_drops_its_connection_guard() {
+        let (tx, mut rx) = watch::channel(());
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let guard = Cancelled(Arc::clone(&cancelled));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let work = async move {
+            let _guard = guard;
+            started_tx.send(()).unwrap();
+            std::future::pending::<()>().await;
+        };
+        let signal = async move {
+            started_rx.await.unwrap();
+            tx.send_replace(());
+        };
+        let (restarted, ()) = tokio::join!(until_restart(&mut rx, work), signal);
+        assert!(restarted);
+        assert!(cancelled.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn recovery_between_stages_is_not_lost_or_replayed_on_the_next_attempt() {
+        let (tx, mut rx) = watch::channel(());
+        tx.send_replace(());
+        tx.send_replace(()); // Coalesce a burst of network/resume events.
+        assert!(until_restart(&mut rx, std::future::pending()).await);
+        assert!(!until_restart(&mut rx, async {}).await);
+        // A new loop after suspension starts with the latest version consumed.
+        let mut new_loop = tx.subscribe();
+        assert!(!until_restart(&mut new_loop, async {}).await);
+    }
 }

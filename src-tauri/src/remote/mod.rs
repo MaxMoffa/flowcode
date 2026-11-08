@@ -174,9 +174,30 @@ const INPUT_ERROR_QUIET: Duration = Duration::from_secs(3);
 
 // ---- shared state --------------------------------------------------------
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kick {
+    Revoked,
+    Replaced,
+}
+
 struct ConnEntry {
     device_id: String,
-    kick: watch::Sender<bool>,
+    kick: watch::Sender<Option<Kick>>,
+    connection: Connection,
+}
+
+/// Only called after token and node identity authentication. Closing the old
+/// transport also interrupts its writer even if its control loop is busy.
+fn install_connection(conns: &mut HashMap<u64, ConnEntry>, id: u64, entry: ConnEntry) {
+    conns.retain(|_, old| {
+        if old.device_id != entry.device_id {
+            return true;
+        }
+        old.kick.send_replace(Some(Kick::Replaced));
+        old.connection.close(0u32.into(), b"replaced");
+        false
+    });
+    conns.insert(id, entry);
 }
 
 struct Running {
@@ -554,9 +575,9 @@ impl Shared {
         }
     }
 
-    fn register_conn(&self, device_id: &str, kick: watch::Sender<bool>) -> u64 {
+    fn register_conn(&self, device_id: &str, kick: watch::Sender<Option<Kick>>, connection: &Connection) -> u64 {
         let id = self.next_conn.fetch_add(1, Ordering::Relaxed);
-        lock(&self.conns).insert(id, ConnEntry { device_id: device_id.to_string(), kick });
+        install_connection(&mut lock(&self.conns), id, ConnEntry { device_id: device_id.to_string(), kick, connection: connection.clone() });
         self.devices_changed();
         id
     }
@@ -597,7 +618,7 @@ impl Shared {
         lock(&self.config).devices.retain(|d| d.id != device_id);
         self.save();
         for conn in lock(&self.conns).values().filter(|c| c.device_id == device_id) {
-            let _ = conn.kick.send(true);
+            let _ = conn.kick.send(Some(Kick::Revoked));
         }
         self.devices_changed();
     }
@@ -1627,8 +1648,8 @@ async fn run_connection(
         shared.notify(tr("Telefono connesso", "Phone connected").to_string(), body);
     }
 
-    let (kick_tx, mut kick_rx) = watch::channel(false);
-    let conn_id = shared.register_conn(&device.id, kick_tx);
+    let (kick_tx, mut kick_rx) = watch::channel(None);
+    let conn_id = shared.register_conn(&device.id, kick_tx, connection);
 
     let (out_tx, out_rx) = mpsc::channel::<ServerMsg>(OUT_QUEUE);
     let compress = Arc::new(AtomicBool::new(false));
@@ -1767,11 +1788,15 @@ async fn run_connection(
                 },
                 Err(_) => continue,
             },
-            // The device was revoked.
             _ = kick_rx.changed() => {
-                let message = tr("Dispositivo revocato", "Device revoked").to_string();
-                conn.send(ServerMsg::Error { message, pty_id: None, fatal: true });
-                why = "device revoked";
+                if *kick_rx.borrow() == Some(Kick::Revoked) {
+                    let message = tr("Dispositivo revocato", "Device revoked").to_string();
+                    conn.send(ServerMsg::Error { message, pty_id: None, fatal: true });
+                    why = "device revoked";
+                } else {
+                    // Recovery is transient: never make the phone forget pairing.
+                    why = "connection replaced";
+                }
                 break;
             }
             _ = shutdown.changed() => {
@@ -2681,6 +2706,49 @@ mod tests {
     use super::*;
     use iroh::SecretKey;
     use std::str::FromStr;
+
+    #[tokio::test]
+    async fn authenticated_replacement_closes_only_old_device_transport_and_never_revokes() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let server = Endpoint::builder(iroh::endpoint::presets::Minimal)
+                .alpns(vec![proto::ALPN.to_vec()])
+                .bind_addr("127.0.0.1:0").unwrap().bind().await.unwrap();
+            let mut clients = Vec::new();
+            let mut connections = Vec::new();
+            for _ in 0..3 {
+                let client = Endpoint::builder(iroh::endpoint::presets::Minimal)
+                    .bind_addr("127.0.0.1:0").unwrap().bind().await.unwrap();
+                let incoming = async { server.accept().await.unwrap().await.unwrap() };
+                let (connection, peer) = tokio::join!(incoming, client.connect(server.addr(), proto::ALPN));
+                connections.push(connection);
+                clients.push((client, peer.unwrap()));
+            }
+            let mut conns = HashMap::new();
+            let (old_kick, old_rx) = watch::channel(None);
+            let (other_kick, other_rx) = watch::channel(None);
+            let (new_kick, new_rx) = watch::channel(None);
+            install_connection(&mut conns, 1, ConnEntry { device_id: "phone".into(), kick: old_kick, connection: connections[0].clone() });
+            install_connection(&mut conns, 2, ConnEntry { device_id: "other".into(), kick: other_kick, connection: connections[1].clone() });
+            install_connection(&mut conns, 3, ConnEntry { device_id: "phone".into(), kick: new_kick, connection: connections[2].clone() });
+            assert_eq!(conns.len(), 2);
+            assert_eq!(*old_rx.borrow(), Some(Kick::Replaced));
+            assert_eq!(*other_rx.borrow(), None);
+            assert_eq!(*new_rx.borrow(), None);
+            assert!(connections[0].close_reason().is_some());
+            assert!(connections[1].close_reason().is_none());
+            assert!(connections[2].close_reason().is_none());
+            // Cleanup from the old session cannot unregister its replacement.
+            assert!(conns.remove(&1).is_none());
+            assert!(conns.contains_key(&3));
+            // Real revocation keeps its distinct, fatal signal.
+            conns[&3].kick.send(Some(Kick::Revoked)).unwrap();
+            assert_eq!(*new_rx.borrow(), Some(Kick::Revoked));
+            for (client, _) in &clients {
+                client.close().await;
+            }
+            server.close().await;
+        }).await.expect("replacement waited for the old QUIC idle timeout");
+    }
 
     #[test]
     fn update_msg_forces_object_and_sets_allowed() {

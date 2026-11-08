@@ -8,6 +8,7 @@ import { setLanguage, t } from "./i18n";
 import { createStore, safeStorage } from "./store";
 import { hostInfoFrom, supports, type HostInfo } from "./compatCheck";
 import { normalizeDesktopUpdate } from "./desktopUpdate";
+import { listenForNetworkRecovery } from "./connectionRecovery";
 import { normalizeLoggedIn, normalizeProfiles, normalizeSettings } from "./settingsModel";
 
 import type { Action, ChatInfo, ClientMsg, DesktopUpdate, RemoteCap, MirroredSettings, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
@@ -246,6 +247,10 @@ async function wire(): Promise<void> {
   }));
   // The active desktop refused this phone for good; the core already moved to another saved one.
   unlisteners.push(await listen<{ host: string; message: string }>("remote://revoked", (e) => showToast(t("computerRevoked", { host: e.payload.host, message: e.payload.message }))));
+  const connection = (navigator as Navigator & { connection?: EventTarget }).connection;
+  unlisteners.push(listenForNetworkRecovery(window, connection, () => {
+    void invoke<void>("network_changed").catch(() => {});
+  }));
   void checkNotificationTap();
   const state = await invoke<{ paired: boolean; hostName?: string }>("pairing_state");
   if (state.paired) {

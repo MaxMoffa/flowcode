@@ -24,9 +24,20 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 /// A `pair` also waits for the user to confirm on the desktop (up to 60 s).
 const PAIR_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(75);
 
-/// An open, handshaken connection. `conn` is kept so dropping the struct
-/// closes the QUIC connection (and the desktop notices at once).
+/// Owns the transport through authentication and the returned session, including
+/// cancellation before `serve` starts. Keeping a cloned handle does not keep it open.
+struct ConnectionGuard(Connection);
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.0.close(0u32.into(), b"link dropped");
+    }
+}
+
+/// An open, handshaken connection. Its guard closes the QUIC connection when
+/// the session is dropped, even if another connection handle is still held.
 pub struct Session {
+    _guard: ConnectionGuard,
     pub conn: Connection,
     pub send: SendStream,
     pub recv: RecvStream,
@@ -110,6 +121,7 @@ pub async fn handshake_with(
         }
         Ok(Ok(conn)) => conn,
     };
+    let guard = ConnectionGuard(conn.clone());
     log(format!("dial ok in {} ms", started.elapsed().as_millis()));
     on_connected();
     let (mut send, mut recv) = conn.open_bi().await.map_err(|e| {
@@ -171,7 +183,7 @@ pub async fn handshake_with(
     };
     log(format!("handshake ok in {} ms", handshake_started.elapsed().as_millis()));
     let (app_version, proto, caps) = info;
-    Ok(Session { conn, send, recv, host_name, device_name, app_version, proto, caps, token })
+    Ok(Session { _guard: guard, conn, send, recv, host_name, device_name, app_version, proto, caps, token })
 }
 
 fn frame_err(e: FrameError) -> LinkError {
@@ -192,4 +204,74 @@ pub fn inspect_ticket(ticket: &str) -> Result<(String, String), String> {
 /// ticket string itself changes with the desktop's addresses.
 pub fn computer_id(node_ticket: &str) -> String {
     EndpointTicket::from_str(node_ticket).map_or_else(|_| node_ticket.to_string(), |t| t.endpoint_addr().id.to_string())
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+
+    async fn local_endpoint() -> Endpoint {
+        Endpoint::builder(presets::Minimal)
+            .alpns(vec![ALPN.to_vec()])
+            .bind_addr("127.0.0.1:0").unwrap()
+            .bind().await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn abandoned_authentication_closes_transport_without_waiting_for_idle_timeout() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let server = local_endpoint().await;
+            let client = local_endpoint().await;
+            let ticket = EndpointTicket::new(server.addr()).to_string();
+            let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
+            let host = async {
+                let connection = server.accept().await.unwrap().await.unwrap();
+                let (_send, mut recv) = connection.accept_bi().await.unwrap();
+                assert!(matches!(read_frame::<_, ClientMsg>(&mut recv).await.unwrap(), ClientMsg::Auth { .. }));
+                seen_tx.send(()).unwrap();
+                // No Ready: recovery must cancel the blocked handshake and close QUIC.
+                let reason = connection.closed().await;
+                assert!(reason.to_string().contains("link dropped"), "{reason}");
+            };
+            let phone = async {
+                tokio::select! {
+                    result = handshake(&client, &ticket, ClientMsg::Auth { token: "test".into() }) => {
+                        panic!("handshake completed unexpectedly: {:?}", result.err());
+                    }
+                    _ = seen_rx => {}
+                }
+            };
+            tokio::join!(host, phone);
+            tokio::join!(server.close(), client.close());
+        }).await.expect("cancelled handshake kept the transport alive");
+    }
+
+    #[tokio::test]
+    async fn successful_session_keeps_transport_until_session_is_dropped() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let server = local_endpoint().await;
+            let client = local_endpoint().await;
+            let ticket = EndpointTicket::new(server.addr()).to_string();
+            let host = async {
+                let connection = server.accept().await.unwrap().await.unwrap();
+                let (mut send, mut recv) = connection.accept_bi().await.unwrap();
+                assert!(matches!(read_frame::<_, ClientMsg>(&mut recv).await.unwrap(), ClientMsg::Auth { .. }));
+                write_frame(&mut send, &ServerMsg::Ready {
+                    device_name: "phone".into(), host_name: "desktop".into(),
+                    app_version: None, proto: None, caps: vec![],
+                }).await.unwrap();
+                connection.closed().await;
+            };
+            let phone = async {
+                let session = handshake(&client, &ticket, ClientMsg::Auth { token: "test".into() }).await.unwrap();
+                let observer = session.conn.clone();
+                assert!(observer.close_reason().is_none());
+                drop(session);
+                // Even an extra handle must not keep an abandoned session alive.
+                assert!(observer.close_reason().is_some());
+            };
+            tokio::join!(host, phone);
+            tokio::join!(server.close(), client.close());
+        }).await.expect("dropped session kept the transport alive");
+    }
 }

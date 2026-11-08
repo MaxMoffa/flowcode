@@ -28,10 +28,21 @@ the code or this file, not just one.
   default keep-alives (5 s) and has a 90 s idle timeout; the desktop's keep-alive
   is 25 s (so a backgrounded phone's radio can idle) and its idle timeout 120 s.
   The effective idle timeout is the smaller of the two peers', i.e. 90 s. On top
-  of that the phone `ping`s every 20 s and treats 60 s without any frame from the
-  desktop as a dead link (always before QUIC's own timeout). When the app comes
-  back to the foreground it pings at once and drops and redials the link if no
-  frame arrives within 8 s.
+  of that the phone `ping`s every 5 s while visible (20 s while hidden) and
+  treats 15 s without a frame while visible (60 s while hidden) as a dead link.
+  Returning from the background, network-online, and NetworkInformation change
+  events signal iroh to refresh its paths and immediately replace the current
+  dial, handshake, live session, or backoff. Recovery resets the failure count;
+  repeated visible events do not cancel a fresh launch dial. A stable foreground
+  session also gets one immediate redial when lost; failed dials and flapping
+  links still back off. The endpoint and the stored address hints stay cached;
+  repeated failed dials still rebuild the endpoint. Authentication is unchanged.
+  Chat replay continues from the last received sequence number.
+- After authenticating both the token and node identity, the desktop immediately
+  closes any previous connection for that paired device. Replacement is transient,
+  never a fatal revocation, and does not wait for the old connection's idle timeout.
+  Other paired devices stay connected. Cleanup uses connection ids, so an old
+  session cannot unregister its replacement.
 
 ## Framing
 

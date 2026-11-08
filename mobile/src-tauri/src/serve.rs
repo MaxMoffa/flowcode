@@ -1,7 +1,7 @@
 //! One live link: the reader task, the select loop that pings, forwards
 //! and writes, and the guard that tears the connection down.
 
-use crate::backoff::{DEAD_AFTER, PING_EVERY, PROBE_TIMEOUT};
+use crate::backoff::{DEAD_AFTER, FOREGROUND_DEAD_AFTER, FOREGROUND_PING_EVERY, PING_EVERY};
 use crate::link::Session;
 use crate::state::{Remote, OUT_QUEUE};
 use flowcode_remote_proto::{ClientMsg, FrameError, ServerMsg};
@@ -158,8 +158,10 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
     let _guard = ServeGuard { reader: reader.abort_handle(), conn: session.conn.clone() };
 
     let exit = async {
-        let mut ping = tokio::time::interval(PING_EVERY);
+        let mut ping = tokio::time::interval(FOREGROUND_PING_EVERY);
+        ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         ping.tick().await;
+        let mut last_ping = Instant::now();
         let mut last_rx = Instant::now();
         // Large frames from a desktop that can deflate them come smaller; it
         // switches when it reads this, ahead of anything else we ask for.
@@ -169,8 +171,6 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                 return Exit::Lost(e);
             }
         }
-        // Set when the app resumes: the link must prove itself by then.
-        let mut probe_until: Option<tokio::time::Instant> = None;
         if let Err(e) = send_frame(&mut session.send, &ClientMsg::List).await {
             return Exit::Lost(e);
         }
@@ -188,12 +188,9 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
         let mut counters = LinkCounters::of(&session.conn);
         let mut metrics = tokio::time::interval_at(tokio::time::Instant::now() + METRICS_FIRST, METRICS_EVERY);
         loop {
-            let probe = async {
-                match probe_until {
-                    Some(t) => tokio::time::sleep_until(t).await,
-                    None => std::future::pending().await,
-                }
-            };
+            let visible = remote.visible.load(Ordering::SeqCst);
+            let dead_after = if visible { FOREGROUND_DEAD_AFTER } else { DEAD_AFTER };
+            let dead_at = tokio::time::Instant::from_std(last_rx + dead_after);
             tokio::select! {
                 incoming = in_rx.recv() => {
                     // One webview event for the whole burst already waiting.
@@ -204,7 +201,6 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                         match item {
                             Some(Inbound::Msg(msg)) => {
                                 last_rx = Instant::now();
-                                probe_until = None;
                                 if let ServerMsg::Notify { title, body, tab_id } = &msg {
                                     remote.on_notify(title, body, tab_id.as_deref());
                                 }
@@ -216,7 +212,6 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                             Some(Inbound::Skipped(e)) => {
                                 // Still proof that the link is alive.
                                 last_rx = Instant::now();
-                                probe_until = None;
                                 if !warned_unknown {
                                     warned_unknown = true;
                                     remote.log.push(format!("skipped a message this version does not understand: {e}"));
@@ -262,19 +257,12 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                     }
                 }
                 _ = ping.tick() => {
-                    if last_rx.elapsed() > DEAD_AFTER {
-                        return Exit::Lost("the desktop stopped answering".into());
+                    if visible || last_ping.elapsed() >= PING_EVERY {
+                        if let Err(e) = send_frame(&mut session.send, &ClientMsg::Ping).await {
+                            return Exit::Lost(e);
+                        }
+                        last_ping = Instant::now();
                     }
-                    if let Err(e) = send_frame(&mut session.send, &ClientMsg::Ping).await {
-                        return Exit::Lost(e);
-                    }
-                }
-                _ = remote.resume.notified() => {
-                    remote.log.push("app resumed: probing the link");
-                    if let Err(e) = send_frame(&mut session.send, &ClientMsg::Ping).await {
-                        return Exit::Lost(e);
-                    }
-                    probe_until.get_or_insert_with(|| tokio::time::Instant::now() + PROBE_TIMEOUT);
                 }
                 Some(list) = paths.next() => {
                     if let Some((key, line)) = selected_path(&list) {
@@ -289,7 +277,14 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                         remote.log.push_metrics(&line);
                     }
                 }
-                _ = probe => return Exit::Lost("the desktop did not answer after resuming".into()),
+                _ = tokio::time::sleep_until(dead_at) => {
+                    // Visibility can change while this select is asleep. A
+                    // foreground deadline must not kill a newly hidden link.
+                    let dead_after = if remote.visible.load(Ordering::SeqCst) { FOREGROUND_DEAD_AFTER } else { DEAD_AFTER };
+                    if last_rx.elapsed() >= dead_after {
+                        return Exit::Lost("the desktop stopped answering".into());
+                    }
+                }
             }
         }
     }

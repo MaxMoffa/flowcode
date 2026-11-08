@@ -28,7 +28,7 @@ use state::{Inner, Remote, StateEvent, Status};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
-use tokio::sync::Notify;
+use tokio::sync::{watch, Notify};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -53,8 +53,7 @@ pub fn run() {
                 codec: app.state::<SecureStore>().inner().clone(),
                 endpoint: tokio::sync::Mutex::new(None),
                 inner: Mutex::new(Inner { state: StateEvent::new(Status::Connecting), ..Default::default() }),
-                retry: Notify::new(),
-                resume: Notify::new(),
+                restart: watch::channel(()).0,
                 pairing: AtomicBool::new(false),
                 others_lock: Mutex::new(()),
                 pair_cancel: Notify::new(),
@@ -83,6 +82,7 @@ pub fn run() {
             commands::send,
             commands::retry_now,
             commands::app_resumed,
+            commands::network_changed,
             commands::connection_log,
             commands::app_hidden,
             commands::suspend_link,
