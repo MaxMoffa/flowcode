@@ -18,6 +18,7 @@ use crate::pty::PtyState;
 use crate::util::{has_bytes, insert_bounded, lock, now_ms, same_dir, wsl_unc};
 use crate::windows::WindowTabs;
 
+pub(crate) mod registry;
 mod claude;
 pub use self::claude::*;
 mod claude_history;

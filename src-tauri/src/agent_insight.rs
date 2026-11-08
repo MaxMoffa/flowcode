@@ -242,7 +242,7 @@ fn memory_of(candidates: &[PathBuf]) -> (u64, Vec<String>) {
 
 pub(crate) fn read_tools(app: &tauri::AppHandle, cli: &str, cwd: &str, profile: Option<String>) -> Result<AgentTools, String> {
     let mut tools = AgentTools::default();
-    if cli != "claude" && cli != "codex" {
+    if !crate::agents::registry::reads_sessions(cli) {
         return Ok(tools);
     }
     let Some(dirs) = crate::profiles::dirs(app, profile.as_deref()) else {

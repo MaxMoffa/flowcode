@@ -310,7 +310,7 @@ pub struct SizeInfo {
 impl RemoteState {
     /// A provider refused startup before it could create a remotely visible chat.
     pub(crate) fn notify_provider_auth_required(&self, cli: &str, profile: Option<&str>) {
-        if !matches!(cli, "claude" | "codex" | "gemini" | "vibe") { return; }
+        if !crate::agents::registry::is_known(cli) { return; }
         let _ = self.0.notices.send(ServerMsg::ProviderAuthRequired { cli: cli.to_string(), profile: profile.map(str::to_string) });
     }
     /// This desktop's own server node id while the endpoint runs, so the
@@ -839,7 +839,7 @@ impl Shared {
     async fn contexts_for(&self, sessions: &[crate::agents::AgentSession]) -> HashMap<String, Option<TabContext>> {
         let wanted: Vec<_> = sessions
             .iter()
-            .filter(|s| matches!(s.cli.as_str(), "claude" | "codex"))
+            .filter(|s| crate::agents::registry::reads_sessions(&s.cli))
             .filter_map(|s| Some((s.pty_id.clone(), s.cli.clone(), s.session_id.clone()?, s.profile.clone())))
             .collect();
         let stale: Vec<_> = {
@@ -2143,7 +2143,7 @@ impl Conn {
             let app = shared.app.clone();
             let read_cli = cli.clone();
             let read = crate::blocking(move || {
-                let reads_session = matches!(read_cli.as_str(), "claude" | "codex") && !wsl;
+                let reads_session = crate::agents::registry::reads_sessions(&read_cli) && !wsl;
                 let session = if reads_session { session_id } else { None };
                 let context = session.as_deref().and_then(|id| {
                     crate::context::read_context(&app, &read_cli, id, profile.clone())
@@ -2253,7 +2253,7 @@ impl Conn {
     /// Whether the folder, agent and profile of a `newtab` / `newchat` make
     /// sense; tells the phone what doesn't.
     fn new_target_ok(&self, cwd: &Option<String>, cli: Option<&str>, profile: &Option<String>) -> bool {
-        if cli.is_some_and(|c| !matches!(c, "claude" | "codex" | "vibe" | "gemini")) {
+        if cli.is_some_and(|c| !crate::agents::registry::is_known(c)) {
             self.error(tr("Agente sconosciuto", "Unknown agent"), None);
             return false;
         }
@@ -2607,7 +2607,7 @@ impl Conn {
                     && (!needs_id || id.as_deref().is_some_and(|s| !s.is_empty()))
                     && (needs_id || !matches!(op.as_str(), "login" | "logout") || id.is_some())
                     && (!needs_look || (name.as_deref().is_some_and(|s| !s.trim().is_empty()) && color.is_some()))
-                    && (!matches!(op.as_str(), "login" | "logout") || matches!(cli.as_deref(), Some("claude" | "codex" | "vibe" | "gemini")));
+                    && (!matches!(op.as_str(), "login" | "logout") || cli.as_deref().is_some_and(crate::agents::registry::is_known));
                 if !valid {
                     self.error(tr("Richiesta profilo non valida", "Invalid profile request"), None);
                     return;

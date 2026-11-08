@@ -1,4 +1,5 @@
 import type { ChatEvent } from "./chatTypes";
+import { hasCap } from "../../shared/agentRegistry";
 
 /** How long a chat can sit idle before the provider's prompt cache (Anthropic's default TTL: 5 minutes) is likely gone. */
 export const CACHE_IDLE_MS = 5 * 60_000;
@@ -58,7 +59,7 @@ export function cacheWarningDelay(opts: {
   ttlMs?: number;
 }): number | null {
   const { agent, idle, items, lastActivityAt, now, usageTokens, ttlMs } = opts;
-  if (agent !== "claude" || !idle || lastActivityAt === null) return null;
+  if (!hasCap(agent, "cacheWarning") || !idle || lastActivityAt === null) return null;
   if (!items.some((i) => i.type === "user")) return null;
   if (typeof usageTokens === "number") {
     if (usageTokens < CACHE_MIN_TOKENS) return null;

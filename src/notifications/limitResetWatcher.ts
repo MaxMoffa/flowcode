@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { t } from "../i18n";
 import { CLI_INFO, cliOfPlugin } from "../agents/cliInfo";
+import { hasCap } from "../../shared/agentRegistry";
 import { readJson, writeJson } from "../lib/storage";
 import type { UsageInfo } from "../plugins/usage";
 import { onUsageFetched } from "../plugins/useUsageState";
@@ -46,7 +47,7 @@ async function profileName(profile: string): Promise<string> {
 /** The CLIs whose usage limit is watched (Vibe is pay-per-use: no limit). */
 function watchedName(pluginId: string): string | undefined {
   const cli = cliOfPlugin(pluginId);
-  return cli === "claude" || cli === "codex" ? CLI_INFO[cli].name : undefined;
+  return hasCap(cli, "usageLimit") ? CLI_INFO[cli].name : undefined;
 }
 
 function readPending(): Pending {

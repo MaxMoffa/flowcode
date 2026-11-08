@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AgentTools, SessionUsage } from "./insightMath";
+import { hasCap } from "../../shared/agentRegistry";
 
 /** `undefined`: not read yet, `null`: couldn't be. */
 export type Loaded<T> = T | null | undefined;
@@ -53,7 +54,7 @@ export function useSessionUsage(agent: AgentRef, enabled: boolean): Loaded<Sessi
 export function useAgentTools(cli: string, cwd: string, profile: string | null, enabled: boolean) {
   const [tools, setTools] = useState<Loaded<AgentTools>>(undefined);
   const [nonce, setNonce] = useState(0);
-  const supported = cli === "claude" || cli === "codex";
+  const supported = hasCap(cli, "readsSessions");
   useEffect(() => {
     setTools(undefined);
     if (!enabled || !supported) return;

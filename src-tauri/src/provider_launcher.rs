@@ -121,7 +121,7 @@ pub fn run_if_requested() {
     let Some(cli) = args
         .next()
         .and_then(|arg| arg.into_string().ok())
-        .filter(|cli| ["claude", "codex", "gemini", "vibe"].contains(&cli.as_str()))
+        .filter(|cli| crate::agents::registry::is_known(cli))
     else {
         std::process::exit(2);
     };

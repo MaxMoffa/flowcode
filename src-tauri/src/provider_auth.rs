@@ -134,7 +134,7 @@ fn state_for(app: &AppHandle, cli: &str, profile: Option<&str>, probe: bool) -> 
 }
 
 fn validate_provider(cli: &str) -> Result<(), String> {
-    if matches!(cli, "claude" | "codex" | "gemini" | "vibe") { Ok(()) } else { Err("unsupported_provider".into()) }
+    if crate::agents::registry::is_known(cli) { Ok(()) } else { Err("unsupported_provider".into()) }
 }
 
 /// This is only a sign-in URL allowlist, never a general external-link opener.

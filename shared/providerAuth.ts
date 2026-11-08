@@ -1,5 +1,7 @@
+import type { AgentCli } from "./agentRegistry";
+
 /** Shared desktop/phone contract. Secrets travel only in a direct request. */
-export type AuthProvider = "claude" | "codex" | "gemini" | "vibe";
+export type AuthProvider = AgentCli;
 export type AuthMethod = "browser" | "apiKey";
 export interface ProviderAuthRequest {
   op: "status" | "start" | "poll" | "input" | "cancel" | "key";

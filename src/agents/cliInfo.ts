@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { AGENT_CLIS, type AgentCli } from "../../shared/agentRegistry";
 
-export type AgentCli = "claude" | "codex" | "vibe" | "gemini";
-export const AGENT_CLIS: readonly AgentCli[] = ["claude", "codex", "vibe", "gemini"];
+export { AGENT_CLIS, type AgentCli };
 
 interface CliInfo {
   /** Id of the example plugin that launches it (also the usage fetcher key). */

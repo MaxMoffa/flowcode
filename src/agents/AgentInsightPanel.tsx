@@ -12,6 +12,7 @@ import { useActiveAgent, type ActiveAgent } from "./activeAgent";
 import { useAgentToolsSettings } from "./agentToolsSettings";
 import { DelegatesPane } from "./DelegatesPane";
 import { CLI_INFO, type AgentCli } from "./cliInfo";
+import { hasCap } from "../../shared/agentRegistry";
 import {
   cacheHitRatio,
   contextSegments,
@@ -115,7 +116,7 @@ function AgentBody({ agent, onCompactChat, onOpenDelegate, onFocusTab }: { agent
   const [storedTab, setTab] = usePersistentState<Tab>(TAB_KEY, (k) => readEnum(k, TABS, "context"), writeString);
   const tab: Tab = storedTab === "delegates" && !showDelegates ? "context" : storedTab;
   const cli = agent.cli;
-  const readable = (cli === "claude" || cli === "codex") && !agent.wsl && !!agent.sessionId;
+  const readable = hasCap(cli, "readsSessions") && !agent.wsl && !!agent.sessionId;
   const context = usePolled(
     () => invoke<AgentContext | null>("agent_context", { cli, sessionId: agent.sessionId, profile: agent.profile }),
     `${cli}|${agent.sessionId}|${agent.profile}`,
@@ -181,7 +182,7 @@ function contextNote(
   context: Loaded<AgentContext | null>,
   t: ReturnType<typeof useI18n>["t"],
 ): string {
-  if (agent.cli !== "claude" && agent.cli !== "codex") return t("agentPanel.ctx.unsupported");
+  if (!hasCap(agent.cli, "readsSessions")) return t("agentPanel.ctx.unsupported");
   if (agent.wsl) return t("agentPanel.ctx.noWsl");
   if (!agent.sessionId) return t("agentPanel.ctx.noSession");
   if (readable && context === null) return t("usage.context.unavailable");

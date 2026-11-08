@@ -8,6 +8,7 @@ import { t } from "../i18n";
 import { accountBlockedUntil } from "../notifications/limitResetWatcher";
 import { detectLimit } from "./limitText";
 import { CLI_INFO, cliName } from "./cliInfo";
+import { hasCap } from "../../shared/agentRegistry";
 import { autoResumeMessage, getAutoResumeSettings } from "./autoResumeSettings";
 
 // Kept here for the importers that predate limitText.
@@ -104,7 +105,7 @@ export function useAutoResume(
 
     if (enabled) {
       for (const [id, agent] of agents) {
-        if (armedRef.current.has(id) || (agent.cli !== "claude" && agent.cli !== "codex")) continue;
+        if (armedRef.current.has(id) || !hasCap(agent.cli, "usageLimit")) continue;
         if (agent.state === "busy") continue;
         const tab = deps.getTab(id);
         const term = deps.getTerm(id);

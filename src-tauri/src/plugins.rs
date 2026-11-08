@@ -233,7 +233,7 @@ fn run_status_command(command: &str, envs: &[(String, String)]) -> std::io::Resu
 #[tauri::command]
 pub async fn check_cli_status(app: AppHandle, cli: String, profile: Option<String>) -> Result<CliStatus, String> {
     // `cli` ends up inside a shell command line - only the names this knows.
-    if !matches!(cli.as_str(), "claude" | "codex" | "vibe" | "gemini") {
+    if !crate::agents::registry::is_known(&cli) {
         return Ok(CliStatus { installed: false, logged_in: false });
     }
     crate::blocking(move || {

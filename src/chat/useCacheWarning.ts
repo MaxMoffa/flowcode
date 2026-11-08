@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { cacheWarningDelay, CACHE_IDLE_MS } from "./cacheWarning";
+import { hasCap } from "../../shared/agentRegistry";
 
 /** What the backend read from the Claude transcript: the cache lifetime and when the model was last called. */
 interface CacheInfo {
@@ -37,7 +38,7 @@ export function useCacheWarning(opts: {
   const [, bump] = useState(0);
   const [fetched, setFetched] = useState<{ sid: string; info: CacheInfo | null } | null>(null);
 
-  const wantsInfo = (local || !!loadInfo) && agent === "claude" && !!sessionId;
+  const wantsInfo = (local || !!loadInfo) && hasCap(agent, "cacheWarning") && !!sessionId;
   useEffect(() => {
     if (!wantsInfo || !sessionId) return;
     let alive = true;

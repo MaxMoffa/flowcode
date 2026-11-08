@@ -2,8 +2,9 @@
  * `profile`). The backend already checks shapes and lengths; this re-checks
  * what the desktop acts on, and is pure so it can be unit-tested. */
 
-const PROFILE_CLIS = ["claude", "codex", "vibe", "gemini"] as const;
-type ProfileCli = (typeof PROFILE_CLIS)[number];
+import { isAgentCli, type AgentCli } from "../../shared/agentRegistry";
+
+type ProfileCli = AgentCli;
 
 type ProfileOp =
   | { op: "create"; name: string; color: string; copySettings: boolean }
@@ -36,7 +37,7 @@ export function parseProfileOp(payload: unknown): ProfileOp | null {
     case "login":
     case "logout":
       // An empty id is the default profile; a malformed one is not.
-      if (!(PROFILE_CLIS as readonly unknown[]).includes(p.cli) || !isStr(p.id) || p.id.length > MAX_NAME) return null;
+      if (!isAgentCli(p.cli) || !isStr(p.id) || p.id.length > MAX_NAME) return null;
       return { op: p.op, id: p.id === "" ? null : p.id, cli: p.cli as ProfileCli };
     default:
       return null;

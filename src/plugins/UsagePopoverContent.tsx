@@ -5,6 +5,7 @@ import { useI18n } from "../i18n";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useActiveAgent } from "../agents/activeAgent";
 import { cliOfPlugin } from "../agents/cliInfo";
+import { hasCap } from "../../shared/agentRegistry";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { writePty } from "../terminal/ptyClient";
 
@@ -92,9 +93,9 @@ function ContextSection({ pluginId }: { pluginId: string }) {
   const { t } = useI18n();
   const [open, setOpen] = usePersistentState(CONTEXT_OPEN_KEY, (k) => readBool(k, false), writeBool);
   const agent = useActiveAgent();
-  // Context is only read for Claude Code and Codex sessions.
+  // Context is only read for agents whose sessions Flowcode reads.
   const pluginCli = cliOfPlugin(pluginId);
-  const cli = pluginCli === "vibe" || pluginCli === "gemini" ? undefined : pluginCli;
+  const cli = hasCap(pluginCli, "readsSessions") ? pluginCli : undefined;
   const mine = !!agent && agent.cli === cli;
   const sessionId = mine ? agent.sessionId : null;
   const profile = mine ? agent.profile : null;

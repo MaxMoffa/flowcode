@@ -19,6 +19,7 @@ import { RemoteAccessSettings } from "./RemoteAccessSettings";
 import { RemoteHostsSettings } from "../remoteHosts/RemoteHostsSettings";
 import { ShellStartDirs } from "./ShellStartDirs";
 import { PalettePicker } from "./PalettePicker";
+import type { AgentCli } from "../agents/cliInfo";
 import { DEFAULT_CONTRAST, DEFAULT_PALETTE_ID } from "../themes/palettes";
 import { useUpdater, type UpdateStatus } from "../update/UpdateContext";
 import pkg from "../../package.json";
@@ -65,7 +66,7 @@ interface SettingsPageProps {
   onSetFavoritesButtonVisible: (visible: boolean) => void;
   onOpenShortcutsGuide: () => void;
   /** Opens a tab running `cli`'s login under the profile. */
-  onProfileLogin?: (profileId: string | null, cli: "claude" | "codex" | "vibe" | "gemini") => void;
+  onProfileLogin?: (profileId: string | null, cli: AgentCli) => void;
 }
 
 function updateStatusText(status: UpdateStatus): string {

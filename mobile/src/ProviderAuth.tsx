@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ProviderAuthDialog } from "../../shared/ProviderAuthDialog";
+import { isAgentCli } from "../../shared/agentRegistry";
 import { isProviderAuthError, type AuthProvider, type ProviderAuthTarget } from "../../shared/providerAuth";
 import { useBackHandler } from "./back";
 import { t } from "./i18n";
@@ -16,7 +17,7 @@ onMessage(message => {
 });
 
 export function authProvider(value: string): AuthProvider | null {
-  return value === "claude" || value === "codex" || value === "gemini" || value === "vibe" ? value : null;
+  return isAgentCli(value) ? value : null;
 }
 
 /** One entry point from profiles, usage popups and provider errors. */
