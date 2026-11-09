@@ -69,7 +69,9 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
         // The desktop words a metric at render time; the phone gets it done.
         metrics: usage.metrics.map((m) => ({
           kind: m.kind,
-          label: m.label ?? metricText(m).label,
+          // Gauges get the desktop's translated wording (scope included), not
+          // the CLI's raw English row.
+          label: m.kind === "session" || m.kind === "week" ? metricText(m).label : (m.label ?? metricText(m).label),
           percent: m.percent,
           resets: m.resets,
           command: m.command,

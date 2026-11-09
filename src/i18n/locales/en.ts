@@ -394,6 +394,7 @@ export const en: Record<MessageKey, string> = {
 
   "usage.session": "Session (5 hours)",
   "usage.week": "Week",
+  "usage.allModels": "all models",
   "usage.resets": "Resets {when}",
   "usage.unavailable": "Unavailable",
   "usage.notLinked": "Not connected",

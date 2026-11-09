@@ -395,6 +395,7 @@ export const it = {
 
   "usage.session": "Sessione (5 ore)",
   "usage.week": "Settimana",
+  "usage.allModels": "tutti i modelli",
   "usage.resets": "Si azzera {when}",
   "usage.unavailable": "Non disponibile",
   "usage.notLinked": "Non collegato",

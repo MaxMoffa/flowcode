@@ -71,6 +71,15 @@ export function formatTokens(n: number): string {
   return String(n);
 }
 
+/** Claude splits a window per model ("Current week (all models)" next to
+ * "Current week (Fable)"): keep that scope on the translated label, or the
+ * two rows read the same. */
+function withScope(base: string, raw?: string): string {
+  const scope = raw?.match(/\(([^)]+)\)\s*$/)?.[1].trim();
+  if (!scope) return base;
+  return `${base} (${/^all models$/i.test(scope) ? t("usage.allModels") : scope})`;
+}
+
 /** Label, detail line and right-hand value of a metric, in the current
  * language - `value` is a figure that isn't a percentage (a spend, a model
  * name); a percentage is drawn from `percent` directly. */
@@ -98,7 +107,7 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
       return { label: t("usage.unpriced"), detail: m.label };
     default:
       return {
-        label: m.kind === "session" ? t("usage.session") : m.kind === "week" ? t("usage.week") : (m.label ?? ""),
+        label: m.kind === "session" ? withScope(t("usage.session"), m.label) : m.kind === "week" ? withScope(t("usage.week"), m.label) : (m.label ?? ""),
         detail: m.resets ? t("usage.resets", { when: m.resets }) : undefined,
       };
   }
