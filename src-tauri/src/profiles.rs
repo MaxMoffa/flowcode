@@ -65,6 +65,27 @@ pub struct ProfileInfo {
     /// `<app_config_dir>/profiles/<id>`.
     pub dir: String,
     pub logged_in: LoginState,
+    pub accounts: Accounts,
+}
+
+/// Who a CLI is signed in as, read off its files: the email of an account
+/// login, or the last characters of an API key. Never the key itself.
+#[derive(serde::Serialize, Clone)]
+pub struct AccountIdent {
+    /// "account" or "apiKey".
+    pub kind: &'static str,
+    /// account: the email. apiKey: "…" + the key's last 4 chars, `None` when unknown.
+    pub label: Option<String>,
+    /// Claude's organization, Codex's ChatGPT plan, Vibe's plan.
+    pub detail: Option<String>,
+}
+
+#[derive(serde::Serialize, Default)]
+pub struct Accounts {
+    pub claude: Option<AccountIdent>,
+    pub codex: Option<AccountIdent>,
+    pub vibe: Option<AccountIdent>,
+    pub gemini: Option<AccountIdent>,
 }
 
 #[derive(serde::Serialize)]
@@ -73,6 +94,8 @@ pub struct ProfilesState {
     pub project_defaults: HashMap<String, String>,
     /// The default profile's login state; `None` when the home folder can't be found.
     pub default_logged_in: Option<LoginState>,
+    /// Who the default profile's CLIs are signed in as.
+    pub default_accounts: Option<Accounts>,
 }
 
 fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -246,6 +269,159 @@ fn login_state(app: &AppHandle, d: &ProfileDirs, profile: Option<&str>, use_keyr
     }
 }
 
+/// The last 4 characters of an API key for display, never the key. `None` for
+/// anything too short to be a real key.
+pub(crate) fn key_hint(key: &str) -> Option<String> {
+    let key = key.trim().trim_matches(|c| c == '"' || c == '\'');
+    let count = key.chars().count();
+    if count >= 12 {
+        let tail: String = key.chars().skip(count - 4).collect();
+        Some(format!("…{tail}"))
+    } else {
+        None
+    }
+}
+
+/// Dotenv lookup of `key` in `env`.
+fn env_value(env: &str, key: &str) -> Option<String> {
+    env.lines().find_map(|line| {
+        let line = line.trim();
+        let line = line.strip_prefix("export ").unwrap_or(line).trim();
+        let (k, v) = line.split_once('=')?;
+        if k.trim() != key {
+            return None;
+        }
+        let v = v.trim().trim_matches(|c| c == '"' || c == '\'');
+        (!v.is_empty()).then(|| v.to_string())
+    })
+}
+
+fn non_empty_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(|s| s.as_str()).filter(|s| !s.is_empty())
+}
+
+fn claude_ident(v: &serde_json::Value) -> Option<AccountIdent> {
+    if let Some(account) = v.get("oauthAccount") {
+        if let Some(email) = non_empty_str(account, "emailAddress") {
+            return Some(AccountIdent {
+                kind: "account",
+                label: Some(email.to_string()),
+                detail: non_empty_str(account, "organizationName").map(str::to_string),
+            });
+        }
+    }
+    let key = non_empty_str(v, "primaryApiKey")?;
+    Some(AccountIdent { kind: "apiKey", label: key_hint(key), detail: None })
+}
+
+/// Reads the email and plan out of Codex's `id_token`. The JWT signature is NOT
+/// verified: this is display only, never an authorization decision.
+fn codex_ident(v: &serde_json::Value) -> Option<AccountIdent> {
+    use base64::Engine;
+    let from_token = v
+        .get("tokens")
+        .and_then(|t| non_empty_str(t, "id_token"))
+        .and_then(|token| {
+            let payload = token.split('.').nth(1)?.trim_end_matches('=');
+            let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
+            let payload: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+            let email = non_empty_str(&payload, "email")?.to_string();
+            let detail = payload
+                .get("https://api.openai.com/auth")
+                .and_then(|a| non_empty_str(a, "chatgpt_plan_type"))
+                .map(|plan| {
+                    let mut chars = plan.chars();
+                    let first: String = chars.next().into_iter().flat_map(char::to_uppercase).collect();
+                    format!("ChatGPT {first}{}", chars.as_str())
+                });
+            Some(AccountIdent { kind: "account", label: Some(email), detail })
+        });
+    if from_token.is_some() {
+        return from_token;
+    }
+    let key = non_empty_str(v, "OPENAI_API_KEY")?;
+    Some(AccountIdent { kind: "apiKey", label: key_hint(key), detail: None })
+}
+
+/// First plan name found in Vibe's `whoami_cache.json`.
+fn vibe_plan(v: &serde_json::Value) -> Option<String> {
+    v.as_object()?
+        .values()
+        .find_map(|e| e.get("payload").and_then(|p| non_empty_str(p, "plan_name")))
+        .map(str::to_string)
+}
+
+/// Claude's global `.claude.json`: in the home folder for the default profile
+/// unless CLAUDE_CONFIG_DIR moves it, else inside the profile's Claude folder.
+fn claude_global_json(d: &ProfileDirs, profile: Option<&str>) -> PathBuf {
+    if profile.is_none() && env_dir("CLAUDE_CONFIG_DIR").is_none() {
+        if let Some(home) = crate::fs::user_home() {
+            return home.join(".claude.json");
+        }
+    }
+    d.claude.join(".claude.json")
+}
+
+fn read_json(path: &Path) -> Option<serde_json::Value> {
+    if std::fs::metadata(path).ok()?.len() > 1024 * 1024 {
+        return None;
+    }
+    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+}
+
+/// Who each CLI is signed in as. File-only and cheap, like `login_state`.
+/// OpenCode is left out: its credentials can only be listed by running the CLI.
+fn accounts(app: &AppHandle, d: &ProfileDirs, profile: Option<&str>, use_keyring: bool) -> Accounts {
+    let vibe_plan = read_json(&d.vibe.join("whoami_cache.json")).as_ref().and_then(vibe_plan);
+    let saved_key = |cli: &str| crate::provider_auth_keys::method(app, cli, profile).as_deref() == Some("apiKey");
+    let saved = |cli: &str, detail: Option<String>| AccountIdent {
+        kind: "apiKey",
+        label: crate::provider_auth_keys::key_hint(app, cli, profile),
+        detail,
+    };
+
+    let claude = if saved_key("claude") {
+        Some(saved("claude", None))
+    } else {
+        read_json(&claude_global_json(d, profile)).as_ref().and_then(claude_ident)
+    };
+    let codex = if saved_key("codex") {
+        Some(saved("codex", None))
+    } else {
+        read_json(&d.codex.join("auth.json")).as_ref().and_then(codex_ident)
+    };
+    let gemini = if saved_key("gemini") {
+        Some(saved("gemini", None))
+    } else {
+        let gdir = d.gemini.join(".gemini");
+        let active = read_json(&gdir.join("google_accounts.json"))
+            .and_then(|v| non_empty_str(&v, "active").map(str::to_string));
+        if let Some(email) = active {
+            Some(AccountIdent { kind: "account", label: Some(email), detail: None })
+        } else {
+            std::fs::read_to_string(gdir.join(".env")).ok().and_then(|env| {
+                let key = env_value(&env, "GEMINI_API_KEY").or_else(|| env_value(&env, "GOOGLE_API_KEY"))?;
+                Some(AccountIdent { kind: "apiKey", label: key_hint(&key), detail: None })
+            })
+        }
+    };
+    let vibe = if saved_key("vibe") {
+        Some(saved("vibe", vibe_plan))
+    } else {
+        let hint = std::fs::read_to_string(d.vibe.join(".env"))
+            .ok()
+            .and_then(|env| env_value(&env, "MISTRAL_API_KEY"))
+            .or_else(|| std::env::var("MISTRAL_API_KEY").ok().filter(|k| !k.is_empty()))
+            .and_then(|k| key_hint(&k));
+        if hint.is_some() || crate::vibe::has_api_key(Some(&d.vibe), use_keyring) {
+            Some(AccountIdent { kind: "apiKey", label: hint, detail: vibe_plan })
+        } else {
+            None
+        }
+    };
+    Accounts { claude, codex, vibe, gemini }
+}
+
 /// Folder-name-safe id stem: lowercase ascii alphanumerics and single dashes,
 /// capped at 20 chars.
 fn slug(name: &str) -> String {
@@ -375,14 +551,7 @@ fn copy_settings_from_default(new: &ProfileDirs) {
         &new.claude,
         &["settings.json", "CLAUDE.md", "commands", "agents", "skills", "output-styles"],
     );
-    let global = if env_dir("CLAUDE_CONFIG_DIR").is_some() {
-        def.claude.join(".claude.json")
-    } else {
-        match crate::fs::user_home() {
-            Some(h) => h.join(".claude.json"),
-            None => def.claude.join(".claude.json"),
-        }
-    };
+    let global = claude_global_json(&def, None);
     let servers = std::fs::read_to_string(global)
         .ok()
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
@@ -412,15 +581,18 @@ pub async fn profiles_list(app: AppHandle) -> Result<ProfilesState, String> {
             .profiles
             .into_iter()
             .map(|p| {
-                let logged_in = login_state(&app, &profile_dirs(&root, &p.id), Some(&p.id), false);
+                let dirs = profile_dirs(&root, &p.id);
+                let logged_in = login_state(&app, &dirs, Some(&p.id), false);
+                let accounts = accounts(&app, &dirs, Some(&p.id), false);
                 let dir = root.join(&p.id).to_string_lossy().into_owned();
-                ProfileInfo { id: p.id, name: p.name, color: p.color, dir, logged_in }
+                ProfileInfo { id: p.id, name: p.name, color: p.color, dir, logged_in, accounts }
             })
             .collect();
         Ok(ProfilesState {
             profiles,
             project_defaults: store.project_defaults,
             default_logged_in: default_dirs().map(|d| login_state(&app, &d, None, true)),
+            default_accounts: default_dirs().map(|d| accounts(&app, &d, None, true)),
         })
     })
     .await
@@ -538,6 +710,55 @@ pub async fn profile_logout(app: AppHandle, id: Option<String>, cli: String) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_hint_masks() {
+        assert_eq!(key_hint("short"), None);
+        assert_eq!(key_hint("sk-abcdefghijkl1234").as_deref(), Some("…1234"));
+        assert_eq!(key_hint("  \"sk-abcdefghijkl1234\" ").as_deref(), Some("…1234"));
+    }
+
+    #[test]
+    fn env_value_lookup() {
+        let env = "# c\nexport FOO = \"bar\"\nMISTRAL_API_KEY='abc'\nEMPTY=\n";
+        assert_eq!(env_value(env, "FOO").as_deref(), Some("bar"));
+        assert_eq!(env_value(env, "MISTRAL_API_KEY").as_deref(), Some("abc"));
+        assert_eq!(env_value(env, "EMPTY"), None);
+        assert_eq!(env_value(env, "NOPE"), None);
+    }
+
+    #[test]
+    fn claude_ident_cases() {
+        let v = serde_json::json!({"oauthAccount": {"emailAddress": "a@b.c", "organizationName": "Org"}});
+        let i = claude_ident(&v).unwrap();
+        assert_eq!((i.kind, i.label.as_deref(), i.detail.as_deref()), ("account", Some("a@b.c"), Some("Org")));
+        let v = serde_json::json!({"primaryApiKey": "sk-ant-abcdefghijkl9876"});
+        let i = claude_ident(&v).unwrap();
+        assert_eq!((i.kind, i.label.as_deref(), i.detail), ("apiKey", Some("…9876"), None));
+        assert!(claude_ident(&serde_json::json!({})).is_none());
+        assert!(claude_ident(&serde_json::json!({"oauthAccount": {"emailAddress": ""}, "primaryApiKey": ""})).is_none());
+    }
+
+    #[test]
+    fn codex_ident_cases() {
+        use base64::Engine;
+        let payload = r#"{"email":"a@b.c","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}"#;
+        let enc = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload);
+        let v = serde_json::json!({"tokens": {"id_token": format!("e30.{enc}.sig")}});
+        let i = codex_ident(&v).unwrap();
+        assert_eq!((i.kind, i.label.as_deref(), i.detail.as_deref()), ("account", Some("a@b.c"), Some("ChatGPT Plus")));
+        let v = serde_json::json!({"OPENAI_API_KEY": "sk-abcdefghijkl5555"});
+        let i = codex_ident(&v).unwrap();
+        assert_eq!((i.kind, i.label.as_deref()), ("apiKey", Some("…5555")));
+        assert!(codex_ident(&serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn vibe_plan_first_non_empty() {
+        let v = serde_json::json!({"h1": {"payload": {"plan_name": ""}}, "h2": {"payload": {"plan_name": "Pro"}}});
+        assert_eq!(vibe_plan(&v).as_deref(), Some("Pro"));
+        assert_eq!(vibe_plan(&serde_json::json!({})), None);
+    }
 
     #[test]
     fn slug_rules() {

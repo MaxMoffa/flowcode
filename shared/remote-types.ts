@@ -153,12 +153,24 @@ export type FsResponse =
 
 export type ProfileCli = "claude" | "codex" | "vibe" | "gemini" | "opencode";
 
+/** Who an agent is signed in as: an email, or the last characters of an API key - never the key. */
+export interface AccountIdent {
+  kind: "account" | "apiKey";
+  /** account: the email; apiKey: "…a1B2" or null. */
+  label: string | null;
+  /** account: the org or plan; apiKey: the plan or null. */
+  detail: string | null;
+}
+
+export type ProfileAccounts = Partial<Record<ProfileCli, AccountIdent>>;
+
 /** An account profile on the desktop (the default one is not listed). */
 export interface ProfileInfo {
   id: string;
   name: string;
   color: string;
   loggedIn: Record<ProfileCli, boolean>;
+  accounts?: ProfileAccounts;
 }
 
 export type ProfileAction =
@@ -310,7 +322,7 @@ export type ServerMsg =
   | { t: "settings"; settings: MirroredSettings }
   /** The desktop's self-update state; sent after `ready` and on every change. Needs the "desktopUpdate" cap. */
   | { t: "update"; update: DesktopUpdate }
-  | { t: "profiles"; profiles: ProfileInfo[]; defaultLoggedIn?: Record<ProfileCli, boolean> | null }
+  | { t: "profiles"; profiles: ProfileInfo[]; defaultLoggedIn?: (Record<ProfileCli, boolean> & { accounts?: ProfileAccounts }) | null }
   | { t: "notify"; title: string; body: string; tabId?: string }
   /** Every chat tab of the desktop, sent on connect and whenever one changes. */
   | { t: "chats"; chats: ChatInfo[] }

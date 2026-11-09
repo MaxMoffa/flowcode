@@ -7,11 +7,13 @@ import "../dialog/modal.css";
 import { AGENT_CLIS, CLI_INFO, defaultCliStatus, type AgentCli } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import {
+  accountText,
   createProfile,
   deleteProfile,
   logoutProfile,
   updateProfile,
   useProfiles,
+  type Accounts,
   type LoginState,
   type ProfileInfo,
 } from "../profiles/profiles";
@@ -46,10 +48,12 @@ const DEFAULT_CARD = "";
  * "+" opening a menu of the others to sign in to. */
 function ProfileClis({
   loggedIn,
+  accounts,
   onLogin,
   onLogout,
 }: {
   loggedIn: LoginState | null;
+  accounts?: Accounts;
   onLogin?: (cli: AgentCli) => void;
   onLogout: (cli: AgentCli) => void;
 }) {
@@ -60,10 +64,15 @@ function ProfileClis({
   return (
     <div className="profiles-clis">
       {on.length === 0 && <p className="profiles-clis-empty">{t("settings.profiles.noAgents")}</p>}
-      {on.map((cli) => (
+      {on.map((cli) => {
+        const account = accountText(accounts?.[cli], t("profiles.apiKey"), true);
+        return (
         <div key={cli} className="profiles-cli">
           <span className="profiles-cli-icon">{agentCliIcon(cli)}</span>
-          <span className="profiles-cli-name">{CLI_INFO[cli].label}</span>
+          <span className="profiles-cli-text">
+            <span className="profiles-cli-name">{CLI_INFO[cli].label}</span>
+            {account && <span className="profiles-cli-account" title={account}>{account}</span>}
+          </span>
           {onLogin && (
             <button type="button" className="settings-choice" onClick={() => onLogin(cli)}>
               {t("settings.profiles.relogin")}
@@ -73,7 +82,8 @@ function ProfileClis({
             {t("settings.profiles.logout")}
           </button>
         </div>
-      ))}
+        );
+      })}
       {onLogin && off.length > 0 && (
         <div className="profiles-add">
           <button
@@ -190,7 +200,7 @@ function NewProfileDialog({ onClose }: { onClose: () => void }) {
 export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | null, cli: AgentCli) => void }) {
   const { t } = useI18n();
   const confirm = useConfirmDialog();
-  const { profiles, default_logged_in } = useProfiles();
+  const { profiles, default_logged_in, default_accounts } = useProfiles();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -284,6 +294,7 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | n
           </div>
           <ProfileClis
             loggedIn={default_logged_in}
+            accounts={default_accounts ?? undefined}
             onLogin={onLogin && ((cli) => handleLogin(null, cli))}
             onLogout={(cli) => void handleLogout(null, t("settings.profiles.default"), cli)}
           />
@@ -350,6 +361,7 @@ export function ProfilesSettings({ onLogin }: { onLogin?: (profileId: string | n
 
               <ProfileClis
                 loggedIn={profile.logged_in}
+                accounts={profile.accounts}
                 onLogin={onLogin && ((cli) => handleLogin(profile.id, cli))}
                 onLogout={(cli) => void handleLogout(profile.id, profile.name, cli)}
               />

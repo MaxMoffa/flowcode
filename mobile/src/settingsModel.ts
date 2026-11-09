@@ -1,6 +1,6 @@
 // The settings the desktop mirrors to the phone: defaults, and the guards that
 // make a cached or incoming object safe to render whatever shape it arrives in.
-import type { LinkPreviewMode, MirroredSettings, ProfileInfo } from "../../shared/remote-types";
+import type { LinkPreviewMode, MirroredSettings, ProfileAccounts, ProfileCli, ProfileInfo } from "../../shared/remote-types";
 
 /** Used for any field a cached or incoming settings object lacks or gets wrong. */
 /** @internal exported for tests */
@@ -87,12 +87,37 @@ export function normalizeLoggedIn(raw: unknown): ProfileInfo["loggedIn"] | null 
   return isObj(raw) ? { claude: bool(raw.claude, false), codex: bool(raw.codex, false), vibe: bool(raw.vibe, false), gemini: bool(raw.gemini, false), opencode: bool(raw.opencode, false) } : null;
 }
 
+const ACCOUNT_CLIS: ProfileCli[] = ["claude", "codex", "vibe", "gemini", "opencode"];
+
+/** A trimmed text field capped at 200 characters; null when it isn't a string or is empty. */
+function accountText(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim().slice(0, 200);
+  return s === "" ? null : s;
+}
+
+/** Who each agent is signed in as, as sent: an entry is kept only when its kind is known, and an account needs a label. */
+export function normalizeAccounts(raw: unknown): ProfileAccounts {
+  const out: ProfileAccounts = {};
+  if (!isObj(raw)) return out;
+  for (const cli of ACCOUNT_CLIS) {
+    const x = raw[cli];
+    if (!isObj(x)) continue;
+    const kind = x.kind === "account" || x.kind === "apiKey" ? x.kind : null;
+    if (!kind) continue;
+    const label = accountText(x.label);
+    if (kind === "account" && !label) continue;
+    out[cli] = { kind, label, detail: accountText(x.detail) };
+  }
+  return out;
+}
+
 /** The profile list as sent, dropping anything of the wrong shape. */
 export function normalizeProfiles(raw: unknown): ProfileInfo[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((x) => {
     if (!isObj(x) || typeof x.id !== "string") return [];
     const color = typeof x.color === "string" && /^#[0-9a-fA-F]{6}$/.test(x.color) ? x.color : "#64748b";
-    return [{ id: x.id, name: str(x.name, x.id), color, loggedIn: normalizeLoggedIn(x.loggedIn) ?? { claude: false, codex: false, vibe: false, gemini: false, opencode: false } }];
+    return [{ id: x.id, name: str(x.name, x.id), color, loggedIn: normalizeLoggedIn(x.loggedIn) ?? { claude: false, codex: false, vibe: false, gemini: false, opencode: false }, accounts: normalizeAccounts(x.accounts) }];
   });
 }

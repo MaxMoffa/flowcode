@@ -70,6 +70,15 @@ pub fn has_key(app: &AppHandle, cli: &str, profile: Option<&str>) -> bool {
         .is_some_and(|record| record.method == "apiKey" && record.api_key.is_some())
 }
 
+/// The saved API key's last characters for display ("…a1B2"); never the key.
+pub fn key_hint(app: &AppHandle, cli: &str, profile: Option<&str>) -> Option<String> {
+    let record = read_record(&dir(app, cli, profile).ok()?)?;
+    if record.method != "apiKey" {
+        return None;
+    }
+    record.api_key.as_deref().and_then(crate::profiles::key_hint)
+}
+
 fn variable_names(cli: &str) -> &'static [&'static str] {
     match cli {
         "claude" => &["ANTHROPIC_API_KEY"],

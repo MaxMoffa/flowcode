@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, normalizeProfiles, normalizeSettings } from "./settingsModel";
+import { DEFAULT_SETTINGS, normalizeAccounts, normalizeProfiles, normalizeSettings } from "./settingsModel";
 
 describe("normalizeSettings", () => {
   it("is null for non-objects", () => {
@@ -49,12 +49,52 @@ describe("normalizeProfiles", () => {
   it("drops entries without a string id and fills the rest", () => {
     const out = normalizeProfiles([{ id: "w", name: "Work", color: "#112233", loggedIn: { claude: true, codex: "yes" } }, { name: "x" }, 7, { id: "p" }]);
     expect(out).toEqual([
-      { id: "w", name: "Work", color: "#112233", loggedIn: { claude: true, codex: false, vibe: false, gemini: false, opencode: false } },
-      { id: "p", name: "p", color: "#64748b", loggedIn: { claude: false, codex: false, vibe: false, gemini: false, opencode: false } },
+      { id: "w", name: "Work", color: "#112233", loggedIn: { claude: true, codex: false, vibe: false, gemini: false, opencode: false }, accounts: {} },
+      { id: "p", name: "p", color: "#64748b", loggedIn: { claude: false, codex: false, vibe: false, gemini: false, opencode: false }, accounts: {} },
     ]);
   });
 
   it("replaces an invalid color with the fallback", () => {
     expect(normalizeProfiles([{ id: "a", color: "red" }, { id: "b", color: "#abc" }]).map((p) => p.color)).toEqual(["#64748b", "#64748b"]);
+  });
+
+  it("keeps the accounts of a profile", () => {
+    const [p] = normalizeProfiles([{ id: "w", accounts: { codex: { kind: "apiKey", label: "…a1B2", detail: null } } }]);
+    expect(p.accounts).toEqual({ codex: { kind: "apiKey", label: "…a1B2", detail: null } });
+  });
+});
+
+describe("normalizeAccounts", () => {
+  it("is empty for non-objects", () => {
+    for (const v of [null, undefined, 5, "x", []]) expect(normalizeAccounts(v)).toEqual({});
+  });
+
+  it("keeps valid entries", () => {
+    expect(
+      normalizeAccounts({
+        claude: { kind: "account", label: "max@example.com", detail: "Personale" },
+        codex: { kind: "apiKey", label: "…x9Qz", detail: null },
+        vibe: { kind: "apiKey", label: null, detail: "Pro" },
+      }),
+    ).toEqual({
+      claude: { kind: "account", label: "max@example.com", detail: "Personale" },
+      codex: { kind: "apiKey", label: "…x9Qz", detail: null },
+      vibe: { kind: "apiKey", label: null, detail: "Pro" },
+    });
+  });
+
+  it("drops a bad kind and unknown agents", () => {
+    expect(normalizeAccounts({ claude: { kind: "password", label: "x" }, codex: "yes", mistral: { kind: "apiKey", label: "…1" } })).toEqual({});
+  });
+
+  it("cuts a long label to 200 characters and blanks non-strings", () => {
+    const out = normalizeAccounts({ claude: { kind: "account", label: "a".repeat(300), detail: 7 } });
+    expect(out.claude?.label).toHaveLength(200);
+    expect(out.claude?.detail).toBeNull();
+  });
+
+  it("drops an account without a label", () => {
+    expect(normalizeAccounts({ claude: { kind: "account", label: "  ", detail: "Pro" } })).toEqual({});
+    expect(normalizeAccounts({ claude: { kind: "account", detail: "Pro" } })).toEqual({});
   });
 });

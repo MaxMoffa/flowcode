@@ -5,6 +5,7 @@ import { useI18n } from "../i18n";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useActiveAgent } from "../agents/activeAgent";
 import { cliOfPlugin } from "../agents/cliInfo";
+import { accountText, useAccount } from "../profiles/profiles";
 import { hasCap } from "../../shared/agentRegistry";
 import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { writePty } from "../terminal/ptyClient";
@@ -229,13 +230,19 @@ export function UsagePopoverContent({
   onMenuPointerLeave?: () => void;
 }) {
   const { t } = useI18n();
+  const cli = cliOfPlugin(pluginId);
+  const account = accountText(useAccount(profile, cli), t("profiles.apiKey"), false);
   return (
     <>
       <div className="plugin-usage-popover-head">
-        <div className="plugin-usage-popover-title">{label}</div>
+        <div className="plugin-usage-popover-titles">
+          <div className="plugin-usage-popover-title">{label}</div>
+          {account && <div className="plugin-usage-popover-account" title={account}>{account}</div>}
+        </div>
         {onProfileChange && <ProfileSelect
             value={profile}
             onChange={onProfileChange}
+            cli={cli}
             onMenuPointerEnter={onMenuPointerEnter}
             onMenuPointerLeave={onMenuPointerLeave}
           />}

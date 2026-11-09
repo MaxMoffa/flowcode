@@ -9,7 +9,7 @@ import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { setNotificationEnabled, useNotificationSettings, type NotificationKind } from "../notifications/notificationSettings";
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
 import { isRemoteLeader, useRemoteLeader } from "./leader";
-import type { MirroredSettings, ProfileInfo } from "../../shared/remote-types";
+import type { AccountIdent, MirroredSettings, ProfileAccounts, ProfileCli, ProfileInfo } from "../../shared/remote-types";
 import { isValidSetting, type SettingContext } from "./settingDefs";
 import { parseProfileOp } from "./profileOps";
 import { createProfile, deleteProfile, logoutProfile, refreshProfiles, updateProfile, useProfiles } from "../profiles/profiles";
@@ -23,6 +23,17 @@ const SETTING_CONTEXT: SettingContext = {
   hasPalette: (id) => findPalette(id) !== undefined,
 };
 
+/** The signed-in identities as the phone gets them: the agents that have one, nothing for the rest. */
+function compactAccounts(a: Partial<Record<ProfileCli, AccountIdent | null>> | null | undefined): ProfileAccounts {
+  const out: ProfileAccounts = {};
+  if (!a) return out;
+  for (const cli of Object.keys(a) as ProfileCli[]) {
+    const ident = a[cli];
+    if (ident) out[cli] = ident;
+  }
+  return out;
+}
+
 /** Mirrors the settings the phone shows (see docs/remote-protocol.md) to the
  * remote-access backend and applies the changes the phone sends back. Only the
  * leader window publishes (see leader.ts). Renders nothing. */
@@ -34,7 +45,7 @@ export function RemoteSettingsBridge() {
   const notify = useNotificationSettings();
   const autoResume = useAutoResumeSettings();
   const leader = useRemoteLeader();
-  const { profiles, default_logged_in: defaultLoggedIn } = useProfiles();
+  const { profiles, default_logged_in: defaultLoggedIn, default_accounts: defaultAccounts } = useProfiles();
 
   // Palettes only depend on the theme, not on what a tab's zoom does.
   const palettes = useMemo(() => {
@@ -95,12 +106,13 @@ export function RemoteSettingsBridge() {
   // CLIs' files, so it is re-read when the window regains focus (the usual way
   // back from signing in) and for a while after the phone asked for a login.
   const profileList: ProfileInfo[] = useMemo(
-    () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe, gemini: p.logged_in.gemini, opencode: p.logged_in.opencode } })),
+    () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe, gemini: p.logged_in.gemini, opencode: p.logged_in.opencode }, accounts: compactAccounts(p.accounts) })),
     [profiles],
   );
   const defaultLogin = useMemo(
-    () => (defaultLoggedIn ? { claude: defaultLoggedIn.claude, codex: defaultLoggedIn.codex, vibe: defaultLoggedIn.vibe, gemini: defaultLoggedIn.gemini, opencode: defaultLoggedIn.opencode } : null),
-    [defaultLoggedIn],
+    // Rides inside defaultLoggedIn: older phones read only its booleans, and the desktop's Rust side passes it through as JSON.
+    () => (defaultLoggedIn ? { claude: defaultLoggedIn.claude, codex: defaultLoggedIn.codex, vibe: defaultLoggedIn.vibe, gemini: defaultLoggedIn.gemini, opencode: defaultLoggedIn.opencode, accounts: compactAccounts(defaultAccounts) } : null),
+    [defaultLoggedIn, defaultAccounts],
   );
   useEffect(() => {
     if (!leader) return;

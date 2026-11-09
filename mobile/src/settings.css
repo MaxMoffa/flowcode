@@ -195,11 +195,28 @@
   border: 2px solid var(--muted);
 }
 
-.prof-name,
-.prof-cli-tx {
+.prof-name {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.prof-cli-tx {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.prof-cli-acc {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .prof-small {

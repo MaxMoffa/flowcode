@@ -4,7 +4,7 @@ import type { SheetVariant } from "./sheetLayout";
 import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import { CloseIcon, Svg } from "./icons";
-import { profileAction, useSupports, type ProfileCli, type ProfileInfo } from "./remote";
+import { profileAction, useSupports, type ProfileAccounts, type ProfileCli, type ProfileInfo } from "./remote";
 import { openProviderAuth } from "./ProviderAuth";
 
 /** Preset badge colors, same as the desktop's profile editor. */
@@ -102,7 +102,15 @@ function NewProfileSheet({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 /** The agents signed in under a profile, each with sign-in-again / sign-out, and the way to add one. */
-function Agents({ id, name, loggedIn, onAdd, onLogout }: { id: string; name: string; loggedIn: LoggedIn; onAdd: (off: ProfileCli[]) => void; onLogout: (cli: ProfileCli) => void }) {
+/** The line under an agent's name: the email it is signed in with, or the key's tail; "" when unknown. */
+function accountLine(ident: ProfileAccounts[ProfileCli]): string {
+  if (!ident) return "";
+  if (ident.kind === "account") return ident.label ? (ident.detail ? `${ident.label} · ${ident.detail}` : ident.label) : "";
+  return [t("profileApiKey"), ident.label, ident.detail].filter(Boolean).join(" · ");
+}
+
+/** The agents signed in under a profile, each with sign-in-again / sign-out, and the way to add one. */
+function Agents({ id, name, loggedIn, accounts, onAdd, onLogout }: { id: string; name: string; loggedIn: LoggedIn; accounts?: ProfileAccounts; onAdd: (off: ProfileCli[]) => void; onLogout: (cli: ProfileCli) => void }) {
   // Older desktops can sign a profile in but not out, and know nothing of the default profile's agents.
   const canLogin = useSupports("profileLogin");
   const canLogout = useSupports("profileAgents");
@@ -114,9 +122,14 @@ function Agents({ id, name, loggedIn, onAdd, onLogout }: { id: string; name: str
   return (
     <>
       {on.length === 0 && <div className="prof-cli prof-none">{t("profileNoAgents")}</div>}
-      {on.map((c) => (
+      {on.map((c) => {
+        const acc = accountLine(accounts?.[c.id]);
+        return (
         <div key={c.id} className="prof-cli">
-          <b className="prof-cli-tx">{c.name}</b>
+          <span className="prof-cli-tx">
+            <b>{c.name}</b>
+            {acc && <small className="prof-cli-acc">{acc}</small>}
+          </span>
           <button
             type="button"
             className="btn ghost prof-small"
@@ -132,7 +145,8 @@ function Agents({ id, name, loggedIn, onAdd, onLogout }: { id: string; name: str
             </button>
           )}
         </div>
-      ))}
+        );
+      })}
       {off.length > 0 && (
         <div className="prof-cli">
           <button type="button" className="btn ghost prof-add" onClick={() => onAdd(off.map((c) => c.id))}>
@@ -218,13 +232,13 @@ function ProfileCard({ p, onAdd, onLogout }: { p: ProfileInfo; onAdd: (off: Prof
         </div>
       )}
 
-      {mode !== "delete" && <Agents id={p.id} name={p.name} loggedIn={p.loggedIn} onAdd={onAdd} onLogout={onLogout} />}
+      {mode !== "delete" && <Agents id={p.id} name={p.name} loggedIn={p.loggedIn} accounts={p.accounts} onAdd={onAdd} onLogout={onLogout} />}
     </div>
   );
 }
 
 /** The Profili page: the desktop's account profiles, mirrored. Every change is a request to the desktop; the list updates when it answers. `defaultLoggedIn` is null for a desktop that doesn't send it. */
-export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileInfo[] | null; defaultLoggedIn: LoggedIn | null }) {
+export function ProfilesPage({ profiles, defaultLoggedIn, defaultAccounts }: { profiles: ProfileInfo[] | null; defaultLoggedIn: LoggedIn | null; defaultAccounts?: ProfileAccounts }) {
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [open, setOpen] = useState(false);
   const canAgents = useSupports("profileAgents");
@@ -265,6 +279,7 @@ export function ProfilesPage({ profiles, defaultLoggedIn }: { profiles: ProfileI
             id=""
             name={defaultName}
             loggedIn={defaultLoggedIn}
+            accounts={defaultAccounts}
             onAdd={(off) => show({ kind: "add", id: "", name: defaultName, off })}
             onLogout={(cli) => show({ kind: "logout", id: "", name: defaultName, cli })}
           />

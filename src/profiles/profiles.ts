@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { AgentCli } from "../../shared/agentRegistry";
 
 /** Whether each CLI is signed in under a profile - read off its files, see
  * `login_state` in src-tauri/src/profiles.rs. */
@@ -11,6 +12,14 @@ export interface LoginState {
   opencode: boolean;
 }
 
+/** Who a CLI is signed in as - read off its files, see `AccountIdent` in src-tauri/src/profiles.rs. */
+export interface AccountIdent {
+  kind: "account" | "apiKey";
+  label: string | null;
+  detail: string | null;
+}
+export type Accounts = Partial<Record<AgentCli, AccountIdent | null>>;
+
 /** An account profile: its own CLAUDE_CONFIG_DIR / CODEX_HOME / VIBE_HOME / GEMINI_CLI_HOME / OPENCODE_CONFIG_DIR
  * under `dir`. The default profile (the CLIs' usual folders) is never in this
  * list - everywhere it's an absent / `null` / `undefined` profile id. */
@@ -20,6 +29,7 @@ export interface ProfileInfo {
   color: string;
   dir: string;
   logged_in: LoginState;
+  accounts?: Accounts;
 }
 
 interface ProfilesState {
@@ -28,9 +38,11 @@ interface ProfilesState {
   project_defaults: Record<string, string>;
   /** The default profile's login state (null when its folders can't be found). */
   default_logged_in: LoginState | null;
+  /** The default profile's accounts (null when its folders can't be found). */
+  default_accounts?: Accounts | null;
 }
 
-const EMPTY: ProfilesState = { profiles: [], project_defaults: {}, default_logged_in: null };
+const EMPTY: ProfilesState = { profiles: [], project_defaults: {}, default_logged_in: null, default_accounts: null };
 
 let state: ProfilesState = EMPTY;
 let loaded = false;
@@ -107,6 +119,24 @@ export function useProfiles(): ProfilesState {
 export function useProfilesLoaded(): boolean {
   useSyncExternalStore(subscribe, () => state);
   return loaded;
+}
+
+/** One line for an account: the email (plus organization/plan with `withDetail`), or "API key · …a1B2". Null when there's nothing to show. */
+export function accountText(a: AccountIdent | null | undefined, apiKeyLabel: string, withDetail: boolean): string | null {
+  if (!a) return null;
+  if (a.kind === "account") {
+    if (!a.label) return null;
+    return withDetail && a.detail ? `${a.label} · ${a.detail}` : a.label;
+  }
+  return [apiKeyLabel, a.label, withDetail ? a.detail : null].filter(Boolean).join(" · ");
+}
+
+/** The account a CLI is signed in with under a profile (`null`/`undefined`: the default one). */
+export function useAccount(profile: string | null | undefined, cli: AgentCli | undefined): AccountIdent | null {
+  const { profiles, default_accounts } = useProfiles();
+  if (!cli) return null;
+  const accounts = profile ? profiles.find((p) => p.id === profile)?.accounts : default_accounts;
+  return accounts?.[cli] ?? null;
 }
 
 /** The profile with `id`, if it still exists. */

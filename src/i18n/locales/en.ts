@@ -581,6 +581,7 @@ export const en: Record<MessageKey, string> = {
   "settings.profiles.deleteFiles.title": "Delete the files too?",
   "settings.profiles.deleteFiles.message": "Also delete the profile's folder, with its logins and sessions? If you cancel, the folder stays on disk.",
   "settings.profiles.empty": "No extra profiles yet.",
+  "profiles.apiKey": "API key",
   "settings.group.interface": "Interface",
   "settings.group.header": "Top bar",
   "settings.group.textShell": "Text and shell",

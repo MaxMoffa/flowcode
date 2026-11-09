@@ -73,6 +73,7 @@ function summaries(s: MirroredSettings | null, profiles: ProfileInfo[] | null, l
 export function SettingsScreen({ hostName, settings: s }: { hostName?: string; settings: MirroredSettings | null }) {
   const profiles = useRemoteSelector((r) => r.profiles);
   const defaultLoggedIn = useRemoteSelector((r) => r.defaultLoggedIn);
+  const defaultAccounts = useRemoteSelector((r) => r.defaultAccounts);
   const lock = useLock();
   const shots = useScreenshots();
   const wide = useWide();
@@ -278,7 +279,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
         </Group>
       )}
 
-      {section === "profiles" && <ProfilesPage profiles={profiles} defaultLoggedIn={defaultLoggedIn} />}
+      {section === "profiles" && <ProfilesPage profiles={profiles} defaultLoggedIn={defaultLoggedIn} defaultAccounts={defaultAccounts} />}
 
       {section === "security" && (
         <Group title={t("secSecurity")}>

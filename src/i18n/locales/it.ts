@@ -582,6 +582,7 @@ export const it = {
   "settings.profiles.deleteFiles.title": "Eliminare anche i file?",
   "settings.profiles.deleteFiles.message": "Eliminare anche la cartella del profilo, con login e sessioni? Se annulli, la cartella resta su disco.",
   "settings.profiles.empty": "Nessun profilo aggiuntivo.",
+  "profiles.apiKey": "Chiave API",
   "settings.group.interface": "Interfaccia",
   "settings.group.header": "Barra in alto",
   "settings.group.textShell": "Testo e shell",

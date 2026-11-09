@@ -66,9 +66,25 @@ const usage = [
 ];
 
 const mockProfiles = [
-  { id: "lavoro-1fa968", name: "Lavoro", color: "#6f9bcf", loggedIn: { claude: true, codex: true, vibe: false, gemini: false, opencode: false } },
-  { id: "personale-22b1c0", name: "Personale", color: "#22c55e", loggedIn: { claude: true, codex: false, vibe: false, gemini: false, opencode: false } },
+  {
+    id: "lavoro-1fa968",
+    name: "Lavoro",
+    color: "#6f9bcf",
+    loggedIn: { claude: true, codex: true, vibe: false, gemini: false, opencode: false },
+    accounts: { claude: { kind: "account", label: "max.rossi@example.com", detail: "Personale" }, codex: { kind: "apiKey", label: "…x9Qz", detail: null } },
+  },
+  { id: "personale-22b1c0", name: "Personale", color: "#22c55e", loggedIn: { claude: true, codex: false, vibe: false, gemini: false, opencode: false }, accounts: { claude: { kind: "account", label: "luca.bianchi@example.com", detail: null } } },
 ];
+
+// The default profile's sign-ins, with the identities behind them.
+const mockDefaultLoggedIn = {
+  claude: true,
+  codex: false,
+  vibe: false,
+  gemini: false,
+  opencode: false,
+  accounts: { claude: { kind: "account", label: "mario.verdi@example.com", detail: "Team" } },
+};
 
 const mockSettings = {
   theme: "dark",
@@ -149,7 +165,7 @@ mockIPC(
             void emit("remote://msgs", [{ t: "tabs", tabs }]);
             void emit("remote://msgs", [{ t: "usage", items: usage }]);
             void emit("remote://msgs", [{ t: "settings", settings: mockSettings }]);
-            void emit("remote://msgs", [{ t: "profiles", profiles: mockProfiles }]);
+            void emit("remote://msgs", [{ t: "profiles", profiles: mockProfiles, defaultLoggedIn: mockDefaultLoggedIn }]);
             void emit("remote://msgs", [{ t: "actions", actions: mockActions }]);
           }, 3000);
         });
@@ -165,7 +181,7 @@ mockIPC(
           await emit("remote://msgs", [{ t: "tabs", tabs }]);
           await emit("remote://msgs", [{ t: "usage", items: usage }]);
           await emit("remote://msgs", [{ t: "settings", settings: mockSettings }]);
-          await emit("remote://msgs", [{ t: "profiles", profiles: mockProfiles }]);
+          await emit("remote://msgs", [{ t: "profiles", profiles: mockProfiles, defaultLoggedIn: mockDefaultLoggedIn }]);
           await emit("remote://msgs", [{ t: "actions", actions: mockActions }]);
         }, 50);
         return null;

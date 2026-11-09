@@ -1,11 +1,14 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
-import { useProfiles, type ProfileInfo } from "./profiles";
+import { accountText, useProfiles, type ProfileInfo } from "./profiles";
+import type { AgentCli } from "../../shared/agentRegistry";
 import { useOutsideClose } from "../hooks/useOutsideClose";
 import "./profile-select.css";
 
 interface CommonProps {
+  /** Shows each profile's account for this agent under its name. */
+  cli?: AgentCli;
   /** Marks a row with a star (the project's default profile). */
   isStarred?: (id: string | undefined) => boolean;
   /** Rendered under the list, inside the dropdown. */
@@ -61,9 +64,11 @@ function placeMenu(button: HTMLElement): MenuPos {
  * ones. Renders nothing when there are no account profiles; when the filter
  * leaves only the default profile, shows the selection as a static label (no
  * list). */
-export function ProfileSelect({ value, onChange, allowAuto, isStarred, footer, filter, onMenuPointerEnter, onMenuPointerLeave }: ProfileSelectProps) {
+export function ProfileSelect({ value, onChange, allowAuto, cli, isStarred, footer, filter, onMenuPointerEnter, onMenuPointerLeave }: ProfileSelectProps) {
   const { t } = useI18n();
-  const all = useProfiles().profiles;
+  const { profiles: all, default_accounts } = useProfiles();
+  // A profile's accounts; a missing id is the default profile.
+  const accountsOf = (id: string | null | undefined) => (id ? all.find((p) => p.id === id)?.accounts : default_accounts);
   const profiles = filter ? all.filter(filter) : all;
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -118,6 +123,10 @@ export function ProfileSelect({ value, onChange, allowAuto, isStarred, footer, f
       onMenuPointerLeave?.();
     }
   }, [open]);
+
+  // The account line of a menu row: nothing for "Automatic" or without `cli`.
+  const sub = (p: Choice): string | null =>
+    cli && p.key !== "auto" ? accountText(accountsOf(p.id)?.[cli], t("profiles.apiKey"), false) : null;
 
   if (all.length === 0) return null;
   // Only the default profile is selectable: show the selection, don't open a list.
@@ -203,7 +212,10 @@ export function ProfileSelect({ value, onChange, allowAuto, isStarred, footer, f
                 onClick={() => pick(p.id)}
               >
                 <span className={"profile-select-dot" + (p.color ? "" : " is-default")} style={p.color ? { background: p.color } : undefined} />
-                <span className="profile-select-name">{p.name}</span>
+                <span className="profile-select-text">
+                  <span className="profile-select-name">{p.name}</span>
+                  {sub(p) && <span className="profile-select-account">{sub(p)}</span>}
+                </span>
                 {p.key !== "auto" && isStarred?.(p.id ?? undefined) && (
                   <span className="profile-select-star" title={t("agents.profile.projectDefault")} aria-hidden>
                     ★

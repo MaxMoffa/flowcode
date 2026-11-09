@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="it" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode · Identità account nei profili e nei popup · 3 varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #100d0a; --bg: #1a1511; --surface: #241e18; --raised: #2d261f;
+      --fg: #e7d8c5; --muted: #b19b82; --border: #3e3328;
+      --accent: #9db984; --accent-bg: #253022; --on-accent: #17200f;
+      --amber: #e4ba65; --amber-bg: #31271a; --amber-border: #6e5430;
+      --danger: #f08b82; --danger-bg: #37221e; --shadow: #0007;
+      --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, ui-monospace, monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --page: #eee9e0; --bg: #fffaf1; --surface: #f6f0e6; --raised: #eee6d8;
+      --fg: #3a2b17; --muted: #776146; --border: #d9cdbb;
+      --accent: #4f6e3a; --accent-bg: #e5ecdc; --on-accent: #fff;
+      --amber: #7c5715; --amber-bg: #fbf0d9; --amber-border: #d6b879;
+      --danger: #a5372f; --danger-bg: #f8e5df; --shadow: #3a2b1724;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--page); color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: transparent; cursor: pointer; }
+    h1, h2, h3, p { margin: 0; }
+    .muted { color: var(--muted); }
+    .mono { font-family: var(--mono); }
+    .studio { max-width: 1440px; margin: auto; padding: 28px 36px 48px; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 22px; flex-wrap: wrap; }
+    h1 { font-size: clamp(24px, 3vw, 34px); letter-spacing: -.03em; font-weight: 600; }
+    .lead { color: var(--muted); max-width: 760px; margin-top: 6px; }
+    .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg); }
+    .seg button { padding: 7px 13px; font-size: 12px; font-weight: 600; color: var(--muted); border-right: 1px solid var(--border); }
+    .seg button:last-child { border-right: 0; }
+    .seg button.on { background: var(--accent); color: var(--on-accent); }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .ctl-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-right: 2px; }
+    section { margin-top: 30px; }
+    h2 { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    .variant-note { background: var(--accent-bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; font-size: 13px; margin-top: 16px; }
+    .variant-note b { color: var(--accent); }
+
+    /* feasibility table */
+    table { width: 100%; border-collapse: collapse; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 13px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); background: var(--surface); font-weight: 600; }
+    tr:last-child td { border-bottom: 0; }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+    .pill.ok { background: var(--accent-bg); color: var(--accent); }
+    .pill.mid { background: var(--amber-bg); color: var(--amber); }
+    td code { font-family: var(--mono); font-size: 12px; background: var(--surface); padding: 0 4px; border-radius: 4px; }
+
+    .grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 26px; align-items: start; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+    .frame { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 18px; box-shadow: 0 10px 30px var(--shadow); }
+    .frame-title { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 12px; }
+
+    /* settings profile card */
+    .pcard { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+    .phead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .swatch { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+    .swatch.def { border: 2px solid var(--muted); }
+    .ptitle { flex: 1; min-width: 0; }
+    .pname { font-weight: 600; }
+    .pdir { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .chip-btn { padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--raised); font-size: 12px; font-weight: 600; }
+    .chip-btn.danger { color: var(--danger); }
+    .cli { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+    .cli-icon { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 800; flex: none; color: #fff; }
+    .cli-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .cli-name { font-weight: 600; }
+    .ident { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ident .kind { color: var(--fg); opacity: .8; }
+    .idchip { font-family: var(--mono); font-size: 11px; padding: 1px 8px; border-radius: 99px; background: var(--raised); border: 1px solid var(--border); color: var(--fg); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    .idchip.key { color: var(--amber); border-color: var(--amber-border); background: var(--amber-bg); }
+    .stack { display: flex; flex-direction: column; min-width: 0; }
+    .avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: none; }
+
+    /* popup */
+    .popup { width: 320px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 16px 40px var(--shadow); position: relative; }
+    .pop-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .pop-title { font-weight: 700; font-size: 13px; }
+    .psel { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); max-width: 210px; }
+    .psel .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .psel .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .psel .chev { opacity: .6; font-size: 10px; }
+    .pop-titles { line-height: 1.25; gap: 1px; }
+    .pop-titles .ident { font-size: 11px; }
+    .pop-ident { margin-top: 6px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    .metric { margin-top: 12px; }
+    .mtop { display: flex; justify-content: space-between; font-size: 12px; }
+    .bar { height: 5px; border-radius: 99px; background: var(--raised); margin-top: 4px; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+    .mdet { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .menu { position: absolute; right: 14px; top: 42px; width: 280px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 5px; box-shadow: 0 16px 40px var(--shadow); z-index: 2; }
+    .mrow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 12px; }
+    .mrow.sel { background: var(--accent-bg); }
+    .mrow .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .mrow .stack span:last-child { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mrow .off { font-style: italic; }
+    .agent-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .agent-tabs button { padding: 5px 11px; border-radius: 99px; border: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--muted); }
+    .agent-tabs button.on { color: var(--fg); background: var(--raised); border-color: var(--accent); }
+    .pop-wrap { min-height: 340px; }
+
+    /* phone */
+    .phone { width: 300px; border: 8px solid #000; border-radius: 34px; background: var(--bg); padding: 18px 12px; box-shadow: 0 16px 40px var(--shadow); }
+    .phone h3 { font-size: 15px; margin-bottom: 10px; }
+    .phone .pcard { padding: 10px 12px; }
+    .phone .cli { gap: 8px; }
+    .phone .idchip { max-width: 170px; }
+    .side { display: flex; flex-direction: column; gap: 18px; align-items: flex-start; }
+  </style>
+</head>
+<body>
+<div class="studio">
+  <div class="top">
+    <div>
+      <h1>Identità account nei profili e nei popup</h1>
+      <p class="lead">Per ogni agente collegato a un profilo, Flowcode mostra con quale account è collegato: l'email se c'è, altrimenti un identificativo (piano, chiave mascherata, provider). Tutto letto da file locali, senza chiamate di rete.</p>
+    </div>
+    <div class="controls">
+      <span class="ctl-label">Variante</span>
+      <div class="seg" id="seg-variant">
+        <button data-v="A" class="on">A · Riga sotto</button>
+        <button data-v="B">B · Chip</button>
+        <button data-v="C">C · Avatar</button>
+      </div>
+      <span class="ctl-label">Email</span>
+      <div class="seg" id="seg-mask">
+        <button data-m="0" class="on">Piena</button>
+        <button data-m="1">Mascherata</button>
+      </div>
+      <div class="seg" id="seg-theme">
+        <button data-t="dark" class="on">Scuro</button>
+        <button data-t="light">Chiaro</button>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Fattibilità per agente</h2>
+    <p class="sub">Verificata sui file reali (letti solo i nomi dei campi). Nessun agente richiede login o rete extra.</p>
+    <table>
+      <thead><tr><th>Agente</th><th>Accesso con account</th><th>Accesso con chiave API</th><th>Fonte</th><th>Fattibilità</th></tr></thead>
+      <tbody>
+        <tr><td><b>Claude</b></td><td>Email + organizzazione</td><td>Chiave mascherata <code>sk-ant-…a1B2</code></td><td><code>.claude.json → oauthAccount.emailAddress / organizationName</code></td><td><span class="pill ok">Sì</span></td></tr>
+        <tr><td><b>Codex</b></td><td>Email + piano ChatGPT (Plus/Pro)</td><td>Chiave mascherata <code>sk-…x9Qz</code></td><td><code>auth.json → tokens.id_token</code> (JWT: <code>email</code>, <code>chatgpt_plan_type</code>), decodifica senza verifica</td><td><span class="pill ok">Sì</span></td></tr>
+        <tr><td><b>Gemini</b></td><td>Email Google</td><td>Chiave mascherata <code>AIza…7fK0</code></td><td><code>.gemini/google_accounts.json → active</code></td><td><span class="pill ok">Sì</span></td></tr>
+        <tr><td><b>Vibe</b> (Mistral)</td><td>— (non c'è email)</td><td>Piano + chiave mascherata</td><td><code>VIBE_HOME/.env</code> + <code>whoami_cache.json → plan_name</code> (cache, può mancare)</td><td><span class="pill mid">Solo identificativo</span></td></tr>
+        <tr><td><b>OpenCode</b></td><td>— (più provider insieme)</td><td>Elenco provider collegati</td><td>credenziali nel suo DB/auth: si leggono i nomi dei provider, mai le chiavi</td><td><span class="pill mid">Solo identificativo</span></td></tr>
+      </tbody>
+    </table>
+    <p class="sub" style="margin-top:10px">Chiavi salvate da Flowcode (<code>provider_auth_keys</code>): stesso formato mascherato. Profili in WSL: stessi file letti via <code>\\wsl$</code>. Se un file non si legge, si torna a mostrare solo il nome dell'agente (come oggi).</p>
+  </section>
+
+  <section>
+    <h2>Impostazioni → Profili</h2>
+    <p class="sub">Ogni riga agente dentro la card del profilo.</p>
+    <div class="grid">
+      <div class="frame">
+        <div class="frame-title">Desktop · Impostazioni</div>
+        <div id="settings"></div>
+      </div>
+      <div class="side">
+        <div class="frame" style="padding:14px">
+          <div class="frame-title">Telefono · Profili</div>
+          <div class="phone"><h3>Profili</h3><div id="phone"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Popup degli agenti (limiti d'uso)</h2>
+    <p class="sub">Il popup del pulsante agente e il menu dei profili. Scegli l'agente per vedere l'identificativo di ripiego.</p>
+    <div class="agent-tabs" id="agent-tabs"></div>
+    <div class="grid">
+      <div class="frame pop-wrap">
+        <div class="frame-title">Popup chiuso</div>
+        <div id="pop-closed"></div>
+      </div>
+      <div class="frame pop-wrap">
+        <div class="frame-title">Menu profili aperto</div>
+        <div id="pop-open"></div>
+      </div>
+    </div>
+    <div class="variant-note" id="variant-note"></div>
+  </section>
+</div>
+
+<script>
+  const AGENTS = {
+    claude:   { label: "Claude",  icon: "C", color: "#d97757" },
+    codex:    { label: "Codex",   icon: "O", color: "#2b2b2b" },
+    gemini:   { label: "Gemini",  icon: "G", color: "#4f8cff" },
+    vibe:     { label: "Vibe",    icon: "M", color: "#f97316" },
+    opencode: { label: "OpenCode",icon: "◇", color: "#64748b" },
+  };
+  // Example data (fake addresses).
+  const PROFILES = [
+    { id: null, name: "Predefinito", color: null, dir: null, ids: {
+      claude:   { email: "max.rossi@example.com", extra: "Personale · Max" },
+      codex:    { email: "max.rossi@example.com", extra: "ChatGPT Plus" },
+      gemini:   { email: "max.rossi@gmail.com" },
+      vibe:     { key: "…a1B2", extra: "Le Chat Pro" },
+      opencode: { providers: "OpenRouter · Anthropic" },
+    }},
+    { id: "lavoro", name: "Lavoro", color: "#22c55e", dir: "C:\\Users\\max\\AppData\\Roaming\\flowcode\\profiles\\lavoro", ids: {
+      claude:   { email: "m.rossi@acme-corp.it", extra: "Acme Corp" },
+      codex:    { key: "sk-…x9Qz", extra: "Chiave API" },
+      gemini:   { key: "AIza…7fK0", extra: "Chiave API" },
+    }},
+    { id: "cliente", name: "Cliente Beta", color: "#a855f7", dir: "C:\\Users\\max\\AppData\\Roaming\\flowcode\\profiles\\cliente-beta", ids: {
+      claude:   { key: "sk-ant-…Q3pX", extra: "Chiave API" },
+    }},
+  ];
+  const USAGE = {
+    claude:   [["Sessione (5 h)", 42, "si azzera tra 2 h 10 min"], ["Settimana", 61, "Opus · si azzera lun 09:00"]],
+    codex:    [["Limite 5 h", 18, "si azzera tra 3 h 40 min"], ["Settimana", 35, "si azzera gio 14:00"]],
+    gemini:   [["Richieste oggi", 22, "220 / 1000"]],
+    vibe:     [["Spesa del mese", 30, "€ 4,50 / € 15"]],
+    opencode: [["Spesa sessione", null, "$ 0,42 · OpenRouter"]],
+  };
+  let variant = "A", masked = false, agent = "claude";
+
+  const mask = (e) => { const [u, d] = e.split("@"); return u[0] + "•••@" + d; };
+  function identText(id) {
+    if (!id) return null;
+    if (id.email) return { main: masked ? mask(id.email) : id.email, extra: id.extra, kind: "email" };
+    if (id.key) return { main: id.key, extra: id.extra && id.extra !== "Chiave API" ? id.extra : "Chiave API", kind: "key" };
+    if (id.providers) return { main: id.providers, extra: "provider collegati", kind: "prov" };
+  }
+  function initial(id) {
+    const t = identText(id); if (!t) return "?";
+    if (t.kind === "email") return t.main[0].toUpperCase();
+    if (t.kind === "key") return "🔑";
+    return "◇";
+  }
+  function identHTML(id, compact) {
+    const t = identText(id); if (!t) return "";
+    const title = `title="${t.main}${t.extra ? " · " + t.extra : ""}"`;
+    if (variant === "A")
+      return `<span class="ident" ${title}>${t.kind === "key" ? '<span class="kind">' + t.extra + '</span> · <span class="mono">' + t.main + '</span>' : t.main + (t.extra && !compact ? ' <span class="kind">· ' + t.extra + '</span>' : "")}</span>`;
+    if (variant === "B")
+      return `<span class="idchip${t.kind === "key" ? " key" : ""}" ${title}>${t.kind === "key" ? "🔑 " : ""}${t.main}</span>`;
+    return `<span class="ident" ${title}>${t.main}</span>`;
+  }
+
+  function cliRow(cli, id, phone) {
+    const a = AGENTS[cli];
+    const icon = `<span class="cli-icon" style="background:${a.color}">${a.icon}</span>`;
+    let main;
+    if (variant === "A") main = `<div class="stack" style="flex:1;min-width:0"><span class="cli-name">${a.label}</span>${identHTML(id, phone)}</div>`;
+    else if (variant === "B") main = `<div class="cli-main"><span class="cli-name">${a.label}</span>${identHTML(id)}</div>`;
+    else main = `<div class="cli-main" style="flex-wrap:nowrap"><span class="cli-name">${a.label}</span><span class="avatar" title="${identText(id).main}">${initial(id)}</span>${phone ? "" : identHTML(id)}</div>`;
+    const btns = phone ? `<button class="chip-btn">⋯</button>` : `<button class="chip-btn">Accedi di nuovo</button><button class="chip-btn danger">Esci</button>`;
+    return `<div class="cli">${icon}${main}${btns}</div>`;
+  }
+  function renderSettings() {
+    const html = (phone) => PROFILES.map(p => `
+      <div class="pcard">
+        <div class="phead">
+          <span class="swatch ${p.color ? "" : "def"}" style="${p.color ? "background:" + p.color : ""}"></span>
+          <div class="ptitle"><div class="pname">${p.name}</div>${phone ? "" : `<div class="pdir">${p.dir ?? "Cartelle standard degli agenti"}</div>`}</div>
+          ${phone || !p.id ? "" : '<button class="chip-btn">Modifica</button><button class="chip-btn danger">Elimina</button>'}
+        </div>
+        ${Object.entries(p.ids).map(([cli, id]) => cliRow(cli, id, phone)).join("")}
+      </div>`).join("");
+    document.getElementById("settings").innerHTML = html(false);
+    document.getElementById("phone").innerHTML = html(true);
+  }
+
+  function selButton(p) {
+    const id = p.ids[agent];
+    const t = identText(id);
+    const dot = `<span class="dot" style="background:${p.color ?? "transparent"};${p.color ? "" : "border:1.5px solid var(--muted)"}"></span>`;
+    // Variant C swaps the profile name for the account in the selector.
+    const label = variant === "C" && t ? t.main : p.name;
+    return `<span class="psel" title="${t ? t.main : ""}">${dot}<span class="nm">${label}</span><span class="chev">▾</span></span>`;
+  }
+  function popup(open) {
+    const p = PROFILES[0];
+    const id = p.ids[agent];
+    let identLine = "";
+        if (variant === "B" && id) identLine = `<div class="pop-ident">${identHTML(id)}</div>`;
+    const metrics = USAGE[agent].map(([l, pct, d]) => `
+      <div class="metric"><div class="mtop"><span>${l}</span><b>${pct == null ? "" : pct + "%"}</b></div>
+      ${pct == null ? "" : `<div class="bar"><i style="width:${pct}%"></i></div>`}<div class="mdet">${d}</div></div>`).join("");
+    const menu = !open ? "" : `<div class="menu">${PROFILES.map((q, i) => {
+      const t = identText(q.ids[agent]);
+      const dot = `<span class="dot" style="background:${q.color ?? "transparent"};${q.color ? "" : "border:1.5px solid var(--muted)"}"></span>`;
+      const sub = t ? (variant === "B" ? identHTML(q.ids[agent]) : `<span>${t.main}</span>`) : `<span class="off">non collegato</span>`;
+      const name = variant === "C" ? (t ? t.main : q.name) : q.name;
+      const subC = variant === "C" ? `<span>${q.name}</span>` : sub;
+      return `<div class="mrow ${i === 0 ? "sel" : ""}">${dot}<div class="stack" style="min-width:0">${variant === "B" ? `<span>${name}</span>${subC}` : `<span>${name}</span>${subC}`}</div></div>`;
+    }).join("")}</div>`;
+    const titleBlock = variant === "A" && id
+      ? `<div class="stack pop-titles"><span class="pop-title">${AGENTS[agent].label}</span>${identHTML(id, true)}</div>`
+      : `<span class="pop-title">${AGENTS[agent].label}</span>`;
+    return `<div class="popup"><div class="pop-head">${titleBlock}${selButton(p)}</div>${identLine}${metrics}${menu}</div>`;
+  }
+  const NOTES = {
+    A: "<b>A · Riga sotto</b> — identità in testo piccolo sotto il nome dell'agente (impostazioni) e sotto il titolo (popup). Più leggibile, nessun elemento nuovo; occupa una riga in più. Nel menu profili ogni voce mostra l'account sotto il nome.",
+    B: "<b>B · Chip</b> — identità in una pastiglia accanto al nome, ambra per le chiavi API. Compatta, distingue subito account e chiave; su schermi stretti l'email viene troncata (tooltip con il testo intero).",
+    C: "<b>C · Avatar</b> — iniziale dell'account accanto all'agente; nel popup il selettore mostra direttamente l'account al posto del nome del profilo (il nome passa sotto, nel menu). Il più compatto; sul telefono resta solo l'avatar, email al tocco.",
+  };
+  function renderPopups() {
+    document.getElementById("agent-tabs").innerHTML = Object.entries(AGENTS).map(([k, a]) => `<button data-a="${k}" class="${k === agent ? "on" : ""}">${a.label}</button>`).join("");
+    document.getElementById("pop-closed").innerHTML = popup(false);
+    document.getElementById("pop-open").innerHTML = popup(true);
+    document.getElementById("variant-note").innerHTML = NOTES[variant];
+  }
+  function render() { renderSettings(); renderPopups(); }
+
+  function seg(id, attr, fn) {
+    document.getElementById(id).addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+      fn(b.dataset[attr]); render();
+    });
+  }
+  seg("seg-variant", "v", v => variant = v);
+  seg("seg-mask", "m", m => masked = m === "1");
+  seg("seg-theme", "t", t => document.documentElement.dataset.theme = t);
+  document.getElementById("agent-tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return; agent = b.dataset.a; renderPopups();
+  });
+  render();
+</script>
+</body>
+</html>
