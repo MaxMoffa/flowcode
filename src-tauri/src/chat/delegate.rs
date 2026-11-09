@@ -669,15 +669,35 @@ fn cancel(app: &AppHandle, task: &Task) -> Result<(), String> {
     result
 }
 
+/// The child's starting mode. A restricted parent (read-only, plan) keeps its
+/// restrictions. Otherwise the child starts in its agent's auto-review mode
+/// (Codex "Auto review", Claude "auto"): it asks only for actions flagged as
+/// unsafe, so a delegated task doesn't stop on every command. A same-agent child
+/// of a full-access parent keeps that mode.
 fn inherited_mode(same_agent: bool, parent: Option<&str>, modes: Option<&Value>) -> Result<Option<String>, String> {
-    let available: Vec<&str> = modes.and_then(|m| m.get("availableModes")).and_then(Value::as_array)
-        .into_iter().flatten().filter_map(|m| m.get("id").and_then(Value::as_str)).collect();
-    if same_agent {
-        if let Some(mode) = parent {
-            if available.contains(&mode) { return Ok(Some(mode.to_string())); }
-        } else if modes.is_none() { return Ok(None); }
+    const SAFE: [&str; 5] = ["read-only", "readonly", "read_only", "plan", "architect"];
+    const FULL: [&str; 6] = ["bypasspermissions", "agent-full-access", "full-access", "fullaccess", "yolo", "dontask"];
+    let listed: Vec<(&str, String)> = modes.and_then(|m| m.get("availableModes")).and_then(Value::as_array)
+        .into_iter().flatten()
+        .filter_map(|m| Some((m.get("id")?.as_str()?, m.get("name").and_then(Value::as_str).unwrap_or_default().to_lowercase())))
+        .collect();
+    let available: Vec<&str> = listed.iter().map(|(id, _)| *id).collect();
+    let restricted = parent.is_some_and(|mode| SAFE.contains(&mode.to_lowercase().as_str()));
+    let inherit = same_agent && parent.is_some_and(|mode| available.contains(&mode));
+    if !restricted {
+        if inherit && parent.is_some_and(|mode| FULL.contains(&mode.to_lowercase().as_str())) {
+            return Ok(parent.map(str::to_string));
+        }
+        let auto_review = listed.iter().find(|(id, name)| {
+            id.eq_ignore_ascii_case("auto") || name.contains("auto review") || name.contains("auto-review")
+        });
+        if let Some((id, _)) = auto_review { return Ok(Some(id.to_string())); }
     }
-    for safe in ["read-only", "readonly", "read_only", "plan", "architect"] {
+    if same_agent {
+        if inherit { return Ok(parent.map(str::to_string)); }
+        if parent.is_none() && modes.is_none() { return Ok(None); }
+    }
+    for safe in SAFE {
         if available.contains(&safe) { return Ok(Some(safe.to_string())); }
     }
     Err("delegation refused: the child's permission mode cannot preserve the parent's restrictions".into())
@@ -706,6 +726,22 @@ mod tests {
         assert!(inherited_mode(false, Some("plan"), Some(&unsafe_only)).is_err());
         assert!(inherited_mode(true, Some("read-only"), Some(&unsafe_only)).is_err());
         assert_eq!(inherited_mode(true, None, None).unwrap(), None);
+    }
+
+    #[test]
+    fn children_start_in_auto_review_unless_restricted() {
+        let codex = json!({ "availableModes": [
+            { "id": "read-only", "name": "Read-only" }, { "id": "workspace-write", "name": "Workspace access" },
+            { "id": "agent", "name": "Auto review" }, { "id": "agent-full-access", "name": "Full access" },
+        ] });
+        let claude = json!({ "availableModes": [{ "id": "default", "name": "Default" }, { "id": "auto", "name": "Auto" }, { "id": "plan", "name": "Plan" }, { "id": "bypassPermissions", "name": "Bypass" }] });
+        assert_eq!(inherited_mode(false, Some("default"), Some(&codex)).unwrap().as_deref(), Some("agent"));
+        assert_eq!(inherited_mode(false, Some("bypassPermissions"), Some(&codex)).unwrap().as_deref(), Some("agent"));
+        assert_eq!(inherited_mode(false, Some("plan"), Some(&codex)).unwrap().as_deref(), Some("read-only"));
+        assert_eq!(inherited_mode(false, Some("workspace-write"), Some(&claude)).unwrap().as_deref(), Some("auto"));
+        assert_eq!(inherited_mode(true, Some("default"), Some(&claude)).unwrap().as_deref(), Some("auto"));
+        assert_eq!(inherited_mode(true, Some("bypassPermissions"), Some(&claude)).unwrap().as_deref(), Some("bypassPermissions"));
+        assert_eq!(inherited_mode(true, Some("read-only"), Some(&codex)).unwrap().as_deref(), Some("read-only"));
     }
 
     fn on() -> ToolsConfig {

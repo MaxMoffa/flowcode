@@ -1366,6 +1366,17 @@ summary.chat-step-row {
   overflow-wrap: anywhere;
 }
 
+.chat-permission-detail {
+  margin-top: 4px;
+  max-height: 9em;
+  overflow: auto;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .chat-permission-options {
   display: flex;
   flex-wrap: wrap;

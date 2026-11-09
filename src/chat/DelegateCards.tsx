@@ -5,6 +5,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { AskComposer } from "./AskComposer";
 import type { AskQuestion } from "./askQuestions";
 import { delegateFinished, delegateRequestKey, type ChatItem, type DelegateInfo, type DelegateRequest } from "./chatModel";
+import { permissionDetail } from "./permissionDetail";
 import "./delegates.css";
 
 const BOT_ICON = (
@@ -141,7 +142,9 @@ export const DelegateCards = memo(function DelegateCards({ items, onOpen }: { it
 
 /** A permission request as one single-choice question, so the composer's ask card can show it: the choices are the options, answered by number. */
 function permissionAsk(request: DelegateRequest): Extract<ChatItem, { type: "ask" }> {
-  const title = request.toolCall?.title ?? request.toolCall?.kind ?? "";
+  const name = request.toolCall?.title ?? request.toolCall?.kind ?? "";
+  const detail = permissionDetail(request.toolCall);
+  const title = detail ? (name ? `${name}: ${detail}` : detail) : name;
   const question: AskQuestion = {
     key: "question_0",
     text: title,

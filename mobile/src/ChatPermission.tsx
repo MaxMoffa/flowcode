@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ChatItem } from "../../src/chat/chatModel";
 import type { ChatPermissionOption } from "../../src/chat/chatTypes";
+import { permissionDetail } from "../../src/chat/permissionDetail";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
 
@@ -33,7 +34,7 @@ export function PermissionBar({ pending, onAnswer }: { pending: Permission[]; on
   if (!first) return null;
 
   const options = [...first.options].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
-  const where = first.toolCall.locations?.[0]?.path ?? first.toolCall.content?.find((c) => c.type === "diff")?.path;
+  const where = permissionDetail(first.toolCall);
   const answer = (optionId: string) => {
     if (answered) return;
     tapFeedback();

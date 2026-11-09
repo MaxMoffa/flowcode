@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useI18n } from "../i18n";
 import { delegateFinished, type DelegateInfo, type DelegateRequest } from "../chat/chatModel";
 import { useTabDelegation } from "../chat/delegateStore";
+import { permissionDetail } from "../chat/permissionDetail";
 import { agentCliIcon } from "../plugins/icons";
 import type { ActiveAgent } from "./activeAgent";
 import { cliName } from "./cliInfo";
@@ -158,7 +159,7 @@ function DelegatePeek({ delegate: d, request, onOpen }: { delegate: DelegateInfo
         <div className="agent-insight-peek-perm">
           <span>
             <b>{request.kind === "ask" ? t("agentPanel.deleg.needAnswer") : t("agentPanel.deleg.needPermission")}</b>
-            {request.kind === "ask" ? request.message : request.toolCall?.title}
+            {request.kind === "ask" ? request.message : [request.toolCall?.title, permissionDetail(request.toolCall)].filter(Boolean).join(": ")}
           </span>
           <button type="button" className="agent-insight-btn sm" onClick={reply}>
             {t("agentPanel.deleg.reply")}

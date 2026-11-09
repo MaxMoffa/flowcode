@@ -1155,8 +1155,11 @@ button.chat-step-row {
 }
 
 .chat-perm-where {
+  max-height: 9em;
+  overflow: auto;
   color: var(--muted);
   font-size: 13px;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from "react";
+import { permissionDetail } from "./permissionDetail";
 import { SubagentTray as SharedSubagentTray } from "../../shared/SubagentTray";
 import { useI18n } from "../i18n";
 import { askSummary } from "./askQuestions";
@@ -353,6 +354,7 @@ const STOP_TEXT: Record<StopKind, Parameters<ReturnType<typeof useI18n>["t"]>[0]
 export function PermissionCard({ item, onAnswer }: { item: Extract<ChatItem, { type: "permission" }>; onAnswer: ChatItemViewProps["onAnswer"] }) {
   const { t } = useI18n();
   const title = item.toolCall.title ?? item.toolCall.kind ?? t("chat.permission.title");
+  const detail = permissionDetail(item.toolCall);
   const order = (o: ChatPermissionOption) => (o.kind.startsWith("reject") ? 0 : o.kind === "allow_always" ? 1 : 2);
   const options = [...item.options].sort((a, b) => order(a) - order(b));
   return (
@@ -362,6 +364,7 @@ export function PermissionCard({ item, onAnswer }: { item: Extract<ChatItem, { t
         <div className="chat-permission-text">
           <div className="chat-permission-label">{t("chat.permission.needed")}</div>
           <div className="chat-permission-title">{title}</div>
+          {detail && <div className="chat-permission-detail">{detail}</div>}
         </div>
         <div className="chat-permission-options">
           {options.map((option) => (
