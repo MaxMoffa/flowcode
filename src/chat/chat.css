@@ -241,9 +241,9 @@
 }
 
 /* The mask makes the column its own stacking context, so the commands menu inside it
-   can't rise above the empty-chat frog (a later, positioned sibling). Lift the whole
-   column while the menu is open. */
-.chat-column-wrap:has(.chat-commands) > .chat-column {
+   and the composer's menus (model, mode...) inside it can't rise above the empty-chat
+   frog (a later, positioned sibling). Lift the whole column while a menu is open. */
+.chat-column-wrap:has(.chat-commands, .chat-menu) > .chat-column {
   position: relative;
   z-index: 3;
 }
