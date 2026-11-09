@@ -18,6 +18,7 @@
 //! the iframe sandbox also keeps them away from the app's origin.
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -45,6 +46,8 @@ base-uri 'none'; form-action 'none'; object-src 'none'";
 const FRAME_CHECK_USER_AGENT: &str = "Mozilla/5.0 (compatible; Flowcode browser panel)";
 const FRAME_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 const FRAME_CHECK_REDIRECTS: u32 = 5;
+const PDF_TIMEOUT: Duration = Duration::from_secs(30);
+const PDF_MAX_BYTES: u64 = 100 * 1024 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_millis(400);
 
 /// Folders the frontend asked to serve, by the random token that appears in
@@ -100,6 +103,8 @@ fn frame_blocked(xfo: Option<&str>, csps: &[&str]) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct FrameCheck {
     pub blocked: bool,
+    /// The response is a PDF: the panel shows it in its viewer instead of a frame.
+    pub pdf: bool,
 }
 
 fn local_frame_target(url: &str) -> bool {
@@ -119,7 +124,7 @@ pub async fn preview_frame_check(url: String) -> Result<FrameCheck, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("only http(s) URLs can be checked".to_string());
     }
-    if local_frame_target(&url) { return Ok(FrameCheck { blocked: false }); }
+    if local_frame_target(&url) { return Ok(FrameCheck { blocked: false, pdf: false }); }
     tauri::async_runtime::spawn_blocking(move || {
         let agent = ureq::AgentBuilder::new()
             .timeout(FRAME_CHECK_TIMEOUT)
@@ -129,16 +134,58 @@ pub async fn preview_frame_check(url: String) -> Result<FrameCheck, String> {
             .build();
         let response = match agent.get(&url).call() {
             Ok(response) | Err(ureq::Error::Status(_, response)) => response,
-            Err(_) => return FrameCheck { blocked: false },
+            Err(_) => return FrameCheck { blocked: false, pdf: false },
         };
         let xfo = response.header("X-Frame-Options");
         let csp_values: Vec<String> =
             response.all("Content-Security-Policy").into_iter().map(str::to_string).collect();
         let csps: Vec<&str> = csp_values.iter().map(String::as_str).collect();
-        FrameCheck { blocked: frame_blocked(xfo, &csps) }
+        let pdf = response.header("Content-Type").is_some_and(|v| {
+            v.trim_start().get(..15).is_some_and(|head| head.eq_ignore_ascii_case("application/pdf"))
+        });
+        FrameCheck { blocked: frame_blocked(xfo, &csps), pdf }
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+fn looks_like_pdf(bytes: &[u8]) -> bool {
+    bytes[..bytes.len().min(1024)].windows(5).any(|w| w == b"%PDF-")
+}
+
+fn has_pdf_extension(path: &str) -> bool {
+    path.len() >= 4 && path.as_bytes()[path.len() - 4..].eq_ignore_ascii_case(b".pdf")
+}
+
+fn fetch_pdf(url: &str) -> Result<Vec<u8>, String> {
+    let builder = ureq::AgentBuilder::new().timeout(PDF_TIMEOUT).redirects(FRAME_CHECK_REDIRECTS).user_agent(FRAME_CHECK_USER_AGENT);
+    let agent = if local_frame_target(url) { builder } else { builder.resolver(crate::link_preview::PublicOnly) }.build();
+    let response = agent.get(url).call().map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    response.into_reader().take(PDF_MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > PDF_MAX_BYTES { return Err("PDF too large".into()); }
+    Ok(bytes)
+}
+
+fn read_local_pdf(path: &str) -> Result<Vec<u8>, String> {
+    if !has_pdf_extension(path) { return Err("not a PDF file".into()); }
+    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if !meta.is_file() { return Err("not a file".into()); }
+    if meta.len() > PDF_MAX_BYTES { return Err("PDF too large".into()); }
+    std::fs::read(path).map_err(|e| e.to_string())
+}
+
+/// The bytes of a PDF, from an http(s) URL or a local path, for the viewer.
+/// Fetched here because the app CSP doesn't allow the webview to reach the web.
+#[tauri::command]
+pub async fn preview_pdf_bytes(source: String) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = if source.starts_with("http://") || source.starts_with("https://") { fetch_pdf(&source)? } else { read_local_pdf(&source)? };
+        if !looks_like_pdf(&bytes) { return Err("not a PDF".to_string()); }
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Whether something listens on a local port. "localhost" can mean either
@@ -315,6 +362,25 @@ mod tests {
         for url in ["https://example.com/", "http://169.254.169.254/", "http://192.168.1.1/", "http://localhost.attacker.test/", "http://localhost@attacker.test/", "file://localhost/a"] {
             assert!(!local_frame_target(url), "{url}");
         }
+    }
+
+    #[test]
+    fn pdf_signature_is_found_in_the_first_kilobyte() {
+        assert!(looks_like_pdf(b"%PDF-1.7\n..."));
+        assert!(looks_like_pdf(b"junk\n%PDF-1.4"));
+        assert!(!looks_like_pdf(b"<html></html>"));
+        assert!(!looks_like_pdf(b""));
+        let mut late = vec![b' '; 1100];
+        late.extend_from_slice(b"%PDF-");
+        assert!(!looks_like_pdf(&late));
+    }
+
+    #[test]
+    fn pdf_extension_is_case_insensitive() {
+        assert!(has_pdf_extension(r"C:\a\b.PDF"));
+        assert!(has_pdf_extension("/a/b.pdf"));
+        assert!(!has_pdf_extension("/a/b.pdf.txt"));
+        assert!(!has_pdf_extension("pdf"));
     }
 
     #[test]

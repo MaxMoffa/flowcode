@@ -23,7 +23,7 @@ const TOOLS = [
     name: "open_in_browser",
     timeoutMs: 15_000,
     description:
-      "Show a web page or a file to the user in Flowcode's own browser panel. Always use this instead of shell commands like start, open, xdg-open or Start-Process, which would open the page a second time in the system browser.",
+      "Show a web page or a file to the user in Flowcode's own browser panel. Always use this instead of shell commands like start, open, xdg-open or Start-Process, which would open the page a second time in the system browser. PDFs (a .pdf URL or file) open in Flowcode's built-in PDF viewer.",
     inputSchema: {
       type: "object",
       properties: {

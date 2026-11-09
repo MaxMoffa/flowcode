@@ -7,6 +7,18 @@ export function isPreviewableFile(path: string): boolean {
   return dot >= 0 && !/[\\/]/.test(path.slice(dot)) && PREVIEWABLE.has(path.slice(dot + 1).toLowerCase());
 }
 
+/** An http(s) URL whose path, or a file path, that ends in .pdf. */
+export function isPdfTarget(target: string): boolean {
+  if (/^https?:\/\//i.test(target)) {
+    try {
+      return decodeURIComponent(new URL(target).pathname).toLowerCase().endsWith(".pdf");
+    } catch {
+      return false;
+    }
+  }
+  return target.toLowerCase().endsWith(".pdf");
+}
+
 // An opener must be a command, not a word inside an argument or commit message.
 const OPENER_RE = /(?:^|[;&|(\n]|-(?:Command|c|lc)\s+["'])\s*(?:cmd(?:\.exe)?\s+\/c\s+)?(?:sudo\s+)?(?:start|open|xdg-open|wslview|explorer(?:\.exe)?|Start-Process|Invoke-Item|ii|python3?\s+-m\s+webbrowser|(?:google-chrome|chrome|msedge|firefox)(?:\.exe)?)\s+([^;&|\r\n]+)/gi;
 const TOKEN_RE = /"([^"]*)"|'([^']*)'|(\S+)/g;

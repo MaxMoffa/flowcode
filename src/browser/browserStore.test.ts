@@ -3,11 +3,13 @@ import {
   activatePage,
   addDetectedServer,
   closePage,
+  convertPageToPdf,
   extractLocalServers,
   getBrowser,
   goBack,
   goForward,
   isLocalUrl,
+  isPdfTarget,
   isPreviewableFile,
   navigatePage,
   normalizeLocalUrl,
@@ -150,5 +152,47 @@ describe("extractLocalServers", () => {
   });
   it("ignores addresses without a port", () => {
     expect(extractLocalServers("see http://localhost/ and https://example.com:443/")).toEqual([]);
+  });
+});
+
+describe("isPdfTarget", () => {
+  it("matches pdf urls ignoring query and hash", () => {
+    expect(isPdfTarget("https://x.com/a/doc.pdf?download=1#page=2")).toBe(true);
+    expect(isPdfTarget("https://x.com/DOC.PDF")).toBe(true);
+    expect(isPdfTarget("https://x.com/doc%2Epdf")).toBe(true);
+  });
+  it("rejects non-pdf urls", () => {
+    expect(isPdfTarget("https://x.com/doc.html?f=a.pdf")).toBe(false);
+    expect(isPdfTarget("https://x.com/")).toBe(false);
+  });
+  it("matches local paths", () => {
+    expect(isPdfTarget("C:\docs\Report.PDF")).toBe(true);
+    expect(isPdfTarget("/home/u/a.pdf")).toBe(true);
+    expect(isPdfTarget("C:\docs\a.txt")).toBe(false);
+  });
+});
+
+describe("pdf pages", () => {
+  it("opens a pdf url as a pdf page and dedupes", () => {
+    openUrlInPreview("https://x.com/pdf-a.pdf?v=1");
+    openUrlInPreview("https://x.com/pdf-a.pdf?v=1");
+    const pages = getBrowser().pages.filter((p) => p.kind === "pdf" && p.src === "https://x.com/pdf-a.pdf?v=1");
+    expect(pages).toHaveLength(1);
+    expect(getBrowser().activeId).toBe(pages[0].id);
+  });
+  it("opens a local pdf file in the viewer", () => {
+    openFileInPreview("C:\docs\pdf-b.pdf");
+    expect(getBrowser().pages.some((p) => p.kind === "pdf" && p.src === "C:\docs\pdf-b.pdf")).toBe(true);
+  });
+  it("converts a url page in place", () => {
+    openUrlInPreview("https://x.com/convert-me");
+    const before = getBrowser().pages;
+    const index = before.findIndex((p) => p.kind === "url" && p.url === "https://x.com/convert-me");
+    const id = before[index].id;
+    convertPageToPdf(id, "https://x.com/convert-me");
+    const after = getBrowser();
+    expect(after.pages[index]).toEqual({ id, kind: "pdf", src: "https://x.com/convert-me" });
+    expect(after.activeId).toBe(id);
+    expect(after.pages).toHaveLength(before.length);
   });
 });

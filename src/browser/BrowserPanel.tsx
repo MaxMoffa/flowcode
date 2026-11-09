@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
@@ -8,9 +8,11 @@ import { useBrowserSettings } from "./browserSettings";
 import {
   activatePage,
   closePage,
+  convertPageToPdf,
   goBack,
   goForward,
   isLocalUrl,
+  isPdfTarget,
   navigatePage,
   normalizeLocalUrl,
   normalizeTypedUrl,
@@ -22,6 +24,8 @@ import {
 } from "./browserStore";
 import "./browser-panel.css";
 
+const PdfViewer = lazy(() => import("./PdfViewer"));
+
 /** Sandbox of the page inside the host frame. A web page keeps its origin
  * (a dev server needs its own cookies and storage) but never gets popups or
  * top navigation. */
@@ -32,6 +36,8 @@ const MTIME_POLL_MS = 1500;
 const PROBE_POLL_MS = 4000;
 /** A page that never reports `loaded` (a dead server) must not leave the bar running. */
 const LOAD_TIMEOUT_MS = 20_000;
+/** `loading` while the PDF viewer works: not a host load sequence. */
+const PDF_LOADING = -1;
 
 const svg = (children: ReactNode, size?: number) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -71,21 +77,32 @@ const FileIcon = () =>
       <path d="M14 3v5h5" />
     </>,
   );
+const PdfIcon = () =>
+  svg(
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+      <path d="M8 17v-4h1.3a1.2 1.2 0 0 1 0 2.4H8M12 13v4h.8a2 2 0 0 0 0-4zM16.5 17v-4h1.8" strokeWidth="1.2" />
+    </>,
+  );
 const ShieldIcon = () => svg(<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />);
 
 /** The address split the way the field shows it: a bold part and a muted one. */
 function describePage(page: PreviewPage): { bold: string; muted: string; full: string } {
   if (page.kind === "file") return { bold: basename(page.path), muted: parentPath(page.path), full: page.path };
+  if (page.kind === "pdf" && !/^https?:\/\//i.test(page.src)) return { bold: basename(page.src), muted: parentPath(page.src), full: page.src };
+  const url = page.kind === "pdf" ? page.src : page.url;
   try {
-    const u = new URL(page.url);
-    return { bold: u.host, muted: u.pathname + u.search + u.hash, full: page.url };
+    const u = new URL(url);
+    return { bold: u.host, muted: u.pathname + u.search + u.hash, full: url };
   } catch {
-    return { bold: page.url, muted: "", full: page.url };
+    return { bold: url, muted: "", full: url };
   }
 }
 
 function chipLabel(page: PreviewPage): string {
   if (page.kind === "file") return basename(page.path);
+  if (page.kind === "pdf" && !/^https?:\/\//i.test(page.src)) return basename(page.src);
   const { bold, muted } = describePage(page);
   return muted === "/" ? bold : bold + muted;
 }
@@ -130,7 +147,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  const pageKey = page ? (page.kind === "url" ? `${page.id}|${page.url}` : `${page.id}|${page.path}`) : "";
+  const pageKey = page ? `${page.id}|${page.kind === "url" ? page.url : page.kind === "pdf" ? page.src : page.path}` : "";
 
   useEffect(() => {
     if (!hostReady) return;
@@ -141,6 +158,12 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     if (!page) {
       post({ type: "clear", sequence });
       setLoading(null);
+      return;
+    }
+    if (page.kind === "pdf") {
+      // The viewer covers the host frame and reports its own loading.
+      post({ type: "clear", sequence });
+      setLoading((prev) => (prev === PDF_LOADING ? prev : null));
       return;
     }
     setLoading(sequence);
@@ -157,10 +180,13 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       post({ type: "load", sequence, url: page.url, sandbox: WEB_SANDBOX });
     } else {
       // An iframe doesn't report X-Frame-Options / CSP refusals, so ask first.
-      void invoke<{ blocked: boolean }>("preview_frame_check", { url: page.url }).then(
-        ({ blocked }) => {
+      void invoke<{ blocked: boolean; pdf: boolean }>("preview_frame_check", { url: page.url }).then(
+        ({ blocked, pdf }) => {
           if (!current()) return;
-          if (blocked) {
+          if (pdf) {
+            convertPageToPdf(page.id, page.url);
+            setLoading(null);
+          } else if (blocked) {
             post({ type: "clear", sequence });
             setBlockedUrl(page.url);
             setLoading(null);
@@ -185,7 +211,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   }, [loading]);
 
   // An agent rewriting the open artifact: reload when the file changes on disk.
-  const filePath = page?.kind === "file" ? page.path : null;
+  const filePath = page?.kind === "file" ? page.path : page?.kind === "pdf" && !/^https?:\/\//i.test(page.src) ? page.src : null;
   useEffect(() => {
     if (!hostReady || !filePath || !autoReloadArtifacts) return;
     let last: number | null | undefined;
@@ -241,7 +267,8 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const openExternal = () => {
     if (!page) return;
     if (page.kind === "url") void openUrl(page.url);
-    else void invoke("open_with_default_app", { path: page.path });
+    else if (page.kind === "pdf" && /^https?:\/\//i.test(page.src)) void openUrl(page.src);
+    else void invoke("open_with_default_app", { path: page.kind === "pdf" ? page.src : page.path });
   };
 
   const copyBlockedLink = () => {
@@ -263,7 +290,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     const typed = normalizeTypedUrl(draft);
     if (!typed) return;
     const url = isLocalUrl(typed) ? normalizeLocalUrl(typed) : typed;
-    if (page?.kind === "url") navigatePage(page.id, url);
+    if (page?.kind === "url" && !isPdfTarget(url)) navigatePage(page.id, url);
     else openUrlInPreview(url);
   };
 
@@ -316,7 +343,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           />
         ) : (
           <button type="button" className="browser-panel-url" onClick={startEditing} title={info?.full ?? t("browser.address")} aria-label={t("browser.address")}>
-            {page?.kind === "file" ? <FileIcon /> : <GlobeIcon />}
+            {page?.kind === "file" ? <FileIcon /> : page?.kind === "pdf" ? <PdfIcon /> : <GlobeIcon />}
             {info ? (
               <>
                 <span className="browser-panel-url-host">{info.bold}</span>
@@ -341,6 +368,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             <span key={p.id} className={"browser-panel-chip" + (p.id === activeId ? " is-active" : "")}>
               <button type="button" className="browser-panel-chip-main" onClick={() => activatePage(p.id)} title={describePage(p).full}>
                 {p.kind === "file" && <FileIcon />}
+                {p.kind === "pdf" && <PdfIcon />}
                 <span className="browser-panel-chip-label">{chipLabel(p)}</span>
               </button>
               <button type="button" className="browser-panel-chip-x" onClick={() => closePage(p.id)} title={t("browser.closePage")} aria-label={t("browser.closePage")}>
@@ -360,6 +388,11 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       <div className={"browser-panel-viewport" + (dragging ? " is-dragging" : "") + (page ? " has-page" : "")}>
         {loading && <div className="browser-panel-loadbar" />}
         <iframe key={hostUrl} ref={frameRef} className="browser-panel-frame" src={hostUrl} title={t("browser.title")} />
+        {page?.kind === "pdf" && (
+          <Suspense fallback={null}>
+            <PdfViewer src={page.src} reloadNonce={reloadNonce} onLoading={(busy) => setLoading(busy ? PDF_LOADING : null)} onOpenExternal={openExternal} />
+          </Suspense>
+        )}
         {!page && (
           <div className="browser-panel-state">
             <div className="browser-panel-state-icon">

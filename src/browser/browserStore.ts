@@ -1,12 +1,15 @@
 import { createStore } from "../lib/externalStore";
 import { readBool, writeBool } from "../lib/storage";
-export { isPreviewableFile } from "../../shared/agentOpen";
+import { isPdfTarget } from "../../shared/agentOpen";
+export { isPdfTarget, isPreviewableFile } from "../../shared/agentOpen";
 
 const BROWSER_OPEN_KEY = "flowcode.browserOpen";
 
 export type PreviewPage =
   | { id: string; kind: "url"; url: string; back: string[]; forward: string[] }
-  | { id: string; kind: "file"; path: string };
+  | { id: string; kind: "file"; path: string }
+  /** `src` is an http(s) URL or an absolute local path. */
+  | { id: string; kind: "pdf"; src: string };
 
 /** A dev server a terminal printed an address for. */
 interface DetectedServer {
@@ -43,7 +46,27 @@ export function toggleBrowser() {
   setBrowserOpen((o) => !o);
 }
 
+export function openPdfInPreview(src: string) {
+  const existing = store.get().pages.find((p) => p.kind === "pdf" && p.src === src);
+  const id = existing?.id ?? newId();
+  store.update((s) => ({
+    ...s,
+    pages: existing ? s.pages : [...s.pages, { id, kind: "pdf", src }],
+    activeId: id,
+  }));
+  setBrowserOpen(true);
+}
+
+/** A url page that turned out to serve a PDF becomes a viewer page, in place. */
+export function convertPageToPdf(id: string, url: string) {
+  store.update((s) => ({
+    ...s,
+    pages: s.pages.map((p) => (p.id === id && p.kind === "url" ? { id, kind: "pdf" as const, src: url } : p)),
+  }));
+}
+
 export function openUrlInPreview(url: string) {
+  if (isPdfTarget(url)) return openPdfInPreview(url);
   const existing = store.get().pages.find((p) => p.kind === "url" && p.url === url);
   const id = existing?.id ?? newId();
   store.update((s) => ({
@@ -55,6 +78,7 @@ export function openUrlInPreview(url: string) {
 }
 
 export function openFileInPreview(path: string) {
+  if (isPdfTarget(path)) return openPdfInPreview(path);
   const existing = store.get().pages.find((p) => p.kind === "file" && p.path === path);
   const id = existing?.id ?? newId();
   store.update((s) => ({

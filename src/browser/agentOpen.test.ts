@@ -47,6 +47,14 @@ describe("agent browser permission", () => {
     expect(mocks.system).toHaveBeenCalledWith(request.target);
   });
 
+  it("opens a pdf from Flowcode's own tool in the panel even when the setting is system", async () => {
+    mocks.settings.external = "system";
+    const target = "https://example.com/paper.pdf";
+    await routeAgentOpen({ ...request, target }, null, async () => true);
+    expect(mocks.preview).toHaveBeenCalledWith(target);
+    expect(mocks.system).not.toHaveBeenCalled();
+  });
+
   it("keeps loopback previews automatic", async () => {
     await routeAgentOpen({ ...request, target: "http://localhost:3000" }, null);
     expect(mocks.preview).toHaveBeenCalledWith("http://localhost:3000");

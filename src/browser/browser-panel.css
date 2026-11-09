@@ -325,3 +325,150 @@
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
+
+/* PDF viewer: pages on a neutral backdrop. */
+.pdf-viewer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  color: var(--fg);
+}
+
+.pdf-viewer-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.pdf-viewer-spacer {
+  flex: 1 1 auto;
+}
+
+.pdf-viewer-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pdf-viewer-page-input {
+  width: 38px;
+  padding: 2px 4px;
+  text-align: center;
+  font: inherit;
+  color: var(--fg);
+  background: var(--sidebar-hover);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.pdf-viewer-page-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pdf-viewer-zoom {
+  min-width: 40px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-viewer-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--fg) 6%, var(--bg-elevated));
+}
+
+.pdf-viewer-page {
+  position: relative;
+  flex: 0 0 auto;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+.pdf-viewer-page-holder {
+  position: absolute;
+  inset: 0;
+}
+
+.pdf-viewer-page-holder canvas {
+  display: block;
+}
+
+/* The essentials of pdf.js's text layer: transparent, selectable spans over the bitmap. */
+.pdf-viewer .textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 0;
+  color-scheme: only light;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-viewer .textLayer span,
+.pdf-viewer .textLayer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.pdf-viewer .textLayer > :not(.markedContent),
+.pdf-viewer .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-viewer .textLayer .markedContent {
+  display: contents;
+}
+
+.pdf-viewer .textLayer ::selection {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: transparent;
+}
+
+.pdf-viewer .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pdf-viewer .textLayer.selecting .endOfContent {
+  top: 0;
+}
+
+.pdf-viewer .icon-button.is-active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}

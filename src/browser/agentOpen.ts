@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AgentOpen } from "../../shared/agentOpen";
+import { isPdfTarget, type AgentOpen } from "../../shared/agentOpen";
 import { checkPath } from "../lib/fileLinks";
 import { toWindowsPath } from "../terminal/wslPath";
 import { getBrowserSettings, type Target } from "./browserSettings";
@@ -19,7 +19,8 @@ export { commandCwd, createAgentOpenTracker, openCommandTarget, toolCommand } fr
  * confirmation even when an adapter skips its own permission request. */
 export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro: string | null, confirm?: (options: ConfirmOptions) => Promise<boolean>): Promise<void> {
   const settings = getBrowserSettings();
-  const inPanel = (setting: Target) => setting === "app" || (direct && setting === "ask");
+  // Flowcode's own tool opens a PDF in the built-in viewer whatever the setting says.
+  const inPanel = (setting: Target) => setting === "app" || (direct && (setting === "ask" || isPdfTarget(target)));
   if (/^https?:\/\//i.test(target)) {
     const local = isLocalUrl(target);
     const setting = local ? settings.local : settings.external;
