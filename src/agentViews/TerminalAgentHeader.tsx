@@ -32,13 +32,7 @@ export function TerminalAgentHeader({ cli, session, title, cwd, onSwitchToChat, 
   const status: ChatStatus = session.status === "busy" || session.status === "waiting" ? session.status : "idle";
   const working = status === "busy" || status === "waiting";
   // The same conditions `switchTerminalToChat` (App.tsx) enforces.
-  const chatBlock = session.wsl_distro
-    ? t("agentViews.noWsl")
-    : !session.session_id
-      ? t("agentViews.needsSession")
-      : session.status === "busy"
-        ? t("agentViews.busy")
-        : undefined;
+  const chatBlock = session.wsl_distro ? t("agentViews.noWsl") : session.status === "busy" ? t("agentViews.busy") : undefined;
 
   return (
     <AgentHeader icon={agentCliIcon(cli)} title={name} subtitle={subtitle} status={status} keepFocus>

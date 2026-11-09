@@ -1130,7 +1130,6 @@ export const it = {
   "chat.thought.failed": "Impossibile cambiare il livello di ragionamento: {error}",
   "chat.menu.copyId": "Copia ID sessione",
   "chat.menu.stop": "Interrompi agente",
-  "agentViews.needsSession": "Apri come chat quando l'agente ha una sessione e non sta lavorando.",
   "agentViews.busy": "Apri come chat quando l'agente non sta lavorando.",
   "agentViews.noWsl": "Non disponibile per gli agenti in esecuzione in WSL.",
   "chat.status.starting": "Avvio…",

@@ -1122,7 +1122,6 @@ export const en: Record<MessageKey, string> = {
   "chat.thought.failed": "Couldn't change the thinking level: {error}",
   "chat.menu.copyId": "Copy session ID",
   "chat.menu.stop": "Stop agent",
-  "agentViews.needsSession": "Open as a chat once the agent has a session and isn't working.",
   "agentViews.busy": "Open as a chat once the agent isn't working.",
   "agentViews.noWsl": "Not available for agents running in WSL.",
   "chat.status.starting": "Starting…",

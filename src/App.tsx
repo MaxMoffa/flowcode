@@ -2434,24 +2434,25 @@ function Shell() {
   function switchTerminalToChat(tabId: string, viewId?: string) {
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     const session = sessionByTab.get(tabId);
-    if (!tab || !session?.session_id || session.status === "busy" || session.wsl_distro || !(AGENT_CLIS as readonly string[]).includes(session.cli)) return;
+    if (!tab || !session || session.status === "busy" || session.wsl_distro || !(AGENT_CLIS as readonly string[]).includes(session.cli)) return;
     // A second trigger while the agent is still being ended must not open a second chat.
     if (switchingChatsRef.current.has(tabId)) return;
     switchingChatsRef.current.add(tabId);
     const cli = session.cli as AgentCli;
     const sessionId = session.session_id;
-    // The terminal's agent was just in use.
-    const resume = { sessionId, label: tab.label, handoffFrom: tabId, lastActiveAt: Date.now() };
     void (async () => {
       try {
         // An agent nobody prompted yet has no transcript to load (the chat would fail and the terminal be
         // sent back to a `--resume` that finds nothing): a fresh chat takes the terminal's place instead.
-        const saved = await invoke<boolean>("agent_session_saved", { cli, sessionId, profile: tab.profileId ?? session.profile ?? null }).catch(() => true);
-        if (!saved) {
+        // Codex has no thread at all until its first prompt: nothing to resume either.
+        const saved = sessionId ? await invoke<boolean>("agent_session_saved", { cli, sessionId, profile: tab.profileId ?? session.profile ?? null }).catch(() => true) : false;
+        if (!saved || !sessionId) {
           const at = latestRef.current.tabs.findIndex((t) => t.id === tabId);
           await openChatTab(cli, session.cwd ?? tab.cwd, { profileId: tab.profileId ?? session.profile ?? undefined, viewId, replaceTabId: tabId, shell: "host", at: at < 0 ? undefined : at });
           return;
         }
+        // The terminal's agent was just in use.
+        const resume = { sessionId, label: tab.label, handoffFrom: tabId, lastActiveAt: Date.now() };
         const ptyId = termRefs.current.get(tabId)?.getPtyId();
         if (ptyId) await invoke("end_pty_agent", { ptyId }).catch(() => {});
         // Opens at the terminal's index, so the chat sits where the terminal was once that closes.
