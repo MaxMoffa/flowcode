@@ -63,7 +63,7 @@
 }
 
 .tm-back:active {
-  background: rgba(231, 216, 197, 0.08);
+  background: var(--surface-3);
   border-radius: 12px;
 }
 
@@ -175,9 +175,9 @@
   padding: 0;
   border-radius: 18px;
   border: 1px solid var(--border);
-  background: rgba(28, 21, 15, 0.92);
+  background: var(--surface);
   color: var(--fg);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
 
 /* Files, agents and keyboard in one pill over the terminal's bottom edge;
@@ -194,8 +194,8 @@
   padding: 5px;
   border-radius: 28px;
   border: 1px solid var(--border-strong);
-  background: rgba(28, 21, 15, 0.92);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  background: var(--surface);
+  box-shadow: var(--shadow);
   white-space: nowrap;
 }
 
@@ -217,7 +217,7 @@
 }
 
 .term-pill button:active {
-  background: rgba(231, 216, 197, 0.08);
+  background: var(--surface-3);
 }
 
 .term-pill .term-pill-kb {
@@ -243,7 +243,7 @@
   position: absolute;
   top: 2px;
   right: 0;
-  box-shadow: 0 0 0 2px rgba(28, 21, 15, 0.92);
+  box-shadow: 0 0 0 2px var(--surface);
   min-width: 18px;
   height: 18px;
   box-sizing: border-box;
@@ -317,7 +317,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px 8px 14px;
-  background: rgba(209, 167, 82, 0.1);
+  background: var(--wait-bg);
   border-top: 1px solid var(--wait-border);
 }
 
@@ -334,13 +334,13 @@
   padding: 0 16px;
   border: 0;
   border-radius: 10px;
-  background: rgba(231, 216, 197, 0.07);
+  background: var(--surface-2);
   color: var(--fg);
   font-weight: 600;
 }
 
 .term-wait button.yes {
-  background: rgba(157, 185, 132, 0.2);
+  background: var(--accent-bg);
   color: var(--accent, #9db984);
 }
 
@@ -798,7 +798,7 @@ html.term-lock body {
   align-self: stretch;
   width: 1px;
   margin: 10px 2px;
-  background: rgba(232, 184, 128, 0.14);
+  background: var(--border);
 }
 
 .tm-mod.on,
@@ -807,7 +807,7 @@ html.term-lock body {
   min-width: 42px;
   border-radius: 8px;
   background: var(--accent);
-  color: #0f160b;
+  color: var(--on-accent);
 }
 
 .tm-lock-dot {
@@ -831,7 +831,7 @@ html.term-lock body {
   font: 11px var(--mono);
   color: var(--muted);
   opacity: 0.8;
-  background: rgba(231, 216, 197, 0.03);
+  background: var(--surface);
 }
 
 /* agents: the desktop's agents sidebar, in the phone's drawer and the wide layout's side card */
