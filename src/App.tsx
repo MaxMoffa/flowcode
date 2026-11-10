@@ -2723,7 +2723,8 @@ function Shell() {
                     // Mid-turn it must not end: it goes on in the background, found again in the History.
                     if (closer && (chat.status === "busy" || chat.status === "waiting")) newChatPane(chat.id);
                     else if (closer) closer.clear();
-                    else void launchAgentInNewTab(cli, cwd, undefined, profileId);
+                    // A WSL agent's new session stays in its distro (its cwd is a Linux path).
+                    else void launchAgentInNewTab(cli, cwd, historyAgent.wslDistro ? wslShellId(historyAgent.wslDistro) : undefined, profileId);
                   }}
                 />
               )
