@@ -287,6 +287,8 @@ export type RemoteCap =
   | "chatModel"
   /** `chatthought`: switching a chat's thinking level. */
   | "chatThought"
+  /** `chatgoal`: pausing, resuming or stopping a chat's goal. */
+  | "chatGoal"
   /** `chatclear`: starting a fresh conversation in a chat tab (`/clear`). */
   | "chatClear"
   /** `updatecheck` / `updateinstall` / `update`: updating the desktop's Flowcode from the phone. */
@@ -380,6 +382,8 @@ export type ClientMsg =
   | { t: "chatmodel"; chatId: string; modelId: string }
   /** Switches the chat's agent to another thinking level it offers (`ChatInfo.thought`). */
   | { t: "chatthought"; chatId: string; value: string }
+  /** Pauses, resumes or clears the chat's goal (the actions it advertises in its `_flowcode/goal` event). */
+  | { t: "chatgoal"; chatId: string; action: "pause" | "resume" | "clear" }
   /** Starts a fresh conversation in the chat's tab, as `/clear` does on the desktop: the tab stays, the chat gets a new `chatId`. */
   | { t: "chatclear"; chatId: string }
   /** Asks the desktop to check for an update of itself (answered with `update`). */

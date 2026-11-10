@@ -4,6 +4,7 @@ import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
 import { AskComposer } from "./AskComposer";
+import { GoalChip } from "./GoalChip";
 import { useCacheWarning } from "./useCacheWarning";
 import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMarker, SubagentTray, ToolGroup } from "./ChatItems";
 import { BackgroundTerminalsCard } from "../../shared/BackgroundTerminalsCard";
@@ -158,6 +159,9 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   const status = model.status;
   const working = status === "busy" || status === "waiting";
   const notice = model.notice;
+  // The goal's chip and tint belong to the chat's own view: not a subagent's, not a delegate's (read-only).
+  const goalChip = !sub && !chat.attached && !!model.goal;
+  const goalTone = !goalChip || !model.goal ? null : model.goal.status === "active" ? "active" : model.goal.status === "paused" || model.goal.status === "limited" || model.goal.status === "blocked" ? "paused" : null;
   const noticeText = notice
     ? t("chat.notice.retrying", {
         reason: notice.category === "rate_limited" ? t("chat.notice.rateLimited") : notice.category,
@@ -1094,8 +1098,9 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 </div>
               </div>
             )}
-            <div className={`chat-composer${openAsk || delegateAsk || showCacheCard ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}`} data-drop-label={t("chat.attach.drop")}>
+            <div className={`chat-composer${openAsk || delegateAsk || showCacheCard ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}${goalTone === "active" ? " is-goal-active" : goalTone === "paused" ? " is-goal-paused" : ""}`} data-drop-label={t("chat.attach.drop")}>
               {transcribing && <ComposerSweep />}
+              {goalChip && model.goal && <GoalChip chatId={chat.chatId ?? ""} goal={model.goal} actions={model.goalActions} items={model.items} goalAction={chat.goalAction} />}
               {(listening || transcribing) && (
                 <div className="chat-listening" aria-live="polite">
                   {transcribing ? (
@@ -1141,6 +1146,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                         ? pickedCommand.hint
                           ? `${pickedCommand.hint} · ${t("chat.cmd.optional")}`
                           : t("chat.cmd.addInstructions")
+                        : goalTone
+                        ? t("chat.goal.placeholder")
                         : dictation.supported && draft === "" && dictation.state === "idle" && (spaceShortcuts.tap || spaceShortcuts.hold)
                         ? t("chat.composer.placeholderSpace")
                         : t("chat.composer.placeholder")

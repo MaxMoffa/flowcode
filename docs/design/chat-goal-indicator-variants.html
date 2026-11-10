@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowcode — goal attivo in chat: 3 varianti</title>
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --fg:#e7d8c5; --muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --ink:#17210f; --warn:#e0b252; --hover:rgba(232,184,128,.07); --track:rgba(232,184,128,.10);
+  --goal:var(--accent);
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --fg:#3a2b17; --muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --ink:#f6f9f0; --warn:#a67a14; --hover:rgba(140,88,32,.06); --track:rgba(120,80,36,.10);
+}
+body[data-state=paused]{--goal:var(--warn)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:900px}
+.bar{display:flex;gap:8px;margin-bottom:26px;flex-wrap:wrap;align-items:center}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track);border-color:var(--goal)}
+.bar .sep{width:1px;height:20px;background:var(--border);margin:0 6px}
+code{background:var(--track);padding:0 4px;border-radius:4px;font-size:12px}
+
+/* stato: mostra solo i testi dello stato corrente */
+.st{display:none}
+body[data-state=active] .st.active, body[data-state=paused] .st.paused, body[data-state=done] .st.done{display:inline}
+body[data-state=done] .hide-done{display:none!important}
+body:not([data-state=paused]) .only-paused{display:none!important}
+
+.row{margin-bottom:44px}
+.row h2{font-size:14px;margin:0 0 2px}
+.row p.d{margin:0 0 12px;color:var(--muted);max-width:900px}
+.pair{display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start}
+.lbl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+
+/* desktop */
+.desk{width:600px;height:500px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--bg) 70%,#000 6%);display:flex;flex-direction:column;overflow:hidden;position:relative}
+.tabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.tabs span{padding:5px 12px;border-radius:6px 6px 0 0}
+.tabs span.on{background:var(--hover);color:var(--fg)}
+.tabs .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--goal);margin-right:6px;vertical-align:1px}
+/* telefono */
+.phone{width:320px;height:620px;border-radius:36px;border:9px solid #000;background:var(--bg);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 0 0 1px var(--border);position:relative}
+.topbtns{position:absolute;top:12px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:center;z-index:3;gap:8px}
+.fab{width:34px;height:34px;border-radius:50%;background:color-mix(in srgb,var(--fg) 8%,var(--surface));display:grid;place-items:center;color:var(--muted);flex:none}
+
+.msgs{flex:1;overflow:hidden;padding:14px;display:flex;flex-direction:column;gap:10px}
+.phone .msgs{padding-top:58px;-webkit-mask-image:linear-gradient(transparent 36px,#000 80px);mask-image:linear-gradient(transparent 36px,#000 80px)}
+.m{max-width:86%;padding:8px 11px;border-radius:12px;background:var(--hover);color:var(--muted)}
+.m.u{align-self:flex-end;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--fg)}
+.tool{font-size:12px;color:var(--muted);padding-left:4px}
+.tool b{color:var(--fg);font-weight:600}
+.foot{padding:0 12px 12px;position:relative}
+.phone .foot{padding:0 10px 12px}
+
+.cmp{padding:12px 12px 10px 16px;border-radius:24px;background:color-mix(in srgb,var(--fg) 7%,var(--surface));
+  box-shadow:0 10px 30px -14px rgba(0,0,0,.5),0 0 0 1px color-mix(in srgb,var(--fg) 24%,transparent)}
+.cmp .in{min-height:38px;color:var(--muted);font-size:14px}
+.tools{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12px}
+.go{margin-left:auto;width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--ink);display:grid;place-items:center;font-weight:700}
+.go.stop{background:var(--track);color:var(--fg)}
+
+/* pezzi comuni */
+.gi{color:var(--goal);display:inline-grid;place-items:center}
+.pulse{position:relative}
+body[data-state=active] .pulse::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:1.5px solid var(--goal);animation:p 1.8s ease-out infinite}
+@keyframes p{from{opacity:.8;transform:scale(.7)}to{opacity:0;transform:scale(1.5)}}
+.gtag{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--goal)}
+.meta{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ib{font:inherit;font-size:12px;font-weight:600;border:0;border-radius:999px;padding:5px 11px;cursor:pointer;color:var(--fg);background:var(--track);white-space:nowrap}
+.ib.main{background:var(--goal);color:var(--ink)}
+.ib.ghost{background:transparent;box-shadow:inset 0 0 0 1px var(--border);font-weight:500}
+.ib.icon{padding:5px 7px;display:inline-grid;place-items:center}
+.clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+
+/* A · striscia fissata in alto */
+.a-bar{margin:10px 12px 0;border-radius:14px;background:color-mix(in srgb,var(--goal) 10%,var(--surface));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--goal) 40%,transparent);cursor:pointer}
+.a-bar .h{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 12px}
+.a-bar .h .clip{flex:1;font-weight:600}
+.a-bar .full{display:none;padding:0 12px 10px 38px;color:var(--fg)}
+.a-bar .full .acts{display:flex;gap:6px;margin-top:8px}
+.a-bar.open .full{display:block}
+.a-bar.open .h .clip{white-space:normal;color:var(--muted);font-weight:400}
+.a-bar.open .h .clip .t{display:none}
+.a-pill{flex:1;min-width:0;height:34px;border-radius:999px;display:flex;align-items:center;gap:8px;padding:0 12px;background:color-mix(in srgb,var(--goal) 14%,var(--surface));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--goal) 45%,transparent);font-size:12.5px;cursor:pointer}
+.a-pill .clip{flex:1;font-weight:600}
+.a-sheet{display:none;position:absolute;top:54px;left:10px;right:10px;z-index:4;border-radius:20px;padding:14px;background:color-mix(in srgb,var(--fg) 6%,var(--surface));box-shadow:0 18px 40px -12px rgba(0,0,0,.6),0 0 0 1px color-mix(in srgb,var(--goal) 40%,transparent)}
+.a-sheet.open{display:block}
+.a-sheet .t{margin:6px 0 10px;font-size:14px}
+.a-sheet .acts{display:flex;gap:8px}
+.a-sheet .acts .ib{flex:1;padding:9px;font-size:13px}
+
+/* B · composer con anello */
+.cmp.goal{box-shadow:0 10px 30px -14px rgba(0,0,0,.5),0 0 0 1.5px color-mix(in srgb,var(--goal) 70%,transparent)}
+.b-chip{display:flex;align-items:center;gap:8px;margin:-4px -4px 8px -8px;padding:6px 6px 6px 10px;border-radius:14px;background:color-mix(in srgb,var(--goal) 12%,transparent);font-size:12.5px}
+.b-chip .clip{flex:1}
+.b-chip .clip b{color:var(--goal);font-weight:700;margin-right:4px}
+.b-pop{display:none;position:absolute;bottom:calc(100% - 4px);left:12px;right:12px;border-radius:16px;padding:12px 14px;background:color-mix(in srgb,var(--fg) 6%,var(--surface));box-shadow:0 18px 40px -12px rgba(0,0,0,.6),0 0 0 1px color-mix(in srgb,var(--goal) 40%,transparent);z-index:3}
+.b-pop.open{display:block}
+.b-pop .t{margin:4px 0 8px}
+.b-pop .acts{display:flex;gap:6px}
+
+/* C · card nella timeline + tray sotto il composer */
+.c-card{border-radius:16px;padding:12px 14px;background:color-mix(in srgb,var(--goal) 9%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--goal) 40%,transparent)}
+.c-card .h{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.c-card .h .meta{margin-left:auto}
+.c-card .t{font-size:13.5px}
+.c-steps{display:flex;gap:4px;margin-top:10px}
+.c-steps i{flex:1;height:4px;border-radius:2px;background:var(--track)}
+.c-steps i.on{background:var(--goal)}
+.c-tray{display:flex;align-items:center;gap:8px;margin:8px 6px 0;padding:6px 8px 6px 12px;border-radius:12px;background:var(--hover);box-shadow:inset 0 0 0 1px var(--border);font-size:12px;cursor:pointer}
+.c-tray .clip{flex:1}
+.c-tray .clip b{color:var(--fg);font-weight:600}
+.c-jump{position:absolute;right:16px;bottom:84px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--goal) 22%,var(--surface));color:var(--goal);box-shadow:0 8px 20px -6px rgba(0,0,0,.6),0 0 0 1px color-mix(in srgb,var(--goal) 50%,transparent);cursor:pointer}
+.c-jump .badge{position:absolute;top:-4px;right:-4px;font-size:10px;font-weight:700;background:var(--goal);color:var(--ink);border-radius:999px;padding:0 5px;line-height:16px}
+.flash{animation:f 1s}
+@keyframes f{0%,60%{box-shadow:inset 0 0 0 2px var(--goal),0 0 0 4px color-mix(in srgb,var(--goal) 30%,transparent)}}
+
+.notes{margin-top:10px;max-width:900px;border-top:1px solid var(--border);padding-top:14px}
+.notes h3{font-size:14px;margin:0 0 6px}
+.notes li{margin-bottom:4px}
+</style>
+</head>
+<body data-state="active">
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="tgt" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></symbol>
+  <symbol id="chk" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/></symbol>
+  <symbol id="pau" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></symbol>
+  <symbol id="ply" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+</defs></svg>
+
+<h1>Goal attivo in chat — 3 varianti, desktop + telefono</h1>
+<p class="sub">Quando l'utente lancia <code>/goal …</code> oggi la chat non lo mostra: si vede solo il messaggio iniziale, poi sparisce tra i turni. Qui tre modi per tenerlo sempre visibile. Usa i pulsanti per cambiare stato (attivo, in pausa per limite, raggiunto) e clicca gli elementi del goal per aprirli. Esempio: goal avviato 23 min fa, al turno 7.</p>
+<div class="bar">
+  <button data-set="active" class="on">Attivo</button>
+  <button data-set="paused">In pausa (limite)</button>
+  <button data-set="done">Raggiunto</button>
+  <span class="sep"></span>
+  <button id="theme">Tema chiaro / scuro</button>
+</div>
+
+<!-- ===================== A ===================== -->
+<div class="row">
+  <h2>A · Striscia fissata in alto</h2>
+  <p class="d">Una barra resta in cima alla chat mentre i messaggi scorrono sotto: icona, testo del goal su una riga, tempo e turno. Clic = si apre con il testo intero e le azioni. Sul telefono diventa una pillola tra i due pulsanti flottanti, che apre un pannello. La tab del desktop prende un puntino colorato.</p>
+  <div class="pair">
+    <div><div class="lbl">Desktop</div>
+      <div class="desk">
+        <div class="tabs"><span class="on"><span class="dot hide-done"></span>flowcode · Claude</span><span>api-server</span></div>
+        <div class="a-bar" data-toggle>
+          <div class="h">
+            <span class="gi pulse"><svg width="16" height="16" class="st active"><use href="#tgt"/></svg><svg width="16" height="16" class="st paused"><use href="#pau"/></svg><svg width="16" height="16" class="st done"><use href="#chk"/></svg></span>
+            <span class="clip"><span class="gtag"><span class="st active">Goal</span><span class="st paused">Goal in pausa</span><span class="st done">Goal raggiunto</span></span> <span class="t">· Migra tutti i test da Jest a Vitest e falli passare</span></span>
+            <span class="meta"><span class="st active">23 min · turno 7</span><span class="st paused">limite · riparte 14:30</span><span class="st done">31 min · 9 turni</span></span>
+            <svg width="14" height="14" style="color:var(--muted)"><use href="#chev"/></svg>
+          </div>
+          <div class="full">Migra tutti i test da Jest a Vitest e falli passare
+            <div class="acts">
+              <span class="st active"><button class="ib ghost"><svg width="12" height="12"><use href="#pau"/></svg> Pausa</button></span>
+              <span class="st paused"><button class="ib main"><svg width="12" height="12"><use href="#ply"/></svg> Riprendi ora</button></span>
+              <span class="hide-done"><button class="ib ghost">Termina goal</button></span>
+              <span class="st done"><button class="ib ghost">Nascondi</button></span>
+            </div>
+          </div>
+        </div>
+        <div class="msgs">
+          <div class="m u">/goal Migra tutti i test da Jest a Vitest e falli passare</div>
+          <div class="tool">Modificati <b>14 file</b> · <b>vitest run</b> — 3 falliti</div>
+          <div class="m">Restano 3 test con i timer finti: passo a <code>vi.useFakeTimers()</code>.</div>
+          <div class="tool">Modificato <b>scheduler.test.ts</b></div>
+        </div>
+        <div class="foot"><div class="cmp"><div class="in">Scrivi un messaggio…</div><div class="tools"><span>＋</span><span>Claude · Opus</span><span class="go stop hide-done">■</span></div></div></div>
+      </div>
+    </div>
+    <div><div class="lbl">Telefono</div>
+      <div class="phone">
+        <div class="topbtns"><span class="fab">‹</span>
+          <span class="a-pill" data-sheet>
+            <span class="gi pulse"><svg width="14" height="14" class="st active"><use href="#tgt"/></svg><svg width="14" height="14" class="st paused"><use href="#pau"/></svg><svg width="14" height="14" class="st done"><use href="#chk"/></svg></span>
+            <span class="clip"><span class="st active">Goal · Migra i test a Vitest</span><span class="st paused">Goal in pausa</span><span class="st done">Goal raggiunto</span></span>
+            <span class="meta"><span class="st active">23m</span><span class="st paused">14:30</span><span class="st done">✓</span></span>
+          </span>
+          <span class="fab">⋯</span></div>
+        <div class="a-sheet">
+          <span class="gtag"><span class="st active">Goal attivo · 23 min · turno 7</span><span class="st paused">In pausa · limite, riparte alle 14:30</span><span class="st done">Raggiunto · 31 min · 9 turni</span></span>
+          <div class="t">Migra tutti i test da Jest a Vitest e falli passare</div>
+          <div class="acts">
+            <span class="st active" style="flex:1"><button class="ib ghost" style="width:100%">Pausa</button></span>
+            <span class="st paused" style="flex:1"><button class="ib main" style="width:100%">Riprendi ora</button></span>
+            <span class="hide-done" style="flex:1"><button class="ib ghost" style="width:100%">Termina</button></span>
+            <span class="st done" style="flex:1"><button class="ib ghost" style="width:100%">Nascondi</button></span>
+          </div>
+        </div>
+        <div class="msgs">
+          <div class="m u">/goal Migra tutti i test da Jest a Vitest e falli passare</div>
+          <div class="tool">Modificati <b>14 file</b> · <b>vitest run</b> — 3 falliti</div>
+          <div class="m">Restano 3 test con i timer finti: passo a <code>vi.useFakeTimers()</code>.</div>
+        </div>
+        <div class="foot"><div class="cmp"><div class="in">Scrivi un messaggio…</div><div class="tools"><span>＋</span><span class="go stop hide-done">■</span></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== B ===================== -->
+<div class="row">
+  <h2>B · Il composer diventa "modalità goal"</h2>
+  <p class="d">Il goal vive dove si scrive: anello colorato attorno al composer e un chip in testa con il testo, pausa e chiusura. Ogni messaggio scritto mentre il goal è attivo è un'indicazione in più per l'agente. Clic sul chip = popover con il testo intero. Uguale sul telefono, chip su una riga.</p>
+  <div class="pair">
+    <div><div class="lbl">Desktop</div>
+      <div class="desk">
+        <div class="tabs"><span class="on"><span class="dot hide-done"></span>flowcode · Claude</span><span>api-server</span></div>
+        <div class="msgs">
+          <div class="m u">/goal Migra tutti i test da Jest a Vitest e falli passare</div>
+          <div class="tool">Modificati <b>14 file</b> · <b>vitest run</b> — 3 falliti</div>
+          <div class="m">Restano 3 test con i timer finti: passo a <code>vi.useFakeTimers()</code>.</div>
+          <div class="tool">Modificato <b>scheduler.test.ts</b></div>
+        </div>
+        <div class="foot">
+          <div class="b-pop">
+            <span class="gtag"><span class="st active">Goal attivo · 23 min · turno 7</span><span class="st paused">In pausa · limite, riparte alle 14:30</span><span class="st done">Raggiunto · 31 min · 9 turni</span></span>
+            <div class="t">Migra tutti i test da Jest a Vitest e falli passare</div>
+            <div class="acts"><span class="hide-done"><button class="ib ghost">Termina goal</button></span><span class="st done"><button class="ib ghost">Nascondi</button></span></div>
+          </div>
+          <div class="cmp goal">
+            <div class="b-chip" data-pop>
+              <span class="gi pulse"><svg width="15" height="15" class="st active"><use href="#tgt"/></svg><svg width="15" height="15" class="st paused"><use href="#pau"/></svg><svg width="15" height="15" class="st done"><use href="#chk"/></svg></span>
+              <span class="clip"><b><span class="st active">Goal</span><span class="st paused">In pausa</span><span class="st done">Raggiunto</span></b>Migra tutti i test da Jest a Vitest e falli passare</span>
+              <span class="meta"><span class="st active">23 min</span><span class="st paused">riparte 14:30</span><span class="st done">9 turni</span></span>
+              <span class="st active"><button class="ib icon" title="Pausa"><svg width="12" height="12"><use href="#pau"/></svg></button></span>
+              <span class="st paused"><button class="ib main">Riprendi</button></span>
+              <button class="ib icon" title="Chiudi"><svg width="12" height="12"><use href="#x"/></svg></button>
+            </div>
+            <div class="in"><span class="st active">Aggiungi un'indicazione al goal…</span><span class="st paused">Aggiungi un'indicazione al goal…</span><span class="st done">Scrivi un messaggio…</span></div>
+            <div class="tools"><span>＋</span><span>Claude · Opus</span><span class="go stop hide-done">■</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div><div class="lbl">Telefono</div>
+      <div class="phone">
+        <div class="topbtns"><span class="fab">‹</span><span class="fab">⋯</span></div>
+        <div class="msgs">
+          <div class="m u">/goal Migra tutti i test da Jest a Vitest e falli passare</div>
+          <div class="tool">Modificati <b>14 file</b> · <b>vitest run</b> — 3 falliti</div>
+          <div class="m">Restano 3 test con i timer finti: passo a <code>vi.useFakeTimers()</code>.</div>
+        </div>
+        <div class="foot">
+          <div class="b-pop" style="left:10px;right:10px">
+            <span class="gtag"><span class="st active">Goal attivo · 23 min · turno 7</span><span class="st paused">In pausa · riparte alle 14:30</span><span class="st done">Raggiunto · 31 min</span></span>
+            <div class="t">Migra tutti i test da Jest a Vitest e falli passare</div>
+            <div class="acts"><span class="st active"><button class="ib ghost">Pausa</button></span><span class="hide-done"><button class="ib ghost">Termina goal</button></span><span class="st done"><button class="ib ghost">Nascondi</button></span></div>
+          </div>
+          <div class="cmp goal">
+            <div class="b-chip" data-pop>
+              <span class="gi pulse"><svg width="14" height="14" class="st active"><use href="#tgt"/></svg><svg width="14" height="14" class="st paused"><use href="#pau"/></svg><svg width="14" height="14" class="st done"><use href="#chk"/></svg></span>
+              <span class="clip"><b><span class="st active">Goal</span><span class="st paused">Pausa</span><span class="st done">Fatto</span></b>Migra tutti i test a Vitest</span>
+              <span class="st paused"><button class="ib main">Riprendi</button></span>
+            </div>
+            <div class="in"><span class="st active">Indicazione al goal…</span><span class="st paused">Indicazione al goal…</span><span class="st done">Scrivi un messaggio…</span></div>
+            <div class="tools"><span>＋</span><span class="go stop hide-done">■</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== C ===================== -->
+<div class="row">
+  <h2>C · Card nella timeline + richiamo fisso</h2>
+  <p class="d">Il <code>/goal</code> non appare come normale messaggio utente ma come card dedicata, con una barra di turni che cresce. Quando la card esce dallo schermo resta un richiamo: sul desktop una riga sotto il composer (come i terminali in background), sul telefono il pulsante tondo in basso a destra (come i blocchi terminale). Clic = torna alla card.</p>
+  <div class="pair">
+    <div><div class="lbl">Desktop</div>
+      <div class="desk">
+        <div class="tabs"><span class="on"><span class="dot hide-done"></span>flowcode · Claude</span><span>api-server</span></div>
+        <div class="msgs">
+          <div class="c-card">
+            <div class="h"><span class="gi pulse"><svg width="16" height="16" class="st active"><use href="#tgt"/></svg><svg width="16" height="16" class="st paused"><use href="#pau"/></svg><svg width="16" height="16" class="st done"><use href="#chk"/></svg></span>
+              <span class="gtag"><span class="st active">Goal avviato</span><span class="st paused">Goal in pausa — limite</span><span class="st done">Goal raggiunto</span></span>
+              <span class="meta"><span class="st active">13:42 · 23 min</span><span class="st paused">riparte alle 14:30</span><span class="st done">31 min · 9 turni</span></span></div>
+            <div class="t">Migra tutti i test da Jest a Vitest e falli passare</div>
+            <div class="c-steps"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+          </div>
+          <div class="tool">Modificati <b>14 file</b> · <b>vitest run</b> — 3 falliti</div>
+          <div class="m">Restano 3 test con i timer finti: passo a <code>vi.useFakeTimers()</code>.</div>
+          <div class="tool">Modificato <b>scheduler.test.ts</b></div>
+        </div>
+        <div class="foot">
+          <div class="cmp"><div class="in">Scrivi un messaggio…</div><div class="tools"><span>＋</span><span>Claude · Opus</span><span class="go stop hide-done">■</span></div></div>
+          <div class="c-tray" data-jump>
+            <span class="gi pulse"><svg width="14" height="14" class="st active"><use href="#tgt"/></svg><svg width="14" height="14" class="st paused"><use href="#pau"/></svg><svg width="14" height="14" class="st done"><use href="#chk"/></svg></span>
+            <span class="clip"><b><span class="st active">Goal in corso</span><span class="st paused">Goal in pausa</span><span class="st done">Goal raggiunto</span></b> · Migra tutti i test da Jest a Vitest e falli passare</span>
+            <span class="meta"><span class="st active">turno 7 · 23 min</span><span class="st paused">14:30</span><span class="st done">9 turni</span></span>
+            <span class="st paused"><button class="ib main">Riprendi</button></span>
+            <span class="hide-done"><button class="ib icon" title="Termina"><svg width="11" height="11"><use href="#x"/></svg></button></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div><div class="lbl">Telefono</div>
+      <div class="phone">
+        <div class="topbtns"><span class="fab">‹</span><span class="fab">⋯</span></div>
+        <div class="msgs">
+          <div class="c-card">
+            <div class="h"><span class="gi pulse"><svg width="15" height="15" class="st active"><use href="#tgt"/></svg><svg width="15" height="15" class="st paused"><use href="#pau"/></svg><svg width="15" height="15" class="st done"><use href="#chk"/></svg></span>
+              <span class="gtag"><span class="st active">Goal</span><span class="st paused">In pausa</span><span class="st done">Raggiunto</span></span>
+              <span class="meta"><span class="st active">23 min</span><span class="st paused">14:30</span><span class="st done">31 min</span></span></div>
+            <div class="t">Migra tutti i test da Jest a Vitest e falli passare</div>
+            <div class="c-steps"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+            <div class="only-paused" style="margin-top:10px"><button class="ib main" style="width:100%;padding:9px">Riprendi ora</button></div>
+          </div>
+          <div class="tool">Modificati <b>14 file</b> · <b>vitest run</b> — 3 falliti</div>
+          <div class="m">Restano 3 test con i timer finti: passo a <code>vi.useFakeTimers()</code>.</div>
+          <div class="tool">Modificato <b>scheduler.test.ts</b></div>
+          <div class="m">Ora rilancio tutta la suite.</div>
+        </div>
+        <span class="c-jump" data-jump><span class="pulse gi" style="border-radius:50%"><svg width="20" height="20" class="st active"><use href="#tgt"/></svg><svg width="20" height="20" class="st paused"><use href="#pau"/></svg><svg width="20" height="20" class="st done"><use href="#chk"/></svg></span><span class="badge"><span class="st active">7</span><span class="st paused">!</span><span class="st done">✓</span></span></span>
+        <div class="foot"><div class="cmp"><div class="in">Scrivi un messaggio…</div><div class="tools"><span>＋</span><span class="go stop hide-done">■</span></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h3>Comune a tutte e tre</h3>
+  <ul>
+    <li><b>Stati:</b> attivo (verde, icona che pulsa), in pausa per limite (ambra + <b>Riprendi</b> → <code>/goal resume</code>, già usato dall'auto-resume di Codex), raggiunto (spunta, si nasconde a mano o al prossimo messaggio normale).</li>
+    <li><b>Azioni:</b> Pausa / Termina mandano i comandi dell'agente; dove l'agente non li ha, il pulsante non c'è.</li>
+    <li><b>Dati:</b> testo del goal dal messaggio <code>/goal …</code>; tempo e turni contati da noi; lo stato "in pausa"/"raggiunto" va letto da quello che l'agente emette in chat (da verificare per Claude e Codex prima di implementare).</li>
+    <li><b>Telefono:</b> stesso stato passato dal desktop, nessuna logica nuova lato app.</li>
+  </ul>
+</div>
+
+<script>
+const $$=s=>[...document.querySelectorAll(s)];
+$$('[data-set]').forEach(b=>b.onclick=()=>{document.body.dataset.state=b.dataset.set;$$('[data-set]').forEach(x=>x.classList.toggle('on',x===b))});
+document.getElementById('theme').onclick=()=>document.body.classList.toggle('light');
+document.addEventListener('click',e=>{
+  if(e.target.closest('button')) return;
+  const t=e.target.closest('[data-toggle]'); if(t){t.classList.toggle('open');return}
+  const s=e.target.closest('[data-sheet]'); if(s){s.closest('.phone').querySelector('.a-sheet').classList.toggle('open');return}
+  const p=e.target.closest('[data-pop]'); if(p){p.closest('.foot').querySelector('.b-pop').classList.toggle('open');return}
+  const j=e.target.closest('[data-jump]'); if(j){const c=j.closest('.desk,.phone').querySelector('.c-card');c.classList.remove('flash');void c.offsetWidth;c.classList.add('flash')}
+});
+</script>
+</body>
+</html>

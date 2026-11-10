@@ -73,7 +73,7 @@ fn under_root(cwd: &str, root: &str) -> bool {
 
 /// RFC3339 (`2026-10-16T15:32:35.323Z`, or with a `+hh:mm` offset) to ms
 /// since epoch. No date crate is a dependency, so the calendar maths is here.
-fn parse_rfc3339_ms(s: &str) -> Option<u64> {
+pub(crate) fn parse_rfc3339_ms(s: &str) -> Option<u64> {
     let b = s.as_bytes();
     let num = |from: usize, len: usize| -> Option<i64> {
         let part = s.get(from..from + len)?;

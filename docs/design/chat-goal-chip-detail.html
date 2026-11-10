@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowcode — chip del goal nel composer (variante B, dettaglio)</title>
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --fg:#e7d8c5; --muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --ink:#17210f; --warn:#e0b252; --danger:#d97a6c; --hover:rgba(232,184,128,.07); --track:rgba(232,184,128,.10);
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --fg:#3a2b17; --muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --ink:#f6f9f0; --warn:#a67a14; --danger:#b5483a; --hover:rgba(140,88,32,.06); --track:rgba(120,80,36,.10);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+h1{font-size:18px;margin:0 0 4px}
+h2{font-size:14px;margin:34px 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:920px}
+.d{color:var(--muted);margin:0 0 14px;max-width:920px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:22px}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.bar button.on{background:var(--track);border-color:var(--accent)}
+.bar .sep{width:1px;height:20px;background:var(--border);margin:0 6px}
+code{background:var(--track);padding:0 4px;border-radius:4px;font-size:12px}
+.lbl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.pair{display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start}
+
+/* frame */
+.desk{width:620px;height:520px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--bg) 70%,#000 6%);display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.tabs span{padding:5px 12px;border-radius:6px 6px 0 0}
+.tabs span.on{background:var(--hover);color:var(--fg)}
+.phone{width:330px;height:640px;border-radius:36px;border:9px solid #000;background:var(--bg);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 0 0 1px var(--border);position:relative}
+.topbtns{position:absolute;top:12px;left:10px;right:10px;display:flex;justify-content:space-between;z-index:3}
+.fab{width:34px;height:34px;border-radius:50%;background:color-mix(in srgb,var(--fg) 8%,var(--surface));display:grid;place-items:center;color:var(--muted)}
+.msgs{flex:1;overflow:hidden;padding:14px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px}
+.phone .msgs{padding-top:58px}
+.m{max-width:86%;padding:8px 11px;border-radius:12px;background:var(--hover);color:var(--muted)}
+.m.u{align-self:flex-end;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--fg)}
+.tool{font-size:12px;color:var(--muted);padding-left:4px}
+.tool b{color:var(--fg);font-weight:600}
+.foot{padding:0 12px 12px}
+.phone .foot{padding:0 10px 12px}
+
+/* ===== composer ===== */
+.cmp{--g:var(--accent);position:relative;padding:12px 12px 10px 16px;border-radius:24px;background:color-mix(in srgb,var(--fg) 7%,var(--surface));
+  box-shadow:0 10px 30px -14px rgba(0,0,0,.5),0 0 0 1px color-mix(in srgb,var(--fg) 24%,transparent);transition:box-shadow .2s}
+.cmp[data-s=paused]{--g:var(--warn)}
+body.ring .cmp[data-s=active],body.ring .cmp[data-s=paused]{box-shadow:0 10px 30px -14px rgba(0,0,0,.5),0 0 0 1px color-mix(in srgb,var(--g) 55%,transparent)}
+.cmp .in{min-height:38px;color:var(--muted);font-size:14px;padding-right:96px}
+.cmp .tools{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12px}
+.go{margin-left:auto;width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--ink);display:grid;place-items:center;font-weight:700}
+.go.stop{background:var(--track);color:var(--fg)}
+.phone .cmp{padding:10px 10px 8px 14px}
+.phone .cmp .in{padding-right:74px;font-size:14.5px}
+
+/* chip chiusa: in alto a destra dentro il composer */
+.chip{position:absolute;top:9px;right:10px;height:24px;display:flex;align-items:center;gap:5px;padding:0 9px 0 7px;border-radius:999px;border:0;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;
+  color:var(--g);background:color-mix(in srgb,var(--g) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--g) 38%,transparent);font-variant-numeric:tabular-nums;transition:background .15s}
+.chip:hover{background:color-mix(in srgb,var(--g) 22%,transparent)}
+.chip .t{color:var(--fg)}
+.chip .n{color:var(--muted);font-weight:500}
+.phone .chip{top:8px;right:8px;height:26px}
+.ico{position:relative;display:inline-grid;place-items:center}
+.cmp[data-s=active] .ico::after{content:"";position:absolute;inset:-2px;border-radius:50%;border:1.5px solid var(--g);animation:p 1.8s ease-out infinite}
+@keyframes p{from{opacity:.8;transform:scale(.6)}to{opacity:0;transform:scale(1.6)}}
+.cmp[data-s=done] .chip{animation:pop .5s}
+@keyframes pop{40%{transform:scale(1.12)}}
+
+/* pannello espanso: la chip cresce e occupa la testa del composer */
+.panel{display:none;margin:-4px -4px 10px -8px;border-radius:16px;padding:10px 12px 12px;background:color-mix(in srgb,var(--g) 9%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--g) 32%,transparent);animation:open .18s ease-out;transform-origin:top right}
+@keyframes open{from{opacity:0;transform:scale(.92)}}
+.cmp.open .panel{display:block}
+.cmp.open .chip{display:none}
+.cmp.open .in{padding-right:0}
+.ph{display:flex;align-items:center;gap:7px}
+.ph .tag{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--g)}
+.ph .meta{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ph .x{margin-left:auto;width:24px;height:24px;border-radius:50%;border:0;background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer}
+.ph .x:hover{background:var(--track);color:var(--fg)}
+.gt{margin:6px 0 10px;font-size:13.5px;max-height:62px;overflow:auto}
+.why{font-size:12px;color:var(--muted);margin:-4px 0 10px}
+.why b{color:var(--fg);font-weight:600}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.b{font:inherit;font-size:12px;font-weight:600;border:0;border-radius:999px;padding:6px 12px;cursor:pointer;color:var(--fg);background:var(--track);display:inline-flex;align-items:center;gap:6px}
+.b.main{background:var(--g);color:var(--ink)}
+.b.ghost{background:transparent;box-shadow:inset 0 0 0 1px var(--border);font-weight:500}
+.b.danger{background:transparent;color:var(--danger);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--danger) 45%,transparent);font-weight:500}
+.b.danger.confirm{background:var(--danger);color:#fff;box-shadow:none;font-weight:600}
+.phone .acts .b{flex:1;justify-content:center;padding:10px;font-size:13px}
+.phone .gt{font-size:14px}
+
+/* griglia stati */
+.states{display:grid;grid-template-columns:repeat(4,minmax(230px,1fr));gap:18px;max-width:1100px}
+.states .cell .cap{font-size:12px;color:var(--muted);margin:0 0 6px}
+.states .cell .cap b{color:var(--fg)}
+.states .cmp .in{font-size:13px}
+
+/* anatomia */
+.anat{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.spec{max-width:520px}
+.spec table{border-collapse:collapse;width:100%;font-size:12.5px}
+.spec td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.spec td:first-child{color:var(--muted);white-space:nowrap}
+.notes{max-width:920px}
+.notes li{margin-bottom:5px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--surface);box-shadow:0 0 0 1px var(--border),0 10px 30px -10px #000;padding:8px 14px;border-radius:999px;font-size:12.5px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+</head>
+<body class="ring">
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="tgt" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></symbol>
+  <symbol id="chk" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/></symbol>
+  <symbol id="pau" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></symbol>
+  <symbol id="ply" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></symbol>
+  <symbol id="stp" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></symbol>
+  <symbol id="up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+</defs></svg>
+
+<h1>Goal nel composer — variante B in dettaglio</h1>
+<p class="sub">Da chiusa è una chip piccola in alto a destra nel composer: icona, una parola di stato, il tempo. Clic → si espande dentro il composer, in testa, con il testo del goal e le azioni. Il campo di scrittura resta sotto, sempre usabile. Le demo qui sotto sono cliccabili: chip, pulsanti, ✕/chevron per richiudere.</p>
+<div class="bar">
+  <button data-set="active" class="on">Attivo</button>
+  <button data-set="paused-limit">In pausa · limite</button>
+  <button data-set="paused-user">In pausa · da te</button>
+  <button data-set="done">Raggiunto</button>
+  <span class="sep"></span>
+  <button id="ring" class="on">Anello colorato sul composer</button>
+  <button id="theme">Tema chiaro / scuro</button>
+</div>
+
+<h2>1 · Demo interattiva</h2>
+<p class="d">Stesso componente su desktop e telefono. Sul telefono i pulsanti sono a tutta larghezza (alti 40px) per il pollice; la chip è un filo più alta (26px).</p>
+<div class="pair">
+  <div><div class="lbl">Desktop</div>
+    <div class="desk">
+      <div class="tabs"><span class="on">flowcode · Claude</span><span>api-server</span></div>
+      <div class="msgs">
+        <div class="m u">/goal Migra tutti i test da Jest a Vitest e falli passare</div>
+        <div class="tool">Modificati <b>14 file</b> · <b>vitest run</b> — 3 falliti</div>
+        <div class="m">Restano 3 test con i timer finti: passo a <code>vi.useFakeTimers()</code>.</div>
+        <div class="tool">Modificato <b>scheduler.test.ts</b></div>
+      </div>
+      <div class="foot"><div class="cmp live" data-p="desk"></div></div>
+    </div>
+  </div>
+  <div><div class="lbl">Telefono</div>
+    <div class="phone">
+      <div class="topbtns"><span class="fab">‹</span><span class="fab">⋯</span></div>
+      <div class="msgs">
+        <div class="m u">/goal Migra tutti i test da Jest a Vitest e falli passare</div>
+        <div class="tool">Modificati <b>14 file</b> · <b>vitest run</b> — 3 falliti</div>
+        <div class="m">Restano 3 test con i timer finti: passo a <code>vi.useFakeTimers()</code>.</div>
+      </div>
+      <div class="foot"><div class="cmp live" data-p="phone"></div></div>
+    </div>
+  </div>
+</div>
+
+<h2>2 · Tutti gli stati, chiusi ed espansi</h2>
+<p class="d">Riga sopra: chip chiusa. Riga sotto: pannello espanso. Colore verde = in corso, ambra = in pausa, verde con spunta = raggiunto.</p>
+<div class="states" id="grid"></div>
+
+<h2>3 · Anatomia e misure</h2>
+<div class="anat">
+  <div class="spec"><table>
+    <tr><td>Posizione chip</td><td>dentro il composer, in alto a destra (top 9 / right 10 px; telefono 8 / 8). Il campo testo riserva lo spazio a destra (~96px desktop, ~74px telefono) solo sulla prima riga di altezza.</td></tr>
+    <tr><td>Chip</td><td>altezza 24px (telefono 26), raggio pieno, icona 13px + parola di stato + tempo in cifre tabellari. Sfondo colore stato al 14%, bordo 1px al 38%.</td></tr>
+    <tr><td>Testo chip</td><td><b>Goal 23m</b> · <b>Pausa 14:30</b> (limite, ora di ripartenza) · <b>Pausa</b> (da te) · <b>Fatto</b>. Mai il testo del goal: resta piccola.</td></tr>
+    <tr><td>Icona</td><td>bersaglio con anello che pulsa (1.8s) solo se attivo; pausa se fermo; spunta con piccolo "pop" quando raggiunto.</td></tr>
+    <tr><td>Pannello</td><td>prende la testa del composer (si espande dalla chip, origine in alto a destra, 180ms). Intestazione: stato · tempo · turno + ✕ per richiudere. Testo goal max 3 righe, poi scorre.</td></tr>
+    <tr><td>Azioni</td><td>Attivo: <b>Pausa</b>, <b>Interrompi</b>. In pausa: <b>Riprendi</b> (principale), <b>Interrompi</b>. Raggiunto: <b>Chiudi</b>.</td></tr>
+    <tr><td>Interrompi</td><td>doppio clic in linea: il primo trasforma il pulsante in "Conferma interruzione" (rosso pieno) per 3s; niente dialog.</td></tr>
+    <tr><td>Anello composer</td><td>facoltativo (toggle sopra): bordo 1px nel colore di stato al 55% mentre il goal è attivo o in pausa.</td></tr>
+  </table></div>
+  <div class="notes"><ul>
+    <li><b>Chiudere il pannello:</b> ✕, clic fuori dal composer, <code>Esc</code>; sul telefono anche tap sulla chat. Iniziare a scrivere <i>non</i> lo chiude.</li>
+    <li><b>Si ricorda per chat</b> se l'hai lasciato aperto o chiuso; alla prima apparizione del goal parte chiuso.</li>
+    <li><b>Raggiunto:</b> la chip resta "Fatto" fino al prossimo messaggio normale o a <b>Chiudi</b>, poi sparisce.</li>
+    <li><b>Pausa per limite:</b> l'auto-resume già esistente manda <code>/goal resume</code> all'orario; la chip mostra quell'orario. <b>Riprendi</b> prova subito.</li>
+    <li><b>Mentre il goal è attivo</b> il testo grigio diventa "Aggiungi un'indicazione al goal…": scrivere non interrompe il goal.</li>
+    <li><b>Telefono:</b> stesso stato del desktop (arriva con gli eventi chat già esistenti); nessuna logica in più sull'app.</li>
+    <li><b>Agenti senza pausa:</b> il pulsante Pausa non compare. Da verificare quali comandi espongono Claude e Codex.</li>
+  </ul></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const GOAL='Migra tutti i test da Jest a Vitest e falli passare';
+const I=(id,s=13)=>`<svg width="${s}" height="${s}"><use href="#${id}"/></svg>`;
+const S={
+  active:     {s:'active', ico:'tgt', chip:['Goal','23m'], tag:'Goal attivo', meta:'23 min · turno 7', ph:"Aggiungi un'indicazione al goal…",
+               acts:[['ghost','pau','Pausa','paused-user'],['danger','stp','Interrompi','stop']]},
+  'paused-limit':{s:'paused', ico:'pau', chip:['Pausa','14:30'], tag:'In pausa', meta:'turno 7', why:'Limite di sessione raggiunto · riprende da solo alle <b>14:30</b>', ph:"Aggiungi un'indicazione al goal…",
+               acts:[['main','ply','Riprendi ora','active'],['danger','stp','Interrompi','stop']]},
+  'paused-user':{s:'paused', ico:'pau', chip:['Pausa',''], tag:'In pausa', meta:'23 min · turno 7', why:'Messo in pausa da te', ph:"Aggiungi un'indicazione al goal…",
+               acts:[['main','ply','Riprendi','active'],['danger','stp','Interrompi','stop']]},
+  done:       {s:'done', ico:'chk', chip:['Fatto',''], tag:'Goal raggiunto', meta:'31 min · 9 turni', ph:'Scrivi un messaggio…',
+               acts:[['ghost','','Chiudi','none']]},
+};
+function render(el,key,open,phone){
+  if(key==='none'){el.dataset.s='';el.classList.remove('open');el.innerHTML=`<div class="in">Scrivi un messaggio…</div><div class="tools"><span>＋</span>${phone?'':'<span>Claude · Opus</span>'}<span class="go">↑</span></div>`;return}
+  const c=S[key]; el.dataset.s=c.s; el.dataset.k=key; el.classList.toggle('open',!!open);
+  el.innerHTML=`
+    <button class="chip" data-a="open" title="${GOAL}"><span class="ico">${I(c.ico)}</span><span class="t">${c.chip[0]}</span>${c.chip[1]?`<span class="n">${c.chip[1]}</span>`:''}</button>
+    <div class="panel">
+      <div class="ph"><span class="ico" style="color:var(--g)">${I(c.ico,14)}</span><span class="tag">${c.tag}</span><span class="meta">· ${c.meta}</span><button class="x" data-a="close" title="Richiudi">${I('up',14)}</button></div>
+      <div class="gt">${GOAL}</div>
+      ${c.why?`<div class="why">${c.why}</div>`:''}
+      <div class="acts">${c.acts.map(([k,i,t,to])=>`<button class="b ${k}" data-to="${to}">${i?I(i,12):''}${t}</button>`).join('')}</div>
+    </div>
+    <div class="in">${c.ph}</div>
+    <div class="tools"><span>＋</span>${phone?'':'<span>Claude · Opus</span>'}<span class="go ${c.s==='done'?'':'stop'}">${c.s==='done'?'↑':'■'}</span></div>`;
+}
+let cur='active';
+function renderLive(open){$$('.cmp.live').forEach(el=>render(el,cur,open??el.classList.contains('open'),el.dataset.p==='phone'))}
+function renderGrid(){
+  const g=$('#grid'); g.innerHTML='';
+  const caps={active:'<b>Attivo</b> · in corso','paused-limit':'<b>In pausa</b> · limite','paused-user':'<b>In pausa</b> · da te',done:'<b>Raggiunto</b>'};
+  for(const open of [false,true]) for(const k of Object.keys(S)){
+    const cell=document.createElement('div'); cell.className='cell';
+    cell.innerHTML=`<div class="cap">${caps[k]} · ${open?'espanso':'chiuso'}</div><div class="cmp"></div>`;
+    g.appendChild(cell); render(cell.querySelector('.cmp'),k,open,false);
+  }
+}
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),1800)}
+function setState(k){cur=k;$$('[data-set]').forEach(b=>b.classList.toggle('on',b.dataset.set===k));renderLive()}
+$$('[data-set]').forEach(b=>b.onclick=()=>setState(b.dataset.set));
+$('#ring').onclick=e=>{document.body.classList.toggle('ring');e.target.classList.toggle('on')};
+$('#theme').onclick=()=>document.body.classList.toggle('light');
+
+document.addEventListener('click',e=>{
+  const cmp=e.target.closest('.cmp');
+  const live=cmp&&cmp.classList.contains('live');
+  if(!cmp){$$('.cmp.live.open').forEach(c=>c.classList.remove('open'));return}
+  const a=e.target.closest('[data-a]'); if(a){cmp.classList.toggle('open',a.dataset.a==='open');return}
+  const b=e.target.closest('[data-to]'); if(!b||!live) return;
+  const to=b.dataset.to;
+  if(to==='stop'){
+    if(!b.classList.contains('confirm')){b.classList.add('confirm');b.lastChild.textContent='Conferma interruzione';clearTimeout(b._t);b._t=setTimeout(()=>{b.classList.remove('confirm');b.lastChild.textContent='Interrompi'},3000);return}
+    toast('Goal interrotto');cur='none';renderLive(false);return;
+  }
+  if(to==='none'){cur='none';renderLive(false);toast('Goal chiuso');return}
+  toast(to==='active'?'Goal ripreso (/goal resume)':'Goal in pausa');
+  setState(to);
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$$('.cmp.live.open').forEach(c=>c.classList.remove('open'))});
+renderLive(false); renderGrid();
+</script>
+</body>
+</html>

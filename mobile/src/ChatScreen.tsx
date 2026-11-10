@@ -27,7 +27,7 @@ import { useTwoFingerSwipe } from "./chatSwipe";
 import { eventsActivity } from "../../src/chat/cacheWarning";
 import { useCacheWarning } from "../../src/chat/useCacheWarning";
 import { loadChatCacheInfo } from "./chatCacheInfo";
-import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatGoal, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName, shortCwd } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { lastInWindow } from "./homeSessions";
@@ -655,7 +655,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                   onClose={() => setComposerOpen(false)}
                   onOpen={() => setComposerOpen(true)}
                   onDraftChange={setHasComposerDraft}
-                  chatId={chatId} agent={info?.agent ?? ""} busy={working} commands={model.commands} commandsLoading={starting} canClear={canClear} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubFromTray} openLabel={t("chatSubOpen")} expanded={subsOpen} onToggle={toggleSubs} onUngrouped={foldSubs} countLabel={(n) => t("chatSubCount", { n })} />} />
+                  chatId={chatId} agent={info?.agent ?? ""} busy={working} commands={model.commands} commandsLoading={starting} canClear={canClear} modes={modes} onMode={(modeId) => setChatMode(chatId, modeId)} models={models} onModel={(modelId) => setChatModel(chatId, modelId)} thought={thought} onThought={(value) => setChatThought(chatId, value)} goal={model.goal} goalActions={model.goalActions} goalItems={model.items} onGoal={(a) => setChatGoal(chatId, a)} onSend={sendPrompt} onStop={() => cancelChat(chatId)} subagentTray={<SubagentTray items={runningSubs} onOpen={openSubFromTray} openLabel={t("chatSubOpen")} expanded={subsOpen} onToggle={toggleSubs} onUngrouped={foldSubs} countLabel={(n) => t("chatSubCount", { n })} />} />
               </div>
             </>
           )}

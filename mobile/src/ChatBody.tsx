@@ -5,6 +5,7 @@ import { hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPro
 import type { ChatImageRef, ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
 import { UserText } from "../../src/chat/CommandChip";
 import { ChatCompaction } from "./ChatCompaction";
+import { ChatGoalMarker } from "./ChatGoalMarker";
 import { ChatImages, ChatUserImages } from "./ChatImage";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -384,6 +385,8 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
     }
     case "compaction":
       return <ChatCompaction item={item} onLink={onLink} />;
+    case "goal":
+      return <ChatGoalMarker item={item} />;
     case "stop":
       return (
         <div className="chat-stop" role="status">

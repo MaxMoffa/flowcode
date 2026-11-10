@@ -2525,6 +2525,21 @@ impl Conn {
                     }
                 });
             }
+            // As `ChatThought`, for the goal controls.
+            ClientMsg::ChatGoal { chat_id, action } => {
+                if chat_id.len() > MAX_ID_BYTES || !matches!(action.as_str(), "pause" | "resume" | "clear") {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                    return;
+                }
+                let (app, out) = (self.shared.app.clone(), self.out_tx.clone());
+                tauri::async_runtime::spawn(async move {
+                    let result = app.state::<ChatState>().goal_action(&chat_id, action).await;
+                    if let Err(message) = result {
+                        let message = format!("{}: {message}", tr("Impossibile controllare il goal", "Couldn't control the goal"));
+                        let _ = out.try_send(ServerMsg::Error { message, pty_id: None, fatal: false });
+                    }
+                });
+            }
             ClientMsg::ChatTerminal { chat_id } => {
                 let Some(chat) = self.chat(&chat_id) else { return };
                 let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_TERMINAL, serde_json::json!({ "tabId": chat.tab_id }));

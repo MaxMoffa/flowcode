@@ -146,13 +146,36 @@ function push(chatId: string, evs: Ev[]) {
 
 const later = (ms: number, fn: () => void) => setTimeout(fn, ms);
 
+/** The mock's goal per chat (`/goal <text>` in a prompt): it completes by itself ~6 s after it is active. */
+const goals = new Map<string, { objective: string; status: string; setAt: number; timer?: ReturnType<typeof setTimeout> }>();
+
+function pushGoal(chatId: string) {
+  const g = goals.get(chatId);
+  const actions = ["pause", "resume", "clear"];
+  const params = g
+    ? { goal: { objective: g.objective, status: g.status, setAt: g.setAt, iterations: g.status === "complete" ? 3 : null, durationMs: g.status === "complete" ? 6000 : null, tokens: null, reason: g.status === "complete" ? "Tutti i test passano." : null }, actions }
+    : { goal: null, actions };
+  push(chatId, [{ kind: "ext", method: "_flowcode/goal", params }]);
+}
+
+function armGoal(chatId: string) {
+  const g = goals.get(chatId);
+  if (!g) return;
+  clearTimeout(g.timer);
+  if (g.status !== "active") return;
+  g.timer = later(6000, () => {
+    g.status = "complete";
+    pushGoal(chatId);
+  });
+}
+
 /** Sends what the dev server pretends the desktop sends on connect. */
 export async function chatMockConnect() {
   init();
   await emit("remote://msgs", [{ t: "chats", chats: [...infos] }]);
 }
 
-export const chatMockCaps = ["chat", "agentViews", "agentInsight", "chatModel", "chatClear", "chatRename", "chatCloseTab", "chatCacheInfo"];
+export const chatMockCaps = ["chat", "agentViews", "agentInsight", "chatModel", "chatClear", "chatRename", "chatCloseTab", "chatCacheInfo", "chatGoal"];
 
 export const mockViews = [
   {
@@ -180,7 +203,24 @@ export function chatMock(msg: { t?: string; chatId?: string; text?: string; afte
       later(60, () => void emit("remote://msgs", [{ t: "chatevents", chatId, events: past, replay: true }]));
       break;
     }
+    case "chatgoal": {
+      const g = goals.get(chatId);
+      if (msg.action === "clear") {
+        if (g) clearTimeout(g.timer);
+        goals.delete(chatId);
+      } else if (g) {
+        g.status = msg.action === "pause" ? "paused" : "active";
+        armGoal(chatId);
+      }
+      pushGoal(chatId);
+      break;
+    }
     case "chatprompt":
+      if (msg.text?.startsWith("/goal ")) {
+        goals.set(chatId, { objective: msg.text.slice(6).trim(), status: "active", setAt: Date.now() });
+        later(200, () => pushGoal(chatId));
+        armGoal(chatId);
+      }
       setStatus(chatId, "busy");
       later(150, () => push(chatId, [{ kind: "user", text: msg.text ?? "" }]));
       later(900, () => push(chatId, [text("agent_message_chunk", "Ricevuto. ")]));

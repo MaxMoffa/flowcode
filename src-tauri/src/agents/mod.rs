@@ -21,7 +21,7 @@ use crate::windows::WindowTabs;
 pub(crate) mod registry;
 mod claude;
 pub use self::claude::*;
-mod claude_history;
+pub(crate) mod claude_history;
 pub use self::claude_history::*;
 mod codex;
 pub use self::codex::*;

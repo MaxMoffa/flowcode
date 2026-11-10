@@ -3777,3 +3777,130 @@ summary.chat-step-row {
     display: none;
   }
 }
+
+/* ===== Goal: chip at the composer's top right, panel at its head, ring, marker ===== */
+.chat-goal-chip-slot[data-tone="ok"], .chat-goal-panel[data-tone="ok"] { --g: var(--accent); }
+.chat-goal-chip-slot[data-tone="warn"], .chat-goal-panel[data-tone="warn"] { --g: var(--warn, var(--accent-2, #e0b252)); }
+.chat-goal-chip-slot[data-tone="bad"], .chat-goal-panel[data-tone="bad"] { --g: var(--danger); }
+
+.chat-composer.is-goal-active:not(:focus-within):not(.is-listening):not(.is-transcribing):not(.is-dragover) {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.chat-composer.is-goal-paused:not(:focus-within):not(.is-listening):not(.is-transcribing):not(.is-dragover) {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn, var(--accent-2, #e0b252)) 55%, transparent);
+}
+
+.chat-goal-chip {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  z-index: 2;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--g);
+  background: color-mix(in srgb, var(--g) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g) 38%, transparent);
+  font-variant-numeric: tabular-nums;
+  transition: background 0.15s;
+}
+.chat-goal-chip:hover { background: color-mix(in srgb, var(--g) 22%, transparent); }
+.chat-goal-chip-word { color: var(--fg); }
+.chat-goal-chip-time { color: var(--fg-muted); font-weight: 500; }
+.chat-goal-chip-slot[data-status="complete"] .chat-goal-chip { animation: chat-goal-pop 0.5s; }
+@keyframes chat-goal-pop { 40% { transform: scale(1.12); } }
+
+/* The text keeps clear of the chip while it is collapsed. */
+.chat-goal-chip-slot ~ .chat-input-row .chat-input { padding-right: 96px; }
+
+.chat-goal-ico { position: relative; display: inline-grid; place-items: center; }
+.chat-goal-chip-slot[data-status="active"] .chat-goal-ico::after, .chat-goal-panel[data-status="active"] .chat-goal-ico::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--g);
+  animation: chat-goal-pulse 1.8s ease-out infinite;
+}
+@keyframes chat-goal-pulse {
+  from { opacity: 0.8; transform: scale(0.6); }
+  to { opacity: 0; transform: scale(1.6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-goal-ico::after { animation: none; display: none; }
+  .chat-goal-chip-slot[data-status="complete"] .chat-goal-chip { animation: none; }
+  .chat-goal-panel { animation: none; }
+}
+
+.chat-goal-panel {
+  margin: -6px -4px 10px -8px;
+  border-radius: 16px;
+  padding: 10px 12px 12px;
+  background: color-mix(in srgb, var(--g) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g) 32%, transparent);
+  transform-origin: top right;
+  animation: chat-goal-open 0.18s ease-out;
+}
+@keyframes chat-goal-open { from { opacity: 0; transform: scale(0.92); } }
+.chat-goal-head { display: flex; align-items: center; gap: 7px; }
+.chat-goal-head .chat-goal-ico { color: var(--g); }
+.chat-goal-tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--g); }
+.chat-goal-meta { font-size: 11.5px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.chat-goal-collapse {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.chat-goal-collapse:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
+.chat-goal-text { margin: 6px 0 10px; font-size: 13.5px; line-height: 1.45; max-height: 62px; overflow: auto; overflow-wrap: anywhere; color: var(--fg); }
+.chat-goal-reason { font-size: 12px; color: var(--fg-muted); margin: -4px 0 10px; overflow-wrap: anywhere; }
+.chat-goal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.chat-goal-btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.chat-goal-btn:disabled { opacity: 0.5; cursor: default; }
+.chat-goal-btn.is-main { background: var(--g); color: var(--on-accent); }
+.chat-goal-btn.is-ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--border); font-weight: 500; }
+.chat-goal-btn.is-danger {
+  background: transparent;
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 45%, transparent);
+  font-weight: 500;
+}
+.chat-goal-btn.is-danger.is-confirm { background: var(--danger); color: #fff; box-shadow: none; font-weight: 600; }
+
+/* The marker where the goal ended: a faded line with the goal on it. */
+.chat-goal-marker { --g: var(--accent); margin: 12px 0; display: flex; justify-content: center; }
+.chat-goal-marker.is-failed { --g: var(--danger); }
+.chat-goal-marker-line { width: 100%; display: flex; align-items: center; gap: 12px; }
+.chat-goal-marker-line::before,
+.chat-goal-marker-line::after { content: ""; flex: 1; height: 1px; opacity: 0.55; background: linear-gradient(90deg, transparent, var(--g) 40%, var(--g)); }
+.chat-goal-marker-line::after { background: linear-gradient(270deg, transparent, var(--g) 40%, var(--g)); }
+.chat-goal-marker-body { max-width: min(70%, 520px); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.chat-goal-marker-title { display: inline-flex; align-items: center; gap: 7px; color: var(--g); font-size: 12.5px; }
+.chat-goal-marker-title b { font-weight: 700; }
+.chat-goal-marker-obj { font-size: 12.5px; color: var(--fg); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.chat-goal-marker-meta { font-size: 11.5px; color: var(--fg-muted); }

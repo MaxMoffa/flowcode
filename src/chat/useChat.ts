@@ -9,7 +9,7 @@ import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { NO_ACTIVITY, resumedActivity, trackActivity, type ChatActivity } from "./cacheWarning";
-import { applyEvent, applyLocalError, delegatesOf, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleAttached, settleChat, type ChatModelState } from "./chatModel";
+import { applyEvent, applyLocalError, delegatesOf, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleAttached, settleChat, type ChatModelState, type GoalAction } from "./chatModel";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 import { isProviderAuthError } from "../../shared/providerAuth";
 import { markProviderAuthRequired, PROVIDER_AUTHENTICATED, providerAuthRequired, useProviderAuthRequired, type ProviderAuthenticated } from "../profiles/providerAuth";
@@ -413,6 +413,19 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     });
   }, [agent]);
 
+  /** Pause, resume or stop the chat's goal; the backend's `_flowcode/goal` event shows the outcome. */
+  const goalAction = useCallback((action: GoalAction) => {
+    const id = chatIdRef.current;
+    if (!id) return Promise.resolve();
+    return invoke("chat_goal", { chatId: id, action }).then(
+      () => undefined,
+      (err) => {
+        if (chatIdRef.current !== id) return;
+        setModelState((m) => applyLocalError(m, t("chat.goal.failed", { error: String(err) })));
+      },
+    );
+  }, []);
+
   // Likewise the thinking levels: `_flowcode/thought` says them once they change (they follow the model).
   const offeredThought = model.thought !== undefined ? model.thought : announcedThought;
   const thought = useMemo(() => liveThought(offeredThought), [offeredThought]);
@@ -498,11 +511,13 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "goalAction"> & {
+  /** Pause, resume or stop the goal; absent for a chat running on another PC. */
+  goalAction?: (action: GoalAction) => Promise<void>;
   /** Starts a fresh conversation in the same tab; absent for a chat running on another PC. */
   clear?: () => void;
   /** Answer a permission request or question one of the chat's delegates asked (in the child's own chat); absent for a chat running on another PC, whose delegates are not shown. */

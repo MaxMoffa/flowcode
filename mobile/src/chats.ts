@@ -251,6 +251,12 @@ export function setChatThought(chatId: string, value: string) {
     if (!ok) showToast(t("chatThoughtSendFailed"));
   });
 }
+/** Pauses, resumes or stops the chat's goal; the desktop's `_flowcode/goal` event shows the result. Resolves once the desktop has the request. */
+export function setChatGoal(chatId: string, action: "pause" | "resume" | "clear"): Promise<void> {
+  return sendChecked({ t: "chatgoal", chatId, action }).then((ok) => {
+    if (!ok) showToast(t("chatGoalSendFailed"));
+  });
+}
 let clearTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** The tab being cleared right now, if any. */

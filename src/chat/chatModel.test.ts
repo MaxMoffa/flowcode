@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
+import { applyEvent, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
 
 let seq = 0;
@@ -746,5 +746,36 @@ describe("delegation events", () => {
     const s = run([ext("_flowcode/task", { taskId: "a", parentChatId: "p", parentAgent: "claude", parentTitle: null, prompt: "Fai X" })]);
     expect(s.task).toEqual({ taskId: "a", parentChatId: "p", parentAgent: "claude", parentTitle: null, prompt: "Fai X" });
     expect(initialChat().task).toBeNull();
+  });
+});
+
+describe("chat goal", () => {
+  const goalEv = (goal: Record<string, unknown> | null, actions: string[] = ["clear"]): ChatEvent => ({ kind: "ext", seq: next(), at: 5, method: GOAL_EXT_METHOD, params: { goal, actions } });
+  const g = (status: string, extra: Record<string, unknown> = {}) => ({ objective: "tests pass", status, setAt: 1, ...extra });
+
+  it("keeps the goal and its controls", () => {
+    const s = run([goalEv(g("active", { iterations: 2 }), ["pause", "resume", "clear", "bogus"])]);
+    expect(s.goal).toMatchObject({ objective: "tests pass", status: "active", iterations: 2, durationMs: null });
+    expect(s.goalActions).toEqual(["pause", "resume", "clear"]);
+    expect(s.items).toEqual([]);
+  });
+
+  it("drops a malformed goal", () => {
+    expect(run([goalEv(g("active")), goalEv({ objective: "", status: "active" })]).goal).toBeNull();
+    expect(run([goalEv(g("weird"))]).goal).toBeNull();
+  });
+
+  it("marks the point where the goal was reached, once", () => {
+    const s = run([goalEv(g("active")), chunk("agent_message_chunk", "done"), goalEv(g("complete", { durationMs: 60000, iterations: 3 })), goalEv(g("complete", { durationMs: 61000 }))]);
+    expect(s.items.map((i) => i.type)).toEqual(["agent", "goal"]);
+    expect(s.items[1]).toMatchObject({ type: "goal", status: "complete", objective: "tests pass", durationMs: 60000, iterations: 3, at: 5 });
+    expect(s.goal?.status).toBe("complete");
+  });
+
+  it("marks a goal given up as impossible, and no marker when it is cleared", () => {
+    expect(run([goalEv(g("active")), goalEv(g("failed", { reason: "no network" }))]).items).toMatchObject([{ type: "goal", status: "failed", reason: "no network" }]);
+    const cleared = run([goalEv(g("active")), goalEv(null)]);
+    expect(cleared.goal).toBeNull();
+    expect(cleared.items).toEqual([]);
   });
 });

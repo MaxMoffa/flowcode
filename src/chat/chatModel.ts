@@ -100,7 +100,33 @@ export type ChatItem =
   /** A turn that ended for another reason than finishing or being cancelled (ACP `stopReason`: `max_tokens`, `max_turn_requests`, `refusal`, ...). */
   | { type: "stop"; id: string; reason: string }
   /** The agent compacted its context (ACP `compaction_update`): a divider at that point, everything above it is now only a summary for the agent. `status`: `in_progress`, `completed`, `failed` or `cancelled`; `manual`: the user asked for it (`/compact`), as opposed to the agent's own. */
-  | { type: "compaction"; id: string; compactionId: string; status: string; summary: string; error?: string; at: number; manual: boolean };
+  | { type: "compaction"; id: string; compactionId: string; status: string; summary: string; error?: string; at: number; manual: boolean }
+  /** The goal (`/goal`) ended at this point: reached, or given up as impossible (Claude). A marker in the conversation; the composer's chip says the rest. */
+  | { type: "goal"; id: string; status: "complete" | "failed"; objective: string; at: number; durationMs?: number; iterations?: number; reason?: string };
+
+/** Where a goal stands (the backend's `_flowcode/goal`): `limited` = paused by a usage or budget limit, `blocked` = the agent says it can't go on (Codex), `failed` = judged impossible (Claude). */
+export type GoalStatus = "active" | "paused" | "limited" | "blocked" | "complete" | "failed";
+
+/** The chat's goal, as the backend last read it from the agent's own files. */
+export interface ChatGoal {
+  objective: string;
+  status: GoalStatus;
+  /** When it was set, ms; null when unknown. */
+  setAt: number | null;
+  /** Evaluations that found it not met yet (Claude). */
+  iterations: number | null;
+  /** Time spent on it (Codex) or until it was reached (Claude), ms. */
+  durationMs: number | null;
+  tokens: number | null;
+  /** The agent's latest word on it: why it isn't met yet, or why it ended. */
+  reason: string | null;
+}
+
+/** What the goal controls do: `pause`/`resume` (Codex only), `clear` stops it. */
+export type GoalAction = "pause" | "resume" | "clear";
+
+/** A goal that will not move again by itself. */
+export const goalEnded = (g: Pick<ChatGoal, "status">): boolean => g.status === "complete" || g.status === "failed";
 
 export interface ChatModelState {
   items: ChatItem[];
@@ -128,10 +154,59 @@ export interface ChatModelState {
   delegateRequests: DelegateRequest[];
   /** Set on a delegated child chat: the task it runs and who asked. */
   task: ChatTaskInfo | null;
+  /** The goal (`/goal`), as the last `_flowcode/goal` said; null without one. */
+  goal: ChatGoal | null;
+  /** The controls the agent takes for it (empty: none, or an agent without goals). */
+  goalActions: GoalAction[];
 }
 
 export function initialChat(): ChatModelState {
-  return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null, delegateRequests: [], task: null };
+  return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null, delegateRequests: [], task: null, goal: null, goalActions: [] };
+}
+
+/** The backend's event saying the chat's goal changed (params: `{ goal: ChatGoal | null, actions: GoalAction[] }`). */
+export const GOAL_EXT_METHOD = "_flowcode/goal";
+
+const GOAL_STATUSES: readonly string[] = ["active", "paused", "limited", "blocked", "complete", "failed"];
+const GOAL_ACTIONS: readonly string[] = ["pause", "resume", "clear"];
+
+const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/** The `_flowcode/goal` goal, checked; null when there is none (or it is malformed). */
+export function parseGoal(raw: unknown): ChatGoal | null {
+  const p = record(raw);
+  const objective = str(p.objective);
+  if (!objective || !GOAL_STATUSES.includes(p.status as string)) return null;
+  return {
+    objective,
+    status: p.status as GoalStatus,
+    setAt: numOrNull(p.setAt),
+    iterations: numOrNull(p.iterations),
+    durationMs: numOrNull(p.durationMs),
+    tokens: numOrNull(p.tokens),
+    reason: str(p.reason),
+  };
+}
+
+/** Takes the goal the backend reports; a goal that just ended leaves a marker in the conversation, at this point. */
+function applyGoal(state: ChatModelState, params: unknown, seq: number, at: number): ChatModelState {
+  const p = record(params);
+  const goal = parseGoal(p.goal);
+  const goalActions = Array.isArray(p.actions) ? (p.actions.filter((a) => GOAL_ACTIONS.includes(a as string)) as GoalAction[]) : state.goalActions;
+  const prev = state.goal;
+  const justEnded = goal && goalEnded(goal) && !(prev && goalEnded(prev) && prev.objective === goal.objective && prev.status === goal.status);
+  if (!justEnded) return { ...state, goal, goalActions };
+  const marker: ChatItem = {
+    type: "goal",
+    id: `goal-${seq}`,
+    status: goal.status as "complete" | "failed",
+    objective: goal.objective,
+    at,
+    ...(goal.durationMs !== null ? { durationMs: goal.durationMs } : {}),
+    ...(goal.iterations !== null ? { iterations: goal.iterations } : {}),
+    ...(goal.reason ? { reason: goal.reason } : {}),
+  };
+  return { ...state, goal, goalActions, items: [...state.items, marker] };
 }
 
 /** The backend's event saying the chat's model changed (params: the normalized `ChatModels`). */
@@ -665,6 +740,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
         const same = (r: DelegateRequest) => r.childChatId === childChatId && r.requestId === requestId;
         return state.delegateRequests.some(same) ? { ...state, delegateRequests: state.delegateRequests.filter((r) => !same(r)) } : state;
       }
+      if (ev.method === GOAL_EXT_METHOD) return applyGoal(state, ev.params, ev.seq, ev.at);
       if (ev.method === TASK_EXT_METHOD) {
         const task = parseTask(ev.params);
         return task ? { ...state, task } : state;

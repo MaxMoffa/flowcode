@@ -21,6 +21,7 @@ use crate::chat_mcp::ToolsConfig;
 use crate::util::{lock, now_ms};
 
 pub(crate) mod delegate;
+pub(crate) mod goal;
 use delegate::{Delegations, TaskLink};
 
 #[cfg(target_os = "windows")]
@@ -32,6 +33,12 @@ use flowcode_shared::CREATE_NO_WINDOW;
 /// have to download the adapter the first time it is used.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(180);
 const MODE_TIMEOUT: Duration = Duration::from_secs(30);
+/// The event carrying a chat's goal (`{ goal: Goal | null, actions: string[] }`).
+const GOAL_EXT_METHOD: &str = "_flowcode/goal";
+/// How often the goal is looked at while it may change.
+const GOAL_POLL: Duration = Duration::from_secs(4);
+/// Time the agent gets to write its goal down after a turn or a control.
+const GOAL_SETTLE: Duration = Duration::from_millis(700);
 
 /// Events kept per chat for `chat_events`; the oldest are dropped past it.
 const MAX_LOG_EVENTS: usize = 20_000;
@@ -1000,6 +1007,8 @@ struct Chat {
     launches: Mutex<Vec<(String, String)>>,
     /// The agent announced it takes image blocks in a prompt (`promptCapabilities.image`).
     prompt_images: AtomicBool,
+    /// What the views were told about the chat's goal.
+    goal: Mutex<goal::GoalTrack>,
 }
 
 impl Chat {
@@ -1287,6 +1296,74 @@ impl Chat {
         self.changed();
     }
 
+    /// Tells the views the goal (`None`: there is none).
+    fn emit_goal(&self, goal: Option<&goal::Goal>) {
+        let params = json!({ "goal": goal, "actions": goal::actions(&self.agent) });
+        self.emit(ChatBody::Ext { method: GOAL_EXT_METHOD.to_string(), params });
+    }
+
+    /// Reads the goal where the agent keeps it and tells the views if it
+    /// moved. Does file IO: call it with no lock held.
+    fn refresh_goal(&self) {
+        self.refresh_goal_with(goal::GoalTrack::apply);
+    }
+
+    /// The first `refresh_goal` of a chat: a goal that already ended stays quiet (`GoalTrack::prime`).
+    fn refresh_goal_first(&self) {
+        self.refresh_goal_with(goal::GoalTrack::prime);
+    }
+
+    fn refresh_goal_with(&self, take: fn(&mut goal::GoalTrack, Option<Option<goal::Goal>>) -> Option<Option<goal::Goal>>) {
+        if !goal::supported(&self.agent) || self.closed.load(Ordering::Relaxed) {
+            return;
+        }
+        let Some(session_id) = self.session_id.get() else { return };
+        let distro = if self.wsl { self.wsl_distro.as_deref() } else { None };
+        let read = goal::read(&self.app, &self.agent, session_id, self.profile.as_deref(), distro);
+        let next = take(&mut lock(&self.goal), read);
+        if let Some(next) = next {
+            self.emit_goal(next.as_ref());
+        }
+    }
+
+    /// Shows what the user just asked for, before the agent's files say so.
+    fn goal_asked(&self, asked: &goal::PromptGoal) {
+        let shown = lock(&self.goal).optimistic(asked, now_ms());
+        if let Some(shown) = shown {
+            self.emit_goal(shown.as_ref());
+        }
+    }
+
+    /// A `refresh_goal` once the agent had time to write.
+    fn refresh_goal_soon(self: &Arc<Self>) {
+        if !goal::supported(&self.agent) {
+            return;
+        }
+        let chat = Arc::downgrade(self);
+        std::thread::spawn(move || {
+            std::thread::sleep(GOAL_SETTLE);
+            if let Some(chat) = chat.upgrade() {
+                chat.refresh_goal();
+            }
+        });
+    }
+
+    /// Pauses, resumes or clears the goal (`_session/goal`; works mid-turn).
+    fn goal_action(self: &Arc<Self>, action: &str) -> Result<(), String> {
+        if !goal::actions(&self.agent).contains(&action) {
+            return Err(format!("unsupported goal action: {action}"));
+        }
+        let session_id = self.session_id()?.to_string();
+        self.request("_session/goal", json!({ "sessionId": session_id, "action": action }), MODE_TIMEOUT)?;
+        self.goal_asked(&match action {
+            "pause" => goal::PromptGoal::Pause,
+            "resume" => goal::PromptGoal::Resume,
+            _ => goal::PromptGoal::Clear,
+        });
+        self.refresh_goal_soon();
+        Ok(())
+    }
+
     fn handle(self: &Arc<Self>, incoming: Incoming) {
         match incoming {
             Incoming::Response { id, result } => {
@@ -1300,6 +1377,7 @@ impl Chat {
                         Ok(value) => {
                             let stop_reason = value.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
                             self.emit(ChatBody::TurnEnd { stop_reason: stop_reason.to_string() });
+                            self.refresh_goal_soon();
                         }
                         Err(message) => self.prompt_failed(message),
                     },
@@ -1582,6 +1660,24 @@ fn write_replies(chat: Weak<Chat>, replies: mpsc::Receiver<Value>) {
     }
 }
 
+/// The chat's goal watcher: while the goal may change (a control is pending,
+/// the goal is live) it re-reads it every few seconds; a chat without a goal
+/// costs nothing (a goal is only ever set by a prompt, which makes it pending,
+/// and turn ends are read anyway). Holds the chat only while looking, so the
+/// chat can drop.
+fn watch_goal(chat: Weak<Chat>) {
+    loop {
+        std::thread::sleep(GOAL_POLL);
+        let Some(chat) = chat.upgrade() else { return };
+        if chat.closed.load(Ordering::Relaxed) || chat.exited.load(Ordering::Relaxed) {
+            return;
+        }
+        if lock(&chat.goal).wants_poll() {
+            chat.refresh_goal();
+        }
+    }
+}
+
 /// Reads one `\n`-terminated line into `buf` (cleared first), keeping at most
 /// `max` bytes of it: the rest of a longer line is read and thrown away.
 /// `Ok(None)` at the end of the stream, `Ok(Some(false))` for a cut line.
@@ -1816,7 +1912,11 @@ impl ChatState {
         }
         let names = attachments.iter().map(|a| a.name.clone()).collect();
         let shown = attachments.iter().filter_map(shown_image).collect();
+        let asked = goal::parse_prompt(&chat.agent, &text);
         chat.emit_when(ChatBody::User { text, attachments: names, images: shown }, prompt_gate)?;
+        if let Some(asked) = asked {
+            chat.goal_asked(&asked);
+        }
         let id = match chat.register(Pending::Prompt) {
             Ok(id) => id,
             Err(message) => {
@@ -1889,6 +1989,12 @@ impl ChatState {
     pub(crate) async fn set_thought(&self, chat_id: &str, value: String) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         crate::blocking(move || chat.set_thought(&value)).await
+    }
+
+    /// As `set_model`, for the goal controls (`pause`, `resume`, `clear`).
+    pub(crate) async fn goal_action(&self, chat_id: &str, action: String) -> Result<(), String> {
+        let chat = self.get(chat_id)?;
+        crate::blocking(move || chat.goal_action(&action)).await
     }
 
     /// The file an image the agent mentioned by path points at, resolved in
@@ -2449,6 +2555,7 @@ fn start_once(
         children: Mutex::new(HashMap::new()),
         launches: Mutex::new(Vec::new()),
         prompt_images: AtomicBool::new(false),
+        goal: Mutex::new(goal::GoalTrack::default()),
     });
     {
         let chat = Arc::clone(&chat);
@@ -2476,6 +2583,11 @@ fn start_once(
             let thought = result.get("configOptions").and_then(thought_from_config_options);
             *lock(&chat.thought) = thought.clone();
             chat.started();
+            if goal::supported(&chat.agent) {
+                let (first, watcher) = (Arc::clone(&chat), Arc::downgrade(&chat));
+                std::thread::spawn(move || first.refresh_goal_first());
+                std::thread::spawn(move || watch_goal(watcher));
+            }
             let started = ChatStarted {
                 chat_id,
                 session_id,
@@ -2567,6 +2679,11 @@ pub async fn chat_set_model(state: State<'_, ChatState>, chat_id: String, model_
 #[tauri::command]
 pub async fn chat_set_thought(state: State<'_, ChatState>, chat_id: String, value: String) -> Result<(), String> {
     state.set_thought(&chat_id, value).await
+}
+
+#[tauri::command]
+pub async fn chat_goal(state: State<'_, ChatState>, chat_id: String, action: String) -> Result<(), String> {
+    state.goal_action(&chat_id, action).await
 }
 
 /// Resolves only once the agent is dead: the terminal handoff awaits it

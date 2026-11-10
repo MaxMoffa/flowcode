@@ -159,6 +159,8 @@ pub enum ClientMsg {
     ChatModel { chat_id: String, model_id: String },
     /// Switch the chat's agent to another of the thinking levels it offers (`ChatInfo::thought`).
     ChatThought { chat_id: String, value: String },
+    /// Pause, resume or clear the chat's goal (`action`: `pause`, `resume` or `clear`).
+    ChatGoal { chat_id: String, action: String },
     /// Hand the chat's session over to a desktop terminal tab, as Ctrl+` does there.
     ChatTerminal { chat_id: String },
     /// Reopen the agent running in the terminal tab of `pty_id` as a chat tab on the same session (the reverse of `ChatTerminal`).

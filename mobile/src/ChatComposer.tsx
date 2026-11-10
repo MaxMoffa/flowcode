@@ -1,9 +1,11 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChatCommand, ChatModels, ChatModes, ChatThought } from "../../src/chat/chatTypes";
 import { buildMenu, commandText, displayName, type MenuEntry } from "../../src/chat/commandMenu";
+import { goalEnded, type ChatGoal as Goal, type ChatItem, type GoalAction } from "../../src/chat/chatModel";
 import { CommandChip } from "../../src/chat/CommandChip";
 import { AdaptiveSheet } from "./AdaptiveSheet";
 import { useBackHandler, useEscape } from "./back";
+import { ChatGoal } from "./ChatGoal";
 import { ChatCommands } from "./ChatCommands";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
@@ -85,6 +87,12 @@ interface ChatComposerProps {
   commandsLoading: boolean;
   /** Whether the desktop can run "/clear". */
   canClear: boolean;
+  /** The chat's goal (`/goal`), shown as a chip on the card; null without one. */
+  goal?: Goal | null;
+  goalActions?: GoalAction[];
+  /** The conversation, so the chip knows when an ended goal is old news. */
+  goalItems?: ChatItem[];
+  onGoal?: (action: GoalAction) => Promise<void> | void;
 }
 
 /**
@@ -116,8 +124,16 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   commands,
   commandsLoading,
   canClear,
+  goal = null,
+  goalActions = [],
+  goalItems = [],
+  onGoal,
 }, ref) {
   const fullscreen = compact && expanded;
+  /** The goal chip sits collapsed at the card's top right: the text keeps clear of it. */
+  const [goalChip, setGoalChip] = useState(false);
+  const goalLive = !!goal && !goalEnded(goal);
+  const goalTone = goal && goalLive ? (goal.status === "active" ? " is-goal-active" : " is-goal-paused") : "";
   const inputId = useId();
   // Register before the command/mode layers so Android Back closes the top layer first.
   useBackHandler(fullscreen, () => closeComposer());
@@ -289,7 +305,8 @@ ${latest.current}` : added);
         </div>
       )}
       {subagentTray}
-      <div className={"chat-card" + (listening ? " is-listening" : "")}>
+      <div className={"chat-card" + (listening ? " is-listening" : "") + goalTone + (goalChip && !fullscreen ? " has-goal-chip" : "")}>
+        {goal && !fullscreen && <ChatGoal chatId={chatId} goal={goal} actions={goalActions} items={goalItems} onAction={onGoal} onChipChange={setGoalChip} />}
         <div className="chat-editor-field">
         {fullscreen && <label className="chat-compose-label" htmlFor={inputId}>{t("chatPlaceholder")}</label>}
         {listening && (
@@ -314,7 +331,7 @@ ${latest.current}` : added);
           className="chat-input"
           rows={1}
           value={text}
-          placeholder={listening ? "" : picked ? (picked.hint ? `${picked.hint} · ${t("chatCmdOptional")}` : t("chatCmdAddInstructions")) : t("chatPlaceholder")}
+          placeholder={listening ? "" : picked ? (picked.hint ? `${picked.hint} · ${t("chatCmdOptional")}` : t("chatCmdAddInstructions")) : goalLive && !fullscreen ? t("chatGoalPlaceholder") : t("chatPlaceholder")}
           aria-label={t("chatPlaceholder")}
           autoCapitalize="sentences"
           onChange={(e) => {
