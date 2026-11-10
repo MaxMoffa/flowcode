@@ -1,7 +1,18 @@
 //! Message types. Both enums are tagged by `"t"` (lowercase variant name) and
 //! their fields are camelCase on the wire.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// A sequence number where a negative one means "none yet", i.e. 0.
+fn seq_at_least_zero<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+    // Through a JSON number: the tagged enum buffers its fields, and the buffer has no i128.
+    let n = serde_json::Number::deserialize(d)?;
+    match (n.as_u64(), n.as_i64()) {
+        (Some(v), _) => Ok(v),
+        (None, Some(v)) if v < 0 => Ok(0),
+        _ => Err(serde::de::Error::custom(format!("invalid sequence number {n}"))),
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -117,7 +128,12 @@ pub enum ClientMsg {
     },
     /// Follow a chat: the desktop answers with its events after `after_seq`
     /// (`ServerMsg::ChatEvents` with `replay`), then streams the new ones.
-    ChatOpen { chat_id: String, after_seq: u64 },
+    ChatOpen {
+        chat_id: String,
+        /// Desktop clients up to 0.31 sent `-1` for "nothing seen yet": read as 0.
+        #[serde(deserialize_with = "seq_at_least_zero")]
+        after_seq: u64,
+    },
     ChatClose { chat_id: String },
     /// A prompt for the chat's agent, at most `MAX_INPUT_BYTES`.
     ChatPrompt {
@@ -360,6 +376,10 @@ pub struct Tab {
     pub rows: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<TabContext>,
+    /// Position of the tab in its window's strip, counted over terminals and
+    /// chats together (absent from an older desktop).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u32>,
 }
 
 /// A desktop chat tab (an agent hosted over ACP) a phone can follow.
@@ -393,6 +413,10 @@ pub struct ChatInfo {
     /// `{ currentId, available: [{ id, name, description? }] }`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thought: Option<serde_json::Value>,
+    /// Position of the tab in its window's strip, counted over terminals and
+    /// chats together (absent from an older desktop).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u32>,
 }
 
 /// An installed agent view plugin: its manifest plus what a phone needs to
@@ -650,6 +674,8 @@ mod tests {
     fn chat_messages_round_trip() {
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatopen","chatId":"c1","afterSeq":12}"#).unwrap();
         assert_eq!(msg, ClientMsg::ChatOpen { chat_id: "c1".into(), after_seq: 12 });
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatopen","chatId":"c1","afterSeq":-1}"#).unwrap();
+        assert_eq!(msg, ClientMsg::ChatOpen { chat_id: "c1".into(), after_seq: 0 });
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"chatpermission","chatId":"c1","requestId":"a1","optionId":null}"#).unwrap();
         assert_eq!(msg, ClientMsg::ChatPermission { chat_id: "c1".into(), request_id: serde_json::json!("a1"), option_id: None });
         let json = serde_json::to_value(ClientMsg::ChatMode { chat_id: "c1".into(), mode_id: "plan".into() }).unwrap();
@@ -676,6 +702,7 @@ mod tests {
             modes: None,
             models: None,
             thought: None,
+            order: None,
         };
         let json = serde_json::to_value(ServerMsg::Chats { chats: vec![info] }).unwrap();
         assert_eq!(

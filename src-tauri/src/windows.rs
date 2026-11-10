@@ -195,6 +195,9 @@ pub struct TabInfo {
     pub tab_id: String,
     pub label: String,
     pub cwd: String,
+    /// Position in the window's strip, terminals and chats together.
+    #[serde(default)]
+    pub index: Option<u32>,
 }
 
 /// One chat tab as its window reports it: the remote access server joins it
@@ -204,6 +207,9 @@ pub struct ChatTabInfo {
     pub tab_id: String,
     pub label: String,
     pub session_id: String,
+    /// Position in the window's strip, terminals and chats together.
+    #[serde(default)]
+    pub index: Option<u32>,
 }
 
 /// Window label -> its terminal tabs, as last reported.

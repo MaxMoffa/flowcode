@@ -1329,15 +1329,10 @@ function Shell() {
   // Bumped when a terminal learns its pty id: the tab-to-agent match and the
   // tab report both depend on it, and neither is otherwise re-run for it.
   const [ptyVersion, setPtyVersion] = useState(0);
+  // In strip order, terminals and chats together: moving a chat past a terminal is reported too.
   const reportedTabsKey = listedTabs(tabs)
-    .filter((t): t is TermTab => t.kind === "terminal")
-    .map((t) => `${t.id}\u0000${t.label}\u0000${t.cwd}`)
-    .join("\u0001") +
-    "\u0002" +
-    tabs
-      .filter((t): t is ChatTab => t.kind === "chat")
-      .map((t) => `${t.id}\u0000${t.label}\u0000${t.sessionId ?? ""}`)
-      .join("\u0001");
+    .map((t) => (t.kind === "terminal" ? `t\u0000${t.id}\u0000${t.label}\u0000${t.cwd}` : t.kind === "chat" ? `c\u0000${t.id}\u0000${t.label}\u0000${t.sessionId ?? ""}` : ""))
+    .join("\u0001");
   useReportTabs(reportedTabsKey, ptyVersion, latestRef, termRefs);
 
   const adoptTabRef = useRef(adoptTab);

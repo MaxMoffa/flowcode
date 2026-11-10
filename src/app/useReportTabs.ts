@@ -18,12 +18,15 @@ export function useReportTabs(
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
     const report = () => {
-      const tabsNow = listedTabs(latestRef.current.tabs).filter((t): t is TermTab => t.kind === "terminal");
-      const reported = tabsNow.map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd }));
+      const listed = listedTabs(latestRef.current.tabs);
+      // The strip position, terminals and chats together: a remote client shows them in the same order.
+      const index = new Map(listed.map((t, i) => [t.id, i]));
+      const tabsNow = listed.filter((t): t is TermTab => t.kind === "terminal");
+      const reported = tabsNow.map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd, index: index.get(t.id) ?? null }));
       // A chat is reported once its agent has a session: that is how the backend matches it to the running chat.
       const chats = latestRef.current.tabs
         .filter((t): t is ChatTab => t.kind === "chat" && t.sessionId !== undefined)
-        .map((t) => ({ tab_id: t.id, label: t.label, session_id: t.sessionId }));
+        .map((t) => ({ tab_id: t.id, label: t.label, session_id: t.sessionId, index: index.get(t.id) ?? null }));
       invoke("window_report_tabs", { tabs: reported, chats }).catch(() => {});
       // Retried only while some tab's shell hasn't spawned yet (a tab still
       // on the New Tab page has none to wait for).

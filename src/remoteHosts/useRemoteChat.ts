@@ -52,7 +52,8 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
   // Follow the chat while this view is mounted and the link is up; a new link forgot every stream, so ask again from where we are.
   useEffect(() => {
     if (!online) return;
-    void sendToHost(hostId, { t: "chatopen", chatId, afterSeq: sessionRef.current.model.lastSeq });
+    // `lastSeq` starts at -1 (nothing seen yet) but the wire field is unsigned: -1 is refused as an invalid message and the chat never loads.
+    void sendToHost(hostId, { t: "chatopen", chatId, afterSeq: Math.max(0, sessionRef.current.model.lastSeq) });
     return () => void sendToHost(hostId, { t: "chatclose", chatId });
   }, [hostId, chatId, online]);
 

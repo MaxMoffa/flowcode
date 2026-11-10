@@ -801,7 +801,7 @@ impl Shared {
                     None => (None, None, None),
                 };
                 let context = contexts.get(&pty_id).cloned().flatten();
-                Some(Tab { pty_id, tab_id: tab.tab_id, window, label: tab.label, cwd: tab.cwd, cli, profile, status, cols, rows, context })
+                Some(Tab { pty_id, tab_id: tab.tab_id, window, label: tab.label, cwd: tab.cwd, cli, profile, status, cols, rows, context, order: tab.index })
             })
             .collect()
     }
@@ -831,6 +831,7 @@ impl Shared {
                     modes: chat.modes.clone(),
                     models: chat.models.clone(),
                     thought: chat.thought.clone(),
+                    order: tab.index,
                 })
             })
             .collect()

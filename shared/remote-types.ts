@@ -29,6 +29,8 @@ export interface Tab {
   profile?: string;
   status?: AgentStatus;
   context?: TabContext;
+  /** Position in its window's strip, terminals and chats counted together; absent from older desktops. */
+  order?: number;
 }
 
 /** A desktop chat tab (an agent hosted over ACP, see src/chat) a phone can follow. */
@@ -52,6 +54,8 @@ export interface ChatInfo {
   models?: unknown;
   /** The thinking levels the agent offers, normalized by the desktop (`{ currentId, available: [{ id, name, description? }] }`); absent when it offers none, or from older desktops. */
   thought?: unknown;
+  /** Position in its window's strip, terminals and chats counted together; absent from older desktops. */
+  order?: number;
 }
 
 /** An installed agent view plugin offered to phones (its manifest, see

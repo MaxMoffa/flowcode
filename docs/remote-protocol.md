@@ -123,7 +123,7 @@ Client messages:
 | `rename {ptyId, label}` | Rename the desktop tab owning `ptyId`, like a desktop rename: the label is trimmed (max 128 characters) and a blank one is ignored. An unknown pty gets an `error`. No reply: the next `tabs` shows the new label. |
 | `closetab {ptyId}` | Close the desktop tab owning `ptyId`, like closing it on the desktop. The window's last tab stays open (closing it would close the window). An unknown pty gets an `error`. No reply: the next `tabs` no longer lists it. |
 | `terminalchat {ptyId}` | Reopen the agent running in the tab owning `ptyId` as a chat tab on the same session (the reverse of `chatterminal`). The desktop starts the chat with a strict `session/load` and closes the terminal only once the session has loaded; if the agent is busy, can't resume or fails to start, the terminal stays. An unknown pty gets an `error`. No reply: the new chat shows in the next `chats`, the terminal leaves the next `tabs`. Needs the `terminalChat` capability. |
-| `chatopen {chatId, afterSeq}` | Follow a chat tab: answered with a `chatevents` replay of every event after `afterSeq` (`0` for all), then live `chatevents` batches until `chatclose` or the end of the connection. A reconnecting client asks again from its last `seq`. Needs the `chat` capability, like every `chat*` message. |
+| `chatopen {chatId, afterSeq}` | Follow a chat tab: answered with a `chatevents` replay of every event after `afterSeq` (`0` for all; a negative one is read as `0`), then live `chatevents` batches until `chatclose` or the end of the connection. A reconnecting client asks again from its last `seq`. Needs the `chat` capability, like every `chat*` message. |
 | `chatclose {chatId}` | Stop following a chat. |
 | `chatprompt {chatId, text, requestId?}` | Send a message to the chat's agent, as typed in the desktop chat. A prompt sent while the agent is not idle is refused with a non-fatal `error` whose message starts with `agent_busy:` (`agent_exited:` once the agent has exited); nothing is logged for it. Without `requestId`, the legacy `error` names no chat. With the `chatPromptAck` capability, send `requestId` as `<Unix milliseconds>-<unique suffix>` (at most 128 bytes) and handle `chatpromptack` instead. The server scopes receipts to the paired device and chat, shares concurrent duplicates, and returns the same result when the same ID and text are retried after reconnect. IDs expire after 15 minutes; clocks may be up to 5 minutes ahead. Expired IDs are rejected rather than executed again. Live receipts are capped at 4096 and are never evicted to admit a new request. A refusal starts a new ID only when the client explicitly retries the queued text; `agent_busy` waits for the current turn. On a legacy peer, a client preserves an uncertain delivery for explicit retry rather than sending it twice automatically. |
 | `chatcancel {chatId}` | Cancel the running turn. |
@@ -204,7 +204,7 @@ the desktop and then applied as if changed in its own settings.
 ```
 Tab        {ptyId, tabId, window, label, cwd, cols, rows,
             cli?: "claude"|"codex"|"vibe"|"gemini", status?: "busy"|"idle"|"waiting",
-            context?: {used, window, model?}}
+            context?: {used, window, model?}, order?}
 UsageItem  {pluginId, label, profile?, profileName?, profileColor?, metrics: [UsageMetric]}
 UsageMetric{kind, label?, percent?, resets?, command?, period?, cost?, tokens?, sessions?}
 Action     {id, label, icon?, cli?: "claude"|"codex"|"vibe"|"gemini"}
@@ -212,8 +212,12 @@ LsEntry    {name, dir, size?}
 ChatInfo   {chatId, tabId, window, label, agent, cwd, profile?, sessionId?,
             status?: "starting"|"idle"|"busy"|"waiting"|"exited",
             modes?: {currentModeId, availableModes}, models?: {currentModelId, availableModels: [{modelId, name, description?, group?}]},
-            thought?: {currentId, available: [{id, name, description?}]}}
+            thought?: {currentId, available: [{id, name, description?}]}, order?}
 ```
+
+- `Tab.order` / `ChatInfo.order` is the tab's position in its window's strip,
+  terminals and chats counted together, so a client can show them in the
+  desktop's own order; absent from desktops up to 0.31 (show terminals, then chats).
 
 - `ChatInfo.models` is what the agent offers, normalized by the desktop (from
   ACP's `models` or its `model` config option); absent when it offers no

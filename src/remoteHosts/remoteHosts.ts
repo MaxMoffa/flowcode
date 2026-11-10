@@ -51,20 +51,50 @@ const chatKey = (chatId: string) => `chat:${chatId}`;
 
 export type RemoteEntry = { key: string; kind: "pty"; tab: Tab } | { key: string; kind: "chat"; chat: ChatInfo };
 
-/** The tabs of a host in strip order: by desktop window (in order of appearance), terminals before chats within one. */
+const orderOf = (e: RemoteEntry) => (e.kind === "pty" ? e.tab.order : e.chat.order);
+
+/** The tabs of a host in strip order: by desktop window (in order of appearance), then as that window's own strip has them.
+ * A desktop that sends no positions (older) gets terminals before chats within a window. */
 export function remoteEntries(tabs: Tab[], chats: ChatInfo[]): RemoteEntry[] {
   const windows: string[] = [];
   for (const w of [...tabs.map((x) => x.window), ...chats.map((x) => x.window)]) if (!windows.includes(w)) windows.push(w);
-  return windows.flatMap((w) => [
-    ...tabs.filter((x) => x.window === w).map((tab): RemoteEntry => ({ key: ptyKey(tab.ptyId), kind: "pty", tab })),
-    ...chats.filter((x) => x.window === w).map((chat): RemoteEntry => ({ key: chatKey(chat.chatId), kind: "chat", chat })),
-  ]);
+  return windows.flatMap((w) => {
+    const entries: RemoteEntry[] = [
+      ...tabs.filter((x) => x.window === w).map((tab): RemoteEntry => ({ key: ptyKey(tab.ptyId), kind: "pty", tab })),
+      ...chats.filter((x) => x.window === w).map((chat): RemoteEntry => ({ key: chatKey(chat.chatId), kind: "chat", chat })),
+    ];
+    if (!entries.every((e) => typeof orderOf(e) === "number")) return entries;
+    // Sort is stable: two entries with the same position (a report in between) keep the order above.
+    return entries.sort((a, b) => (orderOf(a) as number) - (orderOf(b) as number));
+  });
 }
 
-/** Keeps the tab in front while it exists, else the first one left. */
-export function pickActiveKey(current: string | null, keys: string[]): string | null {
+/** Keeps the tab in front while it exists. When it goes, its neighbour in `previous` takes its place (the next one, else
+ * the one before) - like closing a local tab - rather than jumping to the first; with no history, the first one left. */
+export function pickActiveKey(current: string | null, keys: string[], previous: string[] = []): string | null {
   if (current && keys.includes(current)) return current;
+  const at = current ? previous.indexOf(current) : -1;
+  if (at >= 0) {
+    const live = new Set(keys);
+    const next = previous.slice(at + 1).find((k) => live.has(k)) ?? previous.slice(0, at).reverse().find((k) => live.has(k));
+    if (next) return next;
+  }
   return keys[0] ?? null;
+}
+
+/** Chats left in the background that stay mounted (and streaming). The other PC follows at most 16 chats per link
+ * (`MAX_CHAT_SUBS`), shared by every window: past it a chat would never load. Older ones remount (and replay) when shown again. */
+const KEPT_CHATS = 6;
+
+/** Visited keys, most recent last; at most `KEPT_CHATS` chats besides the one in front. Terminals stop streaming out of sight, so they all stay. */
+export function rememberVisit(prev: readonly string[], key: string): string[] {
+  const next = [...prev.filter((k) => k !== key), key];
+  let chats = next.filter((k) => k.startsWith("chat:")).length - (key.startsWith("chat:") ? 1 : 0);
+  return next.filter((k) => {
+    if (k === key || !k.startsWith("chat:") || chats <= KEPT_CHATS) return true;
+    chats--;
+    return false;
+  });
 }
 
 /** The first key that wasn't there before (the tab a "new" button just made). */
@@ -83,7 +113,10 @@ function commit(next: Snapshot) {
   subs.forEach((fn) => fn());
 }
 
-function setHosts(list: HostInfo[]) {
+function setHosts(fetched: HostInfo[]) {
+  // The list says which PCs are paired; what a known one is doing comes from its `state` events, which may be newer
+  // than this reply (`remote_hosts` reads hosts.json first, slowly): an old status must not overwrite a fresh one.
+  const list = fetched.map((h) => snap.hosts[h.id] ?? h);
   const hosts = Object.fromEntries(list.map((h) => [h.id, h]));
   const activeHost = snap.activeHost !== LOCAL_HOST && !hosts[snap.activeHost] ? LOCAL_HOST : snap.activeHost;
   const state = Object.fromEntries(Object.entries(snap.state).filter(([id]) => hosts[id]));
@@ -104,11 +137,12 @@ function applyMessages(hostId: string, msgs: ServerMsg[]) {
       const next = m.t === "tabs" ? { ...s, tabs: m.tabs } : m.t === "chats" ? { ...s, chats: m.chats } : { ...s, settings: m.settings };
       if (m.t === "settings") return next;
       const keys = remoteEntries(next.tabs, next.chats).map((e) => e.key);
+      const previous = remoteEntries(s.tabs, s.chats).map((e) => e.key);
       const pending = pendingNew.get(hostId);
       if (pending && Date.now() > pending.until) pendingNew.delete(hostId);
       const fresh = pending && Date.now() <= pending.until ? firstNewKey(pending.before, keys) : null;
       if (fresh) pendingNew.delete(hostId);
-      return { ...next, activeKey: fresh ?? pickActiveKey(next.activeKey, keys) };
+      return { ...next, activeKey: fresh ?? pickActiveKey(next.activeKey, keys, previous) };
     });
   }
 }
@@ -229,7 +263,12 @@ export const frontRemoteTerminal = (): RemoteTerminalHandle | null => frontTermi
 export function sendToHost(id: string, msg: ClientMsg): Promise<boolean> {
   return invoke("remote_host_send", { id, msg }).then(
     () => true,
-    () => false,
+    (e) => {
+      // "not connected" / "busy" are the link's state, retried by the callers; anything else is a bug in what we sent.
+      const reason = String(e);
+      if (reason !== "not connected" && reason !== "busy") console.warn(`remote host ${id}: "${msg.t}" refused: ${reason}`);
+      return false;
+    },
   );
 }
 

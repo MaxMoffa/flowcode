@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { t, useI18n } from "../i18n";
-import { remoteEntries, useHost, useHostState } from "./remoteHosts";
+import { rememberVisit, remoteEntries, useHost, useHostState } from "./remoteHosts";
 import { RemoteChatView } from "./RemoteChatView";
 import { RemoteTerminalView } from "./RemoteTerminalView";
 import "./remote-hosts.css";
@@ -12,13 +12,13 @@ export function RemoteWorkspace({ hostId }: { hostId: string }) {
   const host = useHost(hostId);
   const { tabs, chats, activeKey } = useHostState(hostId);
   const entries = remoteEntries(tabs, chats);
-  const [visited, setVisited] = useState<ReadonlySet<string>>(new Set());
+  const [visited, setVisited] = useState<readonly string[]>([]);
 
   useEffect(() => {
-    if (activeKey) setVisited((prev) => (prev.has(activeKey) ? prev : new Set(prev).add(activeKey)));
+    if (activeKey) setVisited((prev) => (prev[prev.length - 1] === activeKey ? prev : rememberVisit(prev, activeKey)));
   }, [activeKey]);
 
-  const mounted = entries.filter((e) => e.key === activeKey || visited.has(e.key));
+  const mounted = entries.filter((e) => e.key === activeKey || visited.includes(e.key));
 
   return (
     <div className="remote-workspace">
