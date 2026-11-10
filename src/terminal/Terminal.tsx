@@ -176,11 +176,19 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // xterm's link callbacks are registered once at mount - read the live
   // setting/menu through a ref instead of the values captured back then.
   const linkClickRef = useRef<(event: MouseEvent, uri: string) => void>(() => {});
-  linkClickRef.current = openLink;
+  // xterm activates a link on mouseup of any button: only the left one opens it
+  // (a right-click is for the context menu, a middle-click for paste).
+  linkClickRef.current = (event, uri) => {
+    if (event.button !== 0) return;
+    openLink(event, uri);
+  };
   // File paths in the output: relative ones resolve against where the shell is now.
   const openPath = useOpenPath();
   const pathClickRef = useRef<(event: MouseEvent, target: PathTarget, line?: number) => void>(() => {});
-  pathClickRef.current = openPath;
+  pathClickRef.current = (event, target, line) => {
+    if (event.button !== 0) return;
+    openPath(event, target, line);
+  };
   const liveCwdRef = useRef(cwd);
   liveCwdRef.current = cwd;
   const fontSize = getTabFontSize(tabId);
