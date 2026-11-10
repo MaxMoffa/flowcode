@@ -1,10 +1,11 @@
 import { memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { askSummary } from "../../src/chat/askQuestions";
-import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "../../src/chat/chatModel";
-import { hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
+import { lineDiff, stopKind, toolImages, type ChatItem, type DelegateInfo, type StopKind } from "../../src/chat/chatModel";
+import { hiddenDelegateTool, hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
 import type { ChatImageRef, ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
 import { UserText } from "../../src/chat/CommandChip";
 import { ChatCompaction } from "./ChatCompaction";
+import { DelegateStrip } from "./ChatDelegates";
 import { ChatGoalMarker } from "./ChatGoalMarker";
 import { ChatImages, ChatUserImages } from "./ChatImage";
 import { ChatLinkPreviews } from "./ChatLinkPreviews";
@@ -427,11 +428,11 @@ function SubagentMarker({ items, onOpen }: { items: SubagentItem[]; onOpen?: (id
 }
 
 /** A turn's items in order, with each run of consecutive tool calls folded into one rail; a background terminal's launch stands on its own, as a block. */
-function Turn({ group: flat, onLink, onOpenSubagent, nested }: { group: ChatItem[]; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void; nested?: boolean }) {
+function Turn({ group: flat, onLink, onOpenSubagent, onOpenChat, nested }: { group: ChatItem[]; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void; onOpenChat?: (chatId: string) => void; nested?: boolean }) {
   const terminals = useContext(TerminalsContext);
   const out: ReactNode[] = [];
   // A subagent's tool calls fold into its own row, apart from the agent's run of calls.
-  const group = nestSubagents(flat.filter((i) => !hiddenGuardian(i)));
+  const group = nestSubagents(flat.filter((i) => !hiddenGuardian(i) && !hiddenDelegateTool(i)));
   for (let i = 0; i < group.length; i++) {
     const item = group[i];
     if (item.type === "subagent") {
@@ -445,6 +446,18 @@ function Turn({ group: flat, onLink, onOpenSubagent, nested }: { group: ChatItem
       }
       // In the main chat a launch is one line, the running state lives in the tray; a subagent's own chat keeps the cards.
       out.push(nested ? <SubagentCards key={item.id} items={subs} onOpen={onOpenSubagent} onLink={onLink} /> : <SubagentMarker key={item.id} items={subs} onOpen={onOpenSubagent} />);
+      continue;
+    }
+    if (item.type === "delegate") {
+      // Delegates of one launch (nothing between them) are one strip.
+      const delegates: DelegateInfo[] = [item.delegate];
+      while (i + 1 < group.length) {
+        const next = group[i + 1];
+        if (next.type !== "delegate") break;
+        delegates.push(next.delegate);
+        i++;
+      }
+      out.push(<DelegateStrip key={item.id} items={delegates} onOpen={onOpenChat} />);
       continue;
     }
     if (item.type !== "tool") {
@@ -469,7 +482,7 @@ function Turn({ group: flat, onLink, onOpenSubagent, nested }: { group: ChatItem
 }
 
 /** The conversation: the user's small bubbles, and each run of agent output as one turn of plain text with its tool calls on a rail, then the plan. `onLink` gets a tapped link. */
-export const ChatBody = memo(function ChatBody({ items, plan, onLink, onOpenSubagent }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void }) {
+export const ChatBody = memo(function ChatBody({ items, plan, onLink, onOpenSubagent, onOpenChat }: { items: ChatItem[]; plan: ChatPlanEntry[] | null; onLink: (url: string) => void; onOpenSubagent?: (id: string) => void; onOpenChat?: (chatId: string) => void }) {
   const groups: ChatItem[][] = [];
   for (const item of items) {
     const last = groups[groups.length - 1];
@@ -478,7 +491,7 @@ export const ChatBody = memo(function ChatBody({ items, plan, onLink, onOpenSuba
   }
   return (
     <>
-      {groups.map((group) => (group[0].type === "user" ? <Item key={group[0].id} item={group[0]} onLink={onLink} /> : <Turn key={group[0].id} group={group} onLink={onLink} onOpenSubagent={onOpenSubagent} />))}
+      {groups.map((group) => (group[0].type === "user" ? <Item key={group[0].id} item={group[0]} onLink={onLink} /> : <Turn key={group[0].id} group={group} onLink={onLink} onOpenSubagent={onOpenSubagent} onOpenChat={onOpenChat} />))}
       {plan && plan.length > 0 && <PlanCard plan={plan} />}
     </>
   );

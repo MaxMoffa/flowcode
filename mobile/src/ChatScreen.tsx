@@ -63,7 +63,7 @@ const formatCacheTokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 
 /** Chats whose default mode was already tried, so it is applied at most once per chat. */
 const defaultModeTried = new Set<string>();
 
-export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onBrowser, onOpenPage, pendingPage, onOpenPending, onDismissPending }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean; onBrowser?: () => void; onOpenPage?: (page: Page) => void; pendingPage?: Page | null; onOpenPending?: () => void; onDismissPending?: () => void }) {
+export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onBrowser, onOpenPage, pendingPage, onOpenPending, onDismissPending, onOpenChat }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean; onBrowser?: () => void; onOpenPage?: (page: Page) => void; pendingPage?: Page | null; onOpenPending?: () => void; onDismissPending?: () => void; onOpenChat?: (chatId: string) => void }) {
   const browser = useChatBrowser(embedded ? null : chatId);
   const canBrowse = useSupports("preview");
   const screenRef = useRef<HTMLDivElement>(null);
@@ -509,7 +509,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                       ) : (
                         <>
                           {model.items.length === 0 && !session.loaded && !starting && !cleared && <div className="chat-empty">{t("loading")}</div>}
-                          <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} />
+                          <ChatBody items={model.items} plan={model.plan} onLink={onLink} onOpenSubagent={openSubagent} onOpenChat={onOpenChat} />
                         </>
                       )}
                     </TerminalsContext.Provider>

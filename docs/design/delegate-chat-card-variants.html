@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Proposta interattiva: tre varianti per la carta che appare in chat quando un agente delega un'attività a un agente di altro tipo.">
+  <title>Flowcode — carta di delega in chat, tre varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12);
+      --yellow: #e6c86e; --red: #e5786d; --green: #9db984;
+      --hover: rgba(231, 216, 197, .06);
+      --claude: #d97757; --codex: #6cc4b4; --gemini: #7aa2f7; --opencode: #c7a0e8;
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    svg { flex: none; }
+
+    .page { max-width: 1180px; margin: auto; padding: 28px 24px 48px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 840px; }
+    .controls { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; padding: 10px 14px; margin-bottom: 26px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--surface); }
+    .seg button { padding: 3px 10px; border-radius: 6px; font-size: 12.5px; color: var(--muted); }
+    .seg button.on { background: var(--surface-3); color: var(--fg); }
+
+    section.variant { margin-bottom: 44px; }
+    .vhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+    .vhead .letter { font: 600 12px var(--mono); padding: 1px 8px; border-radius: 6px; background: var(--accent-bg); color: var(--accent); }
+    .vhead .letter.ref { background: var(--surface-3); color: var(--muted); }
+    .vhead h2 { margin: 0; font-size: 18px; font-weight: 600; }
+    .vdesc { margin: 0 0 14px; color: var(--muted); max-width: 860px; font-size: 13.5px; }
+    .vdesc b { color: var(--fg); font-weight: 600; }
+    .stage { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px; align-items: start; }
+    .frame-label { font-size: 11px; letter-spacing: .1em; color: var(--muted); margin-bottom: 6px; }
+
+    /* Desktop chat column */
+    .desk { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 18px 22px 20px; }
+    .phone { width: 360px; background: var(--bg); border: 1px solid var(--border-strong); border-radius: 30px; padding: 40px 14px 22px; position: relative; }
+    .phone::before { content: ""; position: absolute; top: 14px; left: 50%; width: 84px; height: 6px; margin-left: -42px; border-radius: 6px; background: var(--surface-3); }
+    .msg-user { margin: 0 0 14px auto; max-width: 78%; padding: 8px 12px; border-radius: 14px 14px 4px 14px; background: var(--surface-2); font-size: 13.5px; width: fit-content; }
+    .msg-agent { font-size: 13.5px; margin: 0 0 12px; }
+    .msg-agent.after { margin: 14px 0 0; color: var(--muted); }
+    .phone .msg-user, .phone .msg-agent { font-size: 14px; }
+
+    .logo { display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; }
+    .logo svg { width: 100%; height: 100%; }
+
+    /* --- Reference: current card -------------------------------------- */
+    .ref-mark { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; margin: 4px 0 8px; }
+    .ref-mark b { color: var(--fg); font-weight: 600; }
+    .ref-tag { padding: 0 6px; border: 1px solid var(--border-strong); border-radius: 5px; font-size: 11px; line-height: 18px; }
+    .ref-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+    .ref-card { display: flex; flex-direction: column; gap: 5px; padding: 8px 9px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface); min-width: 0; }
+    .ref-card.wait { border-color: rgba(230, 200, 110, .55); }
+    .ref-row { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11.5px; }
+    .ref-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ref-pill { padding: 0 8px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); font-weight: 600; font-size: 11.5px; }
+    .ref-time { margin-left: auto; color: var(--muted); font-size: 11px; }
+    .ref-live { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ref-live.mono { font-family: var(--mono); color: var(--fg); }
+    .bar { display: block; height: 3px; border-radius: 3px; overflow: hidden; background: rgba(231, 216, 197, .1); }
+    .bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+    .bar.run i { width: 60%; background: linear-gradient(90deg, var(--muted), var(--accent), var(--muted)); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; }
+    .bar.wait i { width: 45%; background: var(--yellow); }
+    .bar.bad i { background: var(--red); }
+    .bar.stop i { background: var(--muted); }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    .spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid rgba(231, 216, 197, .2); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .ic-ok { color: var(--green); } .ic-wait { color: var(--yellow); } .ic-bad { color: var(--red); } .ic-stop { color: var(--muted); }
+
+    /* --- A: handoff list ---------------------------------------------- */
+    .a-box { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); overflow: hidden; }
+    .a-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--border); }
+    .a-head b { color: var(--fg); font-weight: 600; }
+    .a-arrow { color: var(--muted); font-size: 13px; }
+    .a-stack { display: inline-flex; }
+    .a-stack .logo { width: 20px; height: 20px; margin-left: -5px; box-shadow: 0 0 0 2px var(--surface); }
+    .a-stack .logo:first-child { margin-left: 0; }
+    .a-sum { margin-left: auto; font-size: 11.5px; }
+    .a-row { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 2px 10px; width: 100%; padding: 10px 12px 10px 15px; border-top: 1px solid var(--border); transition: background .15s; }
+    .a-row:first-of-type { border-top: 0; }
+    .a-row::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--agent); }
+    .a-row:hover { background: var(--hover); }
+    .a-row.wait { background: rgba(230, 200, 110, .06); }
+    .a-row .logo { grid-row: span 2; width: 30px; height: 30px; padding: 6px; background: color-mix(in srgb, var(--agent) 16%, transparent); color: var(--agent); }
+    .a-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .a-meta { grid-column: 2; font-size: 11.5px; color: var(--muted); }
+    .a-meta .who { color: var(--agent); font-weight: 600; }
+    .a-status { grid-row: 1; grid-column: 3; display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; font-size: 11.5px; background: var(--surface-3); white-space: nowrap; align-self: center; }
+    .a-status.run { color: var(--fg); }
+    .a-status.wait { color: var(--yellow); background: rgba(230, 200, 110, .14); }
+    .a-status.ok { color: var(--green); background: rgba(157, 185, 132, .14); }
+    .a-status.bad { color: var(--red); background: rgba(229, 120, 109, .14); }
+    .a-status.stop { color: var(--muted); }
+    .a-open { grid-row: 2; grid-column: 3; justify-self: end; font-size: 11.5px; color: var(--muted); opacity: 0; transition: opacity .15s; }
+    .a-row:hover .a-open { opacity: 1; }
+    .a-line { grid-column: 2 / 4; margin-top: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .a-line.mono { font-family: var(--mono); font-size: 11.5px; color: var(--fg); }
+    .a-line.result { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--fg); opacity: .85; }
+    .a-reply { grid-column: 2 / 4; margin-top: 6px; justify-self: start; padding: 3px 10px; border-radius: 7px; font-size: 12px; background: rgba(230, 200, 110, .16); color: var(--yellow); }
+    .phone .a-row { padding: 12px 12px 12px 15px; }
+    .phone .a-open { display: none; }
+    .phone .a-sum { display: none; }
+
+    /* --- B: guest agent thread ---------------------------------------- */
+    .b-intro { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin: 2px 0 10px; }
+    .b-intro b { color: var(--fg); font-weight: 600; }
+    .b-list { display: flex; flex-direction: column; gap: 10px; padding-left: 14px; border-left: 2px dashed var(--border-strong); margin-left: 9px; }
+    .b-card { position: relative; border-radius: 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--agent) 9%, var(--surface)), var(--surface) 70%); border: 1px solid color-mix(in srgb, var(--agent) 32%, transparent); padding: 11px 13px 12px; }
+    .b-card::before { content: ""; position: absolute; left: -16px; top: 22px; width: 14px; height: 2px; background: var(--border-strong); }
+    .b-card.wait { border-color: rgba(230, 200, 110, .6); }
+    .b-top { display: flex; align-items: center; gap: 9px; }
+    .b-top .logo { width: 26px; height: 26px; padding: 5px; border-radius: 50%; background: color-mix(in srgb, var(--agent) 20%, transparent); color: var(--agent); }
+    .b-name { font-weight: 600; font-size: 13.5px; color: var(--agent); }
+    .b-for { font-size: 12px; color: var(--muted); }
+    .b-st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .b-st.wait { color: var(--yellow); } .b-st.ok { color: var(--green); } .b-st.bad { color: var(--red); }
+    .b-task { margin: 8px 0 0; font-size: 13.5px; font-weight: 500; }
+    .b-tail { margin-top: 8px; padding: 7px 9px; border-radius: 8px; background: rgba(0, 0, 0, .25); font: 11.5px/1.6 var(--mono); color: var(--muted); }
+    .b-tail div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .b-tail div:nth-child(1) { opacity: .45; } .b-tail div:nth-child(2) { opacity: .7; }
+    .b-tail div:last-child { color: var(--fg); opacity: 1; }
+    .b-tail .caret { display: inline-block; width: 6px; height: 11px; margin-left: 3px; vertical-align: -1px; background: var(--agent); animation: blink 1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    .b-result { margin-top: 8px; font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .b-result.bad { color: var(--red); }
+    .b-result.stop { color: var(--muted); }
+    .b-foot { display: flex; align-items: center; gap: 10px; margin-top: 9px; font-size: 12px; color: var(--muted); }
+    .b-foot .go { margin-left: auto; padding: 3px 10px; border-radius: 7px; border: 1px solid var(--border-strong); color: var(--fg); }
+    .b-foot .go:hover { background: var(--hover); }
+    .b-foot .go.wait { border-color: rgba(230, 200, 110, .5); color: var(--yellow); }
+    .phone .b-list { margin-left: 4px; padding-left: 10px; }
+    .phone .b-card::before { left: -12px; width: 10px; }
+    .phone .b-tail div:nth-child(1) { display: none; }
+
+    /* --- C: compact strip --------------------------------------------- */
+    .c-box { border-radius: 10px; border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, var(--bg)); }
+    .c-head { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 10px; font-size: 12.5px; color: var(--muted); }
+    .c-head:hover { color: var(--fg); }
+    .c-swap { display: inline-flex; width: 16px; height: 16px; color: var(--accent); }
+    .c-head b { color: var(--fg); font-weight: 600; }
+    .c-stack { display: inline-flex; }
+    .c-stack .logo { width: 18px; height: 18px; padding: 3px; margin-left: -4px; border-radius: 50%; background: color-mix(in srgb, var(--agent) 22%, var(--bg)); color: var(--agent); box-shadow: 0 0 0 2px var(--bg); }
+    .c-stack .logo:first-child { margin-left: 0; }
+    .c-agg { display: inline-flex; gap: 10px; margin-left: auto; font-size: 11.5px; }
+    .c-agg span { display: inline-flex; align-items: center; gap: 4px; }
+    .c-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .c-chev { transition: transform .2s; color: var(--muted); }
+    .c-box.open .c-chev { transform: rotate(90deg); }
+    .c-rows { display: none; padding: 0 6px 6px; }
+    .c-box.open .c-rows { display: block; }
+    .c-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 5px 6px; border-radius: 7px; font-size: 12.5px; }
+    .c-row:hover { background: var(--hover); }
+    .c-row .logo { width: 16px; height: 16px; color: var(--agent); }
+    .c-title { flex: 0 1 auto; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 44%; }
+    .c-sep { color: var(--border-strong); }
+    .c-live { flex: 1 1 0; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .c-live.mono { font: 11.5px var(--mono); color: var(--fg); opacity: .8; }
+    .c-time { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .c-ic { flex: none; width: 14px; display: inline-flex; justify-content: center; }
+    .c-row.wait { background: rgba(230, 200, 110, .07); }
+    .c-row.wait .c-live { color: var(--yellow); }
+    .phone .c-agg { gap: 7px; }
+    .phone .c-agg .lbl { display: none; }
+    .phone .c-row { flex-wrap: wrap; padding: 8px 6px; row-gap: 2px; }
+    .phone .c-title { max-width: none; flex: 1 1 0; }
+    .phone .c-live { flex-basis: 100%; order: 5; padding-left: 25px; }
+
+    .notes { margin-top: 30px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); font-size: 13px; color: var(--muted); }
+    .notes h3 { margin: 0 0 6px; font-size: 13px; color: var(--fg); }
+    .notes ul { margin: 0; padding-left: 18px; }
+    .notes li { margin: 3px 0; }
+    .notes b { color: var(--fg); }
+
+    @media (max-width: 900px) { .stage { grid-template-columns: 1fr; } .phone { margin: auto; } }
+    @media (prefers-reduced-motion: reduce) { .spin, .bar.run i, .b-tail .caret { animation: none; } }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE · CHAT · DELEGA TRA AGENTI</div>
+  <h1>La carta della delega in chat</h1>
+  <p class="lead">Quando Claude passa un'attività a Codex, Gemini o OpenCode (o il contrario), la chat oggi mostra la stessa carta dei subagent con un logo piccolo. Qui trovi tre alternative, ognuna su desktop e su telefono. Con i controlli in alto cambi gli stati e il numero di deleghe. Clic su una riga = apre la chat del delegato.</p>
+
+  <div class="controls">
+    <span>Stato</span>
+    <div class="seg" id="seg-state">
+      <button data-v="mixed" class="on">Misto</button>
+      <button data-v="running">Tutte in corso</button>
+      <button data-v="done">Tutte finite</button>
+      <button data-v="errors">Errore + interrotta</button>
+    </div>
+    <span>Deleghe</span>
+    <div class="seg" id="seg-count">
+      <button data-v="1">1</button>
+      <button data-v="3" class="on">3</button>
+    </div>
+    <span>Orchestratore</span>
+    <div class="seg" id="seg-parent">
+      <button data-v="claude" class="on">Claude</button>
+      <button data-v="codex">Codex</button>
+    </div>
+  </div>
+
+  <section class="variant">
+    <div class="vhead"><span class="letter ref">OGGI</span><h2>Carta attuale (riferimento)</h2></div>
+    <p class="vdesc">Riga «Ha delegato N attività» + carte in griglia identiche a quelle dei subagent. L'agente di destinazione si vede solo dal logo da 14px e dal tag «a Codex». Il telefono oggi non ha una carta dedicata.</p>
+    <div class="stage">
+      <div><div class="frame-label">DESKTOP</div><div class="desk" data-render="ref" data-mobile="0"></div></div>
+      <div><div class="frame-label">TELEFONO · oggi nessuna carta</div><div class="phone" data-render="none" data-mobile="1"></div></div>
+    </div>
+  </section>
+
+  <section class="variant">
+    <div class="vhead"><span class="letter">A</span><h2>Passaggio di consegne</h2></div>
+    <p class="vdesc">Un solo riquadro con un'intestazione <b>Claude → logo dei delegati</b> e una <b>riga per ogni delega</b>, al posto della griglia. Ogni agente ha il suo colore (filetto a sinistra e logo grande), lo stato è una pillola a destra. Sotto, il comando in corso oppure le prime due righe del risultato. Se un delegato ti aspetta, la riga si colora di giallo e compare «Rispondi», che porta alla domanda nel composer. È ordinata e si legge in fretta: è la più vicina a quella di oggi.</p>
+    <div class="stage">
+      <div><div class="frame-label">DESKTOP</div><div class="desk" data-render="a" data-mobile="0"></div></div>
+      <div><div class="frame-label">TELEFONO</div><div class="phone" data-render="a" data-mobile="1"></div></div>
+    </div>
+  </section>
+
+  <section class="variant">
+    <div class="vhead"><span class="letter">B</span><h2>Ospite in chat</h2></div>
+    <p class="vdesc">Ogni delegato <b>sembra un altro agente che parla dentro la conversazione</b>: avatar tondo e nome nel suo colore, «per Claude», il compito scritto per esteso. Mentre lavora mostra le <b>ultime righe di attività</b> che scorrono, come un piccolo terminale. A fine lavoro al loro posto compare il risultato. Una linea tratteggiata le aggancia al messaggio dell'orchestratore. È la più espressiva, ma occupa più spazio.</p>
+    <div class="stage">
+      <div><div class="frame-label">DESKTOP</div><div class="desk" data-render="b" data-mobile="0"></div></div>
+      <div><div class="frame-label">TELEFONO</div><div class="phone" data-render="b" data-mobile="1"></div></div>
+    </div>
+  </section>
+
+  <section class="variant">
+    <div class="vhead"><span class="letter">C</span><h2>Striscia compatta</h2></div>
+    <p class="vdesc">Una <b>striscia sottile</b> con il numero di deleghe, i loghi impilati e il riepilogo degli stati (●1 in corso ●1 ti aspetta ●1 fatta). Si apre in righe da una linea, come le chiamate agli strumenti. Resta aperta finché qualcosa è in corso o ti aspetta, poi <b>si richiude da sola</b> quando tutto è finito. È la più leggera: la chat resta pulita anche con molte deleghe.</p>
+    <div class="stage">
+      <div><div class="frame-label">DESKTOP</div><div class="desk" data-render="c" data-mobile="0"></div></div>
+      <div><div class="frame-label">TELEFONO</div><div class="phone" data-render="c" data-mobile="1"></div></div>
+    </div>
+  </section>
+
+  <div class="notes">
+    <h3>Cose che valgono per tutte le varianti</h3>
+    <ul>
+      <li>Le domande e i permessi dei delegati restano nel composer (la carta di domanda di oggi). La carta in chat segnala solo che c'è attesa.</li>
+      <li>Colore per agente: <b style="color:var(--claude)">Claude</b>, <b style="color:var(--codex)">Codex</b>, <b style="color:var(--gemini)">Gemini</b>, <b style="color:var(--opencode)">OpenCode</b>. I colori sono indicativi e si possono legare al tema.</li>
+      <li>I subagent dello stesso agente tengono la loro carta attuale, così le due cose restano distinguibili.</li>
+      <li>Telefono: arriva la stessa carta (oggi lì la delega si vede solo come chiamata a uno strumento).</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  const ICON = {
+    claude: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.5 6.3 5.2-3.9-3.4 5.5 6.2 1.6-6.2 1.6 3.4 5.5-5.2-3.9L12 21.5l-1.5-6.3-5.2 3.9 3.4-5.5-6.2-1.6 6.2-1.6-3.4-5.5 5.2 3.9z"/></svg>',
+    codex: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/><path d="M9 10l-2 2 2 2M15 10l2 2-2 2"/></svg>',
+    gemini: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c.6 5.4 4.6 9.4 10 10-5.4.6-9.4 4.6-10 10-.6-5.4-4.6-9.4-10-10 5.4-.6 9.4-4.6 10-10z"/></svg>',
+    opencode: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9.5l-2.5 2.5L9 14.5M13 15h4"/></svg>',
+  };
+  const NAME = { claude: "Claude", codex: "Codex", gemini: "Gemini", opencode: "OpenCode" };
+  const SVG_SWAP = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>';
+  const SVG_CHEV = '<svg class="c-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+
+  const BASE = [
+    { id: 1, title: "Rifattorizza il parser delle tabelle markdown", steps: 14, secs: 72,
+      live: ["Read shared/Markdown.ts", "rg -n parseTable shared/", "Edit shared/markdown/table.ts"],
+      result: "Parser unificato in shared/markdown/table.ts; desktop e telefono ora usano lo stesso codice. Aggiunti 6 test, tutti verdi.",
+      error: "Il comando npm test è uscito con codice 1 (2 test falliti)." },
+    { id: 2, title: "Rivedi le traduzioni italiane del modulo chat", steps: 6, secs: 41,
+      live: ["Read src/i18n/en.json", "Read src/i18n/it.json", "Edit src/i18n/it.json"],
+      result: "Corrette 11 stringhe e uniformato «delegato/delegati». Nessuna chiave mancante.",
+      error: "" },
+    { id: 3, title: "Genera fixture di test per chatModel", steps: 3, secs: 19,
+      live: ["Glob src/chat/**/*.test.ts", "Write src/chat/fixtures/delegate.json", "npx vitest run chatModel"],
+      result: "Creato src/chat/fixtures/delegate.json con 5 casi (in corso, attesa, fatto, errore, interrotto).",
+      error: "" },
+  ];
+  const STATES = {
+    mixed: ["running", "waiting", "done"],
+    running: ["running", "running", "running"],
+    done: ["done", "done", "done"],
+    errors: ["failed", "cancelled", "done"],
+  };
+  const state = { st: "mixed", count: 3, parent: "claude" };
+
+  function tasks() {
+    const others = state.parent === "claude" ? ["codex", "gemini", "opencode"] : ["claude", "gemini", "opencode"];
+    return BASE.slice(0, state.count).map((t, i) => ({ ...t, agent: others[i], status: STATES[state.st][i] }));
+  }
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const logo = (a, cls = "") => `<span class="logo ${cls}" style="--agent:var(--${a})">${ICON[a]}</span>`;
+  const time = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const plural = (n, one, many) => (n === 1 ? one : many);
+  const userMsg = (m) => `<div class="msg-user">Sistema il parser delle tabelle e fai controllare le traduzioni${m ? "" : ", intanto prepara anche le fixture"}.</div>`;
+  const agentMsg = (n) => `<div class="msg-agent">Divido il lavoro: ${n === 1 ? "lo passo a un altro agente" : "lo distribuisco ad altri agenti"} e intanto controllo i test esistenti.</div>`;
+  const after = () => `<div class="msg-agent after">…</div>`;
+
+  function counts(ts) {
+    const c = { running: 0, waiting: 0, done: 0, failed: 0, cancelled: 0 };
+    ts.forEach((t) => c[t.status]++);
+    return c;
+  }
+
+  /* ---- Reference ---- */
+  function renderRef(ts) {
+    const card = (t) => {
+      const cls = t.status === "waiting" ? " wait" : "";
+      const tm = t.status === "running" ? "in corso" : t.status === "waiting" ? "in attesa" : `${t.secs}s`;
+      let live;
+      if (t.status === "running") live = `<span class="spin"></span><span class="ref-live mono">${esc(t.live[2])}</span>`;
+      else if (t.status === "waiting") live = `<span class="ic-wait">●</span><span class="ref-live">Aspetta una tua risposta</span>`;
+      else if (t.status === "failed") live = `<span class="ic-bad">✕</span><span class="ref-live">${esc(t.error)}</span>`;
+      else if (t.status === "cancelled") live = `<span class="ic-stop">■</span><span class="ref-live">Interrotta</span>`;
+      else live = `<span class="ic-ok">✓</span><span class="ref-live">${esc(t.result)}</span>`;
+      const bar = { running: "run", waiting: "wait", failed: "bad", cancelled: "stop", done: "" }[t.status];
+      return `<div class="ref-card${cls}">
+        <div class="ref-row"><span class="logo" style="width:14px;height:14px">${ICON[t.agent]}</span><span class="ref-name">${esc(t.title)}</span></div>
+        <div class="ref-row"><span class="ref-tag">a ${NAME[t.agent]}</span><span class="ref-pill">${t.steps}</span><span class="ref-time">${tm}</span></div>
+        <div class="ref-row">${live}</div>
+        <span class="bar ${bar}"><i style="width:${t.status === "running" ? 60 : t.status === "waiting" ? 45 : 100}%"></i></span>
+      </div>`;
+    };
+    return `<div class="ref-mark"><b>${ts.length === 1 ? "Ha delegato 1 attività" : `Ha delegato ${ts.length} attività`}</b>${ts.map((t) => `<span class="ref-tag">${NAME[t.agent]}</span>`).join("")}</div>
+      <div class="ref-grid" style="${ts.length === 1 ? "grid-template-columns:1fr" : ""}">${ts.map(card).join("")}</div>`;
+  }
+  function renderNone(ts) {
+    return ts.map((t) => `<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--muted);margin:4px 0;font-family:var(--mono)">⚙ mcp__flowcode__delegate_task <span style="opacity:.6">${NAME[t.agent]}</span></div>`).join("");
+  }
+
+  /* ---- A ---- */
+  const A_STATUS = {
+    running: '<span class="a-status run"><span class="spin"></span>In corso</span>',
+    waiting: '<span class="a-status wait">● Ti aspetta</span>',
+    done: '<span class="a-status ok">✓ Fatto</span>',
+    failed: '<span class="a-status bad">✕ Errore</span>',
+    cancelled: '<span class="a-status stop">■ Interrotta</span>',
+  };
+  function renderA(ts, m) {
+    const c = counts(ts);
+    const sum = [c.running && `${c.running} in corso`, c.waiting && `${c.waiting} ti aspetta`, (c.done + c.failed + c.cancelled) && `${c.done + c.failed + c.cancelled} ${plural(c.done + c.failed + c.cancelled, "finita", "finite")}`].filter(Boolean).join(" · ");
+    const rows = ts.map((t) => {
+      const meta = `<span class="who">${NAME[t.agent]}</span> · ${t.steps} passi${t.status === "running" || t.status === "waiting" ? "" : ` · ${time(t.secs)}`}`;
+      let line = "";
+      if (t.status === "running") line = `<div class="a-line mono">${esc(t.live[2])}</div>`;
+      else if (t.status === "waiting") line = `<div class="a-line">Chiede il permesso di eseguire <span style="font-family:var(--mono);color:var(--fg)">npm install</span></div><button class="a-reply">Rispondi ↓</button>`;
+      else if (t.status === "failed") line = `<div class="a-line" style="color:var(--red)">${esc(t.error)}</div>`;
+      else if (t.status === "cancelled") line = `<div class="a-line">Interrotta da te dopo ${t.steps} passi</div>`;
+      else line = `<div class="a-line result">${esc(t.result)}</div>`;
+      return `<button class="a-row${t.status === "waiting" ? " wait" : ""}" style="--agent:var(--${t.agent})">
+        ${logo(t.agent)}<span class="a-title">${esc(t.title)}</span>${A_STATUS[t.status]}
+        <span class="a-meta">${meta}</span><span class="a-open">Apri chat ↗</span>${line}
+      </button>`;
+    }).join("");
+    return `<div class="a-box">
+      <div class="a-head">${logo(state.parent).replace('class="logo ', 'class="logo a-solo ').replace("<span", '<span style="width:20px;height:20px;color:var(--' + state.parent + ')"')}<span class="a-arrow">→</span>
+        <span class="a-stack">${ts.map((t) => `<span class="logo" style="padding:3px;background:color-mix(in srgb,var(--${t.agent}) 22%,var(--surface));color:var(--${t.agent})">${ICON[t.agent]}</span>`).join("")}</span>
+        <b>${ts.length === 1 ? `Delegata a ${NAME[ts[0].agent]}` : `${ts.length} deleghe`}</b>
+        <span class="a-sum">${sum}</span>
+      </div>${rows}</div>`;
+  }
+
+  /* ---- B ---- */
+  const B_STATUS = {
+    running: '<span class="b-st"><span class="spin"></span>sta lavorando</span>',
+    waiting: '<span class="b-st wait">● ti aspetta</span>',
+    done: '<span class="b-st ok">✓ fatto</span>',
+    failed: '<span class="b-st bad">✕ errore</span>',
+    cancelled: '<span class="b-st">■ interrotta</span>',
+  };
+  function renderB(ts, m) {
+    const cards = ts.map((t) => {
+      let body, foot;
+      if (t.status === "running") {
+        body = `<div class="b-tail">${t.live.map((l, i) => `<div>${esc(l)}${i === 2 ? '<span class="caret"></span>' : ""}</div>`).join("")}</div>`;
+        foot = `<span>${t.steps} passi</span><button class="go">Segui ↗</button>`;
+      } else if (t.status === "waiting") {
+        body = `<div class="b-tail"><div>${esc(t.live[0])}</div><div>${esc(t.live[1])}</div><div style="color:var(--yellow)">? permesso: npm install</div></div>`;
+        foot = `<span>${t.steps} passi</span><button class="go wait">Rispondi ↓</button>`;
+      } else if (t.status === "failed") {
+        body = `<div class="b-result bad">${esc(t.error)}</div>`;
+        foot = `<span>${t.steps} passi · ${time(t.secs)}</span><button class="go">Apri chat ↗</button>`;
+      } else if (t.status === "cancelled") {
+        body = `<div class="b-result stop">Interrotta da te.</div>`;
+        foot = `<span>${t.steps} passi · ${time(t.secs)}</span><button class="go">Apri chat ↗</button>`;
+      } else {
+        body = `<div class="b-result">${esc(t.result)}</div>`;
+        foot = `<span>${t.steps} passi · ${time(t.secs)}</span><button class="go">Apri chat ↗</button>`;
+      }
+      return `<div class="b-card${t.status === "waiting" ? " wait" : ""}" style="--agent:var(--${t.agent})">
+        <div class="b-top">${logo(t.agent)}<span class="b-name">${NAME[t.agent]}</span><span class="b-for">per ${NAME[state.parent]}</span>${B_STATUS[t.status]}</div>
+        <div class="b-task">${esc(t.title)}</div>${body}<div class="b-foot">${foot}</div>
+      </div>`;
+    }).join("");
+    return `<div class="b-intro">${SVG_SWAP.replace("<svg", '<svg style="color:var(--accent)"')}<b>${ts.length === 1 ? `Ho chiesto aiuto a ${NAME[ts[0].agent]}` : `Ho chiesto aiuto a ${ts.length} agenti`}</b></div><div class="b-list">${cards}</div>`;
+  }
+
+  /* ---- C ---- */
+  const C_IC = {
+    running: '<span class="c-ic"><span class="spin"></span></span>',
+    waiting: '<span class="c-ic ic-wait">●</span>',
+    done: '<span class="c-ic ic-ok">✓</span>',
+    failed: '<span class="c-ic ic-bad">✕</span>',
+    cancelled: '<span class="c-ic ic-stop">■</span>',
+  };
+  const cOpen = {};
+  function renderC(ts, m, key) {
+    const c = counts(ts);
+    const active = c.running + c.waiting > 0;
+    const open = cOpen[key] ?? active;
+    const agg = [];
+    if (c.running) agg.push(`<span><i class="c-dot" style="background:var(--accent)"></i>${c.running}<span class="lbl"> in corso</span></span>`);
+    if (c.waiting) agg.push(`<span style="color:var(--yellow)"><i class="c-dot" style="background:var(--yellow)"></i>${c.waiting}<span class="lbl"> ti aspetta</span></span>`);
+    if (c.done) agg.push(`<span><i class="c-dot" style="background:var(--green)"></i>${c.done}<span class="lbl"> ${plural(c.done, "fatta", "fatte")}</span></span>`);
+    if (c.failed) agg.push(`<span style="color:var(--red)"><i class="c-dot" style="background:var(--red)"></i>${c.failed}<span class="lbl"> errore</span></span>`);
+    if (c.cancelled) agg.push(`<span><i class="c-dot" style="background:var(--muted)"></i>${c.cancelled}<span class="lbl"> interrotta</span></span>`);
+    const rows = ts.map((t) => {
+      let live;
+      if (t.status === "running") live = `<span class="c-live mono">${esc(t.live[2])}</span>`;
+      else if (t.status === "waiting") live = `<span class="c-live">chiede il permesso: npm install</span>`;
+      else if (t.status === "failed") live = `<span class="c-live" style="color:var(--red)">${esc(t.error)}</span>`;
+      else if (t.status === "cancelled") live = `<span class="c-live">interrotta</span>`;
+      else live = `<span class="c-live">${esc(t.result)}</span>`;
+      const tm = t.status === "running" || t.status === "waiting" ? `${t.steps} passi` : time(t.secs);
+      return `<button class="c-row${t.status === "waiting" ? " wait" : ""}" style="--agent:var(--${t.agent})">${C_IC[t.status]}${logo(t.agent)}<span class="c-title">${esc(t.title)}</span>${m ? "" : '<span class="c-sep">—</span>'}${live}<span class="c-time">${tm}</span></button>`;
+    }).join("");
+    const label = ts.length === 1 ? `Delegata a ${NAME[ts[0].agent]}` : `${ts.length} deleghe`;
+    return `<div class="c-box${open ? " open" : ""}" data-ckey="${key}">
+      <button class="c-head"><span class="c-swap">${SVG_SWAP}</span><b>${label}</b><span class="c-stack">${ts.map((t) => logo(t.agent).replace("<span", `<span style="--agent:var(--${t.agent})"`)).join("")}</span><span class="c-agg">${agg.join("")}</span>${SVG_CHEV}</button>
+      <div class="c-rows">${rows}</div></div>`;
+  }
+
+  function render() {
+    const ts = tasks();
+    document.querySelectorAll("[data-render]").forEach((el, i) => {
+      const kind = el.dataset.render, m = el.dataset.mobile === "1";
+      let card = "";
+      if (kind === "ref") card = renderRef(ts);
+      else if (kind === "none") card = renderNone(ts);
+      else if (kind === "a") card = renderA(ts, m);
+      else if (kind === "b") card = renderB(ts, m);
+      else if (kind === "c") card = renderC(ts, m, `${i}`);
+      el.innerHTML = userMsg(m) + agentMsg(ts.length) + card + after();
+    });
+    document.querySelectorAll(".c-box").forEach((box) => {
+      box.querySelector(".c-head").onclick = () => { cOpen[box.dataset.ckey] = !box.classList.contains("open"); render(); };
+    });
+  }
+
+  function seg(id, key, parse = (v) => v) {
+    const root = document.getElementById(id);
+    root.addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      root.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+      state[key] = parse(b.dataset.v);
+      for (const k in cOpen) delete cOpen[k];
+      render();
+    });
+  }
+  seg("seg-state", "st");
+  seg("seg-count", "count", Number);
+  seg("seg-parent", "parent");
+  render();
+</script>
+</body>
+</html>

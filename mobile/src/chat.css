@@ -3434,3 +3434,45 @@ button.chat-step-row {
 .chat-goal-marker-title b { font-weight: 700; }
 .chat-goal-marker-obj { font-size: 13px; color: var(--fg); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .chat-goal-marker-meta { font-size: 12px; color: var(--muted); }
+
+/* --- delegations strip --- */
+.chat-dstrip { margin: 6px 0; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--fg) 3%, var(--bg)); }
+.chat-dstrip-head { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 10px 12px; border: 0; border-radius: inherit; background: none; color: var(--muted); font: inherit; font-size: 13px; text-align: left; }
+.chat-dstrip-head b { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--fg); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.chat-dstrip-swap { display: inline-flex; flex: none; width: 16px; height: 16px; color: var(--accent); }
+.chat-dstrip-swap svg { width: 100%; height: 100%; }
+.chat-dstrip-stack { display: inline-flex; flex: none; }
+.chat-dstrip-logo { display: inline-flex; width: 20px; height: 20px; box-sizing: border-box; padding: 3px; margin-left: -5px; border-radius: 50%; background: color-mix(in srgb, var(--agent) 22%, transparent); color: var(--agent); box-shadow: 0 0 0 2px var(--bg); }
+.chat-dstrip-logo:first-child { margin-left: 0; }
+.chat-dstrip-logo svg { width: 100%; height: 100%; }
+.chat-dstrip-sum { display: inline-flex; flex: none; gap: 8px; margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; }
+.chat-dstrip-count { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); }
+.chat-dstrip-count i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.chat-dstrip-count.is-waiting_for_user { color: var(--wait); }
+.chat-dstrip-count.is-waiting_for_user i { background: var(--wait); }
+.chat-dstrip-count.is-done i { background: var(--accent); }
+.chat-dstrip-count.is-failed { color: var(--danger); }
+.chat-dstrip-count.is-failed i { background: var(--danger); }
+.chat-dstrip-count.is-cancelled i { background: var(--muted); }
+.chat-dstrip-chev { flex: none; color: var(--muted); transition: transform .2s; }
+.chat-dstrip.is-open .chat-dstrip-chev { transform: rotate(90deg); }
+.chat-dstrip-rows { padding: 0 6px 8px; }
+.chat-dstrip-row { display: flex; flex-wrap: wrap; align-items: center; column-gap: 9px; row-gap: 2px; width: 100%; padding: 9px 8px; border: 0; border-radius: 9px; background: none; color: var(--fg); font: inherit; font-size: 13.5px; text-align: left; }
+button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.chat-dstrip-row.is-waiting_for_user { background: color-mix(in srgb, var(--wait) 8%, transparent); }
+.chat-dstrip-ic { display: inline-flex; flex: none; justify-content: center; width: 16px; color: var(--muted); font-size: 12px; }
+.chat-dstrip-row.is-running .chat-dstrip-ic { color: var(--accent); }
+.chat-dstrip-row.is-waiting_for_user .chat-dstrip-ic { color: var(--wait); }
+.chat-dstrip-row.is-done .chat-dstrip-ic { color: var(--accent); }
+.chat-dstrip-row.is-failed .chat-dstrip-ic { color: var(--danger); }
+.chat-dstrip-row-logo { display: inline-flex; flex: none; width: 16px; height: 16px; color: var(--agent); }
+.chat-dstrip-row-logo svg { width: 100%; height: 100%; }
+.chat-dstrip-title { flex: 1 1 0; min-width: 0; overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.chat-dstrip-time { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chat-dstrip-live { flex-basis: 100%; min-width: 0; padding-left: 25px; overflow: hidden; color: var(--muted); font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
+.chat-dstrip-live.is-mono { font: 12px var(--mono); color: var(--fg); }
+.chat-dstrip-live.is-failed { color: var(--danger); }
+.chat-dstrip-row.is-waiting_for_user .chat-dstrip-live { color: var(--wait); }
+@media (prefers-reduced-motion: reduce) {
+  .chat-dstrip-chev { transition: none; }
+}

@@ -272,7 +272,7 @@ function isDelegateToolCall(call: ChatToolCall): boolean {
 }
 
 /** Delegation tool calls stay out of the conversation, except a failed one (it explains why no card appeared). */
-function hiddenDelegateTool(item: ChatItem): boolean {
+export function hiddenDelegateTool(item: ChatItem): boolean {
   return item.type === "tool" && isDelegateToolCall(item.call) && item.call.status !== "failed";
 }
 

@@ -1,39 +1,235 @@
 /* Delegation: tasks an agent hands to other agents. The cards reuse the subagent cards (chat.css) and the
    requests reuse the ask card; what is only theirs is here. */
 
-/* A card whose delegate waits for the user: the subagent card's outline in the "needs you" yellow. */
-.chat-subcard.is-wait {
-  border-color: color-mix(in srgb, var(--ansi-bright-yellow) 55%, transparent);
+/* The strip above a launch's delegates: a head with the count, the agents' logos and a summary per status; open, a row per delegate. */
+.chat-dstrip {
+  margin: 4px 0;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
 }
 
-.chat-sub-mark.is-wait {
-  color: var(--ansi-bright-yellow);
-}
-
-.chat-sub-mark.is-stop {
+.chat-dstrip-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12.5px;
   color: var(--fg-muted);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
 }
 
-.chat-subcard-bar.is-wait i {
-  background: var(--ansi-bright-yellow);
-}
-
-.chat-subcard-bar.is-stop i {
-  background: var(--fg-muted);
-}
-
-/* The agent's logo in front of the card's title. */
-.chat-delegate-logo {
-  display: inline-flex;
-  flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
+.chat-dstrip-head:hover {
   color: var(--fg);
 }
 
-.chat-delegate-logo svg {
+.chat-dstrip-swap {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+}
+
+.chat-dstrip-label {
+  color: var(--fg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chat-dstrip-stack {
+  display: inline-flex;
+  flex: none;
+}
+
+/* The agent's logo: in the stack on the head (overlapping discs), at row size in a row. */
+.chat-dstrip-logo {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--agent);
+}
+
+.chat-dstrip-logo svg {
+  width: 100%;
+  height: 100%;
+}
+
+.chat-dstrip-stack .chat-dstrip-logo {
+  width: 18px;
+  height: 18px;
+  padding: 3px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent) 22%, transparent);
+  box-shadow: 0 0 0 2px var(--card-bg);
+}
+
+.chat-dstrip-stack .chat-dstrip-logo:first-child {
+  margin-left: 0;
+}
+
+.chat-dstrip-logo.is-row {
+  width: 16px;
+  height: 16px;
+}
+
+.chat-dstrip-sum {
+  display: inline-flex;
+  gap: 10px;
+  margin-left: auto;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.chat-dstrip-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-muted);
+}
+
+.chat-dstrip-count i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.chat-dstrip-count.is-running i {
+  background: var(--accent);
+}
+
+.chat-dstrip-count.is-waiting_for_user {
+  color: var(--ansi-bright-yellow);
+}
+
+.chat-dstrip-count.is-done i {
+  background: var(--ansi-green);
+}
+
+.chat-dstrip-count.is-failed {
+  color: var(--danger);
+}
+
+.chat-dstrip-count.is-cancelled i {
+  background: var(--fg-muted);
+}
+
+.chat-dstrip-chev {
+  flex: none;
+  color: var(--fg-muted);
+  transition: transform 0.2s;
+}
+
+.chat-dstrip.is-open .chat-dstrip-chev {
+  transform: rotate(90deg);
+}
+
+.chat-dstrip-rows {
+  padding: 0 6px 6px;
+}
+
+.chat-dstrip-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 6px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--fg);
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.chat-dstrip-row:hover {
+  background: var(--sidebar-hover);
+}
+
+.chat-dstrip-row:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.chat-dstrip-row.is-waiting_for_user {
+  background: color-mix(in srgb, var(--ansi-bright-yellow) 8%, transparent);
+}
+
+.chat-dstrip-ic {
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
   width: 14px;
-  height: 14px;
+  color: var(--fg-muted);
+}
+
+.chat-dstrip-row.is-done .chat-dstrip-ic {
+  color: var(--ansi-green);
+}
+
+.chat-dstrip-row.is-waiting_for_user .chat-dstrip-ic {
+  color: var(--ansi-bright-yellow);
+}
+
+.chat-dstrip-row.is-failed .chat-dstrip-ic {
+  color: var(--danger);
+}
+
+.chat-dstrip-title {
+  flex: 0 1 auto;
+  max-width: 44%;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-dstrip-sep {
+  flex: none;
+  color: var(--card-border);
+}
+
+.chat-dstrip-live {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-dstrip-live.is-mono {
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: 11.5px;
+  color: var(--fg);
+}
+
+.chat-dstrip-row.is-waiting_for_user .chat-dstrip-live {
+  color: var(--ansi-bright-yellow);
+}
+
+.chat-dstrip-row.is-failed .chat-dstrip-live {
+  color: var(--danger);
+}
+
+.chat-dstrip-time {
+  flex: none;
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-dstrip-chev {
+    transition: none;
+  }
 }
 
 /* A delegate's request in the composer: who asks (with its logo), and the way through the queue. */

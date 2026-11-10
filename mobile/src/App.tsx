@@ -295,7 +295,7 @@ function AppContent() {
   } else if (chat) {
     content = (
       <Suspense fallback={<div className="screen" />}>
-        <ChatScreen key={chat.chatId} chatId={chat.chatId} onBack={() => setOpenChat(null)} onTerminal={toTerminal} onSwitch={open} />
+        <ChatScreen key={chat.chatId} chatId={chat.chatId} onBack={() => setOpenChat(null)} onTerminal={toTerminal} onSwitch={open} onOpenChat={(id) => { if (chats?.some((c) => c.chatId === id)) openChatTab(id); }} />
       </Suspense>
     );
   } else if (tab) {

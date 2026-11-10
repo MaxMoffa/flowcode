@@ -1,141 +1,114 @@
-import { memo, useMemo, useState } from "react";
-import { useI18n } from "../i18n";
+import { memo, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useI18n, type MessageKey } from "../i18n";
 import { cliName } from "../agents/cliInfo";
 import { agentCliIcon } from "../plugins/icons";
 import { AskComposer } from "./AskComposer";
 import type { AskQuestion } from "./askQuestions";
-import { delegateFinished, delegateRequestKey, type ChatItem, type DelegateInfo, type DelegateRequest } from "./chatModel";
+import { delegateRequestKey, type ChatItem, type DelegateInfo, type DelegateRequest, type DelegateStatus } from "./chatModel";
+import { delegateAgentColor, delegateCounts, delegateDuration, delegatesActive, DELEGATE_STATUS_ORDER, firstLine } from "./delegateStrip";
 import { permissionDetail } from "./permissionDetail";
 import "./delegates.css";
 
-const BOT_ICON = (
-  <svg className="chat-sub-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="5" y="8" width="14" height="11" rx="3" />
-    <path d="M12 4v4M9 13h.01M15 13h.01M9 16.5h6" />
+const SWAP_ICON = (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 8h13l-3-3M20 16H7l3 3" />
   </svg>
 );
 
-const OPEN_ICON = (
-  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M7 17 17 7M8 7h9v9" />
+const CHEVRON_ICON = (
+  <svg className="chat-dstrip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 6l6 6-6 6" />
   </svg>
 );
 
-/** The first non-empty line of a delegate's answer: what the card says once it is done. */
-function firstLine(text: string | undefined): string {
-  return text?.split("\n").find((line) => line.trim() !== "")?.trim() ?? "";
+/** The summary word that follows a count of delegates in one status. */
+function sumKey(status: DelegateStatus, n: number): MessageKey {
+  if (status === "running") return "chat.delegate.sum.running";
+  if (status === "waiting_for_user") return n === 1 ? "chat.delegate.sum.waiting.one" : "chat.delegate.sum.waiting.other";
+  if (status === "done") return n === 1 ? "chat.delegate.sum.done.one" : "chat.delegate.sum.done.other";
+  if (status === "failed") return n === 1 ? "chat.delegate.sum.failed.one" : "chat.delegate.sum.failed.other";
+  return n === 1 ? "chat.delegate.sum.cancelled.one" : "chat.delegate.sum.cancelled.other";
 }
 
-/** How far the bar fills: running has no known end (the bar sweeps), the others are as far as they will get. */
-function barClass(d: DelegateInfo): string {
+/** One delegate as a row of the open strip: its status, logo, title, what it does now (or how it ended), and its steps or duration. */
+function DelegateRow({ delegate: d, onOpen }: { delegate: DelegateInfo; onOpen: (d: DelegateInfo) => void }) {
+  const { t } = useI18n();
+  let mark: ReactNode;
+  let live: string;
   switch (d.status) {
     case "running":
-      return " is-running";
+      mark = <span className="chat-spinner" aria-hidden="true" />;
+      live = d.lastActivity ?? t("chat.delegate.starting");
+      break;
     case "waiting_for_user":
-      return " is-wait";
+      mark = "●";
+      live = t("chat.delegate.waiting");
+      break;
+    case "done":
+      mark = "✓";
+      live = firstLine(d.result) || t("chat.subagent.done");
+      break;
     case "failed":
-      return " is-bad";
-    case "cancelled":
-      return " is-stop";
+      mark = "✕";
+      live = firstLine(d.error) || t("chat.delegate.failed");
+      break;
     default:
-      return "";
+      mark = "■";
+      live = t("chat.delegate.cancelled");
   }
-}
-
-/** One delegated task as a card (the subagent card's look): its title, who it went to, steps, what it is doing now and a bar. The open button sits over the card, not inside it. */
-function DelegateCard({ delegate: d, onOpen }: { delegate: DelegateInfo; onOpen: (d: DelegateInfo) => void }) {
-  const { t } = useI18n();
-  const agent = cliName(d.agent);
-  const seconds = delegateFinished(d) && d.endedAt !== undefined && d.startedAt > 0 ? Math.round((d.endedAt - d.startedAt) / 1000) : null;
-  const time =
-    d.status === "running" ? t("chat.subagent.running") : d.status === "waiting_for_user" ? t("chat.delegate.waitingShort") : seconds !== null && seconds >= 1 ? t("chat.subagent.seconds", { count: seconds }) : "";
-  let live;
-  if (d.status === "running") {
-    live = (
-      <>
-        <span className="chat-spinner" aria-hidden="true" />
-        <span className="chat-subcard-text is-mono">{d.lastActivity ?? t("chat.delegate.starting")}</span>
-      </>
-    );
-  } else if (d.status === "waiting_for_user") {
-    live = (
-      <>
-        <span className="chat-sub-mark is-wait">{"●"}</span>
-        <span className="chat-subcard-text">{t("chat.delegate.waiting")}</span>
-      </>
-    );
-  } else if (d.status === "cancelled") {
-    live = (
-      <>
-        <span className="chat-sub-mark is-stop">{"■"}</span>
-        <span className="chat-subcard-text">{t("chat.delegate.cancelled")}</span>
-      </>
-    );
-  } else if (d.status === "failed") {
-    live = (
-      <>
-        <span className="chat-sub-mark is-failed">{"✕"}</span>
-        <span className="chat-subcard-text">{firstLine(d.error) || t("chat.delegate.failed")}</span>
-      </>
-    );
-  } else {
-    live = (
-      <>
-        <span className="chat-sub-mark">{"✓"}</span>
-        <span className="chat-subcard-text">{firstLine(d.result) || t("chat.subagent.done")}</span>
-      </>
-    );
-  }
+  const time = d.status === "running" || d.status === "waiting_for_user" ? t("chat.delegate.steps", { count: d.steps }) : delegateDuration(d);
   return (
-    <div className="chat-subcard-wrap">
-      <button type="button" className={`chat-subcard${d.status === "waiting_for_user" ? " is-wait" : ""}`} title={`${t("chat.delegate.to", { agent })} · ${d.title}`} onClick={() => onOpen(d)}>
-        <span className="chat-subcard-row has-open">
-          <span className="chat-delegate-logo">{agentCliIcon(d.agent)}</span>
-          <span className="chat-subcard-name">{d.title}</span>
-        </span>
-        <span className="chat-subcard-row">
-          <span className="chat-sub-tag">{t("chat.delegate.to", { agent })}</span>
-          <span className="chat-subcard-pill" title={t("chat.delegate.steps", { count: d.steps })}>
-            {d.steps}
-          </span>
-          <span className="chat-subcard-time">{time}</span>
-        </span>
-        <span className="chat-subcard-live">{live}</span>
-        <span className={`chat-subcard-bar${barClass(d)}`} aria-hidden="true">
-          <i style={{ width: d.status === "running" ? "60%" : d.status === "waiting_for_user" ? "45%" : "100%" }} />
-        </span>
-      </button>
-      <button type="button" className="chat-subcard-open is-floating" tabIndex={-1} title={t("chat.delegate.open")} aria-label={t("chat.delegate.open")} onClick={() => onOpen(d)}>
-        {OPEN_ICON}
-      </button>
-    </div>
+    <button
+      type="button"
+      className={`chat-dstrip-row is-${d.status}`}
+      style={{ "--agent": delegateAgentColor(d.agent) } as CSSProperties}
+      title={`${t("chat.delegate.open")} · ${cliName(d.agent)}`}
+      onClick={() => onOpen(d)}
+    >
+      <span className="chat-dstrip-ic">{mark}</span>
+      <span className="chat-dstrip-logo is-row">{agentCliIcon(d.agent)}</span>
+      <span className="chat-dstrip-title">{d.title}</span>
+      <span className="chat-dstrip-sep" aria-hidden="true">
+        —
+      </span>
+      <span className={`chat-dstrip-live${d.status === "running" ? " is-mono" : ""}`}>{live}</span>
+      <span className="chat-dstrip-time">{time}</span>
+    </button>
   );
 }
 
-/** The tasks an agent handed to others in one go: a line saying how many (with a tag per agent that opens its chat) and a card each, side by side. */
+/** The tasks an agent handed to others in one go: a compact strip with the count, the agents' logos and a summary per status. It opens to a row per delegate; it is open while something runs or waits, closes by itself when all have finished, and the user can toggle it. */
 export const DelegateCards = memo(function DelegateCards({ items, onOpen }: { items: DelegateInfo[]; onOpen: (d: DelegateInfo) => void }) {
   const { t } = useI18n();
+  const counts = delegateCounts(items);
+  const active = delegatesActive(counts);
+  const [manual, setManual] = useState<boolean | null>(null);
+  useEffect(() => setManual(null), [active]);
+  const open = manual ?? active;
   return (
-    <>
-      <div className="chat-submark">
-        {BOT_ICON}
-        <span className="chat-submark-text">
-          <b>{t(items.length === 1 ? "chat.delegate.launched.one" : "chat.delegate.launched.other", { count: items.length })}</b>
-        </span>
-        {items.map((d) => (
-          <button key={d.taskId} type="button" className="chat-sub-tag chat-submark-tag" title={t("chat.delegate.open")} onClick={() => onOpen(d)}>
-            {cliName(d.agent)}
-          </button>
-        ))}
-      </div>
-      <div className="chat-subcards">
-        <div className={`chat-subcards-grid${items.length === 1 ? " is-single" : ""}`}>
+    <div className={`chat-dstrip${open ? " is-open" : ""}`}>
+      <button type="button" className="chat-dstrip-head" aria-expanded={open} onClick={() => setManual(!open)}>
+        <span className="chat-dstrip-swap">{SWAP_ICON}</span>
+        <b className="chat-dstrip-label">{items.length === 1 ? t("chat.delegate.stripOne", { agent: cliName(items[0].agent) }) : t("chat.delegate.stripMany", { count: items.length })}</b>
+        <span className="chat-dstrip-stack">
           {items.map((d) => (
-            <DelegateCard key={d.taskId} delegate={d} onOpen={onOpen} />
+            <span key={d.taskId} className="chat-dstrip-logo" style={{ "--agent": delegateAgentColor(d.agent) } as CSSProperties} title={cliName(d.agent)}>
+              {agentCliIcon(d.agent)}
+            </span>
           ))}
-        </div>
-      </div>
-    </>
+        </span>
+        <span className="chat-dstrip-sum">
+          {DELEGATE_STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => (
+            <span key={s} className={`chat-dstrip-count is-${s}`}>
+              <i />
+              {counts[s]} {t(sumKey(s, counts[s]))}
+            </span>
+          ))}
+        </span>
+        {CHEVRON_ICON}
+      </button>
+      {open && <div className="chat-dstrip-rows">{items.map((d) => <DelegateRow key={d.taskId} delegate={d} onOpen={onOpen} />)}</div>}
+    </div>
   );
   // The timeline rebuilds the arrays on every render; the delegates keep their identity until an event changes them.
 }, (a, b) => a.onOpen === b.onOpen && a.items.length === b.items.length && a.items.every((d, i) => d === b.items[i]));
