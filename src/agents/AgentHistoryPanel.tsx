@@ -66,18 +66,18 @@ interface HistoryRow {
 
 const isAgentCli = (cli: string): cli is AgentCli => (AGENT_CLIS as readonly string[]).includes(cli);
 
-/** "N delegates" on an orchestrator's row, with a pip per delegate; opens and closes the list of their chats. */
-function DelegateChip({ kids, open, onToggle }: { kids: DelegateChild[]; open: boolean; onToggle: () => void }) {
+/** The arrow left of an orchestrator's icon: opens and closes the list of its delegated chats. */
+function DelegateTwisty({ kids, open, onToggle }: { kids: DelegateChild[]; open: boolean; onToggle: () => void }) {
   const { t } = useI18n();
-  const waiting = kids.some((k) => k.status === "waiting_for_user");
   const label = t(kids.length === 1 ? "history.delegates.one" : "history.delegates.other", { count: kids.length });
   return (
     <span
       role="button"
       tabIndex={0}
       aria-expanded={open}
-      title={t("history.delegates.toggle")}
-      className={`agents-sidebar-chip agents-sidebar-chip--${waiting ? "waiting" : "running"} agent-history-delegates`}
+      aria-label={label}
+      title={`${label} - ${t("history.delegates.toggle")}`}
+      className="agent-history-twisty"
       onClick={(e) => {
         e.stopPropagation();
         onToggle();
@@ -90,13 +90,7 @@ function DelegateChip({ kids, open, onToggle }: { kids: DelegateChild[]; open: b
         }
       }}
     >
-      <span className="agent-history-pips" aria-hidden="true">
-        {kids.map((k) => (
-          <i key={k.taskId} className={`is-${delegateTone(k.status)}`} />
-        ))}
-      </span>
-      {label}
-      <svg className="agent-history-delegates-chev" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <polyline points="9 6 15 12 9 18" />
       </svg>
     </span>
@@ -301,6 +295,9 @@ export function AgentHistoryPanel({
     else groups.push({ label, rows: [row] });
   }
 
+  /** Some row has delegated chats: every row then leaves room for the arrow, so titles stay aligned. */
+  const hasDelegates = shown.some((row) => row.sessionId && (delegateHistory[row.sessionId]?.children.length ?? 0) > 0);
+
   /** The linked worktree a folder is in, if any. */
   const branchOf = (cwd: string) => worktrees.find((w) => !w.is_main && inProject(cwd, null, w.path, undefined))?.branch ?? null;
   const toggleKids = (sessionId: string) =>
@@ -343,7 +340,7 @@ export function AgentHistoryPanel({
           onChange={(e) => setQuery(e.target.value)}
         />
       </label>
-      <div className="agent-history-list">
+      <div className={"agent-history-list" + (hasDelegates ? " has-delegates" : "")}>
         {groups.length === 0 && <div className="agent-history-empty">{needle ? t("history.noMatch") : t("history.empty")}</div>}
         {groups.map((group) => (
           <section key={group.label}>
@@ -357,7 +354,7 @@ export function AgentHistoryPanel({
                 <Fragment key={row.key}>
                 <button
                   type="button"
-                  className={"agent-history-row" + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "")}
+                  className={"agent-history-row" + (kids.length > 0 ? " has-delegates" : "") + (row.sessionId && row.sessionId === currentSessionId ? " is-current" : "")}
                   aria-current={row.sessionId && row.sessionId === currentSessionId ? "true" : undefined}
                   title={`${titleOf(row)}\n${row.cwd}`}
                   onClick={() => {
@@ -365,15 +362,23 @@ export function AgentHistoryPanel({
                     else onResume(row.cwd, row.sessionId, row.cli, row.wslDistro ?? undefined, row.profile ?? undefined, row.at > 0 ? row.at : undefined);
                   }}
                 >
-                  <span className="agent-history-icon">{agentCliIcon(row.cli)}</span>
+                  {kids.length > 0 && <DelegateTwisty kids={kids} open={unfoldedKids} onToggle={() => toggleKids(row.sessionId)} />}
+                  <span className="agent-history-icon">
+                    {agentCliIcon(row.cli)}
+                    {kids.length > 0 && (
+                      <span
+                        className={"agent-history-badge" + (kids.some((k) => k.status === "waiting_for_user") ? " is-waiting" : "")}
+                        aria-hidden="true"
+                      >
+                        {kids.length}
+                      </span>
+                    )}
+                  </span>
                   <span className="agent-history-body">
                     <span className="agent-history-title">{titleOf(row)}</span>
                     <span className="agent-history-meta">
                       {time}
                       {branch && `${time ? " · " : ""}⎇ ${branch}`}
-                      {kids.length > 0 && (
-                        <DelegateChip kids={kids} open={unfoldedKids} onToggle={() => toggleKids(row.sessionId)} />
-                      )}
                       {row.status && row.status !== "idle" && (
                         <span className={`agent-history-status agent-history-status--${row.status}`}>
                           {`${time || branch ? " · " : ""}${row.status === "busy" ? t("agents.status.busy") : t("agents.status.waiting")}`}

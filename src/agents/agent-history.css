@@ -269,56 +269,72 @@
   font-size: 11.5px;
 }
 
-/* An orchestrator's delegated chats: the chip on its row, and the rows folded under it. */
-.agent-history-delegates {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+/* An orchestrator's delegated chats: the arrow left of its icon, a count on the icon, and the rows folded under it. */
+.agent-history-list.has-delegates .agent-history-row:not(.is-child) {
+  padding-left: 20px;
+}
+
+.agent-history-list.has-delegates .agent-history-row.has-delegates {
+  padding-left: 2px;
+}
+
+.agent-history-twisty {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 22px;
+  margin-right: -6px;
+  border-radius: 4px;
+  color: var(--fg-muted);
   cursor: pointer;
 }
 
-.agent-history-pips {
-  display: inline-flex;
-  gap: 2px;
+.agent-history-twisty:hover {
+  color: var(--fg);
+  background: var(--sidebar-hover);
 }
 
-.agent-history-pips i {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: var(--fg-muted);
-}
-
-.agent-history-pips i.is-running {
-  background: var(--accent);
-}
-
-.agent-history-pips i.is-waiting {
-  background: var(--ansi-bright-yellow);
-}
-
-.agent-history-pips i.is-failed {
-  background: var(--ansi-bright-red);
-}
-
-.agent-history-delegates-chev {
+.agent-history-twisty svg {
   transition: transform 0.15s;
 }
 
-.agent-history-delegates[aria-expanded="true"] .agent-history-delegates-chev {
+.agent-history-twisty[aria-expanded="true"] svg {
   transform: rotate(90deg);
 }
 
-.agent-history-meta:has(.agent-history-delegates) {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: visible;
+.agent-history-icon {
+  position: relative;
+}
+
+.agent-history-badge {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 8.5px;
+  font-weight: 800;
+  line-height: 13px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--sidebar-bg);
+}
+
+.agent-history-badge.is-waiting {
+  background: var(--ansi-bright-yellow);
+  /* Yellow is light in every theme: white digits would vanish on it. */
+  color: #1b1b1b;
 }
 
 .agent-history-kids {
   position: relative;
-  margin: 0 0 3px 23px;
+  /* Under the orchestrator's icon, which the arrow column pushes right. */
+  margin: 0 0 3px 35px;
 }
 
 .agent-history-kids::before {
