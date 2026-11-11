@@ -2,7 +2,7 @@ import { createStore, safeStorage } from "./store";
 
 const KEY = "wide.uiScale";
 
-type UiScale = "compact" | "normal" | "large";
+export type UiScale = "compact" | "normal" | "large";
 /** CSS `zoom` of the wide layout's chrome (never the terminal): compact is the original size. */
 const ZOOM: Record<UiScale, number> = { compact: 1, normal: 1.15, large: 1.3 };
 

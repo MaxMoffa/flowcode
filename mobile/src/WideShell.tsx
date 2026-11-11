@@ -1,8 +1,11 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import "./terminal.css";
 import "./wide.css";
 import { AgentsScreen } from "./Agents";
-import { useBackHandler } from "./back";
+import { useBackHandler, useEscape } from "./back";
+import { chatKey, ptyKey, remoteEntries, type RemoteEntry } from "../../shared/remoteEntries";
+import { nextDone } from "./doneTabs";
+import { effectivePhone, phoneTheme, setPhoneTheme } from "./theme";
 import { ChatClearing } from "./ChatClearing";
 import { closeChatTab, requestOpenChat, useClearing } from "./chats";
 import { lastInWindow } from "./homeSessions";
@@ -13,7 +16,7 @@ import { NewTerminalSheet } from "./NewTerminalSheet";
 import { interrupt, send, useRemoteSelector, useSupports, type ChatInfo, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
 import { BusyArc, useOpenNew } from "./Terminals";
-import { useUiZoom } from "./uiScale";
+import { setUiScale, useUiScale, useUiZoom } from "./uiScale";
 import { useSheetDrag } from "./useSheetDrag";
 import { useSideWidth } from "./useSideWidth";
 import { panelsFit, setPanelMode, usePanelMode } from "./panelMode";
@@ -30,7 +33,10 @@ const ChatScreen = lazy(() => import("./ChatScreen").then((m) => ({ default: m.C
 const noop = () => {};
 
 /** The tab's agent state as the desktop's .attn-* classes (see wide.css). */
-const attnClass = (status?: string) => (status === "busy" ? " attn-busy" : status === "waiting" ? " attn-wait" : "");
+const attnClass = (status?: string, done = false) => (status === "busy" ? " attn-busy" : status === "waiting" ? " attn-wait" : done ? " attn-done" : "");
+
+/** An entry's agent status (a plain terminal has none). */
+const statusOf = (e: RemoteEntry) => (e.kind === "pty" ? (e.tab.cli ? e.tab.status : undefined) : e.chat.status);
 
 /** The busy tab's arc, run round its outline as on the desktop (shared/busySweep.ts). */
 const TabSweep = () => <BusyArc className="tr-sweep w-tab-sweep" rx={9.25} />;
@@ -49,16 +55,22 @@ interface Props {
   activeChat: string | null;
   /** Turns a chat into a terminal tab on the desktop (see App). */
   onTerminal: (chat: ChatInfo) => void;
+  /** Turns an agent's terminal into a chat shown with the given view. */
+  onChat: (ptyId: string, view: string) => void;
+  /** Opens another chat linked from the one shown. */
+  onOpenChat: (chatId: string) => void;
   onAddComputer: () => void;
 }
 
 /** The desktop-like layout of large screens: a header (panel toggles, tab strip, quick actions), then cards: files, one terminal, agents. */
-export function WideShell({ hostName, tabs, settings, status, activePty, onSelectPty, activeChat, onTerminal, onAddComputer }: Props) {
+export function WideShell({ hostName, tabs, settings, status, activePty, onSelectPty, activeChat, onTerminal, onChat, onOpenChat, onAddComputer }: Props) {
   const clearing = useClearing();
   const docked = useDocked();
   const big = useBigScreen();
   const panelMode = usePanelMode();
   const zoom = useUiZoom();
+  const uiScale = useUiScale();
+  const localTheme = phoneTheme.use();
   const [agentsOpen, setAgentsOpen] = useState(docked);
   const [filesOpen, setFilesOpen] = useState(docked && big);
   /** The open non-terminal tabs, in opening order. */
@@ -77,14 +89,21 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const canRename = useSupports("rename");
   const canClose = useSupports("closeTab");
   const canCloseChat = useSupports("chatCloseTab");
+  const canRenameChat = useSupports("chatRename");
   const canBrowse = useSupports("preview");
   const { opened: browserOpen, open: openBrowser, close: closeBrowser, show: showBrowserPage, pending: browserPending, dismissPending, page: browserPage, chatId: browserChatId, linksChatId } = useChatBrowser(doc === null ? activeChat : null);
-  /** The terminal tab being renamed, with its draft label. */
+  /** The key of the tab being renamed (terminal or chat), with its draft label. */
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** The tab menu (long press / right click): the entry's key and where it opens. */
+  const [tabMenu, setTabMenu] = useState<{ key: string; left: number; top: number } | null>(null);
+  /** Entries whose agent finished while another tab was shown. */
+  const [done, setDone] = useState<Set<string>>(() => new Set());
+  const prevStatus = useRef(new Map<string, string | undefined>());
   const [draft, setDraft] = useState("");
   const cancelRename = useRef(false);
 
   const all = useMemo(() => tabs ?? [], [tabs]);
+  const entries = useMemo(() => remoteEntries(all, chats ?? []), [all, chats]);
   const folders = useMemo(() => [...new Set(all.map((x) => x.cwd).filter(Boolean))], [all]);
   const select = (ptyId: string) => {
     setDoc(null);
@@ -126,17 +145,18 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     if (doc !== null && !keep.some((d) => d.id === doc)) setDoc(null);
   }, [tabs, docs, doc]);
 
-  // A tab closed on the desktop ends its rename.
+  // A tab closed on the desktop ends its rename and its menu.
   useEffect(() => {
-    if (renaming !== null && !all.some((x) => x.ptyId === renaming)) setRenaming(null);
-  }, [all, renaming]);
+    if (renaming !== null && !entries.some((e) => e.key === renaming)) setRenaming(null);
+    if (tabMenu !== null && !entries.some((e) => e.key === tabMenu.key)) setTabMenu(null);
+  }, [entries, renaming, tabMenu]);
 
-  const startRename = (x: Tab) => {
-    setDraft(x.label);
-    setRenaming(x.ptyId);
+  const startRename = (e: RemoteEntry) => {
+    setDraft(e.kind === "pty" ? e.tab.label : e.chat.label);
+    setRenaming(e.key);
   };
   /** Ends the title edit: Escape sets `cancelRename` before blurring, so it is dropped here. */
-  const commitRename = (x: Tab) => {
+  const commitRename = (e: RemoteEntry) => {
     if (cancelRename.current) {
       cancelRename.current = false;
       setRenaming(null);
@@ -144,8 +164,63 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     }
     const label = draft.trim();
     setRenaming(null);
-    if (label && label !== x.label) send({ t: "rename", ptyId: x.ptyId, label });
+    if (e.kind === "pty") {
+      if (label && label !== e.tab.label) send({ t: "rename", ptyId: e.tab.ptyId, label });
+    } else if (label && label !== e.chat.label) send({ t: "chatrename", chatId: e.chat.chatId, label });
   };
+  const closeEntry = (e: RemoteEntry) => {
+    if (e.kind === "pty") {
+      if (window.confirm(t("closeTerminalConfirm", { label: e.tab.label }))) send({ t: "closetab", ptyId: e.tab.ptyId });
+    } else if (window.confirm(t("closeChatConfirm", { label: e.chat.label }))) closeChatTab(e.chat.chatId);
+  };
+  const canRenameEntry = (e: RemoteEntry) => (e.kind === "pty" ? canRename : canRenameChat);
+  const canCloseEntry = (e: RemoteEntry) => (e.kind === "pty" ? canClose : canCloseChat) && !lastInWindow(e.kind === "pty" ? e.tab.window : e.chat.window, all, chats ?? []);
+
+  // Long press (or right click) on a tab opens its menu; the click that follows a long press is swallowed.
+  const press = useRef<{ x: number; y: number; timer: number } | null>(null);
+  const swallowClick = useRef(false);
+  const cancelPress = () => {
+    if (press.current) window.clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  const openTabMenu = (e: RemoteEntry, el: HTMLElement) => {
+    if (!canRenameEntry(e) && !canCloseEntry(e)) return;
+    const r = el.getBoundingClientRect();
+    setTabMenu({ key: e.key, left: Math.max(4, Math.min(r.left, window.innerWidth - 194)), top: r.bottom + 4 });
+  };
+  const pressProps = (e: RemoteEntry) => ({
+    onPointerDown: (ev: React.PointerEvent<HTMLElement>) => {
+      cancelPress();
+      swallowClick.current = false;
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      const el = ev.currentTarget;
+      const timer = window.setTimeout(() => {
+        press.current = null;
+        swallowClick.current = true;
+        openTabMenu(e, el);
+      }, 450);
+      press.current = { x: ev.clientX, y: ev.clientY, timer };
+    },
+    onPointerMove: (ev: React.PointerEvent<HTMLElement>) => {
+      if (press.current && Math.hypot(ev.clientX - press.current.x, ev.clientY - press.current.y) > 8) cancelPress();
+    },
+    onPointerUp: cancelPress,
+    onPointerCancel: cancelPress,
+    onContextMenu: (ev: React.MouseEvent<HTMLElement>) => {
+      ev.preventDefault();
+      cancelPress();
+      openTabMenu(e, ev.currentTarget);
+    },
+    onClickCapture: (ev: React.MouseEvent<HTMLElement>) => {
+      if (!swallowClick.current) return;
+      swallowClick.current = false;
+      ev.stopPropagation();
+      ev.preventDefault();
+    },
+  });
+  const closeTabMenu = useCallback(() => setTabMenu(null), []);
+  useBackHandler(tabMenu !== null, closeTabMenu);
+  useEscape(tabMenu !== null, closeTabMenu);
 
   const openDoc = (d: Doc) => {
     setDocs((cur) => (cur.some((x) => x.id === d.id) ? cur : [...cur, d]));
@@ -183,6 +258,19 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const shown = doc !== null ? docs.find((d) => d.id === doc) : undefined;
   const activeFile = shown?.kind === "file" && shown.ptyId === activePty ? shown.path : null;
   const fileTab = shown?.kind === "file" ? all.find((x) => x.ptyId === shown.ptyId) : undefined;
+  const menuEntry = tabMenu ? entries.find((x) => x.key === tabMenu.key) : undefined;
+  /** The entry whose tab is open (none while a settings or file tab is). */
+  const shownKey = doc !== null ? null : active ? ptyKey(active.ptyId) : activeChat ? chatKey(activeChat) : null;
+
+  // A tab whose agent stopped working while another was shown gets the "done" outline until it is opened.
+  useEffect(() => {
+    const list = entries.map((e) => ({ key: e.key, status: statusOf(e) }));
+    const next = nextDone(prevStatus.current, list, shownKey, done);
+    prevStatus.current = new Map(list.map((x) => [x.key, x.status]));
+    if (next.size !== done.size || [...next].some((k) => !done.has(k))) setDone(next);
+    // `done` is only read to carry it over; the effect runs when statuses or the shown tab change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, shownKey]);
 
   return (
     <div className={"screen wide" + (docked ? " docked" : "") + (big ? "" : " narrow")} style={{ "--w-zoom": zoom } as CSSProperties}>
@@ -190,95 +278,86 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
         <button type="button" className="w-ib" aria-label={t("showFiles")} aria-pressed={filesOpen} onClick={toggleFiles}>
           <FolderIcon />
         </button>
+        <ComputerSwitcher pill hostName={hostName} onAdd={onAddComputer} open={computersOpen} onOpenChange={setComputersOpen} />
         <div className="w-tabs" role="tablist" ref={tabsRef}>
-          {all.map((x) => {
-            const on = doc === null && x.ptyId === activePty;
-            const ico = (
-              <span className="w-tab-ico">
-                {(x.cli && <AgentLogo cli={x.cli} size={16} />) || <TerminalIcon />}
-              </span>
-            );
-            if (renaming === x.ptyId)
-              return (
-                <div key={x.ptyId} role="tab" aria-selected={on} className={"w-tab on" + attnClass(x.cli ? x.status : undefined)}>
-                  {x.cli && x.status === "busy" && <TabSweep />}
-                  {ico}
-                  <input
-                    className="w-tab-input"
-                    value={draft}
-                    autoFocus
-                    maxLength={128}
-                    enterKeyHint="done"
-                    aria-label={t("renameTerminal")}
-                    onFocus={(e) => e.currentTarget.select()}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") e.currentTarget.blur();
-                      else if (e.key === "Escape") {
-                        cancelRename.current = true;
-                        e.currentTarget.blur();
-                      }
-                    }}
-                    onBlur={() => commitRename(x)}
-                  />
-                </div>
-              );
-            return (
-              <button
-                key={x.ptyId}
-                type="button"
-                role="tab"
-                aria-selected={on}
-                className={"w-tab" + (on ? " on" : "") + attnClass(x.cli ? x.status : undefined)}
-                title={x.label}
-                onClick={() => (on && canRename ? startRename(x) : select(x.ptyId))}
-                onDoubleClick={() => canRename && startRename(x)}
-              >
-                {x.cli && x.status === "busy" && <TabSweep />}
-                {ico}
-                <span className="w-tab-label">{x.label}</span>
-                {canClose && !lastInWindow(x.window, all, chats ?? []) && (
-                  <span
-                    role="button"
-                    className="w-tab-x"
-                    aria-label={t("closeTerminal")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm(t("closeTerminalConfirm", { label: x.label }))) send({ t: "closetab", ptyId: x.ptyId });
-                    }}
-                  >
-                    ×
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {(chats ?? []).map((c) => {
-            const on = doc === null && c.chatId === activeChat;
-            return (
-              <button key={c.chatId} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "") + attnClass(c.status)} title={c.label} onClick={() => requestOpenChat(c.chatId)}>
-                {c.status === "busy" && <TabSweep />}
+          {entries.map((e, i) => {
+            const win = e.kind === "pty" ? e.tab.window : e.chat.window;
+            const prevEntry = entries[i - 1];
+            const sep = prevEntry && (prevEntry.kind === "pty" ? prevEntry.tab.window : prevEntry.chat.window) !== win ? <i className="w-tab-sep" aria-hidden="true" title={win} /> : null;
+            const status = statusOf(e);
+            const attn = attnClass(status, done.has(e.key));
+            const label = e.kind === "pty" ? e.tab.label : e.chat.label;
+            const on = doc === null && (e.kind === "pty" ? e.tab.ptyId === activePty : e.chat.chatId === activeChat);
+            const ico =
+              e.kind === "pty" ? (
+                <span className="w-tab-ico">{(e.tab.cli && <AgentLogo cli={e.tab.cli} size={16} />) || <TerminalIcon />}</span>
+              ) : (
                 <span className="w-tab-ico">
-                  <AgentLogo cli={c.agent} size={16} />
+                  <AgentLogo cli={e.chat.agent} size={16} />
                   <i className="w-tab-bubble" aria-hidden="true">
                     <ChatIcon size={9} />
                   </i>
                 </span>
-                <span className="w-tab-label">{c.label}</span>
-                {canCloseChat && !lastInWindow(c.window, all, chats ?? []) && (
-                  <span
-                    role="button"
-                    className="w-tab-x"
-                    aria-label={t("chatCloseTab")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm(t("closeChatConfirm", { label: c.label }))) closeChatTab(c.chatId);
-                    }}
-                  >
-                    ×
-                  </span>
-                )}
-              </button>
+              );
+            if (renaming === e.key)
+              return (
+                <Fragment key={e.key}>
+                  {sep}
+                  <div role="tab" aria-selected={on} className={"w-tab on" + attn}>
+                    {status === "busy" && <TabSweep />}
+                    {ico}
+                    <input
+                      className="w-tab-input"
+                      value={draft}
+                      autoFocus
+                      maxLength={128}
+                      enterKeyHint="done"
+                      aria-label={e.kind === "pty" ? t("renameTerminal") : t("rename")}
+                      onFocus={(ev) => ev.currentTarget.select()}
+                      onChange={(ev) => setDraft(ev.target.value)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") ev.currentTarget.blur();
+                        else if (ev.key === "Escape") {
+                          cancelRename.current = true;
+                          ev.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={() => commitRename(e)}
+                    />
+                  </div>
+                </Fragment>
+              );
+            return (
+              <Fragment key={e.key}>
+                {sep}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  className={"w-tab" + (on ? " on" : "") + attn}
+                  title={label}
+                  onClick={() => (e.kind === "chat" ? requestOpenChat(e.chat.chatId) : on && canRename ? startRename(e) : select(e.tab.ptyId))}
+                  onDoubleClick={e.kind === "pty" ? () => canRename && startRename(e) : undefined}
+                  {...pressProps(e)}
+                >
+                  {status === "busy" && <TabSweep />}
+                  {ico}
+                  <span className="w-tab-label">{label}</span>
+                  {canCloseEntry(e) && (
+                    <span
+                      role="button"
+                      className="w-tab-x"
+                      aria-label={e.kind === "pty" ? t("closeTerminal") : t("chatCloseTab")}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        closeEntry(e);
+                      }}
+                    >
+                      ×
+                    </span>
+                  )}
+                </button>
+              </Fragment>
             );
           })}
           {pending && (
@@ -312,15 +391,17 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             <PlusIcon />
           </button>
         </div>
-        {active && actions.length > 0 && (
-          <div className="w-group">
-            {actions.map((a) => (
+        <div className="w-group">
+          <button type="button" className="w-ib" aria-label={t("showAgents")} aria-pressed={agentsOpen} onClick={toggleAgents}>
+            <AgentsIcon />
+          </button>
+          {active &&
+            actions.map((a) => (
               <button key={a.id} type="button" className="w-ib" aria-label={t("runAction", { label: a.label })} title={a.label} onClick={() => runAction(active.ptyId, a)}>
                 <ActionIcon action={a} />
               </button>
             ))}
-          </div>
-        )}
+        </div>
         <div className="w-group">
           <button type="button" className="w-ib" aria-label={t("features")} disabled={!active} onClick={() => setActionsOpen(true)}>
             <GridIcon />
@@ -334,6 +415,10 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               keys={keys}
               noTerminal={!active}
               pinned={panelMode === "fixed"}
+              scale={uiScale}
+              onScale={setUiScale}
+              theme={settings ? effectivePhone(settings, localTheme).theme : (localTheme.theme ?? "auto")}
+              onTheme={(v) => setPhoneTheme(localTheme.enabled ? { theme: v } : { enabled: true, theme: v }, settings)}
               onClose={closeMenu}
               onNewTerminal={() => {
                 setMenuOpen(false);
@@ -369,11 +454,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               }}
             />
           </div>
-          <button type="button" className="w-ib" aria-label={t("showAgents")} aria-pressed={agentsOpen} onClick={toggleAgents}>
-            <AgentsIcon />
-          </button>
         </div>
-        <ComputerSwitcher pill hostName={hostName} onAdd={onAddComputer} open={computersOpen} onOpenChange={setComputersOpen} />
       </header>
       <div className="w-body">
         {/* Kept mounted while closed, so the folder browsed survives closing the panel. */}
@@ -403,7 +484,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           {active ? (
             <div style={{ display: shown ? "none" : "contents" }}>
               <Suspense fallback={<div className="screen" />}>
-                <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={noop} embedded keys={keys} onOpenPage={showBrowserPage} />
+                <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={noop} onChat={onChat} embedded keys={keys} onOpenPage={showBrowserPage} />
               </Suspense>
             </div>
           ) : activeChat ? (
@@ -412,7 +493,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 <ChatClearing />
               ) : (
                 <Suspense fallback={<div className="screen" />}>
-                  <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} embedded onBrowser={openBrowser} onOpenPage={showBrowserPage} pendingPage={browserPending ? browserPage : null} onOpenPending={openBrowser} onDismissPending={dismissPending} />
+                  <ChatScreen key={activeChat} chatId={activeChat} onBack={noop} onTerminal={onTerminal} onOpenChat={onOpenChat} embedded onBrowser={openBrowser} onOpenPage={showBrowserPage} pendingPage={browserPending ? browserPage : null} onOpenPending={openBrowser} onDismissPending={dismissPending} />
                 </Suspense>
               )}
             </div>
@@ -449,6 +530,49 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
       {browserOpen && canBrowse && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} linksChatId={linksChatId} initialPage={browserPage} onClose={closeBrowser} />}
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
+      {tabMenu && (
+        <>
+          <div
+            className="w-menu-scrim"
+            onClick={closeTabMenu}
+            onContextMenu={(ev) => {
+              ev.preventDefault();
+              closeTabMenu();
+            }}
+          />
+          <div className="w-menu w-tab-menu" role="menu" style={{ left: tabMenu.left, top: tabMenu.top }}>
+            {menuEntry && canRenameEntry(menuEntry) && (
+              <div className="w-menu-entry">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTabMenu();
+                    startRename(menuEntry);
+                  }}
+                >
+                  {t("rename")}
+                </button>
+              </div>
+            )}
+            {menuEntry && canCloseEntry(menuEntry) && (
+              <div className="w-menu-entry">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  onClick={() => {
+                    closeTabMenu();
+                    closeEntry(menuEntry);
+                  }}
+                >
+                  {t("closeTab")}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
       <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
     </div>
   );

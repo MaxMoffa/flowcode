@@ -195,6 +195,11 @@
   border-color: color-mix(in srgb, var(--busy) 25%, transparent);
 }
 
+/* The desktop's .term-tab.attn-done: an agent finished while another tab was shown. */
+.w-tab.attn-done {
+  border-color: color-mix(in srgb, var(--ansi-bright-green) 65%, transparent);
+}
+
 .w-tab .w-tab-sweep {
   inset: auto;
   top: -0.25px;
@@ -266,8 +271,8 @@
 
 .w-top .cs-menu {
   top: calc(100% + 6px);
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
   border-radius: 12px;
 }
 
@@ -345,6 +350,66 @@
 .w-menu-sep {
   height: 1px;
   margin: 4px 6px;
+  background: var(--border);
+}
+
+.w-menu-zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 6px 0 12px;
+  font-size: 14px;
+}
+
+.w-menu-zoom span {
+  flex: 1;
+}
+
+.w-menu-zoom b {
+  min-width: 70px;
+  text-align: center;
+  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.w-menu .w-menu-zoom button {
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  font-size: 16px;
+}
+
+.w-menu-label {
+  padding: 6px 12px 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.w-menu-nocheck {
+  flex: none;
+  width: 17px;
+  height: 17px;
+}
+
+/* The tab's long-press / right-click menu: the same card, fixed at the tab's bottom-left. */
+.w-menu.w-tab-menu {
+  position: fixed;
+  right: auto;
+  width: 190px;
+}
+
+/* The line between the tabs of two desktop windows. */
+.w-tab-sep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
   background: var(--border);
 }
 

@@ -7,6 +7,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ChatInfo, ClientMsg, MirroredSettings, ServerMsg, Tab } from "../../shared/remote-types";
+import { remoteEntries, type RemoteEntry } from "../../shared/remoteEntries";
 import { isAgentBusy, isAgentExited } from "../chat/chatModel";
 import { t } from "../i18n";
 
@@ -46,28 +47,7 @@ const EMPTY_STATE: HostState = { tabs: [], chats: [], settings: null, activeKey:
 /** How long after "new terminal"/"new chat" the first tab to appear is taken as the new one. */
 const NEW_TAB_WAIT_MS = 10_000;
 
-const ptyKey = (ptyId: string) => `pty:${ptyId}`;
-const chatKey = (chatId: string) => `chat:${chatId}`;
-
-export type RemoteEntry = { key: string; kind: "pty"; tab: Tab } | { key: string; kind: "chat"; chat: ChatInfo };
-
-const orderOf = (e: RemoteEntry) => (e.kind === "pty" ? e.tab.order : e.chat.order);
-
-/** The tabs of a host in strip order: by desktop window (in order of appearance), then as that window's own strip has them.
- * A desktop that sends no positions (older) gets terminals before chats within a window. */
-export function remoteEntries(tabs: Tab[], chats: ChatInfo[]): RemoteEntry[] {
-  const windows: string[] = [];
-  for (const w of [...tabs.map((x) => x.window), ...chats.map((x) => x.window)]) if (!windows.includes(w)) windows.push(w);
-  return windows.flatMap((w) => {
-    const entries: RemoteEntry[] = [
-      ...tabs.filter((x) => x.window === w).map((tab): RemoteEntry => ({ key: ptyKey(tab.ptyId), kind: "pty", tab })),
-      ...chats.filter((x) => x.window === w).map((chat): RemoteEntry => ({ key: chatKey(chat.chatId), kind: "chat", chat })),
-    ];
-    if (!entries.every((e) => typeof orderOf(e) === "number")) return entries;
-    // Sort is stable: two entries with the same position (a report in between) keep the order above.
-    return entries.sort((a, b) => (orderOf(a) as number) - (orderOf(b) as number));
-  });
-}
+export { remoteEntries, type RemoteEntry };
 
 /** Keeps the tab in front while it exists. When it goes, its neighbour in `previous` takes its place (the next one, else
  * the one before) - like closing a local tab - rather than jumping to the first; with no history, the first one left. */

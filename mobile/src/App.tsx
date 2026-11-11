@@ -284,7 +284,7 @@ function AppContent() {
     content = <IncompatibleScreen host={host} hostName={hostName} />;
   } else if (wide) {
     content = (
-      <WideShell hostName={hostName} tabs={tabs} settings={settings} status={status} activePty={openPty} onSelectPty={open} activeChat={openChat} onTerminal={toTerminal} onAddComputer={() => setAdding(true)} />
+      <WideShell hostName={hostName} tabs={tabs} settings={settings} status={status} activePty={openPty} onSelectPty={open} activeChat={openChat} onTerminal={toTerminal} onChat={toChat} onOpenChat={(id) => { if (chats?.some((c) => c.chatId === id)) openChatTab(id); }} onAddComputer={() => setAdding(true)} />
     );
   } else if (awaitingClear) {
     content = (
