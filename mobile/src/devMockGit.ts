@@ -31,7 +31,7 @@ function gitResult(r: Extract<ClientMsg, { t: "git" }>["request"]): unknown {
 const historyMock = (cwd: string): HistoryResult => ({
   roots: [cwd],
   claude: [
-    { cwd, sessionId: "11111111-aaaa-bbbb-cccc-000000000001", title: "Fix the login redirect", startedAt: now - 7200_000, updatedAt: now - 3600_000, profile: null },
+    { cwd, sessionId: "7f3c9e2a-41d0-4b6e-9a3a-2f6d1c8e5b10", title: "Fix the login redirect", startedAt: now - 7200_000, updatedAt: now - 3600_000, profile: null },
     { cwd, sessionId: "11111111-aaaa-bbbb-cccc-000000000002", title: null, startedAt: now - 172800_000, updatedAt: now - 170000_000, profile: null },
   ],
   codex: [

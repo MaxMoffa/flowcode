@@ -1,0 +1,217 @@
+/* The wide sidebar's History tab: the desktop's agent-history list on the phone's tokens. */
+.whh {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.whh-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 8px 8px;
+}
+
+.whh-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.whh-search:focus-within {
+  border-color: var(--accent);
+}
+
+.whh-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.whh-refresh {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.whh-refresh svg {
+  width: 16px;
+  height: 16px;
+}
+
+.whh-refresh:disabled {
+  opacity: 0.4;
+}
+
+.whh-refresh.is-loading svg {
+  animation: whh-spin 0.9s linear infinite;
+}
+
+@keyframes whh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.whh-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.whh-empty {
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.whh-empty.is-error {
+  color: var(--danger);
+}
+
+.whh-group {
+  margin: 8px 12px 2px;
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.whh-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 12px);
+  min-height: 40px;
+  margin: 1px 6px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.whh-row:hover {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.whh-row.is-current {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.whh-icon {
+  display: inline-flex;
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.whh-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.whh-title,
+.whh-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whh-title {
+  font-size: 13px;
+}
+
+.whh-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.whh-status--busy {
+  color: var(--busy);
+}
+
+.whh-status--waiting {
+  color: var(--wait);
+}
+
+.whh-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.whh-dot--busy {
+  background: var(--busy);
+}
+
+.whh-dot--waiting {
+  background: var(--wait);
+}
+
+.whh-footer {
+  flex: none;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.whh-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  background: var(--accent-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.whh-new svg {
+  width: 14px;
+  height: 14px;
+}
+
+.whh-new:disabled {
+  opacity: 0.4;
+}

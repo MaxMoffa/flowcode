@@ -268,6 +268,9 @@ export type SettingKey =
  */
 export type RemoteCap =
   | "fileExplorer"
+  | "git"
+  | "history"
+  | "resume"
   | "rename"
   | "profiles"
   | "profileLogin"

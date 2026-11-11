@@ -14,7 +14,7 @@ import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
 import { ActionIcon, AgentLogo, AgentsIcon, ChatIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
-import { interrupt, send, useRemoteSelector, useSupports, type ChatInfo, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
+import { interrupt, send, sendChecked, useRemoteSelector, useSupports, type ChatInfo, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
 import { BusyArc, useOpenNew } from "./Terminals";
 import { setUiScale, useUiScale, useUiZoom } from "./uiScale";
@@ -24,8 +24,11 @@ import { panelsFit, setPanelMode, usePanelMode } from "./panelMode";
 import { useBigScreen, useDocked } from "./wide";
 import { Browser } from "./Browser";
 import { useChatBrowser } from "./useChatBrowser";
-import { WideFileView } from "./WideFileView";
-import { WideFiles } from "./WideFiles";
+import { WideDiffView } from "./WideDiffView";
+import { LegacyFileView, WideFileView } from "./WideFileView";
+import { WideSidebar } from "./WideSidebar";
+import { launchPath } from "./explorerPaths";
+import { folderName } from "./explorerRemote";
 import { WideMenu } from "./WideMenu";
 
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
@@ -42,8 +45,11 @@ const statusOf = (e: RemoteEntry) => (e.kind === "pty" ? (e.tab.cli ? e.tab.stat
 /** The busy tab's arc, run round its outline as on the desktop (shared/busySweep.ts). */
 const TabSweep = () => <BusyArc className="tr-sweep w-tab-sweep" rx={9.25} />;
 
-/** A non-terminal tab: the settings page or a read-only file of a terminal's folder. */
-type Doc = { id: "settings"; kind: "settings" } | { id: string; kind: "file"; ptyId: string; path: string };
+/** A non-terminal tab: the settings page, a file (absolute path; with `ptyId`, a path relative to that terminal's folder, for desktops without the file explorer) or the diff of a changed file. */
+type Doc =
+  | { id: "settings"; kind: "settings" }
+  | { id: string; kind: "file"; path: string; ptyId?: string }
+  | { id: string; kind: "diff"; root: string; path: string; staged: boolean; status: string };
 
 interface Props {
   hostName?: string;
@@ -136,11 +142,11 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   useSheetDrag(agentsPanel, () => setAgentsOpen(false), !docked && agentsOpen, "right");
   useBackHandler(doc !== null, () => setDoc(null));
 
-  // A closed terminal takes its files with it.
+  // A closed terminal takes its relative (legacy) files with it; absolute ones stay.
   useEffect(() => {
     if (tabs === null) return;
     const live = new Set(tabs.map((x) => x.ptyId));
-    const keep = docs.filter((d) => d.kind !== "file" || live.has(d.ptyId));
+    const keep = docs.filter((d) => d.kind !== "file" || !d.ptyId || live.has(d.ptyId));
     if (keep.length === docs.length) return;
     setDocs(keep);
     if (doc !== null && !keep.some((d) => d.id === doc)) setDoc(null);
@@ -227,7 +233,12 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     setDocs((cur) => (cur.some((x) => x.id === d.id) ? cur : [...cur, d]));
     setDoc(d.id);
   };
-  const openFile = (ptyId: string, path: string) => openDoc({ id: `file:${ptyId}:${path}`, kind: "file", ptyId, path });
+  const openFile = (path: string) => openDoc({ id: `file:${path}`, kind: "file", path });
+  const openLegacyFile = (ptyId: string, path: string) => openDoc({ id: `file:${ptyId}:${path}`, kind: "file", ptyId, path });
+  const openDiff = (root: string, path: string, staged: boolean, status: string) => openDoc({ id: `diff:${root}:${path}:${staged}`, kind: "diff", root, path, staged, status });
+  const openTerminalAt = async (path: string) => {
+    if (await sendChecked({ t: "newtab", cwd: launchPath(path) })) onCreate(false, `${t("terminals")} · ${folderName(path)}`);
+  };
   const closeDoc = (id: string) => {
     const i = docs.findIndex((d) => d.id === id);
     setDocs(docs.filter((d) => d.id !== id));
@@ -257,8 +268,12 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
 
   const active = activePty ? all.find((x) => x.ptyId === activePty) : undefined;
   const shown = doc !== null ? docs.find((d) => d.id === doc) : undefined;
-  const activeFile = shown?.kind === "file" && shown.ptyId === activePty ? shown.path : null;
-  const fileTab = shown?.kind === "file" ? all.find((x) => x.ptyId === shown.ptyId) : undefined;
+  const activeFile = shown?.kind === "file" && (shown.ptyId ? shown.ptyId === activePty : true) ? shown.path : null;
+  const fileTab = shown?.kind === "file" && shown.ptyId ? all.find((x) => x.ptyId === shown.ptyId) : undefined;
+  /** The chat of the shown tab (while no terminal is). */
+  const chatInfo = !active && activeChat ? (chats ?? []).find((c) => c.chatId === activeChat) : undefined;
+  const sideCwd = active?.cwd || chatInfo?.cwd || null;
+  const sideAgent = active?.cli ? { cli: active.cli, profile: active.profile ?? null, sessionId: null } : chatInfo ? { cli: chatInfo.agent, profile: chatInfo.profile ?? null, sessionId: chatInfo.sessionId ?? null } : null;
   const menuEntry = tabMenu ? entries.find((x) => x.key === tabMenu.key) : undefined;
   /** The entry whose tab is open (none while a settings or file tab is). */
   const shownKey = doc !== null ? null : active ? ptyKey(active.ptyId) : activeChat ? chatKey(activeChat) : null;
@@ -372,9 +387,10 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           )}
           {docs.map((d) => {
             const on = doc === d.id;
-            const label = d.kind === "settings" ? t("navSettings") : d.path.split("/").pop();
+            const base = d.kind === "settings" ? "" : (d.path.split(/[\/]/).pop() ?? d.path);
+            const label = d.kind === "settings" ? t("navSettings") : d.kind === "diff" ? t("wsDiffLabel", { name: base }) : base;
             return (
-              <button key={d.id} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={d.kind === "file" ? d.path : undefined} onClick={() => setDoc(d.id)}>
+              <button key={d.id} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={d.kind === "settings" ? undefined : d.path} onClick={() => setDoc(d.id)}>
                 <span className="w-tab-ico">{d.kind === "settings" ? <SlidersIcon /> : <FileIcon />}</span>
                 <span className="w-tab-label">{label}</span>
                 <span
@@ -463,12 +479,25 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
       <div className="w-body">
         {/* Kept mounted while closed, so the folder browsed survives closing the panel. */}
         <aside ref={filesPanel} className="w-side w-left" hidden={!filesOpen} style={files.width !== null ? { width: files.width } : undefined}>
-          <WideFiles
-            tab={active}
+          <WideSidebar
+            cwd={sideCwd}
+            agent={sideAgent}
             activeFile={activeFile}
             onOpenFile={(p) => {
+              openFile(p);
+              if (!docked) setFilesOpen(false);
+            }}
+            onOpenDiff={(root, path, staged, status) => {
+              openDiff(root, path, staged, status);
+              if (!docked) setFilesOpen(false);
+            }}
+            onOpenTerminal={(p) => void openTerminalAt(p)}
+            onOpenChat={onOpenChat}
+            onOpenPty={select}
+            legacyTab={active}
+            onOpenLegacyFile={(p) => {
               if (!active) return;
-              openFile(active.ptyId, p);
+              openLegacyFile(active.ptyId, p);
               if (!docked) setFilesOpen(false);
             }}
           />
@@ -482,7 +511,9 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               </Suspense>
             </div>
           ) : shown?.kind === "file" ? (
-            <WideFileView key={shown.id} ptyId={shown.ptyId} path={shown.path} cwd={fileTab?.cwd} />
+            shown.ptyId ? <LegacyFileView key={shown.id} ptyId={shown.ptyId} path={shown.path} cwd={fileTab?.cwd} /> : <WideFileView key={shown.id} path={shown.path} />
+          ) : shown?.kind === "diff" ? (
+            <WideDiffView key={shown.id} root={shown.root} path={shown.path} staged={shown.staged} status={shown.status} />
           ) : null}
           {/* Stays mounted (hidden) under a settings / file doc, so the stream and scrollback survive. */}
           {active ? (

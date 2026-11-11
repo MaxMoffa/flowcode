@@ -1,0 +1,438 @@
+/* The wide layout's left panel: Explorer / Git / History tabs, the tree, the Git panel, the diff and the editable file view. */
+.ws-tabs {
+  gap: 2px;
+  padding: 0 6px;
+}
+
+.ws-tab {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ws-tab.on {
+  background: var(--w-selected);
+  color: var(--fg);
+}
+
+.ws-badge {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.ws-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-panel[hidden] {
+  display: none;
+}
+
+/* Explorer tree. */
+.wt-head .w-ib.on {
+  color: var(--accent);
+}
+
+.wt-eye {
+  font: 700 13px var(--mono);
+}
+
+.wt-list {
+  gap: 0;
+  padding: 4px 0;
+}
+
+.wt-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding-right: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.wt-row:active {
+  background: var(--surface-2);
+}
+
+.wt-row.on {
+  background: var(--w-selected);
+}
+
+.wt-row.dir .wf-ico {
+  color: var(--accent-2);
+}
+
+.wt-caret {
+  flex: none;
+  width: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  transition: transform 0.12s;
+}
+
+.wt-caret svg {
+  width: 11px;
+  height: 11px;
+}
+
+.wt-caret.open {
+  transform: rotate(90deg);
+}
+
+.wt-note {
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.wt-note.err {
+  color: var(--danger);
+}
+
+/* Git panel. */
+.wg-head {
+  gap: 6px;
+}
+
+.wg-branch {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.wg-branch:active {
+  background: var(--surface-2);
+}
+
+.wg-branch b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.wg-branch small {
+  flex: none;
+  color: var(--muted);
+  font: 11.5px var(--mono);
+}
+
+.wg-picker {
+  flex: none;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wg-branch-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font: 13px var(--mono);
+  text-align: left;
+}
+
+.wg-branch-row.on {
+  color: var(--accent);
+}
+
+.wg-branch-row:active:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.wg-branch-row svg {
+  width: 14px;
+  height: 14px;
+}
+
+.wg-list {
+  padding: 2px 0;
+  gap: 0;
+}
+
+.wg-group-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 6px 0 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wg-group-h > span:first-child {
+  flex: 1;
+}
+
+.wg-count {
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--surface-3);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+
+.wg-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+.wg-file {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.wg-file:active {
+  background: var(--surface-2);
+}
+
+.wg-file .wf-name small {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.wg-act {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.wg-act svg {
+  width: 14px;
+  height: 14px;
+}
+
+.wg-act:active:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.wg-act:disabled {
+  opacity: 0.4;
+}
+
+/* Status letters, coloured as the desktop's .git-status-*. */
+.wg-status {
+  flex: none;
+  width: 14px;
+  font: 700 11.5px var(--mono);
+  text-align: center;
+}
+
+.wg-status-M,
+.wg-status-T {
+  color: var(--ansi-yellow, #e5c07b);
+}
+
+.wg-status-A,
+.wg-status-U {
+  color: var(--ansi-green, #98c379);
+}
+
+.wg-status-D,
+.wg-status-conflict {
+  color: var(--ansi-red, #e06c75);
+}
+
+.wg-status-R,
+.wg-status-C {
+  color: var(--ansi-blue, #61afef);
+}
+
+.wg-commit {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.wg-commit textarea {
+  width: 100%;
+  resize: none;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.wg-commit-btn,
+.wfv-btn.primary {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wg-commit-btn:disabled,
+.wfv-btn:disabled {
+  opacity: 0.45;
+}
+
+/* File view: edit mode and errors. */
+.wfv-btn {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.wfv-err {
+  flex: none;
+  padding: 8px 14px;
+  background: var(--wait-bg);
+  color: var(--wait);
+  font-size: 12.5px;
+}
+
+.wfv-edit {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  padding: 10px 14px;
+  border: 0;
+  outline: 0;
+  background: var(--term-bg, var(--bg));
+  color: var(--fg);
+  font: 13px/1.6 var(--mono);
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* Diff view. */
+.wdv .wfv-no {
+  position: static;
+  padding: 0 8px 0 10px;
+}
+
+.wdv-sign {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.wdv-add {
+  background: color-mix(in srgb, var(--ansi-green, #98c379) 16%, transparent);
+}
+
+.wdv-del {
+  background: color-mix(in srgb, var(--ansi-red, #e06c75) 16%, transparent);
+}
+
+.wdv-add .wdv-sign {
+  color: var(--ansi-green, #98c379);
+}
+
+.wdv-del .wdv-sign {
+  color: var(--ansi-red, #e06c75);
+}
+
+.wdv-fold {
+  display: block;
+  width: 100%;
+  padding: 2px 14px;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  font: 12px var(--mono);
+  text-align: left;
+}
