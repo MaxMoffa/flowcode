@@ -50,7 +50,7 @@ function liveLine(d: DelegateInfo): ReactNode {
 }
 
 /** One delegate as a row: status, logo, title, steps or duration, and what it does or why it stopped. Tapping opens its chat when `onOpen` is given. */
-function DelegateRow({ d, onOpen }: { d: DelegateInfo; onOpen?: (childChatId: string) => void }) {
+export function DelegateRow({ d, onOpen }: { d: DelegateInfo; onOpen?: (childChatId: string) => void }) {
   const className = `chat-dstrip-row is-${d.status}`;
   const style = { "--agent": delegateAgentColor(d.agent) } as CSSProperties;
   const body = (

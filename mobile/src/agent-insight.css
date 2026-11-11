@@ -258,3 +258,27 @@
 .ai-gauge {
   margin-bottom: 10px;
 }
+
+.ai-tools {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.ai-prompt {
+  max-height: 9.6em;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ai-orch {
+  margin-top: 10px;
+}
+
+.ai-pane .chat-dstrip-row {
+  padding-left: 0;
+  padding-right: 0;
+}

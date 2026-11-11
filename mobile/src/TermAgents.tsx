@@ -5,8 +5,8 @@ import { useBackHandler } from "./back";
 import { t } from "./i18n";
 import { CloseIcon } from "./icons";
 
-/** The agent drawer of the phone's terminal and chat pages: the desktop's agent panel (context, usage, tools) for the agent shown (`activePty` or `chatId`), sliding in from the right. */
-export function TermAgents({ activePty, chatId, open, onClose }: { activePty: string; chatId?: string; open: boolean; onClose: () => void }) {
+/** The agent drawer of the phone's terminal and chat pages: the desktop's agent panel (context with tools, usage, delegates) for the agent shown (`activePty` or `chatId`), sliding in from the right. */
+export function TermAgents({ activePty, chatId, open, onClose, onOpenChat }: { activePty: string; chatId?: string; open: boolean; onClose: () => void; onOpenChat?: (chatId: string) => void }) {
   useBackHandler(open, onClose);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export function TermAgents({ activePty, chatId, open, onClose }: { activePty: st
           <CloseIcon />
         </button>
       </header>
-      <AgentInsight ptyId={chatId ? undefined : activePty} chatId={chatId} open={open} />
+      <AgentInsight ptyId={chatId ? undefined : activePty} chatId={chatId} open={open} onOpenChat={onOpenChat} />
     </AdaptiveSheet>
   );
 }

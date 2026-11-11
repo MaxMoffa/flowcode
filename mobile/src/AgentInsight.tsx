@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { delegatesOf } from "../../src/chat/chatModel";
+import { activeCount } from "../../src/agents/delegateView";
 import { cacheHitRatio, contextSegments, estTokensOfChars, planKind, sparkBars } from "../../src/agents/insightMath";
 import type { AgentSessionUsage, AgentToolsInfo } from "../../shared/remote-types";
 import { useAgentInsight, type AgentInsightReply, type InsightTarget } from "./insightStore";
 import "./agent-insight.css";
-import { sendChatPrompt, useChatInfo } from "./chats";
+import { DelegateRow } from "./ChatDelegates";
+import { emptySession } from "./chatSession";
+import { sendChatPrompt, useChatInfo, useChatSession } from "./chats";
 import { agentName } from "./common";
 import { t } from "./i18n";
 import { send, useRemoteSelector, useSupports, type UsageItem } from "./remote";
 import { safeStorage } from "./store";
 
-const TABS = ["context", "usage", "tools"] as const;
+const TABS = ["context", "usage", "delegates"] as const;
 type PanelTab = (typeof TABS)[number];
 const TAB_KEY = "flowcode.agentPanel.tab";
 const WARN_AT = 0.75;
@@ -59,7 +63,7 @@ function RobotIcon() {
 }
 
 /** The panel of the agent in front: a terminal tab (`ptyId`) or a chat (`chatId`). `open` gates the polling. */
-export function AgentInsight({ ptyId, chatId, open }: { ptyId?: string; chatId?: string; open: boolean }) {
+export function AgentInsight({ ptyId, chatId, open, onOpenChat }: { ptyId?: string; chatId?: string; open: boolean; onOpenChat?: (chatId: string) => void }) {
   const tab = useRemoteSelector((s) => (ptyId ? s.tabs?.find((x) => x.ptyId === ptyId) : undefined));
   const chat = useChatInfo(chatId ?? null);
   const cli = chatId ? chat?.agent : tab?.cli;
@@ -80,11 +84,14 @@ export function AgentInsight({ ptyId, chatId, open }: { ptyId?: string; chatId?:
   const profile = chatId ? chat?.profile : tab?.profile;
   const status = chatId ? chat?.status : tab?.status;
   const context = (chatId ? reply?.context : (reply?.context ?? tab?.context)) ?? null;
-  return <Body cli={cli} profile={profile} status={status} chatId={chatId} ptyId={ptyId} context={context} reply={reply} supported={supported} />;
+  return <Body cli={cli} profile={profile} status={status} chatId={chatId} ptyId={ptyId} context={context} reply={reply} supported={supported} onOpenChat={onOpenChat} />;
 }
 
-function Body({ cli, profile, status, chatId, ptyId, context, reply, supported }: { cli: string; profile?: string; status?: string; chatId?: string; ptyId?: string; context: Ctx | null; reply?: AgentInsightReply; supported: boolean }) {
-  const [tab, setTab] = useState<PanelTab>(readTab);
+function Body({ cli, profile, status, chatId, ptyId, context, reply, supported, onOpenChat }: { cli: string; profile?: string; status?: string; chatId?: string; ptyId?: string; context: Ctx | null; reply?: AgentInsightReply; supported: boolean; onOpenChat?: (chatId: string) => void }) {
+  const [stored, setTab] = useState<PanelTab>(readTab);
+  // Terminals have no delegations: a stored "delegates" reads as "context" there.
+  const tabs = TABS.filter((id) => id !== "delegates" || !!chatId);
+  const tab = tabs.includes(stored) ? stored : "context";
   const pick = (v: PanelTab) => {
     setTab(v);
     safeStorage.set(TAB_KEY, v);
@@ -93,7 +100,7 @@ function Body({ cli, profile, status, chatId, ptyId, context, reply, supported }
   const warn = percent !== null && percent >= WARN_AT;
   const model = context?.model ?? reply?.usage?.model ?? undefined;
   const chip = [agentName(cli), model && modelDisplayName(model), chatId ? t("agentChat") : t("agentTerminal")].filter(Boolean).join(" · ");
-  const label: Record<PanelTab, string> = { context: t("agentTabContext"), usage: t("agentTabUsage"), tools: t("agentTabTools") };
+  const label: Record<PanelTab, string> = { context: t("agentTabContext"), usage: t("agentTabUsage"), delegates: t("agentTabDelegates") };
   return (
     <div className="ai">
       <div className="ai-top">
@@ -109,7 +116,7 @@ function Body({ cli, profile, status, chatId, ptyId, context, reply, supported }
           <i style={{ width: `${Math.round((percent ?? 0) * 100)}%` }} />
         </div>
         <div className="seg" role="tablist" aria-label={t("agentTabs")}>
-          {TABS.map((id) => (
+          {tabs.map((id) => (
             <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => pick(id)}>
               {label[id]}
             </button>
@@ -117,9 +124,9 @@ function Body({ cli, profile, status, chatId, ptyId, context, reply, supported }
         </div>
       </div>
       <div className="ai-pane" role="tabpanel">
-        {tab === "context" && <ContextPane context={context} tools={reply?.tools ?? null} warn={warn} />}
+        {tab === "context" && <ContextPane context={context} tools={reply?.tools} loaded={reply !== undefined} supported={supported} warn={warn} />}
         {tab === "usage" && <UsagePane cli={cli} profile={profile} session={reply?.usage} loaded={reply !== undefined} supported={supported} />}
-        {tab === "tools" && <ToolsPane tools={reply?.tools} loaded={reply !== undefined} supported={supported} />}
+        {tab === "delegates" && chatId && <DelegatesPane chatId={chatId} onOpenChat={onOpenChat} />}
       </div>
     </div>
   );
@@ -160,8 +167,20 @@ function Row({ swatch, name, value, title, muted }: { swatch?: ReactNode; name: 
   );
 }
 
-function ContextPane({ context, tools, warn }: { context: Ctx | null; tools: AgentToolsInfo | null; warn: boolean }) {
-  if (!context || context.window <= 0) return <div className="ai-note">{t("agentCtxUnknown")}</div>;
+function ContextPane({ context, tools, loaded, supported, warn }: { context: Ctx | null; tools?: AgentToolsInfo | null; loaded: boolean; supported: boolean; warn: boolean }) {
+  const toolsBlock = (
+    <div className="ai-tools">
+      <ToolsPane tools={tools} loaded={loaded} supported={supported} />
+    </div>
+  );
+  if (!context || context.window <= 0) {
+    return (
+      <>
+        <div className="ai-note">{t("agentCtxUnknown")}</div>
+        {toolsBlock}
+      </>
+    );
+  }
   const seg = contextSegments(context.used, context.window, tools?.memoryChars ?? 0, tools?.skills.reduce((n, s) => n + s.estTokens, 0) ?? 0);
   const items = [
     { key: "mem", color: "var(--c-mem)", name: t("agentCtxMemory"), n: seg.memory },
@@ -185,6 +204,7 @@ function ContextPane({ context, tools, warn }: { context: Ctx | null; tools: Age
           <Row name={t("agentCtxModel")} value={modelDisplayName(context.model)} />
         </div>
       )}
+      {toolsBlock}
     </>
   );
 }
@@ -332,5 +352,39 @@ function ToolsPane({ tools, loaded, supported }: { tools?: AgentToolsInfo | null
       </div>
       <div className="ai-note">{t("agentToolsNote")}</div>
     </>
+  );
+}
+
+/** The delegations of an orchestrator chat, or the request a delegated child chat answers. */
+function DelegatesPane({ chatId, onOpenChat }: { chatId: string; onOpenChat?: (chatId: string) => void }) {
+  const stored = useChatSession(chatId);
+  const { model } = useMemo(() => stored ?? emptySession(), [stored]);
+  const delegates = useMemo(() => delegatesOf(model.items), [model.items]);
+  const task = model.task;
+  if (task) {
+    return (
+      <div className="ai-section">
+        <div className="ai-title">{t("agentDelegFrom", { agent: [agentName(task.parentAgent), task.parentTitle].filter(Boolean).join(" · ") })}</div>
+        <div className="ai-prompt">{task.prompt}</div>
+        {onOpenChat && (
+          <button type="button" className="ai-btn ai-orch" onClick={() => onOpenChat(task.parentChatId)}>
+            {t("agentDelegOpenOrch")}
+          </button>
+        )}
+      </div>
+    );
+  }
+  if (delegates.length === 0) return <div className="ai-note">{t("agentDelegEmpty")}</div>;
+  const active = activeCount(delegates);
+  return (
+    <div className="ai-section">
+      <div className="ai-title">
+        {t("chatDelegateMany", { n: delegates.length })}
+        {active > 0 && <b>{t("agentDelegActive", { n: active })}</b>}
+      </div>
+      {delegates.map((d) => (
+        <DelegateRow key={d.taskId} d={d} onOpen={onOpenChat} />
+      ))}
+    </div>
   );
 }

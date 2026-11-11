@@ -691,7 +691,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
           onCloseTab={canCloseTab && !isLastInWindow ? () => window.confirm(t("closeChatConfirm", { label: info.label })) && closeChatTab(chatId) : undefined}
         />
       )}
-      {!embedded && onSwitch && <TermAgents activePty="" chatId={chatId} open={agentsOpen} onClose={closeAgents} />}
+      {!embedded && onSwitch && <TermAgents activePty="" chatId={chatId} open={agentsOpen} onClose={closeAgents} onOpenChat={onOpenChat} />}
       {browser.opened && canBrowse && !embedded && <Browser ptyId={null} chatId={browser.chatId} initialPage={browser.page} linksChatId={browser.linksChatId} onClose={browser.close} />}
       <TermLink url={linkUrl} onClose={closeLink} />
     </div>

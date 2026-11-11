@@ -2,6 +2,7 @@ import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useS
 import "./terminal.css";
 import "./wide.css";
 import { AgentsScreen } from "./Agents";
+import { AgentInsight } from "./AgentInsight";
 import { useBackHandler, useEscape } from "./back";
 import { chatKey, ptyKey, remoteEntries, type RemoteEntry } from "../../shared/remoteEntries";
 import { nextDone } from "./doneTabs";
@@ -261,6 +262,9 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const menuEntry = tabMenu ? entries.find((x) => x.key === tabMenu.key) : undefined;
   /** The entry whose tab is open (none while a settings or file tab is). */
   const shownKey = doc !== null ? null : active ? ptyKey(active.ptyId) : activeChat ? chatKey(activeChat) : null;
+  /** The agent in front, for the right panel: its chat, or its terminal tab. */
+  const frontChat = doc === null && !active ? activeChat : null;
+  const front = !!frontChat || (doc === null && !!active?.cli);
 
   // A tab whose agent stopped working while another was shown gets the "done" outline until it is opened.
   useEffect(() => {
@@ -504,7 +508,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
         {agentsOpen && (
           <aside ref={agentsPanel} className="w-side w-right" style={agents.width !== null ? { width: agents.width } : undefined}>
             <div className="w-ph">
-              <span className="w-ph-title">{t("activeAgents")}</span>
+              <span className="w-ph-title">{front ? t("agentPanel") : t("activeAgents")}</span>
               <button type="button" className="w-ib sm" aria-label={t("newTerminal")} onClick={openSheet}>
                 <PlusIcon />
               </button>
@@ -512,16 +516,20 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 <CloseIcon />
               </button>
             </div>
-            <div className="w-scroll">
-              <AgentsScreen
-                tabs={tabs}
-                activePty={doc === null ? activePty : null}
-                activeChat={doc === null ? activeChat : null}
-                onOpen={(id) => {
-                  select(id);
-                  if (!docked) setAgentsOpen(false);
-                }}
-              />
+            <div className={"w-scroll" + (front ? " w-scroll-insight" : "")}>
+              {front ? (
+                <AgentInsight ptyId={frontChat ? undefined : active?.ptyId} chatId={frontChat ?? undefined} open={agentsOpen} onOpenChat={onOpenChat} />
+              ) : (
+                <AgentsScreen
+                  tabs={tabs}
+                  activePty={doc === null ? activePty : null}
+                  activeChat={doc === null ? activeChat : null}
+                  onOpen={(id) => {
+                    select(id);
+                    if (!docked) setAgentsOpen(false);
+                  }}
+                />
+              )}
             </div>
             <div className={"w-resize left" + (agents.dragging ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label={t("resizePanel")} data-no-sheet-drag {...agents.handleProps} />
           </aside>

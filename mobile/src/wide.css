@@ -598,6 +598,13 @@
   gap: 8px;
 }
 
+/* The agent panel scrolls its own pane and wants the whole body. */
+.w-scroll-insight {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
 /* Not docked (portrait): the panels float over the terminal, like the desktop's floating sidebar. */
 .wide:not(.docked) .w-side {
   position: absolute;
