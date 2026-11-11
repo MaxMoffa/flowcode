@@ -52,8 +52,10 @@ function ChatPages({ chatId, filesChatId, hasPage, bad, onPick }: { chatId: stri
  * cross-origin to us), so Back leaves the page that was last typed, not the last link followed.
  * `chatId` or `ptyId` scopes relative files to that session's project folder; `linksChatId` names the
  * chat whose linked pages are offered while the address is empty or being edited.
+ * `docked` (the tablet layout's docked panels) makes it a plain panel filling its parent card, like the
+ * desktop's browser panel: no sheet, detents, drag-to-close or screen-wide back/Escape capture.
  */
-export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId = null, onClose }: { ptyId: string | null; chatId?: string | null; initialPage?: Page | null; linksChatId?: string | null; onClose: () => void }) {
+export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId = null, onClose, docked = false }: { ptyId: string | null; chatId?: string | null; initialPage?: Page | null; linksChatId?: string | null; onClose: () => void; docked?: boolean }) {
   const wide = useWide();
   const [pages, setPages] = useState<Page[]>(() => initialPage ? [initialPage] : []);
   const [index, setIndex] = useState(initialPage ? 0 : -1);
@@ -82,14 +84,14 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
   function requestClose() {
     if (closing) return;
     setClosing(true);
-    const instant = wide || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const instant = wide || docked || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     closeTimer.current = window.setTimeout(onClose, instant ? 0 : CLOSE_MS);
   }
 
-  useBackHandler(true, requestClose);
-  useBackHandler(!wide && detent === "full", () => setDetent("half"));
-  useEscape(true, () => (document.querySelector(".tm-layer.open") ? undefined : detent === "full" && !wide ? setDetent("half") : requestClose()));
-  useBrowserDrag(dragRef, rootRef, !wide, (target) => (target === "closed" ? requestClose() : setDetent(target)));
+  useBackHandler(!docked, requestClose);
+  useBackHandler(!wide && !docked && detent === "full", () => setDetent("half"));
+  useEscape(!docked, () => (document.querySelector(".tm-layer.open") ? undefined : detent === "full" && !wide ? setDetent("half") : requestClose()));
+  useBrowserDrag(dragRef, rootRef, !wide && !docked, (target) => (target === "closed" ? requestClose() : setDetent(target)));
 
   useEffect(() => {
     if (!initialPage || initialPage === previousPage.current) return;
@@ -149,12 +151,12 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
 
   const full = wide || editing || detent === "full";
   const showSuggestions = editing || !page;
-  const rootClass = "br-root" + (wide ? " is-wide" : "") + (full ? " is-full" : "") + (!armed || closing ? " is-closed" : "");
+  const rootClass = docked ? "br-root is-docked" : "br-root" + (wide ? " is-wide" : "") + (full ? " is-full" : "") + (!armed || closing ? " is-closed" : "");
 
   return (
     <div ref={rootRef} className={rootClass} role="dialog" aria-label={t("browser.title")}>
       <div ref={dragRef} className="br-drag">
-        {!wide && <button type="button" className="br-grab" aria-label={t("browser.resize")} onClick={() => setDetent(detent === "full" ? "half" : "full")} />}
+        {!wide && !docked && <button type="button" className="br-grab" aria-label={t("browser.resize")} onClick={() => setDetent(detent === "full" ? "half" : "full")} />}
         <header className="br-head">
           <button type="button" className="br-btn" aria-label={t("browser.back")} disabled={index <= 0} onClick={() => setIndex(index - 1)}>
             <BackIcon />

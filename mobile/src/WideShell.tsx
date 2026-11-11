@@ -14,7 +14,7 @@ import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
 import { ActionIcon, AgentLogo, AgentsIcon, ChatIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
-import { interrupt, send, sendChecked, useRemoteSelector, useSupports, type ChatInfo, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
+import { interrupt, send, sendChecked, showToast, useRemoteSelector, useSupports, type ChatInfo, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
 import { BusyArc, useOpenNew } from "./Terminals";
 import { setUiScale, useUiScale, useUiZoom } from "./uiScale";
@@ -23,6 +23,11 @@ import { useSideWidth } from "./useSideWidth";
 import { panelsFit, setPanelMode, usePanelMode } from "./panelMode";
 import { useBigScreen, useDocked } from "./wide";
 import { Browser } from "./Browser";
+import { Launcher } from "./Home";
+import { CHAT_VIEW, TERMINAL_VIEW } from "./ChatMenu";
+import { defaultViewFor } from "./defaultView";
+import { shortCwd } from "./common";
+import { tabIndexFor, useWideShortcuts, type WideShortcut } from "./useWideShortcuts";
 import { useChatBrowser } from "./useChatBrowser";
 import { WideDiffView } from "./WideDiffView";
 import { LegacyFileView, WideFileView } from "./WideFileView";
@@ -45,9 +50,10 @@ const statusOf = (e: RemoteEntry) => (e.kind === "pty" ? (e.tab.cli ? e.tab.stat
 /** The busy tab's arc, run round its outline as on the desktop (shared/busySweep.ts). */
 const TabSweep = () => <BusyArc className="tr-sweep w-tab-sweep" rx={9.25} />;
 
-/** A non-terminal tab: the settings page, a file (absolute path; with `ptyId`, a path relative to that terminal's folder, for desktops without the file explorer) or the diff of a changed file. */
+/** A non-terminal tab: the new-tab page, the settings page, a file (absolute path; with `ptyId`, a path relative to that terminal's folder, for desktops without the file explorer) or the diff of a changed file. */
 type Doc =
   | { id: "settings"; kind: "settings" }
+  | { id: "newtab"; kind: "newtab" }
   | { id: string; kind: "file"; path: string; ptyId?: string }
   | { id: string; kind: "diff"; root: string; path: string; staged: boolean; status: string };
 
@@ -98,6 +104,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const canCloseChat = useSupports("chatCloseTab");
   const canRenameChat = useSupports("chatRename");
   const canBrowse = useSupports("preview");
+  const canChat = useSupports("chat");
   const { opened: browserOpen, open: openBrowser, close: closeBrowser, show: showBrowserPage, pending: browserPending, dismissPending, page: browserPage, chatId: browserChatId, linksChatId } = useChatBrowser(doc === null ? activeChat : null);
   /** The key of the tab being renamed (terminal or chat), with its draft label. */
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -123,6 +130,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   }, [activeChat]);
   const files = useSideWidth({ key: "wide.filesWidth", defaultWidth: 260, min: 200, max: 520, edge: "right" });
   const agents = useSideWidth({ key: "wide.agentsWidth", defaultWidth: 290, min: 220, max: 520, edge: "left" });
+  const browserSide = useSideWidth({ key: "wide.browserWidth", defaultWidth: 420, min: 300, max: 900, edge: "left" });
   // Docking opens the panels, floating closes them. Where both would squeeze the terminal, only the agents open (the files toggle opens them).
   useEffect(() => {
     setAgentsOpen(docked);
@@ -130,6 +138,15 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     // Only when the docked state flips, not on every resize or drag.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docked]);
+  // The browser card docks between the terminal and the agents. When the three cards would squeeze the terminal below its minimum, the files card gives way (the files toggle brings it back).
+  const browserShown = browserOpen && canBrowse;
+  useEffect(() => {
+    if (!docked || !browserShown) return;
+    const right = (agentsOpen ? (agents.width ?? 290) : 0) + (browserSide.width ?? 420);
+    if (!panelsFit(window.innerWidth, zoom, files.width ?? 260, right)) setFilesOpen(false);
+    // Only when the browser opens or the layout docks, not on every drag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docked, browserShown]);
   const closeDrawers = () => {
     setAgentsOpen(false);
     setFilesOpen(false);
@@ -244,6 +261,17 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     setDocs(docs.filter((d) => d.id !== id));
     if (doc === id) setDoc(i > 0 ? docs[i - 1].id : null);
   };
+  const openNewTab = () => openDoc({ id: "newtab", kind: "newtab" });
+  // The launch from the new-tab page produced its tab (it is selected by the pending logic): the page is done.
+  const hadPending = useRef(false);
+  useEffect(() => {
+    if (pending && !pending.failed) hadPending.current = true;
+    else if (!pending && hadPending.current) {
+      hadPending.current = false;
+      if (docs.some((d) => d.id === "newtab")) closeDoc("newtab");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending]);
   const toggleAgents = () => {
     if (!docked && !agentsOpen) setFilesOpen(false);
     setAgentsOpen((v) => !v);
@@ -290,6 +318,75 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     // `done` is only read to carry it over; the effect runs when statuses or the shown tab change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries, shownKey]);
+
+  // Hardware shortcuts (the desktop's defaults): the tab strip's order is the entries, then the page tabs.
+  const stripIds = [...entries.map((e) => e.key), ...docs.map((d) => "doc:" + d.id)];
+  const currentIdx = stripIds.indexOf(doc !== null ? "doc:" + doc : (shownKey ?? ""));
+  const showStrip = (i: number) => {
+    const id = stripIds[i];
+    if (id === undefined) return;
+    if (id.startsWith("doc:")) {
+      setDoc(id.slice(4));
+      return;
+    }
+    const e = entries.find((x) => x.key === id);
+    if (!e) return;
+    if (e.kind === "chat") {
+      setDoc(null);
+      requestOpenChat(e.chat.chatId);
+    } else select(e.tab.ptyId);
+  };
+  const runShortcut = (a: WideShortcut): boolean => {
+    switch (a) {
+      case "newTab":
+        openNewTab();
+        return true;
+      case "closeTab": {
+        if (doc !== null) {
+          closeDoc(doc);
+          return true;
+        }
+        const e = shownKey ? entries.find((x) => x.key === shownKey) : undefined;
+        if (!e || !canCloseEntry(e)) return false;
+        closeEntry(e);
+        return true;
+      }
+      case "toggleSidebar":
+        toggleFiles();
+        return true;
+      case "toggleAgents":
+        toggleAgents();
+        return true;
+      case "toggleBrowser":
+        if (browserOpen) closeBrowser();
+        else if (canBrowse) openBrowser();
+        else return false;
+        return true;
+      case "toggleView": {
+        if (doc !== null) return false;
+        if (active?.cli) {
+          if (active.status === "busy") return false;
+          // The same default view as picking a non-terminal view in the terminal's menu.
+          const view = defaultViewFor(true);
+          showToast(t("termChatWaiting"));
+          onChat(active.ptyId, view === TERMINAL_VIEW ? CHAT_VIEW : view);
+          return true;
+        }
+        if (chatInfo) {
+          onTerminal(chatInfo);
+          return true;
+        }
+        return false;
+      }
+      default: {
+        const i = tabIndexFor(a, stripIds.length, currentIdx);
+        if (i === null) return false;
+        showStrip(i);
+        return true;
+      }
+    }
+  };
+  useWideShortcuts(runShortcut, !sheet && renaming === null);
 
   return (
     <div className={"screen wide" + (docked ? " docked" : "") + (big ? "" : " narrow")} style={{ "--w-zoom": zoom } as CSSProperties}>
@@ -387,11 +484,11 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           )}
           {docs.map((d) => {
             const on = doc === d.id;
-            const base = d.kind === "settings" ? "" : (d.path.split(/[\/]/).pop() ?? d.path);
-            const label = d.kind === "settings" ? t("navSettings") : d.kind === "diff" ? t("wsDiffLabel", { name: base }) : base;
+            const base = d.kind === "settings" || d.kind === "newtab" ? "" : (d.path.split(/[\/]/).pop() ?? d.path);
+            const label = d.kind === "settings" ? t("navSettings") : d.kind === "newtab" ? t("newTabTitle") : d.kind === "diff" ? t("wsDiffLabel", { name: base }) : base;
             return (
-              <button key={d.id} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={d.kind === "settings" ? undefined : d.path} onClick={() => setDoc(d.id)}>
-                <span className="w-tab-ico">{d.kind === "settings" ? <SlidersIcon /> : <FileIcon />}</span>
+              <button key={d.id} type="button" role="tab" aria-selected={on} className={"w-tab" + (on ? " on" : "")} title={d.kind === "settings" || d.kind === "newtab" ? undefined : d.path} onClick={() => setDoc(d.id)}>
+                <span className="w-tab-ico">{d.kind === "settings" ? <SlidersIcon /> : d.kind === "newtab" ? <PlusIcon /> : <FileIcon />}</span>
                 <span className="w-tab-label">{label}</span>
                 <span
                   role="button"
@@ -407,7 +504,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               </button>
             );
           })}
-          <button type="button" className="w-ib" aria-label={t("newTerminal")} onClick={openSheet}>
+          <button type="button" className="w-ib" aria-label={t("newTerminal")} onClick={openNewTab}>
             <PlusIcon />
           </button>
         </div>
@@ -442,7 +539,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               onClose={closeMenu}
               onNewTerminal={() => {
                 setMenuOpen(false);
-                openSheet();
+                openNewTab();
               }}
               onKeys={() => {
                 setMenuOpen(false);
@@ -510,6 +607,26 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                 <SettingsScreen hostName={hostName} settings={settings} />
               </Suspense>
             </div>
+          ) : shown?.kind === "newtab" ? (
+            <div className="page w-page w-newtab">
+              {canChat && <Launcher hostName={hostName} tabs={tabs} onCreate={onCreate} pending={pending} />}
+              {pending && (
+                <div className={"w-newtab-pending" + (pending.failed ? " is-failed" : "")} role="status">
+                  {pending.failed ? t("openTimeout") : t("opening", { name: pending.label })}
+                </div>
+              )}
+              {folders.length > 0 && (
+                <section className="w-newtab-recent">
+                  <h3>{t("recentFolders")}</h3>
+                  {folders.slice(0, 8).map((f) => (
+                    <button key={f} type="button" className="w-newtab-folder" title={f} disabled={!!pending && !pending.failed} onClick={() => void openTerminalAt(f)}>
+                      <FolderIcon />
+                      <span>{shortCwd(f)}</span>
+                    </button>
+                  ))}
+                </section>
+              )}
+            </div>
           ) : shown?.kind === "file" ? (
             shown.ptyId ? <LegacyFileView key={shown.id} ptyId={shown.ptyId} path={shown.path} cwd={fileTab?.cwd} /> : <WideFileView key={shown.id} path={shown.path} />
           ) : shown?.kind === "diff" ? (
@@ -536,6 +653,12 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             <div className="empty">{t("noTabs")}</div>
           ) : null}
         </main>
+        {docked && browserShown && (
+          <aside className="w-side w-right w-browser" style={{ width: browserSide.width ?? 420 }}>
+            <Browser docked ptyId={active?.ptyId ?? null} chatId={browserChatId} linksChatId={linksChatId} initialPage={browserPage} onClose={closeBrowser} />
+            <div className={"w-resize left" + (browserSide.dragging ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label={t("resizePanel")} data-no-sheet-drag {...browserSide.handleProps} />
+          </aside>
+        )}
         {agentsOpen && (
           <aside ref={agentsPanel} className="w-side w-right" style={agents.width !== null ? { width: agents.width } : undefined}>
             <div className="w-ph">
@@ -566,7 +689,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           </aside>
         )}
       </div>
-      {browserOpen && canBrowse && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} linksChatId={linksChatId} initialPage={browserPage} onClose={closeBrowser} />}
+      {!docked && browserShown && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} linksChatId={linksChatId} initialPage={browserPage} onClose={closeBrowser} />}
       {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
       {tabMenu && (

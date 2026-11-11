@@ -837,3 +837,61 @@
   white-space: pre;
   padding-right: 14px;
 }
+
+/* The new-tab page: the launcher centred, then the folders of the open tabs. */
+.w-newtab {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 640px;
+  padding-top: 32px;
+}
+
+.w-newtab-pending {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.w-newtab-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.w-newtab-recent h3 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.w-newtab-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg);
+  font: 13px/1.2 var(--mono, ui-monospace, monospace);
+  text-align: left;
+}
+
+.w-newtab-folder:hover:not(:disabled) {
+  background: var(--glass);
+}
+
+.w-newtab-folder span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-newtab-folder svg {
+  flex: none;
+  color: var(--muted);
+}

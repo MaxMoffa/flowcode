@@ -42,6 +42,24 @@
   transition: none;
 }
 
+/* Docked in the tablet layout's browser card: a plain panel filling its parent. */
+.br-root.is-docked {
+  position: static;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  z-index: auto;
+  padding-bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transition: none;
+}
+
+.br-root.is-docked .br-head {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .br-root {
     transition: none;

@@ -101,7 +101,7 @@ function AgentMenu({ anchor, options, value, onPick, onClose }: { anchor: HTMLEl
 const sent = { current: "" };
 
 /** The text field that starts a chat: what to do, with which agent, in which folder. */
-function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | undefined; tabs: Tab[] | null; onCreate: (asChat: boolean, label: string, firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void; pending: Pending | null }) {
+export function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | undefined; tabs: Tab[] | null; onCreate: (asChat: boolean, label: string, firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void; pending: Pending | null }) {
   const canGemini = useSupports("gemini");
   const canOpencode = useSupports("opencode");
   const chats = useRemoteSelector((r) => r.chats);
