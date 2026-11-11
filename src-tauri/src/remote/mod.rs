@@ -163,6 +163,8 @@ const EVT_UPDATE_CHECK: &str = "remote://update-check";
 /// A phone asks the desktop to install the release it found (only emitted when allowed).
 const EVT_UPDATE_INSTALL: &str = "remote://update-install";
 const EVT_NEW_CHAT: &str = "remote://new-chat";
+/// A phone resuming an agent session from the history (see `ClientMsg::Resume`).
+const EVT_RESUME_SESSION: &str = "remote://resume-session";
 /// How long the user has to confirm a new phone on the desktop. The phone
 /// waits longer for its reply (see mobile/src-tauri/src/link.rs).
 const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -1551,6 +1553,8 @@ fn append_frame(buf: &mut Vec<u8>, msg: &ServerMsg, compress: bool) {
             );
             let note = match msg {
                 ServerMsg::Fs { request_id, .. } => ServerMsg::Fs { request_id: request_id.clone(), response: None, error: Some(message) },
+                ServerMsg::Git { request_id, .. } => ServerMsg::Git { request_id: request_id.clone(), result: None, error: Some(message) },
+                ServerMsg::History { request_id, .. } => ServerMsg::History { request_id: request_id.clone(), result: None, error: Some(message) },
                 _ => ServerMsg::Error { message, pty_id: msg_pty_id(msg), fatal: false },
             };
             if let Ok(bytes) = encode_frame(&note, false) {
@@ -1559,6 +1563,47 @@ fn append_frame(buf: &mut Vec<u8>, msg: &ServerMsg, compress: bool) {
         }
         Err(_) => {}
     }
+}
+
+/// Runs one Git panel request through the same functions the desktop panel invokes.
+async fn run_git(request: proto::GitRequest) -> Result<serde_json::Value, String> {
+    use crate::git;
+    use proto::GitRequest as R;
+    fn json<T: Serialize>(v: T) -> Result<serde_json::Value, String> {
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    }
+    match request {
+        R::Toplevel { path } => json(git::git_toplevel(path).await?),
+        R::Status { root } => json(git::git_status(root).await?),
+        R::Stage { root, paths } => json(git::git_stage(root, paths).await?),
+        R::Unstage { root, paths } => json(git::git_unstage(root, paths).await?),
+        R::Commit { root, message } => json(git::git_commit(root, message).await?),
+        R::Discard { root, paths, untracked } => json(git::git_discard(root, paths, untracked).await?),
+        R::Branches { root } => json(git::git_branches(root).await?),
+        R::Switch { root, name, create_from_remote } => json(git::git_switch_branch(root, name, create_from_remote).await?),
+        R::Show { root, path, rev } => json(git::git_show_file(root, path, rev).await?),
+    }
+}
+
+/// The agent session lists of the project at `cwd`, as the desktop's History panel loads them.
+async fn run_history(app: AppHandle, cwd: String) -> Result<serde_json::Value, String> {
+    use crate::git;
+    // The repo's worktrees count as the project.
+    let roots = match git::git_repo_root(cwd.clone()).await {
+        Ok(Some(root)) => match git::git_worktrees(root.clone()).await {
+            Ok(w) if !w.is_empty() => w.into_iter().map(|w| w.path).collect(),
+            _ => vec![root],
+        },
+        _ => vec![cwd],
+    };
+    fn list<T: Serialize>(r: Result<Vec<T>, String>) -> serde_json::Value {
+        r.ok().and_then(|v| serde_json::to_value(v).ok()).unwrap_or_else(|| serde_json::json!([]))
+    }
+    let claude = list(crate::agents::claude_history::list_claude_sessions(app.clone(), roots.clone()).await);
+    let codex = list(crate::agents::list_codex_sessions(app.clone(), Some(false)).await);
+    let vibe = list(crate::vibe::list_vibe_sessions(app.clone(), Some(false)).await);
+    let opencode = list(crate::opencode_db::list_opencode_sessions(app, Some(false)).await);
+    Ok(serde_json::json!({ "roots": roots, "claude": claude, "codex": codex, "vibe": vibe, "opencode": opencode }))
 }
 
 fn append_waiting_frames(out_rx: &mut mpsc::Receiver<ServerMsg>, bulk: &mut VecDeque<ServerMsg>, buf: &mut Vec<u8>, compress: bool) {
@@ -2680,6 +2725,40 @@ impl Conn {
                     let (response, error) = match result { Ok(r) => (Some(r), None), Err(e) => (None, Some(e)) };
                     let _ = out.send(ServerMsg::Fs { request_id, response, error }).await;
                 });
+            }
+            ClientMsg::Git { request_id, request } => {
+                if request_id.len() > MAX_ID_BYTES { return; }
+                let out = self.out_tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    let (result, error) = match run_git(request).await { Ok(v) => (Some(v), None), Err(e) => (None, Some(e)) };
+                    let _ = out.send(ServerMsg::Git { request_id, result, error }).await;
+                });
+            }
+            ClientMsg::History { request_id, cwd } => {
+                if request_id.len() > MAX_ID_BYTES { return; }
+                let app = self.shared.app.clone();
+                let out = self.out_tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    let (result, error) = match run_history(app, cwd).await { Ok(v) => (Some(v), None), Err(e) => (None, Some(e)) };
+                    let _ = out.send(ServerMsg::History { request_id, result, error }).await;
+                });
+            }
+            ClientMsg::Resume { cwd, session_id, cli, wsl_distro, profile } => {
+                let bad = |s: &str, max: usize| s.is_empty() || s.len() > max || s.chars().any(|c| c.is_control());
+                if bad(&cwd, 4096) || bad(&session_id, 256) || wsl_distro.as_deref().is_some_and(|d| bad(d, 128)) {
+                    self.error(tr("Sessione non valida", "Invalid session"), None);
+                    return;
+                }
+                // The folder may be a WSL path, so only the agent and profile are checked here.
+                if !self.new_target_ok(&None, Some(&cli), &profile) {
+                    return;
+                }
+                let Some(window) = self.shared.default_window() else {
+                    self.error(tr("Nessuna finestra aperta", "No window is open"), None);
+                    return;
+                };
+                let payload = serde_json::json!({ "cwd": cwd, "sessionId": session_id, "cli": cli, "wslDistro": wsl_distro, "profile": profile });
+                let _ = self.shared.app.emit_to(window.as_str(), EVT_RESUME_SESSION, payload);
             }
         }
     }

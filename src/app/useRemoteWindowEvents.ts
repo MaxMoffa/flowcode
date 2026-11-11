@@ -27,11 +27,12 @@ interface RemoteWindowEventRefs {
   remoteChatRenameRef: MutableRefObject<(tabId: string, label: string) => void>;
   remoteChatCloseRef: MutableRefObject<(tabId: string) => void>;
   remoteNewChatRef: MutableRefObject<(cwd: string | null, cli: string, profile: string | null | undefined) => void>;
+  remoteResumeRef: MutableRefObject<(cwd: string, sessionId: string, cli: string, wslDistro: string | null | undefined, profile: string | null | undefined) => void>;
 }
 
 export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
   useEffect(() => {
-    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef, remoteCloseRef, remoteChatTerminalRef, remoteTerminalChatRef, remoteChatRenameRef, remoteChatCloseRef, remoteNewChatRef } = refs;
+    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef, remoteCloseRef, remoteChatTerminalRef, remoteTerminalChatRef, remoteChatRenameRef, remoteChatCloseRef, remoteNewChatRef, remoteResumeRef } = refs;
     const webview = getCurrentWebviewWindow();
     const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
       adoptTabRef.current(e.payload);
@@ -105,6 +106,14 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
     const unlistenNewChat = webview.listen<{ cwd?: string | null; cli: string; profile?: string | null }>("remote://new-chat", (e) => {
       remoteNewChatRef.current(e.payload.cwd ?? null, e.payload.cli, e.payload.profile ?? undefined);
     });
+    // A phone resuming an agent session from the history.
+    const unlistenResume = webview.listen<{ cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null }>(
+      "remote://resume-session",
+      (e) => {
+        const p = e.payload;
+        remoteResumeRef.current(p.cwd, p.sessionId, p.cli, p.wslDistro ?? undefined, p.profile ?? undefined);
+      },
+    );
     // A prompt sent from a phone: counts as a submit for the agent notifications.
     const unlistenSubmit = webview.listen<string>("remote://submit", (e) => noteRemoteSubmit(e.payload));
     return () => {
@@ -122,6 +131,7 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       unlistenChatRename.then((off) => off());
       unlistenChatClose.then((off) => off());
       unlistenNewChat.then((off) => off());
+      unlistenResume.then((off) => off());
       unlistenSubmit.then((off) => off());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

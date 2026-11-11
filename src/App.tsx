@@ -752,6 +752,7 @@ function Shell() {
   const remoteChatRenameRef = useRef<(tabId: string, label: string) => void>(() => {});
   const remoteChatCloseRef = useRef<(tabId: string) => void>(() => {});
   const remoteNewChatRef = useRef<(cwd: string | null, cli: string, profile: string | null | undefined) => void>(() => {});
+  const remoteResumeRef = useRef<(cwd: string, sessionId: string, cli: string, wslDistro: string | null | undefined, profile: string | null | undefined) => void>(() => {});
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
   const allPluginsRef = useRef<PluginDef[]>([]);
 
@@ -1406,6 +1407,7 @@ function Shell() {
     remoteChatRenameRef,
     remoteChatCloseRef,
     remoteNewChatRef,
+    remoteResumeRef,
   });
 
   /** Everything the receiving window needs to rebuild `tab` - for a terminal
@@ -2138,6 +2140,11 @@ function Shell() {
       const distro = wslDistroOfPath(dir);
       void pick.then((id) => launchAgentInNewTab(cli as AgentCli, dir, distro ? wslShellId(distro) : undefined, id ?? undefined, true));
     } else addTab(cwd ?? undefined, undefined, false, profileId);
+  };
+
+  remoteResumeRef.current = (cwd, sessionId, cli, wslDistro, profile) => {
+    if (!(AGENT_CLIS as readonly string[]).includes(cli)) return;
+    resumeAgentSession(cwd, sessionId, cli as AgentCli, wslDistro ?? undefined, remoteProfileId(profile) ?? undefined);
   };
 
   remoteNewChatRef.current = (cwd, cli, profile) => {

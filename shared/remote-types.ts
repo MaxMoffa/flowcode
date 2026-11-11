@@ -147,6 +147,19 @@ export type FsRequest =
   | { op: "move"; path: string; destination: string }
   | { op: "write"; path: string; text: string; version: string };
 
+/** Git panel operations on the paired desktop (`git` cap). Results are the desktop's `git_*` command values (src-tauri/src/git.rs); `null` for none. */
+export type GitRequest =
+  | { op: "toplevel"; path: string }
+  | { op: "status" | "branches"; root: string }
+  | { op: "stage" | "unstage"; root: string; paths: string[] }
+  | { op: "commit"; root: string; message: string }
+  | { op: "discard"; root: string; paths: string[]; untracked: boolean }
+  | { op: "switch"; root: string; name: string; createFromRemote: boolean }
+  | { op: "show"; root: string; path: string; rev: string };
+
+/** Reply to `history` (`history` cap): session entries as in src/agents/entryTypes.ts. */
+export interface HistoryResult { roots: string[]; claude: unknown[]; codex: unknown[]; vibe: unknown[]; opencode: unknown[] }
+
 interface FsRoot { name: string; path: string }
 
 export type FsResponse =
@@ -314,6 +327,8 @@ export type ServerMsg =
   | { t: "providerauthrequired"; cli: string; profile: string | null }
   | { t: "providerauth"; requestId: string; state: ProviderAuthState | null; error: string | null }
   | { t: "fs"; requestId: string; response?: FsResponse; error?: string }
+  | { t: "git"; requestId: string; result?: unknown; error?: string }
+  | { t: "history"; requestId: string; result?: HistoryResult; error?: string }
   | { t: "chatpromptack"; chatId: string; requestId: string; message?: string }
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
   | { t: "error"; message: string; ptyId?: string; fatal: boolean }
@@ -352,6 +367,9 @@ export type ServerMsg =
 export type ClientMsg =
   | { t: "providerauth"; requestId: string; request: ProviderAuthRequest }
   | { t: "fs"; requestId: string; request: FsRequest }
+  | { t: "git"; requestId: string; request: GitRequest }
+  | { t: "history"; requestId: string; cwd: string }
+  | { t: "resume"; cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null }
   | { t: "list" }
   | { t: "open"; ptyId: string; cols?: number; rows?: number }
   | { t: "resize"; ptyId: string; cols: number; rows: number }

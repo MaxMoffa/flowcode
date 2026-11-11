@@ -27,6 +27,21 @@ pub enum FsRequest {
     Write { path: String, text: String, version: String },
 }
 
+/// Git panel operations, available only with the `git` capability.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum GitRequest {
+    Toplevel { path: String },
+    Status { root: String },
+    Stage { root: String, paths: Vec<String> },
+    Unstage { root: String, paths: Vec<String> },
+    Commit { root: String, message: String },
+    Discard { root: String, paths: Vec<String>, untracked: bool },
+    Branches { root: String },
+    Switch { root: String, name: String, create_from_remote: bool },
+    Show { root: String, path: String, rev: String },
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct FsRoot {
     pub name: String,
@@ -89,6 +104,20 @@ pub enum ClientMsg {
     Read { pty_id: String, path: String },
     /// Standalone explorer, available only with `fileExplorer`.
     Fs { request_id: String, request: FsRequest },
+    /// Git panel operation, available only with `git`.
+    Git { request_id: String, request: GitRequest },
+    /// Agent session history for the project at `cwd`, available only with `history`.
+    History { request_id: String, cwd: String },
+    /// Resume an agent session in a new desktop tab, available only with `resume`.
+    Resume {
+        cwd: String,
+        session_id: String,
+        cli: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wsl_distro: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile: Option<String>,
+    },
     /// Change one desktop setting the phone mirrors (see `ServerMsg::Settings`).
     /// The desktop validates `key` and the value's type and ignores anything else.
     Set { key: String, value: serde_json::Value },
@@ -274,6 +303,22 @@ pub enum ServerMsg {
         request_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         response: Option<FsResponse>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Reply to `git`: the operation's JSON result (`null` for none) or an error.
+    Git {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Reply to `history`: `{roots, claude, codex, vibe, opencode}` or an error.
+    History {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
@@ -560,6 +605,32 @@ mod tests {
         let json = serde_json::to_value(&reply).unwrap();
         assert_eq!(json["response"]["kind"], "list");
         assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
+    }
+    #[test]
+    fn git_history_and_resume_round_trip() {
+        use super::*;
+        let json = serde_json::json!({ "t": "git", "requestId": "g1", "request": { "op": "switch", "root": "C:/p", "name": "dev", "createFromRemote": true } });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(msg, ClientMsg::Git { request_id: "g1".into(), request: GitRequest::Switch { root: "C:/p".into(), name: "dev".into(), create_from_remote: true } });
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        let json = serde_json::json!({ "t": "git", "requestId": "g2", "request": { "op": "discard", "root": "C:/p", "paths": ["a"], "untracked": false } });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        let reply = ServerMsg::Git { request_id: "g1".into(), result: Some(serde_json::json!({ "x": 1 })), error: None };
+        let json = serde_json::to_value(&reply).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "git", "requestId": "g1", "result": { "x": 1 } }));
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
+        let json = serde_json::json!({ "t": "history", "requestId": "h1", "cwd": "C:/p" });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        let reply = ServerMsg::History { request_id: "h1".into(), result: None, error: Some("no".into()) };
+        let json = serde_json::to_value(&reply).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "history", "requestId": "h1", "error": "no" }));
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"resume","cwd":"C:/p","sessionId":"s1","cli":"claude"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::Resume { cwd: "C:/p".into(), session_id: "s1".into(), cli: "claude".into(), wsl_distro: None, profile: None });
+        let json = serde_json::to_value(ClientMsg::Resume { cwd: "/p".into(), session_id: "s".into(), cli: "codex".into(), wsl_distro: Some("Ubuntu".into()), profile: Some("w".into()) }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "resume", "cwd": "/p", "sessionId": "s", "cli": "codex", "wslDistro": "Ubuntu", "profile": "w" }));
     }
     #[test]
     fn prompt_receipts_and_image_ids_expand_the_old_protocol() {
