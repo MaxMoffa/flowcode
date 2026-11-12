@@ -88,6 +88,8 @@ export const en: Record<MessageKey, string> = {
   "settings.notifications.exited.desc": "When an agent closes while its tab is still open.",
   "settings.notifications.limitReset.label": "Usage limit reset",
   "settings.notifications.limitReset.desc": "When you've hit your Claude Code or Codex limit (e.g. the 5-hour one) and its reset time comes. The limit is read by the usage button in the shortcuts bar.",
+  "settings.calls.label": "Call bubbles",
+  "settings.calls.desc": "When an agent in another tab needs you, a bubble comes out of its tab with the reason and, for permissions and questions, the answers. Off: only the tab indicator and system notifications remain.",
   "tabs.duplicate": "Duplicate",
   "calls.title.call": "{agent} is calling you",
   "calls.title.attention": "{agent} needs you",

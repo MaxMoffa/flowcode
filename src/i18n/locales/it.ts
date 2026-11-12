@@ -88,6 +88,8 @@ export const it = {
   "settings.notifications.exited.desc": "Quando un agente si chiude mentre la sua tab è ancora aperta.",
   "settings.notifications.limitReset.label": "Limite di utilizzo resettato",
   "settings.notifications.limitReset.desc": "Quando hai raggiunto il limite di Claude Code o Codex (es. quello delle 5 ore) e arriva l'ora del reset. Il limite viene letto dal pulsante di utilizzo nella barra delle scorciatoie.",
+  "settings.calls.label": "Fumetti delle chiamate",
+  "settings.calls.desc": "Quando un agente in un'altra scheda ha bisogno di te, un fumetto esce dalla sua scheda con il motivo e, per permessi e domande, le risposte. Spento: resta solo l'indicatore sulla scheda e le notifiche di sistema.",
   "tabs.duplicate": "Duplica",
   "calls.title.call": "{agent} ti chiama",
   "calls.title.attention": "{agent} ha bisogno di te",

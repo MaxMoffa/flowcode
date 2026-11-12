@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addCall, clearTab, DONE_CALL_TTL_MS, getCalls, removeCall, removeCallByKey, resetCalls, setCallFocusTab } from "./callStore";
+import { addCall, clearTab, DONE_CALL_TTL_MS, getCalls, removeCall, removeCallByKey, resetCalls, setCallFocusTab, setCallsEnabled } from "./callStore";
 
 const base = { tabId: "tab-b", title: "Claude", kind: "custom" as const };
 
@@ -50,5 +50,21 @@ describe("callStore", () => {
     removeCall("1");
     clearTab("tab-b");
     expect(getCalls().map((c) => c.id)).toEqual(["3"]);
+  });
+});
+
+describe("calls switched off", () => {
+  beforeEach(() => resetCalls());
+  afterEach(() => setCallsEnabled(true));
+
+  it("drops the open calls and shows no new ones until switched back on", () => {
+    addCall({ tabId: "b", kind: "permission", title: "x" });
+    setCallsEnabled(false);
+    expect(getCalls()).toHaveLength(0);
+    addCall({ tabId: "b", kind: "custom", title: "y" });
+    expect(getCalls()).toHaveLength(0);
+    setCallsEnabled(true);
+    addCall({ tabId: "b", kind: "custom", title: "z" });
+    expect(getCalls().map((c) => c.title)).toEqual(["z"]);
   });
 });

@@ -14,6 +14,7 @@ import { listShellOptions, shellOptionLabel, type ShellOption } from "../termina
 import { writeBool } from "../lib/storage";
 import { setBrowserSetting, useBrowserSettings, type Target } from "../browser/browserSettings";
 import { NOTIFICATION_KINDS, setNotificationEnabled, useNotificationSettings } from "../notifications/notificationSettings";
+import { setCallsEnabled, useCallsEnabled } from "../calls/callStore";
 import { setAutoResumeEnabled, setAutoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
 import { RemoteAccessSettings } from "./RemoteAccessSettings";
 import { RemoteHostsSettings } from "../remoteHosts/RemoteHostsSettings";
@@ -133,6 +134,7 @@ export function SettingsPage({
   } = useTerminalSettings();
   const { section, focusId, clearFocus } = useSettingsSection();
   const notificationSettings = useNotificationSettings();
+  const callsEnabled = useCallsEnabled();
   const autoResume = useAutoResumeSettings();
   // One scroll container serves every section, so without this a section
   // opens at whatever depth the previous one was scrolled to - except when
@@ -614,6 +616,9 @@ export function SettingsPage({
                   />
                 </SettingRow>
               ))}
+              <SettingRow id="agentCalls" label={t("settings.calls.label")} desc={t("settings.calls.desc")}>
+                <Switch checked={callsEnabled} onChange={setCallsEnabled} label={t("settings.calls.label")} stateLabels={onOff} />
+              </SettingRow>
             </SettingsGroup>
 
             <SettingsGroup title={t("settings.group.autoResume")}>

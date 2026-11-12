@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { createStore } from "../lib/externalStore";
+import { readBool, writeBool } from "../lib/storage";
 import type { AgentCli } from "../agents/cliInfo";
 
 export type CallKind = "permission" | "question" | "browser" | "done" | "attention" | "custom";
@@ -44,9 +45,26 @@ const PENDING_KINDS: readonly CallKind[] = ["permission", "question"];
 interface CallState {
   calls: AgentCall[];
   focusTab: string | null;
+  /** The user's switch (Settings > Notifications): off, no bubble ever shows. Whatever asks through a call still
+   * gets its answer the usual way once the user visits the tab (see askFromAway). */
+  enabled: boolean;
 }
 
-const store = createStore<CallState>({ calls: [], focusTab: null });
+const ENABLED_KEY = "flowcode.calls.enabled";
+
+const store = createStore<CallState>({ calls: [], focusTab: null, enabled: readBool(ENABLED_KEY, true) });
+
+export const useCallsEnabled = () => store.use().enabled;
+
+export function setCallsEnabled(enabled: boolean) {
+  if (store.get().enabled === enabled) return;
+  writeBool(ENABLED_KEY, enabled);
+  if (!enabled) {
+    timers.forEach(clearTimeout);
+    timers.clear();
+  }
+  store.update((s) => ({ ...s, enabled, calls: enabled ? s.calls : [] }));
+}
 
 let nextId = 0;
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -73,6 +91,7 @@ export function useCalls(): AgentCall[] {
 export function addCall(call: NewCall): string {
   const id = call.id ?? `call-${++nextId}`;
   const full: AgentCall = { ...call, id, createdAt: call.createdAt ?? Date.now() };
+  if (!store.get().enabled) return id;
   // Nobody needs calling about the tab they are looking at (a pending request is kept: they may leave it still unanswered).
   if (full.tabId === store.get().focusTab && !PENDING_KINDS.includes(full.kind)) return id;
   store.update((s) => {
@@ -104,12 +123,12 @@ export function clearTab(tabId: string) {
 export function setCallFocusTab(tabId: string | null) {
   const stale = store.get().calls.filter((c) => c.tabId === tabId && !PENDING_KINDS.includes(c.kind));
   stale.forEach((c) => forget(c.id));
-  store.update((s) => ({ focusTab: tabId, calls: stale.length ? s.calls.filter((c) => !stale.includes(c)) : s.calls }));
+  store.update((s) => ({ ...s, focusTab: tabId, calls: stale.length ? s.calls.filter((c) => !stale.includes(c)) : s.calls }));
 }
 
 /** For tests. */
 export function resetCalls() {
   timers.forEach(clearTimeout);
   timers.clear();
-  store.set({ calls: [], focusTab: null });
+  store.set({ calls: [], focusTab: null, enabled: true });
 }
