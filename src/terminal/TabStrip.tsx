@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { createPortal } from "react-dom";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "./shellOptions";
@@ -89,6 +89,53 @@ function ChevronIcon({ direction }: { direction: "left" | "right" }) {
     <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d={direction === "left" ? "M15 6 9 12l6 6" : "M9 6l6 6-6 6"} />
     </svg>
+  );
+}
+
+/** Whether a tab row can scroll each way: kept in sync on scroll, resize and whenever `content` changes. */
+export function useRowOverflow(viewportRef: RefObject<HTMLElement | null>, content: unknown) {
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const update = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 1);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, [viewportRef]);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    el.addEventListener("scroll", update, { passive: true });
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("scroll", update);
+    };
+  }, [viewportRef, update]);
+
+  // The row's content width changed.
+  useEffect(update, [content, update]);
+  return { canScrollLeft, canScrollRight };
+}
+
+/** The scroll arrows over a tab row's edges. Always mounted, over the tabs, so
+ * they fade in and out instead of popping and shifting the row. */
+export function TabScrollArrows({ canScrollLeft, canScrollRight, onScroll }: { canScrollLeft: boolean; canScrollRight: boolean; onScroll: (direction: -1 | 1) => void }) {
+  return (
+    <>
+      <div className={"term-tab-fade is-left" + (canScrollLeft ? " is-visible" : "")} aria-hidden={!canScrollLeft}>
+        <button type="button" className="term-tab-scroll" tabIndex={canScrollLeft ? 0 : -1} aria-label={t("tabs.scrollLeft")} onClick={() => onScroll(-1)}>
+          <ChevronIcon direction="left" />
+        </button>
+      </div>
+      <div className={"term-tab-fade is-right" + (canScrollRight ? " is-visible" : "")} aria-hidden={!canScrollRight}>
+        <button type="button" className="term-tab-scroll" tabIndex={canScrollRight ? 0 : -1} aria-label={t("tabs.scrollRight")} onClick={() => onScroll(1)}>
+          <ChevronIcon direction="right" />
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -334,8 +381,6 @@ export function TabStrip({
   const tabSlot = compact ? COMPACT_TAB_SLOT : TAB_SLOT;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -370,27 +415,7 @@ export function TabStrip({
     }
   }, [editingId]);
 
-  function updateScrollState() {
-    const el = viewportRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 1);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
-  }
-
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(updateScrollState);
-    observer.observe(el);
-    el.addEventListener("scroll", updateScrollState, { passive: true });
-    return () => {
-      observer.disconnect();
-      el.removeEventListener("scroll", updateScrollState);
-    };
-  }, []);
-
-  // The row's content width changed.
-  useEffect(updateScrollState, [tabs]);
+  const { canScrollLeft, canScrollRight } = useRowOverflow(viewportRef, tabs);
 
   // A vertical wheel scrolls the row sideways (a horizontal one already does).
   useEffect(() => {
@@ -647,30 +672,7 @@ export function TabStrip({
             );
           })}
         </div>
-        {/* Always mounted, over the tabs, so they fade in and out instead of
-            popping and shifting the row. */}
-        <div className={"term-tab-fade is-left" + (canScrollLeft ? " is-visible" : "")} aria-hidden={!canScrollLeft}>
-          <button
-            type="button"
-            className="term-tab-scroll"
-            tabIndex={canScrollLeft ? 0 : -1}
-            aria-label={t("tabs.scrollLeft")}
-            onClick={() => scrollByPage(-1)}
-          >
-            <ChevronIcon direction="left" />
-          </button>
-        </div>
-        <div className={"term-tab-fade is-right" + (canScrollRight ? " is-visible" : "")} aria-hidden={!canScrollRight}>
-          <button
-            type="button"
-            className="term-tab-scroll"
-            tabIndex={canScrollRight ? 0 : -1}
-            aria-label={t("tabs.scrollRight")}
-            onClick={() => scrollByPage(1)}
-          >
-            <ChevronIcon direction="right" />
-          </button>
-        </div>
+        <TabScrollArrows canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} onScroll={scrollByPage} />
       </div>
       <button
         type="button"

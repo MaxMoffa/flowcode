@@ -4,7 +4,7 @@ import { t, useI18n } from "../i18n";
 import { AGENT_CLIS, CLI_INFO } from "../agents/cliInfo";
 import { ChatIcon } from "../app/icons";
 import { agentCliIcon } from "../plugins/icons";
-import { BusySweep } from "../terminal/TabStrip";
+import { BusySweep, TabScrollArrows, useRowOverflow } from "../terminal/TabStrip";
 import { closeRemoteEntry, connectHost, expectNewTab, remoteEntries, selectRemoteKey, sendToHost, useHost, useHostState, type RemoteEntry } from "./remoteHosts";
 import { statusLabel } from "./HostSelector";
 import "../terminal/tabstrip.css";
@@ -53,6 +53,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const { canScrollLeft, canScrollRight } = useRowOverflow(viewportRef, entries.map((e) => `${e.key}:${entryLabel(e)}`).join("|"));
 
   useEffect(() => {
     if (editing) {
@@ -82,6 +83,15 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
     if (tabEl.offsetLeft < el.scrollLeft) el.scrollTo({ left: tabEl.offsetLeft });
     else if (tabEl.offsetLeft + tabEl.offsetWidth > el.scrollLeft + el.clientWidth) el.scrollTo({ left: tabEl.offsetLeft + tabEl.offsetWidth - el.clientWidth });
   }, [activeKey, entries.length]);
+
+  /** One arrow click: a page of tabs, like the local strip. */
+  function scrollByPage(direction: -1 | 1) {
+    const el = viewportRef.current;
+    if (!el) return;
+    const slot = (el.querySelector<HTMLElement>(".term-tab")?.offsetWidth ?? 160) + 2;
+    const slots = Math.max(1, Math.floor(el.clientWidth / slot));
+    el.scrollBy({ left: direction * slots * slot, behavior: "smooth" });
+  }
 
   function startEditing(entry: RemoteEntry) {
     const can = entry.kind === "pty" ? caps.includes("rename") : caps.includes("chatRename");
@@ -130,7 +140,11 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
   return (
     <div className="tab-strip remote-tab-strip" data-tauri-drag-region>
       <div className="tab-strip-scroller">
-        <div className="tab-strip-viewport" ref={viewportRef} data-tauri-drag-region>
+        <div
+          className={"tab-strip-viewport" + (canScrollLeft ? " fade-left" : "") + (canScrollRight ? " fade-right" : "")}
+          ref={viewportRef}
+          data-tauri-drag-region
+        >
           {entries.map((entry) => {
             const attention = attentionOf(entry);
             const label = entryLabel(entry);
@@ -186,6 +200,7 @@ export function RemoteTabStrip({ hostId }: { hostId: string }) {
             );
           })}
         </div>
+        <TabScrollArrows canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} onScroll={scrollByPage} />
       </div>
       <button type="button" className="term-tab-new" aria-label={t("remoteHosts.newTab")} title={t("remoteHosts.newTab")} disabled={!online} onClick={openNewMenu}>
         <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
