@@ -16,6 +16,7 @@ import { addDetectedServer, extractLocalServers, openUrlInPreview, removeServers
 import { getBrowserSettings } from "../browser/browserSettings";
 import { createPathLinkProvider } from "./pathLinkProvider";
 import { checkPath, useOpenPath, type PathTarget } from "../lib/fileLinks";
+import { parsePathToken } from "../lib/filePaths";
 import {
   FROG_HEIGHT,
   FROG_WIDTH,
@@ -180,6 +181,12 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   // (a right-click is for the context menu, a middle-click for paste).
   linkClickRef.current = (event, uri) => {
     if (event.button !== 0) return;
+    // An OSC 8 `file:` hyperlink: the path menu, like a path printed as text (once the disk confirms it).
+    if (/^file:\/\//i.test(uri)) {
+      const parsed = parsePathToken(uri);
+      if (parsed) void checkPath(parsed.path, liveCwdRef.current).then((target) => target && openPath(event, target, parsed.line));
+      return;
+    }
     openLink(event, uri);
   };
   // File paths in the output: relative ones resolve against where the shell is now.
@@ -648,7 +655,8 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     // isn't the URL itself - Claude Code and others emit these); both go
     // through the same confirm menu.
     term.loadAddon(new WebLinksAddon((event, uri) => linkClickRef.current(event, uri)));
-    term.options.linkHandler = { activate: (event, uri) => linkClickRef.current(event, uri) };
+    // Non-http schemes reach the handler too (xterm drops them otherwise): it opens only http(s) and `file:`.
+    term.options.linkHandler = { activate: (event, uri) => linkClickRef.current(event, uri), allowNonHttpProtocols: true };
     // File paths (never urls: those stay the web links above), linked only
     // once the disk confirms they exist; a click opens the path menu.
     term.registerLinkProvider(
