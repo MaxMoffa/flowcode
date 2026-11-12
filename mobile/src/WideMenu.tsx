@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useBackHandler, useEscape } from "./back";
 import { t } from "./i18n";
 import type { UiScale } from "./uiScale";
-import { CheckIcon, GlobeIcon, KeyboardIcon, MonitorIcon, PinIcon, PlusIcon, SlidersIcon, StopIcon } from "./icons";
+import { BoltIcon, CheckIcon, GlobeIcon, KeyboardIcon, MonitorIcon, PinIcon, PlusIcon, SlidersIcon, StopIcon } from "./icons";
 
 interface Row {
   label: string;
@@ -36,6 +36,8 @@ export function WideMenu(props: {
   onBrowser?: () => void;
   onComputers: () => void;
   onSettings: () => void;
+  /** Opens the "What's new" sheet. */
+  onChangelog: () => void;
   /** The wide chrome's UI size. */
   scale: UiScale;
   onScale: (scale: UiScale) => void;
@@ -62,7 +64,8 @@ export function WideMenu(props: {
     ...(props.onBrowser ? [{ label: t("browser.menu"), icon: <GlobeIcon />, run: props.onBrowser }] : []),
     { label: props.pinned ? t("floatPanels") : t("pinPanels"), icon: <PinIcon />, run: props.onPanels },
     { label: t("switchComputer"), icon: <MonitorIcon />, run: props.onComputers },
-    { label: t("navSettings"), icon: <SlidersIcon />, run: props.onSettings, sepAfter: true },
+    { label: t("navSettings"), icon: <SlidersIcon />, run: props.onSettings },
+    { label: t("wcMenu"), icon: <BoltIcon />, run: props.onChangelog, sepAfter: true },
   ];
   const themeRows: Row[] = themes.map((x) => ({ label: x.label, icon: props.theme === x.id ? <CheckIcon /> : <i className="w-menu-nocheck" />, run: () => props.onTheme(x.id) }));
 

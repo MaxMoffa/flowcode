@@ -221,6 +221,12 @@ mockIPC(
       case "request_notification_permission":
       case "notification_permission":
         return true;
+      case "release_notes":
+        return [
+          { version: "0.33.0", title: "Tablet polish", notes: "## Features\n- Quick actions show your usage.\n- A **What's new** page.\n\n## Bug fixes\n- Tabs reorder smoothly.", published_at: "2026-11-12T09:00:00Z", page_url: "https://github.com/MaxMoffa/flowcode/releases/tag/v0.33.0", prerelease: false },
+          { version: "0.32.0", title: "Remote hosts", notes: "## Improvements\n- Faster reconnect.\n- Goal chip in the composer.", published_at: "2026-11-11T09:00:00Z", page_url: "https://github.com/MaxMoffa/flowcode/releases/tag/v0.32.0", prerelease: false },
+          { version: "0.31.0-beta.1", title: "OpenCode (beta)", notes: "", published_at: "2026-11-08T09:00:00Z", page_url: "https://github.com/MaxMoffa/flowcode/releases/tag/v0.31.0-beta.1", prerelease: true },
+        ];
       case "view_cache_has":
         return true;
       case "view_cache_write":

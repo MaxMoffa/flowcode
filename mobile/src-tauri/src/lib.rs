@@ -103,6 +103,7 @@ pub fn run() {
             view_cache::view_cache_prune,
             updater::update_check,
             updater::update_install,
+            updater::release_notes,
             computers::computers,
             computers::switch_computer,
             computers::forget_computer

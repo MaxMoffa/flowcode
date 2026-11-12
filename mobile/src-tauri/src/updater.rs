@@ -21,6 +21,7 @@ use tauri::plugin::TauriPlugin;
 use tauri::{AppHandle, Manager, State, Wry};
 
 const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/MaxMoffa/flowcode/releases/latest";
+const RELEASES_URL: &str = "https://api.github.com/repos/MaxMoffa/flowcode/releases?per_page=100";
 const USER_AGENT: &str = concat!("flowcode-mobile/", env!("CARGO_PKG_VERSION"));
 const CHECKSUMS_ASSET: &str = "SHA256SUMS";
 const SIGNATURE_ASSET: &str = "SHA256SUMS.sig";
@@ -200,6 +201,62 @@ fn fetch_latest() -> Result<GhRelease, String> {
         _ => "network",
     })?;
     serde_json::from_reader(response.into_reader()).map_err(|_| "network".to_string())
+}
+
+/// One published release as the changelog sheet shows it; mirrors the
+/// desktop's `ReleaseNote` (snake_case on the wire, like the desktop).
+#[derive(Serialize)]
+pub struct ReleaseNote {
+    pub version: String,
+    pub title: String,
+    pub notes: String,
+    pub published_at: String,
+    pub page_url: String,
+    pub prerelease: bool,
+}
+
+#[derive(Deserialize)]
+struct GhReleaseNote {
+    tag_name: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    published_at: Option<String>,
+    html_url: String,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+}
+
+fn fetch_all() -> Result<Vec<GhReleaseNote>, String> {
+    let response = agent().get(RELEASES_URL).set("Accept", "application/vnd.github+json").call().map_err(|e| match e {
+        ureq::Error::Status(404, _) => "notFound",
+        ureq::Error::Status(403, _) | ureq::Error::Status(429, _) => "rateLimited",
+        _ => "network",
+    })?;
+    serde_json::from_reader(response.into_reader()).map_err(|_| "network".to_string())
+}
+
+/// Every published release, newest first (GitHub's own order), drafts left
+/// out. What the "What's new" sheet of the tablet layout shows.
+#[tauri::command]
+pub async fn release_notes() -> Result<Vec<ReleaseNote>, String> {
+    let releases = tauri::async_runtime::spawn_blocking(fetch_all).await.map_err(|e| e.to_string())??;
+    Ok(releases
+        .into_iter()
+        .filter(|r| !r.draft)
+        .map(|r| ReleaseNote {
+            title: r.name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| r.tag_name.clone()),
+            version: r.tag_name.trim_start_matches('v').to_string(),
+            notes: r.body.unwrap_or_default(),
+            published_at: r.published_at.unwrap_or_default(),
+            page_url: r.html_url,
+            prerelease: r.prerelease,
+        })
+        .collect())
 }
 
 fn update_dir(app: &AppHandle) -> Result<PathBuf, String> {

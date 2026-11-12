@@ -923,3 +923,208 @@
 .w-tab.drop-after::after {
   right: -6px;
 }
+
+/* Quick action with usage readings: mini bar under the icon, profile dot, popover. */
+.w-usage-btn {
+  position: relative;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.w-usage-mini {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 3px;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+}
+
+.w-usage-mini > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.w-usage-mini.warn > span {
+  background: var(--wait);
+}
+
+.w-usage-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+
+.w-usage-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--w-line);
+  background: var(--w-float);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+}
+
+.w-usage-pop .hm-uc {
+  flex: none;
+  background: var(--surface-2);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* "What's new" sheet: release list beside the notes. */
+.wcl {
+  display: flex;
+  flex-direction: column;
+  width: min(860px, 94vw);
+  height: min(640px, 88vh);
+  overflow: hidden;
+}
+
+.wcl-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px 20px;
+}
+
+.wcl-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.wcl-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  border-top: 1px solid var(--border);
+}
+
+.wcl-nav {
+  flex: none;
+  width: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-right: 1px solid var(--border);
+}
+
+.wcl-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+}
+
+.wcl-item.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.wcl-item-top,
+.wcl-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.wcl-item-title {
+  font-size: 12px;
+  color: var(--fg-muted, var(--muted));
+}
+
+.wcl-item-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.wcl-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.wcl-badge.muted {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.wcl-notes {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 14px 20px 20px;
+}
+
+.wcl-notes h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.wcl-md.upd-notes {
+  max-height: none;
+  overflow: visible;
+  margin-top: 10px;
+}
+
+.wcl-link {
+  margin-top: 14px;
+}
+
+.wcl-status {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.wcl-error {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* A narrow tablet (portrait): the list sits above the notes. */
+@media (max-width: 900px) {
+  .wcl-main {
+    flex-direction: column;
+  }
+  .wcl-nav {
+    width: auto;
+    max-height: 34%;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}

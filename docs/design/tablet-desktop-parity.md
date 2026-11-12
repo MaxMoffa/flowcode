@@ -12,5 +12,6 @@ Goal: the phone app's wide layout (`mobile/src/WideShell.tsx`, ≥ 760 px) mirro
 | 5 | Hardware keyboard shortcuts (Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+T, Ctrl+W, Ctrl+\`, Ctrl+B, Ctrl+1..9) | no | done (untested on device) |
 | 6 | "+" opens a new-tab page in the main card (launcher) instead of the sheet | no | done (untested on device) |
 | 7 | Tab duplicate / notifications toggle (terminals) / drag reorder within a window (`tabDrag.ts`) | yes: `tabop`, cap `tabOps`, `notify` on Tab | done (untested on device; touch drag is the main risk) |
+| 8 | ⋮ menu "Novità" sheet (`WideChangelog.tsx`, phone `release_notes` command); quick-action usage mini bar + popover (`WideUsageAction.tsx`) | no | done (untested on device) |
 
 Touch-only extras kept: key bar, Ctrl+C, pin panels.

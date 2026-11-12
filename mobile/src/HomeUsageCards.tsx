@@ -10,7 +10,7 @@ import type { UsageItem, UsageMetric } from "./remote";
 import { ProviderUsageAuth } from "./ProviderUsageAuth";
 
 /** Re-reads the clock every minute so "resets in" and the tick move while the page stays open. */
-function useNow(): Date {
+export function useNow(): Date {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
@@ -141,7 +141,7 @@ function OtherBody({ item }: { item: UsageItem }) {
   );
 }
 
-function UsageCard({ item, now }: { item: UsageItem; now: Date }) {
+export function UsageCard({ item, now }: { item: UsageItem; now: Date }) {
   const kind = planKind(item.metrics as Parameters<typeof planKind>[0]);
   const gauges = item.metrics.filter((m) => typeof m.percent === "number").map((m) => Math.round((m.percent ?? 0) * 100));
   const cls = kind !== "plan" ? "" : gauges.some((p) => p >= 100) ? " hit" : gauges.some((p) => p >= 90) ? " warmc" : "";

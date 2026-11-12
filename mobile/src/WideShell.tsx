@@ -13,7 +13,7 @@ import { lastInWindow } from "./homeSessions";
 import { dropIndex, moveWithinWindow, windowRange } from "./tabDrag";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
-import { ActionIcon, AgentLogo, AgentsIcon, ChatIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
+import { AgentLogo, AgentsIcon, ChatIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
 import { interrupt, send, sendChecked, showToast, useRemoteSelector, useSupports, type ChatInfo, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
@@ -36,6 +36,8 @@ import { WideSidebar } from "./WideSidebar";
 import { launchPath } from "./explorerPaths";
 import { folderName } from "./explorerRemote";
 import { WideMenu } from "./WideMenu";
+import { WideChangelog } from "./WideChangelog";
+import { WideUsageAction } from "./WideUsageAction";
 
 const TerminalScreen = lazy(() => import("./TerminalScreen").then((m) => ({ default: m.TerminalScreen })));
 const SettingsScreen = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsScreen })));
@@ -95,6 +97,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const openSheet = () => setSheet(true);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [changelogOpen, setChangelogOpen] = useState(false);
   const [computersOpen, setComputersOpen] = useState(false);
   /** The key bar docked under the terminal. */
   const [keys, setKeys] = useState(true);
@@ -626,9 +629,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           </button>
           {active &&
             actions.map((a) => (
-              <button key={a.id} type="button" className="w-ib" aria-label={t("runAction", { label: a.label })} title={a.label} onClick={() => runAction(active.ptyId, a)}>
-                <ActionIcon action={a} />
-              </button>
+              <WideUsageAction key={a.id} action={a} onRun={() => runAction(active.ptyId, a)} />
             ))}
         </div>
         <div className="w-group">
@@ -680,6 +681,10 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
               onSettings={() => {
                 setMenuOpen(false);
                 openDoc({ id: "settings", kind: "settings" });
+              }}
+              onChangelog={() => {
+                setMenuOpen(false);
+                setChangelogOpen(true);
               }}
             />
           </div>
@@ -876,6 +881,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           </div>
         </>
       )}
+      <WideChangelog open={changelogOpen} onClose={() => setChangelogOpen(false)} />
       <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
     </div>
   );
