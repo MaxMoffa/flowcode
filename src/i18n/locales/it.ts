@@ -233,6 +233,7 @@ export const it = {
   "git.tab.explorer": "Esplora",
   "sidebar.tab.history": "Cronologia",
   "history.search": "Cerca sessioni",
+  "history.open": "Aperte",
   "history.today": "Oggi",
   "history.yesterday": "Ieri",
   "history.empty": "Ancora nessuna sessione in questo progetto.",

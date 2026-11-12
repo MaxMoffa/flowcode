@@ -39,8 +39,8 @@ describe("buildHistoryRows", () => {
     ];
     const rows = buildHistoryRows({ entries: { ...empty, claude: [claude("a", "/p", 10, "saved")] }, roots: ["/p"], open, now: 99 });
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ key: "tab:t2", at: 99, tabId: "t2" });
-    expect(rows[1]).toMatchObject({ sessionId: "a", title: "saved", tabId: "t1", status: "busy", at: 10 });
+    expect(rows[0]).toMatchObject({ sessionId: "a", title: "saved", tabId: "t1", status: "busy", at: 10 });
+    expect(rows[1]).toMatchObject({ key: "tab:t2", at: 99, tabId: "t2" });
   });
 
   it("drops open sessions outside the roots and excluded keys", () => {
@@ -54,6 +54,19 @@ describe("buildHistoryRows", () => {
     const rows = buildHistoryRows({ entries: empty, roots: ["/p"], open: [mk("t1", 5), mk("t2", 9)] });
     expect(rows).toHaveLength(1);
     expect(rows[0].tabId).toBe("t2");
+  });
+
+  it("pins open sessions first in tab order, then the rest newest first", () => {
+    const mk = (sessionId: string, tabId: string): OpenSession => ({ cli: "claude", sessionId, title: null, cwd: "/p", wslDistro: null, profile: null, tabId, at: null });
+    const rows = buildHistoryRows({
+      entries: { ...empty, claude: [claude("a", "/p", 1), claude("b", "/p", 50), claude("c", "/p", 30), claude("d", "/p", 40)] },
+      roots: ["/p"],
+      open: [mk("a", "t1"), mk("c", "t2")],
+    });
+    expect(rows.map((r) => r.sessionId)).toEqual(["a", "c", "b", "d"]);
+    const groups = groupByDay(rows, (d) => (typeof d === "number" ? "date" : d));
+    expect(groups[0]).toMatchObject({ label: "open" });
+    expect(groups[0].rows.map((r) => r.sessionId)).toEqual(["a", "c"]);
   });
 
   it("sorts newest first across agents", () => {

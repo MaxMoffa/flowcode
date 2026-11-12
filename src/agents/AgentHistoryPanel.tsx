@@ -215,7 +215,7 @@ export function AgentHistoryPanel({
   const shown = filterRows(rows, query, titleOf);
   const needle = query.trim();
   const groups = groupByDay(shown, (day) =>
-    day === "today" ? t("history.today") : day === "yesterday" ? t("history.yesterday") : new Date(day).toLocaleDateString(language, { day: "numeric", month: "long" }),
+    day === "open" ? t("history.open") : day === "today" ? t("history.today") : day === "yesterday" ? t("history.yesterday") : new Date(day).toLocaleDateString(language, { day: "numeric", month: "long" }),
   );
 
   /** Some row has delegated chats: every row then leaves room for the arrow, so titles stay aligned. */

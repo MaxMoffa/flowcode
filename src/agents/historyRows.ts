@@ -81,7 +81,8 @@ export interface BuildRowsInput {
   now?: number;
 }
 
-/** The sessions of the project (any of `roots`) - saved ones plus those open in a tab - newest first, one row per session. */
+/** The sessions of the project (any of `roots`) - saved ones plus those open in a tab - one row per session.
+ * Open ones come first in tab order (so they do not jump around while the agents write), then the rest newest first. */
 export function buildHistoryRows({ entries, roots, wslDistro, open = [], exclude, now = Date.now() }: BuildRowsInput): HistoryRow[] {
   const inRoots = (cwd: string | null | undefined, distro: string | null | undefined) =>
     roots.some((root) => inProject(cwd, distro, root, wslDistro));
@@ -118,7 +119,17 @@ export function buildHistoryRows({ entries, roots, wslDistro, open = [], exclude
       unique.set(row.key, row);
     }
   }
-  return [...unique.values()].sort((a, b) => b.at - a.at);
+  const tabOrder = new Map<string, number>();
+  open.forEach((o, i) => {
+    if (!tabOrder.has(o.tabId)) tabOrder.set(o.tabId, i);
+  });
+  const rank = (row: HistoryRow) => (row.tabId === undefined ? Infinity : (tabOrder.get(row.tabId) ?? Infinity));
+  return [...unique.values()].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra < rb ? -1 : 1;
+    return b.at - a.at;
+  });
 }
 
 /** The rows whose title contains `query` (case-insensitive); all of them for an empty query. */
@@ -133,10 +144,10 @@ const dayStart = (ms: number) => {
   return d.getTime();
 };
 
-/** Rows (already newest first) split into consecutive day groups; `label` receives "today", "yesterday" or the date. */
+/** Rows (as sorted by `buildHistoryRows`) split into consecutive groups: open tabs ("open"), then by day ("today", "yesterday" or the date). */
 export function groupByDay<T extends HistoryRow>(
   rows: T[],
-  label: (day: "today" | "yesterday" | number) => string,
+  label: (day: "open" | "today" | "yesterday" | number) => string,
   now: number = Date.now(),
 ): { label: string; rows: T[] }[] {
   const today = dayStart(now);
@@ -144,7 +155,7 @@ export function groupByDay<T extends HistoryRow>(
   const groups: { label: string; rows: T[] }[] = [];
   for (const row of rows) {
     const day = dayStart(row.at);
-    const text = label(day >= today ? "today" : day === yesterday ? "yesterday" : row.at);
+    const text = label(row.tabId !== undefined ? "open" : day >= today ? "today" : day === yesterday ? "yesterday" : row.at);
     const last = groups[groups.length - 1];
     if (last?.label === text) last.rows.push(row);
     else groups.push({ label: text, rows: [row] });

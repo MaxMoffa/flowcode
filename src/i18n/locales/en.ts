@@ -233,6 +233,7 @@ export const en: Record<MessageKey, string> = {
   "git.tab.explorer": "Explorer",
   "sidebar.tab.history": "History",
   "history.search": "Search sessions",
+  "history.open": "Open",
   "history.today": "Today",
   "history.yesterday": "Yesterday",
   "history.empty": "No sessions in this project yet.",

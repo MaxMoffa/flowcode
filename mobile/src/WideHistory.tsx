@@ -106,7 +106,7 @@ export function WideHistory({ cwd, cli, profile, currentSessionId, view, visible
   const titleOf = (row: HistoryRow) => row.title || `${CLI_LABEL[row.cli] ?? row.cli} · ${row.sessionId.slice(0, 8)}`;
   const shown = filterRows(rows, query, titleOf);
   const groups = groupByDay(shown, (day) =>
-    day === "today" ? t("whHistToday") : day === "yesterday" ? t("whHistYesterday") : new Date(day).toLocaleDateString(speechLocale(), { day: "numeric", month: "long" }),
+    day === "open" ? t("whHistOpenGroup") : day === "today" ? t("whHistToday") : day === "yesterday" ? t("whHistYesterday") : new Date(day).toLocaleDateString(speechLocale(), { day: "numeric", month: "long" }),
   );
 
   const openRow = (row: HistoryRow) => {
