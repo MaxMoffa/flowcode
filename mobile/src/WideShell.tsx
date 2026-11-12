@@ -753,7 +753,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           {active ? (
             <div style={{ display: shown ? "none" : "contents" }}>
               <Suspense fallback={<div className="screen" />}>
-                <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={noop} onChat={onChat} embedded keys={keys} onOpenPage={showBrowserPage} />
+                <TerminalScreen key={active.ptyId} tab={active} status={status} onBack={noop} onChat={onChat} embedded keys={keys} onOpenPage={showBrowserPage} onOpenFile={openLegacyFile} />
               </Suspense>
             </div>
           ) : activeChat ? (

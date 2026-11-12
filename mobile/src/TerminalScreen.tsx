@@ -10,7 +10,8 @@ import { AgentsIcon, BoltIcon, CloseIcon, CopyIcon, FolderIcon, GlobeIcon, Keybo
 import { SessionMenu, SessionTop, ToolsMenu, type MenuRow } from "./SessionTop";
 import { interrupt, send, showToast, useRemoteSelector, useSupports, type ConnStatus, type Tab } from "./remote";
 import { Browser } from "./Browser";
-import { localLinkPage, type Page } from "./browserUrl";
+import { localLinkPage, parseTyped, type Page } from "./browserUrl";
+import { pathAtCell, terminalFile } from "./termPaths";
 import { TermActions } from "./TermActions";
 import { TermAgents } from "./TermAgents";
 import { TermFiles } from "./TermFiles";
@@ -36,7 +37,7 @@ const keepFocus = {
 const folderName = (cwd: string) => cwd.split(/[\\/]+/).filter(Boolean).pop() ?? cwd;
 
 /** `embedded`: the wide layout's main card; its header owns the files, quick actions and menu, so only the terminal and its docked key bar (shown while `keys`) remain. `onChat` turns an agent's terminal into a chat shown with the given view (App opens it once it appears). */
-export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded, keys, onOpenPage }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; onChat?: (ptyId: string, view: string) => void; embedded?: boolean; keys?: boolean; onOpenPage?: (page: Page) => void }) {
+export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded, keys, onOpenPage, onOpenFile }: { tab: Tab; status: ConnStatus; onBack: () => void; onSwitch?: (ptyId: string) => void; onChat?: (ptyId: string, view: string) => void; embedded?: boolean; keys?: boolean; onOpenPage?: (page: Page) => void; /** Opens a text file of this terminal's folder (the tablet's file tab); without it, the files viewer shows it. */ onOpenFile?: (ptyId: string, path: string) => void }) {
   const screenRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -137,6 +138,22 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
   const closeActions = useCallback(() => setActionsOpen(false), []);
   const closeLink = useCallback(() => setLinkUrl(null), []);
 
+  /** A path tapped in the output: a page the browser shows (html, pdf, images...) or the file as text. */
+  function openPath(path: string): boolean {
+    const file = terminalFile(path, tab.cwd);
+    if (!file) return false;
+    const page = file.previewable && canBrowse ? parseTyped(file.path, ptyId) : null;
+    if (page) {
+      if (onOpenPage) onOpenPage(page);
+      else {
+        setBrowserPage(page);
+        setBrowserOpen(true);
+      }
+    } else if (onOpenFile) onOpenFile(ptyId, file.path);
+    else send({ t: "read", ptyId, path: file.path });
+    return true;
+  }
+
   /** Types text as-is (no modifiers, never Enter), then hands the keyboard back to the terminal. */
   const typeText = useCallback(
     (text: string) => {
@@ -167,6 +184,11 @@ export function TerminalScreen({ tab, status, onBack, onSwitch, onChat, embedded
         if (url) {
           tapFeedback();
           onLink(url);
+          return;
+        }
+        const path = pathAtCell(buf, buf.viewportY + row, col);
+        if (path && openPath(path)) {
+          tapFeedback();
           return;
         }
       }
