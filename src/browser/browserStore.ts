@@ -53,8 +53,27 @@ export function toggleBrowser() {
 let focusTabId: string | null = null;
 const pendingByTab = new Map<string, string>();
 
+const focusWaiters = new Map<string, (() => void)[]>();
+
 export function setBrowserFocusTab(tabId: string | null) {
   focusTabId = tabId;
+  if (!tabId) return;
+  const waiters = focusWaiters.get(tabId);
+  focusWaiters.delete(tabId);
+  waiters?.forEach((resolve) => resolve());
+}
+
+/** Resolves once `tabId` is the tab on screen; null when it already is (or no
+ * tab is known yet), so callers on the tab on screen don't wait a tick. Lets a question about a background tab's page wait
+ * for that tab instead of interrupting the one the user is in. A tab closed
+ * meanwhile never resolves: its page is moot. */
+export function whenTabFocused(tabId: string | undefined): Promise<void> | null {
+  if (!tabId || !focusTabId || tabId === focusTabId) return null;
+  return new Promise((resolve) => {
+    const list = focusWaiters.get(tabId) ?? [];
+    list.push(resolve);
+    focusWaiters.set(tabId, list);
+  });
 }
 
 /** The page a background tab opened while the user was elsewhere, once. */

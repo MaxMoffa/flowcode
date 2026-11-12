@@ -4,7 +4,7 @@ import { isPdfTarget, type AgentOpen } from "../../shared/agentOpen";
 import { checkPath } from "../lib/fileLinks";
 import { toWindowsPath } from "../terminal/wslPath";
 import { getBrowserSettings, type Target } from "./browserSettings";
-import { isLocalUrl, normalizeLocalUrl, openFileInPreview, openUrlInPreview } from "./browserStore";
+import { isLocalUrl, normalizeLocalUrl, openFileInPreview, openUrlInPreview, whenTabFocused } from "./browserStore";
 import type { ConfirmOptions } from "../dialog/ConfirmDialogContext";
 import { t } from "../i18n";
 import { isExecutablePath } from "../lib/filePaths";
@@ -26,7 +26,10 @@ export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro:
   if (/^https?:\/\//i.test(target)) {
     const local = isLocalUrl(target);
     const setting = local ? settings.local : settings.external;
-    // Some adapters never ask for MCP permission. The app still asks before network access.
+    // Some adapters never ask for MCP permission. The app still asks before network access -
+    // on the agent's own tab: from a background tab the question waits until the user goes there.
+    const away = direct && !local ? whenTabFocused(fromTabId) : null;
+    if (away) await away;
     if (direct && !local && !(await confirm?.({ title: t("link.open"), message: target, confirmLabel: t(setting === "system" ? "link.open" : "link.openInPreview") }))) return;
     if (inPanel(setting)) openUrlInPreview(local ? normalizeLocalUrl(target) : target, fromTabId);
     else if (direct) openUrl(target).catch(() => {});

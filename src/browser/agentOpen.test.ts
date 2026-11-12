@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  preview: vi.fn(), system: vi.fn(),
+  preview: vi.fn(), system: vi.fn(), focus: vi.fn((): Promise<void> | null => null),
   settings: { local: "app", external: "ask", artifacts: "app" },
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.system }));
@@ -13,12 +13,27 @@ vi.mock("./browserStore", () => ({
   normalizeLocalUrl: (target: string) => target,
   openUrlInPreview: mocks.preview,
   openFileInPreview: vi.fn(),
+  whenTabFocused: mocks.focus,
 }));
 import { routeAgentOpen, commandCwd, openCommandTarget, toolCommand } from "./agentOpen";
 
 describe("agent browser permission", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.settings.external = "ask"; mocks.system.mockResolvedValue(undefined); });
   const request = { target: "https://example.com/?private=value", cwd: "/repo", direct: true };
+
+  it("asks about a background tab's page only once that tab is on screen", async () => {
+    let focus!: () => void;
+    mocks.focus.mockReturnValueOnce(new Promise<void>((done) => { focus = done; }));
+    const confirm = vi.fn(async () => true);
+    const opening = routeAgentOpen(request, null, confirm, "tab-b");
+    await Promise.resolve();
+    expect(mocks.focus).toHaveBeenCalledWith("tab-b");
+    expect(confirm).not.toHaveBeenCalled();
+    focus();
+    await opening;
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(mocks.preview).toHaveBeenCalledWith(request.target, "tab-b");
+  });
 
   it("does not make a network request while confirmation is pending", async () => {
     let resolve!: (allowed: boolean) => void;

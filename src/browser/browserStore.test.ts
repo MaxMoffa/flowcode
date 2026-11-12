@@ -21,6 +21,7 @@ import {
   setBrowserOpen,
   setServerAlive,
   takePendingPage,
+  whenTabFocused,
 } from "./browserStore";
 
 describe("isLocalUrl", () => {
@@ -233,5 +234,20 @@ describe("pages opened for a background tab", () => {
     openUrlInPreview("http://localhost:3", "tab-b");
     closePage(getBrowser().pages[0].id);
     expect(takePendingPage("tab-b")).toBeNull();
+  });
+});
+
+describe("whenTabFocused", () => {
+  it("is null for the tab on screen and resolves when another one comes forward", async () => {
+    setBrowserFocusTab("tab-a");
+    expect(whenTabFocused("tab-a")).toBeNull();
+    expect(whenTabFocused(undefined)).toBeNull();
+    let done = false;
+    const wait = whenTabFocused("tab-b")!.then(() => { done = true; });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    setBrowserFocusTab("tab-b");
+    await wait;
+    expect(done).toBe(true);
   });
 });
