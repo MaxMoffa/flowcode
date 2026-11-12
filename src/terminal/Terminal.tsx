@@ -343,7 +343,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
     serverTailRef.current = text.slice(-200);
     if (!text.includes("://")) return;
     for (const { url, port } of extractLocalServers(text)) {
-      if (addDetectedServer(url, port, tabId) && getBrowserSettings().autoOpenOnServer) openUrlInPreview(url);
+      if (addDetectedServer(url, port, tabId) && getBrowserSettings().autoOpenOnServer) openUrlInPreview(url, tabId);
     }
   }
 

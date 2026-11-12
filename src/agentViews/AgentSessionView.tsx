@@ -37,6 +37,8 @@ interface AgentSessionViewProps {
   attachWslDistro?: string | null;
   /** The tab this session is the shown conversation of: it publishes its delegation state for the agents panel under it. */
   tabId?: string;
+  /** The app tab the session lives in, shown or not: pages its agent opens wait for that tab. */
+  openTabId?: string;
   /** A delegate card or request asked for its chat: opens its tab, next to this one. */
   onOpenDelegate?: (delegate: DelegateInfo, wslDistro: string | null) => void;
   /** The registered view the session is shown with (absent: the default). */
@@ -74,6 +76,7 @@ export function AgentSessionView({
   attachChatId,
   attachWslDistro,
   tabId,
+  openTabId,
   onOpenDelegate,
   viewId,
   hidden,
@@ -89,7 +92,7 @@ export function AgentSessionView({
 }: AgentSessionViewProps) {
   const { t, language } = useI18n();
   const views = useAgentViews();
-  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, initialActivityAt: lastActiveAt, onSessionId, onStatus });
+  const chat = useChat({ agent, cwd, profileId, resumeSessionId, strictResume, shell, attachChatId, attachWslDistro, openTabId, initialActivityAt: lastActiveAt, onSessionId, onStatus });
   const { model, phase, error, sessionId } = chat;
   // A new chat starting shows the conversation (the frog's pond); a resumed one waits behind the spinner.
   const showView = phase === "ready" || (phase === "starting" && !chat.resumed);

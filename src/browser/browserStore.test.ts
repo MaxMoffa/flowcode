@@ -17,7 +17,10 @@ import {
   openFileInPreview,
   openUrlInPreview,
   removeServersOfTab,
+  setBrowserFocusTab,
+  setBrowserOpen,
   setServerAlive,
+  takePendingPage,
 } from "./browserStore";
 
 describe("isLocalUrl", () => {
@@ -194,5 +197,41 @@ describe("pdf pages", () => {
     expect(after.pages[index]).toEqual({ id, kind: "pdf", src: "https://x.com/convert-me" });
     expect(after.activeId).toBe(id);
     expect(after.pages).toHaveLength(before.length);
+  });
+});
+
+describe("pages opened for a background tab", () => {
+  beforeEach(() => {
+    for (const p of [...getBrowser().pages]) closePage(p.id);
+    setBrowserOpen(false);
+    setBrowserFocusTab("tab-a");
+  });
+
+  it("wait for their own tab instead of opening over the one on screen", () => {
+    openUrlInPreview("http://localhost:1", "tab-a");
+    const shown = getBrowser().activeId;
+    setBrowserOpen(false);
+    openUrlInPreview("http://localhost:2", "tab-b");
+    const { pages, activeId, open } = getBrowser();
+    expect(pages).toHaveLength(2);
+    expect(activeId).toBe(shown);
+    expect(open).toBe(false);
+    expect(takePendingPage("tab-a")).toBeNull();
+    expect(takePendingPage("tab-b")).toBe(pages[1].id);
+    expect(takePendingPage("tab-b")).toBeNull();
+  });
+
+  it("open normally without an origin tab or from the tab on screen", () => {
+    openFileInPreview("/a/b.html");
+    expect(getBrowser().open).toBe(true);
+    setBrowserOpen(false);
+    openFileInPreview("/a/c.html", "tab-a");
+    expect(getBrowser().open).toBe(true);
+  });
+
+  it("drop a pending page that was closed meanwhile", () => {
+    openUrlInPreview("http://localhost:3", "tab-b");
+    closePage(getBrowser().pages[0].id);
+    expect(takePendingPage("tab-b")).toBeNull();
   });
 });

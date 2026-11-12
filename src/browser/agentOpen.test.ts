@@ -29,7 +29,7 @@ describe("agent browser permission", () => {
     expect(mocks.system).not.toHaveBeenCalled();
     resolve(true);
     await opening;
-    expect(mocks.preview).toHaveBeenCalledWith(request.target);
+    expect(mocks.preview).toHaveBeenCalledWith(request.target, undefined);
   });
 
   it("fails closed when the adapter bypasses permission and no confirmation handler exists", async () => {
@@ -51,13 +51,13 @@ describe("agent browser permission", () => {
     mocks.settings.external = "system";
     const target = "https://example.com/paper.pdf";
     await routeAgentOpen({ ...request, target }, null, async () => true);
-    expect(mocks.preview).toHaveBeenCalledWith(target);
+    expect(mocks.preview).toHaveBeenCalledWith(target, undefined);
     expect(mocks.system).not.toHaveBeenCalled();
   });
 
   it("keeps loopback previews automatic", async () => {
     await routeAgentOpen({ ...request, target: "http://localhost:3000" }, null);
-    expect(mocks.preview).toHaveBeenCalledWith("http://localhost:3000");
+    expect(mocks.preview).toHaveBeenCalledWith("http://localhost:3000", undefined);
   });
 });
 

@@ -111,14 +111,22 @@ export function usePanelLayout({
     browser: isNarrow ? open.browser && overlay !== "browser" : solved.parked.includes("browser"),
   };
 
-  // A panel that just opened takes priority; narrow, it also shows as the overlay.
+  // A panel that just opened takes priority; narrow, it also shows as the
+  // overlay - unless the opening is a restore (a tab switch bringing back that
+  // tab's panels), which the user didn't ask for: those stay parked.
   const prevOpenRef = useRef(open);
+  const restoringRef = useRef(false);
+  const markRestore = useCallback(() => {
+    restoringRef.current = true;
+  }, []);
   useEffect(() => {
     const prev = prevOpenRef.current;
     prevOpenRef.current = open;
+    const restoring = restoringRef.current;
+    restoringRef.current = false;
     const opened = KEYS.filter((k) => open[k] && !prev[k]);
     for (const k of opened) bump(k);
-    if (isNarrow && opened.length > 0) setPeek(opened[opened.length - 1]);
+    if (isNarrow && !restoring && opened.length > 0) setPeek(opened[opened.length - 1]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sidebarCollapsed, agentsSidebarOpen, browserOpen]);
   // Entering or leaving narrow starts from no overlay; a closed panel has no overlay either.
@@ -189,6 +197,7 @@ export function usePanelLayout({
     maxWidth: solved.maxWidth,
     widthOf,
     togglePanel,
+    markRestore,
     panelPointerDown,
     dismissSidebarOverlay,
     dismissOverlay,

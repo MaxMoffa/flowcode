@@ -16,8 +16,10 @@ export { commandCwd, createAgentOpenTracker, openCommandTarget, toolCommand } fr
  * get here). After a shell opener the system has already opened it - this can't
  * stop that, only add the panel when the settings say "in app". Flowcode's own
  * tool (`direct`) opened nothing yet. External destinations require the app's
- * confirmation even when an adapter skips its own permission request. */
-export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro: string | null, confirm?: (options: ConfirmOptions) => Promise<boolean>): Promise<void> {
+ * confirmation even when an adapter skips its own permission request.
+ * `fromTabId`: the agent's own tab - the page waits there instead of popping
+ * over another tab the user is working in. */
+export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro: string | null, confirm?: (options: ConfirmOptions) => Promise<boolean>, fromTabId?: string): Promise<void> {
   const settings = getBrowserSettings();
   // Flowcode's own tool opens a PDF in the built-in viewer whatever the setting says.
   const inPanel = (setting: Target) => setting === "app" || (direct && (setting === "ask" || isPdfTarget(target)));
@@ -26,7 +28,7 @@ export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro:
     const setting = local ? settings.local : settings.external;
     // Some adapters never ask for MCP permission. The app still asks before network access.
     if (direct && !local && !(await confirm?.({ title: t("link.open"), message: target, confirmLabel: t(setting === "system" ? "link.open" : "link.openInPreview") }))) return;
-    if (inPanel(setting)) openUrlInPreview(local ? normalizeLocalUrl(target) : target);
+    if (inPanel(setting)) openUrlInPreview(local ? normalizeLocalUrl(target) : target, fromTabId);
     else if (direct) openUrl(target).catch(() => {});
     return;
   }
@@ -34,6 +36,6 @@ export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro:
   const path = distro && target.startsWith("/") ? toWindowsPath(distro, target) : target;
   const found = await checkPath(path, cwd);
   if (found?.kind !== "file") return;
-  if (inPanel(settings.artifacts) || isExecutablePath(found.path)) openFileInPreview(found.path);
+  if (inPanel(settings.artifacts) || isExecutablePath(found.path)) openFileInPreview(found.path, fromTabId);
   else void invoke("open_with_default_app", { path: found.path }).catch(() => {});
 }

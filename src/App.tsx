@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -6,7 +6,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentInsightPanel } from "./agents/AgentInsightPanel";
-import { openFileInPreview, setBrowserOpen, useBrowser } from "./browser/browserStore";
+import { activatePage, openFileInPreview, setBrowserFocusTab, setBrowserOpen, takePendingPage, useBrowser } from "./browser/browserStore";
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
@@ -245,6 +245,8 @@ function Shell() {
   const panelsNowRef = useRef({ sidebarCollapsed, agentsSidebarOpen, browserOpen });
   panelsNowRef.current = { sidebarCollapsed, agentsSidebarOpen, browserOpen };
   const panelsTabRef = useRef(activeTabId);
+  // usePanelLayout's markRestore, set once the hook has run below.
+  const panelRestoreRef = useRef<() => void>(() => {});
   useEffect(() => {
     const previous = panelsTabRef.current;
     if (previous === activeTabId) return;
@@ -252,10 +254,21 @@ function Shell() {
     const map = panelsByTabRef.current;
     map.set(previous, panelsNowRef.current);
     const next = map.get(activeTabId) ?? { ...panelsNowRef.current, browserOpen: false };
+    // A page an agent or dev server of this tab opened while the user was elsewhere shows now.
+    const pending = takePendingPage(activeTabId);
+    if (pending) activatePage(pending);
+    const browser = next.browserOpen || pending !== null;
+    const now = panelsNowRef.current;
+    // Restored panels are not the user asking for them: in a narrow window they stay parked instead of popping over the content.
+    if ((now.sidebarCollapsed && !next.sidebarCollapsed) || (!now.agentsSidebarOpen && next.agentsSidebarOpen) || (!now.browserOpen && browser)) {
+      panelRestoreRef.current();
+    }
     setSidebarCollapsed(next.sidebarCollapsed);
     setAgentsSidebarOpen(next.agentsSidebarOpen);
-    setBrowserOpen(next.browserOpen);
+    setBrowserOpen(browser);
   }, [activeTabId, setSidebarCollapsed, setAgentsSidebarOpen]);
+  // The tab on screen, for pages opened on behalf of another tab (see browserStore).
+  useLayoutEffect(() => setBrowserFocusTab(activeTabId), [activeTabId]);
   // The tab strip, the shortcuts and the phone's list leave out the new tab dialog.
   const stripTabs = useMemo(() => listedTabs(tabs), [tabs]);
   const [{ layout: newTabLayoutId }] = useNewTabSettings();
@@ -685,6 +698,7 @@ function Shell() {
   });
   const { isNarrow, sidebarPresence, agentsPresence, browserPresence, togglePanel, panelPointerDown } = panelLayout;
   layoutLiveRef.current = { maxWidth: panelLayout.maxWidth, shown: panelLayout.shown };
+  panelRestoreRef.current = panelLayout.markRestore;
 
   useCliLoginEvent();
 
@@ -3198,6 +3212,7 @@ function Shell() {
                             attachChatId={tab.delegate?.chatId}
                             attachWslDistro={tab.delegate?.wslDistro}
                             tabId={pane.shown ? tab.id : undefined}
+                            openTabId={tab.id}
                             onOpenDelegate={(delegate, wslDistro) => openDelegateTab(tab.id, delegate, wslDistro)}
                             viewId={pane.viewId}
                             hidden={tab.id !== activeTabId || !pane.shown}

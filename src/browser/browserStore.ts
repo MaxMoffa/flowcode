@@ -46,15 +46,40 @@ export function toggleBrowser() {
   setBrowserOpen((o) => !o);
 }
 
-export function openPdfInPreview(src: string) {
+// The tab on screen (App keeps it current). A page opened on behalf of another
+// tab - an agent or a dev server running in the background - must not pop the
+// Browser over the tab the user is working in: it is added but waits for its
+// own tab, which shows it when the user goes back there.
+let focusTabId: string | null = null;
+const pendingByTab = new Map<string, string>();
+
+export function setBrowserFocusTab(tabId: string | null) {
+  focusTabId = tabId;
+}
+
+/** The page a background tab opened while the user was elsewhere, once. */
+export function takePendingPage(tabId: string): string | null {
+  const id = pendingByTab.get(tabId) ?? null;
+  pendingByTab.delete(tabId);
+  return id && store.get().pages.some((p) => p.id === id) ? id : null;
+}
+
+/** Brings page `id` in front and opens the Browser - unless `fromTabId` is a
+ * tab other than the one on screen, in which case it waits for that tab. */
+function showPage(id: string, fromTabId?: string) {
+  if (fromTabId && focusTabId && fromTabId !== focusTabId) {
+    pendingByTab.set(fromTabId, id);
+    return;
+  }
+  store.update((s) => ({ ...s, activeId: id }));
+  setBrowserOpen(true);
+}
+
+export function openPdfInPreview(src: string, fromTabId?: string) {
   const existing = store.get().pages.find((p) => p.kind === "pdf" && p.src === src);
   const id = existing?.id ?? newId();
-  store.update((s) => ({
-    ...s,
-    pages: existing ? s.pages : [...s.pages, { id, kind: "pdf", src }],
-    activeId: id,
-  }));
-  setBrowserOpen(true);
+  if (!existing) store.update((s) => ({ ...s, pages: [...s.pages, { id, kind: "pdf", src }] }));
+  showPage(id, fromTabId);
 }
 
 /** A url page that turned out to serve a PDF becomes a viewer page, in place. */
@@ -65,28 +90,21 @@ export function convertPageToPdf(id: string, url: string) {
   }));
 }
 
-export function openUrlInPreview(url: string) {
-  if (isPdfTarget(url)) return openPdfInPreview(url);
+/** `fromTabId`: the tab this is opened for, when not the user's own action on screen. */
+export function openUrlInPreview(url: string, fromTabId?: string) {
+  if (isPdfTarget(url)) return openPdfInPreview(url, fromTabId);
   const existing = store.get().pages.find((p) => p.kind === "url" && p.url === url);
   const id = existing?.id ?? newId();
-  store.update((s) => ({
-    ...s,
-    pages: existing ? s.pages : [...s.pages, { id, kind: "url", url, back: [], forward: [] }],
-    activeId: id,
-  }));
-  setBrowserOpen(true);
+  if (!existing) store.update((s) => ({ ...s, pages: [...s.pages, { id, kind: "url", url, back: [], forward: [] }] }));
+  showPage(id, fromTabId);
 }
 
-export function openFileInPreview(path: string) {
-  if (isPdfTarget(path)) return openPdfInPreview(path);
+export function openFileInPreview(path: string, fromTabId?: string) {
+  if (isPdfTarget(path)) return openPdfInPreview(path, fromTabId);
   const existing = store.get().pages.find((p) => p.kind === "file" && p.path === path);
   const id = existing?.id ?? newId();
-  store.update((s) => ({
-    ...s,
-    pages: existing ? s.pages : [...s.pages, { id, kind: "file", path }],
-    activeId: id,
-  }));
-  setBrowserOpen(true);
+  if (!existing) store.update((s) => ({ ...s, pages: [...s.pages, { id, kind: "file", path }] }));
+  showPage(id, fromTabId);
 }
 
 export function activatePage(id: string) {
