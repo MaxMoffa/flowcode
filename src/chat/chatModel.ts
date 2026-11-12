@@ -542,6 +542,11 @@ function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): Chat
       if (value !== undefined && value !== null) merged[key] = value;
     }
     const call = merged as unknown as ChatToolCall;
+    // A promoted Codex activity launch keeps its child thread when a later update resends the bare activity input.
+    const prevInput = prev.call.rawInput;
+    if (isCodexSubagentLaunch(prev.call) && prevInput && typeof prevInput === "object" && patch.rawInput && typeof patch.rawInput === "object") {
+      call.rawInput = { ...(prevInput as Record<string, unknown>), ...(patch.rawInput as Record<string, unknown>) };
+    }
     // A command is timed from its first event (the background terminals show how long it runs).
     if (call.kind === "execute" && call.startedAt === undefined) call.startedAt = at;
     // A subagent launch is timed: from its first event to its final status.

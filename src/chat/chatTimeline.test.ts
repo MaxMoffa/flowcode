@@ -97,6 +97,31 @@ describe("Codex subagents", () => {
     expect(subagentReport(findSubagent(state.items, "s1")!.call)).toBe("No slots available");
   });
 
+  describe("multi-agent v2: a started activity with no spawn call", () => {
+    const activity = (seq: number, id: string, kind: string, thread = "a", status = "completed"): ChatEvent => update(seq, id, {
+      sessionUpdate: seq === 0 ? "tool_call" : "tool_call_update", title: `${kind} subagent reviewer`, kind: "other", status,
+      rawInput: { agentThreadId: thread, agentPath: "/root/reviewer", activityKind: kind },
+    });
+    const subs = (items: ChatItem[]) => buildTimeline(items).flatMap((s) => s.type === "subagents" ? s.items : []);
+
+    it("is the launch, running until the child's completion activity", () => {
+      let state = [activity(1, "act1", "started", "a", "in_progress"), activity(2, "act1", "started")].reduce(applyEvent, settleChat(initialChat()));
+      expect(subs(state.items).map((s) => s.id)).toEqual(["act1"]);
+      expect(subagentState(findSubagent(state.items, "act1")!).running).toBe(true);
+      expect(subagentInfo(findSubagent(state.items, "act1")!.call).type).toBe("reviewer");
+      state = applyEvent(state, activity(3, "act2", "interacted"));
+      state = applyEvent(state, activity(4, "act3", "completed"));
+      expect(subagentState(findSubagent(state.items, "act1")!)).toMatchObject({ running: false, failed: false });
+      expect(subs(state.items).map((s) => s.id)).toEqual(["act1"]);
+    });
+
+    it("gives way to a spawn call that names the same child later", () => {
+      const state = [spawn(1, "s1", "a"), activity(2, "act1", "started"), spawned(3, "s1", "a")].reduce(applyEvent, settleChat(initialChat()));
+      expect(subs(state.items).map((s) => s.id)).toEqual(["s1"]);
+      expect(findSubagent(state.items, "s1")!.steps.map((s) => s.id)).toEqual(["act1"]);
+    });
+  });
+
   it("removes running Codex children after cancellation or process exit", () => {
     const state = [spawn(1, "s1", "a"), spawned(2, "s1", "a")].reduce(applyEvent, settleChat(initialChat()));
     for (const event of [{ kind: "turnEnd", stopReason: "cancelled" }, { kind: "exit", code: 1 }] as const) {
