@@ -2,6 +2,11 @@
 //! recent-sessions list (host and WSL).
 
 use super::*;
+use std::io::Read;
+
+/// Metadata and legacy lookup each read at most this many bytes per rollout
+/// (a real `session_meta` line, with its base instructions, is ~25 KiB).
+const CODEX_ROLLOUT_HEAD_BYTES: u64 = 1024 * 1024;
 
 /// Whether the rollout's last turn is still open: its latest `task_started`
 /// has no `task_complete` / `turn_aborted` after it. Codex writes nothing
@@ -70,7 +75,7 @@ pub(super) fn rollout_meta(path: &Path) -> Option<RolloutMeta> {
     // one: read, but not a `session_meta` shape - final.
     let meta: Option<Option<RolloutMeta>> = (|| {
         let file = std::fs::File::open(path).ok()?;
-        let line = BufReader::new(file).lines().next()?.ok()?;
+        let line = BufReader::new(file.take(CODEX_ROLLOUT_HEAD_BYTES)).lines().next()?.ok()?;
         let value: serde_json::Value = serde_json::from_str(&line).ok()?;
         Some((|| {
             let payload = value.get("payload")?;
@@ -235,10 +240,13 @@ pub(super) fn codex_thread_names(sessions_root: &Path) -> HashMap<String, String
     names
 }
 
-/// Max sessions listed in the sidebar - a project with years of history
-/// shouldn't dump its entire archive there, just what's plausibly worth
-/// resuming.
-pub(super) const MAX_CODEX_SESSIONS: usize = 8;
+/// Both desktop and remote callers list all projects, then filter by project.
+/// Match Claude's history budget so other projects do not crowd out all but
+/// one or two sessions before that filtering happens.
+pub(super) const MAX_CODEX_SESSIONS: usize = 200;
+/// Per home, inspect at most 2,000 rollout heads (including children) at depth
+/// five. No full transcripts are read; cached scans serve polls for four seconds.
+const MAX_CODEX_ROLLOUT_CANDIDATES: usize = 2_000;
 
 pub(super) fn is_rollout_name(name: &str) -> bool {
     name.starts_with("rollout-") && name.ends_with(".jsonl")
@@ -380,7 +388,7 @@ pub(super) fn read_codex_session(
         return if meta.subagent || !super::is_safe_session_id(&meta.id) { None } else { Some(entry(meta.cwd, meta.id)) };
     }
     // Older layouts: no `session_meta` envelope - best-effort search.
-    let reader = BufReader::new(std::fs::File::open(path).ok()?);
+    let reader = BufReader::new(std::fs::File::open(path).ok()?.take(CODEX_ROLLOUT_HEAD_BYTES));
     let mut cwd: Option<String> = None;
     let mut session_id: Option<String> = None;
     for line in reader.lines().take(20).filter_map(|l| l.ok()) {
@@ -473,11 +481,11 @@ pub(super) fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile
         }
     }
 
-    // Only the newest day folders are walked, and a few more files than shown
-    // (some are sub-agent threads or unreadable) - not the whole history just
-    // to throw all but a handful away.
+    // Search beyond recent children and other projects, but bound file count
+    // and depth. read_codex_session bounds bytes and skips child threads before
+    // the session cap is applied.
     let mut files = Vec::new();
-    find_recent_rollouts(root, 5, MAX_CODEX_SESSIONS * 4, &mut files);
+    find_recent_rollouts(root, 5, MAX_CODEX_ROLLOUT_CANDIDATES, &mut files);
 
     // By mtime (one cheap stat each) before opening anything: a thread written
     // to recently outranks one merely started later.
@@ -503,4 +511,101 @@ pub(super) fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile
     }
     lock(&CACHE).insert(root.to_path_buf(), (std::time::Instant::now(), sessions.clone()));
     sessions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sessions_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("flowcode-codex-history-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_session(root: &Path, index: usize, cwd: &str, extra: serde_json::Value) {
+        let mut payload = serde_json::json!({"id": format!("session-{index}"), "cwd": cwd, "source": "cli"});
+        payload.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let path = root.join(format!("rollout-{index:05}.jsonl"));
+        std::fs::write(&path, serde_json::json!({"type": "session_meta", "payload": payload}).to_string()).unwrap();
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_times(std::fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(index as u64))).unwrap();
+    }
+
+    #[test]
+    fn history_keeps_project_sessions_past_other_projects_and_children() {
+        let root = sessions_dir();
+        for i in 0..12 {
+            write_session(&root, i, "/project", serde_json::json!({}));
+        }
+        for i in 12..24 {
+            write_session(&root, i, "/other", serde_json::json!({}));
+        }
+        for i in 24..84 {
+            // Both child markers occur in real Codex session_meta records.
+            let extra = if i % 2 == 0 {
+                serde_json::json!({"parent_thread_id": "parent"})
+            } else {
+                serde_json::json!({"source": {"subagent": {"thread_spawn": {"parent_thread_id": "parent", "depth": 1}}}})
+            };
+            write_session(&root, i, "/project", extra);
+        }
+        let sessions = scan_codex_sessions(&root, Some("Ubuntu"), Some("work"));
+        assert_eq!(sessions.len(), 24);
+        assert_eq!(sessions.iter().filter(|s| s.cwd == "/project").count(), 12);
+        assert!(sessions.iter().all(|s| s.wsl_distro.as_deref() == Some("Ubuntu") && s.profile.as_deref() == Some("work")));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn history_caps_sessions_after_sorting_by_last_write() {
+        let root = sessions_dir();
+        for i in 0..MAX_CODEX_SESSIONS + 5 {
+            write_session(&root, i, "/project", serde_json::json!({}));
+        }
+        // An older filename with a newer write must outrank newer filenames.
+        let file = std::fs::File::options().write(true).open(root.join("rollout-00000.jsonl")).unwrap();
+        file.set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::now())).unwrap();
+        drop(file);
+        let sessions = scan_codex_sessions(&root, None, None);
+        assert_eq!(sessions.len(), MAX_CODEX_SESSIONS);
+        assert_eq!(sessions[0].session_id, "session-0");
+        assert_eq!(sessions[1].session_id, format!("session-{}", MAX_CODEX_SESSIONS + 4));
+        assert!(!sessions.iter().any(|s| s.session_id == "session-1"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn history_does_not_scan_past_candidate_budget() {
+        let root = sessions_dir();
+        write_session(&root, 0, "/project", serde_json::json!({}));
+        for i in 1..=MAX_CODEX_ROLLOUT_CANDIDATES {
+            write_session(&root, i, "/project", serde_json::json!({"parent_thread_id": "parent"}));
+        }
+        // The only resumable session lies outside the bounded candidate set.
+        assert!(scan_codex_sessions(&root, None, None).is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rollout_readers_stop_at_the_head_byte_limit() {
+        let root = sessions_dir();
+        let meta_path = root.join("rollout-meta.jsonl");
+        let meta = serde_json::json!({
+            "type": "session_meta",
+            "payload": {"id": "session", "cwd": "/project", "padding": "x".repeat(CODEX_ROLLOUT_HEAD_BYTES as usize)},
+        });
+        std::fs::write(&meta_path, meta.to_string()).unwrap();
+        assert!(read_codex_session(&meta_path, None, None, None).is_none());
+
+        let legacy_path = root.join("rollout-legacy.jsonl");
+        let legacy = r#"{"session_id":"legacy","cwd":"/project"}"#;
+        std::fs::write(&legacy_path, format!("{}\n{legacy}\n", " ".repeat(CODEX_ROLLOUT_HEAD_BYTES as usize))).unwrap();
+        assert!(read_codex_session(&legacy_path, None, None, None).is_none());
+
+        let valid_path = root.join("rollout-valid-legacy.jsonl");
+        std::fs::write(&valid_path, legacy).unwrap();
+        assert_eq!(read_codex_session(&valid_path, None, None, None).unwrap().session_id, "legacy");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

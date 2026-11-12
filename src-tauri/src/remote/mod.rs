@@ -2767,7 +2767,7 @@ impl Conn {
                     let _ = out.send(ServerMsg::History { request_id, result, error }).await;
                 });
             }
-            ClientMsg::Resume { cwd, session_id, cli, wsl_distro, profile } => {
+            ClientMsg::Resume { cwd, session_id, cli, wsl_distro, profile, view } => {
                 let bad = |s: &str, max: usize| s.is_empty() || s.len() > max || s.chars().any(|c| c.is_control());
                 if bad(&cwd, 4096) || bad(&session_id, 256) || wsl_distro.as_deref().is_some_and(|d| bad(d, 128)) {
                     self.error(tr("Sessione non valida", "Invalid session"), None);
@@ -2781,7 +2781,8 @@ impl Conn {
                     self.error(tr("Nessuna finestra aperta", "No window is open"), None);
                     return;
                 };
-                let payload = serde_json::json!({ "cwd": cwd, "sessionId": session_id, "cli": cli, "wslDistro": wsl_distro, "profile": profile });
+                let view = view.filter(|v| v == "chat" || v == "terminal");
+                let payload = serde_json::json!({ "cwd": cwd, "sessionId": session_id, "cli": cli, "wslDistro": wsl_distro, "profile": profile, "view": view });
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_RESUME_SESSION, payload);
             }
         }

@@ -27,11 +27,13 @@ function ageOf(at: number): string {
 const EMPTY: HistoryEntries = { claude: [], codex: [], vibe: [], opencode: [] };
 
 /** The phone's History tab of the wide sidebar: the sessions of the project at `cwd`, saved ones from the desktop plus those open in a chat or terminal tab. */
-export function WideHistory({ cwd, cli, profile, currentSessionId, visible, onOpenChat, onOpenPty }: {
+export function WideHistory({ cwd, cli, profile, currentSessionId, view, visible, onOpenChat, onOpenPty }: {
   cwd: string | null;
   cli: string;
   profile?: string | null;
   currentSessionId?: string | null;
+  /** The kind of tab the list is shown for: a saved session picked here opens the same way. */
+  view?: "chat" | "terminal";
   visible: boolean;
   onOpenChat: (chatId: string) => void;
   onOpenPty: (ptyId: string) => void;
@@ -110,7 +112,7 @@ export function WideHistory({ cwd, cli, profile, currentSessionId, visible, onOp
   const openRow = (row: HistoryRow) => {
     if (row.tabId?.startsWith("c:")) return onOpenChat(row.tabId.slice(2));
     if (row.tabId?.startsWith("p:")) return onOpenPty(row.tabId.slice(2));
-    resumeSession({ cwd: row.cwd, sessionId: row.sessionId, cli: row.cli, wslDistro: row.wslDistro, profile: row.profile });
+    resumeSession({ cwd: row.cwd, sessionId: row.sessionId, cli: row.cli, wslDistro: row.wslDistro, profile: row.profile, view });
     showToast(t("whHistResuming"));
   };
   const newSession = () => {

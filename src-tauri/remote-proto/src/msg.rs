@@ -136,6 +136,9 @@ pub enum ClientMsg {
         wsl_distro: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         profile: Option<String>,
+        /// "chat" or "terminal": how the phone wants it opened (it picked it from a chat or a terminal). None: the desktop's choice.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        view: Option<String>,
     },
     /// Change one desktop setting the phone mirrors (see `ServerMsg::Settings`).
     /// The desktop validates `key` and the value's type and ignores anything else.
@@ -656,9 +659,9 @@ mod tests {
         assert_eq!(json, serde_json::json!({ "t": "history", "requestId": "h1", "error": "no" }));
         assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), reply);
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"resume","cwd":"C:/p","sessionId":"s1","cli":"claude"}"#).unwrap();
-        assert_eq!(msg, ClientMsg::Resume { cwd: "C:/p".into(), session_id: "s1".into(), cli: "claude".into(), wsl_distro: None, profile: None });
-        let json = serde_json::to_value(ClientMsg::Resume { cwd: "/p".into(), session_id: "s".into(), cli: "codex".into(), wsl_distro: Some("Ubuntu".into()), profile: Some("w".into()) }).unwrap();
-        assert_eq!(json, serde_json::json!({ "t": "resume", "cwd": "/p", "sessionId": "s", "cli": "codex", "wslDistro": "Ubuntu", "profile": "w" }));
+        assert_eq!(msg, ClientMsg::Resume { cwd: "C:/p".into(), session_id: "s1".into(), cli: "claude".into(), wsl_distro: None, profile: None, view: None });
+        let json = serde_json::to_value(ClientMsg::Resume { cwd: "/p".into(), session_id: "s".into(), cli: "codex".into(), wsl_distro: Some("Ubuntu".into()), profile: Some("w".into()), view: Some("chat".into()) }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "resume", "cwd": "/p", "sessionId": "s", "cli": "codex", "wslDistro": "Ubuntu", "profile": "w", "view": "chat" }));
     }
     #[test]
     fn prompt_receipts_and_image_ids_expand_the_old_protocol() {

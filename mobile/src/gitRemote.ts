@@ -33,6 +33,6 @@ export const historyRequest = (cwd: string): Promise<HistoryResult> =>
   correlated<HistoryResult>("hist", "history", (requestId) => ({ t: "history", requestId, cwd }), 30_000);
 
 /** Resumes an agent session in a new desktop tab (`resume` cap); fire and forget. */
-export function resumeSession(p: { cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null }): void {
-  send({ t: "resume", cwd: p.cwd, sessionId: p.sessionId, cli: p.cli, wslDistro: p.wslDistro ?? undefined, profile: p.profile ?? undefined });
+export function resumeSession(p: { cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null; view?: "chat" | "terminal" }): void {
+  send({ t: "resume", cwd: p.cwd, sessionId: p.sessionId, cli: p.cli, wslDistro: p.wslDistro ?? undefined, profile: p.profile ?? undefined, view: p.view });
 }

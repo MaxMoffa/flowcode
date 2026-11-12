@@ -753,7 +753,7 @@ function Shell() {
   const remoteChatCloseRef = useRef<(tabId: string) => void>(() => {});
   const remoteTabOpRef = useRef<(target: { ptyId?: string; tabId?: string }, op: RemoteTabOp) => void>(() => {});
   const remoteNewChatRef = useRef<(cwd: string | null, cli: string, profile: string | null | undefined) => void>(() => {});
-  const remoteResumeRef = useRef<(cwd: string, sessionId: string, cli: string, wslDistro: string | null | undefined, profile: string | null | undefined) => void>(() => {});
+  const remoteResumeRef = useRef<(cwd: string, sessionId: string, cli: string, wslDistro: string | null | undefined, profile: string | null | undefined, view?: "chat" | "terminal") => void>(() => {});
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
   const allPluginsRef = useRef<PluginDef[]>([]);
 
@@ -1053,23 +1053,31 @@ function Shell() {
     setActiveTerminalId(id);
   }
 
-  /** A saved session picked in the Agents sidebar: resumed in the default
-   * agent view - a chat tab, or a terminal (always, for one inside WSL). */
-  function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number) {
-    if (!wslDistro && defaultOpensChat()) {
-      // A chat tab already on this folder (same agent, profile, outside WSL) shows it too, the conversation
+  /** A saved session picked in the History: resumed as a chat when picked from a chat (or a phone asks for one, or
+   * chats are the default agent view), otherwise in a terminal. */
+  function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number, view?: "chat" | "terminal") {
+    const { tabs: all, activeTabId: front } = latestRef.current;
+    // `view`: what a phone asked for. Otherwise, picked from a chat's History: it opens as a chat too, whatever the default view.
+    if (view ? view === "chat" : all.find((t) => t.id === front)?.kind === "chat" || defaultOpensChat()) {
+      // Saved inside WSL: a chat in that distro, on the folder as Windows sees it (like the WSL terminal).
+      const chatCwd = wslDistro ? toWindowsPath(wslDistro, cwd) : cwd;
+      // The default distro (shell "wsl") has no name to compare: such a chat is never reused.
+      const distroOf = (t: ChatTab) => {
+        const shellDistro = wslDistroOfShell(t.shell);
+        return shellDistro === null ? "\0wsl" : (shellDistro ?? wslDistroOfPath(t.cwd) ?? undefined);
+      };
+      // A chat tab already on this folder (same agent, profile, same side of WSL) shows it too, the conversation
       // it had keeps running in the background; only without one does a new tab open.
-      const { tabs: all, activeTabId: front } = latestRef.current;
       const fits = (t: AppTab): t is ChatTab =>
-        t.kind === "chat" && t.agent === cli && t.cwd === cwd && (t.profileId ?? null) === (profileId ?? null) && !t.handoffFrom && wslDistroOfShell(t.shell) === undefined;
+        t.kind === "chat" && t.agent === cli && t.cwd === chatCwd && (t.profileId ?? null) === (profileId ?? null) && !t.handoffFrom && distroOf(t) === (wslDistro || undefined);
       const target = all.find((t) => t.id === front && fits(t)) ?? all.find(fits);
       if (target) {
         showChatSession(target.id, sessionId, lastActiveAt);
         setActiveTabId(target.id);
         return;
       }
-      // A session saved outside WSL is loaded outside it, whatever the default shell is.
-      void openChatTab(cli, cwd, { profileId, shell: "host", resume: { sessionId, lastActiveAt } });
+      // A session is loaded where it was saved (outside WSL or in its distro), whatever the default shell is.
+      void openChatTab(cli, chatCwd, { profileId, shell: wslDistro ? wslShellId(wslDistro) : "host", resume: { sessionId, lastActiveAt } });
       return;
     }
     void openAgentSession(cwd, sessionId, cli, wslDistro, profileId);
@@ -2144,9 +2152,9 @@ function Shell() {
     } else addTab(cwd ?? undefined, undefined, false, profileId);
   };
 
-  remoteResumeRef.current = (cwd, sessionId, cli, wslDistro, profile) => {
+  remoteResumeRef.current = (cwd, sessionId, cli, wslDistro, profile, view) => {
     if (!(AGENT_CLIS as readonly string[]).includes(cli)) return;
-    resumeAgentSession(cwd, sessionId, cli as AgentCli, wslDistro ?? undefined, remoteProfileId(profile) ?? undefined);
+    resumeAgentSession(cwd, sessionId, cli as AgentCli, wslDistro ?? undefined, remoteProfileId(profile) ?? undefined, undefined, view);
   };
 
   remoteNewChatRef.current = (cwd, cli, profile) => {

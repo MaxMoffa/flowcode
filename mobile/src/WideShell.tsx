@@ -414,7 +414,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   /** The chat of the shown tab (while no terminal is). */
   const chatInfo = !active && activeChat ? (chats ?? []).find((c) => c.chatId === activeChat) : undefined;
   const sideCwd = active?.cwd || chatInfo?.cwd || null;
-  const sideAgent = active?.cli ? { cli: active.cli, profile: active.profile ?? null, sessionId: null } : chatInfo ? { cli: chatInfo.agent, profile: chatInfo.profile ?? null, sessionId: chatInfo.sessionId ?? null } : null;
+  const sideAgent = active?.cli ? { cli: active.cli, profile: active.profile ?? null, sessionId: null, view: "terminal" as const } : chatInfo ? { cli: chatInfo.agent, profile: chatInfo.profile ?? null, sessionId: chatInfo.sessionId ?? null, view: "chat" as const } : null;
   const menuEntry = tabMenu ? entries.find((x) => x.key === tabMenu.key) : undefined;
   /** The entry whose tab is open (none while a settings or file tab is). */
   const shownKey = doc !== null ? null : active ? ptyKey(active.ptyId) : activeChat ? chatKey(activeChat) : null;

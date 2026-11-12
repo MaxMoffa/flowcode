@@ -31,7 +31,7 @@ interface RemoteWindowEventRefs {
   remoteChatRenameRef: MutableRefObject<(tabId: string, label: string) => void>;
   remoteChatCloseRef: MutableRefObject<(tabId: string) => void>;
   remoteNewChatRef: MutableRefObject<(cwd: string | null, cli: string, profile: string | null | undefined) => void>;
-  remoteResumeRef: MutableRefObject<(cwd: string, sessionId: string, cli: string, wslDistro: string | null | undefined, profile: string | null | undefined) => void>;
+  remoteResumeRef: MutableRefObject<(cwd: string, sessionId: string, cli: string, wslDistro: string | null | undefined, profile: string | null | undefined, view?: "chat" | "terminal") => void>;
 }
 
 export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
@@ -115,11 +115,11 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       remoteNewChatRef.current(e.payload.cwd ?? null, e.payload.cli, e.payload.profile ?? undefined);
     });
     // A phone resuming an agent session from the history.
-    const unlistenResume = webview.listen<{ cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null }>(
+    const unlistenResume = webview.listen<{ cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null; view?: string | null }>(
       "remote://resume-session",
       (e) => {
         const p = e.payload;
-        remoteResumeRef.current(p.cwd, p.sessionId, p.cli, p.wslDistro ?? undefined, p.profile ?? undefined);
+        remoteResumeRef.current(p.cwd, p.sessionId, p.cli, p.wslDistro ?? undefined, p.profile ?? undefined, p.view === "chat" || p.view === "terminal" ? p.view : undefined);
       },
     );
     // A prompt sent from a phone: counts as a submit for the agent notifications.

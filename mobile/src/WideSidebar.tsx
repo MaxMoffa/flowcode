@@ -17,7 +17,7 @@ export interface WideSidebarProps {
   /** Absolute folder of the shown terminal or chat. */
   cwd: string | null;
   /** The agent of the shown terminal or chat, when it is one. */
-  agent: { cli: string; profile?: string | null; sessionId?: string | null } | null;
+  agent: { cli: string; profile?: string | null; sessionId?: string | null; view?: "chat" | "terminal" } | null;
   activeFile: string | null;
   onOpenFile: (absPath: string) => void;
   onOpenDiff: (root: string, path: string, staged: boolean, status: string) => void;
@@ -80,7 +80,7 @@ export function WideSidebar({ cwd, agent, activeFile, onOpenFile, onOpenDiff, on
       )}
       {hasHistory && cwd && agent && (
         <div className="ws-panel" hidden={tab !== "history"}>
-          <WideHistory cwd={cwd} cli={agent.cli} profile={agent.profile} currentSessionId={agent.sessionId} visible={tab === "history"} onOpenChat={onOpenChat} onOpenPty={onOpenPty} />
+          <WideHistory cwd={cwd} cli={agent.cli} profile={agent.profile} currentSessionId={agent.sessionId} view={agent.view} visible={tab === "history"} onOpenChat={onOpenChat} onOpenPty={onOpenPty} />
         </div>
       )}
     </>

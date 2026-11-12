@@ -383,7 +383,7 @@ export type ClientMsg =
   | { t: "fs"; requestId: string; request: FsRequest }
   | { t: "git"; requestId: string; request: GitRequest }
   | { t: "history"; requestId: string; cwd: string }
-  | { t: "resume"; cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null }
+  | { t: "resume"; cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null; view?: "chat" | "terminal" }
   | { t: "list" }
   | { t: "open"; ptyId: string; cols?: number; rows?: number }
   | { t: "resize"; ptyId: string; cols: number; rows: number }
