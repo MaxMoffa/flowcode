@@ -150,6 +150,13 @@ function contrast(a: string, b: string): number {
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
+/** Whether a palette's surface is light (cards lighter than the chrome,
+ * no drop shadows) - by colour, not theme mode: Black stays dark in light
+ * mode, White stays light in dark mode. */
+function isLightSurface(bg: string): boolean {
+  return luminance(bg) > 0.4;
+}
+
 /** Pure black or white, whichever reads better on `hex` - always at least 4.5:1. */
 function readableOn(hex: string): string {
   return contrast("#000000", hex) >= contrast("#ffffff", hex) ? "#000000" : "#ffffff";
@@ -230,7 +237,9 @@ function withContrastLevel(color: string, bg: string, level: number, floor: numb
 function readable(v: PaletteVariant, kind: ThemeKind, level: number): PaletteVariant {
   const dark = kind === "dark";
   const hover = mix(v.bg, v.fg, dark ? 0.13 : 0.1);
-  const tab = mix(v.bg, "#000000", 0.03);
+  // On light surfaces the chrome (header bar, tabs) is bg darkened toward fg,
+  // so muted text must stay readable on it.
+  const tab = isLightSurface(v.bg) ? mix(v.bg, v.fg, 0.08) : mix(v.bg, "#000000", 0.03);
   const fg = ensureContrast(ensureContrast(v.fg, v.bg, MIN_TEXT), hover, 7.5);
   const fgMuted = ensureContrast(ensureContrast(ensureContrast(v.fgMuted, v.bg, MIN_COLOR), tab, MIN_COLOR), hover, MIN_COLOR);
   const on = (c: string) => withContrastLevel(ensureContrast(c, v.bg, MIN_COLOR), v.bg, level, MIN_COLOR, MAX_COLOR);
@@ -264,6 +273,11 @@ export function resolvePalette(
   const v = readable(raw, kind, level);
   const bright = (hue: string) => ensureContrast(mix(hue, "#ffffff", dark ? 0.22 : 0.18), v.bg, MIN_COLOR);
   const [r, g, b] = parseHex(v.bg);
+  const light = isLightSurface(v.bg);
+  // Light surfaces: panels/cards slightly whiter than bg, chrome (header bar,
+  // gutters) bg darkened 6% toward fg, so cards stand out by light, not shadow.
+  const [sr, sg, sb] = light ? parseHex(mix(v.bg, "#ffffff", 0.6)) : [r, g, b];
+  const [cr, cg, cb] = light ? parseHex(mix(v.bg, v.fg, 0.06)) : [r, g, b];
   // Worst case behind text: the selected row / active tab (accent tint) and
   // the terminal's selection highlight.
   // Tinted fills use the accent as designed, not as the contrast slider moved
@@ -272,7 +286,8 @@ export function resolvePalette(
   const selectedRow = mix(v.bg, tint, 0.22);
   const selection = mix(v.bg, tint, 0.3);
   return {
-    "--surface-rgb": `${r} ${g} ${b}`,
+    "--surface-rgb": `${sr} ${sg} ${sb}`,
+    "--chrome-rgb": `${cr} ${cg} ${cb}`,
     "--fg": v.fg,
     "--fg-muted": v.fgMuted,
     "--border": alpha(v.fg, dark ? 0.12 : 0.16),
@@ -306,6 +321,11 @@ export function resolvePalette(
     "--ansi-bright-magenta": bright(v.magenta),
     "--ansi-bright-cyan": bright(v.cyan),
     "--ansi-bright-white": v.fg,
+    // Always set, both ways: themes.css's light block already holds the light
+    // values, so a dark surface in light mode (Black) must put the dark ones
+    // back. `initial` makes var(--drop-shadow, <shadow>) use its fallback.
+    "--card-bg": light ? alpha(v.fg, 0.05) : "rgb(0 0 0 / 0.22)",
+    "--drop-shadow": light ? "none" : "initial",
   };
 }
 

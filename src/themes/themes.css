@@ -29,9 +29,15 @@
      invalid value, and an invalid var() substitution doesn't fall back to
      anything sane, it makes the whole --surface declaration invalid, which
      computes as fully transparent everywhere it's used. */
-  --surface-rgb: 255 250 241;
+  --surface-rgb: 255 253 249;
   --surface-alpha: 0.6;
   --surface: rgb(var(--surface-rgb) / var(--surface-alpha));
+  /* "Carta": cards whiter than the chrome, no drop shadows (palettes.ts
+     resolvePalette derives the same per palette). */
+  --chrome-rgb: 243 238 228;
+  --chrome: rgb(var(--chrome-rgb) / var(--surface-alpha));
+  --card-bg: rgba(58, 43, 23, 0.05);
+  --drop-shadow: none;
   --bg-elevated: var(--surface);
   --fg: #3a2b17;
   --fg-muted: #8b7457;
@@ -83,6 +89,8 @@
   --surface-rgb: 14 10 7;
   --surface-alpha: 0.6;
   --surface: rgb(var(--surface-rgb) / var(--surface-alpha));
+  --chrome-rgb: 14 10 7;
+  --chrome: rgb(var(--chrome-rgb) / var(--surface-alpha));
   --bg-elevated: var(--surface);
   --fg: #e7d8c5;
   --fg-muted: #a08a6f;

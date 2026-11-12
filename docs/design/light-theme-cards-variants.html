@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — card in light mode, prima e dopo</title>
+  <style>
+    /* Valori "Prima" presi da src/themes/themes.css (light) e src/App.css
+       (--card-bg nero 22% uguale per i due temi, ombre tarate sul dark). */
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #e9e4dc; color: #3a2b17; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+    .page { max-width: 1180px; margin: auto; padding: 28px 24px 60px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: #8b7457; margin-bottom: 6px; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
+    .lead { margin: 0 0 18px; color: #6f5c44; max-width: 900px; }
+    .lead code { font-family: Consolas, monospace; font-size: 12px; background: rgba(140,88,32,.09); padding: 1px 5px; border-radius: 4px; }
+    .switch { display: inline-flex; gap: 4px; padding: 4px; border-radius: 10px; background: rgba(140,88,32,.08); border: 1px solid rgba(120,80,36,.16); margin-bottom: 22px; position: sticky; top: 10px; z-index: 10; backdrop-filter: blur(8px); }
+    .switch button { font: inherit; font-size: 13px; border: 0; background: none; padding: 6px 14px; border-radius: 7px; cursor: pointer; color: #6f5c44; }
+    .switch button[aria-pressed="true"] { background: #fffaf1; color: #3a2b17; box-shadow: inset 0 0 0 1px rgba(120,80,36,.2); font-weight: 600; }
+    section { margin-bottom: 44px; }
+    section h2 { font-size: 16px; margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; }
+    section h2 .tag { font-size: 11px; letter-spacing: .08em; color: #4f6e3a; font-weight: 700; }
+    section.before h2 .tag { color: #b33a3a; }
+    section p.note { margin: 0 0 12px; color: #6f5c44; font-size: 13px; max-width: 900px; }
+    section ul.diff { margin: 0 0 14px; padding-left: 18px; color: #6f5c44; font-size: 13px; }
+    section ul.diff code { font-family: Consolas, monospace; font-size: 12px; }
+    body.only-before section:not(.before), body.only-a section:not(.va), body.only-b section:not(.vb) { display: none; }
+
+    /* ---------- desktop dietro la finestra (la superficie è trasparente al 70%) ---------- */
+    .desk { padding: 26px; border-radius: 14px; background:
+      radial-gradient(circle at 15% 20%, #9fb6c9 0, transparent 45%),
+      radial-gradient(circle at 85% 80%, #c9a98a 0, transparent 50%),
+      linear-gradient(135deg, #b9c4c9, #d8cbb8); }
+
+    /* ---------- token per variante ---------- */
+    .win {
+      --surface: rgb(255 250 241 / .7);
+      --menu-surface: rgb(255 250 241 / .96);
+      --fg: #3a2b17; --fg-muted: #8b7457;
+      --border: rgba(120,80,36,.16);
+      --window-border: rgba(58,43,23,.28);
+      --accent: #4f6e3a;
+      --sel-bg: rgba(79,110,58,.16);
+      --hover: rgba(140,88,32,.055);
+    }
+    .before .win {
+      --card-bg: rgb(0 0 0 / .22);
+      --card-border: color-mix(in srgb, #3a2b17 16%, transparent);
+      --code-bg: rgb(0 0 0 / .22);
+      --tool-bg: rgb(0 0 0 / .22);
+      --user-bg: rgb(0 0 0 / .22);
+      --float-bg: linear-gradient(rgb(0 0 0 / .22), rgb(0 0 0 / .22)), rgb(255 250 241 / .96);
+      --float-border: color-mix(in srgb, #3a2b17 16%, transparent);
+      --float-shadow: 10px 0 28px rgba(0,0,0,.28);
+      --menu-shadow: 0 10px 30px rgba(0,0,0,.22), 0 2px 8px rgba(0,0,0,.14);
+    }
+    /* A — Carta: le card sono PIÙ CHIARE del chrome (come Adwaita light), niente ombre. */
+    .va .win {
+      --surface: rgb(244 235 220 / .78);
+      --card-bg: rgb(255 253 248 / .82);
+      --card-border: rgba(120,80,36,.17);
+      --code-bg: rgba(140,88,32,.075);
+      --tool-bg: rgba(140,88,32,.045);
+      --user-bg: rgba(79,110,58,.10);
+      --float-bg: #fffcf6;
+      --float-border: rgba(120,80,36,.26);
+      --float-shadow: none;
+      --menu-shadow: none;
+    }
+    /* B — Sabbia: chrome invariato, card appena più calde/scure (tinta ambra, non nero), niente ombre. */
+    .vb .win {
+      --card-bg: rgba(140,88,32,.065);
+      --card-border: rgba(120,80,36,.15);
+      --code-bg: rgba(140,88,32,.09);
+      --tool-bg: rgba(255,252,246,.55);
+      --user-bg: rgba(140,88,32,.09);
+      --float-bg: #fbf4e8;
+      --float-border: rgba(120,80,36,.28);
+      --float-shadow: none;
+      --menu-shadow: 0 1px 0 rgba(120,80,36,.10);
+    }
+
+    /* ---------- finestra finta ---------- */
+    .win { position: relative; height: 520px; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid var(--window-border); background: var(--surface); color: var(--fg); overflow: hidden; font-size: 12.5px; }
+    .hdr { height: 38px; display: flex; align-items: center; gap: 6px; padding: 0 10px; }
+    .tab { padding: 4px 12px; border-radius: 6px; color: var(--fg-muted); }
+    .tab.on { background: var(--sel-bg); color: #2c3a1e; font-weight: 600; }
+    .hdr .sp { flex: 1; }
+    .ico { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--fg-muted); }
+    .ico::before { content: ""; width: 12px; height: 12px; border: 1.6px solid currentColor; border-radius: 3px; }
+    .dots { display: flex; gap: 8px; margin-left: 8px; }
+    .dots i { width: 10px; height: 10px; border-radius: 50%; background: rgba(58,43,23,.25); }
+    .body { flex: 1; display: flex; gap: 8px; padding: 0 8px 8px; min-height: 0; }
+    .card { border: 1px solid var(--card-border); background: var(--card-bg); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+    .card .ch { height: 34px; display: flex; align-items: center; padding: 0 10px; font-weight: 600; color: var(--fg-muted); font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; border-bottom: 1px solid var(--card-border); }
+    .explorer { width: 210px; flex: none; }
+    .tree { padding: 6px; }
+    .tree div { padding: 3px 8px; border-radius: 5px; white-space: nowrap; }
+    .tree div.d { color: var(--fg); font-weight: 600; }
+    .tree div.f { padding-left: 22px; color: var(--fg); }
+    .tree div.sel { background: var(--sel-bg); color: #2c3a1e; }
+    .tree div:hover { background: var(--hover); }
+    .chat { flex: 1; }
+    .msgs { flex: 1; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+    .user { align-self: flex-end; max-width: 70%; padding: 8px 12px; border-radius: 12px; background: var(--user-bg); border: 1px solid var(--card-border); }
+    .asst { line-height: 1.55; }
+    .asst code { font-family: Consolas, monospace; font-size: 11.5px; padding: 1px 5px; border-radius: 4px; background: var(--code-bg); }
+    pre { margin: 0; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--code-bg); font: 11.5px/1.5 Consolas, monospace; color: var(--fg); }
+    pre .k { color: #8a4a86; } pre .s { color: #4f6e3a; } pre .c { color: #8b7457; }
+    .tool { border: 1px solid var(--card-border); background: var(--tool-bg); border-radius: 10px; overflow: hidden; }
+    .tool .th { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--card-border); font-weight: 600; }
+    .tool .th .ok { margin-left: auto; color: var(--accent); font-weight: 600; font-size: 11px; }
+    .tool .tb { padding: 6px 10px; font: 11.5px/1.5 Consolas, monospace; color: var(--fg-muted); }
+    .composer { margin: 0 12px 12px; border: 1px solid var(--card-border); background: var(--tool-bg); border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; gap: 8px; color: var(--fg-muted); }
+    .composer .send { margin-left: auto; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); }
+    .agents { width: 200px; flex: none; }
+    .ag { display: flex; gap: 8px; align-items: center; padding: 6px 10px; }
+    .ag i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    .ag i.idle { background: rgba(58,43,23,.25); }
+    .ag small { margin-left: auto; color: var(--fg-muted); }
+    /* popup flottanti: menu contestuale + explorer flottante */
+    .menu { position: absolute; left: 470px; top: 150px; width: 190px; padding: 4px; border-radius: 9px; background: var(--float-bg); border: 1px solid var(--float-border); box-shadow: var(--menu-shadow); z-index: 3; }
+    .menu div { padding: 5px 10px; border-radius: 5px; }
+    .menu div.h { background: var(--hover); }
+    .menu hr { border: 0; border-top: 1px solid var(--float-border); margin: 4px 2px; }
+    .floating { position: absolute; left: 236px; top: 38px; bottom: 8px; width: 200px; border-radius: 10px; border: 1px solid var(--float-border); background: var(--float-bg); box-shadow: var(--float-shadow); z-index: 2; display: flex; flex-direction: column; }
+    .floating .ch { height: 34px; display: flex; align-items: center; padding: 0 10px; font-weight: 600; color: var(--fg-muted); font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; border-bottom: 1px solid var(--float-border); }
+    .lbl { position: absolute; font-size: 10.5px; letter-spacing: .06em; color: #fff; background: rgba(58,43,23,.7); padding: 2px 7px; border-radius: 5px; z-index: 4; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE · TEMA CHIARO</div>
+  <h1>Card in light mode: prima e dopo</h1>
+  <p class="lead">Oggi il tema chiaro usa per le card lo stesso <code>--card-bg: rgb(0 0 0 / .22)</code> del dark: sopra l'ambra chiaro diventa un grigio-marrone sporco. Le ombre (<code>rgba(0,0,0,.22–.45)</code>) sono tarate sul dark e in chiaro diventano un alone ben visibile. Il dark resta com'è: le modifiche toccano solo <code>[data-theme="light"]</code>.</p>
+
+  <div class="switch" role="group" aria-label="Mostra">
+    <button aria-pressed="true" data-v="">Tutte</button>
+    <button aria-pressed="false" data-v="only-before">Prima</button>
+    <button aria-pressed="false" data-v="only-a">Dopo · A Carta</button>
+    <button aria-pressed="false" data-v="only-b">Dopo · B Sabbia</button>
+  </div>
+
+  <template id="win">
+    <div class="desk">
+      <div class="win">
+        <div class="hdr">
+          <span class="ico"></span>
+          <span class="tab on">flowcode · chat</span><span class="tab">terminale</span>
+          <span class="sp"></span><span class="ico"></span><span class="ico"></span><span class="ico"></span>
+          <span class="dots"><i></i><i></i><i></i></span>
+        </div>
+        <div class="body">
+          <div class="card explorer">
+            <div class="ch">Esplora</div>
+            <div class="tree">
+              <div class="d">▾ src</div><div class="f">App.tsx</div><div class="f sel">App.css</div><div class="f">main.tsx</div>
+              <div class="d">▾ themes</div><div class="f">themes.css</div><div class="f">palettes.ts</div>
+              <div class="d">▸ chat</div><div class="d">▸ mobile</div>
+            </div>
+          </div>
+          <div class="card chat">
+            <div class="msgs">
+              <div class="user">Sistema le card nel tema chiaro</div>
+              <div class="asst">Il problema è <code>--card-bg</code> in <code>App.css</code>: è nero al 22% anche in light. Lo sposto in <code>themes.css</code>:</div>
+              <pre><span class="c">/* themes.css */</span>
+<span class="k">:root[data-theme="light"]</span> {
+  --card-bg: <span class="s">rgb(255 253 248 / .82)</span>;
+}</pre>
+              <div class="tool"><div class="th">⌘ Bash <span style="font-weight:400;color:var(--fg-muted)">npm run build</span><span class="ok">✓ 4,2 s</span></div><div class="tb">vite v6 building for production… ✓ 812 modules</div></div>
+            </div>
+            <div class="composer">Scrivi un messaggio…<span class="send"></span></div>
+          </div>
+          <div class="card agents">
+            <div class="ch">Agenti</div>
+            <div class="ag"><i></i>Claude<small>attivo</small></div>
+            <div class="ag"><i class="idle"></i>Codex<small>pronto</small></div>
+            <div class="ag"><i class="idle"></i>Gemini<small>pronto</small></div>
+            <div class="ag"><i class="idle"></i>OpenCode<small>pronto</small></div>
+          </div>
+        </div>
+        <div class="floating">
+          <div class="ch">Esplora (flottante)</div>
+          <div class="tree"><div class="d">▾ src</div><div class="f">App.tsx</div><div class="f sel">App.css</div><div class="f">main.tsx</div></div>
+        </div>
+        <div class="menu"><div>Apri</div><div class="h">Copia percorso</div><div>Rinomina</div><hr><div>Elimina</div></div>
+        <span class="lbl" style="left:244px;top:46px">POPUP</span>
+        <span class="lbl" style="left:478px;top:128px">MENU</span>
+      </div>
+    </div>
+  </template>
+
+  <section class="before">
+    <h2><span class="tag">PRIMA</span> Com'è oggi</h2>
+    <p class="note">Card scurite col nero, blocchi di codice e tool card dello stesso grigio, popup flottante con ombra larga a destra e menu con alone.</p>
+    <div class="slot"></div>
+  </section>
+
+  <section class="va">
+    <h2><span class="tag">DOPO · A</span> Carta — card più chiare del chrome</h2>
+    <ul class="diff">
+      <li>Chrome un filo più ambrato (<code>--surface-rgb 244 235 220</code>), card quasi bianche calde (<code>rgb(255 253 248 / .82)</code>): si staccano per luce, non per ombra. Stesso schema di GNOME/Adwaita chiaro.</li>
+      <li>Codice e tool card: tinta ambra leggerissima (<code>rgba(140,88,32,.075)</code>) invece del nero.</li>
+      <li>Popup e menu: superficie piena <code>#fffcf6</code> + bordo più marcato, <b>zero ombre</b>.</li>
+    </ul>
+    <div class="slot"></div>
+  </section>
+
+  <section class="vb">
+    <h2><span class="tag">DOPO · B</span> Sabbia — chrome invariato, card in tinta</h2>
+    <ul class="diff">
+      <li>Chrome identico a oggi; card appena più scure ma in tinta ambra (<code>rgba(140,88,32,.065)</code>), non grigie.</li>
+      <li>Tool card e composer leggermente più chiari della card, così restano leggibili come "oggetti".</li>
+      <li>Popup e menu: superficie piena <code>#fbf4e8</code>, bordo più marcato, solo un filo di 1px sotto il menu al posto dell'ombra.</li>
+    </ul>
+    <div class="slot"></div>
+  </section>
+</div>
+<script>
+  const tpl = document.getElementById("win");
+  document.querySelectorAll(".slot").forEach((s) => s.replaceWith(tpl.content.cloneNode(true)));
+  document.querySelectorAll(".switch button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".switch button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    document.body.className = b.dataset.v;
+  }));
+</script>
+</body>
+</html>

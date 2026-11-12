@@ -92,7 +92,7 @@
   gap: 6px;
   height: 44px;
   padding: 0 8px;
-  background: var(--bg-elevated);
+  background: var(--chrome, var(--bg-elevated));
 }
 
 .header-right {
@@ -194,7 +194,7 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
      them. No top padding: the 44px header bar already leaves 8px under its
      28px tabs, so another 8px here made the top gap double the sides'. */
   padding: 0 8px 8px;
-  background: var(--bg-elevated);
+  background: var(--chrome, var(--bg-elevated));
   gap: 8px;
   box-sizing: border-box;
 }
@@ -364,7 +364,7 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
   /* Flex like .resizable-panel: the panel inside stretches to this height
      and scrolls its own list, instead of growing with its content. */
   display: flex;
-  box-shadow: 10px 0 28px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--drop-shadow, 10px 0 28px rgba(0, 0, 0, 0.28));
   animation: sidebar-floating-in 0.14s ease-out;
 }
 
@@ -408,7 +408,7 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
   align-items: center;
   gap: 4px;
   padding: 0 6px 6px;
-  background: var(--bg-elevated);
+  background: var(--chrome, var(--bg-elevated));
 }
 
 /* Everything but the sidebar toggle, pushed right; the shortcuts scroll
@@ -453,7 +453,7 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
 }
 
 .app-shell.is-narrow .sidebar-floating-panel {
-  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--drop-shadow, 0 -6px 24px rgba(0, 0, 0, 0.28));
 }
 
 .app-shell.is-narrow .sidebar-floating-panel > * {
@@ -467,7 +467,7 @@ body:has(.quick-actions.is-reordering) .plugin-usage-popover {
   position: absolute;
   z-index: 51;
   margin: 0;
-  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--drop-shadow, 0 -6px 24px rgba(0, 0, 0, 0.28));
   border-radius: var(--card-radius);
 }
 

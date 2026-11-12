@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — tutte le palette in light, stile Carta</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #ebe7e1; color: #2b2520; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+    .page { max-width: 1240px; margin: auto; padding: 28px 24px 60px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: #7a6f63; margin-bottom: 6px; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
+    .lead { margin: 0 0 14px; color: #5f564c; max-width: 960px; }
+    .lead code, .rules code { font-family: Consolas, monospace; font-size: 12px; background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 4px; }
+    .rules { margin: 0 0 18px; padding: 12px 16px 12px 34px; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.08); border-radius: 10px; font-size: 13px; color: #4f463d; max-width: 960px; }
+    .rules li { margin: 2px 0; }
+    .bar { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; position: sticky; top: 10px; z-index: 10; padding: 8px 12px; margin-bottom: 22px; border-radius: 10px; background: rgba(255,255,255,.75); border: 1px solid rgba(0,0,0,.08); backdrop-filter: blur(8px); font-size: 13px; }
+    .seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 8px; background: rgba(0,0,0,.05); }
+    .seg button { font: inherit; border: 0; background: none; padding: 4px 12px; border-radius: 6px; cursor: pointer; color: #5f564c; }
+    .seg button[aria-pressed="true"] { background: #fff; color: #2b2520; font-weight: 600; box-shadow: inset 0 0 0 1px rgba(0,0,0,.1); }
+    .bar a { color: #4f463d; text-decoration: none; padding: 2px 6px; border-radius: 5px; font-size: 12px; }
+    .bar a:hover { background: rgba(0,0,0,.06); }
+    .row { margin-bottom: 34px; scroll-margin-top: 70px; }
+    .row h2 { font-size: 15px; margin: 0 0 8px; display: flex; gap: 10px; align-items: center; }
+    .row h2 .sw { display: inline-flex; gap: 3px; }
+    .row h2 .sw i { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,.12); }
+    .row h2 small { font-weight: 400; color: #7a6f63; font-size: 12px; }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    body.after-only .pair { grid-template-columns: 1fr; }
+    body.after-only .cell.before { display: none; }
+    .cell .cap { font-size: 11px; letter-spacing: .08em; font-weight: 700; margin-bottom: 5px; color: #7a6f63; }
+    .cell.after .cap { color: #3f6a2f; }
+    @media (max-width: 1000px) { .pair { grid-template-columns: 1fr; } }
+
+    .desk { padding: 16px; border-radius: 12px; background:
+      radial-gradient(circle at 15% 20%, #9fb6c9 0, transparent 45%),
+      radial-gradient(circle at 85% 80%, #c9a98a 0, transparent 50%),
+      linear-gradient(135deg, #b9c4c9, #d8cbb8); }
+    .win { position: relative; height: 330px; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid var(--window-border); background: var(--chrome); color: var(--fg); overflow: hidden; font-size: 11.5px; }
+    .hdr { height: 32px; flex: none; display: flex; align-items: center; gap: 5px; padding: 0 8px; }
+    .tab { padding: 3px 10px; border-radius: 6px; color: var(--fg-muted); }
+    .tab.on { background: var(--sel-bg); color: var(--fg); font-weight: 600; }
+    .sp { flex: 1; }
+    .ico { width: 18px; height: 18px; display: grid; place-items: center; color: var(--fg-muted); }
+    .ico::before { content: ""; width: 10px; height: 10px; border: 1.5px solid currentColor; border-radius: 3px; }
+    .body { flex: 1; display: flex; gap: 6px; padding: 0 6px 6px; min-height: 0; }
+    .card { border: 1px solid var(--card-border); background: var(--card-bg); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+    .ch { height: 28px; flex: none; display: flex; align-items: center; padding: 0 9px; font-weight: 600; color: var(--fg-muted); font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; border-bottom: 1px solid var(--card-border); }
+    .explorer { width: 128px; flex: none; }
+    .tree { padding: 4px; }
+    .tree div { padding: 2px 6px; border-radius: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tree .d { font-weight: 600; }
+    .tree .f { padding-left: 16px; }
+    .tree .sel { background: var(--sel-bg); }
+    .chat { flex: 1; }
+    .msgs { flex: 1; padding: 9px 11px; display: flex; flex-direction: column; gap: 7px; overflow: hidden; }
+    .user { align-self: flex-end; max-width: 75%; padding: 5px 10px; border-radius: 11px; background: var(--user-bg); border: 1px solid var(--card-border); }
+    .asst code { font-family: Consolas, monospace; font-size: 10.5px; padding: 1px 4px; border-radius: 4px; background: var(--code-bg); }
+    pre { margin: 0; padding: 6px 9px; border-radius: 9px; border: 1px solid var(--card-border); background: var(--code-bg); font: 10.5px/1.45 Consolas, monospace; color: var(--fg); }
+    pre .k { color: var(--magenta); } pre .s { color: var(--green); } pre .c { color: var(--fg-muted); }
+    .tool { border: 1px solid var(--card-border); background: var(--tool-bg); border-radius: 9px; overflow: hidden; }
+    .tool .th { display: flex; gap: 6px; padding: 4px 9px; border-bottom: 1px solid var(--card-border); font-weight: 600; }
+    .tool .th span { font-weight: 400; color: var(--fg-muted); }
+    .tool .th b { margin-left: auto; color: var(--green); font-size: 10px; }
+    .tool .tb { padding: 4px 9px; font: 10.5px/1.45 Consolas, monospace; color: var(--fg-muted); }
+    .composer { flex: none; margin: 0 9px 9px; border: 1px solid var(--card-border); background: var(--tool-bg); border-radius: 11px; padding: 7px 10px; display: flex; align-items: center; color: var(--fg-muted); }
+    .composer i { margin-left: auto; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); }
+    .menu { position: absolute; right: 22px; top: 92px; width: 140px; padding: 3px; border-radius: 9px; background: var(--float-bg); border: 1px solid var(--float-border); box-shadow: var(--menu-shadow); z-index: 3; }
+    .menu div { padding: 4px 8px; border-radius: 5px; }
+    .menu .h { background: var(--hover); }
+    .menu hr { border: 0; border-top: 1px solid var(--float-border); margin: 3px 2px; }
+    .menu .del { color: var(--red); }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE · TEMA CHIARO · TUTTE LE PALETTE</div>
+  <h1>Stile "Carta" applicato a tutte le palette</h1>
+  <p class="lead">Ogni riga è una palette delle Impostazioni nella sua variante light: a sinistra com'è oggi, a destra con le regole Carta. I colori dopo sono <b>derivati</b> dai colori base della palette (<code>bg</code>, <code>fg</code>, <code>accent</code>) con le stesse formule, quindi una palette nuova li riceve da sola. Il dark non cambia.</p>
+  <ol class="rules">
+    <li><b>Chrome</b> (barra in alto e spazi tra le card): <code>bg</code> scurito del 6% verso <code>fg</code>, così le card hanno uno sfondo da cui staccarsi.</li>
+    <li><b>Card</b>: <code>bg</code> schiarito del 60% verso il bianco, opacità 0,82. Bordo: <code>fg</code> al 15%.</li>
+    <li><b>Codice inline e blocchi</b>: <code>fg</code> al 6%. <b>Tool card e composer</b>: <code>fg</code> al 3,5%. <b>Bolla utente</b>: <code>accent</code> al 10%.</li>
+    <li><b>Popup, menu e pannelli flottanti</b>: superficie piena (<code>bg</code> schiarito del 70%), bordo <code>fg</code> al 24%, <b>nessuna ombra</b>.</li>
+    <li>Le regole valgono solo se la superficie della palette è chiara. <b>Black</b> ha la superficie nera anche in light, quindi resta com'è.</li>
+  </ol>
+
+  <div class="bar">
+    <span class="seg" role="group" aria-label="Vista">
+      <button aria-pressed="true" data-v="">Prima e dopo</button>
+      <button aria-pressed="false" data-v="after-only">Solo dopo</button>
+    </span>
+    <span id="jump"></span>
+  </div>
+  <div id="rows"></div>
+</div>
+<script>
+  // Varianti light copiate da src/themes/palettes.ts.
+  const P = [
+    ["Flowcode", { bg: "#fffaf1", fg: "#3a2b17", fgMuted: "#8b7457", accent: "#4f6e3a", accent2: "#a8683a", red: "#b33a3a", green: "#4f6e3a", magenta: "#8a4a86" }],
+    ["Ocean", { bg: "#f3f8fc", fg: "#17324a", fgMuted: "#64809a", accent: "#1f6fb2", accent2: "#0e8a8a", red: "#c0392b", green: "#2e7d4f", magenta: "#8e44ad" }],
+    ["Ember", { bg: "#fff6f0", fg: "#3b1d12", fgMuted: "#94604c", accent: "#c2410c", accent2: "#b45309", red: "#b91c1c", green: "#4d7c0f", magenta: "#a1327a" }],
+    ["Lavender", { bg: "#f8f5ff", fg: "#2a2140", fgMuted: "#7d70a0", accent: "#6d43c8", accent2: "#b0499a", red: "#c2334d", green: "#2f7d5a", magenta: "#9b3fc0" }],
+    ["Rose", { bg: "#fff5f7", fg: "#40202b", fgMuted: "#9a6273", accent: "#d1336f", accent2: "#c2603c", red: "#c0264a", green: "#3d7d4f", magenta: "#a3339a" }],
+    ["Mint", { bg: "#f2fbf7", fg: "#12352a", fgMuted: "#5f8a7a", accent: "#0f8f6b", accent2: "#2f7fbf", red: "#c0392b", green: "#1f8a4c", magenta: "#8a4aa0" }],
+    ["Graphite", { bg: "#f7f7f8", fg: "#1f2328", fgMuted: "#6b7280", accent: "#52606d", accent2: "#8a6d3b", red: "#c0392b", green: "#2f7d4a", magenta: "#8a45a0" }],
+    ["Nord", { bg: "#eceff4", fg: "#2e3440", fgMuted: "#6b7690", accent: "#5e81ac", accent2: "#c0705a", red: "#bf616a", green: "#5f8a45", magenta: "#9a6f9b" }],
+    ["Solarized", { bg: "#fdf6e3", fg: "#4a6169", fgMuted: "#7f9095", accent: "#268bd2", accent2: "#cb4b16", red: "#dc322f", green: "#728300", magenta: "#d33682" }],
+    ["Gruvbox", { bg: "#fbf1c7", fg: "#3c3836", fgMuted: "#7c6f64", accent: "#b57614", accent2: "#af3a03", red: "#9d0006", green: "#79740e", magenta: "#8f3f71" }],
+    ["Dracula", { bg: "#fffbeb", fg: "#1f1f1f", fgMuted: "#6c664b", accent: "#644ac9", accent2: "#a3144d", red: "#cb3a2a", green: "#14710a", magenta: "#a3144d" }],
+    ["White", { bg: "#ffffff", fg: "#1a1a1a", fgMuted: "#5f5f5f", accent: "#333333", accent2: "#666666", red: "#c0392b", green: "#1f7a3a", magenta: "#8a3fa0" }],
+    ["Black", { bg: "#000000", fg: "#f2f2f2", fgMuted: "#9a9a9a", accent: "#e0e0e0", accent2: "#b0b0b0", red: "#ff6b6b", green: "#6fdc8c", magenta: "#d68cf0" }],
+  ];
+  const hex = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const mix = (a, b, w) => { const A = hex(a), B = hex(b); return A.map((c, i) => Math.round(c * (1 - w) + B[i] * w)); };
+  const rgb = (c, a = 1) => `rgb(${c.join(" ")} / ${a})`;
+  const al = (h, a) => rgb(hex(h), a);
+  const lum = (h) => { const [r, g, b] = hex(h).map((c) => { c /= 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+
+  function common(v) {
+    return { "--fg": v.fg, "--fg-muted": v.fgMuted, "--accent": v.accent, "--red": v.red, "--green": v.green, "--magenta": v.magenta,
+      "--window-border": al(v.fg, .28), "--sel-bg": al(v.accent, .16), "--hover": al(v.fg, .05) };
+  }
+  // Oggi: themes.css / palettes.ts + App.css (card nero 22%, ombre del dark).
+  function before(v) {
+    return { ...common(v), "--chrome": rgb(hex(v.bg), .7), "--card-bg": "rgb(0 0 0 / .22)", "--card-border": al(v.fg, .16),
+      "--code-bg": "rgb(0 0 0 / .22)", "--tool-bg": "rgb(0 0 0 / .22)", "--user-bg": "rgb(0 0 0 / .22)",
+      "--float-bg": `linear-gradient(rgb(0 0 0 / .22), rgb(0 0 0 / .22)), ${rgb(hex(v.bg), .96)}`, "--float-border": al(v.fg, .16),
+      "--menu-shadow": "0 10px 30px rgba(0,0,0,.22), 0 2px 8px rgba(0,0,0,.14)" };
+  }
+  function after(v) {
+    if (lum(v.bg) < .4) return before(v);
+    return { ...common(v), "--chrome": rgb(mix(v.bg, v.fg, .06), .78), "--card-bg": rgb(mix(v.bg, "#ffffff", .6), .82), "--card-border": al(v.fg, .15),
+      "--code-bg": al(v.fg, .06), "--tool-bg": al(v.fg, .035), "--user-bg": al(v.accent, .10),
+      "--float-bg": rgb(mix(v.bg, "#ffffff", .7)), "--float-border": al(v.fg, .24), "--menu-shadow": "none" };
+  }
+  const win = (vars) => `<div class="desk"><div class="win" style="${Object.entries(vars).map(([k, x]) => `${k}:${x}`).join(";")}">
+    <div class="hdr"><span class="ico"></span><span class="tab on">chat</span><span class="tab">terminale</span><span class="sp"></span><span class="ico"></span><span class="ico"></span></div>
+    <div class="body">
+      <div class="card explorer"><div class="ch">Esplora</div><div class="tree"><div class="d">▾ src</div><div class="f">App.tsx</div><div class="f sel">App.css</div><div class="f">main.tsx</div><div class="d">▾ themes</div><div class="f">themes.css</div><div class="d">▸ chat</div></div></div>
+      <div class="card chat"><div class="msgs">
+        <div class="user">Sistema le card in light</div>
+        <div class="asst">Il colore viene da <code>--card-bg</code> in <code>App.css</code>.</div>
+        <pre><span class="c">/* themes.css */</span>
+<span class="k">--card-bg</span>: <span class="s">rgb(255 253 248 / .82)</span>;</pre>
+        <div class="tool"><div class="th">Bash <span>npm run build</span><b>✓ 4,2 s</b></div><div class="tb">✓ 812 modules transformed</div></div>
+      </div><div class="composer">Scrivi un messaggio…<i></i></div></div>
+    </div>
+    <div class="menu"><div>Apri</div><div class="h">Copia percorso</div><div>Rinomina</div><hr><div class="del">Elimina</div></div>
+  </div></div>`;
+
+  document.getElementById("rows").innerHTML = P.map(([name, v], i) => `
+    <div class="row" id="p${i}">
+      <h2>${name}<span class="sw">${[v.bg, v.fg, v.accent, v.accent2].map((c) => `<i style="background:${c}"></i>`).join("")}</span>${lum(v.bg) < .4 ? "<small>superficie scura: resta invariata</small>" : ""}</h2>
+      <div class="pair">
+        <div class="cell before"><div class="cap">PRIMA</div>${win(before(v))}</div>
+        <div class="cell after"><div class="cap">DOPO · CARTA</div>${win(after(v))}</div>
+      </div>
+    </div>`).join("");
+  document.getElementById("jump").innerHTML = P.map(([n], i) => `<a href="#p${i}">${n}</a>`).join("");
+  document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    document.body.className = b.dataset.v;
+  }));
+</script>
+</body>
+</html>

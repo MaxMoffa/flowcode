@@ -29,7 +29,7 @@
   border-radius: 12px;
   background: var(--menu-surface);
   border: 1px solid var(--border);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--drop-shadow, 0 16px 40px rgba(0, 0, 0, 0.3));
   backdrop-filter: blur(var(--glass-blur)) saturate(130%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
   animation: modal-panel-in 0.14s ease-out;

@@ -153,7 +153,7 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-elevated);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--drop-shadow, 0 14px 40px rgba(0, 0, 0, 0.35));
   animation: browser-tabs-pop 0.12s ease-out;
 }
 

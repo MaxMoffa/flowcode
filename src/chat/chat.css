@@ -157,7 +157,7 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--menu-surface);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--drop-shadow, 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14));
   backdrop-filter: var(--menu-backdrop);
   -webkit-backdrop-filter: var(--menu-backdrop);
   font-size: 12.5px;
@@ -298,7 +298,7 @@
   border-radius: 50%;
   background: linear-gradient(var(--sidebar-selected-bg), var(--sidebar-selected-bg)), var(--menu-surface);
   color: var(--fg);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--drop-shadow, 0 4px 14px rgba(0, 0, 0, 0.25));
   cursor: pointer;
   animation: chat-jump-in 0.16s ease-out;
 }
@@ -704,7 +704,7 @@ th[style*="center"] .chat-table-sort {
   display: flex;
   flex-direction: column;
   width: 100%;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--drop-shadow, 0 18px 48px rgba(0, 0, 0, 0.45));
 }
 
 .chat-table-dialog .chat-table-scroll {
@@ -1641,7 +1641,7 @@ summary.chat-step-row {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--menu-surface);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--drop-shadow, 0 10px 30px rgba(0, 0, 0, 0.22));
   overflow: hidden;
 }
 
@@ -3656,7 +3656,7 @@ summary.chat-step-row {
   max-width: 100%;
   max-height: 100%;
   border-radius: 6px;
-  box-shadow: 0 10px 40px rgb(0 0 0 / 0.6);
+  box-shadow: var(--drop-shadow, 0 10px 40px rgb(0 0 0 / 0.6));
 }
 
 .chat-lightbox-gone {
