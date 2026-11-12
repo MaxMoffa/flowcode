@@ -1,5 +1,5 @@
-/** How the left side panel is laid out: "auto" docks it on a wide window and
- * floats it over the terminal on a narrow one. */
+/** How the left side panel is laid out: "auto" docks it while there is room
+ * next to the terminal and otherwise parks it (a click peeks it as a float). */
 export type SidebarMode = "auto" | "docked" | "floating";
 export const SIDEBAR_MODES: readonly SidebarMode[] = ["auto", "docked", "floating"];
 

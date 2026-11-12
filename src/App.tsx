@@ -6,7 +6,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentInsightPanel } from "./agents/AgentInsightPanel";
-import { openFileInPreview, setBrowserOpen, toggleBrowser, useBrowser } from "./browser/browserStore";
+import { openFileInPreview, setBrowserOpen, useBrowser } from "./browser/browserStore";
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
@@ -99,7 +99,8 @@ import { useRemoteWindowEvents, type RemoteTabOp } from "./app/useRemoteWindowEv
 import { useReportTabs } from "./app/useReportTabs";
 import { useActiveAgentSync } from "./app/useActiveAgentSync";
 import { useUsageWatch } from "./app/useUsageWatch";
-import { useNarrowLayout } from "./app/useNarrowLayout";
+import { usePanelLayout } from "./app/usePanelLayout";
+import type { PanelKey } from "./app/panelLayout";
 import { useWindowChrome } from "./window/useWindowChrome";
 import { ZoomRow } from "./terminal/ZoomRow";
 import {
@@ -194,12 +195,20 @@ function Shell() {
     readTrue,
     writeBool,
   );
+  // What the panel layout last decided, for the drag handles to clamp against (see usePanelLayout).
+  const layoutLiveRef = useRef<{ maxWidth: Partial<Record<PanelKey, number>>; shown: Partial<Record<PanelKey, number>> }>({
+    maxWidth: {},
+    shown: {},
+  });
+  const appBodyRef = useRef<HTMLDivElement>(null);
   const sidebarResize = useResizablePanelWidth({
     storageKey: "flowcode.sidebarWidth",
     defaultWidth: 240,
     min: 180,
     max: 480,
     handleSide: "right",
+    getMax: () => layoutLiveRef.current.maxWidth.sidebar ?? Infinity,
+    getCurrent: () => layoutLiveRef.current.shown.sidebar,
   });
   const agentsResize = useResizablePanelWidth({
     storageKey: "flowcode.agentsSidebarWidth",
@@ -207,6 +216,8 @@ function Shell() {
     min: 200,
     max: 480,
     handleSide: "left",
+    getMax: () => layoutLiveRef.current.maxWidth.agents ?? Infinity,
+    getCurrent: () => layoutLiveRef.current.shown.agents,
   });
   const browserResize = useResizablePanelWidth({
     storageKey: "flowcode.browserWidth",
@@ -214,6 +225,8 @@ function Shell() {
     min: 320,
     max: 1100,
     handleSide: "left",
+    getMax: () => layoutLiveRef.current.maxWidth.browser ?? Infinity,
+    getCurrent: () => layoutLiveRef.current.shown.browser,
   });
   const { open: browserOpen } = useBrowser();
   const [homeDir, setHomeDir] = useState<string>("");
@@ -653,7 +666,7 @@ function Shell() {
     [],
   );
 
-  const { isNarrow, effectiveSidebarMode, sidebarPresence, agentsPresence, browserPresence } = useNarrowLayout({
+  const panelLayout = usePanelLayout({
     sidebarMode,
     sidebarCollapsed,
     setSidebarCollapsed,
@@ -661,7 +674,17 @@ function Shell() {
     setAgentsSidebarOpen,
     browserOpen,
     setBrowserOpen,
+    bodyRef: appBodyRef,
+    // A chat needs more room than a terminal to stay readable.
+    centerMin: tabs.some((t) => t.id === activeTabId && t.kind === "chat") ? 420 : 360,
+    panels: {
+      sidebar: { width: sidebarResize.width, min: sidebarResize.min },
+      agents: { width: agentsResize.width, min: agentsResize.min },
+      browser: { width: browserResize.width, min: browserResize.min },
+    },
   });
+  const { isNarrow, sidebarPresence, agentsPresence, browserPresence, togglePanel, panelPointerDown } = panelLayout;
+  layoutLiveRef.current = { maxWidth: panelLayout.maxWidth, shown: panelLayout.shown };
 
   useCliLoginEvent();
 
@@ -675,7 +698,7 @@ function Shell() {
   const shortcutTerm = () => (remote ? frontRemoteTerminal() : activeTermHandle());
   useEffect(() => onRemoteNotice((message) => showPluginToastRef.current(message)), []);
   useShortcuts({
-    toggleSidebar: () => setSidebarCollapsed((c) => !c),
+    toggleSidebar: () => togglePanel("sidebar"),
     clearTerminal: () => shortcutTerm()?.clear(),
     copy: () => shortcutTerm()?.copySelection(),
     paste: () => shortcutTerm()?.paste(),
@@ -701,8 +724,8 @@ function Shell() {
     zoomIn: () => activeTermHandle() && zoomTabIn(activeTerminalId),
     zoomOut: () => activeTermHandle() && zoomTabOut(activeTerminalId),
     resetZoom: () => activeTermHandle() && resetTabZoom(activeTerminalId),
-    toggleAgents: () => setAgentsSidebarOpen((o) => !o),
-    toggleBrowser: () => toggleBrowser(),
+    toggleAgents: () => togglePanel("agents"),
+    toggleBrowser: () => togglePanel("browser"),
     openSettings: () => openSettings(),
     showShortcuts: () => setShortcutsDialogOpen((o) => !o),
   });
@@ -2578,13 +2601,13 @@ function Shell() {
         activeTermHandle()?.clear();
         break;
       case "toggleSidebar":
-        setSidebarCollapsed((c) => !c);
+        togglePanel("sidebar");
         break;
       case "toggleAgentsSidebar":
-        setAgentsSidebarOpen((o) => !o);
+        togglePanel("agents");
         break;
       case "toggleBrowser":
-        toggleBrowser();
+        togglePanel("browser");
         break;
       case "runCommand": {
         if (!plugin.command) break;
@@ -2861,9 +2884,9 @@ function Shell() {
   // The header's panel toggles and tools: in the header when wide, on a row of their own below the terminal when narrow.
   const sidebarToggle = (
     <button
-      className={"icon-button" + (!sidebarCollapsed ? " is-active" : "")}
+      className={"icon-button" + (!sidebarCollapsed ? " is-active" : "") + (panelLayout.parked.sidebar ? " is-parked" : "")}
       aria-pressed={!sidebarCollapsed}
-      onClick={() => setSidebarCollapsed((c) => !c)}
+      onClick={() => togglePanel("sidebar")}
       onContextMenu={(e) =>
         openMenu(
           e,
@@ -2917,6 +2940,11 @@ function Shell() {
                   plugin={plugin}
                   icon={pluginIconNode(plugin)}
                   active={plugin.action === "toggleAgentsSidebar" ? agentsSidebarOpen : undefined}
+                  parked={
+                    (plugin.action === "toggleAgentsSidebar" && panelLayout.parked.agents) ||
+                    (plugin.action === "toggleBrowser" && panelLayout.parked.browser) ||
+                    (plugin.action === "toggleSidebar" && panelLayout.parked.sidebar)
+                  }
                   onRun={() => runPlugin(plugin)}
                 />
               </div>
@@ -3020,7 +3048,7 @@ function Shell() {
           </div>
         </div>
       </header>
-      <div className="app-body">
+      <div className="app-body" ref={appBodyRef}>
         {sidebarPresence.mounted && (
           <div
             className={
@@ -3028,10 +3056,11 @@ function Shell() {
               (sidebarPresence.shown ? "" : " is-hidden") +
               (sidebarResize.dragging ? " is-dragging" : "")
             }
-            style={{ width: sidebarPresence.shown ? sidebarResize.width : 0 }}
+            style={{ width: sidebarPresence.shown ? panelLayout.widthOf("sidebar") : 0 }}
+            onPointerDownCapture={panelPointerDown("sidebar")}
           >
             <div className="panel-card">
-              <div className="panel-card-content" style={{ width: sidebarResize.width - 2 }}>
+              <div className="panel-card-content" style={{ width: panelLayout.widthOf("sidebar") - 2 }}>
                 {sidebarPanel}
               </div>
             </div>
@@ -3254,8 +3283,8 @@ function Shell() {
               );
             })}
         </div>
-        {effectiveSidebarMode === "floating" && !sidebarCollapsed && (
-          <div className="sidebar-floating-backdrop" onClick={() => setSidebarCollapsed(true)}>
+        {panelLayout.sidebarOverlay && (
+          <div className="sidebar-floating-backdrop" onClick={panelLayout.dismissSidebarOverlay}>
             <div
               className="sidebar-floating-panel"
               style={{ width: sidebarResize.width }}
@@ -3265,10 +3294,10 @@ function Shell() {
             </div>
           </div>
         )}
-        {isNarrow && agentsSidebarOpen && (
-          <div className="sidebar-floating-backdrop" onClick={() => setAgentsSidebarOpen(false)} />
+        {isNarrow && panelLayout.overlay === "agents" && (
+          <div className="sidebar-floating-backdrop" onClick={panelLayout.dismissOverlay} />
         )}
-        {isNarrow && browserOpen && <div className="sidebar-floating-backdrop" onClick={() => setBrowserOpen(false)} />}
+        {isNarrow && panelLayout.overlay === "browser" && <div className="sidebar-floating-backdrop" onClick={panelLayout.dismissOverlay} />}
         {browserPresence.mounted && (
           <div
             className={
@@ -3276,14 +3305,15 @@ function Shell() {
               (browserPresence.shown ? "" : " is-hidden") +
               (browserResize.dragging ? " is-dragging" : "")
             }
-            style={{ width: browserPresence.shown ? browserResize.width : 0 }}
+            style={{ width: browserPresence.shown ? panelLayout.widthOf("browser") : 0 }}
+            onPointerDownCapture={panelPointerDown("browser")}
           >
             <div
               className={"resize-handle resize-handle-left" + (browserResize.dragging ? " is-dragging" : "")}
               onPointerDown={browserResize.onHandlePointerDown}
             />
             <div className="panel-card">
-              <div className="panel-card-content" style={{ width: browserResize.width - 2 }}>
+              <div className="panel-card-content" style={{ width: panelLayout.widthOf("browser") - 2 }}>
                 <Suspense fallback={null}>
                   <BrowserPanel dragging={browserResize.dragging} />
                 </Suspense>
@@ -3298,14 +3328,15 @@ function Shell() {
               (agentsPresence.shown ? "" : " is-hidden") +
               (agentsResize.dragging ? " is-dragging" : "")
             }
-            style={{ width: agentsPresence.shown ? agentsResize.width : 0 }}
+            style={{ width: agentsPresence.shown ? panelLayout.widthOf("agents") : 0 }}
+            onPointerDownCapture={panelPointerDown("agents")}
           >
             <div
               className={"resize-handle resize-handle-left" + (agentsResize.dragging ? " is-dragging" : "")}
               onPointerDown={agentsResize.onHandlePointerDown}
             />
             <div className="panel-card">
-              <div className="panel-card-content" style={{ width: agentsResize.width - 2 }}>
+              <div className="panel-card-content" style={{ width: panelLayout.widthOf("agents") - 2 }}>
                 <AgentInsightPanel
                   onClose={() => setAgentsSidebarOpen(false)}
                   onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.paneKey ?? frontChat.id)?.compact() : undefined}

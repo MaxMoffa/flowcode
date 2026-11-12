@@ -11,6 +11,10 @@ interface Options {
    * (dragging right grows it), "left" for a right-docked panel (dragging
    * left grows it) - flips the sign on the pointer delta. */
   handleSide: "left" | "right";
+  /** The most the layout allows right now (read during a drag), on top of `max`. */
+  getMax?: () => number;
+  /** The width actually on screen, which the layout may have shrunk below `width`: a drag starts from it. */
+  getCurrent?: () => number | undefined;
 }
 
 /** A panel's width, draggable from one edge and persisted - shared by the
@@ -18,7 +22,9 @@ interface Options {
  * the right) and the agents sidebar (right, handle on the left), so both
  * get the same resize behavior and clamping instead of two hand-rolled
  * versions drifting apart. */
-export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, handleSide }: Options) {
+export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, handleSide, getMax, getCurrent }: Options) {
+  const limitsRef = useRef({ getMax, getCurrent });
+  limitsRef.current = { getMax, getCurrent };
   const [width, setWidth] = useState(() => readNumber(storageKey, defaultWidth, min, max));
   const [dragging, setDragging] = useState(false);
   const startXRef = useRef(0);
@@ -39,7 +45,8 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
       }
       const delta = e.clientX - startXRef.current;
       const signedDelta = handleSide === "right" ? delta : -delta;
-      next = Math.max(min, Math.min(max, startWidthRef.current + signedDelta));
+      const cap = Math.min(max, limitsRef.current.getMax?.() ?? max);
+      next = Math.max(min, Math.min(cap, startWidthRef.current + signedDelta));
       if (!raf) raf = requestAnimationFrame(() => {
         raf = 0;
         setWidth(next);
@@ -108,11 +115,11 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
         return;
       }
       startXRef.current = e.clientX;
-      startWidthRef.current = width;
+      startWidthRef.current = limitsRef.current.getCurrent?.() ?? width;
       setDragging(true);
     },
     [width],
   );
 
-  return { width, dragging, onHandlePointerDown };
+  return { width, min, dragging, onHandlePointerDown };
 }

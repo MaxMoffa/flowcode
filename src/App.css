@@ -147,6 +147,23 @@
   color: var(--fg);
 }
 
+/* A panel the user wants open that has no room right now (usePanelLayout):
+   a small dot until it comes back. */
+.icon-button.is-parked {
+  position: relative;
+}
+
+.icon-button.is-parked::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .quick-actions {
   display: flex;
   align-items: center;

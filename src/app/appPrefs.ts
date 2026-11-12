@@ -6,9 +6,6 @@ import { readBool, readEnum, readJson } from "../lib/storage";
 
 export const SIDEBAR_MODE_KEY = "flowcode.sidebarMode";
 export const EXPLORER_LINK_MODE_KEY = "flowcode.explorerLinkMode";
-// Below this window width, "auto" mode floats the explorer instead of
-// docking it, so a narrow window keeps its terminal usable.
-export const SIDEBAR_AUTO_BREAKPOINT = 880;
 // Below this the layout switches to its phone-like form (two-row header,
 // side panels as overlays). Mirrored by the `.is-narrow` rules in App.css.
 export const NARROW_BREAKPOINT = 640;

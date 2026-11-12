@@ -14,6 +14,8 @@ interface PluginUsageButtonProps {
   icon: ReactNode;
   onRun: () => void;
   active?: boolean;
+  /** Its panel is wanted open but has no room: a dot on the button (see usePanelLayout). */
+  parked?: boolean;
 }
 
 /** A quick-action icon button - for a plugin with a known usage fetcher
@@ -25,7 +27,7 @@ interface PluginUsageButtonProps {
  * plugin" menu - see PluginMenu.tsx, which shares useUsageState/
  * UsagePopoverContent/usagePopoverPosition with this component so both
  * stay in sync instead of drifting into two different caches/looks. */
-export function PluginUsageButton({ plugin, icon, onRun, active }: PluginUsageButtonProps) {
+export function PluginUsageButton({ plugin, icon, onRun, active, parked }: PluginUsageButtonProps) {
   useI18n();
   const [profile, setProfile, profileReady] = useUsageProfile(plugin.id);
   const { fetcher, usage, loading, load } = useUsageState(plugin.id, profile, profileReady);
@@ -37,7 +39,7 @@ export function PluginUsageButton({ plugin, icon, onRun, active }: PluginUsageBu
     return (
       <button
         type="button"
-        className={"icon-button" + (active ? " is-active" : "")}
+        className={"icon-button" + (active ? " is-active" : "") + (parked ? " is-parked" : "")}
         aria-pressed={active}
         aria-label={plugin.label}
         title={plugin.label}
