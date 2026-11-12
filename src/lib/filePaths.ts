@@ -102,6 +102,8 @@ export function parsePathToken(raw: string, opts: ParseOptions = {}): ParsedPath
     // A url: web links have their own handling.
     return null;
   }
+  // `/C:/repo/a.ts`: a Windows path written url-style (Codex's markdown links).
+  if (/^\/[A-Za-z]:[\\/]/.test(s)) s = s.slice(1);
   let base = s;
   let line: number | undefined;
   let col: number | undefined;

@@ -75,6 +75,14 @@ describe("parsePathToken", () => {
     expect(parsePathToken("file:///a%00b")).toBeNull();
   });
 
+  it("reads a url-style Windows path (`/C:/...`, Codex's links)", () => {
+    expect(parsePathToken("/C:/repo/a.ts:7")).toEqual({ path: "C:/repo/a.ts", line: 7 });
+    expect(parsePathToken("/c:\\repo\\b.rs")).toEqual({ path: "c:\\repo\\b.rs" });
+    expect(findPaths("see [a.ts](/C:/repo/a.ts:7).").map((m) => m.path)).toEqual(["C:/repo/a.ts"]);
+    // Still refused: a colon past the drive.
+    expect(parsePathToken("/C:/a:b/c")).toBeNull();
+  });
+
   it("refuses numbers, dates, fractions and other look-alikes", () => {
     expect(parsePathToken("1/2")).toBeNull();
     expect(parsePathToken("12/05/2024")).toBeNull();
