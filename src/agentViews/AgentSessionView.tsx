@@ -1,3 +1,4 @@
+import { useChatCalls } from "../calls/useChatCalls";
 import { Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -118,6 +119,7 @@ export function AgentSessionView({
   }, [phase, agent]);
   // The agents panel and the History read the delegation state from here.
   const { items: modelItems, delegateRequests, task } = model;
+  useChatCalls(agent, openTabId, modelItems, { permission: chat.answerPermission, ask: chat.answerAsk }, chat.attached);
   useEffect(() => {
     if (!tabId) return;
     const delegates = delegatesOf(modelItems);

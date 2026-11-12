@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AgentCli } from "../agents/cliInfo";
-import { createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
+import { cliName, type AgentCli } from "../agents/cliInfo";
+import { agentCallOf, createAgentOpenTracker, routeAgentOpen } from "../browser/agentOpen";
+import { addCall } from "../calls/callStore";
 import { t } from "../i18n";
 import { readAgentToolsConfig } from "../agents/agentToolsSettings";
 import { useConfirmDialog } from "../dialog/ConfirmDialogContext";
@@ -148,6 +149,18 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       if (attachChatId) return;
       const open = trackOpen(ev);
       if (open) void routeAgentOpen(open, distro, confirmOpenRef.current, openTabIdRef.current);
+      // `call_user`: the agent wants the user's eyes - shown as a bubble when they are in another tab.
+      const call = agentCallOf(ev);
+      const callTab = openTabIdRef.current;
+      if (call && callTab) {
+        addCall({
+          tabId: callTab,
+          agent,
+          kind: "custom",
+          title: t("calls.title.call", { agent: cliName(agent) }),
+          detail: call.message,
+        });
+      }
     };
 
     // Deferred a tick: React StrictMode mounts, unmounts and mounts again at

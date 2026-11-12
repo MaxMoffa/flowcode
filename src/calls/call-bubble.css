@@ -1,0 +1,291 @@
+/* The bubble an agent in another tab raises under its tab (see CallBubble.tsx). Amber is the app's "needs you" colour. */
+.call-bubble {
+  position: fixed;
+  z-index: 60;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--menu-surface);
+  border: 1px solid var(--card-border);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: var(--drop-shadow, 0 14px 40px rgba(0, 0, 0, 0.45));
+  animation: call-bubble-pop 0.18s ease-out;
+}
+
+/* The tip points at the calling tab: a rotated square sharing the bubble's surface and its top-left border. */
+.call-bubble::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: var(--call-tip, 40px);
+  width: 12px;
+  height: 12px;
+  background: var(--menu-surface);
+  border-left: 1px solid var(--card-border);
+  border-top: 1px solid var(--card-border);
+  transform: rotate(45deg);
+}
+
+.call-bubble.is-narrow {
+  border-radius: 0 0 12px 12px;
+}
+
+@keyframes call-bubble-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.call-who {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.call-logo {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+
+.call-logo svg {
+  width: 15px;
+  height: 15px;
+}
+
+.call-who-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.call-who-text b {
+  font-weight: 600;
+}
+
+.call-who-text small {
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-kind {
+  margin-left: auto;
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ansi-bright-yellow);
+  background: color-mix(in srgb, var(--ansi-bright-yellow) 14%, transparent);
+}
+
+.call-kind.is-browser {
+  color: var(--ansi-bright-blue);
+  background: color-mix(in srgb, var(--ansi-bright-blue) 14%, transparent);
+}
+
+.call-kind.is-done {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.call-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.call-close:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.call-why {
+  margin: 8px 0 10px;
+  overflow-wrap: anywhere;
+}
+
+.call-command {
+  margin: -2px 0 10px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  font: 11.5px/1.5 Consolas, ui-monospace, monospace;
+  max-height: 96px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.call-options {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.call-option {
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.call-option:hover {
+  border-color: var(--accent);
+}
+
+.call-option small {
+  display: block;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.call-reply {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.call-reply input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.call-reply input:focus {
+  border-color: var(--accent);
+}
+
+.call-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.call-btn {
+  padding: 5px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--card-border);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.call-btn:hover {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.call-btn.is-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.call-btn.is-primary:hover {
+  filter: brightness(1.08);
+}
+
+.call-btn.is-danger {
+  color: var(--danger);
+}
+
+.call-btn.is-ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--fg-muted);
+}
+
+.call-btn.is-ghost:hover {
+  color: var(--fg);
+}
+
+.call-spacer {
+  flex: 1;
+}
+
+.call-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 0 0;
+  border: 0;
+  border-top: 1px solid var(--card-border);
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.call-more b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* The calling tab's logo pulses amber until the call is dealt with. */
+.term-tab.is-calling .term-tab-agent-logo,
+.term-tab.is-calling .term-tab-dot {
+  border-radius: 50%;
+  animation: call-pulse 1.4s ease-out infinite;
+}
+
+@keyframes call-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ansi-bright-yellow) 70%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-bubble {
+    animation: none;
+  }
+  .term-tab.is-calling .term-tab-agent-logo,
+  .term-tab.is-calling .term-tab-dot {
+    animation: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ansi-bright-yellow) 70%, transparent);
+  }
+}

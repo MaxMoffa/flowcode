@@ -41,6 +41,12 @@ export function AgentToolsSettings() {
             )}
           </SettingsGroup>
 
+          <SettingsGroup title={t("settings.agentTools.call.label")}>
+            <SettingRow id="agentToolsCall" label={t("settings.agentTools.call.label")} desc={t("settings.agentTools.call.desc")}>
+              <Switch checked={settings.call} onChange={(on) => setAgentToolsSetting("call", on)} label={t("settings.agentTools.call.label")} stateLabels={onOff} />
+            </SettingRow>
+          </SettingsGroup>
+
           <SettingsGroup title={t("settings.agentTools.delegate.label")}>
             <SettingRow id="agentToolsDelegate" label={t("settings.agentTools.delegate.label")} desc={t("settings.agentTools.delegate.desc")}>
               <Switch checked={settings.delegate} onChange={(on) => setAgentToolsSetting("delegate", on)} label={t("settings.agentTools.delegate.label")} stateLabels={onOff} />

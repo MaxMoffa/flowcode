@@ -37,6 +37,21 @@ const TOOLS = [
     },
   },
   {
+    name: "call_user",
+    timeoutMs: 15_000,
+    description:
+      "Get the user's attention when they are in another tab: shows a bubble from your tab with your message. Use it when you need a decision or a review before going on, or to say a long task is done — not for routine progress.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "What you want to tell the user. Short: one or two sentences." },
+        reason: { type: "string", enum: ["question", "review", "done", "info"], description: "Why you are calling: a question, something to review, a finished task, or plain information." },
+      },
+      required: ["message"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_agents",
     timeoutMs: 15_000,
     description:

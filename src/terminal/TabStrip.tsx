@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useCalls } from "../calls/callStore";
 import { MenuIcons } from "../context-menu/menuIcons";
 import { createPortal } from "react-dom";
 import { listShellOptions, shellOptionLabel, type ShellOption } from "./shellOptions";
@@ -416,6 +417,9 @@ export function TabStrip({
   }, [editingId]);
 
   const { canScrollLeft, canScrollRight } = useRowOverflow(viewportRef, tabs);
+  // The tabs an agent is calling the user from (see src/calls): their logo pulses.
+  const calls = useCalls();
+  const callingIds = useMemo(() => new Set(calls.map((c) => c.tabId)), [calls]);
 
   // A vertical wheel scrolls the row sideways (a horizontal one already does).
   useEffect(() => {
@@ -606,9 +610,11 @@ export function TabStrip({
             return (
               <div
                 key={tab.id}
+                data-tab-id={tab.id}
                 className={
                   "term-tab" +
                   (tab.id === activeId ? " is-active" : "") +
+                  (callingIds.has(tab.id) ? " is-calling" : "") +
                   (attention ? " attn-" + attention : "") +
                   (draggedTab?.id === tab.id ? (drag?.detached ? " is-detached" : " is-dragging") : "")
                 }

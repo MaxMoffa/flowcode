@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEvent } from "../src/chat/chatTypes";
-import { createAgentOpenTracker, openCommandTarget, toolCommand } from "./agentOpen";
+import { agentCallOf, createAgentOpenTracker, openCommandTarget, toolCommand } from "./agentOpen";
 
 const event = (patch: Record<string, unknown>): ChatEvent => ({
   kind: "update", seq: 1, at: 0,
@@ -55,5 +55,18 @@ describe("agent preview openers", () => {
     const track = createAgentOpenTracker("/repo");
     expect(track(event({ status: "in_progress", rawInput: { command: "xdg-open http://localhost:5173" } }), true)).toBeNull();
     expect(track(event({ status: "completed" }))).toEqual({ target: "http://localhost:5173", cwd: "/repo" });
+  });
+});
+
+describe("agentCallOf", () => {
+  const ext = (params: unknown, method = "_flowcode/call"): ChatEvent => ({ kind: "ext", seq: 1, at: 0, method, params });
+  it("reads a live call_user event", () => {
+    expect(agentCallOf(ext({ message: " Ready to review ", reason: "review" }))).toEqual({ message: "Ready to review", reason: "review" });
+    expect(agentCallOf(ext({ message: "hi", reason: "weird" }))).toEqual({ message: "hi", reason: "info" });
+  });
+  it("ignores replays, empty messages and other events", () => {
+    expect(agentCallOf(ext({ message: "hi" }), true)).toBeNull();
+    expect(agentCallOf(ext({ message: "  " }))).toBeNull();
+    expect(agentCallOf(ext({ message: "hi" }, "_flowcode/open"))).toBeNull();
   });
 });

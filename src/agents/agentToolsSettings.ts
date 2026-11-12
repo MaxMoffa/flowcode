@@ -9,6 +9,8 @@ export interface AgentToolsSettings {
   open: boolean;
   /** `open_in_browser` goes through without a permission question. */
   openAutoAllow: boolean;
+  /** `call_user`: the agent can get the user's attention with a bubble from its tab. */
+  call: boolean;
   delegate: boolean;
   /** The agents a task may be delegated to; null = every one (the backend still checks each is installed). */
   delegateAgents: AgentCli[] | null;
@@ -22,6 +24,7 @@ const KEYS = {
   enabled: "flowcode.agentTools.enabled",
   open: "flowcode.agentTools.open",
   openAutoAllow: "flowcode.agentTools.openAutoAllow",
+  call: "flowcode.agentTools.call",
   delegate: "flowcode.agentTools.delegate",
   delegateAgents: "flowcode.agentTools.delegateAgents",
   maxParallel: "flowcode.agentTools.maxParallel",
@@ -34,6 +37,7 @@ function load(): AgentToolsSettings {
     enabled: readBool(KEYS.enabled, true),
     open: readBool(KEYS.open, true),
     openAutoAllow: readBool(KEYS.openAutoAllow, true),
+    call: readBool(KEYS.call, true),
     delegate: readBool(KEYS.delegate, true),
     delegateAgents: readJson<AgentCli[] | null>(KEYS.delegateAgents, (v): v is AgentCli[] | null => v === null || isAgentList(v), null),
     maxParallel: Math.round(readNumber(KEYS.maxParallel, 3, MAX_PARALLEL_RANGE.min, MAX_PARALLEL_RANGE.max)),
@@ -60,6 +64,7 @@ export interface AgentToolsConfig {
   enabled: boolean;
   open: boolean;
   openAutoAllow: boolean;
+  call: boolean;
   delegate: boolean;
   delegateAgents: string[];
   maxParallel: number;
@@ -67,8 +72,8 @@ export interface AgentToolsConfig {
 
 /** `available`: the agents offered while the settings say "every one" (those installed and signed in); all of them when unknown. */
 export function toolsConfig(s: AgentToolsSettings, available: readonly AgentCli[] = AGENT_CLIS): AgentToolsConfig {
-  if (!s.enabled) return { enabled: false, open: false, openAutoAllow: false, delegate: false, delegateAgents: [], maxParallel: s.maxParallel };
-  return { enabled: true, open: s.open, openAutoAllow: s.open && s.openAutoAllow, delegate: s.delegate, delegateAgents: s.delegate ? [...(s.delegateAgents ?? available)] : [], maxParallel: s.maxParallel };
+  if (!s.enabled) return { enabled: false, open: false, openAutoAllow: false, call: false, delegate: false, delegateAgents: [], maxParallel: s.maxParallel };
+  return { enabled: true, open: s.open, openAutoAllow: s.open && s.openAutoAllow, call: s.call, delegate: s.delegate, delegateAgents: s.delegate ? [...(s.delegateAgents ?? available)] : [], maxParallel: s.maxParallel };
 }
 
 /** What a chat starting now gets (see `toolsConfig`). By default delegation offers the CLIs installed and signed in under the default profile (a failed check counts as available). */

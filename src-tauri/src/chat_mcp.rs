@@ -24,9 +24,11 @@ use crate::util::lock;
 const SERVER_NAME: &str = "flowcode";
 /// How Claude names the open tool (`mcp__<server>__<tool>`).
 const CLAUDE_OPEN_TOOL: &str = "mcp__flowcode__open_in_browser";
+const CLAUDE_CALL_TOOL: &str = "mcp__flowcode__call_user";
 const SCRIPT: &str = include_str!("flowcode-mcp.cjs");
 
 pub(crate) const OPEN: &str = "open_in_browser";
+pub(crate) const CALL_USER: &str = "call_user";
 pub(crate) const LIST_AGENTS: &str = "list_agents";
 pub(crate) const DELEGATE_TASK: &str = "delegate_task";
 pub(crate) const GET_TASK_RESULT: &str = "get_task_result";
@@ -51,6 +53,8 @@ pub(crate) struct ToolsConfig {
     pub open: bool,
     /// Let `open_in_browser` through without asking (see `auto_allow`).
     pub open_auto_allow: bool,
+    /// `call_user`: a bubble from the agent's tab (it asks for nothing, so it never needs permission).
+    pub call: bool,
     pub delegate: bool,
     /// The agents a task may be delegated to.
     pub delegate_agents: Vec<String>,
@@ -66,6 +70,10 @@ pub(crate) fn enabled_tools(cfg: &ToolsConfig, depth: u8) -> Vec<&'static str> {
     }
     if cfg.open {
         tools.push(OPEN);
+    }
+    // A delegated child has no tab to call from.
+    if cfg.call && depth == 0 {
+        tools.push(CALL_USER);
     }
     if cfg.delegate && depth == 0 && !cfg.delegate_agents.is_empty() {
         tools.extend([LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
@@ -452,6 +460,10 @@ pub(crate) fn open_target(target: &str, cwd: &str, homes: &[String], wsl_distro:
 /// and what the app then opens is bound by the Browser settings. Never the
 /// "always" option: nothing is written to the user's agent settings.
 pub(crate) fn auto_allow(cfg: &ToolsConfig, cwd: &str, params: &Value) -> Option<String> {
+    // `call_user` only shows the user a message: nothing to ask about.
+    if cfg.enabled && cfg.call && is_call_user(params.get("toolCall")?) {
+        return allow_once_option(params);
+    }
     if !(cfg.enabled && cfg.open && cfg.open_auto_allow) || !is_open_call(params.get("toolCall")?) {
         return None;
     }
@@ -487,6 +499,22 @@ fn is_open_call(tool_call: &Value) -> bool {
     matches!(title.as_str(), "flowcode/open_in_browser" | "tool: flowcode/open_in_browser") && only_target
 }
 
+/// Whether a permission request's tool call is Flowcode's `call_user`, matched
+/// as strictly as `is_open_call`: its input is only `message` and `reason`.
+fn is_call_user(tool_call: &Value) -> bool {
+    if let Some(tool) = tool_call.pointer("/_meta/claudeCode/toolName").and_then(Value::as_str) {
+        return tool == CLAUDE_CALL_TOOL
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/name").and_then(Value::as_str) == Some(SERVER_NAME)
+            && tool_call.pointer("/_meta/claudeCode/mcpServer/source").and_then(Value::as_str) == Some("dynamic");
+    }
+    let title = tool_call.get("title").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
+    let only_message = tool_call
+        .get("rawInput")
+        .and_then(Value::as_object)
+        .is_some_and(|input| input.contains_key("message") && input.keys().all(|k| k == "message" || k == "reason"));
+    matches!(title.as_str(), "flowcode/call_user" | "tool: flowcode/call_user") && only_message
+}
+
 fn allow_once_option(params: &Value) -> Option<String> {
     let options = params.get("options")?.as_array()?;
     let once = options.iter().find(|o| o.get("kind").and_then(Value::as_str) == Some("allow_once"))?;
@@ -510,6 +538,7 @@ mod tests {
             enabled: true,
             open: true,
             open_auto_allow: true,
+            call: true,
             delegate: true,
             delegate_agents: vec!["codex".into()],
             max_parallel: 3,
@@ -562,11 +591,12 @@ mod tests {
 
     #[test]
     fn tools_follow_the_switches_and_children_only_open() {
-        assert_eq!(enabled_tools(&on(), 0), [OPEN, LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
+        assert_eq!(enabled_tools(&on(), 0), [OPEN, CALL_USER, LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
         assert_eq!(enabled_tools(&on(), 1), [OPEN]);
         assert_eq!(enabled_tools(&ToolsConfig { enabled: false, ..on() }, 0), Vec::<&str>::new());
-        assert_eq!(enabled_tools(&ToolsConfig { open: false, ..on() }, 0), [LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
-        assert_eq!(enabled_tools(&ToolsConfig { delegate_agents: vec![], ..on() }, 0), [OPEN]);
+        assert_eq!(enabled_tools(&ToolsConfig { open: false, ..on() }, 0), [CALL_USER, LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
+        assert_eq!(enabled_tools(&ToolsConfig { delegate_agents: vec![], ..on() }, 0), [OPEN, CALL_USER]);
+        assert_eq!(enabled_tools(&ToolsConfig { call: false, ..on() }, 0), [OPEN, LIST_AGENTS, DELEGATE_TASK, GET_TASK_RESULT, CANCEL_TASK]);
         assert!(enabled_tools(&ToolsConfig { open: false, ..on() }, 1).is_empty());
     }
 
@@ -736,6 +766,17 @@ mod tests {
         assert_eq!(auto_allow(&cfg, &claude("mcp__other__open_in_browser")), None);
         assert_eq!(auto_allow(&cfg, &claude("mcp__flowcode__delegate_task")), None);
         assert_eq!(auto_allow(&cfg, &json!({ "toolCall": {}, "options": [] })), None);
+    }
+
+    #[test]
+    fn call_user_never_asks_when_on() {
+        let cfg = on();
+        assert_eq!(auto_allow(&cfg, &claude(CLAUDE_CALL_TOOL)).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&ToolsConfig { call: false, ..on() }, &claude(CLAUDE_CALL_TOOL)), None);
+        assert_eq!(auto_allow(&cfg, &claude("mcp__other__call_user")), None);
+        let call = |title: &str, input: Value| request(json!({ "title": title, "rawInput": input }));
+        assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/call_user", json!({ "message": "hi", "reason": "done" }))).as_deref(), Some("once"));
+        assert_eq!(auto_allow(&cfg, &call("Tool: flowcode/call_user", json!({ "command": "x" }))), None);
     }
 
     #[test]

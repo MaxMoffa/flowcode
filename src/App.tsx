@@ -41,6 +41,9 @@ import {
 } from "./terminal/wslPath";
 import { useAutoResume } from "./agents/useAutoResume";
 import { useAutoResumeSettings } from "./agents/autoResumeSettings";
+import { CallBubble } from "./calls/CallBubble";
+import { setCallFocusTab } from "./calls/callStore";
+import { useAgentStateCalls } from "./calls/useAgentStateCalls";
 import { useAgentNotifications } from "./notifications/useAgentNotifications";
 import { watchLimitResets } from "./notifications/limitResetWatcher";
 import { isPhoneAction, PROFILE_CLI, publishRemoteActions } from "./plugins/remotePublish";
@@ -269,6 +272,7 @@ function Shell() {
   }, [activeTabId, setSidebarCollapsed, setAgentsSidebarOpen]);
   // The tab on screen, for pages opened on behalf of another tab (see browserStore).
   useLayoutEffect(() => setBrowserFocusTab(activeTabId), [activeTabId]);
+  useLayoutEffect(() => setCallFocusTab(activeTabId), [activeTabId]);
   // The tab strip, the shortcuts and the phone's list leave out the new tab dialog.
   const stripTabs = useMemo(() => listedTabs(tabs), [tabs]);
   const [{ layout: newTabLayoutId }] = useNewTabSettings();
@@ -1998,6 +2002,7 @@ function Shell() {
     isViewing: (id) => document.hasFocus() && latestRef.current.activeTabId === id,
     lastSubmitAt: (id) => lastSubmitAt(termRefs.current.get(id)?.getPtyId()),
   });
+  useAgentStateCalls(tabs, tabAgents, doneTabIds);
   const { armed: resumeArmed, cancel: cancelResume } = useAutoResume(tabAgents, {
     getTab: (id) => latestRef.current.tabs.find((t): t is TermTab => t.id === id && t.kind === "terminal"),
     getTerm: (id) => termRefs.current.get(id),
@@ -3037,6 +3042,7 @@ function Shell() {
           onDragOut={(id) => void handleTabDragOut(id)}
         />
         )}
+        {activeHost === LOCAL_HOST && <CallBubble tabs={stripTabs} agents={tabAgents} narrow={isNarrow} onGoTo={selectTab} />}
         <div className="header-right">
           {!isNarrow && headerTools}
           {pluginMenuAnchor && (

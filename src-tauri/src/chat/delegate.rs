@@ -30,6 +30,7 @@ const REQUEST_METHOD: &str = "_flowcode/delegate_request";
 const RESOLVED_METHOD: &str = "_flowcode/delegate_request_resolved";
 const TASK_METHOD: &str = "_flowcode/task";
 const OPEN_METHOD: &str = "_flowcode/open";
+const CALL_METHOD: &str = "_flowcode/call";
 
 /// How long `delegate_task` and `get_task_result` wait for the child at most:
 /// under the script's own timeout, which also covers the child's start.
@@ -511,6 +512,7 @@ pub(crate) fn mcp_call(app: &AppHandle, caller: &Caller, tool: &str, args: &Valu
     }
     match tool {
         chat_mcp::OPEN => open_in_browser(&chat, args),
+        chat_mcp::CALL_USER => call_user(&chat, args),
         chat_mcp::LIST_AGENTS => Ok(list_agents(app, &state, &chat)),
         chat_mcp::DELEGATE_TASK => delegate_task(app, &state, &chat, args, deadline_ms),
         chat_mcp::GET_TASK_RESULT => get_task_result(&state, &chat, args),
@@ -535,6 +537,17 @@ fn open_in_browser(chat: &Chat, args: &Value) -> Result<String, String> {
     let target = chat_mcp::open_target(string_arg(args, "target")?, &chat.cwd, &homes, chat.wsl.then_some(chat.wsl_distro.as_deref().unwrap_or("")))?;
     chat.emit(ChatBody::Ext { method: OPEN_METHOD.to_string(), params: json!({ "target": target, "cwd": chat.cwd }) });
     Ok("Sent to Flowcode. External links require user confirmation before opening.".to_string())
+}
+
+/// Tells the app to show the user a bubble from this chat's tab (`_flowcode/call`).
+fn call_user(chat: &Chat, args: &Value) -> Result<String, String> {
+    let message: String = string_arg(args, "message")?.trim().chars().take(400).collect();
+    if message.is_empty() {
+        return Err("message is empty".into());
+    }
+    let reason = args.get("reason").and_then(Value::as_str).filter(|r| matches!(*r, "question" | "review" | "done" | "info")).unwrap_or("info");
+    chat.emit(ChatBody::Ext { method: CALL_METHOD.to_string(), params: json!({ "message": message, "reason": reason }) });
+    Ok("The user has been notified.".to_string())
 }
 
 fn list_agents(app: &AppHandle, state: &ChatState, chat: &Chat) -> String {
@@ -745,7 +758,7 @@ mod tests {
     }
 
     fn on() -> ToolsConfig {
-        ToolsConfig { enabled: true, open: true, open_auto_allow: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2 }
+        ToolsConfig { enabled: true, open: true, open_auto_allow: true, call: true, delegate: true, delegate_agents: vec!["codex".into(), "gemini".into()], max_parallel: 2 }
     }
 
     fn task(id: &str, parent: &str) -> Arc<Task> {

@@ -108,3 +108,19 @@ export function createAgentOpenTracker(cwd: string) {
     return agentOpen(input, cwd);
   };
 }
+
+/** The backend's event for a call to Flowcode's `call_user` tool (params: `{ message, reason }`). */
+const CALL_EXT_METHOD = "_flowcode/call";
+
+export interface AgentCallRequest {
+  message: string;
+  reason: "question" | "review" | "done" | "info";
+}
+
+/** What the agent said through `call_user`, for a live event (never a replay: an old call is no news). */
+export function agentCallOf(event: ChatEvent, replay = false): AgentCallRequest | null {
+  if (replay || event.kind !== "ext" || event.method !== CALL_EXT_METHOD) return null;
+  const { message, reason } = (event.params && typeof event.params === "object" ? event.params : {}) as { message?: unknown; reason?: unknown };
+  if (typeof message !== "string" || !message.trim()) return null;
+  return { message: message.trim(), reason: reason === "question" || reason === "review" || reason === "done" ? reason : "info" };
+}

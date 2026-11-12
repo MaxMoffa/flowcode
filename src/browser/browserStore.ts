@@ -1,6 +1,8 @@
 import { createStore } from "../lib/externalStore";
 import { readBool, writeBool } from "../lib/storage";
 import { isPdfTarget } from "../../shared/agentOpen";
+import { addCall, removeCallByKey } from "../calls/callStore";
+import { t } from "../i18n";
 export { isPdfTarget, isPreviewableFile } from "../../shared/agentOpen";
 
 const BROWSER_OPEN_KEY = "flowcode.browserOpen";
@@ -76,6 +78,43 @@ export function whenTabFocused(tabId: string | undefined): Promise<void> | null 
   });
 }
 
+let nextAsk = 0;
+
+/** Asks, in a bubble under `tabId`'s tab, whether its agent may do something the app would otherwise ask about once
+ * the user is in that tab. Resolves with the answer given in the bubble, or null when the user went to the tab first
+ * (the caller then asks there as usual). Null at once when the tab is on screen. */
+export function askFromAway(tabId: string | undefined, { title, detail, allowLabel, denyLabel }: { title: string; detail: string; allowLabel: string; denyLabel: string }): Promise<boolean | null> | null {
+  const away = whenTabFocused(tabId);
+  if (!tabId || !away) return null;
+  return new Promise((resolve) => {
+    const key = `ask-open:${tabId}:${++nextAsk}`;
+    addCall({
+      key,
+      tabId,
+      kind: "permission",
+      title,
+      detail,
+      options: [
+        { id: "allow", label: allowLabel, tone: "primary" },
+        { id: "deny", label: denyLabel, tone: "danger" },
+      ],
+      onOption: (id) => {
+        removeCallByKey(key);
+        resolve(id === "allow");
+      },
+    });
+    void away.then(() => {
+      removeCallByKey(key);
+      resolve(null);
+    });
+  });
+}
+
+/** What a page is called in a bubble: its address, or the file's name. */
+function pageLabel(page: PreviewPage): string {
+  return page.kind === "url" ? page.url : page.kind === "file" ? (page.path.split(/[\/]/).pop() ?? page.path) : (page.src.split(/[\/]/).pop() ?? page.src);
+}
+
 /** The page a background tab opened while the user was elsewhere, once. */
 export function takePendingPage(tabId: string): string | null {
   const id = pendingByTab.get(tabId) ?? null;
@@ -88,6 +127,24 @@ export function takePendingPage(tabId: string): string | null {
 function showPage(id: string, fromTabId?: string) {
   if (fromTabId && focusTabId && fromTabId !== focusTabId) {
     pendingByTab.set(fromTabId, id);
+    // Tell the user where it is, and let them bring it here instead of going to that tab.
+    const page = store.get().pages.find((p) => p.id === id);
+    const key = `browser:${fromTabId}`;
+    if (page) {
+      addCall({
+        key,
+        tabId: fromTabId,
+        kind: "browser",
+        title: t("calls.title.browser"),
+        detail: pageLabel(page),
+        onOpenHere: () => {
+          if (pendingByTab.get(fromTabId) === id) pendingByTab.delete(fromTabId);
+          removeCallByKey(key);
+          activatePage(id);
+          setBrowserOpen(true);
+        },
+      });
+    }
     return;
   }
   store.update((s) => ({ ...s, activeId: id }));

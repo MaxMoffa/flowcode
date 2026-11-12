@@ -4,12 +4,12 @@ import { isPdfTarget, type AgentOpen } from "../../shared/agentOpen";
 import { checkPath } from "../lib/fileLinks";
 import { toWindowsPath } from "../terminal/wslPath";
 import { getBrowserSettings, type Target } from "./browserSettings";
-import { isLocalUrl, normalizeLocalUrl, openFileInPreview, openUrlInPreview, whenTabFocused } from "./browserStore";
+import { askFromAway, isLocalUrl, normalizeLocalUrl, openFileInPreview, openUrlInPreview } from "./browserStore";
 import type { ConfirmOptions } from "../dialog/ConfirmDialogContext";
 import { t } from "../i18n";
 import { isExecutablePath } from "../lib/filePaths";
 
-export { commandCwd, createAgentOpenTracker, openCommandTarget, toolCommand } from "../../shared/agentOpen";
+export { agentCallOf, commandCwd, createAgentOpenTracker, openCommandTarget, toolCommand } from "../../shared/agentOpen";
 
 /** An agent opened `target`: shows it where the Browser settings say for that
  * kind. The caller waits for the call to complete (denied or failed ones never
@@ -27,10 +27,13 @@ export async function routeAgentOpen({ target, cwd, direct }: AgentOpen, distro:
     const local = isLocalUrl(target);
     const setting = local ? settings.local : settings.external;
     // Some adapters never ask for MCP permission. The app still asks before network access -
-    // on the agent's own tab: from a background tab the question waits until the user goes there.
-    const away = direct && !local ? whenTabFocused(fromTabId) : null;
-    if (away) await away;
-    if (direct && !local && !(await confirm?.({ title: t("link.open"), message: target, confirmLabel: t(setting === "system" ? "link.open" : "link.openInPreview") }))) return;
+    // on the agent's own tab: from a background tab it is asked in a bubble under that tab, or waits until the user goes there.
+    if (direct && !local) {
+      const asked = askFromAway(fromTabId, { title: t("calls.title.open"), detail: target, allowLabel: t("calls.open"), denyLabel: t("calls.no") });
+      const answered = asked ? await asked : null;
+      if (answered === false) return;
+      if (answered === null && !(await confirm?.({ title: t("link.open"), message: target, confirmLabel: t(setting === "system" ? "link.open" : "link.openInPreview") }))) return;
+    }
     if (inPanel(setting)) openUrlInPreview(local ? normalizeLocalUrl(target) : target, fromTabId);
     else if (direct) openUrl(target).catch(() => {});
     return;

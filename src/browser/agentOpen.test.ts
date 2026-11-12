@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  preview: vi.fn(), system: vi.fn(), focus: vi.fn((): Promise<void> | null => null),
+  preview: vi.fn(), system: vi.fn(), away: vi.fn((): Promise<boolean | null> | null => null),
   settings: { local: "app", external: "ask", artifacts: "app" },
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.system }));
@@ -13,7 +13,7 @@ vi.mock("./browserStore", () => ({
   normalizeLocalUrl: (target: string) => target,
   openUrlInPreview: mocks.preview,
   openFileInPreview: vi.fn(),
-  whenTabFocused: mocks.focus,
+  askFromAway: mocks.away,
 }));
 import { routeAgentOpen, commandCwd, openCommandTarget, toolCommand } from "./agentOpen";
 
@@ -21,16 +21,27 @@ describe("agent browser permission", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.settings.external = "ask"; mocks.system.mockResolvedValue(undefined); });
   const request = { target: "https://example.com/?private=value", cwd: "/repo", direct: true };
 
-  it("asks about a background tab's page only once that tab is on screen", async () => {
-    let focus!: () => void;
-    mocks.focus.mockReturnValueOnce(new Promise<void>((done) => { focus = done; }));
+  it("asks about a background tab's page in a bubble, without the dialog", async () => {
+    mocks.away.mockReturnValueOnce(Promise.resolve(true));
     const confirm = vi.fn(async () => true);
-    const opening = routeAgentOpen(request, null, confirm, "tab-b");
-    await Promise.resolve();
-    expect(mocks.focus).toHaveBeenCalledWith("tab-b");
+    await routeAgentOpen(request, null, confirm, "tab-b");
+    expect(mocks.away).toHaveBeenCalledWith("tab-b", expect.objectContaining({ detail: request.target }));
     expect(confirm).not.toHaveBeenCalled();
-    focus();
-    await opening;
+    expect(mocks.preview).toHaveBeenCalledWith(request.target, "tab-b");
+  });
+
+  it("opens nothing when the bubble says no", async () => {
+    mocks.away.mockReturnValueOnce(Promise.resolve(false));
+    const confirm = vi.fn(async () => true);
+    await routeAgentOpen(request, null, confirm, "tab-b");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(mocks.preview).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the dialog when the user reaches the tab before answering", async () => {
+    mocks.away.mockReturnValueOnce(Promise.resolve(null));
+    const confirm = vi.fn(async () => true);
+    await routeAgentOpen(request, null, confirm, "tab-b");
     expect(confirm).toHaveBeenCalledOnce();
     expect(mocks.preview).toHaveBeenCalledWith(request.target, "tab-b");
   });

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — l'agente ti chiama, tre varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --chrome: #15110e; --card: #221c17; --card-2: #2b241e; --float: #2a231d;
+      --border: rgba(232,184,128,.12); --border-strong: rgba(231,216,197,.22);
+      --fg: #e7d8c5; --muted: #a08a6f; --accent: #9db984; --accent-bg: rgba(157,185,132,.14);
+      --amber: #d9a24e; --amber-bg: rgba(217,162,78,.14); --blue: #6f9bcf; --red: #e2645c;
+      --hover: rgba(231,216,197,.06);
+      --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0f0c09; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+    .page { max-width: 1200px; margin: auto; padding: 28px 24px 60px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 900px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; padding: 10px 14px; margin-bottom: 26px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); position: sticky; top: 10px; z-index: 20; }
+    .seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 8px; background: rgba(0,0,0,.25); }
+    .seg button { padding: 4px 11px; border-radius: 6px; color: var(--muted); font-size: 13px; }
+    .seg button[aria-pressed="true"] { background: var(--card-2); color: var(--fg); font-weight: 600; box-shadow: inset 0 0 0 1px var(--border-strong); }
+    section { margin-bottom: 52px; }
+    section h2 { font-size: 16px; margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; }
+    section h2 .tag { font-size: 11px; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+    section p { margin: 0 0 12px; color: var(--muted); font-size: 13px; max-width: 920px; }
+    section ul { margin: 0 0 14px; padding-left: 18px; color: var(--muted); font-size: 13px; max-width: 920px; }
+
+    /* ---------- finestra ---------- */
+    .win { position: relative; height: 470px; border-radius: 9px; border: 1px solid rgba(0,0,0,.55); background: var(--chrome); overflow: hidden; display: flex; flex-direction: column; font-size: 12.5px; }
+    .hdr { height: 44px; display: flex; align-items: center; gap: 4px; padding: 0 8px; position: relative; z-index: 3; }
+    .tab { position: relative; height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-radius: 7px; color: var(--muted); white-space: nowrap; }
+    .tab.on { background: var(--card-2); color: var(--fg); }
+    .logo { width: 14px; height: 14px; border-radius: 4px; display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #1a1511; }
+    .logo.claude { background: #d9a27a; } .logo.codex { background: #9fb3c8; } .logo.term { background: #6b5a44; color: var(--fg); }
+    .tab.calling .logo { animation: ring 1.4s ease-in-out infinite; box-shadow: 0 0 0 0 var(--amber); }
+    @keyframes ring { 0%,100% { box-shadow: 0 0 0 0 rgba(217,162,78,.6); } 50% { box-shadow: 0 0 0 5px rgba(217,162,78,0); } }
+    .tab.calling { color: var(--amber); }
+    .sp { flex: 1; }
+    .hico { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); }
+    .hico::before { content: ""; width: 12px; height: 12px; border: 1.6px solid currentColor; border-radius: 3px; }
+    .body { flex: 1; display: flex; gap: 8px; padding: 0 8px 8px; min-height: 0; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .tree { width: 190px; padding: 8px; color: var(--muted); }
+    .tree div { padding: 3px 6px; border-radius: 5px; }
+    .tree .sel { background: var(--accent-bg); color: var(--fg); }
+    .main { flex: 1; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+    .line { height: 9px; border-radius: 4px; background: rgba(231,216,197,.08); }
+    .code { font: 12px/1.6 var(--mono); color: var(--muted); }
+    .code b { color: #c98fc4; font-weight: 400; } .code i { color: var(--accent); font-style: normal; }
+
+    /* ---------- elementi comuni della chiamata ---------- */
+    .who { display: flex; align-items: center; gap: 8px; }
+    .who .logo { width: 20px; height: 20px; font-size: 11px; border-radius: 6px; }
+    .who b { font-weight: 600; }
+    .who small { color: var(--muted); font-size: 11.5px; }
+    .why { margin: 8px 0 10px; color: var(--fg); line-height: 1.45; }
+    .why code { font: 11.5px var(--mono); background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 4px; }
+    .cmd { font: 11.5px/1.5 var(--mono); background: rgba(0,0,0,.3); border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; margin: -2px 0 10px; color: var(--fg); }
+    .acts { display: flex; flex-wrap: wrap; gap: 6px; }
+    .btn { padding: 5px 11px; border-radius: 7px; background: var(--hover); border: 1px solid var(--border-strong); font-size: 12px; }
+    .btn.pri { background: var(--accent); color: #17200f; border-color: transparent; font-weight: 600; }
+    .btn.ghost { border-color: transparent; color: var(--muted); }
+    .btn.danger { color: var(--red); }
+    .kind { font-size: 10px; letter-spacing: .08em; font-weight: 700; padding: 2px 6px; border-radius: 5px; margin-left: auto; }
+    .kind.permission, .kind.question { color: var(--amber); background: var(--amber-bg); }
+    .kind.browser { color: var(--blue); background: rgba(111,155,207,.14); }
+    .kind.done { color: var(--accent); background: var(--accent-bg); }
+    .x { margin-left: 6px; color: var(--muted); width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; }
+    .x:hover { background: var(--hover); }
+    .opts { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+    .opts button { text-align: left; padding: 6px 10px; border-radius: 7px; border: 1px solid var(--border-strong); background: rgba(0,0,0,.18); }
+    .opts button:hover { border-color: var(--accent); }
+    .opts button span { color: var(--muted); font-size: 11px; display: block; }
+    .reply { display: flex; gap: 6px; margin-bottom: 10px; }
+    .reply input { flex: 1; font: inherit; font-size: 12px; color: var(--fg); background: rgba(0,0,0,.25); border: 1px solid var(--border-strong); border-radius: 7px; padding: 5px 9px; outline: none; }
+    .reply input:focus { border-color: var(--accent); }
+    .shot { height: 70px; border-radius: 7px; border: 1px solid var(--border); background: linear-gradient(180deg, #2f3a48, #222b35); margin-bottom: 10px; position: relative; overflow: hidden; }
+    .shot::before { content: "localhost:5173"; position: absolute; left: 8px; top: 6px; font: 10.5px var(--mono); color: #b7c6d6; }
+    .shot::after { content: ""; position: absolute; left: 8px; right: 40%; top: 28px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.18); box-shadow: 0 14px 0 rgba(255,255,255,.1), 0 28px 0 rgba(255,255,255,.07); }
+
+    /* ---------- A: fumetto che parte dalla tab ---------- */
+    .bubble { position: absolute; top: 44px; width: 340px; padding: 12px 14px; border-radius: 12px; background: var(--float); border: 1px solid var(--border-strong); z-index: 10; box-shadow: 0 14px 40px rgba(0,0,0,.45); animation: pop .18s ease-out; }
+    .bubble::before { content: ""; position: absolute; top: -7px; left: var(--tip, 40px); width: 12px; height: 12px; background: var(--float); border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); transform: rotate(45deg); }
+    .bubble .more { margin-top: 8px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 7px; }
+    @keyframes pop { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: none; } }
+
+    /* ---------- B: chat head a lato ---------- */
+    .heads { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 10; }
+    .chathead { width: 330px; border-radius: 14px; background: var(--float); border: 1px solid var(--border-strong); box-shadow: 0 14px 40px rgba(0,0,0,.45); overflow: hidden; animation: slide .2s ease-out; }
+    .chathead .top { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,.15); }
+    .chathead .msg { padding: 10px 12px 12px; }
+    .chathead .msg .bubble-in { background: var(--card-2); border-radius: 12px 12px 12px 4px; padding: 8px 11px; margin-bottom: 10px; }
+    .chathead .msg .bubble-in .why { margin: 0; }
+    .mini { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border-radius: 999px; background: var(--float); border: 1px solid var(--border-strong); box-shadow: 0 8px 24px rgba(0,0,0,.4); font-size: 12px; }
+    .mini .logo { width: 24px; height: 24px; border-radius: 50%; font-size: 11px; }
+    .mini .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+    .wire { position: absolute; z-index: 9; pointer-events: none; }
+    @keyframes slide { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+
+    /* ---------- C: la tab si allarga (isola) ---------- */
+    .tab.island { background: var(--amber-bg); color: var(--fg); box-shadow: inset 0 0 0 1px rgba(217,162,78,.45); padding-right: 6px; max-width: 420px; transition: max-width .25s; }
+    .tab.island.browser { background: rgba(111,155,207,.14); box-shadow: inset 0 0 0 1px rgba(111,155,207,.45); }
+    .tab.island.done { background: var(--accent-bg); box-shadow: inset 0 0 0 1px rgba(157,185,132,.45); }
+    .tab.island .sum { color: var(--fg); overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+    .tab.island .open { margin-left: 4px; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.25); font-size: 11.5px; }
+    .drop { position: absolute; top: 40px; width: 380px; padding: 12px 14px; border-radius: 0 0 12px 12px; background: var(--float); border: 1px solid var(--border-strong); border-top: 2px solid var(--amber); z-index: 10; box-shadow: 0 14px 40px rgba(0,0,0,.45); animation: pop .16s ease-out; }
+    .drop.browser { border-top-color: var(--blue); } .drop.done { border-top-color: var(--accent); }
+
+    .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    kbd { font: 11px var(--mono); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE · CHIAMATE DEGLI AGENTI</div>
+  <h1>L'agente ti chiama da un'altra scheda</h1>
+  <p class="lead">Sei nella scheda <b>Terminale · sito-web</b>. Claude lavora in <b>flowcode</b> e ha bisogno di te. Scegli il motivo della chiamata qui sotto: ogni variante mostra lo stesso caso. Nei permessi e nelle domande a scelta rispondi direttamente dalla chiamata, senza cambiare scheda. Per il resto c'è «Vai alla scheda».</p>
+
+  <div class="bar">
+    <span>Motivo</span>
+    <span class="seg" id="kinds">
+      <button data-k="permission" aria-pressed="true">Permesso</button>
+      <button data-k="question" aria-pressed="false">Domanda</button>
+      <button data-k="browser" aria-pressed="false">Browser aperto</button>
+      <button data-k="done" aria-pressed="false">Ha finito</button>
+    </span>
+    <span>Chiamate</span>
+    <span class="seg" id="count">
+      <button data-n="1" aria-pressed="true">1</button>
+      <button data-n="2" aria-pressed="false">2 agenti</button>
+    </span>
+  </div>
+
+  <section>
+    <h2><span class="tag">A</span> Fumetto dalla scheda</h2>
+    <p>Un fumetto esce da sotto la scheda dell'agente, con la punta rivolta verso di lei, e il logo della scheda pulsa ambra. Si capisce al volo <i>chi</i> chiama e <i>da dove</i>. Con due chiamate il fumetto mostra la più recente e «+1 altra chiamata» sotto. Se lo ignori si chiude dopo 20 s e resta solo il logo che pulsa.</p>
+    <div class="win" id="wa"></div>
+  </section>
+
+  <section>
+    <h2><span class="tag">B</span> Chat head in basso a destra</h2>
+    <p>Una finestrella stile messaggistica in basso a destra: l'agente ti «scrive» il motivo in una nuvoletta, come in una chat. Un filo sottile la collega alla scheda. Le chiamate si impilano. Quelle vecchie si riducono a una pillola con il logo, e cliccandola si riapre. Non copre mai la barra delle schede né il punto in cui stai scrivendo, se lavori in alto.</p>
+    <div class="win" id="wb"></div>
+  </section>
+
+  <section>
+    <h2><span class="tag">C</span> La scheda si allarga (isola)</h2>
+    <p>La scheda stessa si allarga nella barra e mostra il motivo in una riga, come la Dynamic Island. Il colore dice il tipo: ambra se serve te, blu per il browser, verde se ha finito. Cliccandola si apre un pannello a tendina attaccato alla scheda, con i dettagli e le risposte. È la più discreta: non copre il contenuto finché non la apri.</p>
+    <div class="win" id="wc"></div>
+  </section>
+</div>
+
+<script>
+  const CALLS = {
+    permission: { kind: "permission", label: "PERMESSO", title: "Claude ti chiama", sub: "flowcode · 12 s fa",
+      why: "Vuole eseguire un comando nel progetto:", cmd: "npm install @tauri-apps/plugin-shell",
+      body: () => `<div class="acts"><button class="btn pri">Consenti</button><button class="btn">Consenti sempre</button><button class="btn danger">Nega</button><span class="sp"></span><button class="btn ghost">Vai alla scheda</button></div>`,
+      summary: "vuole eseguire npm install…" },
+    question: { kind: "question", label: "DOMANDA", title: "Claude ti chiama", sub: "flowcode · ora",
+      why: "Per i pannelli parcheggiati preferisci il pallino o un badge con il numero?",
+      body: () => `<div class="opts"><button>Pallino<span>più discreto, come le altre icone</span></button><button>Badge con numero<span>dice quanti pannelli sono nascosti</span></button></div>
+        <div class="reply"><input placeholder="Oppure rispondi tu…"><button class="btn pri">Invia</button></div>
+        <div class="acts"><span class="sp"></span><button class="btn ghost">Vai alla scheda</button></div>`,
+      summary: "pallino o badge con il numero?" },
+    browser: { kind: "browser", label: "BROWSER", title: "Claude ha aperto una pagina", sub: "flowcode · ora",
+      why: "Ha avviato il dev server e aperto <code>localhost:5173</code> nel browser della sua scheda.",
+      body: () => `<div class="shot"></div><div class="acts"><button class="btn pri">Vai alla scheda</button><button class="btn">Apri qui</button><button class="btn ghost">Più tardi</button></div>`,
+      summary: "ha aperto localhost:5173" },
+    done: { kind: "done", label: "FINITO", title: "Claude ha finito", sub: "flowcode · 2 min fa",
+      why: "Ho committato il layout dei pannelli (23946ba). Typecheck e 895 test verdi.",
+      body: () => `<div class="acts"><button class="btn pri">Vai alla scheda</button><button class="btn ghost">Ok</button></div>`,
+      summary: "ha committato il layout dei pannelli" },
+  };
+  const SECOND = { kind: "permission", label: "PERMESSO", title: "Codex ti chiama", sub: "api-server · 40 s fa", summary: "vuole modificare 3 file" };
+  let kind = "permission", n = 1;
+
+  const tabs = (calling, island) => `
+    <span class="tab on"><span class="logo term">›_</span>Terminale · sito-web</span>
+    ${island ? island : `<span class="tab ${calling ? "calling" : ""}" id="t1"><span class="logo claude">C</span>flowcode</span>`}
+    <span class="tab ${n > 1 ? "calling" : ""}" id="t2"><span class="logo codex">X</span>api-server</span>
+    <span class="tab"><span class="logo term">›_</span>docs</span>
+    <span class="sp"></span><span class="hico"></span><span class="hico"></span><span class="hico"></span>`;
+  const body = `<div class="body"><div class="card tree"><div>▾ sito-web</div><div>&nbsp;&nbsp;index.html</div><div class="sel">&nbsp;&nbsp;style.css</div><div>&nbsp;&nbsp;main.js</div></div>
+    <div class="card main"><div class="code"><b>$</b> npm run dev<br><i>VITE v6.0</i> ready in 312 ms<br>➜ Local: http://localhost:3000/<br><br><b>$</b> <span style="color:var(--fg)">git status</span></div>
+    <div class="line" style="width:60%"></div><div class="line" style="width:42%"></div></div></div>`;
+  const head = (c, logo = "claude", letter = "C") => `<div class="who"><span class="logo ${logo}">${letter}</span><div><b>${c.title}</b><br><small>${c.sub}</small></div><span class="kind ${c.kind}">${c.label}</span><button class="x">✕</button></div>`;
+  const content = (c) => `<div class="why">${c.why}</div>${c.cmd ? `<div class="cmd">${c.cmd}</div>` : ""}${c.body()}`;
+
+  function render() {
+    const c = CALLS[kind];
+    // A
+    const wa = document.getElementById("wa");
+    wa.innerHTML = `<div class="hdr">${tabs(true)}</div>${body}
+      <div class="bubble" style="left:150px;--tip:44px">${head(c)}${content(c)}${n > 1 ? `<div class="more">+1 altra chiamata · <b style="color:var(--fg)">Codex</b> in api-server: ${SECOND.summary}</div>` : ""}</div>`;
+    // B
+    const wb = document.getElementById("wb");
+    wb.innerHTML = `<div class="hdr">${tabs(true)}</div>${body}
+      <svg class="wire" width="100%" height="100%" style="left:0;top:0"><path d="M205 38 C 205 140, 700 120, 820 ${n > 1 ? 150 : 200}" fill="none" stroke="rgba(217,162,78,.35)" stroke-width="1.5" stroke-dasharray="4 4"/></svg>
+      <div class="heads">
+        ${n > 1 ? `<div class="mini"><span class="logo codex">X</span>Codex · ${SECOND.summary}<span class="dot"></span></div>` : ""}
+        <div class="chathead"><div class="top"><span class="logo claude" style="width:22px;height:22px;border-radius:50%;font-size:11px">C</span><div style="line-height:1.2"><b>Claude</b> <small style="color:var(--muted)">· flowcode</small><br><small style="color:var(--muted)">${c.sub.split(" · ")[1]}</small></div><span class="kind ${c.kind}">${c.label}</span><button class="x">✕</button></div>
+          <div class="msg"><div class="bubble-in"><div class="why">${c.why}</div></div>${c.cmd ? `<div class="cmd">${c.cmd}</div>` : ""}${c.body()}</div></div>
+      </div>`;
+    // C
+    const wc = document.getElementById("wc");
+    const island = `<span class="tab island ${c.kind}" id="t1"><span class="logo claude">C</span>flowcode <span style="color:var(--muted)">·</span> <span class="sum">${c.summary}</span><span class="open">▾</span></span>`;
+    wc.innerHTML = `<div class="hdr">${tabs(true, island)}</div>${body}
+      <div class="drop ${c.kind}" style="left:150px">${head(c)}${content(c)}</div>`;
+    if (n > 1) {
+      // in C la seconda chiamata allarga anche la sua scheda
+      const t2 = wc.querySelector("#t2");
+      t2.className = "tab island";
+      t2.innerHTML = `<span class="logo codex">X</span>api-server <span style="color:var(--muted)">·</span> <span class="sum">${SECOND.summary}</span>`;
+    }
+  }
+  function seg(id, attr, set) {
+    document.querySelectorAll(`#${id} button`).forEach((b) => b.addEventListener("click", () => {
+      document.querySelectorAll(`#${id} button`).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      set(b.dataset[attr]); render();
+    }));
+  }
+  seg("kinds", "k", (v) => (kind = v));
+  seg("count", "n", (v) => (n = Number(v)));
+  render();
+</script>
+</body>
+</html>
