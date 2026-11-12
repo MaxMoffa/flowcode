@@ -119,7 +119,7 @@ export function AgentSessionView({
   }, [phase, agent]);
   // The agents panel and the History read the delegation state from here.
   const { items: modelItems, delegateRequests, task } = model;
-  useChatCalls(agent, openTabId, modelItems, { permission: chat.answerPermission, ask: chat.answerAsk }, chat.attached);
+  useChatCalls(agent, openTabId, modelItems, { permission: chat.answerPermission, ask: chat.answerAsk }, chat.attached, { parked: !tabId, sessionId });
   useEffect(() => {
     if (!tabId) return;
     const delegates = delegatesOf(modelItems);

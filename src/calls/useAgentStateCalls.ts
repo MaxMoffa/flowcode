@@ -4,7 +4,7 @@ import { cliName, type AgentCli } from "../agents/cliInfo";
 import { getNotificationSettings } from "../notifications/notificationSettings";
 import type { AppTab } from "../tabs/types";
 import { t } from "../i18n";
-import { addCall, clearTab, removeCallByKey } from "./callStore";
+import { addCall, clearTab, removeCallByKey, useCallsEnabled } from "./callStore";
 
 /** Same settle as the native notifications: an agent quiet for a moment between two steps hasn't finished. */
 const DONE_SETTLE_MS = 3000;
@@ -21,6 +21,7 @@ export function useAgentStateCalls(tabs: AppTab[], agents: Map<string, TabAgent>
   const chatStatus = useRef(new Map<string, string | undefined>());
   const knownTabs = useRef(new Set<string>());
   const settle = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const enabled = useCallsEnabled();
   useEffect(() => () => settle.current.forEach(clearTimeout), []);
 
   useEffect(() => {
@@ -28,6 +29,12 @@ export function useAgentStateCalls(tabs: AppTab[], agents: Map<string, TabAgent>
     const ids = new Set(tabs.map((tab) => tab.id));
     for (const id of knownTabs.current) if (!ids.has(id)) clearTab(id);
     knownTabs.current = ids;
+
+    // Bubbles off: nothing is raised, and what was is forgotten, so turning them back on raises it again.
+    if (!enabled) {
+      waiting.current.clear();
+      return;
+    }
 
     const settings = getNotificationSettings();
     const stillWaiting = new Set<string>();
@@ -83,5 +90,5 @@ export function useAgentStateCalls(tabs: AppTab[], agents: Map<string, TabAgent>
       settle.current.delete(id);
     }
     chatStatus.current = seen;
-  }, [tabs, agents, doneIds]);
+  }, [tabs, agents, doneIds, enabled]);
 }

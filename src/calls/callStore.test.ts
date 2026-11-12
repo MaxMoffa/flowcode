@@ -18,6 +18,14 @@ describe("callStore", () => {
     expect(getCalls().map((c) => c.id)).toEqual(["2", "1"]);
   });
 
+  it("shows a parked conversation's call even while its tab is on screen", () => {
+    setCallFocusTab("tab-a");
+    addCall({ ...base, id: "p", tabId: "tab-a", kind: "permission", key: "perm:p:1", parked: true, sessionId: "s1" });
+    addCall({ ...base, id: "q", tabId: "tab-a", kind: "permission", key: "perm:q:1" });
+    expect(getCalls().map((c) => c.id)).toEqual(["p"]);
+    expect(getCalls()[0].sessionId).toBe("s1");
+  });
+
   it("replaces a call with the same key", () => {
     addCall({ ...base, key: "perm:1", title: "old" });
     addCall({ ...base, key: "perm:1", title: "new" });

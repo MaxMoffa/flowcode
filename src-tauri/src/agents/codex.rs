@@ -504,7 +504,8 @@ pub(super) fn scan_codex_sessions(root: &Path, wsl_distro: Option<&str>, profile
         .take(MAX_CODEX_SESSIONS)
         .collect();
     if !sessions.is_empty() {
-        let names = codex_thread_names(root);
+        // Cached per mtime of session_index.jsonl (in the Codex home, the sessions folder's parent).
+        let names = root.parent().map(thread_names_in).unwrap_or_default();
         for session in &mut sessions {
             session.name = names.get(&session.session_id).cloned();
         }

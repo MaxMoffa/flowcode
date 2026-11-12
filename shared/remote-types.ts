@@ -27,6 +27,8 @@ export interface Tab {
   cli?: string;
   /** Account profile the agent runs under; absent for the default one (and from desktops before 0.11.3). */
   profile?: string;
+  /** The agent's session id, once known (absent from older desktops). */
+  sessionId?: string;
   status?: AgentStatus;
   context?: TabContext;
   /** Position in its window's strip, terminals and chats counted together; absent from older desktops. */
@@ -373,9 +375,9 @@ export type ServerMsg =
   | { t: "pong" };
 
 /** Which tab a `tabop` acts on. */
-export type TabTarget = { ptyId: string } | { chatId: string };
+type TabTarget = { ptyId: string } | { chatId: string };
 /** `tabop` actions (`tabOps` cap): `notify` `on: false` mutes; `move` `index` is the position in the tab's window strip, terminals and chats together (at most 1000). */
-export type TabOp = { kind: "duplicate" } | { kind: "notify"; on: boolean } | { kind: "move"; index: number };
+type TabOp = { kind: "duplicate" } | { kind: "notify"; on: boolean } | { kind: "move"; index: number };
 
 export type ClientMsg =
   | { t: "tabop"; target: TabTarget; op: TabOp }

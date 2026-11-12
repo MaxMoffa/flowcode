@@ -1,11 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { cliName, type AgentCli } from "../agents/cliInfo";
 import { toolCommand } from "../../shared/agentOpen";
 import { buildAskContent, type AskQuestion } from "../chat/askQuestions";
 import type { ChatItem } from "../chat/chatModel";
 import type { ChatPermissionOption } from "../chat/chatTypes";
 import { t } from "../i18n";
-import { addCall, removeCallByKey, type CallOption } from "./callStore";
+import { addCall, removeCallByKey, useCallsEnabled, type CallOption } from "./callStore";
 
 interface Answers {
   permission: (requestId: string, optionId: string | null) => void;
@@ -25,22 +25,37 @@ function askAnswers(questions: AskQuestion[]): { options?: CallOption[]; reply: 
 
 /** Raises a call for each permission request or question of the chat that waits for an answer, and drops it once that is
  * settled - here, in the tab or from the phone. `tabId` is the tab the chat lives in: the bubble only shows when it is
- * not the one on screen. A delegated child's own tab (`skip`) is left out: its orchestrator's chat raises those. */
-export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: ChatItem[], answers: Answers, skip: boolean) {
+ * not the one on screen. `pane.parked` is set when this conversation is in the background of that tab, and `pane.sessionId`
+ * is its agent session. A delegated child's own tab (`skip`) is left out: its orchestrator's chat raises those. */
+export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: ChatItem[], answers: Answers, skip: boolean, pane: { parked: boolean; sessionId?: string }) {
   const answersRef = useRef(answers);
   answersRef.current = answers;
   const raised = useRef(new Set<string>());
+  // Each conversation of a tab has its own request ids: the pane id keeps their keys apart.
+  const paneId = useId();
+  const enabled = useCallsEnabled();
+  const { parked, sessionId } = pane;
+  const paneSig = `${parked}|${sessionId ?? ""}`;
+  const lastPane = useRef(paneSig);
 
   useEffect(() => {
-    if (!tabId || skip) return;
+    // Bubbles off or nothing to call about: what was raised is removed, and raised again once they are back on.
+    const repaint = paneSig !== lastPane.current;
+    lastPane.current = paneSig;
+    if (!tabId || skip || !enabled) {
+      raised.current.forEach(removeCallByKey);
+      raised.current.clear();
+      return;
+    }
     const pending = new Set<string>();
     for (const item of items) {
       if (item.type !== "permission" && item.type !== "ask") continue;
       if (item.resolved !== undefined) continue;
       if (item.type === "permission") {
-        const key = `perm:${item.requestId}`;
+        const key = `perm:${paneId}:${item.requestId}`;
         pending.add(key);
-        if (raised.current.has(key)) continue;
+        // A pane that moved between shown and parked re-raises its calls, so they carry the new state.
+        if (raised.current.has(key) && !repaint) continue;
         raised.current.add(key);
         addCall({
           key,
@@ -52,11 +67,13 @@ export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: 
           command: toolCommand(item.toolCall as unknown as Record<string, unknown>) ?? undefined,
           options: item.options.map((o) => ({ id: o.optionId, label: o.name, tone: toneOf(o.kind) })),
           onOption: (optionId) => answersRef.current.permission(item.requestId, optionId),
+          parked,
+          sessionId,
         });
       } else if (item.type === "ask") {
-        const key = `ask:${item.requestId}`;
+        const key = `ask:${paneId}:${item.requestId}`;
         pending.add(key);
-        if (raised.current.has(key)) continue;
+        if (raised.current.has(key) && !repaint) continue;
         raised.current.add(key);
         const { options, reply } = askAnswers(item.questions);
         const accept = (answer: { picked: number[]; custom: string }) =>
@@ -71,6 +88,8 @@ export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: 
           options,
           onOption: options ? (id) => accept({ picked: [Number(id)], custom: "" }) : undefined,
           onReply: reply ? (text) => accept({ picked: [], custom: text }) : undefined,
+          parked,
+          sessionId,
         });
       }
     }
@@ -79,7 +98,7 @@ export function useChatCalls(agent: AgentCli, tabId: string | undefined, items: 
       raised.current.delete(key);
       removeCallByKey(key);
     }
-  }, [agent, tabId, items, skip]);
+  }, [agent, tabId, items, skip, enabled, paneId, paneSig, parked, sessionId]);
 
   // The chat is gone (tab closed, restarted): whatever it asked is moot.
   useEffect(

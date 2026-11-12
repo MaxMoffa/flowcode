@@ -25,7 +25,7 @@ const TAG_KEY: Record<GoalStatus, string> = {
 };
 
 /** The tone a status is drawn in. */
-export function goalTone(status: GoalStatus): "ok" | "warn" | "bad" {
+function goalTone(status: GoalStatus): "ok" | "warn" | "bad" {
   return status === "failed" ? "bad" : status === "paused" || status === "limited" || status === "blocked" ? "warn" : "ok";
 }
 

@@ -6,7 +6,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentInsightPanel } from "./agents/AgentInsightPanel";
-import { activatePage, openFileInPreview, setBrowserFocusTab, setBrowserOpen, takePendingPage, useBrowser } from "./browser/browserStore";
+import { activatePage, forgetBrowserTab, openFileInPreview, setBrowserFocusTab, setBrowserOpen, takePendingPage, useBrowser } from "./browser/browserStore";
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
@@ -1094,12 +1094,43 @@ function Shell() {
     setActiveTerminalId(id);
   }
 
-  /** A saved session picked in the History: resumed as a chat when picked from a chat (or a phone asks for one, or
-   * chats are the default agent view), otherwise in a terminal. */
-  function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number, view?: "chat" | "terminal") {
+  /** The agent view something picked in the History opens in: what a phone asked for, else the kind of tab the History
+   * is shown for (a chat's opens a chat, a terminal's a terminal), else the default agent view. */
+  function historyView(view?: "chat" | "terminal"): "chat" | "terminal" {
+    if (view) return view;
     const { tabs: all, activeTabId: front } = latestRef.current;
-    // `view`: what a phone asked for. Otherwise, picked from a chat's History: it opens as a chat too, whatever the default view.
-    if (view ? view === "chat" : all.find((t) => t.id === front)?.kind === "chat" || defaultOpensChat()) {
+    const kind = all.find((t) => t.id === front)?.kind;
+    if (kind === "chat" || kind === "terminal") return kind;
+    return defaultOpensChat() ? "chat" : "terminal";
+  }
+
+  /** The tab running agent session `sessionId` already: a chat (shown or in its background) or a terminal agent. */
+  function tabWithSession(sessionId: string): AppTab | undefined {
+    return latestRef.current.tabs.find((t) =>
+      t.kind === "chat"
+        ? t.sessionId === sessionId || (t.parked ?? []).some((p) => p.sessionId === sessionId)
+        : t.kind === "terminal" && sessionByTab.get(t.id)?.session_id === sessionId,
+    );
+  }
+
+  /** Sessions being resumed right now (`cli:sessionId`): a second click meanwhile must not open a second tab. */
+  const resumingRef = useRef(new Set<string>());
+
+  /** A saved session picked in the History (or from a phone): resumed in the view `historyView` picks. A session
+   * already open in a tab brings that tab forward instead: two processes must never share one session. */
+  function resumeAgentSession(cwd: string, sessionId: string, cli: AgentCli, wslDistro?: string, profileId?: string, lastActiveAt?: number, view?: "chat" | "terminal") {
+    const holder = sessionId ? tabWithSession(sessionId) : undefined;
+    if (holder) {
+      openHistoryTab(holder.id, holder.kind === "chat" ? sessionId : undefined);
+      return;
+    }
+    const busyKey = `${cli}:${sessionId}`;
+    if (resumingRef.current.has(busyKey)) return;
+    resumingRef.current.add(busyKey);
+    // Kept a moment past the start, until the new tab is in the strip for tabWithSession to find.
+    const done = () => setTimeout(() => resumingRef.current.delete(busyKey), 1000);
+    const { tabs: all, activeTabId: front } = latestRef.current;
+    if (historyView(view) === "chat") {
       // Saved inside WSL: a chat in that distro, on the folder as Windows sees it (like the WSL terminal).
       const chatCwd = wslDistro ? toWindowsPath(wslDistro, cwd) : cwd;
       // The default distro (shell "wsl") has no name to compare: such a chat is never reused.
@@ -1110,18 +1141,19 @@ function Shell() {
       // A chat tab already on this folder (same agent, profile, same side of WSL) shows it too, the conversation
       // it had keeps running in the background; only without one does a new tab open.
       const fits = (t: AppTab): t is ChatTab =>
-        t.kind === "chat" && t.agent === cli && t.cwd === chatCwd && (t.profileId ?? null) === (profileId ?? null) && !t.handoffFrom && distroOf(t) === (wslDistro || undefined);
+        t.kind === "chat" && !t.delegate && t.agent === cli && t.cwd === chatCwd && (t.profileId ?? null) === (profileId ?? null) && !t.handoffFrom && distroOf(t) === (wslDistro || undefined);
       const target = all.find((t) => t.id === front && fits(t)) ?? all.find(fits);
       if (target) {
         showChatSession(target.id, sessionId, lastActiveAt);
         setActiveTabId(target.id);
+        done();
         return;
       }
       // A session is loaded where it was saved (outside WSL or in its distro), whatever the default shell is.
-      void openChatTab(cli, chatCwd, { profileId, shell: wslDistro ? wslShellId(wslDistro) : "host", resume: { sessionId, lastActiveAt } });
+      void openChatTab(cli, chatCwd, { profileId, shell: wslDistro ? wslShellId(wslDistro) : "host", resume: { sessionId, lastActiveAt } }).finally(done);
       return;
     }
-    void openAgentSession(cwd, sessionId, cli, wslDistro, profileId);
+    void openAgentSession(cwd, sessionId, cli, wslDistro, profileId).finally(done);
   }
 
   /** The `pty_spawn` shell id a new terminal needs to land in the same kind
@@ -1536,6 +1568,7 @@ function Shell() {
 
   /** Drops the per-tab bookkeeping kept outside `tabs` itself. */
   function forgetTab(id: string) {
+    forgetBrowserTab(id);
     termRefs.current.delete(id);
     termCallbacksRef.current.delete(id);
     editorRefs.current.delete(id);
@@ -2011,10 +2044,19 @@ function Shell() {
   const frontTab = tabs.find((t) => t.id === activeTabId);
   const sidebarCwd = (frontTab?.kind === "chat" ? frontTab.explorerPath || frontTab.cwd : activeTerminal?.explorerPath) || homeDir;
   // The coding agent of the tab in front, if any: a chat, or a terminal with an
-  // agent detected in it. Gives the sidebar its History tab.
+  // agent detected in it. Gives the sidebar its History tab. None while another PC is shown: this PC's would act here.
   const historyAgent =
-    frontTab?.kind === "chat"
-      ? { cwd: frontTab.cwd, cli: frontTab.agent, sessionId: frontTab.sessionId, wslDistro: undefined as string | undefined, profileId: frontTab.profileId }
+    activeHost !== LOCAL_HOST
+      ? undefined
+      : frontTab?.kind === "chat"
+      ? {
+          cwd: frontTab.cwd,
+          cli: frontTab.agent,
+          sessionId: frontTab.sessionId,
+          // A chat running in WSL: its sessions, and a new one, stay in that distro.
+          wslDistro: (wslDistroOfShell(frontTab.shell) || wslDistroOfPath(frontTab.cwd)) ?? undefined,
+          profileId: frontTab.profileId,
+        }
       : activeTerminal && frontTab?.id === activeTerminal.id && activeAgentSession && (AGENT_CLIS as readonly string[]).includes(activeAgentSession.cli)
         ? {
             cwd: activeAgentSession.cwd ?? activeTerminal.cwd,
@@ -2323,8 +2365,35 @@ function Shell() {
     }
     const parent = all.find((t): t is ChatTab => t.id === parentTabId && t.kind === "chat");
     if (!parent) return;
-    const id = newTabId("chat");
     const agent = (AGENT_CLIS as readonly string[]).includes(delegate.agent) ? (delegate.agent as AgentCli) : parent.agent;
+    // A finished child may be one the backend already let go (it keeps only the last few): a tab would attach to
+    // nothing, so its saved conversation resumes as a chat instead.
+    const sessionId = delegate.childSessionId;
+    if (sessionId && delegate.status !== "running" && delegate.status !== "waiting_for_user") {
+      void invoke("chat_events", { chatId: delegate.childChatId, afterSeq: Number.MAX_SAFE_INTEGER }).then(
+        () => attachDelegateTab(parent, delegate, agent, wslDistro),
+        () => {
+          const holder = tabWithSession(sessionId);
+          if (holder) openHistoryTab(holder.id, holder.kind === "chat" ? sessionId : undefined);
+          else void openChatTab(agent, parent.cwd, { profileId: agent === parent.agent ? parent.profileId : undefined, shell: parent.shell, resume: { sessionId, label: delegate.title || undefined } });
+        },
+      );
+      return;
+    }
+    attachDelegateTab(parent, delegate, agent, wslDistro);
+  }
+
+  /** The tab of `openDelegateTab`, attached to the child's running chat. */
+  function attachDelegateTab(parent: ChatTab, delegate: DelegateInfo, agent: AgentCli, wslDistro: string | null) {
+    const parentTabId = parent.id;
+    const { tabs: all } = latestRef.current;
+    // Asked twice while the check above ran: one tab.
+    const open = all.find((t) => t.kind === "chat" && t.delegate?.taskId === delegate.taskId);
+    if (open) {
+      setActiveTabId(open.id);
+      return;
+    }
+    const id = newTabId("chat");
     const tab: ChatTab = {
       kind: "chat",
       id,
@@ -2772,13 +2841,17 @@ function Shell() {
                     // An idle chat in front starts its new conversation in place, like "/clear" -
                     // unless another agent or profile was picked.
                     const same = cli === historyAgent.cli && profileId === historyAgent.profileId;
-                    const chat = same && frontTab?.kind === "chat" ? frontTab : undefined;
+                    // A delegate's tab is attached to its child: never cleared from here.
+                    const chat = same && frontTab?.kind === "chat" && !frontTab.delegate ? frontTab : undefined;
                     const closer = chat && chatClosersRef.current.get(chat.paneKey ?? chat.id);
                     // Mid-turn it must not end: it goes on in the background, found again in the History.
                     if (closer && (chat.status === "busy" || chat.status === "waiting")) newChatPane(chat.id);
                     else if (closer) closer.clear();
+                    // Otherwise a new tab, of the same kind as the one the History is shown for: a chat's opens a chat
+                    // (in the same shell, so a WSL chat stays in its distro), a terminal's a terminal.
+                    else if (frontTab?.kind === "chat") void openChatTab(cli, cwd, { profileId, shell: frontTab.shell });
                     // A WSL agent's new session stays in its distro (its cwd is a Linux path).
-                    else void launchAgentInNewTab(cli, cwd, historyAgent.wslDistro ? wslShellId(historyAgent.wslDistro) : undefined, profileId);
+                    else void launchAgentInNewTab(cli, cwd, historyAgent.wslDistro ? wslShellId(historyAgent.wslDistro) : undefined, profileId, true);
                   }}
                 />
               )
@@ -3042,7 +3115,7 @@ function Shell() {
           onDragOut={(id) => void handleTabDragOut(id)}
         />
         )}
-        {activeHost === LOCAL_HOST && <CallBubble tabs={stripTabs} agents={tabAgents} narrow={isNarrow} onGoTo={selectTab} />}
+        {activeHost === LOCAL_HOST && <CallBubble tabs={stripTabs} agents={tabAgents} narrow={isNarrow} onGoTo={openHistoryTab} />}
         <div className="header-right">
           {!isNarrow && headerTools}
           {pluginMenuAnchor && (

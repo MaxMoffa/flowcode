@@ -631,7 +631,13 @@ fn agent_of(comm: &str, argv: &str) -> Option<(&'static str, &'static str)> {
         .filter(|s| !s.is_empty());
     tokens.next()?;
     let script = tokens.map(|s| s.trim_matches(['\'', '"'])).find(|s| !s.starts_with('-'))?.to_lowercase().replace('\\', "/");
-    script.split('/').find_map(|part| agent_binary(part.trim_end_matches(".mjs").trim_end_matches(".js").trim_end_matches(".py")))
+    // The script itself, or the npm package it lives in (`node_modules/<pkg>`, `@scope/<pkg>`): not any folder on the way
+    // (`/home/u/codex-project/server.js` is no Codex).
+    let parts: Vec<&str> = script.split('/').collect();
+    let stem = |p: &str| p.trim_end_matches(".mjs").trim_end_matches(".js").trim_end_matches(".py").to_string();
+    parts.last().and_then(|p| agent_binary(&stem(p))).or_else(|| {
+        parts.windows(2).find_map(|w| if w[0] == "node_modules" || w[0].starts_with('@') { agent_binary(w[1]) } else { None })
+    })
 }
 
 #[cfg(test)]
@@ -761,6 +767,8 @@ mod tests {
         assert!(super::node_runs_opencode(&["node".into(), "/usr/bin/opencode".into()]));
         assert!(!super::node_runs_opencode(&["node".into(), "server.js".into()]));
         assert_eq!(agent_of("node", "node server.js"), None);
+        assert_eq!(agent_of("node", "node /home/user/codex-project/server.js"), None);
+        assert_eq!(agent_of("node", "node /home/u/claude-tools/index.js"), None);
         assert_eq!(agent_of("bash", "bash"), None);
     }
 

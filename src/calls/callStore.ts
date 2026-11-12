@@ -29,6 +29,10 @@ export interface AgentCall {
   onReply?: (text: string) => void;
   /** Browser pages: show it in the tab on screen instead of going to the agent's tab. */
   onOpenHere?: () => void;
+  /** From a conversation parked in the background of its tab: shown even while that tab is on screen. */
+  parked?: boolean;
+  /** The agent session of that conversation, so going to the tab shows it. */
+  sessionId?: string;
   /** Same key replaces: a request that is raised again must not stack up. */
   key?: string;
 }
@@ -78,10 +82,10 @@ function forget(id: string) {
 export const getCalls = () => visible(store.get());
 
 function visible({ calls, focusTab }: CallState): AgentCall[] {
-  return calls.filter((c) => c.tabId !== focusTab).sort((a, b) => b.createdAt - a.createdAt);
+  return calls.filter((c) => c.tabId !== focusTab || c.parked).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/** The calls to show, newest first: never the ones of the tab on screen. */
+/** The calls to show, newest first: never the ones of the tab on screen, except those of its background conversations. */
 export function useCalls(): AgentCall[] {
   const state = store.use();
   return useMemo(() => visible(state), [state]);
@@ -93,7 +97,7 @@ export function addCall(call: NewCall): string {
   const full: AgentCall = { ...call, id, createdAt: call.createdAt ?? Date.now() };
   if (!store.get().enabled) return id;
   // Nobody needs calling about the tab they are looking at (a pending request is kept: they may leave it still unanswered).
-  if (full.tabId === store.get().focusTab && !PENDING_KINDS.includes(full.kind)) return id;
+  if (full.tabId === store.get().focusTab && !PENDING_KINDS.includes(full.kind) && !full.parked) return id;
   store.update((s) => {
     const replaced = full.key ? s.calls.find((c) => c.key === full.key) : undefined;
     if (replaced) forget(replaced.id);

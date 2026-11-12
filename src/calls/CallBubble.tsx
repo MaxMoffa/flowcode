@@ -87,7 +87,7 @@ const KIND_CHIP: Record<CallKind, MessageKey> = {
 };
 
 /** The newest call as a speech bubble under its tab, the others one click away. Rendered once, by App. */
-export function CallBubble({ tabs, agents, narrow, onGoTo }: { tabs: AppTab[]; agents: Map<string, TabAgent>; narrow: boolean; onGoTo: (tabId: string) => void }) {
+export function CallBubble({ tabs, agents, narrow, onGoTo }: { tabs: AppTab[]; agents: Map<string, TabAgent>; narrow: boolean; onGoTo: (tabId: string, sessionId?: string) => void }) {
   const { t } = useI18n();
   const calls = useCalls();
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
@@ -135,7 +135,7 @@ export function CallBubble({ tabs, agents, narrow, onGoTo }: { tabs: AppTab[]; a
     const s = Math.max(0, Math.round((now - call.createdAt) / 1000));
     return s < 5 ? t("calls.now") : s < 60 ? t("calls.secondsAgo", { n: s }) : t("calls.minutesAgo", { n: Math.round(s / 60) });
   };
-  const goTo = () => onGoTo(shown.tabId);
+  const goTo = () => onGoTo(shown.tabId, shown.parked ? shown.sessionId : undefined);
   const answered = (fn: () => void) => {
     fn();
     removeCall(shown.id);

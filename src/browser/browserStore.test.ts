@@ -245,7 +245,7 @@ describe("whenTabFocused", () => {
     expect(whenTabFocused("tab-a")).toBeNull();
     expect(whenTabFocused(undefined)).toBeNull();
     let done = false;
-    const wait = whenTabFocused("tab-b")!.then(() => { done = true; });
+    const wait = whenTabFocused("tab-b")!.promise.then(() => { done = true; });
     await Promise.resolve();
     expect(done).toBe(false);
     setBrowserFocusTab("tab-b");
@@ -287,6 +287,16 @@ describe("calls for a background tab", () => {
     const answer = askFromAway("tab-b", { title: "t", detail: "d", allowLabel: "y", denyLabel: "n" })!;
     setBrowserFocusTab("tab-b");
     await expect(answer).resolves.toBeNull();
+    expect(getCalls()).toEqual([]);
+  });
+
+  it("answered from the bubble, the wait is dropped: going to the tab later changes nothing", async () => {
+    const answer = askFromAway("tab-b", { title: "t", detail: "d", allowLabel: "y", denyLabel: "n" })!;
+    const [call] = getCalls();
+    call.onOption?.("deny");
+    await expect(answer).resolves.toBe(false);
+    setBrowserFocusTab("tab-b");
+    await Promise.resolve();
     expect(getCalls()).toEqual([]);
   });
 });

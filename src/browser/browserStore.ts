@@ -44,10 +44,6 @@ export function setBrowserOpen(open: boolean | ((prev: boolean) => boolean)) {
   store.update((s) => ({ ...s, open: next }));
 }
 
-export function toggleBrowser() {
-  setBrowserOpen((o) => !o);
-}
-
 // The tab on screen (App keeps it current). A page opened on behalf of another
 // tab - an agent or a dev server running in the background - must not pop the
 // Browser over the tab the user is working in: it is added but waits for its
@@ -66,16 +62,21 @@ export function setBrowserFocusTab(tabId: string | null) {
 }
 
 /** Resolves once `tabId` is the tab on screen; null when it already is (or no
- * tab is known yet), so callers on the tab on screen don't wait a tick. Lets a question about a background tab's page wait
- * for that tab instead of interrupting the one the user is in. A tab closed
- * meanwhile never resolves: its page is moot. */
-export function whenTabFocused(tabId: string | undefined): Promise<void> | null {
+ * tab is known yet), so callers on the tab on screen don't wait a tick. `cancel` drops the wait (answered meanwhile). A tab closed meanwhile never resolves: its
+ * page is moot (see forgetBrowserTab). */
+export function whenTabFocused(tabId: string | undefined): { promise: Promise<void>; cancel: () => void } | null {
   if (!tabId || !focusTabId || tabId === focusTabId) return null;
-  return new Promise((resolve) => {
-    const list = focusWaiters.get(tabId) ?? [];
-    list.push(resolve);
-    focusWaiters.set(tabId, list);
-  });
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  const list = focusWaiters.get(tabId) ?? [];
+  list.push(resolve);
+  focusWaiters.set(tabId, list);
+  const cancel = () => {
+    const left = (focusWaiters.get(tabId) ?? []).filter((w) => w !== resolve);
+    if (left.length) focusWaiters.set(tabId, left);
+    else focusWaiters.delete(tabId);
+  };
+  return { promise, cancel };
 }
 
 let nextAsk = 0;
@@ -99,11 +100,12 @@ export function askFromAway(tabId: string | undefined, { title, detail, allowLab
         { id: "deny", label: denyLabel, tone: "danger" },
       ],
       onOption: (id) => {
+        away.cancel();
         removeCallByKey(key);
         resolve(id === "allow");
       },
     });
-    void away.then(() => {
+    void away.promise.then(() => {
       removeCallByKey(key);
       resolve(null);
     });
@@ -120,6 +122,12 @@ export function takePendingPage(tabId: string): string | null {
   const id = pendingByTab.get(tabId) ?? null;
   pendingByTab.delete(tabId);
   return id && store.get().pages.some((p) => p.id === id) ? id : null;
+}
+
+/** A tab closed: nothing waits for it any more. */
+export function forgetBrowserTab(tabId: string) {
+  focusWaiters.delete(tabId);
+  pendingByTab.delete(tabId);
 }
 
 /** Brings page `id` in front and opens the Browser - unless `fromTabId` is a
@@ -151,7 +159,7 @@ function showPage(id: string, fromTabId?: string) {
   setBrowserOpen(true);
 }
 
-export function openPdfInPreview(src: string, fromTabId?: string) {
+function openPdfInPreview(src: string, fromTabId?: string) {
   const existing = store.get().pages.find((p) => p.kind === "pdf" && p.src === src);
   const id = existing?.id ?? newId();
   if (!existing) store.update((s) => ({ ...s, pages: [...s.pages, { id, kind: "pdf", src }] }));

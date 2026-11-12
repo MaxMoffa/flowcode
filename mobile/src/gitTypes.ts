@@ -22,7 +22,7 @@ export interface GitStatus {
   conflicted: GitChange[];
 }
 
-export interface GitBranch {
+interface GitBranch {
   /** Short name; `origin/feature` for a remote one. */
   name: string;
   upstream: string | null;

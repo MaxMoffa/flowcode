@@ -440,6 +440,9 @@ pub struct Tab {
     /// Account profile the agent runs under (absent: the default one, or no agent).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// The agent's session id, once known: the phone's History matches the tab to its saved session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     /// `busy` / `idle` / `waiting`, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,

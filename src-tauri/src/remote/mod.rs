@@ -791,20 +791,20 @@ impl Shared {
         let sizes = app.state::<PtyState>().sizes();
         let sessions = crate::agents::collect_agent_sessions(app).await.unwrap_or_default();
         let contexts = self.contexts_for(&sessions).await;
-        let agents: HashMap<String, (String, Option<String>, Option<String>)> =
-            sessions.into_iter().map(|s| (s.pty_id, (s.cli, s.status, s.profile))).collect();
+        let agents: HashMap<String, (String, Option<String>, Option<String>, Option<String>)> =
+            sessions.into_iter().map(|s| (s.pty_id, (s.cli, s.status, s.profile, s.session_id))).collect();
         app.state::<crate::windows::WindowTabs>()
             .list()
             .into_iter()
             .filter_map(|(window, tab)| {
                 let pty_id = tab.pty_id?;
                 let (cols, rows) = *sizes.get(&pty_id)?;
-                let (cli, status, profile) = match agents.get(&pty_id) {
-                    Some((cli, status, profile)) => (Some(cli.clone()), status.clone(), profile.clone()),
-                    None => (None, None, None),
+                let (cli, status, profile, session_id) = match agents.get(&pty_id) {
+                    Some((cli, status, profile, session_id)) => (Some(cli.clone()), status.clone(), profile.clone(), session_id.clone()),
+                    None => (None, None, None, None),
                 };
                 let context = contexts.get(&pty_id).cloned().flatten();
-                Some(Tab { pty_id, tab_id: tab.tab_id, window, label: tab.label, cwd: tab.cwd, cli, profile, status, cols, rows, context, order: tab.index, notify: tab.notify })
+                Some(Tab { pty_id, tab_id: tab.tab_id, window, label: tab.label, cwd: tab.cwd, cli, profile, session_id, status, cols, rows, context, order: tab.index, notify: tab.notify })
             })
             .collect()
     }
@@ -1601,10 +1601,14 @@ async fn run_history(app: AppHandle, cwd: String) -> Result<serde_json::Value, S
     fn list<T: Serialize>(r: Result<Vec<T>, String>) -> serde_json::Value {
         r.ok().and_then(|v| serde_json::to_value(v).ok()).unwrap_or_else(|| serde_json::json!([]))
     }
-    let claude = list(crate::agents::claude_history::list_claude_sessions(app.clone(), roots.clone()).await);
-    let codex = list(crate::agents::list_codex_sessions(app.clone(), Some(false)).await);
-    let vibe = list(crate::vibe::list_vibe_sessions(app.clone(), Some(false)).await);
-    let opencode = list(crate::opencode_db::list_opencode_sessions(app, Some(false)).await);
+    // Independent lists: gathered together, so a cold cache costs the slowest one, not their sum.
+    let (claude, codex, vibe, opencode) = tokio::join!(
+        crate::agents::claude_history::list_claude_sessions(app.clone(), roots.clone()),
+        crate::agents::list_codex_sessions(app.clone(), Some(false)),
+        crate::vibe::list_vibe_sessions(app.clone(), Some(false)),
+        crate::opencode_db::list_opencode_sessions(app, Some(false)),
+    );
+    let (claude, codex, vibe, opencode) = (list(claude), list(codex), list(vibe), list(opencode));
     Ok(serde_json::json!({ "roots": roots, "claude": claude, "codex": codex, "vibe": vibe, "opencode": opencode }))
 }
 

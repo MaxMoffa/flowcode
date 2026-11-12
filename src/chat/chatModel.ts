@@ -173,7 +173,7 @@ const GOAL_ACTIONS: readonly string[] = ["pause", "resume", "clear"];
 const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /** The `_flowcode/goal` goal, checked; null when there is none (or it is malformed). */
-export function parseGoal(raw: unknown): ChatGoal | null {
+function parseGoal(raw: unknown): ChatGoal | null {
   const p = record(raw);
   const objective = str(p.objective);
   if (!objective || !GOAL_STATUSES.includes(p.status as string)) return null;

@@ -156,6 +156,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
         addCall({
           tabId: callTab,
           agent,
+          key: `call:${callTab}`,
           kind: "custom",
           title: t("calls.title.call", { agent: cliName(agent) }),
           detail: call.message,

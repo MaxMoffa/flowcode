@@ -95,10 +95,10 @@ export function WideHistory({ cwd, cli, profile, currentSessionId, view, visible
       if (!isAgentCli(c.agent)) continue;
       open.push({ cli: c.agent, sessionId: c.sessionId ?? "", title: c.label, cwd: c.cwd, wslDistro: null, profile: c.profile ?? null, tabId: `c:${c.chatId}`, status: statusOf(c.status), at: null });
     }
-    // A terminal agent has no session id here: it is listed as its own row.
+    // A terminal agent's session id, when the desktop knows it (older desktops: none, listed as its own row).
     for (const x of tabs ?? []) {
       if (!isAgentCli(x.cli)) continue;
-      open.push({ cli: x.cli, sessionId: "", title: x.label, cwd: x.cwd, wslDistro: null, profile: x.profile ?? null, tabId: `p:${x.ptyId}`, status: statusOf(x.status), at: null });
+      open.push({ cli: x.cli, sessionId: x.sessionId ?? "", title: x.label, cwd: x.cwd, wslDistro: null, profile: x.profile ?? null, tabId: `p:${x.ptyId}`, status: statusOf(x.status), at: null });
     }
     return buildHistoryRows({ entries: mine?.entries ?? EMPTY, roots, open });
   }, [mine, cwd, chats, tabs]);
@@ -109,9 +109,27 @@ export function WideHistory({ cwd, cli, profile, currentSessionId, view, visible
     day === "open" ? t("whHistOpenGroup") : day === "today" ? t("whHistToday") : day === "yesterday" ? t("whHistYesterday") : new Date(day).toLocaleDateString(speechLocale(), { day: "numeric", month: "long" }),
   );
 
+  // A session resumed from here opens here too, once the desktop lists the tab it went to (by its session id).
+  const awaited = useRef<{ sessionId: string; until: number } | null>(null);
+  useEffect(() => {
+    const want = awaited.current;
+    if (!want) return;
+    if (Date.now() > want.until) {
+      awaited.current = null;
+      return;
+    }
+    const chat = (chats ?? []).find((c) => c.sessionId === want.sessionId);
+    const pty = chat ? undefined : (tabs ?? []).find((x) => x.sessionId === want.sessionId);
+    if (!chat && !pty) return;
+    awaited.current = null;
+    if (chat) onOpenChat(chat.chatId);
+    else if (pty) onOpenPty(pty.ptyId);
+  }, [chats, tabs, onOpenChat, onOpenPty]);
+
   const openRow = (row: HistoryRow) => {
     if (row.tabId?.startsWith("c:")) return onOpenChat(row.tabId.slice(2));
     if (row.tabId?.startsWith("p:")) return onOpenPty(row.tabId.slice(2));
+    if (row.sessionId) awaited.current = { sessionId: row.sessionId, until: Date.now() + 30_000 };
     resumeSession({ cwd: row.cwd, sessionId: row.sessionId, cli: row.cli, wslDistro: row.wslDistro, profile: row.profile, view });
     showToast(t("whHistResuming"));
   };

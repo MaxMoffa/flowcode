@@ -8,7 +8,7 @@ export type DiffRow =
 export const MAX_DIFF_LINES = 4000;
 
 /** Splits text into lines, dropping the empty piece after a final newline. */
-export function splitLines(text: string): string[] {
+function splitLines(text: string): string[] {
   if (text === "") return [];
   const lines = text.split(/\r?\n/);
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
