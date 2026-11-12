@@ -7,6 +7,8 @@ import { CloseIcon } from "./icons";
 import { desktopUpdateCheck, desktopUpdateInstall, useRemoteSelector, useSupports } from "./remote";
 import { Group } from "./SettingsControls";
 import { checkForUpdates, dismissUpdateSheet, errorText, formatBytes, installUpdate, updates, type UpdateInfo, type UpdateProgress } from "./updates";
+// The update sheet opens at app start, before the lazy Settings page has loaded these styles (its scrolling body lives here).
+import "./settings.css";
 
 function progressLabel(progress: UpdateProgress | null, size: number): { label: string; fraction: number | null } {
   if (progress?.stage === "download") {
