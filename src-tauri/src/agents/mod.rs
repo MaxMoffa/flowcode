@@ -50,8 +50,8 @@ impl ProbePids {
 }
 
 /// Binary names this recognizes as "an AI coding agent" - matched against a
-/// descendant process's own name, not the shell's, so a plain shell with no
-/// agent running in it just doesn't show up. Only what's honestly knowable
+/// process's own name, so a plain shell with no agent running in it just
+/// doesn't show up. Only what's honestly knowable
 /// from the outside: which CLI is running, where, since when - no notion of
 /// "orchestrator vs sub-agent" (that's internal to the CLI itself and isn't
 /// exposed by any process-tree signal).
@@ -110,8 +110,8 @@ pub struct AgentSession {
     pub(crate) profile: Option<String>,
 }
 
-/// BFS over descendants of `root_pid` (a pty's own shell), returning the
-/// first process whose name matches a known agent CLI binary - a plain
+/// BFS over `root_pid` and its descendants (a pty's shell may exec an agent),
+/// returning the first process matching a known agent CLI binary - a plain
 /// prefix/equality check on the process name, not a guess at what it's
 /// doing, so an unrelated process that happens to also be named "claude"
 /// would still show up; that's an acceptable false positive for a dev tool
@@ -135,38 +135,41 @@ fn find_agent(
         if !visited.insert(pid) {
             continue;
         }
-        if pid != root_pid {
-            if let Some(process) = sys.process(pid) {
-                // `Process::name()` on Windows is the raw NT image name and
-                // keeps its `.exe` suffix (sysinfo never strips it, on any
-                // version) - comparing the bare name against "claude"/"codex"
-                // silently never matches there, so this strips any extension
-                // via `file_stem` first, which is a no-op on Unix where the
-                // name never had one.
-                let raw_name = process.name().to_string_lossy().to_lowercase();
-                let name = Path::new(&raw_name)
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or(raw_name);
-                if let Some((bin, label)) = agent_binary(&name) {
+        if let Some(process) = sys.process(pid) {
+            // `Process::name()` on Windows is the raw NT image name and
+            // keeps its `.exe` suffix (sysinfo never strips it, on any
+            // version) - comparing the bare name against "claude"/"codex"
+            // silently never matches there, so this strips any extension
+            // via `file_stem` first, which is a no-op on Unix where the
+            // name never had one.
+            let raw_name = process.name().to_string_lossy().to_lowercase();
+            let name = Path::new(&raw_name)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or(raw_name);
+            if own_name == Some(name.as_str()) {
+                continue;
+            }
+            if let Some((bin, label)) = agent_binary(&name) {
+                let started_at = process.start_time().checked_mul(1000);
+                return Some((bin, label, pid.as_u32(), started_at));
+            }
+            // Node wrappers use `node` as their process name (and a .cmd
+            // shim on Windows); identify the agent by its script.
+            if name == "node" {
+                let args: Vec<String> = process.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+                if node_runs_codex(&args) {
+                    let (bin, label) = agent_binary("codex")?;
                     let started_at = process.start_time().checked_mul(1000);
                     return Some((bin, label, pid.as_u32(), started_at));
                 }
-                // Gemini CLI is a Node script: its process is `node` (a `gemini.cmd`
-                // shim on Windows), told apart by the script on the command line.
-                if name == "node" {
-                    let args: Vec<String> = process.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
-                    if node_runs_gemini(&args) {
-                        let started_at = process.start_time().checked_mul(1000);
-                        return Some(("gemini", "Gemini CLI", pid.as_u32(), started_at));
-                    }
-                    if node_runs_opencode(&args) {
-                        let started_at = process.start_time().checked_mul(1000);
-                        return Some(("opencode", "OpenCode", pid.as_u32(), started_at));
-                    }
+                if node_runs_gemini(&args) {
+                    let started_at = process.start_time().checked_mul(1000);
+                    return Some(("gemini", "Gemini CLI", pid.as_u32(), started_at));
                 }
-                if own_name == Some(name.as_str()) {
-                    continue;
+                if node_runs_opencode(&args) {
+                    let started_at = process.start_time().checked_mul(1000);
+                    return Some(("opencode", "OpenCode", pid.as_u32(), started_at));
                 }
             }
         }
@@ -575,6 +578,16 @@ fn thread_in<'a>(threads: &[&'a LiveThread], cwd: &str) -> Option<&'a LiveThread
     threads.iter().copied().filter(|t| same_dir(&t.cwd, cwd)).max_by_key(|t| t.updated_at)
 }
 
+/// Whether a `node` command line runs Codex CLI. Only inspect the script,
+/// after any interpreter flags, so a later argument cannot name an agent.
+fn node_runs_codex(args: &[String]) -> bool {
+    let Some(script) = args.iter().skip(1).find(|a| !a.trim_matches(['\'', '"']).starts_with('-')) else {
+        return false;
+    };
+    let script = script.trim_matches(['\'', '"']).to_lowercase().replace('\\', "/");
+    script.contains("@openai/codex/") || matches!(script.rsplit('/').next(), Some("codex" | "codex.js" | "codex.mjs"))
+}
+
 /// Whether a `node` command line runs Gemini CLI: its script is `gemini` /
 /// `gemini.js` or lives in the `@google/gemini-cli` package (either slash).
 fn node_runs_gemini(args: &[String]) -> bool {
@@ -600,8 +613,25 @@ fn agent_of(comm: &str, argv: &str) -> Option<(&'static str, &'static str)> {
     if let Some(found) = agent_binary(comm) {
         return Some(found);
     }
-    let script = argv.split_whitespace().nth(1)?.to_lowercase();
-    script.split('/').find_map(|part| agent_binary(part.trim_end_matches(".js").trim_end_matches(".py")))
+    // WSL flattens /proc argv into text. Preserve minimally quoted paths,
+    // including an interpreter path containing spaces, and skip its flags.
+    let mut quote = None;
+    let mut tokens = argv
+        .split(|c: char| match c {
+            '\'' | '"' if quote == Some(c) => {
+                quote = None;
+                false
+            }
+            '\'' | '"' if quote.is_none() => {
+                quote = Some(c);
+                false
+            }
+            _ => c.is_whitespace() && quote.is_none(),
+        })
+        .filter(|s| !s.is_empty());
+    tokens.next()?;
+    let script = tokens.map(|s| s.trim_matches(['\'', '"'])).find(|s| !s.starts_with('-'))?.to_lowercase().replace('\\', "/");
+    script.split('/').find_map(|part| agent_binary(part.trim_end_matches(".mjs").trim_end_matches(".js").trim_end_matches(".py")))
 }
 
 #[cfg(test)]
@@ -732,6 +762,52 @@ mod tests {
         assert!(!super::node_runs_opencode(&["node".into(), "server.js".into()]));
         assert_eq!(agent_of("node", "node server.js"), None);
         assert_eq!(agent_of("bash", "bash"), None);
+    }
+
+    #[test]
+    fn recognizes_codex_node_scripts() {
+        for script in [
+            "/usr/lib/node_modules/@openai/codex/bin/cli.js",
+            r"C:\npm\node_modules\@openai\codex\bin\codex.js",
+            "/usr/bin/codex",
+            "codex.js",
+            "codex.mjs",
+            r#""C:\Program Files\codex.js""#,
+        ] {
+            let args = ["node", "--no-warnings", "--trace-warnings", "--enable-source-maps", script].map(str::to_string);
+            assert!(super::node_runs_codex(&args), "{script}");
+        }
+        for args in [
+            vec!["node"],
+            vec!["node", "--no-warnings"],
+            vec!["node", "server.js"],
+            vec!["node", "server.js", "codex.js"],
+            vec!["node", "server.js", "--title=codex"],
+            vec!["node", "/npm/@openai/codex-tools/server.js"],
+        ] {
+            let args: Vec<String> = args.into_iter().map(str::to_string).collect();
+            assert!(!super::node_runs_codex(&args), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn recognizes_wsl_agent_scripts_after_interpreter_flags() {
+        for (comm, argv, expected) in [
+            ("node", "node --no-warnings /usr/lib/node_modules/@openai/codex/bin/codex.js", "codex"),
+            ("node", "node --no-warnings --trace-warnings /usr/bin/codex.mjs resume x", "codex"),
+            ("node", r#"node --no-warnings "/home/u/my tools/codex.js""#, "codex"),
+            ("node", "node --no-warnings '/home/u/my tools/codex.js'", "codex"),
+            ("node", r#""/opt/node tools/node" --no-warnings "/home/u/my tools/codex.js""#, "codex"),
+            ("node", "node --no-warnings /npm/@anthropic-ai/claude-code/cli.js", "claude"),
+            ("node", "node --no-warnings /npm/@google/gemini-cli/dist/index.js", "gemini"),
+            ("node", "node --no-warnings /npm/opencode-ai/bin/opencode", "opencode"),
+            ("python3", "python3 -u /home/u/.local/bin/vibe", "vibe"),
+        ] {
+            assert_eq!(agent_of(comm, argv).map(|a| a.0), Some(expected), "{argv}");
+        }
+        for argv in ["node", "node --no-warnings", "node --no-warnings server.js codex.js", "node --title=codex server.js"] {
+            assert_eq!(agent_of("node", argv), None, "{argv}");
+        }
     }
 
     fn rollout(first_line: &str) -> std::path::PathBuf {
