@@ -12,7 +12,11 @@ import { noteRemoteSubmit } from "../terminal/ptyClient";
 
 const appWindow = getCurrentWindow();
 
+/** A phone's tab-strip action (the `tabop` message's `op`). */
+export type RemoteTabOp = { kind: "duplicate" } | { kind: "notify"; on: boolean } | { kind: "move"; index: number };
+
 interface RemoteWindowEventRefs {
+  remoteTabOpRef: MutableRefObject<(target: { ptyId?: string; tabId?: string }, op: RemoteTabOp) => void>;
   adoptTabRef: MutableRefObject<(transfer: TabTransfer) => void>;
   selectTabRef: MutableRefObject<(id: string) => void>;
   latestRef: MutableRefObject<{ tabs: AppTab[] }>;
@@ -32,7 +36,7 @@ interface RemoteWindowEventRefs {
 
 export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
   useEffect(() => {
-    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef, remoteCloseRef, remoteChatTerminalRef, remoteTerminalChatRef, remoteChatRenameRef, remoteChatCloseRef, remoteNewChatRef, remoteResumeRef } = refs;
+    const { adoptTabRef, selectTabRef, latestRef, termRefs, remoteActionRef, remoteProfileLoginRef, remoteNewTabRef, remoteRenameRef, remoteCloseRef, remoteChatTerminalRef, remoteTerminalChatRef, remoteChatRenameRef, remoteChatCloseRef, remoteTabOpRef, remoteNewChatRef, remoteResumeRef } = refs;
     const webview = getCurrentWebviewWindow();
     const unlisten = webview.listen<TabTransfer>("tab:adopt", (e) => {
       adoptTabRef.current(e.payload);
@@ -102,6 +106,10 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
     );
     // A phone (or another PC) closing one of our chat tabs.
     const unlistenChatClose = webview.listen<{ tabId: string }>("remote://chat-close", (e) => remoteChatCloseRef.current(e.payload.tabId));
+    // A phone duplicating, muting or moving one of our tabs.
+    const unlistenTabOp = webview.listen<{ ptyId?: string; tabId?: string; op: RemoteTabOp }>("remote://tab-op", (e) =>
+      remoteTabOpRef.current({ ptyId: e.payload.ptyId, tabId: e.payload.tabId }, e.payload.op),
+    );
     // A phone asking for a new chat tab here.
     const unlistenNewChat = webview.listen<{ cwd?: string | null; cli: string; profile?: string | null }>("remote://new-chat", (e) => {
       remoteNewChatRef.current(e.payload.cwd ?? null, e.payload.cli, e.payload.profile ?? undefined);
@@ -130,6 +138,7 @@ export function useRemoteWindowEvents(refs: RemoteWindowEventRefs) {
       unlistenTerminalChat.then((off) => off());
       unlistenChatRename.then((off) => off());
       unlistenChatClose.then((off) => off());
+      unlistenTabOp.then((off) => off());
       unlistenNewChat.then((off) => off());
       unlistenResume.then((off) => off());
       unlistenSubmit.then((off) => off());

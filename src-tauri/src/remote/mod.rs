@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 
 use flowcode_remote_proto::{
     self as proto, encode_frame, read_frame, write_frame, Action, ChatInfo, ClientMsg, FrameError, PairingTicket, ServerMsg, Tab,
-    TabContext, UsageItem,
+    TabContext, TabOp, TabTarget, UsageItem,
 };
 use flowcode_shared::i18n::{is_italian, tr};
 use iroh::endpoint::{presets, Connection, IdleTimeout, QuicTransportConfig, RecvStream, SendStream};
@@ -153,6 +153,7 @@ const EVT_CHAT_TERMINAL: &str = "remote://chat-terminal";
 const EVT_TERMINAL_CHAT: &str = "remote://terminal-chat";
 /// `{tabId, label}`: a phone renamed a chat tab, to the window showing it.
 const EVT_CHAT_RENAME: &str = "remote://chat-rename";
+const EVT_TAB_OP: &str = "remote://tab-op";
 /// `{tabId}`: a phone closed a chat tab, to the window showing it.
 const EVT_CHAT_CLOSE: &str = "remote://chat-close";
 /// `{chatId}`: a phone cleared a chat (`/clear`), to the window showing it.
@@ -803,7 +804,7 @@ impl Shared {
                     None => (None, None, None),
                 };
                 let context = contexts.get(&pty_id).cloned().flatten();
-                Some(Tab { pty_id, tab_id: tab.tab_id, window, label: tab.label, cwd: tab.cwd, cli, profile, status, cols, rows, context, order: tab.index })
+                Some(Tab { pty_id, tab_id: tab.tab_id, window, label: tab.label, cwd: tab.cwd, cli, profile, status, cols, rows, context, order: tab.index, notify: tab.notify })
             })
             .collect()
     }
@@ -834,6 +835,7 @@ impl Shared {
                     models: chat.models.clone(),
                     thought: chat.thought.clone(),
                     order: tab.index,
+                    notify: None,
                 })
             })
             .collect()
@@ -2614,6 +2616,28 @@ impl Conn {
                 let Some(chat) = self.chat(&chat_id) else { return };
                 let payload = serde_json::json!({ "tabId": chat.tab_id });
                 let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_CLOSE, payload);
+            }
+            ClientMsg::TabOp { target, op } => {
+                if let TabOp::Move { index } = &op {
+                    if *index > 1000 {
+                        return;
+                    }
+                }
+                let (window, mut payload) = match target {
+                    TabTarget::Pty { pty_id } => {
+                        let Some(window) = self.shared.app.state::<PtyState>().owner_of(&pty_id) else {
+                            self.error(tr("Terminale non trovato", "Terminal not found"), Some(pty_id));
+                            return;
+                        };
+                        (window, serde_json::json!({ "ptyId": pty_id }))
+                    }
+                    TabTarget::Chat { chat_id } => {
+                        let Some(chat) = self.chat(&chat_id) else { return };
+                        (chat.window.clone(), serde_json::json!({ "tabId": chat.tab_id }))
+                    }
+                };
+                payload["op"] = serde_json::to_value(&op).unwrap_or_default();
+                let _ = self.shared.app.emit_to(window.as_str(), EVT_TAB_OP, payload);
             }
             ClientMsg::ChatClear { chat_id } => {
                 let Some(chat) = self.chat(&chat_id) else { return };

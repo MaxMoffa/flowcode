@@ -95,7 +95,7 @@ import { activeTabProfile } from "./profiles/activeTabProfile";
 import { Icons } from "./app/icons";
 import { useStartPath } from "./app/useStartPath";
 import { useCliLoginEvent } from "./app/useCliLoginEvent";
-import { useRemoteWindowEvents } from "./app/useRemoteWindowEvents";
+import { useRemoteWindowEvents, type RemoteTabOp } from "./app/useRemoteWindowEvents";
 import { useReportTabs } from "./app/useReportTabs";
 import { useActiveAgentSync } from "./app/useActiveAgentSync";
 import { useUsageWatch } from "./app/useUsageWatch";
@@ -751,6 +751,7 @@ function Shell() {
   const remoteTerminalChatRef = useRef<(ptyId: string) => void>(() => {});
   const remoteChatRenameRef = useRef<(tabId: string, label: string) => void>(() => {});
   const remoteChatCloseRef = useRef<(tabId: string) => void>(() => {});
+  const remoteTabOpRef = useRef<(target: { ptyId?: string; tabId?: string }, op: RemoteTabOp) => void>(() => {});
   const remoteNewChatRef = useRef<(cwd: string | null, cli: string, profile: string | null | undefined) => void>(() => {});
   const remoteResumeRef = useRef<(cwd: string, sessionId: string, cli: string, wslDistro: string | null | undefined, profile: string | null | undefined) => void>(() => {});
   const runPluginRef = useRef<(plugin: PluginDef) => void>(() => {});
@@ -1332,7 +1333,7 @@ function Shell() {
   const [ptyVersion, setPtyVersion] = useState(0);
   // In strip order, terminals and chats together: moving a chat past a terminal is reported too.
   const reportedTabsKey = listedTabs(tabs)
-    .map((t) => (t.kind === "terminal" ? `t\u0000${t.id}\u0000${t.label}\u0000${t.cwd}` : t.kind === "chat" ? `c\u0000${t.id}\u0000${t.label}\u0000${t.sessionId ?? ""}` : ""))
+    .map((t) => (t.kind === "terminal" ? `t\u0000${t.id}\u0000${t.label}\u0000${t.cwd}\u0000${t.notifyMuted ? 1 : 0}` : t.kind === "chat" ? `c\u0000${t.id}\u0000${t.label}\u0000${t.sessionId ?? ""}` : ""))
     .join("\u0001");
   useReportTabs(reportedTabsKey, ptyVersion, latestRef, termRefs);
 
@@ -1406,6 +1407,7 @@ function Shell() {
     remoteTerminalChatRef,
     remoteChatRenameRef,
     remoteChatCloseRef,
+    remoteTabOpRef,
     remoteNewChatRef,
     remoteResumeRef,
   });
@@ -2794,6 +2796,28 @@ function Shell() {
       if (h.getPtyId() === ptyId) tabId = id;
     }
     if (tabId) renameTab(tabId, label);
+  };
+  remoteTabOpRef.current = (target, op) => {
+    let tabId = target.tabId;
+    if (target.ptyId) {
+      for (const [id, h] of termRefs.current) {
+        if (h.getPtyId() === target.ptyId) tabId = id;
+      }
+    }
+    const tab = tabId ? latestRef.current.tabs.find((t) => t.id === tabId) : undefined;
+    if (!tab || (tab.kind !== "terminal" && tab.kind !== "chat")) return;
+    if (op.kind === "duplicate") {
+      // Same rule as the tab menu: a delegated child's view has no agent of its own to start again.
+      if (tab.kind === "terminal" || !tab.delegate) duplicateTab(tab.id);
+    } else if (op.kind === "notify") {
+      if (tab.kind === "terminal" && !!tab.notifyMuted === op.on) toggleTabNotifications(tab.id);
+    } else if (op.kind === "move") {
+      // `index` counts the strip's listed tabs; reorderTab works on all of them.
+      const strip = listedTabs(latestRef.current.tabs);
+      const dest = strip[Math.min(op.index, strip.length - 1)];
+      const to = dest ? latestRef.current.tabs.findIndex((t) => t.id === dest.id) : -1;
+      if (to !== -1) reorderTab(tab.id, to);
+    }
   };
   remoteCloseRef.current = (ptyId) => {
     let tabId: string | undefined;

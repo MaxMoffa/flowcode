@@ -34,7 +34,7 @@ pub const PROTOCOL_VERSION: u32 = 2;
 /// Features this desktop supports, sent in `ready` as `caps`, so the phone
 /// can hide what an older desktop lacks. Keep in step with `RemoteCap` in
 /// shared/remote-types.ts and docs/remote-protocol.md.
-pub const CAPABILITIES: &[&str] = &["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview", "chatPreview", "agentInsight", "chatPromptAck", "chatImageRequestId", "chatCacheInfo", "git", "history", "resume"];
+pub const CAPABILITIES: &[&str] = &["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview", "chatPreview", "agentInsight", "chatPromptAck", "chatImageRequestId", "chatCacheInfo", "git", "history", "resume", "tabOps"];
 
 /// What a preview stream is pointed at. After `auth`, the phone opens one extra
 /// bidirectional stream per HTTP connection of its in-app browser. The first

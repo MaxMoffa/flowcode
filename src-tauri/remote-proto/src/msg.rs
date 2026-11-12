@@ -57,6 +57,25 @@ pub enum FsResponse {
     Done { path: String },
 }
 
+/// The tab a `TabOp` acts on: `{ "ptyId": .. }` or `{ "chatId": .. }`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged, rename_all_fields = "camelCase")]
+pub enum TabTarget {
+    Pty { pty_id: String },
+    Chat { chat_id: String },
+}
+
+/// What a `TabOp` does: `duplicate`, `notify` (`on`: false mutes the tab's agent
+/// notifications) or `move` (`index`: the new position in the tab's window strip,
+/// terminals and chats together; at most 1000).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum TabOp {
+    Duplicate,
+    Notify { on: bool },
+    Move { index: u32 },
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "t", rename_all = "lowercase", rename_all_fields = "camelCase")]
 pub enum ClientMsg {
@@ -200,6 +219,8 @@ pub enum ClientMsg {
     ChatCloseTab { chat_id: String },
     /// Start a fresh conversation in the chat's tab, as `/clear` does on the desktop (the tab keeps its id, the chat gets a new one).
     ChatClear { chat_id: String },
+    /// A tab-strip action on a terminal or chat tab, available only with `tabOps`.
+    TabOp { target: TabTarget, op: TabOp },
     /// Open a new desktop chat tab for `cli`, in `cwd` (else the shell's start folder).
     NewChat {
         cli: String,
@@ -427,6 +448,9 @@ pub struct Tab {
     /// chats together (absent from an older desktop).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order: Option<u32>,
+    /// `false` when the tab's agent notifications are muted; absent: on or unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notify: Option<bool>,
 }
 
 /// A desktop chat tab (an agent hosted over ACP) a phone can follow.
@@ -464,6 +488,10 @@ pub struct ChatInfo {
     /// chats together (absent from an older desktop).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order: Option<u32>,
+    /// `false` when the tab's notifications are muted; absent: on or unknown
+    /// (chat tabs cannot be muted on the desktop today).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notify: Option<bool>,
 }
 
 /// An installed agent view plugin: its manifest plus what a phone needs to
@@ -776,6 +804,7 @@ mod tests {
             models: None,
             thought: None,
             order: None,
+            notify: None,
         };
         let json = serde_json::to_value(ServerMsg::Chats { chats: vec![info] }).unwrap();
         assert_eq!(
@@ -908,6 +937,17 @@ mod tests {
         assert_eq!(msg, ClientMsg::TerminalChat { pty_id: "p".into() });
         let json = serde_json::to_value(ClientMsg::ChatRename { chat_id: "c1".into(), label: "Notes".into() }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "chatrename", "chatId": "c1", "label": "Notes" }));
+    }
+
+    #[test]
+    fn tab_op_round_trips() {
+        let json = serde_json::to_value(ClientMsg::TabOp { target: TabTarget::Pty { pty_id: "p1".into() }, op: TabOp::Duplicate }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "tabop", "target": { "ptyId": "p1" }, "op": { "kind": "duplicate" } }));
+        let json = serde_json::to_value(ClientMsg::TabOp { target: TabTarget::Chat { chat_id: "c1".into() }, op: TabOp::Notify { on: false } }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "tabop", "target": { "chatId": "c1" }, "op": { "kind": "notify", "on": false } }));
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"tabop","target":{"ptyId":"p"},"op":{"kind":"move","index":3}}"#).unwrap();
+        assert_eq!(msg, ClientMsg::TabOp { target: TabTarget::Pty { pty_id: "p".into() }, op: TabOp::Move { index: 3 } });
+        assert!(serde_json::from_str::<ClientMsg>(r#"{"t":"tabop","target":{},"op":{"kind":"duplicate"}}"#).is_err());
     }
 
     #[test]

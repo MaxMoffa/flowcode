@@ -895,3 +895,31 @@
   flex: none;
   color: var(--muted);
 }
+
+/* Dragging a tab to a new place: it follows the pointer, a bar shows where it lands. */
+.w-tab.dragging {
+  z-index: 3;
+  opacity: 0.85;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  touch-action: none;
+}
+
+.w-tab.drop-before::before,
+.w-tab.drop-after::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.w-tab.drop-before::before {
+  left: -6px;
+}
+
+.w-tab.drop-after::after {
+  right: -6px;
+}

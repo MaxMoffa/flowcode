@@ -31,6 +31,8 @@ export interface Tab {
   context?: TabContext;
   /** Position in its window's strip, terminals and chats counted together; absent from older desktops. */
   order?: number;
+  /** `false` when the tab's agent notifications are muted on the desktop; absent: on, or an older desktop. */
+  notify?: boolean;
 }
 
 /** A desktop chat tab (an agent hosted over ACP, see src/chat) a phone can follow. */
@@ -56,6 +58,8 @@ export interface ChatInfo {
   thought?: unknown;
   /** Position in its window's strip, terminals and chats counted together; absent from older desktops. */
   order?: number;
+  /** `false` when muted; chat tabs cannot be muted on the desktop today, so normally absent. */
+  notify?: boolean;
 }
 
 /** An installed agent view plugin offered to phones (its manifest, see
@@ -269,6 +273,7 @@ export type SettingKey =
 export type RemoteCap =
   | "fileExplorer"
   | "git"
+  | "tabOps"
   | "history"
   | "resume"
   | "rename"
@@ -367,7 +372,13 @@ export type ServerMsg =
   | { t: "chatimage"; key: string; offset: number; total: number; data: string; mime?: string; missing?: boolean }
   | { t: "pong" };
 
+/** Which tab a `tabop` acts on. */
+export type TabTarget = { ptyId: string } | { chatId: string };
+/** `tabop` actions (`tabOps` cap): `notify` `on: false` mutes; `move` `index` is the position in the tab's window strip, terminals and chats together (at most 1000). */
+export type TabOp = { kind: "duplicate" } | { kind: "notify"; on: boolean } | { kind: "move"; index: number };
+
 export type ClientMsg =
+  | { t: "tabop"; target: TabTarget; op: TabOp }
   | { t: "providerauth"; requestId: string; request: ProviderAuthRequest }
   | { t: "fs"; requestId: string; request: FsRequest }
   | { t: "git"; requestId: string; request: GitRequest }

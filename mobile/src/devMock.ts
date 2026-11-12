@@ -124,6 +124,29 @@ function mockTabs(msg: ClientMsg | undefined) {
     setTimeout(() => void emit("remote://msgs", [{ t: "tabs", tabs: [...tabs] }]), 80);
     return;
   }
+  if (msg?.t === "tabop" && "ptyId" in msg.target) {
+    const { ptyId } = msg.target;
+    const at = tabs.findIndex((x) => x.ptyId === ptyId);
+    if (at < 0) return;
+    const op = msg.op;
+    if (op.kind === "duplicate") {
+      const id = `dup-${Date.now()}`;
+      tabs.splice(at + 1, 0, { ...tabs[at], ptyId: id, tabId: id });
+    } else if (op.kind === "notify") {
+      if (op.on) delete tabs[at].notify;
+      else tabs[at].notify = false;
+    } else {
+      // The index counts within the tab's window strip (the mock has no chats in it).
+      const win = tabs.filter((x) => x.window === tabs[at].window);
+      const [moved] = tabs.splice(at, 1);
+      const rest = win.filter((x) => x !== moved);
+      const to = Math.min(op.index, rest.length);
+      const before = rest[to];
+      tabs.splice(before ? tabs.indexOf(before) : tabs.indexOf(rest[rest.length - 1]) + 1, 0, moved);
+    }
+    setTimeout(() => void emit("remote://msgs", [{ t: "tabs", tabs: [...tabs] }]), 60);
+    return;
+  }
   if (msg?.t !== "rename" && msg?.t !== "closetab") return;
   const at = tabs.findIndex((x) => x.ptyId === msg?.ptyId);
   if (at < 0) return;
@@ -135,7 +158,7 @@ function mockTabs(msg: ClientMsg | undefined) {
 
 // What the desktop sends once the link is up: its features, the chats and the view plugins.
 async function chatHello() {
-  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "git", "history", "resume", ...chatMockCaps] }]);
+  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "tabOps", "git", "history", "resume", ...chatMockCaps] }]);
   await chatMockConnect();
   await emit("remote://msgs", [{ t: "views", views: mockViews }]);
 }

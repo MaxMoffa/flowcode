@@ -198,6 +198,9 @@ pub struct TabInfo {
     /// Position in the window's strip, terminals and chats together.
     #[serde(default)]
     pub index: Option<u32>,
+    /// `Some(false)` when the tab's agent notifications are muted.
+    #[serde(default)]
+    pub notify: Option<bool>,
 }
 
 /// One chat tab as its window reports it: the remote access server joins it

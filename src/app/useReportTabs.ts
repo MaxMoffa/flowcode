@@ -22,7 +22,7 @@ export function useReportTabs(
       // The strip position, terminals and chats together: a remote client shows them in the same order.
       const index = new Map(listed.map((t, i) => [t.id, i]));
       const tabsNow = listed.filter((t): t is TermTab => t.kind === "terminal");
-      const reported = tabsNow.map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd, index: index.get(t.id) ?? null }));
+      const reported = tabsNow.map((t) => ({ pty_id: termRefs.current.get(t.id)?.getPtyId() ?? null, tab_id: t.id, label: t.label, cwd: t.cwd, index: index.get(t.id) ?? null, notify: t.notifyMuted ? false : null }));
       // A chat is reported once its agent has a session: that is how the backend matches it to the running chat.
       const chats = latestRef.current.tabs
         .filter((t): t is ChatTab => t.kind === "chat" && t.sessionId !== undefined)

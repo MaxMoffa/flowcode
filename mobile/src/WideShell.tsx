@@ -10,6 +10,7 @@ import { effectivePhone, phoneTheme, setPhoneTheme } from "./theme";
 import { ChatClearing } from "./ChatClearing";
 import { closeChatTab, requestOpenChat, useClearing } from "./chats";
 import { lastInWindow } from "./homeSessions";
+import { dropIndex, moveWithinWindow, windowRange } from "./tabDrag";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
 import { ActionIcon, AgentLogo, AgentsIcon, ChatIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
@@ -105,6 +106,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const canRenameChat = useSupports("chatRename");
   const canBrowse = useSupports("preview");
   const canChat = useSupports("chat");
+  const canTabOps = useSupports("tabOps");
   const { opened: browserOpen, open: openBrowser, close: closeBrowser, show: showBrowserPage, pending: browserPending, dismissPending, page: browserPage, chatId: browserChatId, linksChatId } = useChatBrowser(doc === null ? activeChat : null);
   /** The key of the tab being renamed (terminal or chat), with its draft label. */
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -117,7 +119,22 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const cancelRename = useRef(false);
 
   const all = useMemo(() => tabs ?? [], [tabs]);
-  const entries = useMemo(() => remoteEntries(all, chats ?? []), [all, chats]);
+  const reported = useMemo(() => remoteEntries(all, chats ?? []), [all, chats]);
+  /** The order a finished drag left the keys in, shown until the desktop's next report (or a short timeout). */
+  const [optimistic, setOptimistic] = useState<string[] | null>(null);
+  useEffect(() => setOptimistic(null), [all, chats]);
+  useEffect(() => {
+    if (!optimistic) return;
+    const id = window.setTimeout(() => setOptimistic(null), 3000);
+    return () => window.clearTimeout(id);
+  }, [optimistic]);
+  const entries = useMemo(() => {
+    if (!optimistic) return reported;
+    const byKey = new Map(reported.map((e) => [e.key, e]));
+    // Only when the keys still match the report (a tab opened or closed meanwhile drops the override).
+    if (optimistic.length !== reported.length || !optimistic.every((k) => byKey.has(k))) return reported;
+    return optimistic.map((k) => byKey.get(k) as RemoteEntry);
+  }, [reported, optimistic]);
   const folders = useMemo(() => [...new Set(all.map((x) => x.cwd).filter(Boolean))], [all]);
   const select = (ptyId: string) => {
     setDoc(null);
@@ -207,29 +224,122 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     if (press.current) window.clearTimeout(press.current.timer);
     press.current = null;
   };
+  const canDuplicateEntry = (_e: RemoteEntry) => canTabOps; // ChatInfo carries no delegate marker, so every chat is offered.
+  const canNotifyEntry = (e: RemoteEntry) => canTabOps && e.kind === "pty";
   const openTabMenu = (e: RemoteEntry, el: HTMLElement) => {
-    if (!canRenameEntry(e) && !canCloseEntry(e)) return;
+    if (!canRenameEntry(e) && !canCloseEntry(e) && !canDuplicateEntry(e)) return;
     const r = el.getBoundingClientRect();
     setTabMenu({ key: e.key, left: Math.max(4, Math.min(r.left, window.innerWidth - 194)), top: r.bottom + 4 });
+  };
+  const tabTarget = (e: RemoteEntry) => (e.kind === "pty" ? { ptyId: e.tab.ptyId } : { chatId: e.chat.chatId });
+
+  // Drag to reorder: a mouse or pen drags after 6 px; a finger drags once the long press has opened the menu and then moves 10 px.
+  const gesture = useRef<{ key: string; x: number; y: number; touch: boolean; menuShown: boolean; unblock: (() => void) | null } | null>(null);
+  const drag = useRef<{ key: string; x0: number; rects: { left: number; width: number }[]; from: number; start: number; end: number; keys: string[]; target: number } | null>(null);
+  const [dragView, setDragView] = useState<{ key: string; dx: number; before: string | null; after: string | null } | null>(null);
+  const endGesture = () => {
+    gesture.current?.unblock?.();
+    gesture.current = null;
+  };
+  const beginDrag = (e: RemoteEntry, el: HTMLElement, ev: React.PointerEvent<HTMLElement>) => {
+    const strip = tabsRef.current;
+    const g = gesture.current;
+    if (!strip || !g) return;
+    const keys = entries.map((x) => x.key);
+    const wins = entries.map((x) => (x.kind === "pty" ? x.tab.window : x.chat.window));
+    const at = keys.indexOf(e.key);
+    if (at < 0) return;
+    const { start, end } = windowRange(wins, at);
+    const rects = keys.slice(start, end).map((k) => {
+      const t = strip.querySelector<HTMLElement>(`[data-tab-key="${k}"]`);
+      return { left: t?.offsetLeft ?? 0, width: t?.offsetWidth ?? 0 };
+    });
+    cancelPress();
+    setTabMenu(null);
+    try {
+      el.setPointerCapture(ev.pointerId);
+    } catch {
+      // The pointer is gone already; the drag then ends with the next event.
+    }
+    drag.current = { key: e.key, x0: g.x, rects, from: at - start, start, end, keys, target: at - start };
+    swallowClick.current = true;
+    updateDrag(ev.clientX);
+  };
+  const updateDrag = (clientX: number) => {
+    const d = drag.current;
+    const strip = tabsRef.current;
+    if (!d || !strip) return;
+    const x = clientX - strip.getBoundingClientRect().left + strip.scrollLeft;
+    d.target = dropIndex(x, d.rects, d.from);
+    const others = d.keys.slice(d.start, d.end).filter((k) => k !== d.key);
+    setDragView({ key: d.key, dx: clientX - d.x0, before: others[d.target] ?? null, after: d.target >= others.length ? (others[others.length - 1] ?? null) : null });
+  };
+  const finishDrag = (commit: boolean) => {
+    const d = drag.current;
+    drag.current = null;
+    setDragView(null);
+    if (!d || !commit || d.target === d.from) return;
+    const entry = entries.find((x) => x.key === d.key);
+    if (!entry) return;
+    setOptimistic(moveWithinWindow(d.keys, d.key, d.start, d.end, d.target));
+    send({ t: "tabop", target: tabTarget(entry), op: { kind: "move", index: d.target } });
   };
   const pressProps = (e: RemoteEntry) => ({
     onPointerDown: (ev: React.PointerEvent<HTMLElement>) => {
       cancelPress();
+      endGesture();
       swallowClick.current = false;
       if (ev.pointerType === "mouse" && ev.button !== 0) return;
       const el = ev.currentTarget;
+      const touch = ev.pointerType === "touch";
+      gesture.current = { key: e.key, x: ev.clientX, y: ev.clientY, touch, menuShown: false, unblock: null };
       const timer = window.setTimeout(() => {
         press.current = null;
         swallowClick.current = true;
         openTabMenu(e, el);
+        const g = gesture.current;
+        if (!g || g.key !== e.key) return;
+        g.menuShown = true;
+        if (touch && canTabOps) {
+          // The finger has not moved yet: keep the strip from scrolling so the move can become a drag.
+          const block = (te: TouchEvent) => {
+            if (te.cancelable) te.preventDefault();
+          };
+          el.addEventListener("touchmove", block, { passive: false });
+          g.unblock = () => el.removeEventListener("touchmove", block);
+        }
       }, 450);
       press.current = { x: ev.clientX, y: ev.clientY, timer };
     },
     onPointerMove: (ev: React.PointerEvent<HTMLElement>) => {
+      if (drag.current) {
+        if (drag.current.key === e.key) updateDrag(ev.clientX);
+        return;
+      }
+      const g = gesture.current;
+      if (g && canTabOps && g.key === e.key) {
+        const moved = Math.hypot(ev.clientX - g.x, ev.clientY - g.y);
+        if (!g.touch && moved > 6) {
+          beginDrag(e, ev.currentTarget, ev);
+          return;
+        }
+        if (g.touch && g.menuShown && moved > 10) {
+          beginDrag(e, ev.currentTarget, ev);
+          return;
+        }
+      }
       if (press.current && Math.hypot(ev.clientX - press.current.x, ev.clientY - press.current.y) > 8) cancelPress();
     },
-    onPointerUp: cancelPress,
-    onPointerCancel: cancelPress,
+    onPointerUp: () => {
+      cancelPress();
+      if (drag.current?.key === e.key) finishDrag(true);
+      endGesture();
+    },
+    onPointerCancel: () => {
+      cancelPress();
+      if (drag.current?.key === e.key) finishDrag(false);
+      endGesture();
+    },
     onContextMenu: (ev: React.MouseEvent<HTMLElement>) => {
       ev.preventDefault();
       cancelPress();
@@ -450,7 +560,9 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                   type="button"
                   role="tab"
                   aria-selected={on}
-                  className={"w-tab" + (on ? " on" : "") + attn}
+                  className={"w-tab" + (on ? " on" : "") + attn + (dragView?.key === e.key ? " dragging" : "") + (dragView?.before === e.key ? " drop-before" : "") + (dragView?.after === e.key ? " drop-after" : "")}
+                  data-tab-key={e.key}
+                  style={dragView?.key === e.key ? { transform: `translateX(${dragView.dx}px)` } : undefined}
                   title={label}
                   onClick={() => (e.kind === "chat" ? requestOpenChat(e.chat.chatId) : on && canRename ? startRename(e) : select(e.tab.ptyId))}
                   onDoubleClick={e.kind === "pty" ? () => canRename && startRename(e) : undefined}
@@ -714,6 +826,35 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
                   }}
                 >
                   {t("rename")}
+                </button>
+              </div>
+            )}
+            {menuEntry && canDuplicateEntry(menuEntry) && (
+              <div className="w-menu-entry">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTabMenu();
+                    send({ t: "tabop", target: tabTarget(menuEntry), op: { kind: "duplicate" } });
+                  }}
+                >
+                  {t("tabDuplicate")}
+                </button>
+              </div>
+            )}
+            {menuEntry && menuEntry.kind === "pty" && canNotifyEntry(menuEntry) && (
+              <div className="w-menu-entry">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTabMenu();
+                    send({ t: "tabop", target: tabTarget(menuEntry), op: { kind: "notify", on: menuEntry.tab.notify === false } });
+                  }}
+                >
+                  {t("tabNotifications")}
+                  <span className="w-menu-k">{menuEntry.tab.notify === false ? t("tabNotifyOff") : t("tabNotifyOn")}</span>
                 </button>
               </div>
             )}
