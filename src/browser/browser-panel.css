@@ -1,6 +1,7 @@
 /* The in-app browser, filling its panel-card on the right like the agents
  * panel. The header and chips follow the file tree's header rhythm. */
 .browser-panel {
+  position: relative;
   width: 100%;
   min-width: 0;
   display: flex;
@@ -96,95 +97,254 @@
   background: var(--bg-elevated);
 }
 
-/* One chip per open page, then one per detected server not yet open. */
-.browser-panel-chips {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 4px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
+/* The tab-count button: opens the list of pages and detected servers. */
+.browser-tabs-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   flex: 0 0 auto;
-  scrollbar-width: none;
-}
-
-.browser-panel-chips::-webkit-scrollbar {
-  display: none;
-}
-
-.browser-panel-chip {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  height: 22px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--sidebar-hover);
-  color: var(--fg-muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.browser-panel-chip.is-active {
-  background: var(--sidebar-selected-bg);
-  color: var(--sidebar-selected-fg);
-  border-color: transparent;
-}
-
-.browser-panel-chip-main {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 100%;
-  padding: 0 8px;
+  padding: 0;
   border: none;
-  border-radius: 999px;
+  border-radius: 6px;
   background: transparent;
-  color: inherit;
-  font: inherit;
+  color: var(--fg);
   cursor: pointer;
 }
 
-/* A page chip's label sits left of its ×, so it gives that side less padding. */
-.browser-panel-chip > .browser-panel-chip-main {
-  padding-right: 2px;
+.browser-tabs-button:hover,
+.browser-tabs-button.is-open {
+  background: var(--ctrl-hover-bg);
 }
 
-/* A server chip is a single button: it is the chip itself. */
-.browser-panel-chip.browser-panel-chip-main {
-  padding: 0 8px;
+.browser-tabs-count {
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-.browser-panel-chip-main svg {
-  width: 11px;
-  height: 11px;
+/* A server not open yet is waiting in the list. */
+.browser-tabs-signal {
+  position: absolute;
+  top: 3px;
+  right: 3px;
 }
 
-.browser-panel-chip-label {
-  max-width: 160px;
+.browser-tabs-pop {
+  position: absolute;
+  top: calc(var(--panel-header-h) + 4px);
+  right: 8px;
+  z-index: 5;
+  width: min(340px, calc(100% - 16px));
+  max-height: calc(100% - var(--panel-header-h) - 16px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+  animation: browser-tabs-pop 0.12s ease-out;
+}
+
+@keyframes browser-tabs-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-tabs-pop {
+    animation: none;
+  }
+}
+
+.browser-tabs-heading {
+  padding: 5px 8px 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.browser-tabs-sep {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--border);
+}
+
+.browser-tabs-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+  border-radius: 7px;
+}
+
+.browser-tabs-row:hover {
+  background: var(--sidebar-hover);
+}
+
+.browser-tabs-row.is-active {
+  background: var(--sidebar-selected-bg);
+}
+
+.browser-tabs-row.is-active::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.browser-tabs-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px 6px 9px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-tabs-row-main.is-static {
+  cursor: default;
+}
+
+.browser-tabs-row-text {
+  min-width: 0;
+  display: grid;
+}
+
+.browser-tabs-row-title,
+.browser-tabs-row-sub {
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.browser-panel-chip-x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  margin-right: 4px;
+.browser-tabs-row-sub {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+}
+
+.browser-tabs-badge {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  color: #1a1511;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.browser-tabs-badge svg {
+  width: 13px;
+  height: 13px;
+}
+
+.browser-tabs-badge.is-icon {
+  background: var(--sidebar-hover);
+  color: var(--fg-muted);
+}
+
+.browser-tabs-badge.is-local {
+  background: color-mix(in srgb, var(--ansi-green) 55%, var(--bg-elevated));
+}
+
+.browser-tabs-badge.is-server {
+  border: 1px dashed var(--border);
+}
+
+.browser-tabs-row-x {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 5px;
   background: transparent;
-  color: inherit;
-  opacity: 0.5;
+  color: var(--fg-muted);
+  opacity: 0;
   cursor: pointer;
 }
 
-.browser-panel-chip-x:hover {
+.browser-tabs-row:hover .browser-tabs-row-x,
+.browser-tabs-row-x:focus-visible {
   opacity: 1;
+}
+
+.browser-tabs-row-x:hover {
   background: var(--ctrl-hover-bg);
+  color: var(--fg);
+}
+
+.browser-tabs-open {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.browser-tabs-open:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.browser-tabs-new {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-tabs-new:hover {
+  background: var(--sidebar-hover);
+}
+
+.browser-tabs-new svg {
+  width: 13px;
+  height: 13px;
+  color: var(--fg-muted);
 }
 
 .browser-panel-dot {

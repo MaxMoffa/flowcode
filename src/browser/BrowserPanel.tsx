@@ -86,6 +86,15 @@ const PdfIcon = () =>
     </>,
   );
 const ShieldIcon = () => svg(<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />);
+const PlusIcon = () => svg(<path d="M12 5v14M5 12h14" />);
+const ServerIcon = () =>
+  svg(
+    <>
+      <rect x="4" y="4" width="16" height="7" rx="2" />
+      <rect x="4" y="13" width="16" height="7" rx="2" />
+      <path d="M8 7.5h.01M8 16.5h.01" />
+    </>,
+  );
 
 /** The address split the way the field shows it: a bold part and a muted one. */
 function describePage(page: PreviewPage): { bold: string; muted: string; full: string } {
@@ -100,11 +109,41 @@ function describePage(page: PreviewPage): { bold: string; muted: string; full: s
   }
 }
 
-function chipLabel(page: PreviewPage): string {
+/** A page's name in the tab list: the file name, or the site plus its last path segment. */
+function tabLabel(page: PreviewPage): string {
   if (page.kind === "file") return basename(page.path);
   if (page.kind === "pdf" && !/^https?:\/\//i.test(page.src)) return basename(page.src);
-  const { bold, muted } = describePage(page);
-  return muted === "/" ? bold : bold + muted;
+  const url = page.kind === "pdf" ? page.src : page.url;
+  try {
+    const u = new URL(url);
+    const site = isLocalUrl(url) ? `localhost:${u.port}` : u.hostname.replace(/^www\./, "");
+    const last = u.pathname.split("/").filter(Boolean).pop();
+    return last ? `${site} · ${decodeURIComponent(last)}` : site;
+  } catch {
+    return url;
+  }
+}
+
+/** A page's badge: the kind icon for files, a server for local addresses, a lettered square for sites
+ * (a cross-origin frame hides the real title and favicon). */
+function TabBadge({ page }: { page: PreviewPage }) {
+  if (page.kind === "file") return <span className="browser-tabs-badge is-icon"><FileIcon /></span>;
+  const url = page.kind === "pdf" ? page.src : page.url;
+  if (page.kind === "pdf" && !/^https?:\/\//i.test(url)) return <span className="browser-tabs-badge is-icon"><PdfIcon /></span>;
+  if (isLocalUrl(url)) return <span className="browser-tabs-badge is-local"><ServerIcon /></span>;
+  let host = url;
+  try {
+    host = new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    /* keep the raw text */
+  }
+  let hue = 0;
+  for (const c of host) hue = (hue * 31 + c.charCodeAt(0)) % 360;
+  return (
+    <span className="browser-tabs-badge" style={{ background: `hsl(${hue} 42% 64%)` }}>
+      {(host[0] ?? "?").toUpperCase()}
+    </span>
+  );
 }
 
 /** The sandboxed artifact/dev-server preview: a host page on its own origin
@@ -125,6 +164,38 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const [reloadNonce, setReloadNonce] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  // The typed address opens a new page instead of navigating the current one.
+  const [newTab, setNewTab] = useState(false);
+  const [tabsOpen, setTabsOpen] = useState(false);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const tabsButtonRef = useRef<HTMLButtonElement>(null);
+
+  // The tab list closes on a click elsewhere, on Escape, and when the page frame takes focus
+  // (a click inside an iframe never reaches this document, it only blurs the window).
+  useEffect(() => {
+    if (!tabsOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (tabsRef.current?.contains(target) || tabsButtonRef.current?.contains(target)) return;
+      setTabsOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Escape also closes the panel when it is an overlay: this one is for the list only.
+      e.stopPropagation();
+      setTabsOpen(false);
+      tabsButtonRef.current?.focus();
+    };
+    const onBlur = () => setTabsOpen(false);
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [tabsOpen]);
 
   const hostUrl = pluginFileUrl(convertFileSrc("host", "flowcode-preview"), page?.kind === "file" ? "artifact.html" : "index.html");
   const hostUrlRef = useRef(hostUrl);
@@ -242,7 +313,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostReady, filePath, autoReloadArtifacts]);
 
-  // Liveness of the servers the terminals printed, for the dot on their chips.
+  // Liveness of the servers the terminals printed, for the dot on their tab-list rows.
   const hasServers = servers.length > 0;
   const portsRef = useRef<number[]>([]);
   portsRef.current = servers.map((s) => s.port);
@@ -281,16 +352,27 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
 
   const info = page ? describePage(page) : null;
   const startEditing = () => {
+    setNewTab(false);
     setDraft(info?.full ?? "");
     setEditing(true);
   };
-  const commit = () => {
+  const startNewTab = () => {
+    setTabsOpen(false);
+    setNewTab(true);
+    setDraft("");
+    setEditing(true);
+  };
+  const stopEditing = () => {
     setEditing(false);
-    if (draft === (info?.full ?? "")) return;
+    setNewTab(false);
+  };
+  const commit = () => {
+    stopEditing();
+    if (!newTab && draft === (info?.full ?? "")) return;
     const typed = normalizeTypedUrl(draft);
     if (!typed) return;
     const url = isLocalUrl(typed) ? normalizeLocalUrl(typed) : typed;
-    if (page?.kind === "url" && !isPdfTarget(url)) navigatePage(page.id, url);
+    if (!newTab && page?.kind === "url" && !isPdfTarget(url)) navigatePage(page.id, url);
     else openUrlInPreview(url);
   };
 
@@ -331,13 +413,13 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             aria-label={t("browser.address")}
             onFocus={(e) => e.currentTarget.select()}
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => setEditing(false)}
+            onBlur={stopEditing}
             onKeyDown={(e) => {
               if (e.key === "Enter") commit();
               else if (e.key === "Escape") {
                 // Escape also closes the panel when it is an overlay: this one is for the field only.
                 e.stopPropagation();
-                setEditing(false);
+                stopEditing();
               }
             }}
           />
@@ -354,6 +436,19 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             )}
           </button>
         )}
+        <button
+          ref={tabsButtonRef}
+          type="button"
+          className={"browser-tabs-button" + (tabsOpen ? " is-open" : "")}
+          onClick={() => setTabsOpen((o) => !o)}
+          title={t("browser.tabs")}
+          aria-label={t("browser.tabs")}
+          aria-haspopup="true"
+          aria-expanded={tabsOpen}
+        >
+          <span className="browser-tabs-count">{pages.length}</span>
+          {freeServers.some((s) => s.alive) && <span className="browser-panel-dot is-alive browser-tabs-signal" />}
+        </button>
         <button type="button" className="icon-button sm" disabled={!page} onClick={openExternal} title={t("browser.openExternal")} aria-label={t("browser.openExternal")}>
           <ExternalIcon />
         </button>
@@ -361,29 +456,6 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           <CloseIcon />
         </button>
       </div>
-
-      {(pages.length > 0 || freeServers.length > 0) && (
-        <div className="browser-panel-chips">
-          {pages.map((p) => (
-            <span key={p.id} className={"browser-panel-chip" + (p.id === activeId ? " is-active" : "")}>
-              <button type="button" className="browser-panel-chip-main" onClick={() => activatePage(p.id)} title={describePage(p).full}>
-                {p.kind === "file" && <FileIcon />}
-                {p.kind === "pdf" && <PdfIcon />}
-                <span className="browser-panel-chip-label">{chipLabel(p)}</span>
-              </button>
-              <button type="button" className="browser-panel-chip-x" onClick={() => closePage(p.id)} title={t("browser.closePage")} aria-label={t("browser.closePage")}>
-                <CloseIcon size={9} />
-              </button>
-            </span>
-          ))}
-          {freeServers.map((s) => (
-            <button key={s.port} type="button" className="browser-panel-chip browser-panel-chip-main" onClick={() => openUrlInPreview(s.url)} title={s.url}>
-              <span className={"browser-panel-dot" + (s.alive ? " is-alive" : "")} />
-              <span className="browser-panel-chip-label">{`localhost:${s.port}`}</span>
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className={"browser-panel-viewport" + (dragging ? " is-dragging" : "") + (page ? " has-page" : "")}>
         {loading && <div className="browser-panel-loadbar" />}
@@ -421,6 +493,74 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           </div>
         )}
       </div>
+
+      {tabsOpen && (
+        <div ref={tabsRef} className="browser-tabs-pop" role="dialog" aria-label={t("browser.tabs")}>
+          {pages.length > 0 && (
+            <>
+              <div className="browser-tabs-heading">{`${t("browser.tabs")} · ${pages.length}`}</div>
+              {pages.map((p) => (
+                <div key={p.id} className={"browser-tabs-row" + (p.id === activeId ? " is-active" : "")}>
+                  <button
+                    type="button"
+                    className="browser-tabs-row-main"
+                    onClick={() => {
+                      activatePage(p.id);
+                      setTabsOpen(false);
+                    }}
+                    title={describePage(p).full}
+                    aria-current={p.id === activeId ? "page" : undefined}
+                  >
+                    <TabBadge page={p} />
+                    <span className="browser-tabs-row-text">
+                      <span className="browser-tabs-row-title">{tabLabel(p)}</span>
+                      <span className="browser-tabs-row-sub">{describePage(p).full}</span>
+                    </span>
+                  </button>
+                  <button type="button" className="browser-tabs-row-x" onClick={() => closePage(p.id)} title={t("browser.closePage")} aria-label={t("browser.closePage")}>
+                    <CloseIcon size={10} />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {freeServers.length > 0 && (
+            <>
+              {pages.length > 0 && <div className="browser-tabs-sep" />}
+              <div className="browser-tabs-heading">{t("browser.tabs.servers")}</div>
+              {freeServers.map((s) => (
+                <div key={s.port} className="browser-tabs-row">
+                  <span className="browser-tabs-row-main is-static">
+                    <span className="browser-tabs-badge is-server">
+                      <span className={"browser-panel-dot" + (s.alive ? " is-alive" : "")} />
+                    </span>
+                    <span className="browser-tabs-row-text">
+                      <span className="browser-tabs-row-title">{`localhost:${s.port}`}</span>
+                      <span className="browser-tabs-row-sub">{t(s.alive ? "browser.tabs.serverAlive" : "browser.tabs.serverDown")}</span>
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="browser-tabs-open"
+                    onClick={() => {
+                      openUrlInPreview(s.url);
+                      setTabsOpen(false);
+                    }}
+                    title={s.url}
+                  >
+                    {t("browser.tabs.openServer")}
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {(pages.length > 0 || freeServers.length > 0) && <div className="browser-tabs-sep" />}
+          <button type="button" className="browser-tabs-new" onClick={startNewTab}>
+            <PlusIcon />
+            {t("browser.tabs.new")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
