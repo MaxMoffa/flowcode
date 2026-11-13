@@ -77,6 +77,7 @@ pub fn run() {
             commands::inspect_ticket,
             commands::my_fingerprint,
             commands::pair,
+            commands::upload_chat_file,
             commands::cancel_pair,
             commands::connect,
             commands::send,

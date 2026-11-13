@@ -26,7 +26,7 @@ vi.mock("./remote", () => ({
 let chatsModule: typeof import("./chats");
 const followChat = (id: string) => chatsModule.followChat(id);
 const getChatSession = (id: string) => chatsModule.getChatSession(id);
-const sendChatPrompt = (id: string, text: string) => chatsModule.sendChatPrompt(id, text);
+const sendChatPrompt = (id: string, text: string, files: { id: string; name: string; mime: string }[] = []) => chatsModule.sendChatPrompt(id, text, files);
 const cancelChat = (id: string) => chatsModule.cancelChat(id);
 
 const info = (status: ChatInfo["status"], over: Partial<ChatInfo> = {}): ChatInfo => ({ chatId: "c1", tabId: "t1", window: "main", label: "Chat", agent: "claude", cwd: "/x", status, ...over });
@@ -161,7 +161,7 @@ describe("the send queue", () => {
     await Promise.resolve();
     const second = prompts()[1] as Extract<ClientMsg, { t: "chatprompt" }>;
     say({ t: "chatpromptack", chatId: "c2", requestId: second.requestId!, message: "agent_busy" });
-    expect(getChatSession("c2")?.queued).toEqual(["B"]);
+    expect(getChatSession("c2")?.queued.map((q) => q.text)).toEqual(["B"]);
     expect(getChatSession("c1")?.sentText).toBe("A");
   });
   it("preserves an uncertain delivery to an old server without retrying automatically", async () => {
@@ -172,7 +172,7 @@ describe("the send queue", () => {
     ready();
     chats([info("idle")]);
     say({ t: "chatevents", chatId: "c1", events: [], replay: true });
-    expect(getChatSession("c1")?.queued).toEqual(["A"]);
+    expect(getChatSession("c1")?.queued.map((q) => q.text)).toEqual(["A"]);
     expect(getChatSession("c1")?.deliveryUncertain).toBe(true);
     expect(prompts()).toHaveLength(1);
     expect(link.toasts).toHaveLength(1);
@@ -208,7 +208,7 @@ describe("the send queue", () => {
 
     // The refusal names no chat: it belongs to the one message in flight.
     say({ t: "error", message: "agent_busy: still working", fatal: false });
-    expect(getChatSession("c1")?.queued).toEqual(["uno", "due"]);
+    expect(getChatSession("c1")?.queued.map((q) => q.text)).toEqual(["uno", "due"]);
     // Not again until the agent has moved on.
     chats([info("idle")]);
     await Promise.resolve();
@@ -257,6 +257,18 @@ describe("the send queue", () => {
     await Promise.resolve();
     expect(prompts()).toHaveLength(2);
     expect(prompts()[1]).toEqual({ t: "chatprompt", chatId: "c1", text: "due" });
+  });
+
+  it("sends an attachment-only message with its files", async () => {
+    ready();
+    chats([info("idle")]);
+    say({ t: "chatevents", chatId: "c1", events: [{ seq: 1, at: 0, kind: "turnEnd", stopReason: "end_turn" }], replay: true });
+    const files = [{ id: "u1", name: "a.png", mime: "image/png" }];
+    sendChatPrompt("c1", "  ", files);
+    await Promise.resolve();
+    expect(prompts()).toEqual([{ t: "chatprompt", chatId: "c1", text: "", attachments: files }]);
+    sendChatPrompt("c1", "");
+    expect(getChatSession("c1")?.queued).toEqual([]);
   });
 
   it("keeps a message the link refused and sends it after the next ready", async () => {

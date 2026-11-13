@@ -3476,3 +3476,22 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
 @media (prefers-reduced-motion: reduce) {
   .chat-dstrip-chev { transition: none; }
 }
+
+/* Files picked for the next message: a strip at the top of the card, above the text. */
+.chat-attach-strip { display: flex; gap: 8px; padding: 2px 0 10px; margin: 0 0 8px; border-bottom: 1px solid color-mix(in srgb, var(--fg) 8%, transparent); overflow-x: auto; scrollbar-width: thin; }
+.chat-attach-tile { position: relative; flex: 0 0 auto; width: 48px; height: 48px; border-radius: 10px; border: 1px solid var(--border-strong); overflow: hidden; }
+.chat-attach-tile.is-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.chat-attach-tile.is-file { width: auto; min-width: 128px; max-width: 180px; display: flex; align-items: center; gap: 8px; padding: 0 30px 0 8px; background: rgba(0, 0, 0, 0.22); }
+.chat-attach-ext { flex: none; width: 28px; height: 32px; border-radius: 6px; display: grid; place-items: center; background: var(--accent); color: var(--bg); font: 700 9px var(--mono); }
+.chat-attach-meta { min-width: 0; font-size: 12px; line-height: 1.25; }
+.chat-attach-meta b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-attach-meta small { color: var(--muted); font-size: 11px; }
+.chat-attach-tile.is-uploading > img, .chat-attach-tile.is-uploading > .chat-attach-ext, .chat-attach-tile.is-uploading > .chat-attach-meta { opacity: 0.45; }
+.chat-attach-spin { position: absolute; top: 50%; left: 50%; margin: -7px 0 0 -7px; }
+.chat-attach-tile.is-file .chat-attach-spin { left: 22px; }
+.chat-attach-tile.is-error { border-color: var(--danger); cursor: pointer; }
+.chat-attach-x { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(15, 12, 9, 0.78); color: var(--fg); }
+.chat-attach-x svg { width: 11px; height: 11px; }
+.chat-attach-x::after { content: ""; position: absolute; inset: -6px; }
+.chat-attach-tile.is-file .chat-attach-x { top: 50%; right: 4px; transform: translateY(-50%); background: transparent; color: var(--muted); }
+.chat-pending-files { opacity: 0.8; white-space: nowrap; }

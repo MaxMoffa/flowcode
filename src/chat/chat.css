@@ -3904,3 +3904,69 @@ summary.chat-step-row {
 .chat-goal-marker-title b { font-weight: 700; }
 .chat-goal-marker-obj { font-size: 12.5px; color: var(--fg); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .chat-goal-marker-meta { font-size: 11.5px; color: var(--fg-muted); }
+
+/* Attachments sit inside the composer, at its top: images as square thumbnails, files as tiles. */
+.chat-attach-strip {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px -6px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.chat-attach-tile {
+  position: relative;
+  flex: 0 0 auto;
+  height: 48px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
+  overflow: hidden;
+}
+.chat-attach-tile.is-image { width: 48px; }
+.chat-attach-tile.is-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chat-attach-tile.is-file {
+  min-width: 136px;
+  max-width: 190px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 26px 0 8px;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.chat-attach-ext {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 32px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: rgb(var(--surface-rgb));
+  font: 700 9px var(--font-mono, ui-monospace, monospace);
+}
+.chat-attach-meta { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; font-size: 12px; }
+.chat-attach-name { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-attach-size { color: var(--fg-muted); font-size: 11px; }
+.chat-attach-x {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.chat-attach-tile.is-file .chat-attach-x { top: 50%; transform: translateY(-50%); background: transparent; color: var(--fg-muted); }
+.chat-attach-tile:hover .chat-attach-x,
+.chat-attach-x:focus-visible { opacity: 1; }
+.chat-attach-tile.is-file .chat-attach-x:hover { background: var(--sidebar-hover); color: var(--fg); }

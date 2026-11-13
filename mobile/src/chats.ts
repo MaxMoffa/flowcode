@@ -16,7 +16,7 @@ import { isAgentBusy } from "../../src/chat/chatModel";
 import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
 import { t } from "./i18n";
 import { currentChats, onMessage, send, sendChecked, showToast, useRemoteSelector } from "./remote";
-import type { ChatInfo, ServerMsg } from "../../shared/remote-types";
+import type { ChatAttachmentRef, ChatInfo, ServerMsg } from "../../shared/remote-types";
 import { beginPending, endPending } from "./pending";
 import { createStore } from "./store";
 
@@ -106,8 +106,8 @@ function pump(chatId: string) {
   if (!taken) return;
   const sentAt = taken.session.sentAtSeq ?? -1;
   patchSession(chatId, () => taken.session);
-  void sendChecked({ t: "chatprompt", chatId, text: taken.text, ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
-    if (!ok) patchSession(chatId, (s) => putBack(s, taken.text, sentAt, taken.session.deliveryVersion));
+  void sendChecked({ t: "chatprompt", chatId, text: taken.text, ...(taken.files.length > 0 ? { attachments: taken.files } : {}), ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
+    if (!ok) patchSession(chatId, (s) => putBack(s, taken.text, taken.files, sentAt, taken.session.deliveryVersion));
   });
 }
 
@@ -121,8 +121,8 @@ function onChatEvents(chatId: string, events: unknown[], replay: boolean) {
   const listeners = eventListeners.get(chatId);
   if (listeners) for (const event of fresh) listeners.forEach((l) => l(event, replay));
   const current = store.get().sessions[chatId];
-  if (replay && current?.sentText && current.sentRequestId && promptReceipts) {
-    void sendChecked({ t: "chatprompt", chatId, text: current.sentText, requestId: current.sentRequestId });
+  if (replay && current?.sentText !== null && current?.sentText !== undefined && current.sentRequestId && promptReceipts) {
+    void sendChecked({ t: "chatprompt", chatId, text: current.sentText, ...(current.sentFiles.length > 0 ? { attachments: current.sentFiles } : {}), requestId: current.sentRequestId });
   }
   if (current?.deliveryUncertain && !before.deliveryUncertain) showToast(t("chatDeliveryUncertain"));
   pump(chatId);
@@ -211,10 +211,10 @@ export function onNewChatEvents(chatId: string, listener: (event: ChatEvent, rep
 }
 
 /** Queues a message; it goes out as soon as the agent is idle and the link up. */
-export function sendChatPrompt(chatId: string, text: string) {
+export function sendChatPrompt(chatId: string, text: string, files: ChatAttachmentRef[] = []) {
   const trimmed = text.trim();
-  if (!trimmed) return;
-  patchSession(chatId, (s) => ({ ...s, queued: [...s.queued, trimmed] }));
+  if (!trimmed && files.length === 0) return;
+  patchSession(chatId, (s) => ({ ...s, queued: [...s.queued, { text: trimmed, files }] }));
   pump(chatId);
   syncFollows();
 }

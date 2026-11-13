@@ -787,7 +787,7 @@ impl Log {
 
 /// A file sent along with a prompt: its bytes (base64) or a path on this PC.
 #[derive(Deserialize, Debug)]
-pub struct Attachment {
+pub(crate) struct Attachment {
     name: String,
     mime: String,
     data: Option<String>,
@@ -842,6 +842,50 @@ pub(crate) fn purge_attachments() {
     }
 }
 
+/// Saves `bytes` as `<temp>/flowcode-attachments/<uuid>/<name>`; returns the uuid and the file.
+fn stage_attachment(name: &str, bytes: &[u8]) -> Result<(String, std::path::PathBuf), String> {
+    if bytes.len() > MAX_ATTACHMENT_BYTES { return Err("attachment exceeds 32 MiB".into()); }
+    let _guard = lock(&ATTACHMENT_STORE);
+    let root = std::env::temp_dir().join("flowcode-attachments");
+    if !crate::fs::links_stay_local(&root) || std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) { return Err("unsafe attachment directory".into()); }
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) { continue; }
+            if let Ok(files) = std::fs::read_dir(entry.path()) {
+                total = files.flatten().filter_map(|f| f.metadata().ok()).fold(total, |total, m| total.saturating_add(m.len()));
+            }
+        }
+    }
+    if total.saturating_add(bytes.len() as u64) > MAX_ATTACHMENTS_TOTAL { return Err("temporary attachments exceed 256 MiB; remove old attachments before retrying".into()); }
+    let id = uuid::Uuid::new_v4().to_string();
+    let dir = root.join(&id);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not save {name}: {e}"))?;
+    let file = dir.join(sanitize_name(name));
+    std::fs::write(&file, bytes).map_err(|e| format!("could not save {name}: {e}"))?;
+    Ok((id, file))
+}
+
+/// Stores a file the phone uploaded; returns its id for `uploaded_attachment`.
+pub(crate) fn stage_upload(name: &str, bytes: &[u8]) -> Result<String, String> {
+    stage_attachment(name, bytes).map(|(id, _)| id)
+}
+
+/// The attachment a phone prompt refers to: a file `stage_upload` stored.
+pub(crate) fn uploaded_attachment(id: &str, name: &str, mime: &str) -> Result<Attachment, String> {
+    uuid::Uuid::parse_str(id).map_err(|_| "invalid attachment id".to_string())?;
+    let root = std::env::temp_dir().join("flowcode-attachments");
+    if !crate::fs::links_stay_local(&root) || std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) { return Err("unsafe attachment directory".into()); }
+    let path = root.join(id).join(sanitize_name(name));
+    match std::fs::symlink_metadata(&path) {
+        Ok(m) if m.file_type().is_file() => {}
+        _ => return Err(format!("attachment {name} not found")),
+    }
+    let valid = !mime.is_empty() && mime.len() <= 127 && mime.chars().all(|c| c.is_ascii_alphanumeric() || "!#$&^_.+-/".contains(c));
+    let mime = if valid { mime } else { "application/octet-stream" };
+    Ok(Attachment { name: name.into(), mime: mime.into(), data: None, path: Some(path.to_string_lossy().into_owned()) })
+}
+
 fn attachment_block(a: &Attachment, images: bool, wsl: bool) -> Result<Value, String> {
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD;
@@ -859,25 +903,7 @@ fn attachment_block(a: &Attachment, images: bool, wsl: bool) -> Result<Value, St
     let path = match (&a.data, &a.path) {
         (Some(data), _) => {
             let bytes = b64.decode(data).map_err(|e| format!("bad attachment {}: {e}", a.name))?;
-            if bytes.len() > MAX_ATTACHMENT_BYTES { return Err("attachment exceeds 32 MiB".into()); }
-            let _guard = lock(&ATTACHMENT_STORE);
-            let root = std::env::temp_dir().join("flowcode-attachments");
-            if !crate::fs::links_stay_local(&root) || std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) { return Err("unsafe attachment directory".into()); }
-            let mut total = 0u64;
-            if let Ok(entries) = std::fs::read_dir(&root) {
-                for entry in entries.flatten() {
-                    if !entry.file_type().is_ok_and(|kind| kind.is_dir()) { continue; }
-                    if let Ok(files) = std::fs::read_dir(entry.path()) {
-                        total = files.flatten().filter_map(|f| f.metadata().ok()).fold(total, |total, m| total.saturating_add(m.len()));
-                    }
-                }
-            }
-            if total.saturating_add(bytes.len() as u64) > MAX_ATTACHMENTS_TOTAL { return Err("temporary attachments exceed 256 MiB; remove old attachments before retrying".into()); }
-            let dir = root.join(uuid::Uuid::new_v4().to_string());
-            std::fs::create_dir_all(&dir).map_err(|e| format!("could not save {}: {e}", a.name))?;
-            let file = dir.join(sanitize_name(&a.name));
-            std::fs::write(&file, bytes).map_err(|e| format!("could not save {}: {e}", a.name))?;
-            file
+            stage_attachment(&a.name, &bytes)?.1
         }
         (None, Some(path)) => std::path::PathBuf::from(path),
         _ => return Err(format!("attachment {} has no content", a.name)),
@@ -2080,6 +2106,10 @@ impl ChatState {
         }
     }
 
+    pub(crate) fn exists(&self, chat_id: &str) -> bool {
+        self.get(chat_id).is_ok()
+    }
+
     fn get(&self, chat_id: &str) -> Result<Arc<Chat>, String> {
         lock(&self.sessions).get(chat_id).map(|s| Arc::clone(&s.chat)).ok_or_else(|| "unknown chat".to_string())
     }
@@ -2772,6 +2802,27 @@ pub async fn chat_image_path(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn uploads_are_staged_and_resolved_inside_the_store() {
+        let id = super::stage_upload("note.txt", b"hello").unwrap();
+        let a = super::uploaded_attachment(&id, "note.txt", "text/plain").unwrap();
+        let path = std::path::PathBuf::from(a.path.clone().unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), b"hello");
+        assert_eq!(a.mime, "text/plain");
+        assert_eq!(super::uploaded_attachment(&id, "note.txt", "bad mime;x").unwrap().mime, "application/octet-stream");
+        assert!(super::uploaded_attachment("not-a-uuid", "note.txt", "text/plain").is_err());
+        assert!(super::uploaded_attachment(&uuid::Uuid::new_v4().to_string(), "note.txt", "text/plain").is_err());
+        assert!(super::uploaded_attachment(&format!("../{id}"), "note.txt", "").is_err());
+        let root = std::env::temp_dir().join("flowcode-attachments");
+        let evil = id_path("../../x.txt", &id);
+        assert!(evil.is_none_or(|p| p.starts_with(&root)));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    fn id_path(name: &str, id: &str) -> Option<std::path::PathBuf> {
+        super::uploaded_attachment(id, name, "").ok().and_then(|a| a.path).map(Into::into)
+    }
+
     use super::*;
 
     #[test]

@@ -272,12 +272,16 @@ export type SettingKey =
  * Features a desktop advertises in `ready.caps` (Rust: `CAPABILITIES` in
  * remote-proto/src/lib.rs). A desktop that sends no `caps` is an old one.
  */
+/** A file already uploaded to the desktop (`upload_chat_file`), sent with a chat message. */
+export type ChatAttachmentRef = { id: string; name: string; mime: string };
+
 export type RemoteCap =
   | "fileExplorer"
   | "git"
   | "tabOps"
   | "history"
   | "resume"
+  | "chatAttach"
   | "rename"
   | "profiles"
   | "profileLogin"
@@ -405,7 +409,7 @@ export type ClientMsg =
   /** Follows a chat: the desktop answers with its events after `afterSeq`, then streams new ones. */
   | { t: "chatopen"; chatId: string; afterSeq: number }
   | { t: "chatclose"; chatId: string }
-  | { t: "chatprompt"; chatId: string; text: string; requestId?: string }
+  | { t: "chatprompt"; chatId: string; text: string; requestId?: string; attachments?: ChatAttachmentRef[] }
   | { t: "chatcancel"; chatId: string }
   /** Answers an agent's permission request; `optionId: null` cancels it. */
   | { t: "chatpermission"; chatId: string; requestId: unknown; optionId: string | null }

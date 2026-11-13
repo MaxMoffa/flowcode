@@ -34,7 +34,7 @@ pub const PROTOCOL_VERSION: u32 = 2;
 /// Features this desktop supports, sent in `ready` as `caps`, so the phone
 /// can hide what an older desktop lacks. Keep in step with `RemoteCap` in
 /// shared/remote-types.ts and docs/remote-protocol.md.
-pub const CAPABILITIES: &[&str] = &["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview", "chatPreview", "agentInsight", "chatPromptAck", "chatImageRequestId", "chatCacheInfo", "git", "history", "resume", "tabOps"];
+pub const CAPABILITIES: &[&str] = &["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview", "chatPreview", "agentInsight", "chatPromptAck", "chatImageRequestId", "chatCacheInfo", "git", "history", "resume", "tabOps", "chatAttach"];
 
 /// What a preview stream is pointed at. After `auth`, the phone opens one extra
 /// bidirectional stream per HTTP connection of its in-app browser. The first
@@ -50,6 +50,32 @@ pub enum PreviewTarget {
     Files(String),
     /// Files under a chat's working folder; requires `chatPreview`.
     ChatFiles(String),
+    /// Upload of one chat attachment; requires `chatAttach`.
+    ChatUpload(String),
+}
+
+/// Longest metadata line of an upload stream, newline included.
+pub const UPLOAD_META_MAX: usize = 1024;
+/// Largest attachment a phone may upload.
+pub const UPLOAD_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// Second line of a `chatupload` stream; `size` raw bytes follow it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadMeta {
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+}
+
+/// The desktop's one-line answer to an upload: `id` on success, else `error`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadReply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Longest first line a preview stream may start with, newline included.
@@ -61,6 +87,7 @@ pub fn preview_header(target: &PreviewTarget) -> String {
         PreviewTarget::Port(port) => format!("port {port}\n"),
         PreviewTarget::Files(pty_id) => format!("files {pty_id}\n"),
         PreviewTarget::ChatFiles(chat_id) => format!("chatfiles {chat_id}\n"),
+        PreviewTarget::ChatUpload(chat_id) => format!("chatupload {chat_id}\n"),
     }
 }
 
@@ -72,6 +99,7 @@ pub fn parse_preview_header(line: &str) -> Option<PreviewTarget> {
         "port" => rest.parse::<u16>().ok().filter(|p| *p != 0).map(PreviewTarget::Port),
         "files" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::Files(rest.to_string())),
         "chatfiles" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::ChatFiles(rest.to_string())),
+        "chatupload" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::ChatUpload(rest.to_string())),
         _ => None,
     }
 }
@@ -85,11 +113,11 @@ mod tests {
 
     #[test]
     fn preview_headers_round_trip_and_refuse_junk() {
-        for target in [PreviewTarget::Port(5173), PreviewTarget::Files("pty-1".into()), PreviewTarget::ChatFiles("chat-1".into())] {
+        for target in [PreviewTarget::Port(5173), PreviewTarget::Files("pty-1".into()), PreviewTarget::ChatFiles("chat-1".into()), PreviewTarget::ChatUpload("chat-1".into())] {
             assert_eq!(parse_preview_header(&preview_header(&target)), Some(target));
         }
         assert_eq!(parse_preview_header("port 80\r\n"), Some(PreviewTarget::Port(80)));
-        for bad in ["", "port", "port 0", "port 70000", "port x", "files", "files a b", "chatfiles", "chatfiles ", "chatfiles a b", "ftp 1", "GET / HTTP/1.1"] {
+        for bad in ["", "port", "port 0", "port 70000", "port x", "files", "files a b", "chatfiles", "chatfiles ", "chatfiles a b", "chatupload", "chatupload a b", "ftp 1", "GET / HTTP/1.1"] {
             assert_eq!(parse_preview_header(bad), None, "{bad:?}");
         }
     }

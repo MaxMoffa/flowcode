@@ -4,7 +4,10 @@
 // so the resume-after-reconnect and queue rules are testable without a link.
 import { applyEvent, applyLocalError, isAgentBusy, isAgentExited, forceCancels, initialChat, liveModels, liveThought, normalizeModels, normalizeThought, settleChat, type ChatModelState } from "../src/chat/chatModel";
 import type { ChatEvent, ChatModels, ChatModes, ChatStatus, ChatThought } from "../src/chat/chatTypes";
-import type { ChatInfo } from "./remote-types";
+import type { ChatAttachmentRef, ChatInfo } from "./remote-types";
+
+/** A message waiting to be sent: its text and the files already uploaded for it. */
+export type QueuedPrompt = { text: string; files: ChatAttachmentRef[] };
 
 /** Raw events kept per chat for plugin views to replay; the oldest go first. */
 export const MAX_RAW_EVENTS = 4000;
@@ -17,11 +20,13 @@ export interface ChatSession {
   /** Raw events in `seq` order, newest last, at most MAX_RAW_EVENTS. */
   events: ChatEvent[];
   /** Messages typed while the agent was busy (or the link down), sent one per finished turn. */
-  queued: string[];
+  queued: QueuedPrompt[];
   /** `lastSeq` when the last message was handed to the agent: until a newer event arrives its turn hasn't started, so the queue must not send another. */
   sentAtSeq: number | null;
   /** The message last handed to the agent, until its `user` event shows it arrived: what a refusal that names no chat (`agent_busy`) puts back. */
   sentText: string | null;
+  /** The files of `sentText`, kept and cleared with it. */
+  sentFiles: ChatAttachmentRef[];
   /** Stable across reconnects until the server acknowledges this delivery. */
   sentRequestId: string | null;
   /** An old server cannot prove delivery: keep the text visible for manual retry. */
@@ -32,7 +37,7 @@ export interface ChatSession {
   loaded: boolean;
 }
 
-export const emptySession = (): ChatSession => ({ model: initialChat(), events: [], queued: [], sentAtSeq: null, sentText: null, sentRequestId: null, deliveryUncertain: false, deliveryVersion: 0, loaded: false });
+export const emptySession = (): ChatSession => ({ model: initialChat(), events: [], queued: [], sentAtSeq: null, sentText: null, sentFiles: [], sentRequestId: null, deliveryUncertain: false, deliveryVersion: 0, loaded: false });
 
 export const promptRequestId = () => `${Date.now()}-${crypto.randomUUID()}`;
 
@@ -62,9 +67,9 @@ export function applyEvents(session: ChatSession, raw: unknown[], opts: { replay
   const events = fresh.length === 0 ? session.events : [...session.events, ...fresh].slice(-MAX_RAW_EVENTS);
   // The sent message's own `user` event (or the agent's end) settles it: nothing left to put back.
   const landed = session.sentRequestId === null && session.sentText !== null && fresh.some((e) => (e.kind === "user" && e.text === session.sentText && e.seq > (session.sentAtSeq ?? -Infinity)) || e.kind === "exit");
-  const next = { ...session, model, events, loaded: session.loaded || opts.replay, sentText: landed ? null : session.sentText };
+  const next = { ...session, model, events, loaded: session.loaded || opts.replay, sentText: landed ? null : session.sentText, sentFiles: landed ? [] : session.sentFiles };
   if (opts.replay && next.sentText !== null && next.sentRequestId === null) {
-    return { ...next, queued: [next.sentText, ...next.queued], sentText: null, sentAtSeq: null, deliveryUncertain: true };
+    return { ...next, queued: [{ text: next.sentText, files: next.sentFiles }, ...next.queued], sentText: null, sentFiles: [], sentAtSeq: null, deliveryUncertain: true };
   }
   return next;
 }
@@ -90,17 +95,18 @@ export function canDispatch(session: ChatSession, status: ChatStatus): boolean {
 }
 
 /** Takes the next queued message out; the caller sends it. */
-export function takeQueued(session: ChatSession, requestId: string | null = null): { session: ChatSession; text: string } | null {
-  const [text, ...rest] = session.queued;
-  if (text === undefined) return null;
-  return { text, session: { ...session, queued: rest, sentAtSeq: session.model.lastSeq, sentText: text, sentRequestId: requestId, deliveryVersion: session.deliveryVersion + 1 } };
+export function takeQueued(session: ChatSession, requestId: string | null = null): { session: ChatSession; text: string; files: ChatAttachmentRef[] } | null {
+  const [first, ...rest] = session.queued;
+  if (first === undefined) return null;
+  const { text, files } = first;
+  return { text, files, session: { ...session, queued: rest, sentAtSeq: session.model.lastSeq, sentText: text, sentFiles: files, sentRequestId: requestId, deliveryVersion: session.deliveryVersion + 1 } };
 }
 
 /** The send never left the phone: back to the front of the queue, as if untouched. */
-export function putBack(session: ChatSession, text: string, sentAt: number, version = session.deliveryVersion): ChatSession {
+export function putBack(session: ChatSession, text: string, files: ChatAttachmentRef[], sentAt: number, version = session.deliveryVersion): ChatSession {
   const mine = session.sentAtSeq === sentAt;
   if (!mine || session.sentText !== text || session.deliveryVersion !== version) return session;
-  return { ...session, queued: [text, ...session.queued], sentAtSeq: null, sentText: null, sentRequestId: null };
+  return { ...session, queued: [{ text, files }, ...session.queued], sentAtSeq: null, sentText: null, sentFiles: [], sentRequestId: null };
 }
 
 /**
@@ -111,13 +117,13 @@ export function putBack(session: ChatSession, text: string, sentAt: number, vers
  */
 export function requeueRefused(session: ChatSession): ChatSession | null {
   if (session.sentText === null) return null;
-  return { ...session, queued: [session.sentText, ...session.queued], sentText: null, sentRequestId: null, sentAtSeq: session.sentAtSeq ?? session.model.lastSeq };
+  return { ...session, queued: [{ text: session.sentText, files: session.sentFiles }, ...session.queued], sentText: null, sentFiles: [], sentRequestId: null, sentAtSeq: session.sentAtSeq ?? session.model.lastSeq };
 }
 
 /** Correlated replies never consume another chat's pending text. */
 export function acknowledgePrompt(session: ChatSession, requestId: string, message?: string): ChatSession {
   if (session.sentRequestId !== requestId) return session;
-  if (!message) return { ...session, sentText: null, sentRequestId: null };
+  if (!message) return { ...session, sentText: null, sentFiles: [], sentRequestId: null };
   const next = requeueRefused(session) ?? session;
   const retryAfterTurn = isAgentBusy(message) || isAgentExited(message);
   return { ...next, deliveryUncertain: !retryAfterTurn, model: retryAfterTurn ? next.model : applyLocalError(next.model, message) };
@@ -125,7 +131,7 @@ export function acknowledgePrompt(session: ChatSession, requestId: string, messa
 
 export function pauseUnconfirmedPrompt(session: ChatSession): ChatSession {
   if (session.sentText === null) return session;
-  return { ...session, queued: [session.sentText, ...session.queued], sentText: null, sentRequestId: null, sentAtSeq: null, deliveryUncertain: true };
+  return { ...session, queued: [{ text: session.sentText, files: session.sentFiles }, ...session.queued], sentText: null, sentFiles: [], sentRequestId: null, sentAtSeq: null, deliveryUncertain: true };
 }
 
 /** The chat a refusal naming no chat belongs to: the one message still waiting for its `user` event. Null when none or several are (it can't be told). */

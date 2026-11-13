@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use flowcode_remote_proto::{parse_preview_header, PreviewTarget, PREVIEW_HEADER_MAX};
+use flowcode_remote_proto::{parse_preview_header, PreviewTarget, UploadMeta, UploadReply, PREVIEW_HEADER_MAX, UPLOAD_MAX_BYTES, UPLOAD_META_MAX};
 use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::header::{HeaderValue, ALLOW, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
@@ -31,6 +31,10 @@ use super::Shared;
 const MAX_STREAMS: usize = 64;
 /// The whole first line has to arrive within this.
 const HEADER_TIMEOUT: Duration = Duration::from_secs(5);
+/// The whole body of a chat upload has to arrive within this.
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+/// Uploads buffered at once (each up to `UPLOAD_MAX_BYTES` in memory), across all phones.
+static UPLOAD_SLOTS: Semaphore = Semaphore::const_new(4);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// Largest file the `files` server sends; it is read whole.
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
@@ -82,7 +86,61 @@ async fn serve_stream(shared: &Shared, mut send: iroh::endpoint::SendStream, mut
             let root = shared.app.state::<crate::chat::ChatState>().preview_root(&chat_id).ok();
             serve_files(tokio::io::join(recv, send), root).await;
         }
+        PreviewTarget::ChatUpload(chat_id) => {
+            let reply = match receive_upload(shared, &chat_id, &mut recv).await {
+                Ok(id) => UploadReply { id: Some(id), error: None },
+                Err(error) => {
+                    shared.log.line(&format!("preview: chat upload failed: {error}"));
+                    UploadReply { id: None, error: Some(error) }
+                }
+            };
+            let mut line = serde_json::to_string(&reply).unwrap_or_else(|_| r#"{"error":"upload failed"}"#.into());
+            line.push('\n');
+            let _ = tokio::io::AsyncWriteExt::write_all(&mut send, line.as_bytes()).await;
+            let _ = send.finish();
+        }
     }
+}
+
+/// Reads the metadata line and the raw bytes of an upload and stages them.
+async fn receive_upload(shared: &Shared, chat_id: &str, recv: &mut iroh::endpoint::RecvStream) -> Result<String, String> {
+    if !shared.app.state::<crate::chat::ChatState>().exists(chat_id) {
+        return Err("Chat not found".into());
+    }
+    let line = tokio::time::timeout(HEADER_TIMEOUT, async {
+        let mut line = Vec::with_capacity(128);
+        loop {
+            let byte = recv.read_u8().await.ok()?;
+            if byte == b'\n' {
+                return Some(line);
+            }
+            line.push(byte);
+            if line.len() >= UPLOAD_META_MAX {
+                return None;
+            }
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+    .ok_or_else(|| "Invalid upload header".to_string())?;
+    let meta: UploadMeta = serde_json::from_slice(&line).map_err(|_| "Invalid upload header".to_string())?;
+    if meta.size > UPLOAD_MAX_BYTES {
+        return Err("File exceeds 32 MiB".into());
+    }
+    if meta.name.is_empty() || meta.name.len() > 255 {
+        return Err("Invalid file name".into());
+    }
+    let _slot = UPLOAD_SLOTS.acquire().await.map_err(|_| "Upload failed".to_string())?;
+    let mut bytes = vec![0u8; meta.size as usize];
+    tokio::time::timeout(UPLOAD_TIMEOUT, recv.read_exact(&mut bytes))
+        .await
+        .map_err(|_| "Upload timed out".to_string())?
+        .map_err(|_| "Upload interrupted".to_string())?;
+    let name = meta.name;
+    tokio::task::spawn_blocking(move || crate::chat::stage_upload(&name, &bytes))
+        .await
+        .map_err(|_| "Upload failed".to_string())?
 }
 
 /// Reads the first line of a stream, one byte at a time: the bytes after the

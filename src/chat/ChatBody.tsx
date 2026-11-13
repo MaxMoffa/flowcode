@@ -55,6 +55,20 @@ function waveHeight(full: number, level: number): number {
   return Math.round(3 + (full - 3) * Math.min(1, level));
 }
 
+/** Upper-case extension for a file tile's badge ("FILE" when there is none). */
+function fileExt(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1) : "";
+  return ext && ext.length <= 5 ? ext.toUpperCase() : "FILE";
+}
+
+/** A byte count as "412 KB" / "1.2 MB". */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 /** Reads a file into an attachment: its bytes as base64 (no `data:` prefix). */
 function readAttachment(file: File): Promise<ChatAttachment> {
   return new Promise((resolve, reject) => {
@@ -1015,23 +1029,6 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 </button>
               </div>
             )}
-            {attachments.length > 0 && (
-              <div className="chat-queue">
-                {attachments.map((file, i) => (
-                  <span key={i} className="chat-chip" title={file.name}>
-                    {file.mime.startsWith("image/") ? (
-                      <img className="chat-chip-thumb" src={`data:${file.mime};base64,${file.data}`} alt="" />
-                    ) : (
-                      <PaperclipIcon size={11} />
-                    )}
-                    <span className="chat-chip-text">{file.name}</span>
-                    <button type="button" className="chat-chip-remove" aria-label={t("chat.attach.remove")} title={t("chat.attach.remove")} onClick={() => setAttachments((a) => a.filter((_, j) => j !== i))}>
-                      {"×"}
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
             <SubagentTray
               items={runningSubs}
               onOpen={
@@ -1101,6 +1098,32 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
             <div className={`chat-composer${openAsk || delegateAsk || showCacheCard ? " is-ask-hidden" : ""}${listening ? " is-listening" : ""}${transcribing ? " is-transcribing" : ""}${dragOver ? " is-dragover" : ""}${goalTone === "active" ? " is-goal-active" : goalTone === "paused" ? " is-goal-paused" : ""}`} data-drop-label={t("chat.attach.drop")}>
               {transcribing && <ComposerSweep />}
               {goalChip && model.goal && <GoalChip chatId={chat.chatId ?? ""} goal={model.goal} actions={model.goalActions} items={model.items} goalAction={chat.goalAction} />}
+              {attachments.length > 0 && (
+                <div className="chat-attach-strip">
+                  {attachments.map((file, i) => {
+                    // A file attached by path has no bytes here to show: it gets a file tile.
+                    const image = file.mime.startsWith("image/") && !!file.data;
+                    return (
+                      <div key={i} className={`chat-attach-tile${image ? " is-image" : " is-file"}`} title={file.name}>
+                        {image ? (
+                          <img src={`data:${file.mime};base64,${file.data}`} alt={file.name} />
+                        ) : (
+                          <>
+                            <span className="chat-attach-ext">{fileExt(file.name)}</span>
+                            <span className="chat-attach-meta">
+                              <span className="chat-attach-name">{file.name}</span>
+                              {file.data && <span className="chat-attach-size">{formatBytes(Math.floor((file.data.length * 3) / 4))}</span>}
+                            </span>
+                          </>
+                        )}
+                        <button type="button" className="chat-attach-x" aria-label={t("chat.attach.remove")} title={t("chat.attach.remove")} onClick={() => setAttachments((a) => a.filter((_, j) => j !== i))}>
+                          {"✕"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {(listening || transcribing) && (
                 <div className="chat-listening" aria-live="polite">
                   {transcribing ? (

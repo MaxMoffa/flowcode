@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — allegati dentro il composer, tre varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --chrome: #15110e; --card: #221c17; --card-2: #2b241e;
+      --border: rgba(232,184,128,.12); --border-strong: rgba(231,216,197,.22);
+      --fg: #e7d8c5; --muted: #a08a6f; --accent: #9db984; --accent-bg: rgba(157,185,132,.14);
+      --amber: #d9a24e; --blue: #6f9bcf; --red: #e2645c; --hover: rgba(231,216,197,.06);
+      --composer: #2a241f;
+      --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0f0c09; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+    .page { max-width: 1240px; margin: auto; padding: 28px 24px 60px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 920px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; padding: 10px 14px; margin-bottom: 26px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); position: sticky; top: 10px; z-index: 20; }
+    .seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 8px; background: rgba(0,0,0,.25); }
+    .seg button { padding: 4px 11px; border-radius: 6px; color: var(--muted); font-size: 13px; }
+    .seg button[aria-pressed="true"] { background: var(--card-2); color: var(--fg); font-weight: 600; box-shadow: inset 0 0 0 1px var(--border-strong); }
+    section { margin-bottom: 56px; }
+    section h2 { font-size: 16px; margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; }
+    section h2 .tag { font-size: 11px; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+    section p { margin: 0 0 8px; color: var(--muted); font-size: 13px; max-width: 940px; }
+    section ul { margin: 0 0 14px; padding-left: 18px; color: var(--muted); font-size: 13px; max-width: 940px; }
+    .stage { display: grid; grid-template-columns: 1fr 300px; gap: 22px; align-items: end; }
+    .cap { font-size: 11px; letter-spacing: .1em; color: var(--muted); margin: 0 0 6px; }
+
+    /* ---------- desktop chat ---------- */
+    .win { border-radius: 10px; border: 1px solid rgba(0,0,0,.55); background: var(--chrome); overflow: hidden; }
+    .chat { padding: 18px 28px 16px; display: flex; flex-direction: column; gap: 12px; min-height: 330px; justify-content: flex-end; }
+    .msg-user { align-self: flex-end; max-width: 62%; background: var(--card-2); padding: 8px 13px; border-radius: 14px; font-size: 13px; }
+    .msg-agent { max-width: 80%; font-size: 13px; color: var(--fg); }
+    .msg-agent .line { height: 8px; border-radius: 4px; background: rgba(231,216,197,.08); margin: 6px 0; }
+    .old { display: flex; flex-wrap: wrap; gap: 6px; opacity: .5; }
+    .old-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px 2px 6px; border: 1px solid var(--border); border-radius: 999px; background: #241e19; color: var(--muted); font-size: 12px; }
+    .old-chip i { width: 34px; height: 22px; border-radius: 5px; display: block; }
+
+    .composer { position: relative; background: var(--composer); border-radius: 24px; box-shadow: 0 0 0 1px rgba(231,216,197,.24); padding: 12px 12px 10px 18px; }
+    .composer:focus-within { box-shadow: 0 0 0 1.5px var(--accent); }
+    .input { width: 100%; min-height: 22px; border: 0; outline: 0; background: transparent; color: var(--fg); font: 13.5px/1.5 var(--font); resize: none; padding: 2px 0; }
+    .input::placeholder { color: var(--muted); }
+    .actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+    .pill { font-size: 12px; color: var(--muted); padding: 3px 9px; border-radius: 999px; background: rgba(0,0,0,.2); }
+    .spacer { flex: 1; }
+    .ibtn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); }
+    .ibtn:hover { background: var(--hover); color: var(--fg); }
+    .ibtn.send { background: var(--accent); color: #17200f; }
+    .ibtn svg { display: block; }
+
+    /* thumbnails: fake images as gradients */
+    .img1 { background: linear-gradient(135deg,#5b7fa6,#2f3f5a 60%,#d9a24e); }
+    .img2 { background: linear-gradient(160deg,#9db984,#3d5a3a 70%); }
+    .img3 { background: radial-gradient(circle at 30% 30%,#e7d8c5,#a06a4a 55%,#3a2a20); }
+    .img4 { background: linear-gradient(120deg,#c98fc4,#4a2f50); }
+    .img5 { background: linear-gradient(200deg,#e2645c,#5a2a26); }
+
+    /* ---------- A: striscia di tessere in alto ---------- */
+    .a-strip { display: flex; gap: 8px; padding: 2px 0 10px; margin: 0 0 8px -6px; border-bottom: 1px solid rgba(231,216,197,.08); overflow-x: auto; scrollbar-width: thin; }
+    .a-tile { position: relative; flex: 0 0 auto; width: 56px; height: 56px; border-radius: 12px; border: 1px solid var(--border-strong); overflow: hidden; }
+    .a-tile.file { width: auto; min-width: 150px; max-width: 200px; display: flex; align-items: center; gap: 9px; padding: 0 28px 0 10px; background: rgba(0,0,0,.22); }
+    .a-tile.file .ext { flex: 0 0 auto; width: 32px; height: 36px; border-radius: 6px; display: grid; place-items: center; font: 700 9.5px var(--mono); color: #1a1511; }
+    .a-tile.file .meta { min-width: 0; font-size: 12px; line-height: 1.25; }
+    .a-tile.file .meta b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .a-tile.file .meta small { color: var(--muted); font-size: 11px; }
+    .a-x { position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: rgba(15,12,9,.78); color: var(--fg); font-size: 11px; opacity: 0; transition: opacity .12s; }
+    .a-tile:hover .a-x, .phone .a-x { opacity: 1; }
+    .a-tile.file .a-x { top: 50%; transform: translateY(-50%); background: transparent; color: var(--muted); }
+
+    /* ---------- B: pillole in testa al testo (come il chip del comando) ---------- */
+    .b-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .b-chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 3px 0 3px; border-radius: 8px; background: var(--accent-bg); color: var(--fg); font-size: 12px; max-width: 190px; }
+    .b-chip i { width: 20px; height: 20px; border-radius: 5px; display: block; flex: 0 0 auto; }
+    .b-chip .ico { width: 20px; height: 20px; display: grid; place-items: center; color: var(--accent); flex: 0 0 auto; }
+    .b-chip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .b-chip button { width: 18px; height: 18px; border-radius: 4px; color: var(--muted); display: grid; place-items: center; flex: 0 0 auto; }
+    .b-chip button:hover { background: var(--hover); color: var(--fg); }
+    .b-chip.more { padding: 0 9px; color: var(--accent); font-weight: 600; cursor: pointer; }
+    .b-row .input { flex: 1 1 180px; width: auto; }
+
+    /* ---------- C: vassoio nella barra azioni, anteprima a comparsa ---------- */
+    .c-tray { position: relative; display: inline-flex; align-items: center; gap: 0; height: 30px; padding: 0 10px 0 4px; border-radius: 999px; background: rgba(0,0,0,.24); box-shadow: inset 0 0 0 1px var(--border); cursor: pointer; }
+    .c-tray:hover { box-shadow: inset 0 0 0 1px var(--border-strong); }
+    .c-stack { display: flex; }
+    .c-stack i, .c-stack .f { width: 22px; height: 22px; border-radius: 6px; display: block; border: 2px solid var(--composer); margin-left: -7px; }
+    .c-stack > :first-child { margin-left: 0; }
+    .c-stack .f { display: grid; place-items: center; background: #3a3129; color: var(--muted); }
+    .c-count { margin-left: 7px; font-size: 12px; color: var(--fg); }
+    .c-pop { position: absolute; left: 0; bottom: calc(100% + 10px); width: 330px; padding: 8px; border-radius: 14px; background: #2f2822; box-shadow: 0 10px 30px rgba(0,0,0,.45), 0 0 0 1px var(--border-strong); display: none; z-index: 5; cursor: default; }
+    .c-tray.open .c-pop { display: block; }
+    .c-item { display: flex; align-items: center; gap: 9px; padding: 5px 6px; border-radius: 8px; font-size: 12.5px; }
+    .c-item:hover { background: var(--hover); }
+    .c-item i, .c-item .f { width: 34px; height: 34px; border-radius: 7px; display: block; flex: 0 0 auto; }
+    .c-item .f { display: grid; place-items: center; background: #3a3129; font: 700 9px var(--mono); color: var(--muted); }
+    .c-item .meta { flex: 1; min-width: 0; line-height: 1.25; }
+    .c-item .meta b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .c-item .meta small { color: var(--muted); font-size: 11px; }
+    .c-item button { width: 22px; height: 22px; border-radius: 6px; color: var(--muted); }
+    .c-item button:hover { background: var(--hover); color: var(--red); }
+    .c-pop .c-foot { display: flex; justify-content: space-between; padding: 6px 6px 2px; margin-top: 4px; border-top: 1px solid rgba(231,216,197,.08); font-size: 11.5px; color: var(--muted); }
+    .c-pop .c-foot button { color: var(--accent); }
+
+    /* ---------- telefono ---------- */
+    .phone { width: 300px; height: 560px; border-radius: 38px; padding: 10px; background: #050403; box-shadow: 0 0 0 2px #2b241e, 0 20px 50px rgba(0,0,0,.5); }
+    .screen { height: 100%; border-radius: 30px; background: var(--chrome); overflow: hidden; display: flex; flex-direction: column; }
+    .ph-top { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 12px; color: var(--muted); }
+    .ph-chat { flex: 1; padding: 6px 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 9px; }
+    .ph-chat .msg-user, .ph-chat .msg-agent { font-size: 12px; max-width: 85%; }
+    .ph-comp { margin: 0 8px 14px; padding: 10px 8px 8px 14px; border-radius: 22px; }
+    .ph-comp .input { font-size: 13px; }
+    .phone .a-tile { width: 50px; height: 50px; }
+    .phone .a-tile.file { min-width: 130px; }
+    .phone .c-pop { width: 260px; }
+    .sheet-plus { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,.25); color: var(--fg); }
+
+    .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 26px; margin-top: 14px; font-size: 12.5px; color: var(--muted); max-width: 940px; }
+    .notes b { color: var(--fg); font-weight: 600; }
+    .pro::before { content: "+ "; color: var(--accent); font-weight: 700; }
+    .con::before { content: "– "; color: var(--red); font-weight: 700; }
+
+    .compare { margin: 0 0 40px; }
+    .compare .cap { margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE · CHAT · COMPOSER</div>
+  <h1>Allegati dentro il box di input</h1>
+  <p class="lead">Oggi le immagini e i file allegati compaiono come pillole <i>sopra</i> il composer, staccate dal box. Qui tre modi per tenerli <b>dentro</b> il box. Ogni variante mostra desktop e telefono (il telefono riceverà lo stesso composer con la feature degli allegati da mobile). Passa il mouse su una tessera per vedere la ✕; nella variante C clicca il vassoio.</p>
+
+  <div class="bar">
+    <span>Allegati nel box</span>
+    <div class="seg" id="count">
+      <button data-n="1" aria-pressed="false">1 immagine</button>
+      <button data-n="3" aria-pressed="true">3 misti</button>
+      <button data-n="8" aria-pressed="false">8 (tanti)</button>
+    </div>
+    <span style="margin-left:auto">Esc chiude il popup della C</span>
+  </div>
+
+  <div class="compare">
+    <div class="cap">OGGI — PILLOLE FUORI DAL BOX</div>
+    <div class="win"><div class="chat" style="min-height:0;padding-top:14px">
+      <div class="old" id="oldChips"></div>
+      <div class="composer"><textarea class="input" rows="1" placeholder="Scrivi un messaggio…"></textarea>
+        <div class="actions"><span class="pill">Auto</span><span class="pill">Opus 5.5</span><span class="spacer"></span><span class="ibtn">📎</span><span class="ibtn send">↑</span></div>
+      </div>
+    </div></div>
+  </div>
+
+  <section>
+    <h2><span class="tag">A</span> Striscia di tessere in testa al box</h2>
+    <p>Le immagini diventano miniature quadrate 56 px, i file tessere con badge estensione, nome e peso. Stanno nella parte alta del box, separate dal testo da una riga sottile; se sono tante la striscia scorre in orizzontale. La ✕ appare al passaggio del mouse (sempre visibile su telefono). Click su una miniatura: apre il lightbox già esistente.</p>
+    <div class="stage">
+      <div><div class="cap">DESKTOP</div><div class="win"><div class="chat" data-variant="A" data-target="desk"></div></div></div>
+      <div><div class="cap">TELEFONO</div><div class="phone"><div class="screen"><div class="ph-top"><span>Claude · flowcode</span><span>⋯</span></div><div class="ph-chat" data-variant="A" data-target="phone"></div></div></div></div>
+    </div>
+    <div class="notes">
+      <div class="pro">Le immagini si vedono bene prima di inviare: si capisce subito <i>quale</i> screenshot hai incollato.</div>
+      <div class="con">Il box cresce di ~66 px appena alleghi qualcosa.</div>
+      <div class="pro">È il modello che la gente conosce (Claude.ai, ChatGPT): zero spiegazioni.</div>
+      <div class="con">Con molti file serve lo scroll orizzontale (meno comodo col mouse senza trackpad).</div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="tag">B</span> Pillole in linea, prima del testo</h2>
+    <p>Gli allegati diventano pillole compatte come il chip del comando slash, nella stessa riga del testo: il cursore scorre dopo l'ultima pillola. Backspace a inizio testo seleziona l'ultima pillola, un secondo Backspace la toglie (come già succede col comando). Oltre 4 allegati: le altre si raccolgono in “+N”.</p>
+    <div class="stage">
+      <div><div class="cap">DESKTOP</div><div class="win"><div class="chat" data-variant="B" data-target="desk"></div></div></div>
+      <div><div class="cap">TELEFONO</div><div class="phone"><div class="screen"><div class="ph-top"><span>Claude · flowcode</span><span>⋯</span></div><div class="ph-chat" data-variant="B" data-target="phone"></div></div></div></div>
+    </div>
+    <div class="notes">
+      <div class="pro">Il box quasi non cresce: un solo allegato occupa 26 px nella riga che già c'è.</div>
+      <div class="con">Le miniature 20 px riconoscono poco l'immagine.</div>
+      <div class="pro">Coerente col chip del comando: un'unica grammatica per “cose dentro al messaggio”.</div>
+      <div class="con">Su telefono le pillole si mangiano spazio di scrittura nella prima riga.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="tag">C</span> Vassoio nella barra azioni, lista a comparsa</h2>
+    <p>Il testo resta pulito: gli allegati diventano una pila di miniature + conteggio nella barra in basso, accanto a modalità e modello. Click sul vassoio: popup con la lista (miniatura, nome, peso, ✕) e “Rimuovi tutti”. Pensato per chi allega tanto senza voler vedere il box crescere.</p>
+    <div class="stage">
+      <div><div class="cap">DESKTOP</div><div class="win"><div class="chat" data-variant="C" data-target="desk"></div></div></div>
+      <div><div class="cap">TELEFONO</div><div class="phone"><div class="screen"><div class="ph-top"><span>Claude · flowcode</span><span>⋯</span></div><div class="ph-chat" data-variant="C" data-target="phone"></div></div></div></div>
+    </div>
+    <div class="notes">
+      <div class="pro">Altezza del box identica con 1 o 20 allegati.</div>
+      <div class="con">Un click in più per vedere cosa stai mandando o togliere un file.</div>
+      <div class="pro">Sul telefono la barra in basso è dove sta già il pollice.</div>
+      <div class="con">Meno “visibile”: si rischia di dimenticare un allegato vecchio.</div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const FILES = [
+    { kind: "img", cls: "img1", name: "screenshot-login.png", size: "412 KB" },
+    { kind: "file", ext: "PDF", color: "#e2645c", name: "specifiche-api.pdf", size: "1,2 MB" },
+    { kind: "img", cls: "img2", name: "mockup-home.jpg", size: "880 KB" },
+    { kind: "img", cls: "img3", name: "foto-lavagna.jpg", size: "2,4 MB" },
+    { kind: "file", ext: "LOG", color: "#9fb3c8", name: "crash-2026-11-13.log", size: "64 KB" },
+    { kind: "img", cls: "img4", name: "errore-console.png", size: "198 KB" },
+    { kind: "file", ext: "CSV", color: "#9db984", name: "utenti-export.csv", size: "3,1 MB" },
+    { kind: "img", cls: "img5", name: "grafico.png", size: "301 KB" },
+  ];
+  let n = 3;
+  const clip = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m21 11-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2L9.8 17a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>';
+  const mic = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+  const send = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  const fileIco = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>';
+  const list = () => FILES.slice(0, n);
+
+  const convo = (phone) => `
+    <div class="msg-agent">Ho sistemato il redirect dopo il login. Se vedi ancora l'errore mandami uno screenshot.${phone ? "" : '<div class="line" style="width:70%"></div>'}</div>`;
+
+  const actions = (phone, extraLeft = "") => `
+    <div class="actions">
+      ${phone ? "" : '<span class="pill">Auto</span><span class="pill">Opus 5.5</span>'}
+      ${extraLeft}
+      <span class="spacer"></span>
+      <button class="ibtn" title="Allega">${clip}</button>
+      <button class="ibtn">${mic}</button>
+      <button class="ibtn send">${send}</button>
+    </div>`;
+
+  function A(phone) {
+    const tiles = list().map((f) => f.kind === "img"
+      ? `<div class="a-tile ${f.cls}" title="${f.name}"><button class="a-x">✕</button></div>`
+      : `<div class="a-tile file" title="${f.name}"><span class="ext" style="background:${f.color}">${f.ext}</span><span class="meta"><b>${f.name}</b><small>${f.size}</small></span><button class="a-x">✕</button></div>`).join("");
+    return `${convo(phone)}<div class="composer ${phone ? "ph-comp" : ""}"><div class="a-strip">${tiles}</div><textarea class="input" rows="1" placeholder="Aggiungi un messaggio…">${phone ? "" : "Ecco cosa vedo dopo il login"}</textarea>${actions(phone)}</div>`;
+  }
+
+  function B(phone) {
+    const max = phone ? 2 : 4;
+    const items = list();
+    const shown = items.slice(0, items.length > max ? max : items.length);
+    const chips = shown.map((f) => `<span class="b-chip" title="${f.name}">${f.kind === "img" ? `<i class="${f.cls}"></i>` : `<span class="ico">${fileIco}</span>`}<span>${f.name}</span><button>✕</button></span>`).join("");
+    const more = items.length > shown.length ? `<span class="b-chip more" title="${items.slice(shown.length).map((f) => f.name).join(", ")}">+${items.length - shown.length}</span>` : "";
+    return `${convo(phone)}<div class="composer ${phone ? "ph-comp" : ""}"><div class="b-row">${chips}${more}<textarea class="input" rows="1" placeholder="Aggiungi un messaggio…">${phone ? "" : "Ecco cosa vedo dopo il login"}</textarea></div>${actions(phone)}</div>`;
+  }
+
+  function C(phone) {
+    const items = list();
+    const stack = items.slice(0, 3).map((f) => f.kind === "img" ? `<i class="${f.cls}"></i>` : `<span class="f">${fileIco}</span>`).join("");
+    const rows = items.map((f) => `<div class="c-item">${f.kind === "img" ? `<i class="${f.cls}"></i>` : `<span class="f">${f.ext}</span>`}<span class="meta"><b>${f.name}</b><small>${f.size}</small></span><button title="Rimuovi">✕</button></div>`).join("");
+    const label = items.length === 1 ? "1 allegato" : `${items.length} allegati`;
+    const tray = `<span class="c-tray" tabindex="0"><span class="c-stack">${stack}</span><span class="c-count">${phone ? items.length : label}</span>
+      <div class="c-pop">${rows}<div class="c-foot"><span>${label}</span><button>Rimuovi tutti</button></div></div></span>`;
+    return `${convo(phone)}<div class="composer ${phone ? "ph-comp" : ""}"><textarea class="input" rows="1" placeholder="Aggiungi un messaggio…">${phone ? "" : "Ecco cosa vedo dopo il login"}</textarea>${actions(phone, tray)}</div>`;
+  }
+
+  const render = { A, B, C };
+  function draw() {
+    document.querySelectorAll("[data-variant]").forEach((el) => { el.innerHTML = render[el.dataset.variant](el.dataset.target === "phone"); });
+    document.getElementById("oldChips").innerHTML = list().map((f) => `<span class="old-chip">${f.kind === "img" ? `<i class="${f.cls}"></i>` : fileIco}${f.name} ✕</span>`).join("");
+  }
+  document.getElementById("count").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    n = +b.dataset.n;
+    document.querySelectorAll("#count button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    draw();
+  });
+  document.addEventListener("click", (e) => {
+    const tray = e.target.closest(".c-tray");
+    if (e.target.closest(".c-pop")) return;
+    document.querySelectorAll(".c-tray.open").forEach((t) => t !== tray && t.classList.remove("open"));
+    if (tray) tray.classList.toggle("open");
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.querySelectorAll(".c-tray.open").forEach((t) => t.classList.remove("open")); });
+  draw();
+</script>
+</body>
+</html>

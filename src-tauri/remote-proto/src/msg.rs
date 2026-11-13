@@ -192,6 +192,9 @@ pub enum ClientMsg {
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request_id: Option<String>,
+        /// Files uploaded beforehand on a `chatupload` stream; `text` may be empty.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<ChatAttachmentRef>,
     },
     ChatCancel { chat_id: String },
     /// Answer an agent's permission request; `option_id: None` cancels it.
@@ -674,6 +677,11 @@ mod tests {
         assert!(matches!(modern, super::ClientMsg::ChatPrompt { request_id: Some(id), .. } if id == "123-id"));
         let image: super::ClientMsg = serde_json::from_str(r#"{"t":"chatimage","chatId":"c","path":"a.png","requestId":"image-id"}"#).unwrap();
         assert!(matches!(image, super::ClientMsg::ChatImage { request_id: Some(id), .. } if id == "image-id"));
+        assert!(matches!(legacy, super::ClientMsg::ChatPrompt { ref attachments, .. } if attachments.is_empty()));
+        let json = r#"{"t":"chatprompt","chatId":"c","text":"","attachments":[{"id":"u","name":"a.txt","mime":"text/plain"}]}"#;
+        let with: super::ClientMsg = serde_json::from_str(json).unwrap();
+        assert!(matches!(&with, super::ClientMsg::ChatPrompt { attachments, .. } if attachments.len() == 1 && attachments[0].name == "a.txt"));
+        assert_eq!(serde_json::to_value(&with).unwrap(), serde_json::from_str::<serde_json::Value>(json).unwrap());
         let ack = super::ServerMsg::ChatPromptAck { chat_id: "c".into(), request_id: "123-id".into(), message: None };
         assert_eq!(serde_json::to_value(ack).unwrap(), serde_json::json!({"t":"chatpromptack","chatId":"c","requestId":"123-id"}));
     }
@@ -971,4 +979,13 @@ mod tests {
         let json = serde_json::to_value(ClientMsg::CloseTab { pty_id: "p".into() }).unwrap();
         assert_eq!(json, serde_json::json!({ "t": "closetab", "ptyId": "p" }));
     }
+}
+
+/// A file the phone uploaded (`PreviewTarget::ChatUpload`) and now attaches to a prompt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatAttachmentRef {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
 }

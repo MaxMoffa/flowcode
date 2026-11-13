@@ -88,7 +88,7 @@ function SessionChatPluginView({ pkg, info, session, onSwitchView }: ChatPluginV
 
   const viewStatus = (): ViewStatus => ({
     status: chatStatus(latest.current.info, latest.current.session.model),
-    queued: latest.current.session.queued,
+    queued: latest.current.session.queued.map((q) => q.text),
     currentModeId: latest.current.session.model.currentModeId ?? chatModes(latest.current.info, latest.current.session.model)?.currentModeId ?? null,
     currentModelId: latest.current.canSetModel ? (chatModels(latest.current.info, latest.current.session.model)?.currentModelId ?? null) : null,
   });

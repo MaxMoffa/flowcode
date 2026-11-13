@@ -45,7 +45,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     const sentAt = taken.session.sentAtSeq ?? -1;
     update(() => taken.session);
     void sendToHost(hostId, { t: "chatprompt", chatId, text: taken.text, ...(taken.session.sentRequestId ? { requestId: taken.session.sentRequestId } : {}) }).then((ok) => {
-      if (!ok) update((cur) => putBack(cur, taken.text, sentAt, taken.session.deliveryVersion));
+      if (!ok) update((cur) => putBack(cur, taken.text, taken.files, sentAt, taken.session.deliveryVersion));
     });
   }, [hostId, chatId, update, promptReceipts]);
 
@@ -79,7 +79,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
             return m.replay && !promptReceipts && next.sentRequestId ? pauseUnconfirmedPrompt(next) : next;
           });
           const pending = sessionRef.current;
-          if (m.replay && promptReceipts && pending.sentText && pending.sentRequestId) {
+          if (m.replay && promptReceipts && pending.sentText !== null && pending.sentRequestId) {
             void sendToHost(hostId, { t: "chatprompt", chatId, text: pending.sentText, requestId: pending.sentRequestId });
           }
           if (pending.deliveryUncertain && !wasUncertain) update((s) => ({ ...s, model: applyLocalError(s.model, t("chat.deliveryUncertain")) }));
@@ -102,7 +102,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
-      update((s) => ({ ...s, queued: [...s.queued, trimmed] }));
+      update((s) => ({ ...s, queued: [...s.queued, { text: trimmed, files: [] }] }));
       pump();
     },
     [update, pump],
@@ -158,7 +158,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     // A remote PC's agent runs on that PC, never in a WSL distro of this one.
     wslDistro: null,
     profileId: null,
-    queued: useMemo(() => session.queued.map((text) => ({ text, attachments: [] })), [session.queued]),
+    queued: useMemo(() => session.queued.map((q) => ({ text: q.text, attachments: [] })), [session.queued]),
     // The remote protocol carries text only.
     canAttach: false,
     resumed: true,

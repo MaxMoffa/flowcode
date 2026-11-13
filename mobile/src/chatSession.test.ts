@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { ChatInfo } from "../../shared/remote-types";
-import { MAX_ITEMS, MAX_RAW_EVENTS, applyEvents, canDispatch, chatModels, chatModes, chatStatus, chatThought, emptySession, forceNeedsCancel, forceQueued, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued } from "./chatSession";
+import { MAX_ITEMS, MAX_RAW_EVENTS, applyEvents, canDispatch, chatModels, chatModes, chatStatus, chatThought, emptySession, forceNeedsCancel, forceQueued, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
 
 const user = (seq: number, text = `m${seq}`): ChatEvent => ({ seq, at: 0, kind: "user", text });
 const chunk = (seq: number, text: string): ChatEvent => ({ seq, at: 0, kind: "update", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
@@ -69,20 +69,20 @@ describe("applyEvents", () => {
 
 describe("the send queue", () => {
   it("holds a message while the agent is busy and sends it once it is idle", () => {
-    let s = { ...applyEvents(emptySession(), [user(1), chunk(2, "...")], live), queued: ["dopo"] };
+    let s: ChatSession = { ...applyEvents(emptySession(), [user(1), chunk(2, "...")], live), queued: [{ text: "dopo", files: [] }] };
     expect(canDispatch(s, chatStatus(info("busy"), s.model))).toBe(false);
     s = applyEvents(s, [turnEnd(3)], live);
     expect(canDispatch(s, chatStatus(info("idle"), s.model))).toBe(true);
     const taken = takeQueued(s)!;
     expect(taken.text).toBe("dopo");
-    expect(taken.session.queued).toEqual([]);
+    expect(taken.session.queued.map((q) => q.text)).toEqual([]);
     expect(taken.session.sentAtSeq).toBe(3);
   });
 
   it("sends one message per turn: the next waits until the sent one has produced an event", () => {
-    const base = { ...applyEvents(emptySession(), [turnEnd(1)], live), queued: ["a", "b"] };
+    const base = { ...applyEvents(emptySession(), [turnEnd(1)], live), queued: [{ text: "a", files: [] }, { text: "b", files: [] }] };
     const { session } = takeQueued(base)!;
-    expect(session.queued).toEqual(["b"]);
+    expect(session.queued.map((q) => q.text)).toEqual(["b"]);
     // Idle again, but nothing newer than the sent one: the agent has not started its turn.
     expect(canDispatch(session, "idle")).toBe(false);
     const started = applyEvents(session, [user(2, "a"), chunk(3, "x"), turnEnd(4)], live);
@@ -90,17 +90,17 @@ describe("the send queue", () => {
   });
 
   it("puts a message that never left the phone back at the front", () => {
-    const base = { ...emptySession(), queued: ["a", "b"] };
+    const base = { ...emptySession(), queued: [{ text: "a", files: [] }, { text: "b", files: [] }] };
     const { session, text } = takeQueued(base)!;
-    const back = putBack(session, text, session.sentAtSeq!);
-    expect(back.queued).toEqual(["a", "b"]);
+    const back = putBack(session, text, [], session.sentAtSeq!);
+    expect(back.queued.map((q) => q.text)).toEqual(["a", "b"]);
     expect(back.sentAtSeq).toBeNull();
   });
 
   it("forces a queued message to the front and drops the sent-at guard", () => {
-    const base = { ...emptySession(), queued: ["a", "b", "c"], sentAtSeq: 5 };
+    const base = { ...emptySession(), queued: [{ text: "a", files: [] }, { text: "b", files: [] }, { text: "c", files: [] }], sentAtSeq: 5 };
     const forced = forceQueued(base, 2);
-    expect(forced.queued).toEqual(["c", "a", "b"]);
+    expect(forced.queued.map((q) => q.text)).toEqual(["c", "a", "b"]);
     expect(forced.sentAtSeq).toBeNull();
     expect(canDispatch(forced, "idle")).toBe(true);
     expect(forceQueued(base, 9)).toBe(base);
@@ -108,7 +108,7 @@ describe("the send queue", () => {
 
   it("trusts its own events over a stale 'idle' from the desktop", () => {
     // The pushed chat list still says idle, but the phone has seen the turn start.
-    let s = { ...applyEvents(applyEvents(emptySession(), [turnEnd(1)], replay), [user(2), chunk(3, "...")], live), queued: ["dopo"] };
+    let s: ChatSession = { ...applyEvents(applyEvents(emptySession(), [turnEnd(1)], replay), [user(2), chunk(3, "...")], live), queued: [{ text: "dopo", files: [] }] };
     expect(chatStatus(info("idle"), s.model)).toBe("busy");
     expect(canDispatch(s, chatStatus(info("idle"), s.model))).toBe(false);
     // A permission the desktop already reports, the events not yet: waiting.
@@ -118,7 +118,7 @@ describe("the send queue", () => {
   });
 
   it("remembers the sent message until its user event arrives", () => {
-    const base = { ...applyEvents(emptySession(), [turnEnd(1)], live), queued: ["a"] };
+    const base = { ...applyEvents(emptySession(), [turnEnd(1)], live), queued: [{ text: "a", files: [] }] };
     const { session } = takeQueued(base)!;
     expect(session.sentText).toBe("a");
     // Unrelated events (the turn that made the agent busy) don't settle it.
@@ -132,10 +132,10 @@ describe("the send queue", () => {
   });
 
   it("puts a refused message back first, and holds it until the agent has moved on", () => {
-    const base = { ...applyEvents(emptySession(), [turnEnd(1)], live), queued: ["a", "b"] };
+    const base = { ...applyEvents(emptySession(), [turnEnd(1)], live), queued: [{ text: "a", files: [] }, { text: "b", files: [] }] };
     const { session } = takeQueued(base)!;
     const back = requeueRefused(session)!;
-    expect(back.queued).toEqual(["a", "b"]);
+    expect(back.queued.map((q) => q.text)).toEqual(["a", "b"]);
     expect(back.sentText).toBeNull();
     // Still "idle" as far as anyone knows, but nothing new happened: not again straight away.
     expect(canDispatch(back, "idle")).toBe(false);
@@ -146,19 +146,19 @@ describe("the send queue", () => {
 
   it("ties a refusal to the one chat with a message in flight, or to none", () => {
     const idle = applyEvents(emptySession(), [turnEnd(1)], live);
-    const flying = takeQueued({ ...idle, queued: ["x"] })!.session;
+    const flying = takeQueued({ ...idle, queued: [{ text: "x", files: [] }] })!.session;
     expect(refusedChat({ a: idle, b: flying })).toBe("b");
     expect(refusedChat({ a: idle })).toBeNull();
     expect(refusedChat({ a: flying, b: flying })).toBeNull();
   });
 
   it("forgets the sent message when it is put back", () => {
-    const { session, text } = takeQueued({ ...emptySession(), queued: ["a"] })!;
-    expect(putBack(session, text, session.sentAtSeq!).sentText).toBeNull();
+    const { session, text } = takeQueued({ ...emptySession(), queued: [{ text: "a", files: [] }] })!;
+    expect(putBack(session, text, [], session.sentAtSeq!).sentText).toBeNull();
   });
 
   it("does not dispatch an empty queue or to an agent that is waiting, starting or gone", () => {
-    const s = { ...emptySession(), queued: ["x"] };
+    const s = { ...emptySession(), queued: [{ text: "x", files: [] }] };
     for (const st of ["busy", "waiting", "starting", "exited"] as const) expect(canDispatch(s, st)).toBe(false);
     expect(canDispatch(emptySession(), "idle")).toBe(false);
   });
@@ -275,9 +275,26 @@ describe("forceNeedsCancel", () => {
     expect(forceNeedsCancel(idle, "idle")).toBe(false);
     expect(forceNeedsCancel(idle, "busy")).toBe(true);
     expect(forceNeedsCancel(idle, "waiting")).toBe(true);
-    const sent = takeQueued({ ...idle, queued: ["a", "b"] })!.session;
+    const sent = takeQueued({ ...idle, queued: [{ text: "a", files: [] }, { text: "b", files: [] }] })!.session;
     expect(forceNeedsCancel(sent, "idle")).toBe(true);
     // Its `user` event arrived: no longer in flight.
     expect(forceNeedsCancel(applyEvents(sent, [user(3, "a"), turnEnd(4)], live), "idle")).toBe(false);
+  });
+  it("keeps the files with their text through send, putBack, refusal and landing", () => {
+    const files = [{ id: "u1", name: "a.png", mime: "image/png" }];
+    const base = { ...emptySession(), queued: [{ text: "", files }, { text: "b", files: [] }] };
+    const taken = takeQueued(base)!;
+    expect(taken.files).toEqual(files);
+    expect(taken.session.sentFiles).toEqual(files);
+    const back = putBack(taken.session, taken.text, taken.files, taken.session.sentAtSeq!);
+    expect(back.queued[0]).toEqual({ text: "", files });
+    expect(back.sentFiles).toEqual([]);
+    const refused = requeueRefused(taken.session)!;
+    expect(refused.queued[0]).toEqual({ text: "", files });
+    expect(refused.sentFiles).toEqual([]);
+    // An attachment-only message lands as a user event with empty text.
+    const landed = applyEvents({ ...taken.session, sentRequestId: null }, [user(1, "")], live);
+    expect(landed.sentText).toBeNull();
+    expect(landed.sentFiles).toEqual([]);
   });
 });

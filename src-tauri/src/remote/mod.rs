@@ -2296,15 +2296,19 @@ impl Conn {
     }
 
     /// A receipt survives the connection, so a retry cannot start a second turn.
-    fn prompt(&self, chat_id: String, text: String, request_id: Option<String>) {
+    fn prompt(&self, chat_id: String, text: String, request_id: Option<String>, attachments: Vec<proto::ChatAttachmentRef>) {
         let Some(device) = lock(&self.shared.conns).get(&self.id).map(|c| c.device_id.clone()) else { return };
         let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
         tauri::async_runtime::spawn(async move {
-            let result = if text.len() > proto::MAX_INPUT_BYTES || text.trim().is_empty() || chat_id.len() > MAX_ID_BYTES {
+            let result = if text.len() > proto::MAX_INPUT_BYTES || (text.trim().is_empty() && attachments.is_empty()) || attachments.len() > 16 || chat_id.len() > MAX_ID_BYTES {
                 Err(tr("Messaggio non valido", "Invalid message").to_string())
             } else {
                 let (app, id, message) = (shared.app.clone(), chat_id.clone(), text.clone());
-                let work = || crate::blocking(move || app.state::<ChatState>().prompt(&id, message, Vec::new()));
+                let refs = attachments;
+                let work = || crate::blocking(move || {
+                    let resolved = refs.iter().map(|r| crate::chat::uploaded_attachment(&r.id, &r.name, &r.mime)).collect::<Result<Vec<_>, _>>()?;
+                    app.state::<ChatState>().prompt(&id, message, resolved)
+                });
                 match request_id.as_deref() {
                     Some(id) => shared.prompt_receipts.run(&device, &chat_id, id, &text, work).await,
                     None => work().await,
@@ -2503,7 +2507,7 @@ impl Conn {
                     task.abort();
                 }
             }
-            ClientMsg::ChatPrompt { chat_id, text, request_id } => self.prompt(chat_id, text, request_id),
+            ClientMsg::ChatPrompt { chat_id, text, request_id, attachments } => self.prompt(chat_id, text, request_id, attachments),
             ClientMsg::ChatCancel { chat_id } => {
                 if chat_id.len() > MAX_ID_BYTES {
                     self.error(tr("Chat non trovata", "Chat not found"), None);

@@ -5,7 +5,7 @@ use crate::connlog;
 use crate::link;
 use crate::state::{PairGuard, PairingState, Phase, Remote, Status, TicketInfo, PENDING_LINK_TTL};
 use crate::store::{self, Pairing};
-use flowcode_remote_proto::{ClientMsg, PairingTicket};
+use flowcode_remote_proto::{preview_header, ClientMsg, PairingTicket, PreviewTarget, UploadMeta, UploadReply, UPLOAD_MAX_BYTES};
 use link::LinkError;
 use serde::Serialize;
 use std::sync::atomic::Ordering;
@@ -203,6 +203,68 @@ pub fn send(remote: State<'_, Arc<Remote>>, msg: serde_json::Value) -> Result<()
         mpsc::error::TrySendError::Full(_) => "busy".to_string(),
         mpsc::error::TrySendError::Closed(_) => "not connected".to_string(),
     })
+}
+
+/// Uploads one chat attachment on a new stream of the live connection. The
+/// body is the raw file; `x-chat-id`, `x-name` (percent-encoded) and `x-mime`
+/// travel as headers. Returns the id the desktop stored it under.
+#[tauri::command]
+pub async fn upload_chat_file(request: tauri::ipc::Request<'_>, remote: State<'_, Arc<Remote>>) -> Result<String, String> {
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let chat_id = header("x-chat-id").filter(|v| !v.is_empty()).ok_or("missing chat id")?;
+    let name = percent_decode(&header("x-name").unwrap_or_default());
+    let mime = header("x-mime").unwrap_or_default();
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("expected raw bytes".into()) };
+    let bytes = bytes.clone();
+    if bytes.len() as u64 > UPLOAD_MAX_BYTES {
+        return Err("File exceeds 32 MiB".into());
+    }
+    let conn = remote.lock().conn.clone().ok_or_else(|| "not connected".to_string())?;
+    let meta = serde_json::to_string(&UploadMeta { name, mime, size: bytes.len() as u64 }).map_err(|e| e.to_string())?;
+    let exchange = async move {
+        let (mut send, mut recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
+        send.write_all(preview_header(&PreviewTarget::ChatUpload(chat_id)).as_bytes()).await.map_err(|e| e.to_string())?;
+        send.write_all(meta.as_bytes()).await.map_err(|e| e.to_string())?;
+        send.write_all(b"\n").await.map_err(|e| e.to_string())?;
+        send.write_all(&bytes).await.map_err(|e| e.to_string())?;
+        send.finish().map_err(|e| e.to_string())?;
+        let mut line = Vec::with_capacity(128);
+        loop {
+            let mut byte = [0u8; 1];
+            match tokio::io::AsyncReadExt::read(&mut recv, &mut byte).await {
+                Ok(1) if byte[0] != b'\n' => line.push(byte[0]),
+                _ => break,
+            }
+            if line.len() >= 4096 {
+                break;
+            }
+        }
+        let reply: UploadReply = serde_json::from_slice(&line).map_err(|_| "no answer from the desktop".to_string())?;
+        match (reply.id, reply.error) {
+            (Some(id), _) => Ok(id),
+            (None, error) => Err(error.unwrap_or_else(|| "upload failed".into())),
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(150), exchange).await.map_err(|_| "upload timed out".to_string())?
+}
+
+/// Decodes `%XX` escapes as UTF-8; anything malformed stays as it is.
+fn percent_decode(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        let pair = if bytes[i] == b'%' && i + 2 < bytes.len() { hex(bytes[i + 1]).zip(hex(bytes[i + 2])) } else { None };
+        if let Some((h, l)) = pair {
+            out.push((h * 16 + l) as u8);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// "Retry now": ends the backoff sleep. Ignored unless the loop is waiting.

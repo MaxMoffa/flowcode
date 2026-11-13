@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import "./terminal.css";
 import "./chat.css";
-import type { ChatInfo } from "../../shared/remote-types";
+import type { ChatAttachmentRef, ChatInfo } from "../../shared/remote-types";
 import { ChatBody, SubagentBody } from "./ChatBody";
 import { ChatImagesProvider } from "./ChatImage";
 import { useBackHandler, useEscape } from "./back";
@@ -343,9 +343,9 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   }
 
   /** "/clear" is the desktop's own command, never text for the agent: a desktop that can't do it gets the text as before. */
-  const sendPrompt = (text: string) => {
-    if (canClear && text.trim() === "/clear") clearChat(chatId);
-    else sendChatPrompt(chatId, text);
+  const sendPrompt = (text: string, files: ChatAttachmentRef[] = []) => {
+    if (canClear && text.trim() === "/clear" && files.length === 0) clearChat(chatId);
+    else sendChatPrompt(chatId, text, files);
     setComposerOpen(false);
   };
 
@@ -523,9 +523,9 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                 {!sub && session.queued.length > 0 && (
                   <>
                     <div className="chat-pending-sep">{t("chatQueueWaiting")}</div>
-                    {session.queued.map((text, i) => (
+                    {session.queued.map(({ text, files }, i) => (
                       <div key={i} className="chat-pending">
-                        <div className="chat-user is-pending">{text}</div>
+                        <div className="chat-user is-pending">{text}{files.length > 0 && <span className="chat-pending-files">{text ? " " : ""}📎 {files.length}</span>}</div>
                         <div className="chat-pending-meta">
                           <span className="chat-pending-pos">
                             <Svg size={13} strokeWidth={2}>
@@ -544,7 +544,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                               // No composer (session ended): leave it queued rather than lose the text.
                               if (!composerRef.current) return;
                               unqueueChatPrompt(chatId, i);
-                              composerRef.current.insertDraft(text);
+                              composerRef.current.insertDraft(text, files);
                             }}
                           >
                             <PencilIcon />

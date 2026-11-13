@@ -41,7 +41,7 @@ impl Route {
     fn host(&self) -> String {
         match &self.target {
             PreviewTarget::Port(port) => format!("localhost:{port}"),
-            PreviewTarget::Files(_) | PreviewTarget::ChatFiles(_) => "localhost".into(),
+            PreviewTarget::Files(_) | PreviewTarget::ChatFiles(_) | PreviewTarget::ChatUpload(_) => "localhost".into(),
         }
     }
 }
@@ -104,6 +104,8 @@ fn prefix_of(target: &PreviewTarget) -> String {
         PreviewTarget::Port(port) => format!("/p/{port}"),
         PreviewTarget::Files(pty_id) => format!("/f/{pty_id}"),
         PreviewTarget::ChatFiles(chat_id) => format!("/c/{chat_id}"),
+        // The browser never routes here.
+        PreviewTarget::ChatUpload(_) => String::new(),
     }
 }
 

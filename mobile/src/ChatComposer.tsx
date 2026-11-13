@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ChatAttachmentRef } from "../../shared/remote-types";
 import type { ChatCommand, ChatModels, ChatModes, ChatThought } from "../../src/chat/chatTypes";
 import { buildMenu, commandText, displayName, type MenuEntry } from "../../src/chat/commandMenu";
 import { goalEnded, type ChatGoal as Goal, type ChatItem, type GoalAction } from "../../src/chat/chatModel";
@@ -13,6 +14,8 @@ import { ModeIcon, StarIcon } from "./ChatModeIcons";
 import { ChatModelPicker } from "./ChatModelPicker";
 import { getDefaultMode, isRiskyKind, modeKind, setDefaultMode } from "./chatModeDefaults";
 import { BackIcon, CloseIcon, SendIcon, StopIcon, Svg } from "./icons";
+import { AttachStrip, useAttachments } from "./useAttachments";
+import { useRemoteSelector } from "./remote";
 import { appendDictation, useDictation } from "./useDictation";
 
 /** Tallest the box grows before it scrolls. */
@@ -32,6 +35,12 @@ const keepFocus = {
 
 /** A hardware keyboard sends on Enter (Shift+Enter breaks the line); a touch keyboard's Enter always breaks it. */
 const hasKeyboard = () => typeof matchMedia === "function" && matchMedia("(hover: hover) and (pointer: fine)").matches;
+
+const ClipIcon = () => (
+  <Svg size={24}>
+    <path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7L10.2 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7.6" />
+  </Svg>
+);
 
 const MicIcon = () => (
   <Svg size={24}>
@@ -57,7 +66,7 @@ const WAVE = [7, 14, 20, 11, 18, 8];
 
 /** What the thread can ask of the composer: take a message back into the draft. */
 export interface ChatComposerHandle {
-  insertDraft: (text: string) => void;
+  insertDraft: (text: string, files?: ChatAttachmentRef[]) => void;
 }
 
 interface ChatComposerProps {
@@ -78,7 +87,7 @@ interface ChatComposerProps {
   /** The thinking levels the agent offers (more than one), shown in the model drawer. */
   thought?: ChatThought | null;
   onThought?: (value: string) => void;
-  onSend: (text: string) => void;
+  onSend: (text: string, files: ChatAttachmentRef[]) => void;
   onStop: () => void;
   subagentTray?: ReactNode;
   /** What the agent offers on "/". */
@@ -139,6 +148,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   useBackHandler(fullscreen, () => closeComposer());
   const box = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(() => drafts.get(chatId) ?? "");
+  const attachSupported = useRemoteSelector((s) => !!s.host?.caps.includes("chatAttach"));
+  const attach = useAttachments(chatId);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [modeOpen, setModeOpen] = useState(false);
   const [defaultMode, setDefault] = useState(() => getDefaultMode(agent));
   const [picked, setPicked] = useState<MenuEntry | null>(() => pickedDrafts.get(chatId) ?? null);
@@ -187,8 +199,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   }, [text, fullscreen]);
 
   useEffect(() => {
-    onDraftChange?.(!!text.trim() || !!picked);
-  }, [text, picked, onDraftChange]);
+    onDraftChange?.(!!text.trim() || !!picked || attach.items.length > 0);
+  }, [text, picked, attach.items.length, onDraftChange]);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -214,8 +226,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const latest = useRef(text);
   latest.current = text;
   useImperativeHandle(ref, () => ({
-    insertDraft: (added) => {
-      change(latest.current.trim() ? `${added}
+    insertDraft: (added, files) => {
+      if (files && files.length > 0) attach.restore(files);
+      if (added) change(latest.current.trim() ? `${added}
 ${latest.current}` : added);
       if (compact) onOpen?.();
       else box.current?.focus();
@@ -254,11 +267,12 @@ ${latest.current}` : added);
     box.current?.focus();
   };
   const send = () => {
-    if (!text.trim() && !picked) return;
+    if ((!text.trim() && !picked && !attach.ready) || attach.blocked) return;
     tapFeedback();
     dictation.cancel();
     // Flowcode's own commands take no instructions.
-    onSend(picked ? commandText(picked) + (text.trim() && picked.kind !== "flowcode" ? ` ${text}` : "") : text);
+    onSend(picked ? commandText(picked) + (text.trim() && picked.kind !== "flowcode" ? ` ${text}` : "") : text, attach.items.flatMap((i) => (i.ref ? [i.ref] : [])));
+    attach.clear();
     change("");
     pick(null);
     setForced(false);
@@ -292,7 +306,7 @@ ${latest.current}` : added);
         <header className="chat-compose-head">
           <button type="button" className="tm-btn" aria-label={t("chatComposeBack")} onClick={closeComposer}><BackIcon /></button>
           <h2>{t("chatComposeTitle")}</h2>
-          {(text.trim() || picked) && <small>{t("chatDraftKept")}</small>}
+          {(text.trim() || picked || attach.items.length > 0) && <small>{t("chatDraftKept")}</small>}
         </header>
       )}
       {menu && query !== null && <ChatCommands {...keepFocus} menu={menu} query={query} loading={commandsLoading} onPick={pickCommand} />}
@@ -307,6 +321,7 @@ ${latest.current}` : added);
       {subagentTray}
       <div className={"chat-card" + (listening ? " is-listening" : "") + goalTone + (goalChip && !fullscreen ? " has-goal-chip" : "")}>
         {goal && !fullscreen && <ChatGoal chatId={chatId} goal={goal} actions={goalActions} items={goalItems} onAction={onGoal} onChipChange={setGoalChip} />}
+        <AttachStrip items={attach.items} onRemove={attach.remove} onRetry={attach.retry} />
         <div className="chat-editor-field">
         {fullscreen && <label className="chat-compose-label" htmlFor={inputId}>{t("chatPlaceholder")}</label>}
         {listening && (
@@ -416,17 +431,35 @@ ${latest.current}` : added);
           <button type="button" {...keepFocus} tabIndex={-1} className={"chat-slash" + (menu ? " on" : "")} aria-label={t("chatCmdTitle")} aria-expanded={menu !== null} onClick={toggleMenu}>/</button>
           </div>
           <div className="chat-actions-end">
+            {attachSupported && (
+              <>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    const picked = Array.from(e.target.files ?? []);
+                    e.target.value = "";
+                    if (picked.length > 0) attach.add(picked);
+                  }}
+                />
+                <button type="button" {...keepFocus} className="chat-round chat-mic chat-attach" aria-label={t("attachFile")} onClick={() => fileInput.current?.click()}>
+                  <ClipIcon />
+                </button>
+              </>
+            )}
             {dictation.supported && (
               <button type="button" {...keepFocus} className={"chat-round chat-mic" + (listening ? " is-listening" : "")} aria-label={t("dictate")} aria-pressed={listening} onClick={dictate}>
                 <MicIcon />
               </button>
             )}
-            {busy && !text.trim() && !picked ? (
+            {busy && !text.trim() && !picked && attach.items.length === 0 ? (
               <button type="button" {...keepFocus} className="chat-round is-stop" aria-label={t("chatStopTurn")} onClick={onStop}>
                 <StopIcon />
               </button>
             ) : (
-              <button type="button" {...keepFocus} className="chat-round is-send" aria-label={t("chatSend")} disabled={!text.trim() && !picked} onClick={send}>
+              <button type="button" {...keepFocus} className="chat-round is-send" aria-label={t("chatSend")} disabled={attach.blocked || (!text.trim() && !picked && !attach.ready)} onClick={send}>
                 <SendIcon />
               </button>
             )}
