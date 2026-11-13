@@ -1,5 +1,7 @@
 import { memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { askSummary } from "../../src/chat/askQuestions";
+import { toolTitleText } from "../../src/chat/mcpToolLabel";
+import { ToolTitle } from "../../shared/ToolTitle";
 import { lineDiff, stopKind, toolImages, type ChatItem, type DelegateInfo, type StopKind } from "../../src/chat/chatModel";
 import { hiddenDelegateTool, hiddenGuardian, nestSubagents, subagentInfo, subagentItems, subagentPrompt, subagentReport, subagentState, type SubagentItem } from "../../src/chat/chatTimeline";
 import type { ChatImageRef, ChatPlanEntry, ChatToolCall, ChatToolContent } from "../../src/chat/chatTypes";
@@ -114,7 +116,7 @@ function ToolStep({ call, index }: { call: ChatToolCall; index: number }) {
     <>
       <span className="chat-step-num">{index}</span>
       <i className={"chat-dot " + state} aria-hidden="true" />
-      <span className="chat-step-title">{call.title ?? call.kind ?? call.toolCallId}</span>
+      <ToolTitle call={call} fallback={call.toolCallId} />
       {state === "is-live" && <span className="chat-spinner" aria-hidden="true" />}
       {state === "is-failed" && <b className="chat-step-failed">{t("chatToolFailed")}</b>}
     </>
@@ -168,7 +170,7 @@ const ToolRun = memo(function ToolRun({ calls }: { calls: ChatToolCall[] }) {
           <i className={"chat-tools-status" + (failed ? " is-failed" : "")} aria-hidden="true" />
         )}
         <span key={live ? last.toolCallId : "summary"} className={"chat-sum-text" + (live ? " is-live" : "")}>
-          {live ? (last.title ?? last.kind ?? last.toolCallId) : summaryOf(calls)}
+          {live ? toolTitleText(last, last.toolCallId) : summaryOf(calls)}
         </span>
       </button>
       {!open && <ToolRunImages calls={calls} />}
@@ -208,7 +210,7 @@ function SubagentCard({ item, selected, onToggle, onOpen }: { item: SubagentItem
   const bad = state.failed || (state.running && last?.status === "failed");
   const percent = state.running ? Math.min(92, 12 + calls.length * 17) : 100;
   const recovered = !state.failed && state.failedSteps > 0 ? t(state.failedSteps === 1 ? "chatSubRecovered1" : "chatSubRecoveredN", { n: state.failedSteps }) : "";
-  const liveTitle = state.current ? (state.current.title ?? state.current.kind ?? state.current.toolCallId) : t("chatSubStarting");
+  const liveTitle = state.current ? toolTitleText(state.current, state.current.toolCallId) : t("chatSubStarting");
   return (
     <div className="chat-subcard-wrap">
       <button type="button" className={"chat-subcard" + (selected ? " is-selected" : "")} aria-expanded={selected} onClick={onToggle}>
@@ -360,7 +362,7 @@ const Item = memo(function Item({ item, onLink }: { item: ChatItem; onLink: (url
       );
     case "permission": {
       // The open request is answered from the card above the composer; here it only leaves a trace on the rail.
-      const title = item.toolCall.title ?? item.toolCall.kind ?? t("chatPermTitle");
+      const title = toolTitleText(item.toolCall, t("chatPermTitle"));
       const option = item.options.find((o) => o.optionId === item.resolved);
       const open = item.resolved === undefined;
       return (

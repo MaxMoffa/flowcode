@@ -7,6 +7,7 @@ import { AskComposer } from "./AskComposer";
 import { GoalChip } from "./GoalChip";
 import { useCacheWarning } from "./useCacheWarning";
 import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMarker, SubagentTray, ToolGroup } from "./ChatItems";
+import { toolTitleText } from "./mcpToolLabel";
 import { BackgroundTerminalsCard } from "../../shared/BackgroundTerminalsCard";
 import { backgroundTerminals } from "./backgroundTerminals";
 import { buildTimeline, isGuardianReview, liveTool, subagentPrompt, subagentState, subagentTimeline, type TimelineSegment } from "./chatTimeline";
@@ -327,7 +328,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   const liveGroup = (sub ? !!subState?.running : model.turnActive) && lastSegment?.type === "group" ? lastSegment : null;
   const running = liveTool(sub ? sub.children : model.items);
   const showLive = (sub ? !!subState?.running : working) && !notice && pending.length === 0 && !openAsk;
-  const liveText = running && isGuardianReview(running) ? t("chat.guardian.checking") : (running?.title ?? running?.kind ?? null);
+  const liveText = running && isGuardianReview(running) ? t("chat.guardian.checking") : (running ? toolTitleText(running, running.toolCallId) : null);
 
   // A Claude chat idle past the prompt cache's lifetime: the next message re-reads everything uncached.
   const cacheWarning = useCacheWarning({

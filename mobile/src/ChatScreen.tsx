@@ -7,6 +7,7 @@ import { ChatImagesProvider } from "./ChatImage";
 import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
 import { SubagentTray } from "../../shared/SubagentTray";
+import { toolTitleText } from "../../src/chat/mcpToolLabel";
 import { TerminalJump, TerminalsContext } from "./ChatTerminals";
 import { backgroundTerminals } from "../../src/chat/backgroundTerminals";
 import { ChatEmptyFrog } from "../../src/chat/ChatEmptyFrog";
@@ -359,7 +360,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
     const list = sub ? sub.children : model.items;
     for (let i = list.length - 1; i >= 0; i--) {
       const item = list[i];
-      if (item.type === "tool" && item.call.status !== "completed" && item.call.status !== "failed") return isGuardianReview(item.call) ? t("chatGuardianChecking") : (item.call.title ?? item.call.kind ?? null);
+      if (item.type === "tool" && item.call.status !== "completed" && item.call.status !== "failed") return isGuardianReview(item.call) ? t("chatGuardianChecking") : toolTitleText(item.call, item.call.toolCallId);
     }
     return null;
   }, [model.items, sub]);

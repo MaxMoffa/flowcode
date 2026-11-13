@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Flowcode · nomi tool MCP · 3 varianti</title>
+<style>
+  :root[data-theme="light"] {
+    --page: #efe6d4; --bg: rgb(255 250 241); --surface: rgb(255 250 241); --fg: #3a2b17; --fg-muted: #8b7457;
+    --border: rgba(120,80,36,.16); --accent: #4f6e3a; --danger: #b4452f; --chip: rgba(120,80,36,.08);
+  }
+  :root[data-theme="dark"] {
+    --page: #060403; --bg: rgb(14 10 7); --surface: rgb(14 10 7); --fg: #e7d8c5; --fg-muted: #a08a6f;
+    --border: rgba(232,184,128,.12); --accent: #9db984; --danger: #e0806a; --chip: rgba(232,184,128,.08);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--page); color: var(--fg); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 24px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 18px; font-weight: 600; margin-right: 12px; }
+  button { background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; font: inherit; }
+  button:hover, button.on { border-color: var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(420px, 1fr)); gap: 20px; }
+  body.phone .grid { grid-template-columns: repeat(4, 360px); }
+  @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+  .col h2 { font-size: 13px; margin-bottom: 2px; }
+  .col p.d { color: var(--fg-muted); font-size: 12px; margin-bottom: 10px; min-height: 36px; }
+  .chat { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 14px 16px 14px 40px; }
+  .msg { color: var(--fg); margin: 2px 0 10px -24px; font-size: 13.5px; }
+
+  /* timeline come in chat.css */
+  .step { position: relative; }
+  .row { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; color: var(--fg-muted); }
+  .num { flex: 0 0 auto; min-width: 16px; text-align: right; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .dot { position: absolute; left: -24px; top: 50%; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; border: 1.5px solid var(--fg-muted); background: var(--surface); }
+  .dot.done { border-color: var(--accent); background: var(--accent); }
+  .dot.live { border-color: var(--accent); animation: p 1.2s infinite; }
+  .dot.fail { border-color: var(--danger); background: var(--danger); }
+  @keyframes p { 50% { opacity: .35; } }
+  .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .file { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--fg-muted); }
+  .failed { color: var(--danger); font-size: 12px; flex: 0 0 auto; }
+  .step.is-failed .title { color: var(--danger); }
+  .spin { width: 10px; height: 10px; border: 1.5px solid var(--fg-muted); border-top-color: transparent; border-radius: 50%; animation: s .8s linear infinite; flex: 0 0 auto; }
+  @keyframes s { to { transform: rotate(360deg); } }
+
+  /* icona server: quadratino con monogramma o colore noto */
+  .ic { flex: 0 0 auto; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; font-size: 9.5px; font-weight: 700; color: #fff; line-height: 1; }
+  .ic.notion { background: #2f2f2f; } :root[data-theme="dark"] .ic.notion { background: #e9e6e0; color: #191919; }
+  .ic.gmail { background: #d6493a; }
+  .ic.flowcode { background: var(--accent); color: var(--bg); }
+  .ic.docs { background: #c96442; }
+  .ic.generic { background: transparent; border: 1px solid var(--fg-muted); color: var(--fg-muted); }
+
+  /* A · chip server + tool */
+  .a-chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px 1px 3px; border-radius: 999px; background: var(--chip); border: 1px solid var(--border); font-size: 12px; color: var(--fg); }
+  .a-chip .ic { width: 14px; height: 14px; border-radius: 50%; font-size: 8.5px; }
+
+  /* B · briciola */
+  .b-srv { flex: 0 0 auto; color: var(--fg-muted); font-size: 12.5px; }
+  .b-sep { flex: 0 0 auto; color: var(--fg-muted); opacity: .6; }
+
+  /* C · tool + argomento, server in coda */
+  .c-arg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); font-size: 12.5px; }
+  .c-tag { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--fg-muted); }
+  .c-tag .ic { width: 12px; height: 12px; font-size: 7.5px; border-radius: 3px; }
+  .tip { color: var(--fg-muted); font-size: 11.5px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Nomi dei tool MCP nella chat</h1>
+  <button id="theme">Tema chiaro/scuro</button>
+  <button id="phone">Larghezza telefono</button>
+</header>
+<div class="grid" id="grid"></div>
+<script>
+// Passi d'esempio: grezzo come arriva oggi da Claude, poi la forma normalizzata.
+const steps = [
+  { raw: "Read", plain: true, file: "src/chat/chatTimeline.ts", state: "done" },
+  { raw: "mcp__claude_ai_Notion__notion-search", srv: "Notion", ic: "notion", m: "N", tool: "Search", arg: "“roadmap Q4”", state: "done" },
+  { raw: "mcp__claude_ai_Gmail__send_message", srv: "Gmail", ic: "gmail", m: "M", tool: "Send message", arg: "to anna@…", state: "fail" },
+  { raw: "mcp__flowcode__open_in_browser", srv: "Flowcode", ic: "flowcode", m: "F", tool: "Open in browser", arg: "localhost:5173", state: "done" },
+  { raw: "mcp__my_postgres__run_query", srv: "My postgres", ic: "generic", m: "M", tool: "Run query", arg: "SELECT * FROM users…", state: "done" },
+  { raw: "mcp__claude_ai_Claude_Docs__batch", srv: "Claude Docs", ic: "docs", m: "D", tool: "Batch", arg: "3 operazioni", state: "live" },
+];
+const ic = (s) => `<span class="ic ${s.ic}">${s.m}</span>`;
+const tail = (s) => (s.state === "fail" ? `<span class="failed">non riuscito</span>` : "");
+const dot = (s) => `<span class="dot ${s.state}"></span>${s.state === "live" ? '<span class="spin"></span>' : ""}`;
+
+const variants = [
+  { k: "now", h: "Oggi", d: "Il titolo arriva grezzo dall'adapter: prefisso mcp__, server e tool attaccati.",
+    body: (s) => s.plain ? `<span class="title">${s.raw}</span> <span class="file">chatTimeline.ts</span>` : `<span class="title">${s.raw}</span>` },
+  { k: "a", h: "A · Chip server + tool", d: "Pillola con icona e nome del connettore, poi il tool in chiaro. Il server salta all'occhio.",
+    body: (s) => s.plain ? `<span class="title">Read</span> <span class="file">chatTimeline.ts</span>` : `<span class="a-chip">${ic(s)}${s.srv}</span><span class="title">${s.tool}</span>` },
+  { k: "b", h: "B · Briciola", d: "Icona piccola, server tenue › tool. Nessun riquadro, la più sobria.",
+    body: (s) => s.plain ? `<span class="title">Read</span> <span class="file">chatTimeline.ts</span>` : `${ic(s)}<span class="b-srv">${s.srv}</span><span class="b-sep">›</span><span class="title">${s.tool}</span>` },
+  { k: "c", h: "C · Tool + argomento, server in coda", d: "Il tool guida con l'argomento principale (query, destinatario, url); il connettore è un'etichetta a destra.",
+    body: (s) => s.plain ? `<span class="title">Read</span> <span class="file">chatTimeline.ts</span>` : `<span class="title">${s.tool}</span><span class="c-arg">${s.arg}</span><span class="c-tag">${ic(s)}${s.srv}</span>` },
+];
+document.getElementById("grid").innerHTML = variants.map((v) => `
+  <div class="col">
+    <h2>${v.h}</h2><p class="d">${v.d}</p>
+    <div class="chat">
+      <div class="msg">Cerco la roadmap su Notion e la mando ad Anna.</div>
+      ${steps.map((s, i) => `<div class="step${s.state === "fail" ? " is-failed" : ""}"><div class="row" title="${s.raw}"><span class="num">${i + 1}</span>${dot(s)}${v.body(s)}${tail(s)}</div></div>`).join("")}
+    </div>
+    ${v.k === "now" ? "" : '<p class="tip">Passa sopra una riga: il nome grezzo resta nel tooltip.</p>'}
+  </div>`).join("");
+const root = document.documentElement;
+document.getElementById("theme").onclick = () => (root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark");
+document.getElementById("phone").onclick = (e) => e.target.classList.toggle("on", document.body.classList.toggle("phone"));
+</script>
+</body>
+</html>

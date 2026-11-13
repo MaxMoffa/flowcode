@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ChatItem } from "../../src/chat/chatModel";
 import type { ChatPermissionOption } from "../../src/chat/chatTypes";
 import { permissionDetail } from "../../src/chat/permissionDetail";
+import { toolTitleText } from "../../src/chat/mcpToolLabel";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
 
@@ -53,7 +54,7 @@ export function PermissionBar({ pending, onAnswer }: { pending: Permission[]; on
           <span className="chat-perm-eyebrow">{t("chatPermTitle")}</span>
           {pending.length > 1 && <span className="chat-perm-more">{t("chatPermMore", { n: pending.length - 1 })}</span>}
         </div>
-        <div className="chat-perm-title">{first.toolCall.title ?? first.toolCall.kind ?? t("chatPermTitle")}</div>
+        <div className="chat-perm-title">{toolTitleText(first.toolCall, t("chatPermTitle"))}</div>
         {where && <div className="chat-perm-where mono">{where}</div>}
         <div className="chat-perm-options">
           {options.map((o) => (

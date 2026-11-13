@@ -7,6 +7,7 @@ import type { AskQuestion } from "./askQuestions";
 import { delegateRequestKey, type ChatItem, type DelegateInfo, type DelegateRequest, type DelegateStatus } from "./chatModel";
 import { delegateAgentColor, delegateCounts, delegateDuration, delegatesActive, DELEGATE_STATUS_ORDER, firstLine } from "./delegateStrip";
 import { permissionDetail } from "./permissionDetail";
+import { toolTitleText } from "./mcpToolLabel";
 import "./delegates.css";
 
 const SWAP_ICON = (
@@ -115,7 +116,7 @@ export const DelegateCards = memo(function DelegateCards({ items, onOpen }: { it
 
 /** A permission request as one single-choice question, so the composer's ask card can show it: the choices are the options, answered by number. */
 function permissionAsk(request: DelegateRequest): Extract<ChatItem, { type: "ask" }> {
-  const name = request.toolCall?.title ?? request.toolCall?.kind ?? "";
+  const name = request.toolCall ? toolTitleText(request.toolCall, "") : "";
   const detail = permissionDetail(request.toolCall);
   const title = detail ? (name ? `${name}: ${detail}` : detail) : name;
   const question: AskQuestion = {

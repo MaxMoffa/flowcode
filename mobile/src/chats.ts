@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ChatEvent } from "../../src/chat/chatTypes";
 import type { Tab } from "./remote";
 import { isAgentBusy } from "../../src/chat/chatModel";
+import { toolTitleText } from "../../src/chat/mcpToolLabel";
 import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents, canDispatch, chatStatus, emptySession, forceNeedsCancel, forceQueued, freshEvents, pendingAsks, pendingPermissions, putBack, refusedChat, requeueRefused, takeQueued, type ChatSession } from "./chatSession";
 import { t } from "./i18n";
 import { currentChats, onMessage, send, sendChecked, showToast, useRemoteSelector } from "./remote";
@@ -309,7 +310,7 @@ export const pendingPermissionTitle = (session: ChatSession | undefined, info?: 
   // An agent that is gone asks nothing any more, even before its `exit` event marked the requests cancelled.
   if (!session || chatStatus(info, session.model) === "exited") return undefined;
   const first = pendingPermissions(session.model)[0];
-  if (first) return first.toolCall.title ?? first.toolCall.kind;
+  if (first) return toolTitleText(first.toolCall, "") || undefined;
   // An open question reads as the question itself.
   return pendingAsks(session.model)[0]?.message || undefined;
 };

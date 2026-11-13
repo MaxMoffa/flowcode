@@ -2,6 +2,8 @@ import { GoalMarker } from "./GoalMarker";
 import { memo, useMemo, useState } from "react";
 import { permissionDetail } from "./permissionDetail";
 import { SubagentTray as SharedSubagentTray } from "../../shared/SubagentTray";
+import { ToolTitle } from "../../shared/ToolTitle";
+import { toolTitleText } from "./mcpToolLabel";
 import { useI18n } from "../i18n";
 import { askSummary } from "./askQuestions";
 import { lineDiff, stopKind, toolImages, type ChatItem, type StopKind } from "./chatModel";
@@ -64,7 +66,7 @@ function ToolStep({ step, live, index }: { step: Extract<TimelineStep, { type: "
     .join("\n");
   const failed = call.status === "failed";
   const running = live && call.status !== "completed" && !failed;
-  const title = call.title ?? call.kind ?? call.toolCallId;
+  const title = toolTitleText(call, call.toolCallId);
   const file = call.locations?.[0]?.path;
   const fileLine = call.locations?.[0]?.line ?? undefined;
   const fileName = file ? basename(file) : "";
@@ -74,7 +76,7 @@ function ToolStep({ step, live, index }: { step: Extract<TimelineStep, { type: "
       <span className="chat-step-num">{index}</span>
       <span className={`chat-dot${running ? " is-live" : failed ? " is-failed" : " is-done"}`} aria-hidden="true" />
       {running && <span className="chat-spinner" aria-hidden="true" />}
-      <span className="chat-step-title">{title}</span>
+      <ToolTitle call={call} fallback={call.toolCallId} />
       {fileName && !title.includes(fileName) && (
         <span className="chat-step-file" title={file}>
           <ChatPathLink parsed={{ path: file ?? "", line: fileLine }}>{fileName}</ChatPathLink>
@@ -107,7 +109,7 @@ function ToolStep({ step, live, index }: { step: Extract<TimelineStep, { type: "
 
 function PermissionStep({ step, index }: { step: Extract<TimelineStep, { type: "permission" }>; index: number }) {
   const { t } = useI18n();
-  const title = step.toolCall.title ?? step.toolCall.kind ?? t("chat.permission.title");
+  const title = toolTitleText(step.toolCall, t("chat.permission.title"));
   const option = step.options.find((o) => o.optionId === step.resolved);
   return (
     <div className="chat-step">
@@ -143,8 +145,8 @@ export const ToolGroup = memo(function ToolGroup({ steps, live }: { steps: Timel
   const last = steps[steps.length - 1];
   const lastTitle =
     last.type === "tool"
-      ? (last.call.title ?? last.call.kind ?? last.call.toolCallId)
-      : (last.toolCall.title ?? last.toolCall.kind ?? t("chat.permission.title"));
+      ? toolTitleText(last.call, last.call.toolCallId)
+      : toolTitleText(last.toolCall, t("chat.permission.title"));
   const summaryClass = live ? "chat-group-summary is-live" : failed > 0 ? "chat-group-summary has-failed" : "chat-group-summary";
   return (
     <div className={`chat-tools${expanded ? " is-open" : ""}`}>
@@ -211,7 +213,7 @@ function SubagentCard({ item, selected, onToggle, onOpen }: { item: SubagentItem
   const bad = state.failed || (state.running && last?.call.status === "failed");
   const percent = state.running ? Math.min(92, 12 + steps.length * 17) : 100;
   const recovered = !state.failed && state.failedSteps > 0 ? t(`chat.subagent.recovered.${state.failedSteps === 1 ? "one" : "other"}`, { count: state.failedSteps }) : "";
-  const liveTitle = state.current ? (state.current.title ?? state.current.kind ?? state.current.toolCallId) : t("chat.subagent.starting");
+  const liveTitle = state.current ? toolTitleText(state.current, state.current.toolCallId) : t("chat.subagent.starting");
   return (
     <div className="chat-subcard-wrap">
       <button type="button" className={`chat-subcard${selected ? " is-selected" : ""}`} aria-expanded={selected} onClick={onToggle}>
@@ -354,7 +356,7 @@ const STOP_TEXT: Record<StopKind, Parameters<ReturnType<typeof useI18n>["t"]>[0]
 /** A permission request waiting for an answer, anchored on the rail above the composer. */
 export function PermissionCard({ item, onAnswer }: { item: Extract<ChatItem, { type: "permission" }>; onAnswer: ChatItemViewProps["onAnswer"] }) {
   const { t } = useI18n();
-  const title = item.toolCall.title ?? item.toolCall.kind ?? t("chat.permission.title");
+  const title = toolTitleText(item.toolCall, t("chat.permission.title"));
   const detail = permissionDetail(item.toolCall);
   const order = (o: ChatPermissionOption) => (o.kind.startsWith("reject") ? 0 : o.kind === "allow_always" ? 1 : 2);
   const options = [...item.options].sort((a, b) => order(a) - order(b));
