@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: MirroredSettings = {
   confirmLinkOpen: true,
   linkPreviews: "never",
   chatWebImages: false,
+  chatMcpIcons: true,
   restoreSession: true,
   newTabPage: false,
   notify: { done: true, input: true, exited: false, limitReset: true },
@@ -70,6 +71,7 @@ export function normalizeSettings(raw: unknown): MirroredSettings | null {
     // "onClick" is no longer a mode (old desktops may still send it): it reads as "never".
     linkPreviews: oneOf<LinkPreviewMode>(raw.linkPreviews === "onClick" ? "never" : raw.linkPreviews, ["always", "never"], d.linkPreviews),
     chatWebImages: bool(raw.chatWebImages, false),
+    chatMcpIcons: bool(raw.chatMcpIcons, true),
     restoreSession: bool(raw.restoreSession, d.restoreSession),
     newTabPage: bool(raw.newTabPage, d.newTabPage),
     notify: {

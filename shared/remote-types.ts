@@ -246,6 +246,8 @@ export interface MirroredSettings {
   linkPreviews: LinkPreviewMode;
   /** Read-only: whether the desktop downloads web images for chats; absent on older desktops. */
   chatWebImages?: boolean;
+  /** Read-only: whether the phone may ask for MCP server icons (`mcpicon`). */
+  chatMcpIcons?: boolean;
   restoreSession: boolean;
   newTabPage: boolean;
   notify: { done: boolean; input: boolean; exited: boolean; limitReset: boolean };
@@ -370,6 +372,8 @@ export type ServerMsg =
   | { t: "viewfile"; viewId: string; hash: string; path: string; offset: number; total: number; data: string }
   /** Reply to `linkpreview`; `preview` is null when there is none (or the desktop's setting is "never"). Needs the "linkPreview" cap, which is not in `RemoteCap`: an older desktop just lacks previews, nothing to warn about. */
   | { t: "linkpreview"; url: string; preview: LinkPreview | null }
+  /** Reply to `mcpicon`: the server's icon as a data: URI, or null. Needs the "mcpIcon" cap (not in `RemoteCap`). */
+  | { t: "mcpicon"; server: string; icon: string | null }
   /** Reply to `agentinsight`; `key` is the requested `ptyId` or `chatId` verbatim. Each part is null/absent when the desktop cannot read it (no session yet, an agent it cannot inspect, WSL...). Needs the "agentInsight" cap. */
   | { t: "agentinsight"; key: string; cli?: string | null; context?: { used: number; window: number; model?: string } | null; usage?: AgentSessionUsage | null; tools?: AgentToolsInfo | null }
   /** Reply to `chatcacheinfo`: the cache lifetime in ms and the ISO-8601 time of the last model call; both null/absent when the desktop cannot read them (not Claude, no session, no transcript). Needs the "chatCacheInfo" cap, which is not in `RemoteCap`. */
@@ -448,6 +452,8 @@ export type ClientMsg =
   | { t: "chatcacheinfo"; chatId: string }
   /** The preview of a link in a chat (answered with `linkpreview`). */
   | { t: "linkpreview"; url: string }
+  /** The icon of an MCP server named in a chat's tool calls; answered with `mcpicon`. Needs the "mcpIcon" cap. */
+  | { t: "mcpicon"; chatId?: string; server: string }
   /** An image of a chat, by the `id` the desktop stored it under or by `path` (a file on the chat's PC, resolved against its cwd/WSL) or by web `url` (downloaded by the desktop only if its `chatWebImages` setting is on, else `missing`; the reply `key` is the url); answered with `chatimage` chunks. Needs the "chatImage" cap (not in `RemoteCap`); `url` also needs "chatWebImages". */
   | { t: "chatimage"; chatId?: string; id?: string; path?: string; url?: string; requestId?: string }
   | { t: "background"; on: boolean }

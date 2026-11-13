@@ -13,6 +13,7 @@ import { publishTabDelegation } from "../chat/delegateStore";
 import { interruptDelegates, recordDelegates } from "../agents/delegateHistory";
 import { useChat } from "../chat/useChat";
 import { LocalChatImageProvider } from "../chat/chatImages";
+import { LocalMcpIconProvider } from "../chat/mcpIconLoader";
 import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
 import "../chat/chat.css";
 import "./builtins";
@@ -199,6 +200,7 @@ export function AgentSessionView({
   return (
     <FileLinkWslContext.Provider value={chat.wslDistro ?? null}>
       <LocalChatImageProvider chatId={chat.chatId}>
+        <LocalMcpIconProvider chatId={chat.chatId}>
         <div className="chat-view" style={hidden ? { display: "none" } : undefined} onKeyDown={onViewKeyDown}>
           <AgentHeader icon={agentCliIcon(agent)} title={title} subtitle={subtitle} status={status} subagent={subHeader} tag={model.task ? { text: t("chat.delegate.from", { agent: cliName(model.task.parentAgent) }), title: t("chat.delegate.fromHint") } : null}>
             {(close) => {
@@ -320,6 +322,7 @@ export function AgentSessionView({
             </div>
           )}
         </div>
+        </LocalMcpIconProvider>
       </LocalChatImageProvider>
     </FileLinkWslContext.Provider>
   );

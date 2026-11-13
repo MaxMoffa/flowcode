@@ -127,6 +127,8 @@ export function SettingsPage({
     setLinkPreviews,
     chatWebImages,
     setChatWebImages,
+    chatMcpIcons,
+    setChatMcpIcons,
     explorerDoubleClick,
     setExplorerDoubleClick,
     newTabPage,
@@ -486,6 +488,14 @@ export function SettingsPage({
                   checked={chatWebImages}
                   onChange={setChatWebImages}
                   label={t("settings.chatWebImages.label")}
+                  stateLabels={onOff}
+                />
+              </SettingRow>
+              <SettingRow id="chatMcpIcons" label={t("settings.chatMcpIcons.label")} desc={t("settings.chatMcpIcons.desc")}>
+                <Switch
+                  checked={chatMcpIcons}
+                  onChange={setChatMcpIcons}
+                  label={t("settings.chatMcpIcons.label")}
                   stateLabels={onOff}
                 />
               </SettingRow>

@@ -895,6 +895,9 @@ export const it = {
   "settings.chatWebImages.label": "Immagini dal web nella chat",
   "settings.chatWebImages.desc":
     "Mostra le immagini che l'agente inserisce da indirizzi web. Le scarica Flowcode, non il browser dell'app: il server che le ospita vede il tuo indirizzo IP e il momento in cui apri la chat, quindi un indirizzo scelto dall'agente (o da una pagina che ha letto) può servire a tracciarti. Gli indirizzi locali e della rete privata restano sempre bloccati. Vale anche per il telefono.",
+  "settings.chatMcpIcons.label": "Icone dei servizi MCP",
+  "settings.chatMcpIcons.desc":
+    "Accanto agli strumenti MCP nella chat mostra il logo del servizio (Notion, Slack, GitHub…) al posto della lettera iniziale. Flowcode scarica la favicon dal sito del servizio, che vede il tuo indirizzo IP. Vale anche per il telefono.",
   "chat.image.blocked": "Immagine dal web non caricata",
   "chat.image.blockedHint": "Attivale nelle impostazioni",
   "chat.image.load": "Carica",

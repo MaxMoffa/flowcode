@@ -246,6 +246,12 @@ pub enum ClientMsg {
     ViewFile { view_id: String, path: String },
     /// The preview of a link in a chat (answered with `ServerMsg::LinkPreview`).
     LinkPreview { url: String },
+    /// The icon of an MCP server named in a chat's tool calls (answered with `ServerMsg::McpIcon`).
+    McpIcon {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chat_id: Option<String>,
+        server: String,
+    },
     /// The agent panel data (context, usage, tools) of a terminal tab (`pty_id`)
     /// or of a chat (`chat_id`), answered with `ServerMsg::AgentInsight`.
     /// Exactly one of the two.
@@ -388,6 +394,8 @@ pub enum ServerMsg {
     /// Reply to `linkpreview`: what the desktop read from the page (the JSON
     /// shape of the shared `LinkPreview`), or null if there is none.
     LinkPreview { url: String, preview: Option<serde_json::Value> },
+    /// Reply to `mcpicon`: the server's icon as a `data:` URI, or null.
+    McpIcon { server: String, icon: Option<String> },
     /// Reply to `agentinsight`. `key` is the requested `pty_id` / `chat_id`,
     /// verbatim. `usage` and `tools` are the JSON of the desktop's
     /// `SessionUsage` / `AgentTools`; each is left out when it can't be read.
@@ -881,6 +889,18 @@ mod tests {
         );
         let none = ServerMsg::LinkPreview { url: "https://a.b".into(), preview: None };
         assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "linkpreview", "url": "https://a.b", "preview": null }));
+    }
+
+    #[test]
+    fn mcp_icon_messages_round_trip() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"mcpicon","chatId":"c1","server":"notion"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::McpIcon { chat_id: Some("c1".into()), server: "notion".into() });
+        let msg: ClientMsg = serde_json::from_str(r#"{"t":"mcpicon","server":"notion"}"#).unwrap();
+        assert_eq!(msg, ClientMsg::McpIcon { chat_id: None, server: "notion".into() });
+        let reply = ServerMsg::McpIcon { server: "notion".into(), icon: Some("data:image/png;base64,AA".into()) };
+        assert_eq!(serde_json::to_value(reply).unwrap(), serde_json::json!({ "t": "mcpicon", "server": "notion", "icon": "data:image/png;base64,AA" }));
+        let none = ServerMsg::McpIcon { server: "notion".into(), icon: None };
+        assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "mcpicon", "server": "notion", "icon": null }));
     }
 
     #[test]

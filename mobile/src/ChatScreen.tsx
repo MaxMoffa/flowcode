@@ -4,6 +4,8 @@ import "./chat.css";
 import type { ChatAttachmentRef, ChatInfo } from "../../shared/remote-types";
 import { ChatBody, SubagentBody } from "./ChatBody";
 import { ChatImagesProvider } from "./ChatImage";
+import { McpIconSource } from "../../shared/mcpIcons";
+import { mcpIconLoader } from "./mcpIcons";
 import { useBackHandler, useEscape } from "./back";
 import { FrogThinking } from "../../shared/FrogThinking";
 import { SubagentTray } from "../../shared/SubagentTray";
@@ -113,6 +115,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   }, [cleared]);
   const session = useMemo(() => stored ?? emptySession(), [stored]);
   const { model } = session;
+  const iconsOn = useRemoteSelector((s) => !!s.host?.caps.includes("mcpIcon") && s.settings?.chatMcpIcons !== false);
+  const iconLoader = useMemo(() => (iconsOn ? mcpIconLoader(chatId) : null), [iconsOn, chatId]);
   // Provider errors only: never inspect tool output or text written by the model.
   const providerError = useMemo(() => {
     for (let i = model.items.length - 1; i >= 0; i--) {
@@ -503,6 +507,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
             <div className="chat-thread" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-thread-inner" ref={innerRef}>
                 <ChatImagesProvider chatId={chatId}>
+                  <McpIconSource.Provider value={iconLoader}>
                   <ChatFileLinks.Provider value={canOpenFile}>
                     <TerminalsContext.Provider value={terminals}>
                       {sub ? (
@@ -515,6 +520,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                       )}
                     </TerminalsContext.Provider>
                   </ChatFileLinks.Provider>
+                  </McpIconSource.Provider>
                 </ChatImagesProvider>
                 {(sub ? !!subState?.running : status === "busy") && !exited && (
                   <div className="chat-status">

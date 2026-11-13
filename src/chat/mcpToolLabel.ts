@@ -1,6 +1,8 @@
 /** A call to an MCP tool split into a readable server and tool. Claude names it `mcp__<server>__<tool>` (`_meta.claudeCode.toolName`), Codex titles it `mcp.<server>.<tool>` with `{ server, tool }` in its raw input. */
 export interface McpLabel {
   server: string;
+  /** The server as named in the tool id (`claude_ai_Notion`), used to look up its icon. */
+  serverKey: string;
   tool: string;
   /** The name as the agent sent it (tooltip). */
   raw: string;
@@ -46,7 +48,7 @@ export function mcpToolLabel(call: CallLike): McpLabel | null {
   let tool = parts.tool;
   const lt = tool.toLowerCase();
   if (lt.startsWith(lowered) && /[-_]/.test(tool[lowered.length] ?? "") && tool.length > lowered.length + 1) tool = tool.slice(lowered.length + 1);
-  return { server: server || parts.server, tool: capital(words(tool)) || parts.tool, raw: parts.raw };
+  return { server: server || parts.server, serverKey: parts.server, tool: capital(words(tool)) || parts.tool, raw: parts.raw };
 }
 
 /** A call's title as plain text: "Notion › Search" for an MCP tool, else its title, kind or the fallback. */

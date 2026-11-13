@@ -110,6 +110,7 @@ const mockSettings = {
   bannerEnabled: true,
   confirmLinkOpen: true,
   linkPreviews: "never",
+  chatMcpIcons: true,
   restoreSession: true,
   newTabPage: false,
   notify: { done: true, input: true, exited: false, limitReset: true },

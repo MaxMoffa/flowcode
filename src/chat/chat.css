@@ -1120,6 +1120,19 @@ summary.chat-step-row {
   background: var(--accent);
   color: var(--bg-elevated);
 }
+.chat-mcp-ic.has-img {
+  background: transparent;
+  border: none;
+  color: inherit;
+  box-shadow: none;
+}
+.chat-mcp-ic img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
+  display: block;
+}
 .chat-mcp-srv {
   flex: 0 1 auto;
   min-width: 0;

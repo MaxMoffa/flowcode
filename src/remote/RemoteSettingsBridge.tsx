@@ -60,7 +60,7 @@ export function RemoteSettingsBridge() {
 
   // Primitives only: the context objects change identity on unrelated updates
   // (a tab's zoom), which must not republish.
-  const { fontSize, bannerEnabled, confirmLinkOpen, linkPreviews, chatWebImages, restoreSession, newTabPage } = terminal;
+  const { fontSize, bannerEnabled, confirmLinkOpen, linkPreviews, chatWebImages, chatMcpIcons, restoreSession, newTabPage } = terminal;
   const { done, input, exited, limitReset } = notify;
   const { enabled: autoResumeEnabled, message: autoResumeMessage } = autoResume;
   const settings: MirroredSettings = useMemo(
@@ -82,6 +82,7 @@ export function RemoteSettingsBridge() {
       confirmLinkOpen,
       linkPreviews,
       chatWebImages,
+      chatMcpIcons,
       restoreSession,
       newTabPage,
       notify: { done, input, exited, limitReset },
@@ -89,7 +90,7 @@ export function RemoteSettingsBridge() {
     }),
     [
       theme, mode, paletteId, terminalPaletteId, contrast, glassOpacity, language, preference, palettes,
-      fontSize, bannerEnabled, confirmLinkOpen, linkPreviews, chatWebImages, restoreSession, newTabPage,
+      fontSize, bannerEnabled, confirmLinkOpen, linkPreviews, chatWebImages, chatMcpIcons, restoreSession, newTabPage,
       done, input, exited, limitReset, autoResumeEnabled, autoResumeMessage,
     ],
   );

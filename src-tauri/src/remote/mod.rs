@@ -1512,7 +1512,7 @@ async fn serve(mut guard: HandshakeGuard, connection: Connection, mut shutdown: 
 /// they wait for interactive frames (terminal output, echoes, replies to a
 /// tap) instead of delaying them. Their own order is kept.
 fn is_bulk(msg: &ServerMsg) -> bool {
-    matches!(msg, ServerMsg::ViewFile { .. } | ServerMsg::LinkPreview { .. } | ServerMsg::ChatImage { .. })
+    matches!(msg, ServerMsg::ViewFile { .. } | ServerMsg::LinkPreview { .. } | ServerMsg::McpIcon { .. } | ServerMsg::ChatImage { .. })
 }
 
 /// The next message to write: anything interactive in the queue first, then a
@@ -2191,6 +2191,22 @@ impl Conn {
         });
     }
 
+    /// Answers an `mcpicon`: the icon of the service behind an MCP server, or
+    /// none if the desktop's setting is off or no icon was found.
+    fn send_mcp_icon(&self, chat_id: Option<String>, server: String) {
+        let (shared, out) = (Arc::clone(&self.shared), self.out_tx.clone());
+        tauri::async_runtime::spawn(async move {
+            let off = shared.settings.borrow().get("chatMcpIcons").and_then(|v| v.as_bool()) == Some(false);
+            let icon = if off {
+                None
+            } else {
+                let (app, name) = (shared.app.clone(), server.clone());
+                tauri::async_runtime::spawn_blocking(move || crate::mcp_icons::icon(&app, chat_id.as_deref(), &name)).await.ok().flatten()
+            };
+            let _ = out.send(ServerMsg::McpIcon { server, icon }).await;
+        });
+    }
+
     /// Answers an `agentinsight`: the context, usage and tools of a terminal
     /// tab's agent (`pty_id`) or of a chat's (`chat_id`). What can't be read is
     /// left out.
@@ -2691,6 +2707,13 @@ impl Conn {
                     self.error(tr("Richiesta non valida", "Invalid request"), None);
                 } else {
                     self.send_link_preview(url);
+                }
+            }
+            ClientMsg::McpIcon { chat_id, server } => {
+                if server.len() > 200 {
+                    self.error(tr("Richiesta non valida", "Invalid request"), None);
+                } else {
+                    self.send_mcp_icon(chat_id, server);
                 }
             }
             ClientMsg::AgentInsight { pty_id, chat_id } => {

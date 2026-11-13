@@ -468,6 +468,32 @@ const CHAT_IMAGE_TYPES: &[&str] =
     &["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"];
 const MAX_CHAT_IMAGE_BYTES: usize = 16 * 1024 * 1024;
 
+/// A site icon may also be an SVG (in an `<img>` data URI it can't run script).
+const SITE_ICON_TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"];
+/// Longest icon data URI kept (remote frames are limited).
+const MAX_SITE_ICON_CHARS: usize = 300_000;
+
+/// The icon of the site at `domain` as a `data:` URI: the page's declared
+/// icons, then `/favicon.ico`. Blocking.
+pub(crate) fn site_icon(domain: &str) -> Option<String> {
+    if domain.is_empty() || domain.len() > 253 || domain.contains(['/', ':', '@']) || domain.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let mut urls: Vec<String> = Vec::new();
+    let home = format!("https://{domain}/");
+    if let Ok(page) = fetch(&home, "text/html,application/xhtml+xml", HTML_TYPES, MAX_HTML_BYTES, true) {
+        let info = page_info(&String::from_utf8_lossy(&page.body));
+        urls.extend(info.icons.iter().filter_map(|href| join_url(&page.final_url, href)).take(3));
+        if let Some((scheme, authority, _)) = split_url(&page.final_url) {
+            urls.push(format!("{scheme}://{authority}/favicon.ico"));
+        }
+    }
+    urls.push(format!("https://{domain}/favicon.ico"));
+    let mut seen = std::collections::HashSet::new();
+    urls.retain(|u| seen.insert(u.clone()));
+    urls.iter().find_map(|u| fetch_image(u, SITE_ICON_TYPES).filter(|d| d.len() <= MAX_SITE_ICON_CHARS))
+}
+
 /// A web image an agent's markdown points to: its bytes and content type.
 /// Same hardened fetch as the previews (public addresses only, on every
 /// redirect hop; size cap; timeout). Blocking.
@@ -533,6 +559,13 @@ impl LinkPreview {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn site_icon_rejects_bad_domains() {
+        for d in ["", "a/b", "host:80", "u@host", "a b", &"a".repeat(254)] {
+            assert_eq!(site_icon(d), None, "{d}");
+        }
+    }
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()

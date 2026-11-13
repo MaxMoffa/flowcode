@@ -5,6 +5,7 @@ describe("mcpToolLabel", () => {
   it("splits a Claude MCP tool name into a readable server and tool", () => {
     expect(mcpToolLabel({ toolName: "mcp__claude_ai_Notion__notion-search" })).toEqual({
       server: "Notion",
+      serverKey: "claude_ai_Notion",
       tool: "Search",
       raw: "mcp__claude_ai_Notion__notion-search",
     });
@@ -16,6 +17,7 @@ describe("mcpToolLabel", () => {
   it("reads a Codex mcp.<server>.<tool> title", () => {
     expect(mcpToolLabel({ title: "mcp.my_postgres.run_query" })).toEqual({
       server: "My postgres",
+      serverKey: "my_postgres",
       tool: "Run query",
       raw: "mcp.my_postgres.run_query",
     });

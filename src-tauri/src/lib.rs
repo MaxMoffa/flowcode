@@ -31,6 +31,7 @@ mod util;
 mod gemini;
 mod opencode;
 mod link_preview;
+mod mcp_icons;
 mod vibe;
 mod opencode_db;
 mod view_plugins;
@@ -261,6 +262,7 @@ pub fn run() {
             vibe::vibe_usage_stats,
             vibe::vibe_ensure_model,
             link_preview::link_preview,
+            mcp_icons::mcp_icon,
             preview::preview_register_root,
             preview::preview_frame_check,
             preview::preview_pdf_bytes,

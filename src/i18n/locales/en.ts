@@ -892,6 +892,9 @@ export const en: Record<MessageKey, string> = {
   "settings.chatWebImages.label": "Web images in chat",
   "settings.chatWebImages.desc":
     "Shows images the agent embeds from web addresses. Flowcode downloads them, not the app's browser: the server hosting them sees your IP address and when you open the chat, so an address chosen by the agent (or by a page it read) can be used to track you. Local and private-network addresses are always blocked. Applies to the phone too.",
+  "settings.chatMcpIcons.label": "MCP service icons",
+  "settings.chatMcpIcons.desc":
+    "Shows the service's logo (Notion, Slack, GitHub…) next to MCP tools in the chat instead of its initial. Flowcode downloads the favicon from the service's website, which sees your IP address. Applies to the phone too.",
   "chat.image.blocked": "Web image not loaded",
   "chat.image.blockedHint": "Turn them on in Settings",
   "chat.image.load": "Load",

@@ -14,6 +14,7 @@ const NEW_TAB_PAGE_KEY = "flowcode.newTabPage";
 const CONFIRM_LINKS_KEY = "flowcode.confirmLinkOpen";
 const LINK_PREVIEWS_KEY = "flowcode.linkPreviews";
 const CHAT_WEB_IMAGES_KEY = "flowcode.chatWebImages";
+const CHAT_MCP_ICONS_KEY = "flowcode.chatMcpIcons";
 const EXPLORER_DOUBLE_CLICK_KEY = "flowcode.explorerDoubleClick";
 const MIN_SIZE = 9;
 const MAX_SIZE = 28;
@@ -97,6 +98,9 @@ interface TerminalSettingsValue {
   /** Whether Flowcode downloads the web images an agent embeds in a chat (off by default: the host sees the IP). Also decides for phones. */
   chatWebImages: boolean;
   setChatWebImages: (enabled: boolean) => void;
+  /** Whether Flowcode downloads an MCP service's favicon to show next to its tools in a chat (on by default: the service's site sees the IP). Also decides for phones. */
+  chatMcpIcons: boolean;
+  setChatMcpIcons: (enabled: boolean) => void;
   /** Whether the file explorer enters a folder on double click (the default)
    * or on a single click. */
   explorerDoubleClick: boolean;
@@ -146,6 +150,7 @@ const readConfirmLinks = (key: string) => readBool(key, true);
 /** "onClick" (removed) and anything unknown read as "never". */
 const readLinkPreviews = (key: string) => readEnum<LinkPreviewMode>(key, ["always", "never"], "never");
 const readChatWebImages = (key: string) => readBool(key, false);
+const readChatMcpIcons = (key: string) => readBool(key, true);
 const readExplorerDoubleClick = (key: string) => readBool(key, true);
 const readNewTabPage = (key: string) => readBool(key, true);
 
@@ -185,6 +190,7 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
   const [confirmLinkOpen, setConfirmLinkOpen] = usePersistentState(CONFIRM_LINKS_KEY, readConfirmLinks, writeBool, true);
   const [linkPreviews, setLinkPreviews] = usePersistentState(LINK_PREVIEWS_KEY, readLinkPreviews, writeString, true);
   const [chatWebImages, setChatWebImages] = usePersistentState(CHAT_WEB_IMAGES_KEY, readChatWebImages, writeBool, true);
+  const [chatMcpIcons, setChatMcpIcons] = usePersistentState(CHAT_MCP_ICONS_KEY, readChatMcpIcons, writeBool, true);
   const [explorerDoubleClick, setExplorerDoubleClick] = usePersistentState(
     EXPLORER_DOUBLE_CLICK_KEY,
     readExplorerDoubleClick,
@@ -239,6 +245,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setLinkPreviews,
       chatWebImages,
       setChatWebImages,
+      chatMcpIcons,
+      setChatMcpIcons,
       explorerDoubleClick,
       setExplorerDoubleClick,
       newTabPage,
@@ -269,6 +277,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setLinkPreviews,
       chatWebImages,
       setChatWebImages,
+      chatMcpIcons,
+      setChatMcpIcons,
       explorerDoubleClick,
       setExplorerDoubleClick,
       newTabPage,
