@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { parseBlocks, parseInline, type Block, type Inline } from "../src/chat/markdownBlocks";
+import { MathView } from "./MathView";
 import type { MdTable } from "../src/chat/markdownTable";
 
 /** Platform adapters keep filesystem links, image ownership and navigation outside the renderer. */
@@ -20,6 +21,8 @@ function inline(tokens: Inline[], keyBase: string, adapter: MarkdownAdapters): R
         return adapter.text(tok.text, key);
       case "code":
         return adapter.code(tok.text, key);
+      case "math":
+        return <MathView key={key} tex={tok.tex} display={false} />;
       case "link":
         return adapter.text(tok.raw, key, (label, k) => inline(parseInline(label), k, adapter));
       case "image":
@@ -103,6 +106,8 @@ function blocks(list: Block[], keyBase: string, adapter: MarkdownAdapters, offse
           </Tag>
         );
       }
+      case "math":
+        return <MathView key={key} tex={b.tex} display labels={adapter.copyLabels} />;
       case "code":
         return <CodeBlock key={key} lang={b.lang} text={b.text} labels={adapter.copyLabels} />;
       case "table":

@@ -189,3 +189,45 @@ describe("parseInline images", () => {
     expect(parseInline("`![x](y.png)`")).toEqual([{ type: "code", text: "![x](y.png)" }]);
   });
 });
+
+describe("math", () => {
+  const math = (tex: string): Inline => ({ type: "math", tex });
+
+  it("reads inline math with strict dollars", () => {
+    expect(parseInline("a $x_i^2$ b")).toEqual([text("a "), math("x_i^2"), text(" b")]);
+    expect(parseInline("costs $5 and $10")).toEqual([text("costs $5 and $10")]);
+    expect(parseInline("$ x $")).toEqual([text("$ x $")]);
+  });
+
+  it("reads \\( \\) and inline $$", () => {
+    expect(parseInline("\\(a_b\\)")).toEqual([math("a_b")]);
+    expect(parseInline("see $$x$$ now")).toEqual([text("see "), math("x"), text(" now")]);
+  });
+
+  it("lets code spans win, and unescapes \\$", () => {
+    expect(parseInline("a `$x$` b")).toEqual([text("a "), { type: "code", text: "$x$" }, text(" b")]);
+    expect(parseInline("\\$5")).toEqual([text("$5")]);
+  });
+
+  it("leaves Windows paths untouched", () => {
+    expect(parseInline("C:\\Users\\[x]")).toEqual([text("C:\\Users\\[x]")]);
+  });
+
+  it("reads display blocks", () => {
+    expect(parseBlocks("$$\n\\frac{a}{b}\n$$")).toEqual([{ type: "math", tex: "\\frac{a}{b}" }]);
+    expect(parseBlocks("\\[ x \\]")).toEqual([{ type: "math", tex: "x" }]);
+    expect(parseBlocks("$$x^2$$")).toEqual([{ type: "math", tex: "x^2" }]);
+  });
+
+  it("keeps an unclosed $$ as a paragraph", () => {
+    expect(parseBlocks("$$\nx")).toEqual([{ type: "paragraph", lines: ["$$", "x"] }]);
+  });
+
+  it("ends the paragraph before a math block", () => {
+    expect(parseBlocks("intro\n$$\nx\n$$\nafter")).toEqual([
+      { type: "paragraph", lines: ["intro"] },
+      { type: "math", tex: "x" },
+      { type: "paragraph", lines: ["after"] },
+    ]);
+  });
+});

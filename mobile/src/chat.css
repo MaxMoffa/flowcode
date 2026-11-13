@@ -3495,3 +3495,30 @@ button.chat-dstrip-row:active { background: color-mix(in srgb, var(--fg) 6%, tra
 .chat-attach-x::after { content: ""; position: absolute; inset: -6px; }
 .chat-attach-tile.is-file .chat-attach-x { top: 50%; right: 4px; transform: translateY(-50%); background: transparent; color: var(--muted); }
 .chat-pending-files { opacity: 0.8; white-space: nowrap; }
+
+.chat-math-block {
+  position: relative;
+  margin: 8px 0;
+  padding: 6px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.chat-math {
+  color: inherit;
+}
+
+.chat-math .katex {
+  font-size: 1.08em;
+}
+
+.chat-math-copy {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 12.5px;
+}
+
+.chat-math-raw {
+  font-size: 0.92em;
+}

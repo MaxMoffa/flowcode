@@ -8,6 +8,8 @@ export type Inline =
   | { type: "link"; raw: string }
   /** A `![alt](src)` as written; the renderer resolves `src`. */
   | { type: "image"; alt: string; src: string }
+  /** TeX between `$`, `$$` or `\(` `\)`; nothing inside is parsed. */
+  | { type: "math"; tex: string }
   | { type: "strong" | "em" | "del"; children: Inline[] };
 
 interface ListItem {
@@ -20,6 +22,7 @@ export type Block =
   | { type: "paragraph"; lines: string[] }
   | { type: "heading"; level: number; text: string }
   | { type: "code"; lang: string; text: string }
+  | { type: "math"; tex: string }
   | { type: "table"; table: MdTable }
   | { type: "list"; ordered: boolean; start: number; items: ListItem[] }
   | { type: "blockquote"; blocks: Block[] }
@@ -90,11 +93,34 @@ function itemAt(line: string): ItemStart | null {
   };
 }
 
+/** A display math block (`$$ ... $$` or `\[ ... \]`) opening at `rows[i]`, or null when it is not one or is not closed yet (the agent is still typing: it stays a paragraph). */
+function readMathBlock(rows: string[], i: number): { tex: string; next: number } | null {
+  const first = rows[i].trim();
+  const [open, close] = first.startsWith("$$") ? ["$$", "$$"] : first.startsWith("\\[") ? ["\\[", "\\]"] : ["", ""];
+  if (!open) return null;
+  if (first.length > 4 && first.endsWith(close)) {
+    const tex = first.slice(2, -2).trim();
+    return tex ? { tex, next: i + 1 } : null;
+  }
+  const parts = [first.slice(2)];
+  for (let j = i + 1; j < rows.length; j++) {
+    const t = rows[j].trim();
+    if (t.endsWith(close)) {
+      parts.push(t.slice(0, -2));
+      const tex = parts.join("\n").trim();
+      return tex ? { tex, next: j + 1 } : null;
+    }
+    parts.push(rows[j]);
+  }
+  return null;
+}
+
 /** Whether `rows[i]` opens a block of its own (so it ends the paragraph before it). */
 function startsBlock(rows: string[], i: number): boolean {
   const row = rows[i];
   return (
     fenceOf(row) !== null ||
+    readMathBlock(rows, i) !== null ||
     HEADING.test(row) ||
     HR.test(row) ||
     QUOTE.test(row) ||
@@ -160,6 +186,12 @@ function blocks(rows: string[], depth: number): Block[] {
       out.push({ type: "code", lang: fence.lang, text: code.join("\n") });
       continue;
     }
+    const math = readMathBlock(rows, i);
+    if (math) {
+      out.push({ type: "math", tex: math.tex });
+      i = math.next;
+      continue;
+    }
     const heading = HEADING.exec(row);
     if (heading) {
       out.push({ type: "heading", level: heading[1].length, text: heading[2] });
@@ -207,7 +239,7 @@ export function parseBlocks(text: string): Block[] {
   return blocks(text.replace(/\r\n?/g, "\n").split("\n"), 0);
 }
 
-const ESCAPABLE = "\\`*_{}[]()#+-.!|~<>";
+const ESCAPABLE = "\\`*_{}[]()#+-.!|~<>$";
 const LINK_AT = /\[[^\]\n]+\]\((?:[^()\n]|\([^()\n]*\))+\)/y;
 /** `![alt](src)`: `src` angle-bracketed (may hold spaces) or a run without spaces (one level of parentheses); an optional ` "title"` is dropped. */
 const IMAGE_AT = /!\[([^\]\n]*)\]\((?:<([^<>\n]*)>|((?:[^()\s]|\([^()\s]*\))+))(?:[ \t]+"[^"\n]*")?\)/y;
@@ -220,6 +252,28 @@ function inWinPath(s: string, i: number): boolean {
   while (start > 0 && !/\s/.test(s[start - 1])) start--;
   // Through i + 1 so a leading `\\` (UNC) also matches at its first backslash.
   return /^[("'\[]?(?:[A-Za-z]:\\|\\\\|\.{1,2}\\)/.test(s.slice(start, i + 2));
+}
+
+/** Inline math opening at `s[i]` (`\(..\)`, `$$..$$` or a strict `$..$` that leaves prices like `$5 and $10` alone), with the index after it, or null. */
+function mathAt(s: string, i: number): { tex: string; end: number } | null {
+  const make = (from: number, to: number, len: number) => {
+    const tex = s.slice(from, to).trim();
+    return tex ? { tex, end: to + len } : null;
+  };
+  if (s[i] === "\\") {
+    if (s[i + 1] !== "(" || inWinPath(s, i)) return null;
+    const close = s.indexOf("\\)", i + 2);
+    return close < 0 ? null : make(i + 2, close, 2);
+  }
+  if (s[i + 1] === "$") {
+    const close = s.indexOf("$$", i + 2);
+    return close < 0 ? null : make(i + 2, close, 2);
+  }
+  if (isWord(s[i - 1]) || s[i - 1] === "\\" || isSpace(s[i + 1])) return null;
+  for (let j = i + 1; j < s.length; j++) {
+    if (s[j] === "$" && !isSpace(s[j - 1]) && s[j - 1] !== "\\" && !/\d/.test(s[j + 1] ?? "")) return make(i + 1, j, 1);
+  }
+  return null;
 }
 
 /** Start of the backtick run closing the code span opened by `run` backticks at `i`, or -1. */
@@ -275,11 +329,6 @@ export function parseInline(s: string): Inline[] {
   let i = 0;
   while (i < s.length) {
     const c = s[i];
-    if (c === "\\" && i + 1 < s.length && ESCAPABLE.includes(s[i + 1]) && !inWinPath(s, i)) {
-      buf += s[i + 1];
-      i += 2;
-      continue;
-    }
     if (c === "`") {
       let run = 1;
       while (s[i + run] === "`") run++;
@@ -294,6 +343,18 @@ export function parseInline(s: string): Inline[] {
       flush();
       out.push({ type: "code", text: code });
       i = close + run;
+      continue;
+    }
+    const mathEnd = c === "\\" || c === "$" ? mathAt(s, i) : null;
+    if (mathEnd) {
+      flush();
+      out.push({ type: "math", tex: mathEnd.tex });
+      i = mathEnd.end;
+      continue;
+    }
+    if (c === "\\" && i + 1 < s.length && ESCAPABLE.includes(s[i + 1]) && !inWinPath(s, i)) {
+      buf += s[i + 1];
+      i += 2;
       continue;
     }
     if (c === "!" && s[i + 1] === "[") {
