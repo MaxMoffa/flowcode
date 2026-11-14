@@ -152,8 +152,11 @@
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg-elevated);
+  /* The app's menu surface: near-opaque whatever the window's glass opacity. */
+  background: var(--menu-surface);
   box-shadow: var(--drop-shadow, 0 14px 40px rgba(0, 0, 0, 0.35));
+  backdrop-filter: var(--menu-backdrop);
+  -webkit-backdrop-filter: var(--menu-backdrop);
   animation: browser-tabs-pop 0.12s ease-out;
 }
 

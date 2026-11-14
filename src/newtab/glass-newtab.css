@@ -33,14 +33,14 @@
   --glass-fill: rgb(var(--surface-rgb) / max(0.6, calc(var(--surface-alpha) * 0.7)));
 }
 
-/* Over the tab in front, on the content area alone (the tab strip stays
-   clear): the view underneath dims. No blur on this scrim: a backdrop-filter
-   here would be the panel's backdrop root, so the panel's own blur would only
-   see the scrim and the terminals' text would show through it sharp. */
+/* Over the whole window (portaled to <body>, like the app's other modals), not
+   just the terminal/chat area: the view underneath dims. No blur on this scrim:
+   a backdrop-filter here would be the panel's backdrop root, so the panel's own
+   blur would only see the scrim and the terminals' text would show through it sharp. */
 .glass-newtab.is-dialog {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 5;
+  z-index: 1100;
   height: auto;
   background: rgb(6 10 11 / 0.45);
 }

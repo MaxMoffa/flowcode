@@ -18,6 +18,7 @@ import { shownPath } from "./promptText";
 import { shellChips } from "./shellChips";
 import type { NewTabLaunch, NewTabLayoutProps } from "./types";
 import { useRelativeTime } from "./useRelativeTime";
+import { createPortal } from "react-dom";
 import "./glass-newtab.css";
 
 const RECENTS_SHOWN = 6;
@@ -249,7 +250,7 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
       </>,
     );
 
-  return (
+  const page = (
     <div
       className={
         "glass-newtab" +
@@ -408,4 +409,6 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
       </div>
     </div>
   );
+  // As a dialog it covers the whole window, not the tab's content area.
+  return dialog ? createPortal(page, document.body) : page;
 }
