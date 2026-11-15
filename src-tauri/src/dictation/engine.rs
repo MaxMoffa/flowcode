@@ -227,8 +227,55 @@ pub fn resolve_device(accel: &str, chosen: &str, devices: &[GpuDevice]) -> Resul
     }
 }
 
+/// Free memory on GPU `device` (its position among the GPUs, as in `load`), in
+/// bytes; None when ggml doesn't know. Call only once `gpu_devices` listed it.
+#[cfg(windows)]
+fn gpu_free_bytes(device: i32) -> Option<usize> {
+    use whisper_rs::whisper_rs_sys as sys;
+    let mut seen = 0;
+    // SAFETY: ggml owns the devices for the whole run; the probe vetted the driver.
+    unsafe {
+        for index in 0..sys::ggml_backend_dev_count() {
+            let dev = sys::ggml_backend_dev_get(index);
+            let kind = sys::ggml_backend_dev_type(dev);
+            if kind != sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU && kind != sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU {
+                continue;
+            }
+            if seen == device {
+                let (mut free, mut total) = (0usize, 0usize);
+                sys::ggml_backend_dev_memory(dev, &mut free, &mut total);
+                return (total > 0).then_some(free);
+            }
+            seen += 1;
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn gpu_free_bytes(_device: i32) -> Option<usize> {
+    None
+}
+
+/// GPU memory loading `model_bytes` of weights takes: the weights, plus the
+/// attention caches and compute buffers (well under half the model, plus a bit).
+fn gpu_bytes_needed(model_bytes: u64) -> u64 {
+    model_bytes + model_bytes / 2 + 256 * 1024 * 1024
+}
+
 /// Loads the model at `path` on the GPU `device`, or on the CPU with none.
 pub fn load(path: &Path, device: Option<i32>) -> Result<Arc<WhisperContext>, String> {
+    // whisper.cpp doesn't check the weights' GPU allocation: when the card is
+    // out of memory it aborts the whole app (GGML_ASSERT(buffer)). Refuse here,
+    // so the caller falls back to the CPU instead.
+    if let (Some(device), Ok(meta)) = (device, std::fs::metadata(path)) {
+        if let Some(free) = gpu_free_bytes(device) {
+            if (free as u64) < gpu_bytes_needed(meta.len()) {
+                eprintln!("[dictation] GPU {device}: {} MB free, model needs more: not loading it there", free / (1024 * 1024));
+                return Err(tr("Memoria della GPU insufficiente per il modello vocale.", "Not enough GPU memory for the speech model.").to_string());
+            }
+        }
+    }
     let path = path.to_str().ok_or_else(|| tr("Percorso del modello non valido.", "Invalid model path.").to_string())?;
     let mut params = WhisperContextParameters::default();
     // Flash attention speeds up the GPU and does nothing for the CPU.
