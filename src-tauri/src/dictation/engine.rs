@@ -2,7 +2,7 @@
 //! a while after a session so the next one starts at once.
 
 use flowcode_shared::i18n::tr;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -99,7 +99,7 @@ impl ContextCache {
 }
 
 /// A graphics card Whisper can run on.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuDevice {
     /// What `load` takes: its position among the GPUs.
@@ -109,10 +109,11 @@ pub struct GpuDevice {
     discrete: bool,
 }
 
-/// The GPUs Whisper can use, in its order. None when this build has no GPU
-/// backend or this PC has no working Vulkan.
+/// The raw ggml enumeration. It initializes ggml's backend registry, Vulkan
+/// included, so a buggy driver can crash the process right here: on Windows only
+/// the probe process (`gpu_probe`) and tests call it.
 #[cfg(windows)]
-pub fn gpu_devices() -> Vec<GpuDevice> {
+pub fn enumerate_gpus_in_process() -> Vec<GpuDevice> {
     use whisper_rs::whisper_rs_sys as sys;
     let mut devices = Vec::new();
     // SAFETY: ggml owns the devices and their strings for the whole run.
@@ -129,6 +130,75 @@ pub fn gpu_devices() -> Vec<GpuDevice> {
         }
     }
     devices
+}
+
+/// How long the probe may take before it's taken for hung.
+#[cfg(windows)]
+const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Runs the enumeration in a child copy of this executable: a driver that
+/// crashes or hangs there costs the probe, not the app. None if it failed.
+#[cfg(windows)]
+fn probe_gpus() -> Option<Vec<GpuDevice>> {
+    use std::io::Read;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut child = Command::new(std::env::current_exe().ok()?)
+        .arg(super::gpu_probe::ARGUMENT)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .ok()?;
+    // Read on a thread so a full pipe can't stall the child while we poll.
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stdout.read_to_string(&mut text);
+        text
+    });
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() < PROBE_TIMEOUT => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    };
+    let text = reader.join().ok()?;
+    if !status.success() {
+        return None;
+    }
+    // ggml logs its devices to stdout first: the list is the last line.
+    serde_json::from_str(text.lines().rev().find(|l| !l.trim().is_empty())?.trim()).ok()
+}
+
+/// The GPUs Whisper can use, in its order. None when this build has no GPU
+/// backend or this PC has no working Vulkan. Probed out of process once per run
+/// (a driver that crashes on init must not take the app down); when that fails
+/// or finds nothing, Vulkan is kept out of this process for good. Must run
+/// before the first in-process ggml/whisper call.
+#[cfg(windows)]
+pub fn gpu_devices() -> Vec<GpuDevice> {
+    static DEVICES: std::sync::OnceLock<Vec<GpuDevice>> = std::sync::OnceLock::new();
+    DEVICES
+        .get_or_init(|| {
+            let devices = probe_gpus().unwrap_or_else(|| {
+                eprintln!("[dictation] GPU probe failed, Vulkan disabled: dictation runs on the CPU");
+                Vec::new()
+            });
+            if devices.is_empty() {
+                super::vulkan_loader::disable();
+            }
+            devices
+        })
+        .clone()
 }
 
 #[cfg(not(windows))]
@@ -505,6 +575,9 @@ mod tests {
         let audio = read_wav(&wav);
         println!("audio {:.1}s", audio.len() as f32 / 16_000.0);
         let started = std::time::Instant::now();
+        #[cfg(windows)]
+        let devices = enumerate_gpus_in_process();
+        #[cfg(not(windows))]
         let devices = gpu_devices();
         println!("gpus {devices:?}");
         let device = resolve_device("auto", "", &devices).unwrap();

@@ -10,6 +10,7 @@ mod chat_mcp;
 mod agent_insight;
 mod context;
 mod dictation;
+pub use dictation::run_gpu_probe_if_requested as run_gpu_probe;
 mod newtab_background;
 mod notify;
 mod plugins;

@@ -21,6 +21,8 @@
 mod audio;
 pub mod cleanup;
 mod engine;
+mod gpu_probe;
+pub use gpu_probe::run_gpu_probe_if_requested;
 mod models;
 #[cfg(windows)]
 mod vulkan_loader;

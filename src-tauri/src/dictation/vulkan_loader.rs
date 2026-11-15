@@ -13,6 +13,7 @@
 #![allow(non_snake_case)]
 
 use std::ffi::{c_char, c_void, CStr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
@@ -51,6 +52,16 @@ fn open() -> Option<Loader> {
     }
 }
 
+/// Set once the GPU probe found Vulkan unusable (crash, hang, no GPU): from then
+/// on this process behaves as if vulkan-1.dll were missing, so the driver is
+/// never loaded in-process.
+static DISABLED: AtomicBool = AtomicBool::new(false);
+
+/// Keeps Vulkan out of ggml for the rest of the run. Call before any ggml use.
+pub(crate) fn disable() {
+    DISABLED.store(true, Ordering::SeqCst);
+}
+
 fn loader() -> Option<&'static Loader> {
     static LOADER: OnceLock<Option<Loader>> = OnceLock::new();
     LOADER.get_or_init(open).as_ref()
@@ -66,7 +77,7 @@ unsafe extern "system" fn no_vulkan_version(_version: *mut u32) -> i32 {
 /// As Vulkan's `vkGetInstanceProcAddr`: `name` is a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "system" fn vkGetInstanceProcAddr(instance: *mut c_void, name: *const c_char) -> Option<Function> {
-    let found = loader().and_then(|l| (l.get_instance_proc_addr)(instance, name));
+    let found = if DISABLED.load(Ordering::SeqCst) { None } else { loader() }.and_then(|l| (l.get_instance_proc_addr)(instance, name));
     if found.is_none() && CStr::from_ptr(name).to_bytes() == b"vkEnumerateInstanceVersion" {
         return Some(std::mem::transmute::<unsafe extern "system" fn(*mut u32) -> i32, Function>(no_vulkan_version));
     }
