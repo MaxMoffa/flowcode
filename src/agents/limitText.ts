@@ -52,10 +52,12 @@ export function parseResetTimeGuarded(text: string, now = new Date()): number | 
   return at;
 }
 
-// Claude Code: "You've hit your limit · resets 3pm"; Codex: "You've hit your
-// usage limit. ... or try again at Oct 20th, 2026 3:45 PM." The terminal wraps
-// these, so spaces and the reset's own text may span lines.
-const LIMIT_RE = /hit\s+your\s+(?:session\s+|weekly\s+|usage\s+)?limit/gi;
+// Claude Code: "You've hit your limit · resets 3pm", "You've hit your 5-hour
+// limit · resets 6pm", "You've reached your weekly limit"; Codex: "You've hit
+// your usage limit. ... or try again at Oct 20th, 2026 3:45 PM." The terminal
+// wraps these, so spaces and the reset's own text may span lines. Up to three
+// qualifier words before "limit" ("session", "5-hour", "org's monthly usage").
+const LIMIT_RE = /(?:hit|reached)\s+your\s+(?:[\w'’-]+\s+){0,3}?limit/gi;
 const RESETS_RE = /resets\s+(.+?)(?:\n|$)/i;
 const TRY_AGAIN_RE = /try\s+again\s+at\s+([^.]{1,48})/i;
 /** Reads a usage-limit notice off the screen text (its last occurrence - older

@@ -29,6 +29,12 @@ describe("detectLimit", () => {
   it("detects a notice without a reset time", () => {
     expect(detectLimit("You've hit your usage limit. Contact your admin.", now)).toEqual({ at: null });
   });
+
+  it("reads Claude Code's 5-hour and reached-your wordings", () => {
+    expect(detectLimit("Internal error: You've hit your 5-hour limit · resets 1pm (Europe/Rome)", now)).toEqual({ at: at(2026, 9, 14, 13, 0) });
+    expect(detectLimit("You've reached your weekly limit · resets Oct 20, 9am (Europe/Rome)", now)).toEqual({ at: at(2026, 9, 20, 9, 0) });
+    expect(detectLimit("You hit the button and your rate went over the limit", now)).toBeNull();
+  });
   it("is null with no notice", () => {
     expect(detectLimit("all good", now)).toBeNull();
   });
