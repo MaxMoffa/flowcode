@@ -9,11 +9,12 @@ import { closeChatTab, pendingPermissionTitle, renameChat, requestOpenChat, useC
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { agentName, shortCwd } from "./common";
 import { tapFeedback } from "./haptics";
+import { appendDictation, useDictation } from "./useDictation";
 import { groupSessions, lastInWindow, sessionsOf, useStateSince, type Session } from "./homeSessions";
 import { leftText } from "./homeUsage";
 import { UsageSection } from "./HomeUsageCards";
 import { t } from "./i18n";
-import { AgentLogo, ArrowUpRightIcon, ChatIcon, CheckIcon, ChevronDownIcon, CloseIcon, DotsIcon, FolderIcon, PencilIcon, PlusIcon, SendIcon, TerminalIcon } from "./icons";
+import { AgentLogo, ArrowUpRightIcon, Svg, ChatIcon, CheckIcon, ChevronDownIcon, CloseIcon, DotsIcon, FolderIcon, PencilIcon, PlusIcon, SendIcon, TerminalIcon } from "./icons";
 import { AGENTS, loadRecents, recentsKey, NewTerminalSheet } from "./NewTerminalSheet";
 import type { Pending } from "./pending";
 import { send, useRemoteSelector, useSupports, type Tab } from "./remote";
@@ -97,6 +98,19 @@ function AgentMenu({ anchor, options, value, onPick, onClose }: { anchor: HTMLEl
   );
 }
 
+const MicIcon = () => (
+  <Svg>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+  </Svg>
+);
+
+const StopIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor" />
+  </svg>
+);
+
 /** What was sent, kept until the desktop answers: a failed start gives it back, even to a Home mounted again. */
 const sent = { current: "" };
 
@@ -113,6 +127,11 @@ export function Launcher({ hostName, tabs, onCreate, pending }: { hostName: stri
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<"agent" | "folder" | null>(null);
   const agentPill = useRef<HTMLButtonElement>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  // Spoken phrases land after what is already written, like in the chat composer.
+  const dictation = useDictation((spoken) => setDraft(appendDictation(draftRef.current, spoken)), true);
+  const listening = dictation.state === "listening";
 
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
   const cwd = folder.cwd;
@@ -137,6 +156,7 @@ export function Launcher({ hostName, tabs, onCreate, pending }: { hostName: stri
   const submit = () => {
     const text = draft.trim();
     if (!text || !agent || (pending && !pending.failed)) return;
+    dictation.cancel();
     sent.current = text;
     send({ t: "newchat", cli: agent.id, ...(cwd ? { cwd: launchPath(cwd) } : {}) });
     onCreate(true, cwd ? `${agent.name} · ${shortCwd(cwd)}` : agent.name, text, { agent: agent.id, ...(cwd ? { cwd: launchPath(cwd) } : {}) });
@@ -144,21 +164,47 @@ export function Launcher({ hostName, tabs, onCreate, pending }: { hostName: stri
   };
 
   return (
-    <section className="hm-launch">
-      <textarea value={draft} placeholder={t("homePlaceholder")} aria-label={t("homePlaceholder")} onChange={(e) => setDraft(e.target.value)} />
+    <section className={"hm-launch" + (listening ? " is-listening" : "")}>
+      <textarea value={draft} placeholder={listening ? t("dictateListening") : t("homePlaceholder")} aria-label={t("homePlaceholder")} onChange={(e) => setDraft(e.target.value)} />
+      {listening && dictation.partial && <div className="hm-partial" aria-live="polite">{dictation.partial}</div>}
+      {dictation.error && (
+        <button type="button" className="hm-dictate-err" onClick={dictation.dismissError}>
+          {dictation.error}
+        </button>
+      )}
       <div className="hm-bar">
-        <button ref={agentPill} type="button" className={"hm-pill" + (picker === "agent" ? " on" : "")} aria-label={t("newTermAgent")} aria-haspopup="true" aria-expanded={picker === "agent"} onClick={() => setPicker("agent")}>
-          {agent && <AgentLogo cli={agent.id} size={16} />}
-          <span>{agent?.name}</span>
-          <i className="hm-pill-chev" aria-hidden="true"><ChevronDownIcon /></i>
-        </button>
-        <button type="button" className="hm-pill mono" aria-label={t("newTermFolder")} onClick={() => setPicker("folder")}>
-          <FolderIcon />
-          <span>{cwd ? shortCwd(cwd) : t("newTermStartFolder")}</span>
-        </button>
-        <button type="button" className="hm-go" aria-label={t("homeStart")} disabled={!draft.trim() || (!!pending && !pending.failed)} onClick={submit}>
-          <SendIcon />
-        </button>
+        {listening ? (
+          <>
+            <div className="hm-rec">
+              <span className="hm-wave" aria-hidden="true"><i /><i /><i /><i /></span>
+              <b>{t("homeDictateListening")}</b>
+              <button type="button" className="hm-rec-cancel" onClick={dictation.cancel}>{t("homeDictateCancel")}</button>
+            </div>
+            <button type="button" className="hm-mic is-listening" aria-label={t("homeDictateStop")} aria-pressed="true" onClick={() => { tapFeedback(); dictation.stop(); }}>
+              <StopIcon />
+            </button>
+          </>
+        ) : (
+          <>
+            <button ref={agentPill} type="button" className={"hm-pill" + (picker === "agent" ? " on" : "")} aria-label={t("newTermAgent")} aria-haspopup="true" aria-expanded={picker === "agent"} onClick={() => setPicker("agent")}>
+              {agent && <AgentLogo cli={agent.id} size={16} />}
+              <span>{agent?.name}</span>
+              <i className="hm-pill-chev" aria-hidden="true"><ChevronDownIcon /></i>
+            </button>
+            <button type="button" className="hm-pill mono" aria-label={t("newTermFolder")} onClick={() => setPicker("folder")}>
+              <FolderIcon />
+              <span>{cwd ? shortCwd(cwd) : t("newTermStartFolder")}</span>
+            </button>
+            {dictation.supported && (
+              <button type="button" className="hm-mic" aria-label={t("dictate")} aria-pressed="false" onClick={() => { tapFeedback(); void dictation.start(); }}>
+                <MicIcon />
+              </button>
+            )}
+            <button type="button" className="hm-go" aria-label={t("homeStart")} disabled={!draft.trim() || (!!pending && !pending.failed)} onClick={submit}>
+              <SendIcon />
+            </button>
+          </>
+        )}
       </div>
       {picker === "agent" && (
         <AgentMenu

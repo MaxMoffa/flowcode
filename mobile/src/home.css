@@ -148,6 +148,8 @@
   gap: 6px;
   min-height: 36px;
   max-width: 132px;
+  /* Shrinks (the name ellipsized) so the mic and send keep their size on narrow phones. */
+  min-width: 0;
   padding: 0 10px;
   border: 0;
   border-radius: 12px;
@@ -182,6 +184,130 @@
 .hm-go:disabled {
   background: var(--surface-3);
   color: var(--muted);
+}
+
+/* Dictation: the mic sits before send; while listening, agent and folder give way to the "listening" bar. */
+.hm-launch.is-listening {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.hm-mic {
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.hm-mic + .hm-go {
+  margin-left: 0;
+}
+
+.hm-mic.is-listening {
+  background: var(--accent);
+  color: var(--on-accent);
+  animation: hm-mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes hm-mic-pulse {
+  50% {
+    box-shadow: 0 0 0 6px var(--accent-bg);
+  }
+}
+
+.hm-rec {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 12px;
+  border-radius: 12px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.hm-rec b {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-rec-cancel {
+  margin-left: auto;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--fg);
+  font-size: 12.5px;
+  opacity: 0.8;
+}
+
+.hm-wave {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.hm-wave i {
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: currentColor;
+  animation: hm-wave 0.9s ease-in-out infinite;
+}
+
+.hm-wave i:nth-child(2) { animation-delay: 0.15s; }
+.hm-wave i:nth-child(3) { animation-delay: 0.3s; }
+.hm-wave i:nth-child(4) { animation-delay: 0.45s; }
+
+@keyframes hm-wave {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-wave i,
+  .hm-mic.is-listening {
+    animation: none;
+  }
+}
+
+/* The phrase still being heard: shown, not yet in the text. */
+.hm-partial {
+  margin-top: 4px;
+  color: var(--muted);
+  font: 15px/1.35 var(--font);
+}
+
+.hm-dictate-err {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--danger, #e0806a);
+  font-size: 12.5px;
+  text-align: left;
 }
 
 /* ---- buttons ------------------------------------------------------------ */

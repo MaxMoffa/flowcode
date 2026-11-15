@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowcode mobile — dettatura nel box della home</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+    --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+    --fg: #e7d8c5; --muted: #a08a6f;
+    --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+    --on-accent: #0e0a07; --rec: #e0806a; --rec-bg: rgba(224, 128, 106, .14); --rec-border: rgba(224, 128, 106, .4);
+    --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+  button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+  .ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .page { max-width: 1120px; margin: auto; padding: 28px 24px 48px; }
+  .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+  .lead { margin: 0 0 18px; color: var(--muted); max-width: 800px; }
+  .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+  .variants button { flex: 1 1 200px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; text-align: left; }
+  .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+  .variants button[aria-selected="true"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .stage { display: grid; grid-template-columns: repeat(2, 340px) 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 1080px) { .stage { grid-template-columns: 340px 1fr; } .phone.narrow { display: none; } }
+  @media (max-width: 760px) { .stage { grid-template-columns: 1fr; justify-items: center; } }
+  .cap { font: 11px var(--mono); color: var(--muted); text-align: center; margin-top: 8px; }
+
+  /* telefono */
+  .phone { width: 340px; height: 640px; border-radius: 44px; padding: 10px; background: #0b0907; box-shadow: 0 0 0 1px #2a2420, 0 30px 60px rgba(0,0,0,.5); }
+  .phone.narrow { width: 300px; }
+  .screen { position: relative; height: 100%; border-radius: 36px; overflow: hidden; padding: 46px 14px 0;
+    background: radial-gradient(120% 60% at 15% 0%, #33402c 0%, transparent 60%), radial-gradient(90% 60% at 100% 100%, #3d2c1f 0%, transparent 60%), #17120e; }
+  .hello { font-size: 22px; font-weight: 600; letter-spacing: -.02em; margin: 6px 4px 14px; }
+  .ghost { height: 64px; border-radius: 18px; background: rgba(255,255,255,.04); border: 1px solid var(--border); margin-top: 12px; }
+  .ghost.s { height: 44px; }
+
+  /* box di lancio (come mobile/src/home.css .hm-launch) */
+  .hm-launch { position: relative; padding: 14px; border-radius: 22px; background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--border-strong); transition: box-shadow .2s, border-color .2s; }
+  .hm-launch.rec { border-color: var(--rec-border); box-shadow: 0 0 0 3px var(--rec-bg); }
+  .hm-launch .ta { min-height: 64px; font: 17px/1.35 var(--font); color: var(--fg); white-space: pre-wrap; word-break: break-word; }
+  .hm-launch .ta.ph { color: var(--muted); }
+  .hm-launch .ta .part { color: var(--muted); }
+  .hm-launch.inl .ta { padding-right: 40px; }
+  .hm-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .hm-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; max-width: 132px; padding: 0 10px; border-radius: 12px; background: var(--surface-3); font-size: 13px; white-space: nowrap; min-width: 0; }
+  .hm-pill span { overflow: hidden; text-overflow: ellipsis; }
+  .hm-pill.mono { font-family: var(--mono); font-size: 12px; }
+  .logo { width: 16px; height: 16px; border-radius: 5px; background: #d98b5f; display: grid; place-items: center; font: 700 9px var(--mono); color: #1a1511; flex: none; }
+  .hm-go { width: 44px; height: 44px; margin-left: auto; border-radius: 15px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); flex: none; transition: background .2s, color .2s; }
+  .hm-go:disabled { background: var(--surface-3); color: var(--muted); cursor: default; }
+  .hm-mic { width: 44px; height: 44px; border-radius: 15px; display: grid; place-items: center; background: var(--surface-3); color: var(--fg); flex: none; }
+  .hm-mic.sm { width: 36px; height: 36px; border-radius: 12px; }
+  .hm-mic.rec, .hm-go.rec { background: var(--rec); color: #1a0e0a; }
+  .hm-mic.corner { position: absolute; right: 10px; top: 10px; width: 34px; height: 34px; border-radius: 11px; background: transparent; color: var(--muted); }
+  .hm-mic.corner:hover { background: var(--surface-3); color: var(--fg); }
+  .hm-mic.corner.rec { background: var(--rec); color: #1a0e0a; }
+  .pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px var(--rec-bg); } }
+  .wave { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
+  .wave i { width: 3px; border-radius: 2px; background: currentColor; animation: w .9s ease-in-out infinite; }
+  .wave i:nth-child(2) { animation-delay: .15s } .wave i:nth-child(3) { animation-delay: .3s } .wave i:nth-child(4) { animation-delay: .45s }
+  @keyframes w { 0%, 100% { height: 4px } 50% { height: 15px } }
+  .recbar { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border-radius: 12px; background: var(--rec-bg); color: var(--rec); font: 12px var(--mono); flex: 1; min-width: 0; }
+  .recbar b { font-weight: 600; }
+  .recbar .x { margin-left: auto; color: var(--fg); opacity: .7; font-size: 12px; font-family: var(--font); }
+
+  /* note */
+  .notes h2 { margin: 0 0 4px; font-size: 20px; }
+  .notes .sub { color: var(--muted); margin: 0 0 14px; }
+  .card { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .1em; color: var(--muted); font-weight: 500; }
+  .card ul { margin: 0; padding-left: 18px; } .card li { margin: 3px 0; }
+  .ctrls { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ctrls button { padding: 6px 12px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border); font-size: 12.5px; }
+  .ctrls button[aria-pressed="true"] { border-color: var(--accent-border); background: var(--accent-bg); color: var(--accent); }
+  .tag { display: inline-block; font: 11px var(--mono); padding: 2px 8px; border-radius: 6px; margin: 0 6px 4px 0; border: 1px solid var(--border-strong); }
+  .tag.g { color: var(--accent); border-color: var(--accent-border); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · HOME · BOX "NUOVA CHAT" · DETTATURA</div>
+  <h1>Dettare il primo messaggio dalla home</h1>
+  <p class="lead">Tre modi per mettere il microfono nel box in alto della home, quello con agente, cartella e invio. Tocca il microfono dentro i telefoni: la dettatura è simulata (testo provvisorio in grigio, poi definitivo). A destra lo stesso box su un telefono stretto.</p>
+
+  <div class="variants" role="tablist">
+    <button role="tab" aria-selected="true" data-v="a"><span>A</span>Pulsante accanto all'invio</button>
+    <button role="tab" aria-selected="false" data-v="b"><span>B</span>L'invio diventa microfono</button>
+    <button role="tab" aria-selected="false" data-v="c"><span>C</span>Microfono nell'angolo del testo</button>
+  </div>
+
+  <div class="stage">
+    <div><div class="phone"><div class="screen" id="s1"></div></div><div class="cap">telefono normale · 390 px</div></div>
+    <div><div class="phone narrow"><div class="screen" id="s2"></div></div><div class="cap">telefono stretto · 340 px</div></div>
+    <div class="notes" id="notes"></div>
+  </div>
+</div>
+
+<script>
+const I = {
+  mic: '<svg class="ic" width="18" height="18" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  micS: '<svg class="ic" width="16" height="16" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  send: '<svg class="ic" width="18" height="18" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>',
+  stop: '<svg width="14" height="14" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor"/></svg>',
+  folder: '<svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  chev: '<svg class="ic" width="13" height="13" viewBox="0 0 24 24" style="opacity:.6"><path d="M6 9l6 6 6-6"/></svg>',
+};
+const PHRASE = 'Sistema il bug dei tab dei terminali che non si chiudono quando esce l\'agente';
+const st = { v: 'a', rec: false, text: '', part: '', autosend: false };
+let timer = null;
+const wave = '<span class="wave"><i></i><i></i><i></i><i></i></span>';
+
+function startRec() {
+  st.rec = true; st.part = ''; render();
+  const words = PHRASE.split(' '); let i = 0;
+  clearInterval(timer);
+  timer = setInterval(() => {
+    i++; st.part = words.slice(0, i).join(' ');
+    if (i >= words.length) { stopRec(); return; }
+    render();
+  }, 260);
+}
+function stopRec() {
+  clearInterval(timer);
+  st.text = (st.text ? st.text + ' ' : '') + st.part; st.part = ''; st.rec = false;
+  if (st.autosend && st.text) { st.sent = true; setTimeout(() => { st.sent = false; st.text = ''; render(); }, 1400); }
+  render();
+}
+function cancelRec() { clearInterval(timer); st.part = ''; st.rec = false; render(); }
+
+function ta() {
+  if (st.sent) return `<div class="ta" style="color:var(--accent)">Chat avviata con Claude ✓</div>`;
+  if (!st.text && !st.part) return `<div class="ta ph">${st.rec ? 'Parla pure…' : 'Cosa devo fare?'}</div>`;
+  return `<div class="ta">${st.text}${st.part ? (st.text ? ' ' : '') + `<span class="part">${st.part}</span>` : ''}</div>`;
+}
+const agentPill = `<button class="hm-pill"><i class="logo">C</i><span>Claude</span>${I.chev}</button>`;
+const folderPill = `<button class="hm-pill mono">${I.folder}<span>~/flowcode</span></button>`;
+const recBar = `<div class="recbar">${wave}<b>Ti ascolto</b><button class="x" data-act="cancel">Annulla</button></div>`;
+
+function box(narrow) {
+  const has = !!st.text.trim();
+  const go = `<button class="hm-go" data-act="send" ${has && !st.rec ? '' : 'disabled'} aria-label="Avvia">${I.send}</button>`;
+  if (st.v === 'a') {
+    const mic = `<button class="hm-mic ${narrow ? 'sm' : ''} ${st.rec ? 'rec pulse' : ''}" data-act="mic" aria-label="${st.rec ? 'Ferma dettatura' : 'Detta'}">${st.rec ? I.stop : (narrow ? I.micS : I.mic)}</button>`;
+    const bar = st.rec ? `${recBar}${mic}` : `${agentPill}${folderPill}<span style="margin-left:auto"></span>${mic}${go.replace('margin-left:auto', '')}`;
+    return `<section class="hm-launch ${st.rec ? 'rec' : ''}">${ta()}<div class="hm-bar">${bar}</div></section>`;
+  }
+  if (st.v === 'b') {
+    // empty → mic; text → send; recording → stop
+    const btn = st.rec
+      ? `<button class="hm-go rec pulse" data-act="mic" aria-label="Ferma dettatura">${I.stop}</button>`
+      : has ? `<button class="hm-go" data-act="send" aria-label="Avvia">${I.send}</button>`
+            : `<button class="hm-go" style="background:var(--surface-3);color:var(--fg)" data-act="mic" aria-label="Detta">${I.mic}</button>`;
+    const bar = st.rec ? `${recBar}${btn}` : `${agentPill}${folderPill}${btn}`;
+    return `<section class="hm-launch ${st.rec ? 'rec' : ''}">${ta()}<div class="hm-bar">${bar}</div></section>`;
+  }
+  const mic = `<button class="hm-mic corner ${st.rec ? 'rec pulse' : ''}" data-act="mic" aria-label="${st.rec ? 'Ferma dettatura' : 'Detta'}">${st.rec ? I.stop : I.micS}</button>`;
+  return `<section class="hm-launch inl ${st.rec ? 'rec' : ''}">${mic}${ta()}<div class="hm-bar">${agentPill}${folderPill}${go}</div></section>`;
+}
+
+const NOTES = {
+  a: { t: 'A · Pulsante accanto all\'invio', s: 'Microfono sempre visibile, a sinistra della freccia. Mentre detti, agente e cartella lasciano posto a una barra rossa "Ti ascolto" con Annulla.',
+    pro: ['Si trova subito, sempre nello stesso punto', 'Puoi dettare anche dopo aver scritto qualcosa (il testo si aggiunge)', 'Stesso schema della chat (microfono accanto all\'invio nel composer)'],
+    con: ['Un pulsante in più nella riga: sui telefoni stretti il nome della cartella si accorcia (a destra)'] },
+  b: { t: 'B · L\'invio diventa microfono', s: 'Come nelle app di messaggi: con il box vuoto il pulsante grande è il microfono; appena c\'è testo torna la freccia.',
+    pro: ['Nessun pulsante in più: la riga resta identica a oggi', 'Il microfono è grande e comodo col pollice'],
+    con: ['Per aggiungere a voce dopo aver scritto bisogna svuotare il box', 'Il pulsante cambia funzione: un attimo di abitudine'] },
+  c: { t: 'C · Microfono nell\'angolo del testo', s: 'Un microfono piccolo e discreto in alto a destra dentro l\'area di scrittura; la riga sotto non cambia.',
+    pro: ['La riga agente/cartella/invio non perde spazio', 'Discreto: chi non detta quasi non lo nota'],
+    con: ['Più piccolo e lontano dal pollice', 'Meno evidente che si possa dettare'] },
+};
+function notes() {
+  const n = NOTES[st.v];
+  return `<h2>${n.t}</h2><p class="sub">${n.s}</p>
+  <div class="card"><h3>PROVA</h3><div class="ctrls">
+    <button data-act="auto" aria-pressed="${st.autosend}">Invio automatico a fine dettatura</button>
+    <button data-act="clear">Svuota il box</button></div></div>
+  <div class="card"><h3>PRO</h3><ul>${n.pro.map(x => `<li>${x}</li>`).join('')}</ul></div>
+  <div class="card"><h3>CONTRO</h3><ul>${n.con.map(x => `<li>${x}</li>`).join('')}</ul></div>
+  <div class="card"><h3>IN TUTTE LE VARIANTI</h3><ul>
+    <li>Usa la dettatura che c'è già nella chat (stessa lingua e stesso motore delle impostazioni)</li>
+    <li>Il testo provvisorio è grigio, diventa normale quando è definitivo; si può correggere a mano prima di inviare</li>
+    <li>"Invio automatico" segue l'impostazione della dettatura: se è attiva, a fine frase la chat parte da sola</li>
+    <li>Se il telefono non ha il riconoscimento vocale il microfono non compare</li>
+    <li>Stesso pulsante che il widget "Finestra" apre già (chat nuova con la dettatura accesa)</li>
+  </ul></div>
+  <div class="card"><span class="tag g">solo telefono</span><span class="tag">tablet: stesso box</span><span class="tag">costo: basso</span></div>`;
+}
+function screen(narrow) {
+  return `<div class="hello">Ciao 👋</div>${box(narrow)}<div class="ghost"></div><div class="ghost s"></div><div class="ghost"></div>`;
+}
+function render() {
+  document.getElementById('s1').innerHTML = screen(false);
+  document.getElementById('s2').innerHTML = screen(true);
+  document.getElementById('notes').innerHTML = notes();
+  document.querySelectorAll('.variants button').forEach(b => b.setAttribute('aria-selected', b.dataset.v === st.v));
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) { cancelRec(); st.v = b.dataset.v; st.text = ''; render(); return; }
+  const a = b.dataset.act;
+  if (a === 'mic') st.rec ? stopRec() : startRec();
+  else if (a === 'cancel') cancelRec();
+  else if (a === 'send' && st.text) { st.sent = true; render(); setTimeout(() => { st.sent = false; st.text = ''; render(); }, 1400); }
+  else if (a === 'auto') { st.autosend = !st.autosend; render(); }
+  else if (a === 'clear') { cancelRec(); st.text = ''; render(); }
+});
+render();
+</script>
+</body>
+</html>
