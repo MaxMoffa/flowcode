@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from shared/agentLogos.ts: the agent's mark, in its widget colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="27.2"
+    android:viewportHeight="27.2">
+    <group android:translateX="1.6" android:translateY="1.6">
+        <path
+            android:fillColor="#e0a46a"
+            android:pathData="M2 2h4v4H2zM18 2h4v4h-4zM2 6h8v4H2zM14 6h8v4h-8zM2 10h20v4H2zM2 14h4v4H2zM10 14h4v4h-4zM18 14h4v4h-4zM2 18h4v4H2zM18 18h4v4h-4z" />
+    </group>
+</vector>

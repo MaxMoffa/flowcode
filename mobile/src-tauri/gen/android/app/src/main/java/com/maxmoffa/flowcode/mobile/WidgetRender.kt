@@ -42,8 +42,14 @@ private class Snap(val known: Boolean, val days: IntArray, val streak: Int, val 
     val mood get() = if (today == 0) "sleep" else if (today <= 3) "calm" else "happy"
 }
 
-private val AGENT_LETTER = mapOf("claude" to "C", "codex" to "X", "gemini" to "G", "opencode" to "O", "vibe" to "V")
-private val AGENT_COLOR = mapOf("claude" to "#d98b5f", "codex" to "#8fb0d6", "gemini" to "#c9b36a", "opencode" to "#b9a2d8", "vibe" to "#e0a46a")
+/** Each agent's mark (generated from shared/agentLogos.ts), already in its colour. */
+private val AGENT_ICON = mapOf(
+    "claude" to R.drawable.widget_agent_claude,
+    "codex" to R.drawable.widget_agent_codex,
+    "gemini" to R.drawable.widget_agent_gemini,
+    "opencode" to R.drawable.widget_agent_opencode,
+    "vibe" to R.drawable.widget_agent_vibe,
+)
 
 internal object WidgetRender {
     const val ACTION = "com.maxmoffa.flowcode.mobile.WIDGET"
@@ -227,15 +233,16 @@ internal object WidgetRender {
         rv.setTextViewText(R.id.chip_mono, timeText(ctx, snap.minutes))
         rv.show(R.id.chip_mono, snap.known && h >= 100)
         rv.show(R.id.chip_label, h >= 80)
-        val room = if (w < 150) 0 else max(0, min(floor((w - 20 - 38 - 6) / 36.0).toInt(), snap.agents.size))
+        val room = if (w < 150) 0 else max(0, min(floor((w - 20 - 38 - 6) / 36.0).toInt(), snap.agents.count { it in AGENT_ICON }))
         val ids = intArrayOf(R.id.ag0, R.id.ag1, R.id.ag2, R.id.ag3)
+        // An agent without a mark here (a newer one) gets no button.
+        val agents = snap.agents.filter { it in AGENT_ICON }
         ids.forEachIndexed { i, viewId ->
-            val agent = snap.agents.getOrNull(i)
+            val agent = agents.getOrNull(i)
             val on = i < room && agent != null
             rv.show(viewId, on)
             if (on && agent != null) {
-                rv.setTextViewText(viewId, AGENT_LETTER[agent] ?: agent.take(1).uppercase())
-                rv.setTextColor(viewId, android.graphics.Color.parseColor(AGENT_COLOR[agent] ?: "#fff6ea"))
+                rv.setImageViewResource(viewId, AGENT_ICON.getValue(agent))
                 rv.setContentDescription(viewId, agent)
                 rv.setOnClickPendingIntent(viewId, pending(ctx, id, 2 + i, "new", agent))
             }

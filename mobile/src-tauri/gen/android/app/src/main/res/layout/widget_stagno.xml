@@ -80,58 +80,38 @@
         android:gravity="center_vertical"
         android:orientation="horizontal"
         >
-        <TextView
+        <ImageView
             android:id="@+id/ag0"
             android:layout_width="30dp"
             android:layout_height="30dp"
             android:layout_marginEnd="6dp"
             android:background="@drawable/widget_glass_round"
-            android:fontFamily="monospace"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:text="C"
-            android:textColor="#fff6ea"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-        <TextView
+            android:padding="7dp"
+            android:scaleType="fitCenter" />
+        <ImageView
             android:id="@+id/ag1"
             android:layout_width="30dp"
             android:layout_height="30dp"
             android:layout_marginEnd="6dp"
             android:background="@drawable/widget_glass_round"
-            android:fontFamily="monospace"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:text="C"
-            android:textColor="#fff6ea"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-        <TextView
+            android:padding="7dp"
+            android:scaleType="fitCenter" />
+        <ImageView
             android:id="@+id/ag2"
             android:layout_width="30dp"
             android:layout_height="30dp"
             android:layout_marginEnd="6dp"
             android:background="@drawable/widget_glass_round"
-            android:fontFamily="monospace"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:text="C"
-            android:textColor="#fff6ea"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-        <TextView
+            android:padding="7dp"
+            android:scaleType="fitCenter" />
+        <ImageView
             android:id="@+id/ag3"
             android:layout_width="30dp"
             android:layout_height="30dp"
             android:layout_marginEnd="6dp"
             android:background="@drawable/widget_glass_round"
-            android:fontFamily="monospace"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:text="C"
-            android:textColor="#fff6ea"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:padding="7dp"
+            android:scaleType="fitCenter" />
         <ImageView
             android:id="@+id/fab"
             android:layout_width="38dp"
