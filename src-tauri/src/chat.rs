@@ -331,6 +331,15 @@ fn error_text(err: &RpcError) -> String {
     if is_auth_error(err) { format!("auth_required: {}", err.message) } else { readable_error(err) }
 }
 
+/// Whether a failed prompt says the agent's session is gone for good while its
+/// process lives on (Claude's adapter: "The Claude Agent session has ended. /
+/// process exited unexpectedly. Please start a new session."). Nothing more
+/// can run in it, so the chat ends as if the agent had exited.
+fn is_session_gone(err: &RpcError) -> bool {
+    let message = err.message.to_lowercase();
+    ["session has ended", "process exited unexpectedly", "please start a new session"].iter().any(|p| message.contains(p))
+}
+
 /// Whether a failed prompt hit the plan's usage limit, a quota or the credits
 /// running out - for every agent. Claude's adapter says so in
 /// `data.errorKind`, Codex's in `data.codexErrorInfo`; Gemini, OpenCode and
@@ -1456,6 +1465,7 @@ impl Chat {
             Incoming::Response { id, result } => {
                 let Some(pending) = lock(&self.pending).remove(&id) else { return };
                 let limit = result.as_ref().err().is_some_and(is_limit_error);
+                let gone = result.as_ref().err().is_some_and(is_session_gone);
                 let result = result.map_err(|e| error_text(&e));
                 match pending {
                     Pending::Waiter(tx) => {
@@ -1467,7 +1477,12 @@ impl Chat {
                             self.emit(ChatBody::TurnEnd { stop_reason: stop_reason.to_string() });
                             self.refresh_goal_soon();
                         }
-                        Err(message) => self.prompt_failed(message, limit),
+                        Err(message) => {
+                            self.prompt_failed(message, limit);
+                            if gone {
+                                self.end_dead_session();
+                            }
+                        }
                     },
                 }
             }
@@ -1713,6 +1728,14 @@ impl Chat {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+    }
+
+    /// Ends an agent whose session is gone (see `is_session_gone`). Unlike
+    /// `kill` the chat isn't closed: the reader thread hears the agent end and
+    /// tells the views it exited, so they show the session-ended pond.
+    fn end_dead_session(&self) {
+        self.kill_wsl_group();
+        kill_if_running(&mut lock(&self.child));
     }
 
     fn kill_wsl_group(&self) {
@@ -3111,6 +3134,15 @@ mod tests {
         assert!(!is_limit_error(&err("Internal error: The Claude Agent session has ended. Please start a new session.", Value::Null)));
         assert!(!is_limit_error(&err("Internal error", json!({ "errorKind": "server_error" }))));
         assert!(!is_limit_error(&err("Authentication required", Value::Null)));
+    }
+
+    #[test]
+    fn recognizes_a_session_that_is_gone() {
+        let err = |message: &str| RpcError { code: -32603, message: message.to_string(), data: None };
+        assert!(is_session_gone(&err("Internal error: The Claude Agent session has ended. Please start a new session.")));
+        assert!(is_session_gone(&err("Internal error: The Claude Agent process exited unexpectedly. Please start a new session.")));
+        assert!(!is_session_gone(&err("Internal error: You've hit your 5-hour limit")));
+        assert!(!is_session_gone(&err("Invalid params")));
     }
 
     #[test]
