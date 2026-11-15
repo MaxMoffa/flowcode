@@ -1,11 +1,11 @@
-import type { ClientMsg, GitRequest, HistoryResult, ServerMsg } from "../../shared/remote-types";
+import type { ActivityStats, ClientMsg, GitRequest, HistoryResult, ServerMsg } from "../../shared/remote-types";
 import { onMessage, send, sendChecked } from "./remote";
 import { t } from "./i18n";
 
 let sequence = 0;
 
 /** Sends a correlated request and resolves with the matching reply's payload (the error string rejects). */
-function correlated<T>(prefix: string, kind: "git" | "history", build: (requestId: string) => ClientMsg, timeoutMs: number): Promise<T> {
+function correlated<T>(prefix: string, kind: "git" | "history" | "stats", build: (requestId: string) => ClientMsg, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const requestId = `${prefix}-${Date.now()}-${++sequence}`;
     let done = false;
@@ -31,6 +31,10 @@ export const gitRequest = <T>(request: GitRequest): Promise<T> =>
 /** The agent sessions of the project at `cwd` (`history` cap). */
 export const historyRequest = (cwd: string): Promise<HistoryResult> =>
   correlated<HistoryResult>("hist", "history", (requestId) => ({ t: "history", requestId, cwd }), 30_000);
+
+/** Activity stats for the home-screen widgets (`stats` cap); `todayStart` is local midnight in ms. */
+export const statsRequest = (todayStart: number): Promise<ActivityStats> =>
+  correlated<ActivityStats>("stats", "stats", (requestId) => ({ t: "stats", requestId, todayStart }), 20_000);
 
 /** Resumes an agent session in a new desktop tab (`resume` cap); fire and forget. */
 export function resumeSession(p: { cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null; view?: "chat" | "terminal" }): void {

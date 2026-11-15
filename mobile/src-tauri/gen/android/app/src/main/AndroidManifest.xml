@@ -83,5 +83,46 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_file_paths" />
         </provider>
+
+        <!-- Home-screen widgets. The frames provider is exported because the
+             launcher process reads the animation frames; it only serves .png
+             files under filesDir/widgets, read-only. -->
+        <receiver
+            android:name=".FinestraWidget"
+            android:exported="true"
+            android:label="@string/widget_a_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_finestra_info" />
+        </receiver>
+        <receiver
+            android:name=".CannetoWidget"
+            android:exported="true"
+            android:label="@string/widget_b_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_canneto_info" />
+        </receiver>
+        <receiver
+            android:name=".StagnoWidget"
+            android:exported="true"
+            android:label="@string/widget_c_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_stagno_info" />
+        </receiver>
+        <provider
+            android:name=".WidgetFrameProvider"
+            android:authorities="${applicationId}.widgetframes"
+            android:exported="true" />
     </application>
 </manifest>

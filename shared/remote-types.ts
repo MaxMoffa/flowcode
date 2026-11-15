@@ -165,6 +165,8 @@ export type GitRequest =
 
 /** Reply to `history` (`history` cap): session entries as in src/agents/entryTypes.ts. */
 export interface HistoryResult { roots: string[]; claude: unknown[]; codex: unknown[]; vibe: unknown[]; opencode: unknown[] }
+/** Reply to `stats` (`stats` cap): activity for the phone's home-screen widgets; `days` oldest first, last = today. */
+export interface ActivityStats { days: number[]; streak: number; todayMinutes: number }
 
 interface FsRoot { name: string; path: string }
 
@@ -282,6 +284,7 @@ export type RemoteCap =
   | "git"
   | "tabOps"
   | "history"
+  | "stats"
   | "resume"
   | "chatAttach"
   | "rename"
@@ -345,6 +348,7 @@ export type ServerMsg =
   | { t: "fs"; requestId: string; response?: FsResponse; error?: string }
   | { t: "git"; requestId: string; result?: unknown; error?: string }
   | { t: "history"; requestId: string; result?: HistoryResult; error?: string }
+  | { t: "stats"; requestId: string; result?: ActivityStats; error?: string }
   | { t: "chatpromptack"; chatId: string; requestId: string; message?: string }
   | { t: "ready"; deviceName: string; hostName: string; appVersion?: string; proto?: number; caps?: string[] }
   | { t: "error"; message: string; ptyId?: string; fatal: boolean }
@@ -393,6 +397,7 @@ export type ClientMsg =
   | { t: "fs"; requestId: string; request: FsRequest }
   | { t: "git"; requestId: string; request: GitRequest }
   | { t: "history"; requestId: string; cwd: string }
+  | { t: "stats"; requestId: string; todayStart: number }
   | { t: "resume"; cwd: string; sessionId: string; cli: string; wslDistro?: string | null; profile?: string | null; view?: "chat" | "terminal" }
   | { t: "list" }
   | { t: "open"; ptyId: string; cols?: number; rows?: number }

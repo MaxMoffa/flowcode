@@ -1557,6 +1557,7 @@ fn append_frame(buf: &mut Vec<u8>, msg: &ServerMsg, compress: bool) {
                 ServerMsg::Fs { request_id, .. } => ServerMsg::Fs { request_id: request_id.clone(), response: None, error: Some(message) },
                 ServerMsg::Git { request_id, .. } => ServerMsg::Git { request_id: request_id.clone(), result: None, error: Some(message) },
                 ServerMsg::History { request_id, .. } => ServerMsg::History { request_id: request_id.clone(), result: None, error: Some(message) },
+                ServerMsg::Stats { request_id, .. } => ServerMsg::Stats { request_id: request_id.clone(), result: None, error: Some(message) },
                 _ => ServerMsg::Error { message, pty_id: msg_pty_id(msg), fatal: false },
             };
             if let Ok(bytes) = encode_frame(&note, false) {
@@ -2796,6 +2797,18 @@ impl Conn {
                 tauri::async_runtime::spawn(async move {
                     let (result, error) = match run_history(app, cwd).await { Ok(v) => (Some(v), None), Err(e) => (None, Some(e)) };
                     let _ = out.send(ServerMsg::History { request_id, result, error }).await;
+                });
+            }
+            ClientMsg::Stats { request_id, today_start } => {
+                if request_id.len() > MAX_ID_BYTES { return; }
+                let app = self.shared.app.clone();
+                let out = self.out_tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    let reply = match crate::spend::activity_stats(app, Some(today_start)).await {
+                        Ok(v) => (serde_json::to_value(v).ok(), None),
+                        Err(e) => (None, Some(e)),
+                    };
+                    let _ = out.send(ServerMsg::Stats { request_id, result: reply.0, error: reply.1 }).await;
                 });
             }
             ClientMsg::Resume { cwd, session_id, cli, wsl_distro, profile, view } => {

@@ -20,8 +20,8 @@ import { send, useRemoteSelector, useSupports, type Tab } from "./remote";
 import { safeStorage } from "./store";
 import { BusyArc, PendingRow, useOpenNew } from "./Terminals";
 
-const AGENT_KEY = "home.agent";
-const cwdKey = (host: string | undefined) => "home.cwd." + (host ?? "");
+export const AGENT_KEY = "home.agent";
+export const cwdKey = (host: string | undefined) => "home.cwd." + (host ?? "");
 
 /** "6 min" / "2 h 05" once a minute has passed, else null (the label says "now"). */
 function sinceText(ms: number): string | null {

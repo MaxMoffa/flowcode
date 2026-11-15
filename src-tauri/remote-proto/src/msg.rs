@@ -127,6 +127,8 @@ pub enum ClientMsg {
     Git { request_id: String, request: GitRequest },
     /// Agent session history for the project at `cwd`, available only with `history`.
     History { request_id: String, cwd: String },
+    /// Activity stats for the phone's widgets (local midnight in ms), available only with `stats`.
+    Stats { request_id: String, today_start: u64 },
     /// Resume an agent session in a new desktop tab, available only with `resume`.
     Resume {
         cwd: String,
@@ -349,6 +351,14 @@ pub enum ServerMsg {
     },
     /// Reply to `history`: `{roots, claude, codex, vibe, opencode}` or an error.
     History {
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Reply to `stats`: `{days, streak, todayMinutes}` or an error.
+    Stats {
         request_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         result: Option<serde_json::Value>,

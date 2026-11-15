@@ -579,9 +579,124 @@ pub async fn cli_spend(
     .await
 }
 
+/// Activity of the last week, for the phone's home-screen widgets.
+#[derive(Serialize, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityStats {
+    /// Sessions with at least one call per day, oldest first; the last entry is today.
+    pub days: Vec<u32>,
+    /// Consecutive days with a session, ending today or (if today has none) yesterday.
+    pub streak: u32,
+    /// Estimated minutes of agent activity today.
+    pub today_minutes: u32,
+}
+
+/// Calls further apart than this belong to different bursts of work.
+const BURST_GAP_MS: u64 = 5 * 60_000;
+
+/// Pure part of `activity_stats`: `calls` are (timestamp, "cli:session") pairs.
+/// Day `k` of `days` starts at `today_start - (6 - k) * DAY_MS`.
+fn compute_activity(calls: Vec<(u64, String)>, today_start: u64) -> ActivityStats {
+    // Days back from today (0 = today) -> sessions; 31 days are available at most.
+    let mut per_day: HashMap<u64, HashSet<&str>> = HashMap::new();
+    let mut today_at: Vec<u64> = Vec::new();
+    for (at, key) in &calls {
+        let back = if *at >= today_start { 0 } else { (today_start - *at).div_ceil(DAY_MS) };
+        per_day.entry(back).or_default().insert(key.as_str());
+        if back == 0 {
+            today_at.push(*at);
+        }
+    }
+    let count = |back: u64| per_day.get(&back).map_or(0, |s| s.len() as u32);
+    let days = (0..7u64).map(|k| count(6 - k)).collect();
+    // A morning with no session yet must not zero the streak.
+    let mut back = if count(0) > 0 { 0 } else { 1 };
+    let mut streak = 0;
+    while count(back) > 0 {
+        streak += 1;
+        back += 1;
+    }
+    today_at.sort_unstable();
+    let mut ms = 0;
+    let mut prev: Option<u64> = None;
+    for at in today_at {
+        match prev {
+            Some(p) if at - p <= BURST_GAP_MS => ms += at - p,
+            // A call that opens a burst is worth a minute of its own.
+            _ => ms += 60_000,
+        }
+        prev = Some(at);
+    }
+    ActivityStats { days, streak, today_minutes: (ms / 60_000) as u32 }
+}
+
+/// Activity stats of the default profile's Claude, Codex and OpenCode
+/// transcripts (Vibe is skipped: its logs carry no per-call timestamps). Shares
+/// the incremental transcript cache with `cli_spend`.
+pub async fn activity_stats(app: tauri::AppHandle, today_start: Option<u64>) -> Result<ActivityStats, String> {
+    crate::blocking(move || {
+        let dirs = crate::profiles::dirs(&app, None).ok_or("Unknown profile")?;
+        let now = now_ms();
+        let today = today_start.filter(|t| *t <= now).unwrap_or(now - now % DAY_MS);
+        let since = now.saturating_sub(31 * DAY_MS);
+        let mut calls: Vec<(u64, String)> = Vec::new();
+        for cli in ["claude", "codex"] {
+            let mut files = Vec::new();
+            let (root, filter, parse): (PathBuf, LineFilter, ParseLine) = if cli == "claude" {
+                let root = dirs.claude.join("projects");
+                recent_files(&root, 5, |n| n.ends_with(".jsonl"), since, &mut files);
+                (root, claude_filter, parse_claude_line)
+            } else {
+                let root = dirs.codex.join("sessions");
+                recent_files(&root, 5, |n| n.starts_with("rollout-") && n.ends_with(".jsonl"), since, &mut files);
+                (root, codex_filter, parse_codex_line)
+            };
+            for (file, len) in &files {
+                with_calls(file, *len, filter, parse, |cs| {
+                    calls.extend(cs.iter().map(|c| (c.at, format!("{cli}:{}", c.session))))
+                });
+            }
+            forget_unseen(&root, &files);
+        }
+        for c in crate::opencode_db::cost_calls(&dirs.opencode_db, since) {
+            calls.push((c.at, format!("opencode:{}", c.session)));
+        }
+        Ok(compute_activity(calls, today))
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const T0: u64 = 10 * DAY_MS;
+
+    fn at(back: u64, min: u64, s: &str) -> (u64, String) {
+        (T0 - back * DAY_MS + min * 60_000, s.to_string())
+    }
+
+    #[test]
+    fn activity_buckets_days_by_distinct_session() {
+        let r = compute_activity(vec![at(0, 1, "a"), at(0, 2, "a"), at(0, 3, "b"), at(1, 5, "a"), at(6, 0, "c"), at(7, 0, "d")], T0);
+        assert_eq!(r.days, vec![1, 0, 0, 0, 0, 1, 2]);
+    }
+
+    #[test]
+    fn activity_streak_may_end_yesterday() {
+        let r = compute_activity(vec![at(1, 5, "a"), at(2, 5, "a"), at(3, 5, "a"), at(5, 5, "a")], T0);
+        assert_eq!(r.streak, 3);
+        let r = compute_activity(vec![at(0, 5, "a"), at(1, 5, "a")], T0);
+        assert_eq!(r.streak, 2);
+        assert_eq!(compute_activity(vec![at(2, 5, "a")], T0).streak, 0);
+    }
+
+    #[test]
+    fn activity_minutes_sum_bursts() {
+        // 0, 3 and 5 min: one burst of 5 min + 1; then 30 min: new burst, +1.
+        let r = compute_activity(vec![at(0, 30, "a"), at(0, 0, "a"), at(0, 3, "b"), at(0, 5, "a")], T0);
+        assert_eq!(r.today_minutes, 7);
+    }
 
     #[test]
     fn parses_timestamps() {

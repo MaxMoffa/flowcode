@@ -17,6 +17,7 @@ import { BackIcon, CloseIcon, SendIcon, StopIcon, Svg } from "./icons";
 import { AttachStrip, useAttachments } from "./useAttachments";
 import { useRemoteSelector } from "./remote";
 import { appendDictation, useDictation } from "./useDictation";
+import { takeAutoDictation } from "./chats";
 
 /** Tallest the box grows before it scrolls. */
 const MAX_HEIGHT = 140;
@@ -235,6 +236,10 @@ ${latest.current}` : added);
     },
   }));
   const dictation = useDictation((spoken) => change(appendDictation(latest.current, spoken)), !compact || expanded);
+  // The voice widget opened this chat: start listening once, as soon as dictation is known to work.
+  useEffect(() => {
+    if (dictation.supported && takeAutoDictation(chatId)) dictation.start();
+  }, [dictation.supported, dictation.start, chatId]);
   const listening = dictation.state === "listening";
   const elapsed = useElapsed(listening);
   const dictate = () => {

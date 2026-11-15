@@ -335,7 +335,21 @@ export function pickNewChat(chats: ChatInfo[], known: ReadonlySet<string>, expec
 }
 
 /** The chats known when a new one was asked for, until when to wait, the message to send first and what the new chat must be. Module-level: the screen that asked may be gone when the chat arrives, and the first hook instance to see it takes the request. */
-let pendingNew: { known: Set<string>; until: number; firstPrompt?: string; expect?: { agent: string; cwd?: string } } | null = null;
+let pendingNew: { known: Set<string>; until: number; firstPrompt?: string; expect?: { agent: string; cwd?: string }; dictate?: boolean } | null = null;
+
+/** The chat whose composer should start dictating once (a widget's voice button); module-level because the composer mounts after the chat opens. */
+let autoDictationChat: string | null = null;
+/** True once for the chat that was opened by the voice widget; the composer then starts listening. */
+export function takeAutoDictation(chatId: string): boolean {
+  if (autoDictationChat !== chatId) return false;
+  autoDictationChat = null;
+  return true;
+}
+
+/** Same as the Home launcher's request for a new chat, for code outside React: `NewChatWatcher` opens the chat when the desktop lists it. */
+export function expectNewChat(expect: { agent: string; cwd?: string }, dictate = false) {
+  pendingNew = { known: new Set((currentChats() ?? []).map((c) => c.chatId)), until: Date.now() + WAIT_MS, expect, dictate };
+}
 
 /** A requested chat opens as soon as the desktop lists it; returns the `onCreate` callback for NewTerminalSheet. A `firstPrompt` is queued on the fresh chat and goes out once the agent can take it; `expect` narrows which new chat is the one. */
 export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string) => void): (firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void {
@@ -352,6 +366,7 @@ export function useOpenNewChat(chats: ChatInfo[] | null, onOpen: (chatId: string
       endPending();
       // Queued before opening: the queue holds it until the agent leaves "starting".
       if (p.firstPrompt) sendChatPrompt(fresh.chatId, p.firstPrompt);
+      if (p.dictate) autoDictationChat = fresh.chatId;
       onOpen(fresh.chatId);
     }
   }, [chats, onOpen]);

@@ -13,6 +13,7 @@ import { ChatClearing } from "./ChatClearing";
 import { NewChatWatcher, clearOpenRequest, consumeClear, requestOpenChat, useChatHandoff, useClearing, useOpenRequest, useTerminalHandoff } from "./chats";
 import { checkCompat } from "./compatCheck";
 import { Reconnect } from "./Reconnect";
+import { WidgetSync, useWidgetActions } from "./widgets";
 import { clearOpenTab, onDeepLink, resetSettingsCache, setBackgroundTexts, setLastOpened, start, takePendingLink, useRemoteSelector } from "./remote";
 import { FilesScreen } from "./Files";
 import { UpdateSheet } from "./UpdatesUi";
@@ -261,6 +262,9 @@ function AppContent() {
   /** A plugin view picked in a terminal: the desktop turns the agent into a chat, which opens once listed. */
   const toChat = useTerminalHandoff(chats, openChatTab);
 
+  // A tap on a home-screen widget, carried out once there is an unlocked, online screen to show it on.
+  useWidgetActions(paired && !adding && !pairing && lock.checked && !lock.locked && status === "online", open, openChatTab);
+
   // The wide layout always shows something: pick the first terminal (else chat) when nothing is open.
   useEffect(() => {
     if (!wide || openChat) return;
@@ -330,6 +334,7 @@ function AppContent() {
       {compat.level === "partial" && host && !compatDismissed && paired && !adding && !lock.locked && <CompatBanner host={host} hostName={hostName} />}
       {paired && !pairing && !firstConnect && !adding && <Reconnect />}
       {paired && !adding && <NewChatWatcher />}
+      {paired && !adding && <WidgetSync />}
       {update.sheetPending && updatesReady && !pairing && !adding && compat.level !== "blocked" && <UpdateSheet />}
       <Toast />
       <HandoffBar />
