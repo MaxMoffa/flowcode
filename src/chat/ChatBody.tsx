@@ -1,5 +1,8 @@
 import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
+import { autoResumeMessage, useAutoResumeSettings } from "../agents/autoResumeSettings";
+import { hasCap } from "../../shared/agentRegistry";
 import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
@@ -169,7 +172,7 @@ const TranscriptRows = memo(function TranscriptRows({ timeline, nested, liveGrou
 /** The built-in "chat" view: the conversation as a timeline (messages, tool
  * activity on a rail, permission requests) and a floating composer under it. */
 export default function ChatBody({ session: chat, agent, hidden, cwd, openSubagent: sub = null, onOpenSubagent, onOpenDelegate }: AgentViewProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { model, phase, queued } = chat;
   const status = model.status;
   const working = status === "busy" || status === "waiting";
@@ -322,6 +325,30 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   }, [limit]);
   const showLimit =
     !!limit && phase === "ready" && status === "idle" && !working && pending.length === 0 && !openAsk && limit.id !== dismissedLimitId && (limitResetAt === null || limitResetAt > limitNow);
+  // The limit's reset schedules the "continue" message: the backend sends it by itself once the limit is over (this view only arms it, once per limit).
+  const autoResume = useAutoResumeSettings();
+  const armedLimit = useRef<string | null>(null);
+  const chatId = chat.chatId ?? null;
+  useEffect(() => {
+    if (sub || attached || !limit || limitResetAt === null || !chatId) return;
+    if (limitResetAt <= Date.now() - 15 * 60_000 || !autoResume.enabled || !hasCap(agent, "usageLimit")) return;
+    if (model.resumeLimitId === limit.id || model.resume !== null || armedLimit.current === limit.id) return;
+    armedLimit.current = limit.id;
+    invoke("chat_resume_schedule", { chatId, at: limitResetAt, text: autoResumeMessage(), limitId: limit.id }).catch((e) => console.warn("chat_resume_schedule", e));
+  }, [sub, attached, limit, limitResetAt, chatId, autoResume.enabled, agent, model.resumeLimitId, model.resume]);
+  // The queued resume message, edited in place.
+  const [resumeDraft, setResumeDraft] = useState<string | null>(null);
+  const saveResume = () => {
+    if (resumeDraft === null || !chatId) return;
+    const text = resumeDraft.trim();
+    setResumeDraft(null);
+    if (text) invoke("chat_resume_update", { chatId, text }).catch((e) => console.warn("chat_resume_update", e));
+  };
+  const cancelResume = () => {
+    if (!chatId) return;
+    setResumeDraft(null);
+    invoke("chat_resume_update", { chatId, text: null }).catch((e) => console.warn("chat_resume_update", e));
+  };
   const lastSegment = timeline[timeline.length - 1];
   // In the main chat, the subagents still running, for the tray behind the composer.
   const runningSubs = useMemo(() => sub ? [] : timeline.flatMap((s) => (s.type === "subagents" ? s.items.filter((i) => subagentState(i).running) : [])), [sub, timeline]);
@@ -881,6 +908,62 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
               ))}
             </>
           )}
+          {!sub && model.resume && status !== "exited" && (
+            <>
+              <div className="chat-pending-sep">{t("chat.resume.sep")}</div>
+              <div className={`chat-pending${resumeDraft !== null ? " is-editing" : ""}`}>
+                <div className="chat-user is-pending is-resume">
+                  {resumeDraft !== null ? (
+                    <textarea
+                      className="chat-resume-edit"
+                      value={resumeDraft}
+                      rows={3}
+                      autoFocus
+                      onChange={(e) => setResumeDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.stopPropagation();
+                          setResumeDraft(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <UserText text={model.resume.text} />
+                  )}
+                </div>
+                <div className="chat-pending-meta">
+                  {resumeDraft !== null ? (
+                    <>
+                      <button type="button" className="chat-pending-btn is-text" onClick={saveResume}>
+                        {t("chat.resume.save")}
+                      </button>
+                      <button type="button" className="chat-pending-btn is-text" onClick={() => setResumeDraft(null)}>
+                        {"×"}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" className="chat-pending-btn" aria-label={t("chat.resume.edit")} title={t("chat.resume.edit")} onClick={() => setResumeDraft(model.resume?.text ?? "")}>
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M11 2.5 13.5 5 5.5 13H3v-2.5z" />
+                        </svg>
+                      </button>
+                      <button type="button" className="chat-pending-btn" aria-label={t("chat.resume.cancel")} title={t("chat.resume.cancel")} onClick={cancelResume}>
+                        {"×"}
+                      </button>
+                    </>
+                  )}
+                  <span className="chat-pending-pos">
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="8" cy="8" r="6" />
+                      <path d="M8 4.5V8l2.2 1.5" />
+                    </svg>
+                    {t("chat.resume.at", { time: new Date(model.resume.at).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" }) })}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
       {/* Inside the scroller and sticky, so messages slide behind the composer. */}
@@ -928,7 +1011,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
             </button>
           </ChatPondEnd>
         ) : showLimit ? (
-          <ChatPondEnd kind="limit" resetAt={limitResetAt} hidden={hidden}>
+          <ChatPondEnd kind="limit" resetAt={limitResetAt} hidden={hidden} note={model.resume ? t("chat.resume.pondNote") : undefined}>
             <button type="button" className="chat-btn" onClick={() => setDismissedLimitId(limit.id)}>
               {t("chat.pond.limit.write")}
             </button>

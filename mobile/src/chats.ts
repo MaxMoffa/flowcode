@@ -234,6 +234,8 @@ export function forceChatPrompt(chatId: string, index: number) {
 }
 
 export const cancelChat = (chatId: string) => send({ t: "chatcancel", chatId });
+/** Edits the message scheduled for the usage limit's reset (`text`), or cancels it (`null`). */
+export const resumeChat = (chatId: string, text: string | null) => send({ t: "chatresume", chatId, text });
 /** Answers a permission request; false when the link refused it, so the caller can offer the buttons again. */
 export const answerChatPermission = (chatId: string, requestId: string, optionId: string | null): Promise<boolean> => sendChecked({ t: "chatpermission", chatId, requestId, optionId });
 /** Answers the agent's question: `accept` with the answers, or `decline` to skip it; false when the link refused it, so the caller can offer the question again. */

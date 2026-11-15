@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
+import { applyEvent, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
 
 let seq = 0;
@@ -746,6 +746,41 @@ describe("delegation events", () => {
     const s = run([ext("_flowcode/task", { taskId: "a", parentChatId: "p", parentAgent: "claude", parentTitle: null, prompt: "Fai X" })]);
     expect(s.task).toEqual({ taskId: "a", parentChatId: "p", parentAgent: "claude", parentTitle: null, prompt: "Fai X" });
     expect(initialChat().task).toBeNull();
+  });
+});
+
+describe("chat scheduled resume", () => {
+  const resumeEv = (params: Record<string, unknown>): ChatEvent => ({ kind: "ext", seq: next(), at: 5, method: RESUME_EXT_METHOD, params });
+  const armed = { state: "armed", at: 1000, text: "continua", limitId: "L1" };
+
+  it("starts without one", () => {
+    expect(initialChat().resume).toBeNull();
+    expect(initialChat().resumeLimitId).toBeNull();
+  });
+
+  it("holds an armed resume and remembers its limit", () => {
+    const s = run([resumeEv(armed)]);
+    expect(s.resume).toEqual({ at: 1000, text: "continua", limitId: "L1" });
+    expect(s.resumeLimitId).toBe("L1");
+  });
+
+  it("clears it when cancelled or sent, keeping the limit", () => {
+    for (const state of ["cancelled", "sent"]) {
+      const s = run([resumeEv(armed), resumeEv({ ...armed, state })]);
+      expect(s.resume).toBeNull();
+      expect(s.resumeLimitId).toBe("L1");
+    }
+  });
+
+  it("ignores malformed params", () => {
+    const s = run([resumeEv({ state: "armed", at: "x", text: "a", limitId: "L1" }), resumeEv({ state: "nope", limitId: "L1" })]);
+    expect(s.resume).toBeNull();
+    expect(s.resumeLimitId).toBeNull();
+  });
+
+  it("drops it when the agent exits", () => {
+    const s = run([resumeEv(armed), { kind: "exit", seq: next(), at: 0, code: 0 }]);
+    expect(s.resume).toBeNull();
   });
 });
 

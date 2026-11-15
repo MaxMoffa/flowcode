@@ -35,6 +35,18 @@ const SETUP_TIMEOUT: Duration = Duration::from_secs(180);
 const MODE_TIMEOUT: Duration = Duration::from_secs(30);
 /// The event carrying a chat's goal (`{ goal: Goal | null, actions: string[] }`).
 const GOAL_EXT_METHOD: &str = "_flowcode/goal";
+/// Flowcode's own: the resume message scheduled for the usage limit's reset
+/// changed - `state` "armed" (with `at`, `text`), "cancelled" or "sent", and
+/// the `limitId` (the views' limit item) it was armed for.
+const RESUME_EXT_METHOD: &str = "_flowcode/resume";
+/// After the reset time before the resume goes out: the CLI rounds that time
+/// to the minute, and the account's usage takes a moment to catch up.
+const RESUME_GRACE_MS: u64 = 60_000;
+/// How often a scheduled resume checks the clock, and retries while the chat
+/// is busy.
+const RESUME_TICK: Duration = Duration::from_secs(5);
+/// Longest resume message accepted.
+pub(crate) const MAX_RESUME_TEXT_BYTES: usize = 4096;
 /// How often the goal is looked at while it may change.
 const GOAL_POLL: Duration = Duration::from_secs(4);
 /// Time the agent gets to write its goal down after a turn or a control.
@@ -1105,6 +1117,21 @@ struct Chat {
     prompt_images: AtomicBool,
     /// What the views were told about the chat's goal.
     goal: Mutex<goal::GoalTrack>,
+    /// The message to send by itself once the usage limit resets.
+    resume: Mutex<Option<ScheduledResume>>,
+    /// Numbers the schedules, so a replaced one's timer gives up.
+    resume_gen: AtomicU64,
+}
+
+/// A prompt Flowcode sends by itself when the plan's usage limit resets
+/// (`chat_resume_schedule`), unless the user writes first or cancels it.
+#[derive(Clone)]
+struct ScheduledResume {
+    /// The reset time (ms); it goes out `RESUME_GRACE_MS` later.
+    at: u64,
+    text: String,
+    limit_id: String,
+    generation: u64,
 }
 
 impl Chat {
@@ -1730,6 +1757,19 @@ impl Chat {
         }
     }
 
+    fn announce_resume(&self, state: &str, resume: &ScheduledResume) {
+        let params = json!({ "state": state, "at": resume.at, "text": resume.text, "limitId": resume.limit_id });
+        self.emit(ChatBody::Ext { method: RESUME_EXT_METHOD.to_string(), params });
+    }
+
+    /// Drops the scheduled resume, if any, telling the views `state`.
+    fn drop_resume(&self, state: &str) {
+        let taken = lock(&self.resume).take();
+        if let Some(resume) = taken {
+            self.announce_resume(state, &resume);
+        }
+    }
+
     /// Ends an agent whose session is gone (see `is_session_gone`). Unlike
     /// `kill` the chat isn't closed: the reader thread hears the agent end and
     /// tells the views it exited, so they show the session-ended pond.
@@ -1749,6 +1789,39 @@ impl Chat {
                 let _ = crate::system::run_wsl(cmd);
             }
         }
+    }
+}
+
+/// The timer of a scheduled resume: once due (and the chat idle) it sends the
+/// message as the user's. Gives up when the chat ends or the schedule was
+/// replaced, cancelled or already sent.
+fn send_resume_when_due(chat: Weak<Chat>, generation: u64) {
+    loop {
+        std::thread::sleep(RESUME_TICK);
+        let Some(current) = chat.upgrade() else { return };
+        if current.closed.load(Ordering::Relaxed) || current.exited.load(Ordering::Acquire) {
+            return;
+        }
+        let Some(resume) = lock(&current.resume).clone().filter(|r| r.generation == generation) else { return };
+        if crate::util::now_ms() < resume.at.saturating_add(RESUME_GRACE_MS) || *lock(&current.status) != ChatStatus::Idle {
+            continue;
+        }
+        {
+            let mut slot = lock(&current.resume);
+            if slot.as_ref().map(|r| r.generation) != Some(generation) {
+                return;
+            }
+            *slot = None;
+        }
+        current.announce_resume("sent", &resume);
+        let (id, app) = (current.id.clone(), current.app.clone());
+        drop(current);
+        if let Some(state) = app.try_state::<ChatState>() {
+            if let Err(e) = state.prompt(&id, resume.text, Vec::new()) {
+                eprintln!("chat {id}: the scheduled resume could not be sent: {e}");
+            }
+        }
+        return;
     }
 }
 
@@ -2025,6 +2098,8 @@ impl ChatState {
         let shown = attachments.iter().filter_map(shown_image).collect();
         let asked = goal::parse_prompt(&chat.agent, &text);
         chat.emit_when(ChatBody::User { text, attachments: names, images: shown }, prompt_gate)?;
+        // The user wrote first: the resume scheduled for the limit's reset is moot.
+        chat.drop_resume("cancelled");
         if let Some(asked) = asked {
             chat.goal_asked(&asked);
         }
@@ -2049,6 +2124,51 @@ impl ChatState {
             return Err(message);
         }
         Ok(())
+    }
+
+    /// Schedules `text` to be sent by itself `RESUME_GRACE_MS` after `at`, the
+    /// usage limit's reset (`limit_id`: the views' limit item it answers).
+    /// Replaces an earlier schedule; the user writing first cancels it.
+    pub(crate) fn schedule_resume(&self, chat_id: &str, at: u64, text: String, limit_id: String) -> Result<(), String> {
+        let chat = self.get(chat_id)?;
+        let text = text.trim().to_string();
+        if text.is_empty() || text.len() > MAX_RESUME_TEXT_BYTES || limit_id.len() > 256 {
+            return Err("invalid resume".into());
+        }
+        if chat.exited.load(Ordering::Acquire) || chat.closed.load(Ordering::Relaxed) {
+            return Err("agent_exited: the agent has exited".into());
+        }
+        let generation = chat.resume_gen.fetch_add(1, Ordering::AcqRel) + 1;
+        let resume = ScheduledResume { at, text, limit_id, generation };
+        *lock(&chat.resume) = Some(resume.clone());
+        chat.announce_resume("armed", &resume);
+        let weak = Arc::downgrade(&chat);
+        std::thread::spawn(move || send_resume_when_due(weak, generation));
+        Ok(())
+    }
+
+    /// Edits the scheduled resume's message, or cancels it (`None`, or a
+    /// blank text).
+    pub(crate) fn update_resume(&self, chat_id: &str, text: Option<String>) -> Result<(), String> {
+        let chat = self.get(chat_id)?;
+        let Some(text) = text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) else {
+            chat.drop_resume("cancelled");
+            return Ok(());
+        };
+        if text.len() > MAX_RESUME_TEXT_BYTES {
+            return Err("invalid resume".into());
+        }
+        let updated = lock(&chat.resume).as_mut().map(|resume| {
+            resume.text = text;
+            resume.clone()
+        });
+        match updated {
+            Some(resume) => {
+                chat.announce_resume("armed", &resume);
+                Ok(())
+            }
+            None => Err("no resume scheduled".into()),
+        }
     }
 
     /// Stops the running turn. Without one there is nothing to stop: no
@@ -2671,6 +2791,8 @@ fn start_once(
         launches: Mutex::new(Vec::new()),
         prompt_images: AtomicBool::new(false),
         goal: Mutex::new(goal::GoalTrack::default()),
+        resume: Mutex::new(None),
+        resume_gen: AtomicU64::new(0),
     });
     {
         let chat = Arc::clone(&chat);
@@ -2753,6 +2875,16 @@ pub async fn chat_start(
 #[tauri::command]
 pub async fn chat_prompt(app: AppHandle, chat_id: String, text: String, attachments: Option<Vec<Attachment>>) -> Result<(), String> {
     crate::blocking(move || app.state::<ChatState>().prompt(&chat_id, text, attachments.unwrap_or_default())).await
+}
+
+#[tauri::command]
+pub async fn chat_resume_schedule(app: AppHandle, chat_id: String, at: u64, text: String, limit_id: String) -> Result<(), String> {
+    crate::blocking(move || app.state::<ChatState>().schedule_resume(&chat_id, at, text, limit_id)).await
+}
+
+#[tauri::command]
+pub async fn chat_resume_update(app: AppHandle, chat_id: String, text: Option<String>) -> Result<(), String> {
+    crate::blocking(move || app.state::<ChatState>().update_resume(&chat_id, text)).await
 }
 
 #[tauri::command]

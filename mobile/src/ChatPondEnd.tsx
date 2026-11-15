@@ -5,7 +5,7 @@ import { formatLeft, runPondScene, type PondKind } from "../../src/chat/pondScen
 import { speechLocale, t } from "./i18n";
 import "./chat-pond-end.css";
 
-export function ChatPondEnd({ kind, resetAt, children }: { kind: PondKind; resetAt: number | null; children?: ReactNode }) {
+export function ChatPondEnd({ kind, resetAt, note, children }: { kind: PondKind; resetAt: number | null; note?: string; children?: ReactNode }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -44,6 +44,7 @@ export function ChatPondEnd({ kind, resetAt, children }: { kind: PondKind; reset
           {t(kind === "ended" ? "pondEndedBody" : "pondLimitBody")}
           {reset && <> {reset}</>}
         </p>
+        {note && <p className="chat-pond-end-note">{note}</p>}
       </div>
       {children && <div className="chat-pond-end-actions">{children}</div>}
     </div>

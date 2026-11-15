@@ -321,6 +321,8 @@ export type RemoteCap =
   | "chatThought"
   /** `chatgoal`: pausing, resuming or stopping a chat's goal. */
   | "chatGoal"
+  /** `chatresume`: editing or cancelling the message scheduled for the usage limit's reset. */
+  | "chatResume"
   /** `chatclear`: starting a fresh conversation in a chat tab (`/clear`). */
   | "chatClear"
   /** `updatecheck` / `updateinstall` / `update`: updating the desktop's Flowcode from the phone. */
@@ -425,6 +427,8 @@ export type ClientMsg =
   | { t: "chatclose"; chatId: string }
   | { t: "chatprompt"; chatId: string; text: string; requestId?: string; attachments?: ChatAttachmentRef[] }
   | { t: "chatcancel"; chatId: string }
+  /** Edits the message scheduled for the usage limit's reset; `text: null` cancels it. */
+  | { t: "chatresume"; chatId: string; text: string | null }
   /** Answers an agent's permission request; `optionId: null` cancels it. */
   | { t: "chatpermission"; chatId: string; requestId: unknown; optionId: string | null }
   /** Answers an agent's question (`ask` event): `accept` with the form `content`, `decline` (skip) or `cancel`. */

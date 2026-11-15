@@ -158,6 +158,8 @@ pub fn run() {
             chat::chat_start,
             chat::chat_prompt,
             chat::chat_cancel,
+            chat::chat_resume_schedule,
+            chat::chat_resume_update,
             chat::chat_permission,
             chat::chat_ask,
             chat::chat_set_mode,

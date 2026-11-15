@@ -2734,6 +2734,30 @@ button.chat-step-row {
   color: var(--muted);
 }
 
+.chat-user.is-pending.is-resume {
+  border: 1px dashed color-mix(in srgb, var(--accent) 60%, var(--border-strong));
+}
+
+.chat-resume-edit {
+  width: 100%;
+  min-width: 240px;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--text, inherit);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.chat-pending-meta .chat-resume-save {
+  width: auto;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
 .chat-pending-meta {
   display: flex;
   align-items: center;

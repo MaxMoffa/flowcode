@@ -41,6 +41,8 @@
   color: var(--fg-muted);
 }
 
+.chat-pond-end-text .chat-pond-end-note { margin-top: 4px; }
+
 .chat-pond-end-actions {
   position: absolute;
   bottom: 14px;

@@ -39,6 +39,10 @@
   color: var(--muted);
 }
 
+.chat-pond-end-text .chat-pond-end-note {
+  margin-top: 4px;
+}
+
 .chat-pond-end-actions {
   position: absolute;
   bottom: calc(12px + var(--safe-b));

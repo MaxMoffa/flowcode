@@ -437,6 +437,35 @@
   color: var(--fg);
 }
 
+.chat-user.is-pending.is-resume {
+  border: 1px dashed color-mix(in srgb, var(--accent) 60%, var(--border));
+  cursor: default;
+}
+
+.chat-resume-edit {
+  width: 100%;
+  min-width: 260px;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.chat-pending.is-editing {
+  width: 70%;
+}
+
+.chat-pending .chat-pending-btn.is-text {
+  width: auto;
+  padding: 0 6px;
+  font-size: 11.5px;
+  opacity: 1;
+}
+
 .chat-md {
   overflow-wrap: anywhere;
 }

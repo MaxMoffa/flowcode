@@ -30,12 +30,12 @@ import { useTwoFingerSwipe } from "./chatSwipe";
 import { eventsActivity } from "../../src/chat/cacheWarning";
 import { useCacheWarning } from "../../src/chat/useCacheWarning";
 import { loadChatCacheInfo } from "./chatCacheInfo";
-import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatGoal, setChatModel, setChatThought, unqueueChatPrompt, useChatInfo, useChatSession, useFollowChat } from "./chats";
+import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTab, forceChatPrompt, consumeClear, lastChatViews, recentClearTab, renameChat, sendChatPrompt, setChatMode, setChatGoal, setChatModel, setChatThought, unqueueChatPrompt, resumeChat, useChatInfo, useChatSession, useFollowChat } from "./chats";
 import { agentName, shortCwd } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { lastInWindow } from "./homeSessions";
 import { tapFeedback } from "./haptics";
-import { t } from "./i18n";
+import { speechLocale, t } from "./i18n";
 import { AgentLogo, AgentsIcon, BackIcon, ArrowDownIcon, ChevronDownIcon, CloseIcon, CopyIcon, GlobeIcon, PencilIcon, SendIcon, StopIcon, Svg } from "./icons";
 import { setChatTabShown, showToast, useRemoteSelector, useSupports } from "./remote";
 import { SessionMenu, SessionTop, ToolsMenu, type MenuRow } from "./SessionTop";
@@ -90,6 +90,8 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
   const canRename = useSupports("chatRename");
   const canClear = useSupports("chatClear");
   const canCloseTab = useSupports("chatCloseTab");
+  const canResume = useSupports("chatResume");
+  const [resumeDraft, setResumeDraft] = useState<string | null>(null);
   const info = useChatInfo(chatId);
   const tabId = info?.tabId;
   // While this screen is up the chat is on the user's screen, so its notifications skip the toast.
@@ -564,6 +566,63 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
                     ))}
                   </>
                 )}
+                {!sub && !exited && model.resume && (
+                  <>
+                    <div className="chat-pending-sep">{t("chatResumeSep")}</div>
+                    <div className="chat-pending">
+                      <div className="chat-user is-pending is-resume">
+                        {resumeDraft !== null ? (
+                          <textarea
+                            className="chat-resume-edit"
+                            value={resumeDraft}
+                            rows={3}
+                            autoFocus
+                            onChange={(e) => setResumeDraft(e.target.value)}
+                          />
+                        ) : (
+                          model.resume.text
+                        )}
+                      </div>
+                      <div className="chat-pending-meta">
+                        <span className="chat-pending-pos">
+                          <Svg size={13} strokeWidth={2}>
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 7v5l3 2" />
+                          </Svg>
+                          {t("chatResumeAt", { time: new Date(model.resume.at).toLocaleTimeString(speechLocale(), { hour: "2-digit", minute: "2-digit" }) })}
+                        </span>
+                        {canResume &&
+                          (resumeDraft !== null ? (
+                            <>
+                              <button
+                                type="button"
+                                className="chat-resume-save"
+                                onClick={() => {
+                                  const text = resumeDraft.trim();
+                                  setResumeDraft(null);
+                                  if (text) resumeChat(chatId, text);
+                                }}
+                              >
+                                {t("chatResumeSave")}
+                              </button>
+                              <button type="button" aria-label={t("chatResumeEditCancel")} onClick={() => setResumeDraft(null)}>
+                                <CloseIcon />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button type="button" aria-label={t("chatResumeEdit")} onClick={() => setResumeDraft(model.resume?.text ?? "")}>
+                                <PencilIcon />
+                              </button>
+                              <button type="button" aria-label={t("chatResumeCancel")} onClick={() => resumeChat(chatId, null)}>
+                                <CloseIcon />
+                              </button>
+                            </>
+                          ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             {!sub && !exited && !working && model.items.length === 0 && session.queued.length === 0 && !model.plan?.length && (session.loaded || starting || cleared) && <ChatEmptyFrog starting={starting} cleared={cleared} />}
@@ -637,7 +696,7 @@ export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onB
               )}
               {openAsk && <AskPanel ask={openAsk} agent={agentName(info.agent)} onAnswer={answerAsk} />}
               {showLimit && (
-                <ChatPondEnd kind="limit" resetAt={limit.at}>
+                <ChatPondEnd kind="limit" resetAt={limit.at} note={model.resume ? t("chatResumePondNote") : undefined}>
                   <button type="button" onClick={() => setDismissedLimitId(limit.id)}>
                     {t("pondLimitWrite")}
                   </button>

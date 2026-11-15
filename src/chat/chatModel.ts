@@ -158,11 +158,18 @@ export interface ChatModelState {
   goal: ChatGoal | null;
   /** The controls the agent takes for it (empty: none, or an agent without goals). */
   goalActions: GoalAction[];
+  /** The message armed to go out by itself when the usage limit resets (`_flowcode/resume`, state `armed`); null when none. */
+  resume: { at: number; text: string; limitId: string } | null;
+  /** The limit the last resume event was about, whatever its state: a limit already handled isn't armed again after a cancel. */
+  resumeLimitId: string | null;
 }
 
 export function initialChat(): ChatModelState {
-  return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null, delegateRequests: [], task: null, goal: null, goalActions: [] };
+  return { items: [], plan: null, commands: [], currentModeId: null, currentModelId: null, status: "starting", lastSeq: -1, turnActive: false, notice: null, turn: null, delegateRequests: [], task: null, goal: null, goalActions: [], resume: null, resumeLimitId: null };
 }
+
+/** The backend's event about the scheduled resume (params: `{ state: "armed" | "cancelled" | "sent", at, text, limitId }`). */
+export const RESUME_EXT_METHOD = "_flowcode/resume";
 
 /** The backend's event saying the chat's goal changed (params: `{ goal: ChatGoal | null, actions: GoalAction[] }`). */
 export const GOAL_EXT_METHOD = "_flowcode/goal";
@@ -745,6 +752,13 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
         const same = (r: DelegateRequest) => r.childChatId === childChatId && r.requestId === requestId;
         return state.delegateRequests.some(same) ? { ...state, delegateRequests: state.delegateRequests.filter((r) => !same(r)) } : state;
       }
+      if (ev.method === RESUME_EXT_METHOD) {
+        const p = record(ev.params);
+        if (typeof p.limitId !== "string" || (p.state !== "armed" && p.state !== "cancelled" && p.state !== "sent")) return state;
+        if (p.state !== "armed") return { ...state, resume: null, resumeLimitId: p.limitId };
+        if (typeof p.at !== "number" || !Number.isFinite(p.at) || typeof p.text !== "string") return state;
+        return { ...state, resume: { at: p.at, text: p.text, limitId: p.limitId }, resumeLimitId: p.limitId };
+      }
       if (ev.method === GOAL_EXT_METHOD) return applyGoal(state, ev.params, ev.seq, ev.at);
       if (ev.method === TASK_EXT_METHOD) {
         const task = parseTask(ev.params);
@@ -825,7 +839,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
                 : i,
           )
         : woken;
-      return { ...state, items, turnActive: false, status: "exited", notice: null, turn: null, delegateRequests: [] };
+      return { ...state, items, turnActive: false, status: "exited", notice: null, turn: null, delegateRequests: [], resume: null };
     }
     default:
       // A kind added by a newer desktop: an older phone or view plugin must not break on it.

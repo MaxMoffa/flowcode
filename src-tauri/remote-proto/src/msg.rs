@@ -199,6 +199,8 @@ pub enum ClientMsg {
         attachments: Vec<ChatAttachmentRef>,
     },
     ChatCancel { chat_id: String },
+    /// Edit the message scheduled for the usage limit's reset, or cancel it (`text: None`).
+    ChatResume { chat_id: String, text: Option<String> },
     /// Answer an agent's permission request; `option_id: None` cancels it.
     ChatPermission { chat_id: String, request_id: serde_json::Value, option_id: Option<String> },
     /// Answer an agent's form question (`Ask`): `action` is `accept` (with
@@ -976,6 +978,14 @@ mod tests {
         );
         let none = ServerMsg::AgentInsight { key: "p1".into(), cli: None, context: None, usage: None, tools: None };
         assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "agentinsight", "key": "p1" }));
+    }
+
+    #[test]
+    fn chat_resume_message_parses() {
+        let edit: ClientMsg = serde_json::from_str(r#"{"t":"chatresume","chatId":"c1","text":"continue"}"#).unwrap();
+        assert_eq!(edit, ClientMsg::ChatResume { chat_id: "c1".into(), text: Some("continue".into()) });
+        let cancel: ClientMsg = serde_json::from_str(r#"{"t":"chatresume","chatId":"c1","text":null}"#).unwrap();
+        assert_eq!(cancel, ClientMsg::ChatResume { chat_id: "c1".into(), text: None });
     }
 
     #[test]

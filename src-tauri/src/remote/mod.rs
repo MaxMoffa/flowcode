@@ -2534,6 +2534,13 @@ impl Conn {
                     self.spawn_chat(move |chats| chats.cancel(&chat_id));
                 }
             }
+            ClientMsg::ChatResume { chat_id, text } => {
+                if chat_id.len() > MAX_ID_BYTES || text.as_ref().is_some_and(|t| t.len() > crate::chat::MAX_RESUME_TEXT_BYTES) {
+                    self.error(tr("Chat non trovata", "Chat not found"), None);
+                } else {
+                    self.spawn_chat(move |chats| chats.update_resume(&chat_id, text));
+                }
+            }
             ClientMsg::ChatPermission { chat_id, request_id, option_id } => {
                 let short = chat_id.len() <= MAX_ID_BYTES
                     && option_id.as_ref().is_none_or(|o| o.len() <= MAX_ID_BYTES)
