@@ -13,6 +13,7 @@
 mod auth;
 mod chat;
 mod connlog;
+mod dictation;
 mod fsbrowse;
 mod explorer;
 mod hex;
@@ -1710,7 +1711,7 @@ async fn run_connection(
     let (in_tx, mut in_rx) = mpsc::channel::<ClientMsg>(IN_QUEUE);
     let reader = tokio::spawn(read_task(recv, in_tx, out_tx.clone(), compress));
     // Every stream after the control one is a preview stream (in-app browser).
-    let previews = preview::spawn_accept_loop(connection.clone(), Arc::clone(&shared));
+    let previews = preview::spawn_accept_loop(connection.clone(), Arc::clone(&shared), conn_id);
 
     let mut tabs_rx = shared.tabs.subscribe();
     let mut usage_rx = shared.usage.subscribe();
@@ -1954,6 +1955,7 @@ impl Conn {
     /// Stops every task this connection started.
     fn shutdown(&mut self) {
         self.auth_alive.store(false, Ordering::Release);
+        dictation::cancel_all(self.id);
         crate::provider_auth::cancel_owner(&self.auth_owner());
         for (_, task) in self.subs.drain() {
             task.abort();
@@ -2725,6 +2727,11 @@ impl Conn {
                 }
             }
             ClientMsg::ChatCacheInfo { chat_id } => self.send_chat_cache_info(chat_id),
+            ClientMsg::DictStart { session, language } => {
+                dictation::start(&self.shared.app, self.id, self.out_tx.clone(), session, language)
+            }
+            ClientMsg::DictStop { session } => dictation::stop(self.id, &session),
+            ClientMsg::DictCancel { session } => dictation::cancel(self.id, &session),
             ClientMsg::Set { key, value } => {
                 if key.is_empty() || key.len() > 64 {
                     self.error(tr("Impostazione non valida", "Invalid setting"), None);

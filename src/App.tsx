@@ -121,6 +121,7 @@ import "./App.css";
 import { AGENT_CLIS, CLI_INFO, cliOfPlugin, type AgentCli } from "./agents/cliInfo";
 import type { DelegateInfo } from "./chat/chatModel";
 import { staleDelegateTabs, useAllTabDelegations } from "./chat/delegateStore";
+import { startRemotePrefsSync } from "./chat/dictationModels";
 
 const appWindow = getCurrentWindow();
 /** The window Flowcode starts with - the one that restores the saved session
@@ -715,6 +716,8 @@ function Shell() {
   /** The terminal the clipboard/clear shortcuts act on: the remote one on screen, else the local one. */
   const shortcutTerm = () => (remote ? frontRemoteTerminal() : activeTermHandle());
   useEffect(() => onRemoteNotice((message) => showPluginToastRef.current(message)), []);
+  // A phone's dictation runs with this computer's dictation settings.
+  useEffect(() => startRemotePrefsSync(), []);
   useShortcuts({
     toggleSidebar: () => togglePanel("sidebar"),
     clearTerminal: () => shortcutTerm()?.clear(),

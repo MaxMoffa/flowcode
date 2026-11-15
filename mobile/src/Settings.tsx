@@ -4,6 +4,7 @@ import { useBackHandler } from "./back";
 import { useWide } from "./wide";
 import { t } from "./i18n";
 import { setLockEnabled, useLock, verify } from "./applock";
+import { setDesktopDictationPref, useDesktopDictationPref } from "./dictationEngine";
 import { screenshotsSupported, setScreenshotsAllowed, useScreenshots } from "./screenshots";
 import { effectivePhone, phoneTheme, setPhoneTheme } from "./theme";
 import { FONT_MAX, FONT_MIN, phoneFontSize, setPhoneFontSize } from "./termFont";
@@ -76,6 +77,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
   const defaultAccounts = useRemoteSelector((r) => r.defaultAccounts);
   const lock = useLock();
   const shots = useScreenshots();
+  const dictDesktop = useDesktopDictationPref();
   const wide = useWide();
   const fittingViews = useReadyViews().filter((v) => viewFits(v, wide));
   const defaultView = useDefaultView(wide);
@@ -310,6 +312,7 @@ export function SettingsScreen({ hostName, settings: s }: { hostName?: string; s
 
       {section === "phone" && (
         <Group title={t("thisPhone")}>
+          <Toggle label={t("remoteDictationSetting")} hint={t("remoteDictationHint")} on={dictDesktop} onChange={setDesktopDictationPref} />
           <Diagnostics />
           <button
             type="button"

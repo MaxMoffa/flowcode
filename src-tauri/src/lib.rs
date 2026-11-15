@@ -181,6 +181,7 @@ pub fn run() {
             dictation::dictation_download_model,
             dictation::dictation_cancel_download,
             dictation::dictation_delete_model,
+            dictation::dictation_set_remote_prefs,
             session::session_put,
             windows::window_open,
             windows::window_take_init,

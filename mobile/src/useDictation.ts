@@ -3,6 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { DictationState } from "../../src/chat/useDictation";
 import { speechLocale, t, type Key } from "./i18n";
+import { desktopDictationPref, desktopDictationUsable, useDesktopDictationPref } from "./dictationEngine";
+import { useRemoteSelector } from "./remote";
+import { startRemoteDictation, type RemoteSession } from "./remoteDictation";
 
 export { appendDictation } from "../../src/chat/useDictation";
 
@@ -31,13 +34,22 @@ function probeSupported(): Promise<boolean> {
   return supportedProbe;
 }
 
-/** Voice dictation through the phone's speech recognizer (see
- * src-tauri/src/speech.rs). `onFinal` gets each phrase once it settles;
+/** Voice dictation: the computer's Whisper when it is connected and willing
+ * (src/remoteDictation.ts), else the phone's speech recognizer (see
+ * src-tauri/src/speech.rs); a desktop that fails to start falls back to the
+ * phone unnoticed. `onFinal` gets each phrase once it settles;
  * `partial` is the phrase still being heard, shown but never committed. The
  * session is dropped when `active` turns false, the app goes to the background
  * or the component unmounts. */
 export function useDictation(onFinal: (text: string) => void, active: boolean) {
-  const [supported, setSupported] = useState(false);
+  const [phoneSupported, setPhoneSupported] = useState(false);
+  const pref = useDesktopDictationPref();
+  const hostHasCap = useRemoteSelector((s) => !!s.host?.caps.includes("dictation"));
+  const online = useRemoteSelector((s) => s.status === "online");
+  const desktopUsable = desktopDictationUsable({ pref, online, hostHasCap });
+  const supported = phoneSupported || desktopUsable;
+  const usableRef = useRef(desktopUsable);
+  usableRef.current = desktopUsable;
   const [state, setState] = useState<DictationState>("idle");
   const [partial, setPartial] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -49,11 +61,15 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
   // flushes after it (e.g. right after the message was sent) is dropped instead
   // of landing in the next, empty draft.
   const droppedRef = useRef(false);
+  // The desktop session in use, if that engine is the one dictating.
+  const remoteRef = useRef<RemoteSession | null>(null);
+  // Bumped by every start and cancel, so a start that lost its race does not fall back.
+  const startRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     probeSupported().then((ok) => {
-      if (!cancelled) setSupported(ok);
+      if (!cancelled) setPhoneSupported(ok);
     });
     const unlisten = Promise.all([
       listen<{ text: string }>("speech://partial", (e) => {
@@ -84,6 +100,43 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
     setError(null);
     setPartial("");
     setState("listening");
+    const token = ++startRef.current;
+    // A stopped session still waiting for its last finals gives way to this one.
+    remoteRef.current?.cancel();
+    remoteRef.current = null;
+    if (usableRef.current && desktopDictationPref()) {
+      const session: RemoteSession = startRemoteDictation(speechLocale(), {
+        onPartial: (text) => {
+          if (remoteRef.current === session && !droppedRef.current) setPartial(text);
+        },
+        onFinal: (text) => {
+          if (remoteRef.current !== session) return;
+          setPartial("");
+          if (!droppedRef.current) onFinalRef.current(text);
+        },
+        onEnd: (reason, code) => {
+          if (remoteRef.current !== session) return;
+          remoteRef.current = null;
+          setPartial("");
+          if (reason === "error") {
+            setError(dictationError(code));
+            setState("error");
+          } else {
+            setState("idle");
+          }
+        },
+      });
+      remoteRef.current = session;
+      try {
+        await session.ready;
+        return;
+      } catch (e) {
+        console.debug("remote dictation unavailable, using the phone's recognizer:", String(e));
+        if (remoteRef.current === session) remoteRef.current = null;
+        // Stopped or cancelled meanwhile: nothing to fall back to.
+        if (startRef.current !== token || stateRef.current !== "listening") return;
+      }
+    }
     try {
       await invoke("speech_start", { language: speechLocale() });
     } catch (e) {
@@ -97,16 +150,21 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
     if (stateRef.current !== "listening") return;
     setState("idle");
     setPartial("");
-    invoke("speech_stop").catch(() => {});
+    if (remoteRef.current) remoteRef.current.stop();
+    else invoke("speech_stop").catch(() => {});
   }, []);
 
   /** Drops the session without a result - also the phrase a session already stopped may still deliver. */
   const cancel = useCallback(() => {
     droppedRef.current = true;
+    startRef.current++;
+    const remote = remoteRef.current;
+    remoteRef.current = null;
+    remote?.cancel();
     if (stateRef.current !== "listening") return;
     setState("idle");
     setPartial("");
-    invoke("speech_cancel").catch(() => {});
+    if (!remote) invoke("speech_cancel").catch(() => {});
   }, []);
 
   const toggle = useCallback(() => {

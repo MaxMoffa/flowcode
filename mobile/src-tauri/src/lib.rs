@@ -15,6 +15,7 @@ mod preview;
 mod reconnect;
 mod secure;
 mod serve;
+mod remote_dictation;
 mod speech;
 mod state;
 pub mod store;
@@ -34,7 +35,7 @@ use tokio::sync::{watch, Notify};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(secure::init()).plugin(background::init()).plugin(speech::init()).plugin(widgets::init()).plugin(updater::init());
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(secure::init()).plugin(background::init()).plugin(speech::init()).plugin(remote_dictation::init()).plugin(widgets::init()).plugin(updater::init());
     #[cfg(mobile)]
     {
         builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init()).plugin(tauri_plugin_deep_link::init()).plugin(tauri_plugin_haptics::init());
@@ -99,6 +100,9 @@ pub fn run() {
             speech::speech_start,
             speech::speech_stop,
             speech::speech_cancel,
+            remote_dictation::dict_audio_start,
+            remote_dictation::dict_audio_stop,
+            remote_dictation::dict_audio_cancel,
             widgets::widgets_update,
             widgets::widgets_take_action,
             view_cache::view_cache_has,

@@ -17,6 +17,10 @@
 //! `final` comes before the `end`. Model downloads report to every window as
 //! `dictation://download` `{ id, received, total }`, and a last time with
 //! `done` ("installed", "cancelled" or "error", plus `message`).
+//!
+//! A session can also be fed by the phone (remote.rs): same thread, same phrase
+//! cutting and worker, but the audio comes in as `Signal::Audio` from the link
+//! instead of the microphone, and the events go to a channel instead of a window.
 
 mod audio;
 pub mod cleanup;
@@ -24,6 +28,7 @@ mod engine;
 mod gpu_probe;
 pub use gpu_probe::run_gpu_probe_if_requested;
 mod models;
+pub mod remote;
 #[cfg(windows)]
 mod vulkan_loader;
 
@@ -100,6 +105,18 @@ pub struct DictationState {
     gate: tokio::sync::Mutex<()>,
     contexts: engine::ContextCache,
     downloads: models::Downloads,
+    /// What a phone's session uses (set by the desktop frontend).
+    remote_prefs: Mutex<RemotePrefs>,
+}
+
+/// The desktop's dictation preferences, for sessions that start from the phone.
+#[derive(Default, Clone)]
+struct RemotePrefs {
+    model: Option<String>,
+    language: String,
+    vocabulary: String,
+    accel: String,
+    gpu: String,
 }
 
 impl DictationState {
@@ -164,6 +181,26 @@ pub fn dictation_cancel_download(state: State<'_, DictationState>) {
     state.downloads.cancel();
 }
 
+/// Remembers the preferences a phone's dictation runs with (the phone has no
+/// settings of its own). Same meaning as the arguments of `dictation_start`.
+#[tauri::command]
+pub fn dictation_set_remote_prefs(
+    state: State<'_, DictationState>,
+    model: Option<String>,
+    language: Option<String>,
+    vocabulary: Option<String>,
+    accel: Option<String>,
+    gpu: Option<String>,
+) {
+    *state.remote_prefs.lock().unwrap_or_else(|e| e.into_inner()) = RemotePrefs {
+        model: model.filter(|m| !m.is_empty()),
+        language: language.unwrap_or_default(),
+        vocabulary: vocabulary.unwrap_or_default().trim().chars().take(VOCABULARY_MAX_CHARS).collect(),
+        accel: accel.unwrap_or_default(),
+        gpu: gpu.unwrap_or_default(),
+    };
+}
+
 #[tauri::command]
 pub async fn dictation_delete_model(
     app: AppHandle,
@@ -217,8 +254,8 @@ pub async fn dictation_start(
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let label = window.label().to_string();
     let job = Job {
-        window,
-        token,
+        sink: Sink::Window { window, token },
+        source: Source::Mic,
         languages: engine::language_codes(language.as_deref()),
         vocabulary: vocabulary.unwrap_or_default().trim().chars().take(VOCABULARY_MAX_CHARS).collect(),
         model_id,
@@ -266,10 +303,26 @@ pub async fn dictation_stop(state: State<'_, DictationState>) -> Result<(), Stri
     Ok(())
 }
 
+/// Where the audio of a session comes from.
+enum Source {
+    /// The default microphone.
+    Mic,
+    /// The phone: audio is pushed in as `Signal::Audio`.
+    Remote,
+}
+
+/// Where the events of a session go.
+enum Sink {
+    /// The window that started it, each event tagged with its `session` token.
+    Window { window: WebviewWindow, token: String },
+    /// A phone's session: the same events, reduced to what the phone is told.
+    Remote(tokio::sync::mpsc::UnboundedSender<remote::Event>),
+}
+
 /// Everything the thread of a session needs.
 struct Job {
-    window: WebviewWindow,
-    token: String,
+    sink: Sink,
+    source: Source,
     languages: Vec<String>,
     /// The user's own terms, already sanitised.
     vocabulary: String,
@@ -285,8 +338,25 @@ struct Job {
 
 impl Job {
     fn emit(&self, event: &str, mut payload: Value) {
-        payload["session"] = json!(self.token);
-        let _ = self.window.emit_to(self.window.label(), event, payload);
+        match &self.sink {
+            Sink::Window { window, token } => {
+                payload["session"] = json!(token);
+                let _ = window.emit_to(window.label(), event, payload);
+            }
+            Sink::Remote(events) => {
+                if let Some(event) = remote::event_of(event, &payload) {
+                    let _ = events.send(event);
+                }
+            }
+        }
+    }
+
+    /// The session was dropped without an "end" for a window; a phone is
+    /// always told how it ended.
+    fn emit_dropped(&self) {
+        if let Sink::Remote(events) = &self.sink {
+            let _ = events.send(remote::Event::End { reason: remote::EndReason::Cancelled, message: None });
+        }
     }
 }
 
@@ -396,22 +466,28 @@ fn work(
 /// `ready`, then cuts the audio into phrases for the worker until told to stop
 /// or something ends the session.
 fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sender<Result<(), String>>) {
-    let audio_tx = job.signals.clone();
-    let error_tx = job.signals.clone();
-    let capture = audio::open(
-        move |samples| {
-            let _ = audio_tx.send(Signal::Audio(samples.to_vec()));
-        },
-        move |message| {
-            let _ = error_tx.send(Signal::Failed(message));
-        },
-    );
-    let capture = match capture {
-        Ok(capture) => capture,
-        Err(message) => {
-            let _ = ready.send(Err(message));
-            return;
+    let capture = match job.source {
+        Source::Mic => {
+            let audio_tx = job.signals.clone();
+            let error_tx = job.signals.clone();
+            let capture = audio::open(
+                move |samples| {
+                    let _ = audio_tx.send(Signal::Audio(samples.to_vec()));
+                },
+                move |message| {
+                    let _ = error_tx.send(Signal::Failed(message));
+                },
+            );
+            match capture {
+                Ok(capture) => Some(capture),
+                Err(message) => {
+                    let _ = ready.send(Err(message));
+                    return;
+                }
+            }
         }
+        // The link feeds `inbox` itself.
+        Source::Remote => None,
     };
 
     let abort = Arc::new(AtomicBool::new(false));
@@ -515,6 +591,8 @@ fn run(job: Job, inbox: mpsc::Receiver<Signal>, ready: tokio::sync::oneshot::Sen
         let _ = worker.join();
         if let Some((reason, message)) = end {
             job.emit("dictation://end", json!({ "reason": reason, "message": message }));
+        } else {
+            job.emit_dropped();
         }
     });
 }

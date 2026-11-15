@@ -43,7 +43,7 @@ const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 /// bidirectional stream was the control stream (taken by the handshake), so
 /// every one accepted here is a preview stream; the link is already
 /// authenticated. The caller aborts the returned task with the connection.
-pub(super) fn spawn_accept_loop(connection: Connection, shared: Arc<Shared>) -> tokio::task::JoinHandle<()> {
+pub(super) fn spawn_accept_loop(connection: Connection, shared: Arc<Shared>, conn_id: u64) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let slots = Arc::new(Semaphore::new(MAX_STREAMS));
         loop {
@@ -52,14 +52,14 @@ pub(super) fn spawn_accept_loop(connection: Connection, shared: Arc<Shared>) -> 
             let Ok((send, recv)) = connection.accept_bi().await else { break };
             let shared = Arc::clone(&shared);
             tokio::spawn(async move {
-                serve_stream(&shared, send, recv).await;
+                serve_stream(&shared, conn_id, send, recv).await;
                 drop(permit);
             });
         }
     })
 }
 
-async fn serve_stream(shared: &Shared, mut send: iroh::endpoint::SendStream, mut recv: iroh::endpoint::RecvStream) {
+async fn serve_stream(shared: &Shared, conn_id: u64, mut send: iroh::endpoint::SendStream, mut recv: iroh::endpoint::RecvStream) {
     let Some(target) = read_header(&mut recv).await else {
         let _ = send.reset(1u32.into());
         return;
@@ -98,6 +98,16 @@ async fn serve_stream(shared: &Shared, mut send: iroh::endpoint::SendStream, mut
             line.push('\n');
             let _ = tokio::io::AsyncWriteExt::write_all(&mut send, line.as_bytes()).await;
             let _ = send.finish();
+        }
+        PreviewTarget::DictAudio(session) => {
+            // No reply: the session's own messages carry the outcome. A refused
+            // stream is reset, which the phone sees as a failed write.
+            if super::dictation::receive_audio(conn_id, &session, &mut recv).await {
+                let _ = send.finish();
+            } else {
+                shared.log.line("preview: refused a dictation audio stream");
+                let _ = send.reset(3u32.into());
+            }
         }
     }
 }

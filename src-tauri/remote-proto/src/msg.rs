@@ -282,10 +282,32 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         url: Option<String>,
     },
+    /// Starts a remote dictation: the desktop's Whisper transcribes the audio the
+    /// phone streams on a `dictaudio` stream. Answered with `dictready`, or with
+    /// `dictend` (reason "error") if it can't start. `language` is a hint, used
+    /// only when the desktop has no language of its own set. Needs "dictation".
+    DictStart {
+        session: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
+    /// End of speech: transcribe what was sent, then end ("done").
+    DictStop { session: String },
+    /// Drops the session and whatever is left of its audio ("cancelled").
+    DictCancel { session: String },
     /// The phone is in the background: send only notifications until it says
     /// otherwise (`on: false`).
     Background { on: bool },
     Ping,
+}
+
+/// Why a remote dictation ended.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DictEndReason {
+    Done,
+    Cancelled,
+    Error,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -442,6 +464,23 @@ pub enum ServerMsg {
         mime: Option<String>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         missing: bool,
+    },
+    /// The model of remote dictation `session` is loaded: audio is welcome.
+    DictReady { session: String },
+    /// The words of the phrase being spoken so far (refreshed as it goes; "…"
+    /// while a phrase is being transcribed with no preview yet; "" clears it).
+    DictPartial { session: String, text: String },
+    /// A phrase settled; it also clears the partial.
+    DictFinal { session: String, text: String },
+    /// The last message of a session. `code` ("model-missing", "busy" or
+    /// "failed") and `message` (human text) go with reason "error".
+    DictEnd {
+        session: String,
+        reason: DictEndReason,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
     },
     Pong,
 }
@@ -951,6 +990,30 @@ mod tests {
         );
         let none = ServerMsg::ChatCacheInfo { chat_id: "c1".into(), ttl_ms: None, last_call_at: None };
         assert_eq!(serde_json::to_value(none).unwrap(), serde_json::json!({ "t": "chatcacheinfo", "chatId": "c1" }));
+    }
+
+    #[test]
+    fn dictation_messages_round_trip() {
+        let start: ClientMsg = serde_json::from_str(r#"{"t":"dictstart","session":"s1","language":"it"}"#).unwrap();
+        assert_eq!(start, ClientMsg::DictStart { session: "s1".into(), language: Some("it".into()) });
+        let bare: ClientMsg = serde_json::from_str(r#"{"t":"dictstart","session":"s1"}"#).unwrap();
+        assert_eq!(serde_json::to_value(&bare).unwrap(), serde_json::json!({ "t": "dictstart", "session": "s1" }));
+        let stop: ClientMsg = serde_json::from_str(r#"{"t":"dictstop","session":"s1"}"#).unwrap();
+        assert_eq!(stop, ClientMsg::DictStop { session: "s1".into() });
+        let cancel: ClientMsg = serde_json::from_str(r#"{"t":"dictcancel","session":"s1"}"#).unwrap();
+        assert_eq!(cancel, ClientMsg::DictCancel { session: "s1".into() });
+        assert_eq!(serde_json::to_value(ServerMsg::DictReady { session: "s1".into() }).unwrap(), serde_json::json!({ "t": "dictready", "session": "s1" }));
+        assert_eq!(
+            serde_json::to_value(ServerMsg::DictFinal { session: "s1".into(), text: "ciao".into() }).unwrap(),
+            serde_json::json!({ "t": "dictfinal", "session": "s1", "text": "ciao" })
+        );
+        let end = ServerMsg::DictEnd { session: "s1".into(), reason: DictEndReason::Error, code: Some("busy".into()), message: Some("m".into()) };
+        assert_eq!(
+            serde_json::to_value(end).unwrap(),
+            serde_json::json!({ "t": "dictend", "session": "s1", "reason": "error", "code": "busy", "message": "m" })
+        );
+        let done = ServerMsg::DictEnd { session: "s1".into(), reason: DictEndReason::Done, code: None, message: None };
+        assert_eq!(serde_json::to_value(done).unwrap(), serde_json::json!({ "t": "dictend", "session": "s1", "reason": "done" }));
     }
 
     #[test]

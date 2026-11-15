@@ -384,6 +384,11 @@ export type ServerMsg =
   | { t: "chatcacheinfo"; chatId: string; ttlMs?: number | null; lastCallAt?: string | null }
   /** One chunk of an image of a chat (reply to `chatimage`), base64; `key` is the requested `id`, else the requested `path`, verbatim. A missing or unreadable one is a single message with `total: 0, missing: true`; an empty file is one chunk with `total: 0`. Needs the "chatImage" cap, which is not in `RemoteCap`: an older desktop just shows no images. */
   | { t: "chatimage"; key: string; offset: number; total: number; data: string; mime?: string; missing?: boolean }
+  /** Remote dictation (see docs/design/remote-dictation-protocol.md). Needs the "dictation" cap, which is not in `RemoteCap`: an older desktop just leaves the phone on Android's recognizer. */
+  | { t: "dictready"; session: string }
+  | { t: "dictpartial"; session: string; text: string }
+  | { t: "dictfinal"; session: string; text: string }
+  | { t: "dictend"; session: string; reason: "done" | "cancelled" | "error"; code?: "model-missing" | "busy" | "failed"; message?: string }
   | { t: "pong" };
 
 /** Which tab a `tabop` acts on. */
@@ -461,5 +466,11 @@ export type ClientMsg =
   | { t: "mcpicon"; chatId?: string; server: string }
   /** An image of a chat, by the `id` the desktop stored it under or by `path` (a file on the chat's PC, resolved against its cwd/WSL) or by web `url` (downloaded by the desktop only if its `chatWebImages` setting is on, else `missing`; the reply `key` is the url); answered with `chatimage` chunks. Needs the "chatImage" cap (not in `RemoteCap`); `url` also needs "chatWebImages". */
   | { t: "chatimage"; chatId?: string; id?: string; path?: string; url?: string; requestId?: string }
+  /** Starts a remote dictation: the desktop's Whisper transcribes the audio streamed on a `dictaudio` stream. `language` is only a hint. Needs the "dictation" cap. */
+  | { t: "dictstart"; session: string; language?: string }
+  /** End of speech: transcribe what was sent, then `dictend` "done". */
+  | { t: "dictstop"; session: string }
+  /** Drop the session; `dictend` "cancelled". */
+  | { t: "dictcancel"; session: string }
   | { t: "background"; on: boolean }
   | { t: "ping" };

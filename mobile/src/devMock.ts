@@ -217,6 +217,13 @@ mockIPC(
         return undefined;
       case "platform":
         return "mobile";
+      case "speech_available":
+        return false;
+      case "dict_audio_start":
+        throw "not available in the browser mock";
+      case "dict_audio_stop":
+      case "dict_audio_cancel":
+        return undefined;
       case "background_settings":
         return { enabled: false, capMinutes: 120 };
       case "request_notification_permission":

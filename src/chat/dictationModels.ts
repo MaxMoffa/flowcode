@@ -240,8 +240,31 @@ let selectedModel: string | null = readString(MODEL_KEY) || null;
 let languages: readonly string[] = parseDictationLanguages(readString(LANGUAGE_KEY));
 const prefListeners = new Set<() => void>();
 
+// Set once the app asked to mirror the prefs to the backend.
+let remoteSync = false;
+
 function notifyPrefs() {
   prefListeners.forEach((listener) => listener());
+  if (remoteSync) pushRemotePrefs();
+}
+
+/** Hands the backend the prefs a phone's dictation runs with (the phone has none of its own). */
+function pushRemotePrefs() {
+  // The vocabulary is a per-chat hint, so a phone's session has none.
+  invoke("dictation_set_remote_prefs", {
+    model: selectedModel,
+    language: dictationLanguageParam(languages),
+    vocabulary: "",
+    accel,
+    gpu: chosenGpu,
+  }).catch(() => {});
+}
+
+/** Starts mirroring the prefs to the backend: now, and on every change. */
+export function startRemotePrefsSync() {
+  if (remoteSync) return;
+  remoteSync = true;
+  pushRemotePrefs();
 }
 
 export const getSelectedModel = (): string | null => selectedModel;
