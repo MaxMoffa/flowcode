@@ -111,7 +111,8 @@ export type ChatEvent =
   | (EventBase & { kind: "ask"; requestId: string; message: string; schema: unknown; toolCallId?: string })
   | (EventBase & { kind: "askResolved"; requestId: string; action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> })
   | (EventBase & { kind: "turnEnd"; stopReason: string })
-  | (EventBase & { kind: "error"; message: string })
+  /** `limit`: the turn failed on the plan's usage limit / quota / credits (the backend reads it off the adapter's structured error). */
+  | (EventBase & { kind: "error"; message: string; limit?: boolean })
   | (EventBase & { kind: "exit"; code: number | null })
   | (EventBase & { kind: "ext"; method: string; params: unknown });
 

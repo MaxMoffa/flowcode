@@ -20,6 +20,12 @@ describe("limitOf", () => {
     expect(hit).toEqual({ id: "e1", at: null });
   });
 
+  it("trusts the backend's limit flag whatever the wording", () => {
+    const flagged: ChatItem = { type: "error", id: "e1", message: "Quota exceeded for model", limit: true };
+    expect(limitOf([user("u1"), flagged], NOW)).toEqual({ id: "e1", at: null });
+    expect(limitOf([user("u1"), error("e2", "Quota exceeded for model")], NOW)).toBeNull();
+  });
+
   it("ignores a notice before a newer user message", () => {
     expect(limitOf([agent("a1", "You've hit your limit"), user("u2"), agent("a2", "ok")], NOW)).toBeNull();
   });

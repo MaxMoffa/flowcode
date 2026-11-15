@@ -124,7 +124,7 @@ impl TaskState {
                 self.error = None;
                 self.finish(TaskStatus::Done, now);
             }
-            ChatBody::Error { message } => {
+            ChatBody::Error { message, .. } => {
                 self.error = Some(message.clone());
                 return false;
             }
@@ -814,7 +814,7 @@ mod tests {
     #[test]
     fn errors_exits_and_cancellations_end_it_otherwise() {
         let mut state = TaskState::new();
-        assert!(!state.apply(&ChatBody::Error { message: "boom".into() }, false, "", 1));
+        assert!(!state.apply(&ChatBody::Error { message: "boom".into(), limit: false }, false, "", 1));
         assert_eq!(state.status, TaskStatus::Running);
         assert!(state.apply(&ChatBody::Exit { code: Some(1) }, false, "", 2));
         assert_eq!((state.status, state.error.as_deref()), (TaskStatus::Failed, Some("boom")));
@@ -832,7 +832,7 @@ mod tests {
     #[test]
     fn diagnostic_errors_do_not_end_a_turn_but_prompt_failure_does() {
         let mut state = TaskState::new();
-        assert!(!state.apply(&ChatBody::Error { message: "oversized message skipped".into() }, false, "", 1));
+        assert!(!state.apply(&ChatBody::Error { message: "oversized message skipped".into(), limit: false }, false, "", 1));
         assert!(state.apply(&ChatBody::TurnEnd { stop_reason: "end_turn".into() }, false, "answer", 2));
         assert_eq!((state.status, state.result.as_deref(), state.error.as_deref()), (TaskStatus::Done, Some("answer"), None));
         let mut state = TaskState::new();

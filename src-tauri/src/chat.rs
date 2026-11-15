@@ -103,7 +103,13 @@ pub enum ChatBody {
     /// `action` is "accept", "decline" or "cancel".
     AskResolved { request_id: Value, action: String, content: Option<Value> },
     TurnEnd { stop_reason: String },
-    Error { message: String },
+    /// `limit`: the turn failed on the plan's usage limit / quota / credits
+    /// (see `is_limit_error`), so the views show the pond's limit card.
+    Error {
+        message: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        limit: bool,
+    },
     Exit { code: Option<i32> },
     /// An extension notification (its method starts with `_`), verbatim - or
     /// Flowcode's own `_flowcode/model` (the model changed). It doesn't
@@ -254,6 +260,9 @@ enum Pending {
 struct RpcError {
     code: i64,
     message: String,
+    /// The error's `data`: where the adapters put what the failure was
+    /// (Claude `errorKind`, Codex `codexErrorInfo`) and its readable text.
+    data: Option<Value>,
 }
 
 /// One line the agent wrote, sorted by what it is.
@@ -281,6 +290,7 @@ fn parse_line(line: &str) -> Option<Incoming> {
                 Some(err) => Err(RpcError {
                     code: err.get("code").and_then(Value::as_i64).unwrap_or(0),
                     message: err.get("message").and_then(Value::as_str).unwrap_or("unknown error").to_string(),
+                    data: err.get("data").filter(|d| !d.is_null()).cloned(),
                 }),
                 None => Ok(obj.get("result").cloned().unwrap_or(Value::Null)),
             };
@@ -297,8 +307,59 @@ fn is_auth_error(err: &RpcError) -> bool {
         || (err.code == -32000 && (message.contains("sign in") || message.contains("log in")))
 }
 
+/// The failure as the user should read it. The adapters wrap it in JSON-RPC's
+/// "Internal error[: detail]": the detail is the text, and a bare "Internal
+/// error" (Codex) keeps its text in `data.message` / `data.details`.
+fn readable_error(err: &RpcError) -> String {
+    let message = err.message.trim();
+    if let Some(detail) = message.strip_prefix("Internal error:").map(str::trim).filter(|d| !d.is_empty()) {
+        return detail.to_string();
+    }
+    if message == "Internal error" {
+        let data = err.data.as_ref();
+        let text = ["message", "details", "additionalDetails"]
+            .iter()
+            .find_map(|key| data.and_then(|d| d.get(key)).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()));
+        if let Some(text) = text {
+            return text.to_string();
+        }
+    }
+    err.message.clone()
+}
+
 fn error_text(err: &RpcError) -> String {
-    if is_auth_error(err) { format!("auth_required: {}", err.message) } else { err.message.clone() }
+    if is_auth_error(err) { format!("auth_required: {}", err.message) } else { readable_error(err) }
+}
+
+/// Whether a failed prompt hit the plan's usage limit, a quota or the credits
+/// running out - for every agent. Claude's adapter says so in
+/// `data.errorKind`, Codex's in `data.codexErrorInfo`; Gemini, OpenCode and
+/// Vibe only in the provider's wording, matched loosely here.
+fn is_limit_error(err: &RpcError) -> bool {
+    let data = err.data.as_ref();
+    let kind = data.and_then(|d| d.get("errorKind")).and_then(Value::as_str);
+    if matches!(kind, Some("rate_limit" | "billing_error")) {
+        return true;
+    }
+    let codex = data.and_then(|d| d.get("codexErrorInfo"));
+    if codex.is_some_and(|info| info.as_str() == Some("usageLimitExceeded") || info.get("usageLimitExceeded").is_some()) {
+        return true;
+    }
+    if is_auth_error(err) {
+        return false;
+    }
+    let mut text = err.message.to_lowercase();
+    if let Some(data) = data {
+        text.push(' ');
+        text.push_str(&data.to_string().to_lowercase());
+    }
+    const PATTERNS: &[&str] = &[
+        "usage limit", "usagelimitexceeded", "rate limit", "rate_limit", "ratelimit", "quota", "resource_exhausted",
+        "insufficient credits", "insufficient_credits", "out of credits", "out of usage", "extra usage", "usage credits",
+        "credit balance", "insufficient balance", "payment required", "too many requests",
+    ];
+    PATTERNS.iter().any(|p| text.contains(p))
+        || ["hit your", "reached your"].iter().any(|p| text.split(p).skip(1).any(|rest| rest.chars().take(40).collect::<String>().contains("limit")))
 }
 
 /// Appends to a ring buffer holding the last `cap` bytes.
@@ -644,7 +705,7 @@ fn body_size(body: &ChatBody) -> usize {
             approx_size(request_id) + action.len() + content.as_ref().map_or(0, approx_size)
         }
         ChatBody::TurnEnd { stop_reason } => stop_reason.len(),
-        ChatBody::Error { message } => message.len(),
+        ChatBody::Error { message, .. } => message.len(),
         ChatBody::Exit { .. } => 0,
         ChatBody::Ext { method, params } => method.len() + approx_size(params),
     }
@@ -1394,6 +1455,7 @@ impl Chat {
         match incoming {
             Incoming::Response { id, result } => {
                 let Some(pending) = lock(&self.pending).remove(&id) else { return };
+                let limit = result.as_ref().err().is_some_and(is_limit_error);
                 let result = result.map_err(|e| error_text(&e));
                 match pending {
                     Pending::Waiter(tx) => {
@@ -1405,7 +1467,7 @@ impl Chat {
                             self.emit(ChatBody::TurnEnd { stop_reason: stop_reason.to_string() });
                             self.refresh_goal_soon();
                         }
-                        Err(message) => self.prompt_failed(message),
+                        Err(message) => self.prompt_failed(message, limit),
                     },
                 }
             }
@@ -1546,8 +1608,8 @@ impl Chat {
         }
     }
 
-    fn prompt_failed(&self, message: String) {
-        self.emit(ChatBody::Error { message: message.clone() });
+    fn prompt_failed(&self, message: String, limit: bool) {
+        self.emit(ChatBody::Error { message: message.clone(), limit });
         delegate::prompt_failed(self, &message);
     }
 
@@ -1589,7 +1651,7 @@ impl Chat {
                 Pending::Waiter(tx) => {
                     let _ = tx.send(Err(message.clone()));
                 }
-                Pending::Prompt => self.emit(ChatBody::Error { message: message.clone() }),
+                Pending::Prompt => self.emit(ChatBody::Error { message: message.clone(), limit: false }),
             }
         }
         self.emit(ChatBody::Exit { code });
@@ -1946,7 +2008,7 @@ impl ChatState {
         let id = match chat.register(Pending::Prompt) {
             Ok(id) => id,
             Err(message) => {
-                chat.prompt_failed(message.clone());
+                chat.prompt_failed(message.clone(), false);
                 return Err(message);
             }
         };
@@ -1959,7 +2021,7 @@ impl ChatState {
         if let Err(message) = chat.send(&request) {
             // Whoever takes the pending prompt out reports its failure.
             if lock(&chat.pending).remove(&id).is_some() {
-                chat.prompt_failed(message.clone());
+                chat.prompt_failed(message.clone(), false);
             }
             return Err(message);
         }
@@ -3031,8 +3093,29 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_usage_limits_from_every_agent() {
+        let err = |message: &str, data: Value| RpcError { code: -32603, message: message.to_string(), data: (!data.is_null()).then_some(data) };
+        // Claude: categorical errorKind, the text after "Internal error: ".
+        let claude = err("Internal error: You've hit your 5-hour limit · resets 6pm (Europe/Rome)", json!({ "errorKind": "rate_limit" }));
+        assert!(is_limit_error(&claude));
+        assert_eq!(error_text(&claude), "You've hit your 5-hour limit · resets 6pm (Europe/Rome)");
+        // Codex: a bare "Internal error", the text and the kind in data.
+        let codex = err("Internal error", json!({ "message": "You've hit your usage limit. Try again at 3:45 PM.", "codexErrorInfo": "usageLimitExceeded" }));
+        assert!(is_limit_error(&codex));
+        assert_eq!(error_text(&codex), "You've hit your usage limit. Try again at 3:45 PM.");
+        // Gemini / OpenCode / Vibe: only the provider's wording.
+        assert!(is_limit_error(&err("Internal error: [429] RESOURCE_EXHAUSTED: Quota exceeded for model", Value::Null)));
+        assert!(is_limit_error(&err("Internal error", json!({ "details": "Insufficient credits. Add more using https://openrouter.ai" }))));
+        assert!(is_limit_error(&err("Rate limit exceeded, retry later", Value::Null)));
+        // Not limits.
+        assert!(!is_limit_error(&err("Internal error: The Claude Agent session has ended. Please start a new session.", Value::Null)));
+        assert!(!is_limit_error(&err("Internal error", json!({ "errorKind": "server_error" }))));
+        assert!(!is_limit_error(&err("Authentication required", Value::Null)));
+    }
+
+    #[test]
     fn recognizes_authentication_errors() {
-        let err = |code, message: &str| RpcError { code, message: message.to_string() };
+        let err = |code, message: &str| RpcError { code, message: message.to_string(), data: None };
         assert_eq!(error_text(&err(-32000, "Authentication required")), "auth_required: Authentication required");
         assert!(is_auth_error(&err(1, "please authenticate first")));
         assert!(!is_auth_error(&err(-32000, "server is busy")));
@@ -3142,7 +3225,7 @@ mod tests {
         let resolved = ChatBody::PermissionResolved { request_id: json!(1), option_id: None };
         let ext = ChatBody::Ext { method: "_x".into(), params: Value::Null };
         let turn_end = ChatBody::TurnEnd { stop_reason: "end_turn".into() };
-        let error = ChatBody::Error { message: "boom".into() };
+        let error = ChatBody::Error { message: "boom".into(), limit: false };
         let exit = ChatBody::Exit { code: Some(0) };
 
         // Only the user's prompt starts a turn.

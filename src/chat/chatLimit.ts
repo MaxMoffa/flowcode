@@ -12,6 +12,8 @@ export function limitOf(items: ChatItem[], now = new Date()): { id: string; at: 
     if (!text) continue;
     const hit = detectLimit(text, now);
     if (hit) return { id: item.id, at: hit.at };
+    // The backend knew it from the adapter's structured error (any agent), whatever the wording.
+    if (item.type === "error" && item.limit) return { id: item.id, at: null };
   }
   return null;
 }

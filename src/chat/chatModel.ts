@@ -94,7 +94,7 @@ export type ChatItem =
       resolved?: { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
     }
   /** `local`: raised here (a send or an answer the backend refused), not an event of the agent's stream. */
-  | { type: "error"; id: string; message: string; local?: boolean }
+  | { type: "error"; id: string; message: string; local?: boolean; limit?: boolean }
   /** A delegated task, anchored where its first event arrived (right after the tool call that started it). */
   | { type: "delegate"; id: string; delegate: DelegateInfo }
   /** A turn that ended for another reason than finishing or being cancelled (ACP `stopReason`: `max_tokens`, `max_turn_requests`, `refusal`, ...). */
@@ -807,7 +807,7 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
       const last = state.items[state.items.length - 1];
       const dup = last?.type === "error" && last.local && last.message === ev.message;
       return {
-        ...withItems(state, dup ? state.items : [...state.items, { type: "error", id: `error-${ev.seq}`, message: ev.message }], false),
+        ...withItems(state, dup ? state.items : [...state.items, { type: "error", id: `error-${ev.seq}`, message: ev.message, ...(ev.limit ? { limit: true } : {}) }], false),
         notice: null,
         turn: null,
       };
