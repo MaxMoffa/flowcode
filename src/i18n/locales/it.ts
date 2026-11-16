@@ -1378,6 +1378,8 @@ export const it = {
   "chat.table.copyCsvTitle": "Copia come CSV",
   "chat.table.copied": "Copiato",
   "chat.code.copy": "Copia",
+  "chat.code.showCode": "Codice",
+  "chat.code.showDiagram": "Diagramma",
   "chat.code.copyTitle": "Copia il codice",
   "chat.table.expand": "Espandi",
   "chat.table.close": "Chiudi",

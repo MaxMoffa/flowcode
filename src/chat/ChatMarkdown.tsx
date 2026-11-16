@@ -97,6 +97,12 @@ export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string 
       return ref ? <ChatImageView key={key} image={{ ...ref, name: alt || undefined }} variant="single" caption={alt || undefined} /> : <span key={key}>{alt}</span>;
     },
     table: (table, cell, key) => <ChatTable key={key} table={table} cell={cell} />,
-    copyLabels: { copy: t("chat.code.copy"), copied: t("chat.table.copied"), title: t("chat.code.copyTitle") },
+    copyLabels: {
+      copy: t("chat.code.copy"),
+      copied: t("chat.table.copied"),
+      title: t("chat.code.copyTitle"),
+      code: t("chat.code.showCode"),
+      diagram: t("chat.code.showDiagram"),
+    },
   })}</div>;
 });

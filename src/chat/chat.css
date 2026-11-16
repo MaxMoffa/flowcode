@@ -4096,3 +4096,20 @@ summary.chat-step-row {
   font-family: var(--font-mono, ui-monospace, Consolas, monospace);
   font-size: 0.92em;
 }
+
+.chat-mermaid-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.chat-mermaid-svg {
+  padding: 10px 12px;
+  overflow: auto;
+  max-height: 70vh;
+  text-align: center;
+}
+
+.chat-mermaid-svg svg {
+  max-width: 100%;
+  height: auto;
+}

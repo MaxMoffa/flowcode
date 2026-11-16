@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { parseBlocks, parseInline, type Block, type Inline } from "../src/chat/markdownBlocks";
 import { MathView } from "./MathView";
+import { MermaidView } from "./MermaidView";
 import type { MdTable } from "../src/chat/markdownTable";
 
 /** Platform adapters keep filesystem links, image ownership and navigation outside the renderer. */
@@ -9,7 +10,7 @@ export interface MarkdownAdapters {
   code(text: string, key: string): ReactNode;
   image(src: string, alt: string, key: string): ReactNode;
   table(table: MdTable, cell: (text: string, key: string) => ReactNode, key: string): ReactNode;
-  copyLabels: { copy: string; copied: string; title?: string };
+  copyLabels: { copy: string; copied: string; title?: string; code?: string; diagram?: string };
 }
 
 /** Inline tokens as React nodes: formatting, `code` (paths linked), links, and the text between them with its urls and file paths linked. */
@@ -109,6 +110,7 @@ function blocks(list: Block[], keyBase: string, adapter: MarkdownAdapters, offse
       case "math":
         return <MathView key={key} tex={b.tex} display labels={adapter.copyLabels} />;
       case "code":
+        if (b.lang.toLowerCase() === "mermaid") return <MermaidView key={key} text={b.text} labels={adapter.copyLabels} />;
         return <CodeBlock key={key} lang={b.lang} text={b.text} labels={adapter.copyLabels} />;
       case "table":
         return adapter.table(b.table, (text, cellKey) => inline(parseInline(text), `${key}-${cellKey}`, adapter), key);

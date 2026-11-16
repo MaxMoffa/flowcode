@@ -1370,6 +1370,8 @@ export const en: Record<MessageKey, string> = {
   "chat.table.copyCsvTitle": "Copy as CSV",
   "chat.table.copied": "Copied",
   "chat.code.copy": "Copy",
+  "chat.code.showCode": "Code",
+  "chat.code.showDiagram": "Diagram",
   "chat.code.copyTitle": "Copy the code",
   "chat.table.expand": "Expand",
   "chat.table.close": "Close",

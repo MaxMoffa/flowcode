@@ -96,6 +96,6 @@ export function ChatMarkdown({ text, onLink }: { text: string; onLink: OnLink })
       return ref ? <ChatImageView key={key} image={ref} variant="single" caption={alt || undefined} /> : <span key={key}>{alt}</span>;
     },
     table: (table, cell, key) => <ChatTable key={key} table={table} cell={cell} />,
-    copyLabels: { copy: t("chatCodeCopy"), copied: t("chatTableCopied") },
+    copyLabels: { copy: t("chatCodeCopy"), copied: t("chatTableCopied"), code: t("chatCodeShowCode"), diagram: t("chatCodeShowDiagram") },
   })}</div>;
 }
