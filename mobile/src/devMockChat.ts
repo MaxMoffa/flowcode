@@ -57,7 +57,24 @@ const commandsUpdate = update("available_commands_update", {
   ],
 });
 
-const mockModels = { currentModelId: "opus", availableModels: [{ modelId: "opus", name: "Opus 5.5" }, { modelId: "sonnet", name: "Sonnet 5.5" }] };
+const fewModels = { currentModelId: "opus", availableModels: [{ modelId: "opus", name: "Opus 5.5" }, { modelId: "sonnet", name: "Sonnet 5.5" }] };
+// "?models=many" in the dev URL gives a long "Provider/Model" list, to see the grouped model picker.
+const manyModels = {
+  currentModelId: "anthropic/claude-sonnet-5.5",
+  availableModels: [
+    ["anthropic", "claude-opus-5.5", "Claude Opus 5.5"],
+    ["anthropic", "claude-sonnet-5.5", "Claude Sonnet 5.5"],
+    ["anthropic", "claude-haiku-5.5", "Claude Haiku 5.5"],
+    ["anthropic", "claude-opus-4.1", "Claude Opus 4.1"],
+    ["openai", "gpt-6", "GPT-6"],
+    ["openai", "gpt-6-mini", "GPT-6 mini"],
+    ["openai", "gpt-5-codex", "GPT-5 Codex"],
+    ["google", "gemini-3-pro", "Gemini 3 Pro"],
+    ["google", "gemini-3-flash", "Gemini 3 Flash"],
+    ["qwen", "qwen3-coder", "Qwen3 Coder"],
+  ].map(([p, id, n]) => ({ modelId: `${p}/${id}`, name: `${p[0].toUpperCase()}${p.slice(1)}/${n}` })),
+};
+const mockModels = new URLSearchParams(location.search).get("models") === "many" ? manyModels : fewModels;
 
 const history: Record<string, Ev[]> = {
   c1: [

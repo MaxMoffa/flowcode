@@ -2013,6 +2013,236 @@ button.chat-step-row {
   color: var(--accent);
 }
 
+/* Long model lists: fixed height so opening/closing groups doesn't make the sheet jump (phone only). */
+.tm-sheet.chat-model-sheet.tall:not(.as-panel) {
+  height: 80%;
+}
+
+/* The list takes the room left, so the thinking footer stays at the bottom. */
+.chat-model-sheet .chat-pick-body {
+  flex: 1 1 auto;
+}
+
+.chat-model-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  margin: 2px 14px 10px;
+  padding: 0 6px 0 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--muted);
+}
+
+.chat-model-search:focus-within {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.chat-model-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.chat-model-search-input::placeholder {
+  color: var(--muted);
+}
+
+.chat-model-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.chat-model-search-clear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+}
+
+.chat-model-cap {
+  padding: 8px 18px 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-model-recent {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chat-model-recent::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-model-rc {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--fg);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.chat-model-rc small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.chat-model-rc.on {
+  background: var(--accent-bg, color-mix(in srgb, var(--accent) 12%, transparent));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent);
+}
+
+/* Sticky headers sit on an opaque colour (the sheet itself is translucent glass) and draw their top line as an inset shadow so it isn't cut while stuck. */
+.chat-model-grp {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 50px;
+  padding: 0 16px;
+  border: 0;
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 var(--border);
+  color: var(--fg);
+  text-align: left;
+}
+
+.chat-model-grp:active {
+  background: var(--surface-2);
+}
+
+.chat-model-grp b {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.chat-model-grp-chev {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+
+.chat-model-grp.open .chat-model-grp-chev {
+  transform: none;
+}
+
+.chat-model-grp-count {
+  color: var(--muted);
+  font: 12px var(--mono, ui-monospace, monospace);
+}
+
+.chat-model-grp-cur {
+  margin-left: auto;
+  max-width: 46%;
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-mode-row.compact {
+  min-height: 48px;
+  border-top: 0;
+}
+
+.chat-model-compact {
+  min-height: 48px;
+  padding: 6px 0 6px 20px;
+}
+
+.chat-model-compact-name {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-mode-row.on .chat-model-compact-name {
+  font-weight: 600;
+}
+
+.chat-model-compact-id {
+  overflow: hidden;
+  color: var(--muted);
+  font: 11.5px var(--mono, ui-monospace, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-model-compact-group {
+  flex: none;
+  padding-right: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chat-mode-row.old .chat-model-compact-name {
+  color: var(--muted);
+}
+
+.chat-model-more {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 16px 0 52px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+}
+
+.chat-model-empty {
+  padding: 30px 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.chat-model-foot {
+  flex: none;
+  border-top: 1px solid var(--border);
+}
+
+.chat-model-foot .chat-think {
+  border-top: 0;
+}
+
 .chat-mode-pill {
   display: inline-flex;
   align-items: center;

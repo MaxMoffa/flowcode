@@ -2700,8 +2700,168 @@ summary.chat-step-row {
 
 /* The model picker reuses the mode menu; a long list scrolls. */
 .chat-model-menu {
-  max-height: min(420px, 60vh);
+  display: flex;
+  flex-direction: column;
+  max-height: min(470px, 60vh);
+  overflow: hidden;
+  width: 340px;
+}
+
+.chat-model-head {
+  flex: none;
+}
+
+.chat-model-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+}
+
+.chat-model-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 9px;
+  margin: 0 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg-muted);
+}
+
+.chat-model-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.chat-model-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.chat-model-search-input::placeholder {
+  color: var(--fg-muted);
+}
+
+.chat-model-grp {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--menu-surface);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-model-grp:hover,
+.chat-model-grp:focus-visible {
+  background: color-mix(in srgb, var(--fg) 6%, var(--menu-surface));
+}
+
+.chat-model-grp:focus-visible,
+.chat-model-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.chat-model-grp-chev {
+  width: 10px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  transition: transform 0.15s;
+}
+
+.chat-model-grp.is-open .chat-model-grp-chev {
+  transform: rotate(90deg);
+}
+
+.chat-model-grp-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.chat-model-grp-count {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+
+.chat-model-grp-current {
+  margin-left: auto;
+  max-width: 150px;
+  color: var(--accent);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-model-compact {
+  align-items: center;
+  padding: 6px 8px 6px 10px;
+}
+
+.chat-model-compact-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.is-old .chat-model-compact-name {
+  color: var(--fg-muted);
+}
+
+.chat-model-compact-group {
+  flex: none;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.chat-model-more {
+  display: block;
+  width: 100%;
+  padding: 3px 8px 5px 32px;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-model-more:hover,
+.chat-model-more:focus-visible {
+  color: var(--fg);
+}
+
+.chat-model-empty {
+  padding: 18px 8px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+
+.chat-model-foot {
+  flex: none;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
 }
 
 .chat-model-hint {

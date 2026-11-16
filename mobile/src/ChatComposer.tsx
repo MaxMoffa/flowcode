@@ -431,7 +431,7 @@ ${latest.current}` : added);
                 </button>
               </div>
             ) : null}
-            {onModel && onThought && <ChatModelPicker models={models} thought={thought} busy={busy} onModel={onModel} onThought={onThought} />}
+            {onModel && onThought && <ChatModelPicker models={models} agent={agent} thought={thought} busy={busy} onModel={onModel} onThought={onThought} />}
           </div>
           <button type="button" {...keepFocus} tabIndex={-1} className={"chat-slash" + (menu ? " on" : "")} aria-label={t("chatCmdTitle")} aria-expanded={menu !== null} onClick={toggleMenu}>/</button>
           </div>

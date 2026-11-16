@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — menu selettore modelli in chat: 3 varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --chrome: #15110e; --card: #221c17; --card-2: #2b241e;
+      --border: rgba(232,184,128,.12); --border-strong: rgba(231,216,197,.22);
+      --fg: #e7d8c5; --muted: #a08a6f; --accent: #9db984; --accent-bg: rgba(157,185,132,.14);
+      --amber: #d9a24e; --blue: #6f9bcf; --red: #e2645c; --hover: rgba(231,216,197,.06);
+      --menu: #2a231d;
+      --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0f0c09; color: var(--fg); font: 14px/1.5 var(--font); }
+    button, input { font: inherit; color: inherit; }
+    button { border: 0; background: none; padding: 0; cursor: pointer; text-align: left; }
+    .page { max-width: 1240px; margin: auto; padding: 28px 24px 80px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 940px; }
+    .switch { position: sticky; top: 0; z-index: 50; display: flex; gap: 10px; align-items: center; padding: 10px 0; background: #0f0c09; border-bottom: 1px solid var(--border); }
+    .switch span { color: var(--muted); font-size: 12.5px; }
+    .seg { display: inline-flex; padding: 2px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); }
+    .seg button { padding: 4px 12px; border-radius: 6px; font-size: 12.5px; color: var(--muted); }
+    .seg button.on { background: var(--accent-bg); color: var(--accent); }
+    section { margin: 34px 0 50px; }
+    section h3 { font-size: 16px; margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; }
+    .tag { font-size: 11px; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+    .tag.now { color: var(--red); }
+    section > p { margin: 0 0 8px; color: var(--muted); font-size: 13px; max-width: 940px; }
+    section ul { margin: 0 0 14px; padding-left: 18px; color: var(--muted); font-size: 13px; max-width: 940px; }
+    section ul b { color: var(--fg); font-weight: 600; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    kbd { font: 10.5px var(--mono); padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--muted); }
+
+    /* ---------- fake app window ---------- */
+    .win { position: relative; height: 640px; border-radius: 10px; border: 1px solid rgba(0,0,0,.55); background: var(--bg); overflow: hidden; display: flex; flex-direction: column; }
+    .chatlog { flex: 1; padding: 26px 40px; display: flex; flex-direction: column; gap: 14px; opacity: .35; }
+    .bub { max-width: 560px; padding: 10px 14px; border-radius: 10px; background: var(--card); font-size: 13px; color: var(--muted); }
+    .bub.me { align-self: flex-end; background: var(--card-2); }
+    .composer { position: relative; margin: 0 40px 22px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--card); }
+    .composer .ph { color: var(--muted); font-size: 13px; padding: 2px 2px 12px; }
+    .actions { display: flex; gap: 6px; align-items: center; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--card-2); font-size: 12.5px; }
+    .pill .lv { color: var(--muted); }
+    .anchor { position: relative; }
+    .ico { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+    /* menu shell shared */
+    .menu { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 20; display: flex; flex-direction: column; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--menu); box-shadow: 0 10px 30px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.2); font-size: 12.5px; }
+    .menu[hidden] { display: none; }
+    .cap { padding: 4px 8px 6px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+    .sep { height: 1px; margin: 5px 0; background: var(--border); flex: none; }
+    .search { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; padding: 0 9px; height: 32px; border-radius: 7px; border: 1px solid var(--border); background: rgba(0,0,0,.22); flex: none; }
+    .search:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+    .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 12.5px; }
+    .search input::placeholder { color: var(--muted); }
+    .search .ico { width: 14px; height: 14px; color: var(--muted); }
+    .scroll { overflow-y: auto; min-height: 0; flex: 1 1 auto; scrollbar-width: thin; scrollbar-color: rgba(231,216,197,.18) transparent; }
+    .empty { padding: 18px 8px; color: var(--muted); text-align: center; }
+    mark { background: none; color: var(--accent); font-weight: 700; }
+
+    /* ---------- NOW ---------- */
+    .m-now { width: 320px; max-height: min(420px, 60vh); overflow-y: auto; display: block; }
+    .now-grp { padding: 8px 8px 3px; color: var(--muted); font-size: 11px; font-weight: 600; }
+    .now-row { position: relative; display: flex; gap: 10px; width: 100%; padding: 8px 4px 8px 10px; border-radius: 8px; }
+    .now-row:hover { background: var(--hover); }
+    .now-row.sel { background: var(--accent-bg); }
+    .now-row.sel::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--accent); }
+    .now-row .ck { width: 12px; color: var(--accent); }
+    .now-row b { display: block; font-size: 13px; font-weight: 600; }
+    .now-row small { display: block; color: var(--muted); font-size: 11.5px; }
+
+    /* thinking: track (now + A) */
+    .think { padding: 6px 8px 8px; flex: none; }
+    .think-head { display: flex; justify-content: space-between; margin-bottom: 4px; color: var(--muted); font-size: 11.5px; }
+    .think-head b { color: var(--fg); font-weight: 600; }
+    .track { position: relative; display: flex; justify-content: space-between; height: 26px; padding: 0 2px; }
+    .track::before, .track i.fill { content: ""; position: absolute; left: 12px; top: 50%; height: 3px; margin-top: -1.5px; border-radius: 2px; }
+    .track::before { right: 12px; background: var(--border-strong); }
+    .track i.fill { background: var(--accent); transition: width .18s; }
+    .track button { position: relative; z-index: 1; display: grid; place-items: center; width: 24px; height: 26px; }
+    .track button i { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); box-shadow: 0 0 0 3px var(--menu); }
+    .track button.past i { background: var(--accent); }
+    .track button.on i { width: 13px; height: 13px; background: var(--accent); box-shadow: 0 0 0 3px var(--menu), 0 0 0 5px var(--accent-bg); }
+    .ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+
+    /* ---------- A: groups ---------- */
+    .m-a { width: 340px; max-height: 470px; }
+    .a-grp { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: 7px; position: sticky; top: 0; z-index: 2; background: var(--menu); }
+    .a-grp:hover { background: color-mix(in srgb, var(--fg) 6%, var(--menu)); }
+    .a-grp .chev { width: 10px; color: var(--muted); transition: rotate .15s; font-size: 11px; }
+    .a-grp.open .chev { rotate: 90deg; }
+    .a-grp .dot { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+    .a-grp .gn { font-weight: 600; font-size: 12.5px; }
+    .a-grp .gc { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+    .a-grp .gcur { margin-left: auto; color: var(--accent); font-size: 11.5px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .a-row { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px 0 26px; border-radius: 7px; }
+    .a-row:hover, .a-row:focus-visible { background: var(--hover); outline: 0; }
+    .a-row.sel { background: var(--accent-bg); }
+    .a-row .ck { position: absolute; left: 9px; color: var(--accent); font-size: 12px; }
+    .a-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+    .a-row.old .nm { color: var(--muted); }
+    .a-row .pv { color: var(--muted); font-size: 11px; }
+    .a-row .meta { color: var(--muted); font: 11px var(--mono); }
+    .free { color: var(--accent); font-size: 10.5px; font-weight: 600; padding: 0 5px; border-radius: 4px; background: var(--accent-bg); }
+    .a-more { display: block; width: 100%; padding: 3px 8px 5px 26px; color: var(--muted); font-size: 11.5px; }
+    .a-more:hover { color: var(--fg); }
+    .a-foot { flex: none; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 2px; }
+
+    /* ---------- B: rail ---------- */
+    .m-b { width: 540px; height: 440px; }
+    .m-b.small { width: 330px; height: auto; max-height: 470px; }
+    .b-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 150px 1fr; gap: 6px; }
+    .m-b.small .b-body { display: block; }
+    .b-rail { overflow-y: auto; border-right: 1px solid var(--border); padding-right: 6px; scrollbar-width: thin; }
+    .b-rail.dim { opacity: .45; }
+    .b-pv { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; border-radius: 7px; font-size: 12.5px; }
+    .b-pv:hover { background: var(--hover); }
+    .b-pv.on { background: var(--card-2); box-shadow: inset 2px 0 0 var(--accent); }
+    .b-pv .dot { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+    .b-pv .gc { margin-left: auto; color: var(--muted); font: 11px var(--mono); }
+    .b-pv .has { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: auto; }
+    .b-pv .has + .gc { margin-left: 6px; }
+    .b-list { overflow-y: auto; min-height: 0; scrollbar-width: thin; }
+    .b-head { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px 6px; }
+    .b-head b { font-size: 13px; }
+    .b-head span { color: var(--muted); font-size: 11.5px; }
+    .b-row { position: relative; display: grid; grid-template-columns: 14px 1fr auto; gap: 2px 8px; align-items: center; width: 100%; padding: 6px 8px; border-radius: 8px; }
+    .b-row:hover { background: var(--hover); }
+    .b-row.sel { background: var(--accent-bg); }
+    .b-row .ck { color: var(--accent); font-size: 12px; grid-row: span 2; }
+    .b-row b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .b-row small { grid-column: 2; color: var(--muted); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .b-row .side { grid-row: 1 / span 2; grid-column: 3; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; color: var(--muted); font: 11px var(--mono); }
+    .b-row .pvt { font: 11px var(--font); color: var(--muted); }
+    .b-old { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 8px 4px; color: var(--muted); font-size: 11.5px; }
+    .b-old::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+    .b-foot { flex: none; display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 7px 4px 1px 8px; border-top: 1px solid var(--border); }
+    .b-foot > span { color: var(--muted); font-size: 11.5px; }
+    .lv-seg { display: inline-flex; padding: 2px; border-radius: 7px; background: rgba(0,0,0,.25); border: 1px solid var(--border); }
+    .lv-seg button { padding: 2px 10px; border-radius: 5px; font-size: 12px; color: var(--muted); }
+    .lv-seg button.on { background: var(--accent-bg); color: var(--accent); }
+    .b-foot .note { margin-left: auto; color: var(--muted); font-size: 11px; }
+
+    /* ---------- C: palette ---------- */
+    .m-c { width: 390px; max-height: 500px; }
+    .chips { display: flex; gap: 5px; flex-wrap: wrap; margin: 0 0 6px; flex: none; }
+    .chip { height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
+    .chip:hover { color: var(--fg); }
+    .chip.on { border-color: color-mix(in srgb, var(--accent) 50%, transparent); background: var(--accent-bg); color: var(--accent); }
+    .c-cap { display: flex; justify-content: space-between; padding: 6px 8px 3px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+    .c-cap span { font: 11px var(--mono); letter-spacing: 0; text-transform: none; font-weight: 400; }
+    .c-row { position: relative; display: flex; align-items: center; gap: 9px; width: 100%; height: 34px; padding: 0 6px 0 7px; border-radius: 7px; }
+    .c-row:hover, .c-row.kb { background: var(--hover); }
+    .c-row.sel { background: var(--accent-bg); }
+    .c-row.sel::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--accent); }
+    .badge { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font: 700 10px var(--font); color: #15110e; flex: none; }
+    .c-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+    .c-row.old .nm { color: var(--muted); }
+    .c-row .tg { font-size: 10.5px; color: var(--muted); padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); }
+    .c-row .meta { width: 38px; text-align: right; color: var(--muted); font: 11px var(--mono); }
+    .star { width: 18px; color: var(--muted); opacity: 0; font-size: 13px; text-align: center; }
+    .c-row:hover .star, .star.on { opacity: 1; }
+    .star.on { color: var(--amber); }
+    .c-foot { flex: none; margin-top: 4px; padding: 7px 6px 2px 8px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+    .c-foot .lab { color: var(--muted); font-size: 11.5px; }
+    .lv-chips { display: inline-flex; gap: 3px; }
+    .lv-chips button { width: 26px; height: 20px; border-radius: 5px; display: grid; place-items: center; }
+    .lv-chips button i { display: block; width: 4px; border-radius: 1px; background: var(--border-strong); }
+    .lv-chips button.on i, .lv-chips button.past i { background: var(--accent); }
+    .lv-chips button.on { background: var(--accent-bg); }
+    .c-foot .lvn { font-size: 12px; font-weight: 600; min-width: 46px; }
+    .c-foot .keys { margin-left: auto; display: flex; gap: 8px; color: var(--muted); font-size: 11px; }
+    .c-more { display: block; width: 100%; padding: 6px 8px; color: var(--muted); font-size: 11.5px; text-align: center; }
+    .c-more:hover { color: var(--fg); }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    table.cmp { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 10px; }
+    table.cmp th, table.cmp td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    table.cmp th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE · CHAT · SELETTORE MODELLI</div>
+  <h1>Menu modelli: tre varianti per liste lunghe</h1>
+  <p class="lead">Oggi il menu è una lista piatta di righe alte due righe, con le caption dei gruppi che scorrono via e il ragionamento in fondo, raggiungibile solo scrollando. Con OpenCode/OpenRouter (decine di modelli) diventa un muro. Le tre varianti sono interattive: clic sulla pillola apre/chiude, si può cercare, scegliere modello e livello. Usa l'interruttore per vedere come ognuna si comporta anche con pochi modelli (Claude).</p>
+
+  <div class="switch">
+    <span>Scenario</span>
+    <div class="seg" id="scen">
+      <button data-s="big" class="on">OpenCode · OpenRouter (molti modelli)</button>
+      <button data-s="small">Claude (5 modelli)</button>
+    </div>
+  </div>
+
+  <section>
+    <h3><span class="tag now">ORA</span> Lista piatta</h3>
+    <p>Com'è oggi: ogni modello occupa due righe, i gruppi sono solo caption, niente ricerca, il ragionamento esce dalla vista appena la lista scrolla.</p>
+    <div class="win" data-v="now"></div>
+  </section>
+
+  <section>
+    <h3><span class="tag">VARIANTE A</span> Gruppi pieghevoli + ricerca</h3>
+    <ul>
+      <li><b>Righe da una riga</b> (30 px invece di ~48): nome a sinistra, contesto e badge "gratis" a destra; l'id completo va nel tooltip.</li>
+      <li><b>Provider pieghevoli</b> con conteggio; si apre solo quello del modello attuale. Da chiuso il gruppo mostra a destra il modello scelto. Intestazioni sticky mentre scorri.</li>
+      <li><b>Recenti</b> in cima (ultimi 3 usati), <b>versioni precedenti</b> dentro ogni gruppo dietro un link "+N".</li>
+      <li><b>Ricerca</b> fissa in alto, <b>ragionamento</b> fisso in basso (non scorre più via). Sotto gli 8 modelli niente ricerca né gruppi: resta quasi identico a oggi.</li>
+    </ul>
+    <div class="win" data-v="a"></div>
+    <div class="hint">Più vicina a oggi: stessa larghezza, stessa grafica, stessi tasti. Cambio minimo, guadagno grande.</div>
+  </section>
+
+  <section>
+    <h3><span class="tag">VARIANTE B</span> Provider a sinistra, modelli a destra</h3>
+    <ul>
+      <li><b>Due colonne</b>: binario dei provider (con punto verde dove c'è il modello attivo) e lista del provider scelto, con righe a due livelli (nome + id).</li>
+      <li><b>Ricerca globale</b>: digitando, il binario si attenua e a destra compaiono risultati di tutti i provider con l'etichetta del provider.</li>
+      <li><b>Ragionamento come segmenti</b> con i nomi dei livelli, sempre visibili nel piede.</li>
+      <li>Più largo (540 px). Con pochi modelli o senza gruppi il binario sparisce e torna una colonna sola.</li>
+    </ul>
+    <div class="win" data-v="b"></div>
+    <div class="hint">Migliore orientamento con 10+ provider; costa spazio orizzontale e un clic in più per cambiare provider.</div>
+  </section>
+
+  <section>
+    <h3><span class="tag">VARIANTE C</span> Palette con preferiti e filtri</h3>
+    <ul>
+      <li><b>Stile command palette</b>: ricerca + filtri rapidi (Gratis, Ragionamento, Visione, Locali, Precedenti).</li>
+      <li><b>Preferiti</b> in cima: stella al passaggio del mouse, salvati per agente. Poi "Tutti" in lista densa con badge colorato del provider al posto delle caption.</li>
+      <li>Ogni riga mostra le capacità (ragion., img) e il contesto. Versioni precedenti nascoste finché non si attiva il filtro.</li>
+      <li>Piede compatto: livello di ragionamento come barre crescenti + scorciatoie (<kbd>Tab</kbd> sposta sul ragionamento).</li>
+    </ul>
+    <div class="win" data-v="c"></div>
+    <div class="hint">La più veloce per chi sa cosa cerca; i preferiti risolvono il caso "uso sempre gli stessi 3". Serve salvare le stelle (impostazioni per agente).</div>
+  </section>
+
+  <section>
+    <h3>Confronto</h3>
+    <table class="cmp">
+      <tr><th></th><th>A · Gruppi</th><th>B · Due colonne</th><th>C · Palette</th></tr>
+      <tr><td>Larghezza</td><td>340 px</td><td>540 px</td><td>390 px</td></tr>
+      <tr><td>Righe visibili (molti modelli)</td><td>~12</td><td>~9 per provider</td><td>~11</td></tr>
+      <tr><td>Novità da salvare</td><td>recenti</td><td>nessuna</td><td>recenti + preferiti</td></tr>
+      <tr><td>Lavoro</td><td>basso: solo ChatModelSelect + css</td><td>medio: nuovo layout, tastiera a due colonne</td><td>medio: filtri da metadati, stelle persistite</td></tr>
+      <tr><td>Telefono</td><td>stessa struttura nel drawer</td><td>da ripensare (binario → chip orizzontali)</td><td>funziona bene nel drawer</td></tr>
+      <tr><td>Rischio</td><td>basso</td><td>i metadati gruppo mancano per alcuni agenti → solo una colonna</td><td>ctx/capacità non sempre noti → badge vuoti</td></tr>
+    </table>
+    <p class="hint">Consiglio: <b>A</b>, eventualmente con la stella dei preferiti di C al posto dei "recenti". Nota: contesto, "gratis" e capacità sono dati che oggi non arrivano in <code>ChatModelOption</code> (solo nome, descrizione, gruppo); senza, le righe mostrano solo il nome.</p>
+  </section>
+</div>
+
+<script>
+const PV = {
+  anthropic: { n: "Anthropic", c: "#d9a24e", b: "An" },
+  openai: { n: "OpenAI", c: "#9db984", b: "OA" },
+  google: { n: "Google", c: "#6f9bcf", b: "G" },
+  deepseek: { n: "DeepSeek", c: "#7f8fd6", b: "DS" },
+  qwen: { n: "Qwen", c: "#b48bd6", b: "Qw" },
+  meta: { n: "Meta", c: "#5fa8c9", b: "Me" },
+  mistral: { n: "Mistral", c: "#e08a4c", b: "Mi" },
+  xai: { n: "xAI", c: "#c9c0b3", b: "x" },
+  moonshot: { n: "Moonshot", c: "#d7c46a", b: "Ki" },
+  zai: { n: "Z.ai", c: "#6cc0a4", b: "Z" },
+  ollama: { n: "Ollama (locale)", c: "#a08a6f", b: "Ol" },
+};
+const R = "reason", V = "vision";
+function m(p, slug, name, ctx, tags = [], extra = {}) { return { id: `${p}/${slug}`, name, p, ctx, tags, ...extra }; }
+const BIG = [
+  m("anthropic", "claude-opus-4.5", "Claude Opus 4.5", "200k", [R, V]),
+  m("anthropic", "claude-sonnet-4.5", "Claude Sonnet 4.5", "1M", [R, V]),
+  m("anthropic", "claude-haiku-4.5", "Claude Haiku 4.5", "200k", [V]),
+  m("anthropic", "claude-opus-4.1", "Claude Opus 4.1", "200k", [R, V], { old: 1 }),
+  m("anthropic", "claude-sonnet-4", "Claude Sonnet 4", "1M", [R, V], { old: 1 }),
+  m("anthropic", "claude-3.7-sonnet", "Claude 3.7 Sonnet", "200k", [R, V], { old: 1 }),
+  m("openai", "gpt-5", "GPT-5", "400k", [R, V]),
+  m("openai", "gpt-5-mini", "GPT-5 mini", "400k", [R, V]),
+  m("openai", "gpt-5-nano", "GPT-5 nano", "400k", [R]),
+  m("openai", "gpt-5-codex", "GPT-5 Codex", "400k", [R]),
+  m("openai", "o4-mini", "o4-mini", "200k", [R, V]),
+  m("openai", "gpt-oss-120b", "gpt-oss-120b", "131k", [R], { free: 1 }),
+  m("openai", "gpt-4.1", "GPT-4.1", "1M", [V], { old: 1 }),
+  m("openai", "gpt-4.1-mini", "GPT-4.1 mini", "1M", [V], { old: 1 }),
+  m("google", "gemini-2.5-pro", "Gemini 2.5 Pro", "1M", [R, V]),
+  m("google", "gemini-2.5-flash", "Gemini 2.5 Flash", "1M", [R, V]),
+  m("google", "gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", "1M", [V]),
+  m("google", "gemini-2.0-flash", "Gemini 2.0 Flash", "1M", [V], { old: 1 }),
+  m("deepseek", "deepseek-v3.2", "DeepSeek V3.2", "164k", [R]),
+  m("deepseek", "deepseek-r1", "DeepSeek R1", "164k", [R], { free: 1 }),
+  m("deepseek", "deepseek-v3.1", "DeepSeek V3.1", "164k", [R], { old: 1, free: 1 }),
+  m("qwen", "qwen3-coder", "Qwen3 Coder 480B", "262k", [], { free: 1 }),
+  m("qwen", "qwen3-235b", "Qwen3 235B A22B", "131k", [R]),
+  m("qwen", "qwen3-32b", "Qwen3 32B", "131k", [R]),
+  m("meta", "llama-4-maverick", "Llama 4 Maverick", "1M", [V]),
+  m("meta", "llama-4-scout", "Llama 4 Scout", "328k", [V], { free: 1 }),
+  m("meta", "llama-3.3-70b", "Llama 3.3 70B", "131k", [], { old: 1 }),
+  m("mistral", "devstral-medium", "Devstral Medium", "131k"),
+  m("mistral", "mistral-large-2", "Mistral Large 2", "131k"),
+  m("mistral", "codestral", "Codestral", "256k"),
+  m("xai", "grok-4", "Grok 4", "256k", [R, V]),
+  m("xai", "grok-code-fast-1", "Grok Code Fast 1", "256k", [R]),
+  m("moonshot", "kimi-k2", "Kimi K2", "262k", [], { free: 1 }),
+  m("zai", "glm-4.6", "GLM 4.6", "200k", [R]),
+  m("zai", "glm-4.5-air", "GLM 4.5 Air", "131k", [R], { free: 1, old: 1 }),
+  m("ollama", "qwen2.5-coder:14b", "qwen2.5-coder 14b", "32k", [], { local: 1, free: 1 }),
+  m("ollama", "llama3.1:8b", "llama3.1 8b", "128k", [], { local: 1, free: 1 }),
+];
+const SMALL = [
+  { id: "default", name: "Predefinito (consigliato)", desc: "Opus 4.5 per compiti complessi", ctx: "200k", tags: [R, V] },
+  { id: "opus", name: "Opus 4.5", desc: "Il più capace", ctx: "200k", tags: [R, V] },
+  { id: "sonnet", name: "Sonnet 4.5", desc: "Veloce e bravo nel codice", ctx: "1M", tags: [R, V] },
+  { id: "haiku", name: "Haiku 4.5", desc: "Il più rapido", ctx: "200k", tags: [V] },
+  { id: "sonnet-4", name: "Sonnet 4", desc: "Versione precedente", ctx: "1M", tags: [R, V], old: 1 },
+];
+const LEVELS = ["Basso", "Medio", "Alto", "Max"];
+const LV_DESC = ["Risposte rapide, poco ragionamento", "Equilibrio tra velocità e profondità", "Ragiona a lungo sui passaggi difficili", "Massimo ragionamento, più lento"];
+
+const S = {
+  scen: "big",
+  cur: { big: "anthropic/claude-sonnet-4.5", small: "sonnet" },
+  think: 2,
+  recent: { big: ["anthropic/claude-sonnet-4.5", "openai/gpt-5-codex", "qwen/qwen3-coder"], small: [] },
+  fav: { big: new Set(["anthropic/claude-sonnet-4.5", "openai/gpt-5-codex", "deepseek/deepseek-v3.2"]), small: new Set() },
+  open: { now: true, a: true, b: true, c: true },
+  q: { a: "", b: "", c: "" },
+  a: { groups: new Set(["anthropic"]), more: new Set() },
+  b: { pv: "anthropic", old: false },
+  c: { f: new Set(), all: false },
+};
+const data = () => (S.scen === "big" ? BIG : SMALL);
+const cur = () => S.cur[S.scen];
+const curModel = () => data().find((x) => x.id === cur());
+const grouped = () => S.scen === "big";
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const hl = (s, q) => { if (!q) return esc(s); const i = s.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(s) : esc(s.slice(0, i)) + "<mark>" + esc(s.slice(i, i + q.length)) + "</mark>" + esc(s.slice(i + q.length)); };
+const match = (x, q) => !q || (x.name + " " + x.id + " " + (x.p ? PV[x.p].n : "")).toLowerCase().includes(q.toLowerCase());
+const chipIco = `<svg class="ico" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M10 10h4v4h-4zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>`;
+const searchIco = `<svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>`;
+const providers = () => Object.keys(PV).filter((p) => BIG.some((x) => x.p === p));
+const desc = (x) => x.desc ?? x.id;
+
+function frame(v, menu) {
+  const c = curModel();
+  return `<div class="chatlog"><div class="bub me">Sistema il bug nel parser delle date</div><div class="bub">Ho trovato il problema in <code>parseDate</code>: il fuso orario veniva ignorato…</div><div class="bub me">Ok, prova con un modello più veloce</div></div>
+  <div class="composer"><div class="ph">Scrivi un messaggio…</div><div class="actions">
+    <span class="pill">◐ Auto review</span>
+    <div class="anchor"><button class="pill" data-pill>${chipIco}<span>${esc(c.name)}</span><span class="lv">· ${LEVELS[S.think]}</span></button>
+    ${S.open[v] ? menu : ""}</div></div></div>`;
+}
+
+function track() {
+  const fill = S.think / (LEVELS.length - 1);
+  return `<div class="think"><div class="think-head"><span>Ragionamento</span><b>${LEVELS[S.think]}</b></div>
+   <div class="track"><i class="fill" style="width:calc((100% - 24px) * ${fill})"></i>${LEVELS.map((l, i) => `<button data-lv="${i}" class="${i === S.think ? "on" : i < S.think ? "past" : ""}" title="${l}"><i></i></button>`).join("")}</div>
+   <div class="ends"><span>${LEVELS[0]}</span><span>${LEVELS[LEVELS.length - 1]}</span></div></div>`;
+}
+
+/* ---------- NOW ---------- */
+function rNow() {
+  const list = data(), latest = list.filter((x) => !x.old), older = list.filter((x) => x.old);
+  const row = (x, i, arr) => {
+    const g = x.p && x.p !== arr[i - 1]?.p ? `<div class="now-grp">${PV[x.p].n}</div>` : "";
+    return g + `<button class="now-row ${x.id === cur() ? "sel" : ""}" data-id="${x.id}"><span class="ck">${x.id === cur() ? "✓" : ""}</span><span><b>${esc(x.name)}</b><small>${esc(desc(x))}</small></span></button>`;
+  };
+  return `<div class="menu m-now"><div class="cap">Modello</div>${latest.map(row).join("")}
+    ${older.length ? `<div class="sep"></div><button class="now-row"><span class="ck"></span><span><b>Versioni precedenti</b></span><span style="margin-left:auto;color:var(--muted)">›</span></button>` : ""}
+    <div class="sep"></div>${track()}</div>`;
+}
+
+/* ---------- A ---------- */
+function aRow(x, q, showPv) {
+  const sel = x.id === cur();
+  return `<button class="a-row ${sel ? "sel" : ""} ${x.old ? "old" : ""}" data-id="${x.id}" title="${esc(desc(x))}"><span class="ck">${sel ? "✓" : ""}</span><span class="nm">${hl(x.name, q)}</span>${showPv && x.p ? `<span class="pv">${PV[x.p].n}</span>` : ""}${x.free ? `<span class="free">gratis</span>` : ""}<span class="meta">${x.ctx}</span></button>`;
+}
+function rA() {
+  const q = S.q.a, list = data();
+  let body = "";
+  const searchable = list.length >= 8;
+  if (q) {
+    const hits = list.filter((x) => match(x, q));
+    body = hits.length ? hits.map((x) => aRow(x, q, true)).join("") : `<div class="empty">Nessun modello per “${esc(q)}”</div>`;
+  } else if (!grouped()) {
+    const latest = list.filter((x) => !x.old), older = list.filter((x) => x.old);
+    body = latest.map((x) => aRow(x)).join("");
+    if (older.length) {
+      const open = S.a.more.has("_");
+      body += `<button class="a-more" data-more="_">${open ? "Nascondi" : "+" + older.length} versioni precedenti</button>` + (open ? older.map((x) => aRow(x)).join("") : "");
+    }
+  } else {
+    body += `<div class="cap" style="padding-top:2px">Recenti</div>` + S.recent.big.map((id) => aRow(BIG.find((x) => x.id === id), "", true)).join("") + `<div class="sep"></div>`;
+    for (const p of providers()) {
+      const all = list.filter((x) => x.p === p), latest = all.filter((x) => !x.old), older = all.filter((x) => x.old);
+      const open = S.a.groups.has(p), here = all.find((x) => x.id === cur());
+      body += `<button class="a-grp ${open ? "open" : ""}" data-grp="${p}"><span class="chev">▸</span><span class="dot" style="background:${PV[p].c}"></span><span class="gn">${PV[p].n}</span><span class="gc">${all.length}</span>${!open && here ? `<span class="gcur">✓ ${esc(here.name)}</span>` : ""}</button>`;
+      if (open) {
+        body += latest.map((x) => aRow(x)).join("");
+        if (older.length) {
+          const mo = S.a.more.has(p) || older.some((x) => x.id === cur());
+          body += mo ? older.map((x) => aRow(x)).join("") + `<button class="a-more" data-more="${p}">Nascondi versioni precedenti</button>` : `<button class="a-more" data-more="${p}">+${older.length} versioni precedenti</button>`;
+        }
+      }
+    }
+  }
+  return `<div class="menu m-a">${searchable ? `<label class="search">${searchIco}<input data-q="a" placeholder="Cerca tra ${list.length} modelli…" value="${esc(q)}"><kbd>Ctrl K</kbd></label>` : `<div class="cap">Modello</div>`}
+   <div class="scroll">${body}</div><div class="a-foot">${track()}</div></div>`;
+}
+
+/* ---------- B ---------- */
+function bRow(x, q, showPv) {
+  const sel = x.id === cur();
+  return `<button class="b-row ${sel ? "sel" : ""}" data-id="${x.id}"><span class="ck">${sel ? "✓" : ""}</span><b>${hl(x.name, q)}</b><small>${hl(desc(x), q)}</small><span class="side">${showPv && x.p ? `<span class="pvt">${PV[x.p].n}</span>` : `<span>${x.ctx}</span>`}${x.free ? `<span class="free">gratis</span>` : ""}</span></button>`;
+}
+function rB() {
+  const q = S.q.b, list = data();
+  const small = !grouped();
+  let right = "";
+  if (q) {
+    const hits = list.filter((x) => match(x, q));
+    right = `<div class="b-head"><b>Risultati</b><span>${hits.length} su ${list.length}</span></div>` + (hits.length ? hits.map((x) => bRow(x, q, !small)).join("") : `<div class="empty">Nessun modello per “${esc(q)}”</div>`);
+  } else {
+    const all = small ? list : S.b.pv === "_recent" ? S.recent.big.map((id) => BIG.find((x) => x.id === id)) : list.filter((x) => x.p === S.b.pv);
+    const latest = all.filter((x) => !x.old || S.b.pv === "_recent"), older = S.b.pv === "_recent" ? [] : all.filter((x) => x.old);
+    const title = small ? "Modello" : S.b.pv === "_recent" ? "Recenti" : PV[S.b.pv].n;
+    right = `<div class="b-head"><b>${title}</b><span>${all.length} modelli</span></div>` + latest.map((x) => bRow(x, "", S.b.pv === "_recent")).join("");
+    if (older.length) {
+      const open = S.b.old || older.some((x) => x.id === cur());
+      right += `<button class="b-old" data-bold>${open ? "▾" : "▸"} Versioni precedenti · ${older.length}</button>` + (open ? older.map((x) => bRow(x)).join("") : "");
+    }
+  }
+  const rail = small ? "" : `<div class="b-rail ${q ? "dim" : ""}"><button class="b-pv ${S.b.pv === "_recent" ? "on" : ""}" data-pv="_recent"><span class="dot" style="background:transparent;border:1px solid var(--muted)"></span>Recenti</button><div class="sep"></div>` +
+    providers().map((p) => { const n = BIG.filter((x) => x.p === p).length, has = BIG.some((x) => x.p === p && x.id === cur()); return `<button class="b-pv ${S.b.pv === p ? "on" : ""}" data-pv="${p}"><span class="dot" style="background:${PV[p].c}"></span>${PV[p].n.replace(" (locale)", "")}${has ? `<span class="has" title="Modello attivo"></span>` : ""}<span class="gc">${n}</span></button>`; }).join("") + `</div>`;
+  return `<div class="menu m-b ${small ? "small" : ""}">${list.length >= 8 ? `<label class="search">${searchIco}<input data-q="b" placeholder="Cerca in tutti i provider…" value="${esc(q)}"><kbd>Ctrl K</kbd></label>` : ""}
+   <div class="b-body">${rail}<div class="b-list">${right}</div></div>
+   <div class="b-foot"><span>Ragionamento</span><div class="lv-seg">${LEVELS.map((l, i) => `<button data-lv="${i}" class="${i === S.think ? "on" : ""}" title="${LV_DESC[i]}">${l}</button>`).join("")}</div><span class="note">${LV_DESC[S.think]}</span></div></div>`;
+}
+
+/* ---------- C ---------- */
+const FILTERS = [["free", "Gratis", (x) => x.free], [R, "Ragionamento", (x) => x.tags.includes(R)], [V, "Visione", (x) => x.tags.includes(V)], ["local", "Locali", (x) => x.local], ["old", "Precedenti", () => true]];
+function cRow(x, q) {
+  const sel = x.id === cur(), fav = S.fav[S.scen].has(x.id);
+  const pv = x.p ? PV[x.p] : { c: "#d9a24e", b: "C" };
+  return `<button class="c-row ${sel ? "sel" : ""} ${x.old ? "old" : ""}" data-id="${x.id}" title="${esc(desc(x))}"><span class="badge" style="background:${pv.c}">${pv.b}</span><span class="nm">${hl(x.name, q)}</span>${x.free ? `<span class="free">gratis</span>` : ""}${x.tags.includes(R) ? `<span class="tg">ragion.</span>` : ""}${x.tags.includes(V) ? `<span class="tg">img</span>` : ""}<span class="meta">${x.ctx}</span><span class="star ${fav ? "on" : ""}" data-star="${x.id}" title="${fav ? "Togli dai preferiti" : "Aggiungi ai preferiti"}">${fav ? "★" : "☆"}</span></button>`;
+}
+function rC() {
+  const q = S.q.c, list = data(), f = S.c.f;
+  const showOld = f.has("old");
+  const pass = (x) => match(x, q) && (showOld || !x.old) && FILTERS.every(([k, , fn]) => k === "old" || !f.has(k) || fn(x));
+  const favs = list.filter((x) => S.fav[S.scen].has(x.id));
+  const rest = list.filter(pass);
+  const LIMIT = 14;
+  const shown = S.c.all || q || f.size ? rest : rest.slice(0, LIMIT);
+  let body = "";
+  if (!q && !f.size && favs.length) body += `<div class="c-cap">Preferiti<span>${favs.length}</span></div>` + favs.map((x) => cRow(x)).join("") + `<div class="sep"></div>`;
+  body += `<div class="c-cap">${q || f.size ? "Risultati" : "Tutti i modelli"}<span>${rest.length}</span></div>` + (shown.length ? shown.map((x) => cRow(x, q)).join("") : `<div class="empty">Nessun modello</div>`);
+  if (shown.length < rest.length) body += `<button class="c-more" data-call>Mostra altri ${rest.length - shown.length}</button>`;
+  const big = list.length >= 8;
+  return `<div class="menu m-c">${big ? `<label class="search">${searchIco}<input data-q="c" placeholder="Cerca modello o provider…" value="${esc(q)}"></label>
+    <div class="chips">${FILTERS.map(([k, l]) => `<button class="chip ${f.has(k) ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}</div>` : `<div class="cap">Modello</div>`}
+   <div class="scroll">${body}</div>
+   <div class="c-foot"><span class="lab">Ragionamento</span><div class="lv-chips">${LEVELS.map((l, i) => `<button data-lv="${i}" class="${i === S.think ? "on" : i < S.think ? "past" : ""}" title="${l}"><i style="height:${5 + i * 3}px"></i></button>`).join("")}</div><span class="lvn">${LEVELS[S.think]}</span>
+   <span class="keys"><span><kbd>↑↓</kbd> naviga</span><span><kbd>↵</kbd> scegli</span><span><kbd>Tab</kbd> livello</span></span></div></div>`;
+}
+
+const R_ = { now: rNow, a: rA, b: rB, c: rC };
+function render(only) {
+  document.querySelectorAll(".win").forEach((w) => {
+    const v = w.dataset.v;
+    if (only && only !== v) return;
+    const sc = w.querySelector(".scroll, .b-list, .m-now");
+    const top = sc ? sc.scrollTop : 0;
+    const focus = document.activeElement?.dataset?.q === v ? document.activeElement.selectionStart : null;
+    w.innerHTML = frame(v, R_[v]());
+    const sc2 = w.querySelector(".scroll, .b-list, .m-now");
+    if (sc2) sc2.scrollTop = top;
+    if (focus !== null) { const i = w.querySelector(`[data-q="${v}"]`); i.focus(); i.setSelectionRange(focus, focus); }
+  });
+}
+
+function pick(id) {
+  S.cur[S.scen] = id;
+  const r = S.recent[S.scen];
+  if (S.scen === "big") { S.recent.big = [id, ...r.filter((x) => x !== id)].slice(0, 3); const x = BIG.find((y) => y.id === id); S.a.groups.add(x.p); S.b.pv = S.b.pv === "_recent" ? "_recent" : x.p; }
+}
+
+document.addEventListener("click", (e) => {
+  const sc = e.target.closest("#scen button");
+  if (sc) { S.scen = sc.dataset.s; document.querySelectorAll("#scen button").forEach((b) => b.classList.toggle("on", b === sc)); render(); return; }
+  const w = e.target.closest(".win"); if (!w) return;
+  const v = w.dataset.v, t = e.target;
+  if (t.closest("[data-pill]")) { S.open[v] = !S.open[v]; return render(v); }
+  const star = t.closest("[data-star]");
+  if (star) { const s = S.fav[S.scen], id = star.dataset.star; s.has(id) ? s.delete(id) : s.add(id); return render("c"); }
+  const id = t.closest("[data-id]")?.dataset.id;
+  if (id) { pick(id); S.q[v] = ""; return render(); }
+  const lv = t.closest("[data-lv]");
+  if (lv) { S.think = +lv.dataset.lv; return render(); }
+  const g = t.closest("[data-grp]");
+  if (g) { const s = S.a.groups, p = g.dataset.grp; s.has(p) ? s.delete(p) : s.add(p); return render("a"); }
+  const mo = t.closest("[data-more]");
+  if (mo) { const s = S.a.more, p = mo.dataset.more; s.has(p) ? s.delete(p) : s.add(p); return render("a"); }
+  const pv = t.closest("[data-pv]");
+  if (pv) { S.b.pv = pv.dataset.pv; S.b.old = false; return render("b"); }
+  if (t.closest("[data-bold]")) { S.b.old = !S.b.old; return render("b"); }
+  const f = t.closest("[data-f]");
+  if (f) { const s = S.c.f, k = f.dataset.f; s.has(k) ? s.delete(k) : s.add(k); return render("c"); }
+  if (t.closest("[data-call]")) { S.c.all = true; return render("c"); }
+});
+document.addEventListener("input", (e) => { const v = e.target.dataset.q; if (v) { S.q[v] = e.target.value; render(v); } });
+render();
+</script>
+</body>
+</html>

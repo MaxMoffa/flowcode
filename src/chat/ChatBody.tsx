@@ -1297,7 +1297,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
               </div>
               <div className="chat-composer-actions">
                 <ChatModeSelect chat={chat} agent={agent} />
-                <ChatModelSelect chat={chat} />
+                <ChatModelSelect chat={chat} agent={agent} />
                 <span className="chat-actions-spacer" />
                 {chat.canAttach && (
                   <>
