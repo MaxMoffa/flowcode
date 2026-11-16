@@ -4,7 +4,7 @@ import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { killPty, spawnPty, writePty } from "../terminal/ptyClient";
 import pkg from "../../package.json";
-import { t } from "../i18n";
+import { currentLanguage, t } from "../i18n";
 import { withCodexLaunchFlags } from "./codexLaunch";
 import { unrecorded } from "../terminal/shellDialect";
 import {
@@ -32,17 +32,21 @@ export interface UsageMetric {
     | "model"
     | "noApiKey"
     | "billing"
-    | "unpriced";
+    | "unpriced"
+    | "budget";
   label?: string;
   /** When the window resets, as the CLI worded it. */
   resets?: string;
   /** loggedOut / reauth / noApiKey: the command that signs in. */
   command?: string;
-  /** spend: the period summed up, and what was spent in it - cost in USD. */
+  /** spend: the period summed up, and what was spent in it - cost in USD
+   * (omitted when everything was free: the tokens are the figure then).
+   * budget: `cost` spent of `limit`, in USD. */
   period?: "today" | "week" | "month";
   cost?: number;
   tokens?: number;
   sessions?: number;
+  limit?: number;
   /** 0-1 fill level for a bar/ring - omitted (never guessed) when the CLI
    * doesn't expose a number for this metric outside an interactive session. */
   percent?: number;
@@ -52,6 +56,10 @@ export interface UsageInfo {
   fetchedAt: number;
   ok: boolean;
   metrics: UsageMetric[];
+  /** The account under the provider's name, when the profile list doesn't know it (OpenCode's Console workspace). */
+  account?: string;
+  /** A web page with the provider's own usage report. */
+  usageUrl?: string;
   /** When `ok` is false: what went wrong, as plain text for the popover's
    * "copy debug info" button - never rendered in the popover itself. */
   debug?: string;
@@ -94,10 +102,25 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
     case "noApiKey":
       return { label: t("usage.noApiKey"), detail: t("usage.apiKeyHint", { command: m.command ?? "" }) };
     case "spend":
+      // Free models: the tokens are the figure, the sessions the detail.
+      if (m.cost === undefined) {
+        return {
+          label: t(`usage.spend.${m.period ?? "today"}`),
+          value: t("usage.spend.tokens", { tokens: formatTokens(m.tokens ?? 0) }),
+          detail: t("usage.spend.sessions", { sessions: String(m.sessions ?? 0) }),
+        };
+      }
       return {
         label: t(`usage.spend.${m.period ?? "today"}`),
-        value: formatCost(m.cost ?? 0),
+        value: formatCost(m.cost),
         detail: t("usage.spend.detail", { tokens: formatTokens(m.tokens ?? 0), sessions: String(m.sessions ?? 0) }),
+      };
+    case "budget":
+      return {
+        label: t("usage.budget"),
+        detail: [t("usage.budget.detail", { spent: formatCost(m.cost ?? 0), limit: formatCost(m.limit ?? 0) }), m.resets && t("usage.resets", { when: m.resets })]
+          .filter(Boolean)
+          .join(" · "),
       };
     case "model":
       return { label: t("usage.model"), value: m.label };
@@ -437,17 +460,9 @@ async function fetchCliSpend(cli: "claude" | "codex" | "opencode", name: string,
     return unavailable(name, { Error: String(e) });
   }
   const metrics: UsageMetric[] = [...(withBilling ? [{ kind: "billing" } as UsageMetric] : []), ...spendMetrics(usage)];
-  if (usage.lastModel) metrics.push({ kind: "model", label: modelDisplayName(usage.lastModel) });
   if (usage.unpricedModels.length > 0) metrics.push({ kind: "unpriced", label: usage.unpricedModels.join(", ") });
   return { fetchedAt: Date.now(), ok: true, metrics };
 }
-
-/** Vibe's own aliases for Mistral's models, as people know them. */
-const VIBE_MODEL_NAMES: Record<string, string> = {
-  "mistral-large-4": "Mistral Large 4",
-  "mistral-medium-3.5": "Mistral Medium 3.5",
-  local: "Devstral (local)",
-};
 
 /** Mistral Vibe's spend: billed per token on a Mistral API key, it has no
  * usage limit to show a fill level for - instead what it cost today and over
@@ -462,9 +477,6 @@ async function fetchVibeUsage(profile?: string): Promise<UsageInfo> {
     return unavailable("Mistral Vibe", { Error: String(e) });
   }
   const metrics = spendMetrics(usage);
-  if (usage.lastModel) {
-    metrics.push({ kind: "model", label: VIBE_MODEL_NAMES[usage.lastModel] ?? usage.lastModel });
-  }
   if (!usage.hasApiKey) {
     // Browser credentials and API keys are both valid Vibe authentication methods.
     const auth = await invoke<ProviderAuthState>("provider_auth", { request: { op: "status", cli: "vibe", profile: profile ?? null } }).catch(() => null);
@@ -484,16 +496,51 @@ async function fetchGeminiUsage(profile?: string): Promise<UsageInfo> {
   }
 }
 
-/** OpenCode has no quota of its own (it fronts many providers); show its authentication state instead. */
+/** What `opencode_console` (src-tauri/src/opencode.rs) answers. */
+interface OpencodeConsole {
+  workspace: string | null;
+  usageUrl: string | null;
+  budgets: { spent: number; limit: number; resetsAt: string | null }[];
+}
+
+/** "1 dic, 09:00" in the current language - `raw` as OpenCode sent it when it isn't a date. */
+function formatReset(raw: string): string {
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime())) return raw;
+  return at.toLocaleString(currentLanguage(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+/** OpenCode fronts many providers and has no quota of its own: the OpenCode
+ * Console workspace (when signed in to opencode.ai) under the name, its
+ * budgets as bars, and - like the other pay-per-token CLIs - what the last
+ * 30 days cost, from OpenCode's own database. All free: tokens, not $0.00. */
 async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
   try {
     const auth = await invoke<ProviderAuthState>("provider_auth", { request: { op: "status", cli: "opencode", profile: profile ?? null } });
     if (!auth.installed) return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "unavailable" }] };
     if (!auth.authenticated) return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "loggedOut", command: "opencode auth login" }] };
-    // The cost is stored by OpenCode itself; when it can't be read, fall back to the connected state.
-    const spend = await fetchCliSpend("opencode", "OpenCode", profile, false);
-    const connected: UsageMetric = { kind: "other", label: t("usage.connected") };
-    return spend.ok ? { ...spend, metrics: [connected, ...spend.metrics] } : { fetchedAt: Date.now(), ok: true, metrics: [connected] };
+    const [spend, console] = await Promise.all([
+      fetchCliSpend("opencode", "OpenCode", profile, false),
+      invoke<OpencodeConsole>("opencode_console", { profile: profile ?? null }).catch(() => null),
+    ]);
+    const budgets: UsageMetric[] = (console?.budgets ?? []).map((b) => ({
+      kind: "budget",
+      label: t("usage.budget"),
+      cost: b.spent,
+      limit: b.limit,
+      percent: Math.min(1, b.spent / b.limit),
+      resets: b.resetsAt ? formatReset(b.resetsAt) : undefined,
+    }));
+    const rows = spend.ok ? spend.metrics : [];
+    const free = rows.every((m) => m.kind !== "spend" || m.cost === 0);
+    const metrics = [...budgets, ...(free ? rows.map((m) => (m.kind === "spend" ? { ...m, cost: undefined } : m)) : rows)];
+    return {
+      fetchedAt: Date.now(),
+      ok: true,
+      metrics,
+      account: console?.workspace ? t("usage.opencodeWorkspace", { name: console.workspace }) : undefined,
+      usageUrl: console?.usageUrl ?? undefined,
+    };
   } catch (error) {
     return unavailable("OpenCode", { Error: String(error) });
   }

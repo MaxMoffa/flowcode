@@ -238,6 +238,25 @@
   filter: brightness(1.1);
 }
 
+.plugin-usage-link {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  width: 100%;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plugin-usage-link:hover {
+  text-decoration: underline;
+}
+
 /* Attribute selector (not scoped to a class) so one rule reaches both the
  * mini bar's anchor and the popover, even though the popover is portaled to
  * <body> and out of the anchor's DOM subtree entirely. Placed last: an

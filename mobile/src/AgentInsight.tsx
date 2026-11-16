@@ -214,7 +214,7 @@ const money = (v: number) => `$${v.toFixed(v >= 100 ? 0 : 2)}`;
 /** The plan limits (or pay-per-token spend) of the agent's account, from the usage the phone already mirrors. */
 function PlanBlock({ item, kind }: { item: UsageItem; kind: ReturnType<typeof planKind> }) {
   const gauges = item.metrics.filter((m) => typeof m.percent === "number");
-  const spend = item.metrics.filter((m) => m.kind === "spend" && typeof m.cost === "number");
+  const spend = item.metrics.filter((m) => m.kind === "spend" && (typeof m.cost === "number" || typeof m.tokens === "number"));
   const note = gauges.length === 0 && spend.length === 0 ? item.metrics.find((m) => m.label)?.label : undefined;
   return (
     <div className="ai-section">
@@ -236,7 +236,7 @@ function PlanBlock({ item, kind }: { item: UsageItem; kind: ReturnType<typeof pl
       })}
       {spend.map((m, i) => (
         <div className="usage-spend" key={i}>
-          <b>{money(m.cost ?? 0)}</b>
+          <b>{typeof m.cost === "number" ? money(m.cost) : t("usageTokensValue", { tokens: formatTokens(m.tokens ?? 0) })}</b>
           <span>{m.label ?? m.period ?? ""}</span>
         </div>
       ))}

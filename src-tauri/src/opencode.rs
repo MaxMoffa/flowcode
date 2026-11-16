@@ -73,6 +73,71 @@ pub fn logout(envs: &[(String, String)], standalone: bool, timeout: Duration) ->
     Ok(())
 }
 
+/// A spending budget of the OpenCode Console workspace, in USD.
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsoleBudget {
+    pub spent: f64,
+    pub limit: f64,
+    pub resets_at: Option<String>,
+}
+
+/// The OpenCode Console (opencode.ai) workspace the CLI is signed in to.
+#[derive(serde::Serialize, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsoleInfo {
+    pub workspace: Option<String>,
+    /// The workspace's activity page - only ever an https opencode.ai URL.
+    pub usage_url: Option<String>,
+    pub budgets: Vec<ConsoleBudget>,
+}
+
+/// Reads `opencode api get /api/experimental/usage/limits` defensively: only
+/// `workspace` (`name`, `usageURL`) and an empty `budgets` have been seen, so
+/// budget fields are looked up under a few likely names and skipped when absent.
+fn parse_console(v: &serde_json::Value) -> ConsoleInfo {
+    let ws = &v["workspace"];
+    let workspace = ws["name"].as_str().map(str::trim).filter(|s| !s.is_empty() && s.len() <= 100).map(String::from);
+    let usage_url = ws["usageURL"].as_str().filter(|u| {
+        u.parse::<tauri::Url>().is_ok_and(|p| {
+            p.scheme() == "https" && p.username().is_empty() && p.password().is_none()
+                && p.host_str().is_some_and(|h| h == "opencode.ai" || h.ends_with(".opencode.ai"))
+        })
+    }).map(String::from);
+    let num = |b: &serde_json::Value, keys: &[&str]| keys.iter().find_map(|k| b[*k].as_f64());
+    let budgets = v["budgets"].as_array().map(|items| {
+        items.iter().filter_map(|b| {
+            let limit = num(b, &["limit", "amount", "max", "budget"])?;
+            let spent = num(b, &["spent", "used", "usage", "current"])?;
+            (limit > 0.0 && spent >= 0.0).then(|| ConsoleBudget {
+                spent,
+                limit,
+                resets_at: ["resetsAt", "resetAt", "periodEnd"].iter().find_map(|k| b[*k].as_str().map(String::from)),
+            })
+        }).collect()
+    }).unwrap_or_default();
+    ConsoleInfo { workspace, usage_url, budgets }
+}
+
+/// The OpenCode Console workspace and budgets of a profile (`None`: default).
+/// Empty when signed in only with another provider's key, or when this
+/// OpenCode has no `api` command.
+#[tauri::command]
+pub async fn opencode_console(app: tauri::AppHandle, profile: Option<String>) -> Result<ConsoleInfo, String> {
+    crate::blocking(move || {
+        let envs = crate::profiles::env_for_cli(&app, profile.as_deref(), "opencode");
+        let line = command_line(profile.is_some(), "api get /api/experimental/usage/limits");
+        let out = flowcode_shared::run_command_blocking_timeout(&line, &envs, Duration::from_secs(15)).map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(if err.is_empty() { "`opencode api` failed".into() } else { err });
+        }
+        let value: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("unreadable `opencode api` output: {e}"))?;
+        Ok(parse_console(&value))
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +159,20 @@ mod tests {
         assert!(credential_ids(&json!("x")).is_empty());
         assert!(has_credentials(&json!([1])) && has_credentials(&json!({"a": 1})));
         assert!(!has_credentials(&json!([])) && !has_credentials(&json!({})) && !has_credentials(&json!(null)));
+    }
+
+    #[test]
+    fn parses_console_workspace_and_budgets() {
+        let seen = json!({"workspace": {"id": "org_1", "name": "Personal", "usageURL": "https://opencode.ai/console/org_1/activity/overview"}, "budgets": []});
+        let info = parse_console(&seen);
+        assert_eq!(info.workspace.as_deref(), Some("Personal"));
+        assert_eq!(info.usage_url.as_deref(), Some("https://opencode.ai/console/org_1/activity/overview"));
+        assert!(info.budgets.is_empty());
+        let odd = json!({"workspace": {"name": " ", "usageURL": "https://evil.example/opencode.ai"}, "budgets": [{"limit": 20, "spent": 3.2, "resetsAt": "2026-12-01T00:00:00Z"}, {"spent": 1}]});
+        let info = parse_console(&odd);
+        assert_eq!(info.workspace, None);
+        assert_eq!(info.usage_url, None);
+        assert_eq!(info.budgets, vec![ConsoleBudget { spent: 3.2, limit: 20.0, resets_at: Some("2026-12-01T00:00:00Z".into()) }]);
+        assert_eq!(parse_console(&json!(null)), ConsoleInfo::default());
     }
 }

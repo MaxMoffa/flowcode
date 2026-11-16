@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { formatTokens, metricText, modelDisplayName, type UsageInfo } from "./usage";
 import { useI18n } from "../i18n";
 import { ProfileSelect } from "../profiles/ProfileSelect";
@@ -231,7 +232,7 @@ export function UsagePopoverContent({
 }) {
   const { t } = useI18n();
   const cli = cliOfPlugin(pluginId);
-  const account = accountText(useAccount(profile, cli), t("profiles.apiKey"), false);
+  const account = accountText(useAccount(profile, cli), t("profiles.apiKey"), false) ?? usage?.account ?? null;
   return (
     <>
       <div className="plugin-usage-popover-head">
@@ -285,6 +286,11 @@ export function UsagePopoverContent({
           </div>
         );
       })}
+      {usage?.usageUrl && (
+        <button type="button" className="plugin-usage-link" onClick={() => void openUrl(usage.usageUrl!).catch(() => {})}>
+          {t("usage.openConsole")} ↗
+        </button>
+      )}
       {usage?.debug && <CopyDebugButton text={usage.debug} />}
       <ContextSection pluginId={pluginId} />
     </>

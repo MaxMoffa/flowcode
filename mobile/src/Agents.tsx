@@ -3,7 +3,7 @@ import { contextPercent, shortCwd } from "./common";
 import { t } from "./i18n";
 import { requestOpenChat } from "./chats";
 import { AgentLogo, ChatIcon } from "./icons";
-import { money } from "./homeUsage";
+import { formatTokens, money } from "./homeUsage";
 import { useRemoteSelector, type ChatInfo, type Tab, type UsageItem, type UsageMetric } from "./remote";
 import { ProviderUsageAuth } from "./ProviderUsageAuth";
 
@@ -14,7 +14,7 @@ function gaugeMetrics(item: UsageItem): UsageMetric[] {
 
 function UsageCard({ item }: { item: UsageItem }) {
   const gauges = gaugeMetrics(item);
-  const spend = item.metrics.filter((m) => m.kind === "spend" && typeof m.cost === "number");
+  const spend = item.metrics.filter((m) => m.kind === "spend" && (typeof m.cost === "number" || typeof m.tokens === "number"));
   // Anything without a number (logged out, unavailable...) shows its own wording.
   const note = gauges.length === 0 && spend.length === 0 ? item.metrics.find((m) => m.label)?.label : undefined;
   return (
@@ -37,7 +37,7 @@ function UsageCard({ item }: { item: UsageItem }) {
       })}
       {spend.map((m, i) => (
         <div className="usage-spend" key={i}>
-          <b>{money(m.cost ?? 0)}</b>
+          <b>{typeof m.cost === "number" ? money(m.cost) : t("usageTokensValue", { tokens: formatTokens(m.tokens ?? 0) })}</b>
           <span>{m.label ?? m.period ?? ""}</span>
         </div>
       ))}
