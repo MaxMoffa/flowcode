@@ -1272,7 +1272,7 @@ export const en: Record<MessageKey, string> = {
   "chat.permission.title": "Permission request",
   "chat.permission.answered": "Answer: {option}",
   "chat.permission.cancelled": "Request cancelled",
-  "chat.ask.tag": "Claude asks",
+  "chat.ask.tag": "{agent} asks",
   "chat.ask.recommended": "recommended",
   "chat.ask.other": "Other…",
   "chat.ask.otherPlaceholder": "Other… type your own answer",

@@ -973,7 +973,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
             {pending.map((item) => (
               <PermissionCard key={item.id} item={item} onAnswer={chat.answerPermission} />
             ))}
-            {openAsk && <AskComposer key={openAsk.id} item={openAsk} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
+            {openAsk && <AskComposer key={openAsk.id} item={openAsk} agent={cliName(agent)} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
             <div className="chat-sub-footer">
               <span className="lock">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1136,7 +1136,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
               onUngrouped={foldSubs}
             />
             {/* The textarea stays mounted (hidden) so a half-typed message survives the question. */}
-            {openAsk && <AskComposer key={openAsk.id} item={openAsk} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
+            {openAsk && <AskComposer key={openAsk.id} item={openAsk} agent={cliName(agent)} onAnswer={chat.answerAsk} autoFocus={!hidden} />}
             {delegateAsk && (
               <DelegateRequests
                 requests={delegateRequests}

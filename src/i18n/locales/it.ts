@@ -1280,7 +1280,7 @@ export const it = {
   "chat.permission.title": "Richiesta di permesso",
   "chat.permission.answered": "Risposta: {option}",
   "chat.permission.cancelled": "Richiesta annullata",
-  "chat.ask.tag": "Claude chiede",
+  "chat.ask.tag": "{agent} chiede",
   "chat.ask.recommended": "consigliata",
   "chat.ask.other": "Altro…",
   "chat.ask.otherPlaceholder": "Altro… scrivi la tua risposta",

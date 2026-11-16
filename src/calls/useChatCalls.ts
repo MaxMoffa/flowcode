@@ -20,7 +20,7 @@ function askAnswers(questions: AskQuestion[]): { options?: CallOption[]; reply: 
   if (questions.length !== 1) return { reply: false };
   const [q] = questions;
   const options = q.multi ? [] : q.options.map((o, i) => ({ id: String(i), label: o.label, hint: o.description, tone: o.recommended ? ("primary" as const) : undefined }));
-  return { ...(options.length ? { options } : {}), reply: true };
+  return { ...(options.length ? { options } : {}), reply: q.customKey !== null };
 }
 
 /** Raises a call for each permission request or question of the chat that waits for an answer, and drops it once that is

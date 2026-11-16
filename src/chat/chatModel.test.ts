@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyEvent, imageRef, toolImages, applyLocalError, configModels, configModelValue, forceCancels, initialChat, liveModels, MODEL_EXT_METHOD, normalizeModels, isAgentBusy, isAgentExited, lineDiff, liveThought, mergeReplay, normalizeThought, THOUGHT_EXT_METHOD, GOAL_EXT_METHOD, RESUME_EXT_METHOD, settleChat, stopKind, type ChatModelState } from "./chatModel";
 import type { ChatEvent, ChatToolCall } from "./chatTypes";
+import { buildAskContent } from "./askQuestions";
 
 let seq = 0;
 const next = () => ++seq;
@@ -136,6 +137,25 @@ describe("chat model", () => {
     s = run([{ kind: "askResolved", seq: next(), at: 0, requestId: "q1", action: "accept", content: { question_0: "A" } }], s);
     expect(s.status).toBe("busy");
     expect(s.items.find((i) => i.type === "ask")).toMatchObject({ resolved: { action: "accept", content: { question_0: "A" } } });
+  });
+
+  it("round-trips an OpenCode question with its original answer key and value", () => {
+    const schema = { properties: {
+      q0: { type: "string", title: "Direction", description: "How should we proceed?", oneOf: [{ const: "continue (Recommended)", title: "Continue (Recommended)" }] },
+      q0_custom: { type: "string" },
+    } };
+    let s = run([
+      { kind: "user", seq: next(), at: 0, text: "Proceed" },
+      { kind: "ask", seq: next(), at: 0, requestId: "opencode-q", message: "Questions", schema },
+    ]);
+    const ask = s.items.find((i) => i.type === "ask");
+    if (!ask || ask.type !== "ask") throw new Error("missing question");
+    expect(ask.questions).toMatchObject([{ key: "q0", text: "How should we proceed?", options: [{ label: "Continue" }] }]);
+    const content = buildAskContent(ask.questions, [{ picked: [0], custom: "" }]);
+    expect(content).toEqual({ q0: "continue (Recommended)" });
+    s = run([{ kind: "askResolved", seq: next(), at: 0, requestId: "opencode-q", action: "accept", content }], s);
+    expect(s.status).toBe("busy");
+    expect(s.items.find((i) => i.type === "ask")).toMatchObject({ resolved: { action: "accept", content } });
   });
 
   it("marks a question still open at exit as cancelled", () => {

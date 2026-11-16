@@ -8,6 +8,8 @@ type Answer = (requestId: string, action: "accept" | "decline" | "cancel", conte
 
 interface AskComposerProps {
   item: AskItem;
+  /** Display name of the agent that owns this request. */
+  agent: string;
   onAnswer: Answer;
   /** Take the keyboard when it appears (not when the chat is behind another view). */
   autoFocus: boolean;
@@ -21,14 +23,16 @@ interface AskComposerProps {
 
 /** What the pieces below share with the composer. */
 interface AskLook {
+  tag: string;
   head?: ReactNode;
   actions?: ReactNode;
   allowOther: boolean;
 }
 
 /** The composer turned into the agent's question(s): a list for one, a stepper with a review for several. Keys: arrows move, 1-9 pick, Enter confirms, Esc skips. */
-export function AskComposer({ item, onAnswer, autoFocus, head, actions, allowOther = true }: AskComposerProps) {
-  const look: AskLook = { head, actions, allowOther };
+export function AskComposer({ item, agent, onAnswer, autoFocus, head, actions, allowOther = true }: AskComposerProps) {
+  const { t } = useI18n();
+  const look: AskLook = { tag: t("chat.ask.tag", { agent }), head, actions, allowOther };
   // A question the schema couldn't be read for still shows its message, with a way to skip it.
   const questions: AskQuestion[] = item.questions.length ? item.questions : [{ key: "question_0", text: item.message, multi: false, options: [] }];
   // The first answer wins: a second one (double click, Enter then click) would reach the backend as an unknown request.
@@ -71,7 +75,8 @@ function AskList({ question, autoFocus, look, onSkip, onSend }: { question: AskQ
   const [picked, setPicked] = useState<number[]>([]);
   const [custom, setCustom] = useState("");
   const n = question.options.length;
-  const total = n + (look.allowOther ? 1 : 0);
+  const allowOther = look.allowOther && question.customKey !== null;
+  const total = n + (allowOther ? 1 : 0);
   const multi = question.multi;
   const canSend = picked.length > 0 || custom.trim() !== "";
 
@@ -118,8 +123,8 @@ function AskList({ question, autoFocus, look, onSkip, onSend }: { question: AskQ
   }
 
   return (
-    <div ref={rootRef} className="chat-composer chat-ask" tabIndex={-1} role="group" aria-label={t("chat.ask.tag")} onKeyDown={onKeyDown}>
-      {look.head ?? <span className="chat-ask-tag">{t("chat.ask.tag")}</span>}
+    <div ref={rootRef} className="chat-composer chat-ask" tabIndex={-1} role="group" aria-label={look.tag} onKeyDown={onKeyDown}>
+      {look.head ?? <span className="chat-ask-tag">{look.tag}</span>}
       <div className="chat-ask-q">{question.text}</div>
       <ul className="chat-ask-opts">
         {question.options.map((option, i) => (
@@ -130,7 +135,7 @@ function AskList({ question, autoFocus, look, onSkip, onSend }: { question: AskQ
             </div>
           </li>
         ))}
-        {look.allowOther && (
+        {allowOther && (
           <li className={`chat-ask-opt is-other${cur === n ? " is-cur" : ""}`} onClick={() => choose(n)}>
             <kbd>{n + 1}</kbd>
             <input
@@ -174,6 +179,7 @@ function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: A
   const count = questions.length;
   const review = step >= count;
   const q = questions[Math.min(step, count - 1)];
+  const allowOther = look.allowOther && q.customKey !== null;
 
   useEffect(() => {
     if (autoFocus) rootRef.current?.focus();
@@ -224,7 +230,7 @@ function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: A
       else go(step + 1);
       return;
     }
-    if (!review && !inInput(e) && /^[1-9]$/.test(e.key) && Number(e.key) <= q.options.length + 1) {
+    if (!review && !inInput(e) && /^[1-9]$/.test(e.key) && Number(e.key) <= q.options.length + (allowOther ? 1 : 0)) {
       handled();
       choose(Number(e.key) - 1);
     }
@@ -240,8 +246,8 @@ function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: A
   );
 
   return (
-    <div ref={rootRef} className="chat-composer chat-ask" tabIndex={-1} role="group" aria-label={t("chat.ask.tag")} onKeyDown={onKeyDown}>
-      {look.head ?? <span className="chat-ask-tag">{t("chat.ask.tag")}</span>}
+    <div ref={rootRef} className="chat-composer chat-ask" tabIndex={-1} role="group" aria-label={look.tag} onKeyDown={onKeyDown}>
+      {look.head ?? <span className="chat-ask-tag">{look.tag}</span>}
       {dots}
       {review ? (
         <>
@@ -276,7 +282,7 @@ function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: A
                 <OptionText option={option} />
               </button>
             ))}
-            <div className={`chat-ask-card is-other${customText.trim() ? " is-sel" : ""}`}>
+            {allowOther && <div className={`chat-ask-card is-other${customText.trim() ? " is-sel" : ""}`}>
               <textarea
                 ref={otherRef}
                 className="chat-ask-free"
@@ -285,7 +291,7 @@ function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: A
                 placeholder={t("chat.ask.other")}
                 onChange={(e) => update(step, q.multi ? { custom: e.target.value } : { custom: e.target.value, picked: [] })}
               />
-            </div>
+            </div>}
           </div>
           <div className="chat-ask-actions">
             {step > 0 ? (

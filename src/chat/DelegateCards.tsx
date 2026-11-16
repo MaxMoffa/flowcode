@@ -183,6 +183,7 @@ export function DelegateRequests({ requests, onPermission, onAsk, onOpen, autoFo
     <AskComposer
       key={delegateRequestKey(request.childChatId, request.requestId)}
       item={item}
+      agent={agent}
       autoFocus={autoFocus}
       head={head}
       actions={actions}

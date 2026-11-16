@@ -127,7 +127,7 @@ function AskList({ question, busy, onSkip, onSend }: { question: AskQuestion; bu
             </button>
           );
         })}
-        <OtherRow open={typing} value={custom} busy={busy} onOpen={() => setTyping(true)} onChange={setCustom} onEnter={() => typed && send()} />
+        {question.customKey !== null && <OtherRow open={typing} value={custom} busy={busy} onOpen={() => setTyping(true)} onChange={setCustom} onEnter={() => typed && send()} />}
       </div>
       <div className="chat-ask-actions">
         <button type="button" className="chat-ask-btn is-ghost" disabled={busy} onClick={onSkip}>
@@ -228,7 +228,7 @@ function AskSteps({ questions, busy, onSkip, onSend }: { questions: AskQuestion[
             </button>
           );
         })}
-        <OtherRow
+        {q.customKey !== null && <OtherRow
           key={step}
           open={typing.includes(step)}
           value={a.custom}
@@ -236,7 +236,7 @@ function AskSteps({ questions, busy, onSkip, onSend }: { questions: AskQuestion[
           onOpen={() => setTyping((t) => [...t, step])}
           onChange={(v) => update(step, q.multi ? { custom: v } : { custom: v, picked: [] })}
           onEnter={() => go(step + 1)}
-        />
+        />}
       </div>
       <div className="chat-ask-actions">
         {step > 0 ? (
