@@ -7,7 +7,8 @@ import { desktopDictationPref, desktopDictationUsable, useDesktopDictationPref }
 import { useRemoteSelector } from "./remote";
 import { startRemoteDictation, type RemoteSession } from "./remoteDictation";
 
-export { appendDictation } from "../../src/chat/useDictation";
+// From the pure module: re-exporting the desktop hook would bundle the desktop i18n on the phone.
+export { appendDictation } from "../../src/chat/dictationText";
 
 interface DictationEnd {
   reason: "stopped" | "silence" | "error";

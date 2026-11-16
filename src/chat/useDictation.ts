@@ -29,13 +29,7 @@ interface DictationEnd {
  * not words to keep, only a sign that it's working. */
 export const TRANSCRIBING_MARKER = "…";
 
-/** `text` appended to `draft`, a space between them unless one is already there. */
-export function appendDictation(draft: string, text: string): string {
-  const spoken = text.trim();
-  if (!spoken) return draft;
-  if (!draft || /\s$/.test(draft)) return draft + spoken;
-  return `${draft} ${spoken}`;
-}
+export { appendDictation } from "./dictationText";
 
 /** A Space press at least this long (ms) is a hold (push-to-talk), shorter is a tap. */
 export const HOLD_MS = 400;

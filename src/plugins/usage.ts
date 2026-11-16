@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ProviderAuthState } from "../../shared/providerAuth";
-import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { killPty, spawnPty, writePty } from "../terminal/ptyClient";
 import pkg from "../../package.json";
@@ -184,6 +183,8 @@ async function readCodexStatusScreen(profile?: string): Promise<string> {
   // that already printed something (shell banner, codex tips) its first rows
   // can scroll above the viewport - buffer.active spans the scrollback too,
   // so screenTextOf still sees them.
+  // Loaded here, not at startup: only this reader needs it (~180 KB).
+  const { Terminal: HeadlessTerminal } = await import("@xterm/headless");
   const term = new HeadlessTerminal({ cols: CODEX_COLS, rows: CODEX_ROWS, scrollback: 200, allowProposedApi: true });
   let id: string | null = null;
   let done = false;

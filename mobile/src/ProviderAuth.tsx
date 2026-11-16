@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { ProviderAuthDialog } from "../../shared/ProviderAuthDialog";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { isAgentCli } from "../../shared/agentRegistry";
 import { isProviderAuthError, type AuthProvider, type ProviderAuthTarget } from "../../shared/providerAuth";
 import { useBackHandler } from "./back";
@@ -9,6 +8,9 @@ import { createProviderAuthRequests } from "./providerAuthRequests";
 import { openLink } from "./TermLink";
 import { agentName } from "./common";
 import "./provider-auth.css";
+
+/** Loaded when a sign-in opens: it brings xterm along, which nothing else needs at startup. */
+const ProviderAuthDialog = lazy(() => import("../../shared/ProviderAuthDialog").then((m) => ({ default: m.ProviderAuthDialog })));
 
 const requests = createProviderAuthRequests(sendChecked);
 onMessage(message => {
@@ -64,10 +66,10 @@ export function ProviderAuthHost() {
   }, [status]);
   useBackHandler(target !== null, () => setTarget(null));
   if (status !== "online") return null;
-  return <>{required && !target && <div className="provider-auth-required-banner" role="alert"><strong>{t("providerAuthRequired")} · {agentName(required.cli)}</strong><span>{required.profileName}</span><button type="button" className="btn primary" onClick={() => setTarget(required)}>{t("providerAuthSignin")}</button><button type="button" className="btn ghost" onClick={() => setRequired(null)} aria-label={t("closeViewer")}>×</button></div>}{target && <ProviderAuthDialog key={`${target.cli}:${target.profile || ""}`} target={target} transport={requests.request} remote language={resolvedLanguage === "it" ? "it" : "en"} onClose={() => setTarget(null)} onSuccess={() => {
+  return <>{required && !target && <div className="provider-auth-required-banner" role="alert"><strong>{t("providerAuthRequired")} · {agentName(required.cli)}</strong><span>{required.profileName}</span><button type="button" className="btn primary" onClick={() => setTarget(required)}>{t("providerAuthSignin")}</button><button type="button" className="btn ghost" onClick={() => setRequired(null)} aria-label={t("closeViewer")}>×</button></div>}{target && <Suspense fallback={null}><ProviderAuthDialog key={`${target.cli}:${target.profile || ""}`} target={target} transport={requests.request} remote language={resolvedLanguage === "it" ? "it" : "en"} onClose={() => setTarget(null)} onSuccess={() => {
     if (required?.cli === target.cli && required.profile === target.profile) setRequired(null);
     window.dispatchEvent(new CustomEvent("flowcode:provider-authenticated", { detail: { cli: target.cli, profile: target.profile } }));
-  }} onOpenUrl={openLink} />}</>;
+  }} onOpenUrl={openLink} /></Suspense>}</>;
 }
 
 /** Authentication is classified only at the chat's provider-error boundary. */
