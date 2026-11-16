@@ -15,6 +15,9 @@ import { ImageButton, ImageSeparator, ZoomControls, ZoomStage, useZoomPan } from
 /** The image each [data-chat-img] element of the conversation shows, for the lightbox to browse them all. */
 const registry = new WeakMap<Element, ChatImageRef>();
 
+/** Lightbox strip thumbnails load only this near the open image: each one fetches its original. */
+const THUMB_RADIUS = 6;
+
 /** A ref callback that records the image on its element. */
 const register = (image: ChatImageRef) => (el: Element | null) => {
   if (el) registry.set(el, image);
@@ -214,17 +217,22 @@ export function ChatImages({ images, variant = "single" }: { images: ChatImageRe
   );
 }
 
-/** A thumbnail loads its own source, including stored chat attachments. */
-function LightboxThumb({ image, active, onClick }: { image: ChatImageRef; active: boolean; onClick: () => void }) {
-  const { t } = useI18n();
+/** The picture of a thumbnail: loads its own source, including stored chat attachments. Mounted only near the open image. */
+function LoadedThumb({ image }: { image: ChatImageRef }) {
   const { src, onError } = useChatImage(image);
+  return src ? <img src={src} alt="" draggable={false} onError={onError} /> : MISSING_ICON;
+}
+
+/** A thumbnail of the lightbox strip; far ones stay an empty placeholder (no load). */
+function LightboxThumb({ image, active, near, onClick }: { image: ChatImageRef; active: boolean; near: boolean; onClick: () => void }) {
+  const { t } = useI18n();
   const button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (active) button.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [active]);
   const name = nameOf(image, t("chat.image.alt"));
   return <button ref={button} type="button" className={"chat-lightbox-thumb" + (active ? " is-active" : "")} title={name} aria-label={name} aria-current={active ? "true" : undefined} onClick={onClick}>
-    {src ? <img src={src} alt="" draggable={false} onError={onError} /> : MISSING_ICON}
+    {near ? <LoadedThumb image={image} /> : <span className="chat-lightbox-thumb-ph" aria-hidden="true" />}
   </button>;
 }
 
@@ -279,7 +287,7 @@ function ChatLightbox({ items, start, onClose }: { items: ChatImageRef[]; start:
           <button type="button" className="chat-lightbox-nav is-next" title={t("chat.image.next")} aria-label={t("chat.image.next")} onClick={() => step(1)}><span><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg></span></button>
         </>}
       </ZoomStage>
-      {items.length > 1 && <div className="chat-lightbox-strip"><div className="chat-lightbox-thumbs">{items.map((item, i) => <LightboxThumb key={i} image={item} active={at === i} onClick={() => setAt(i)} />)}</div></div>}
+      {items.length > 1 && <div className="chat-lightbox-strip"><div className="chat-lightbox-thumbs">{items.map((item, i) => <LightboxThumb key={i} image={item} active={at === i} near={Math.abs(i - at) <= THUMB_RADIUS} onClick={() => setAt(i)} />)}</div></div>}
     </div>, document.body,
   );
 }

@@ -3782,6 +3782,7 @@ summary.chat-step-row {
 .chat-lightbox-thumb.is-active { opacity: 1; outline-color: var(--accent); }
 .chat-lightbox-thumb:hover { opacity: .85; }
 .chat-lightbox-thumb:focus-visible { outline-color: var(--fg); opacity: 1; }
+.chat-lightbox-thumb-ph { display: block; width: 100%; height: 100%; background: currentColor; opacity: .08; }
 @media (max-width: 640px) { .chat-lightbox-bar { flex-wrap: wrap; gap: 6px; } .chat-lightbox-title { flex: 1; } .chat-lightbox-tools { margin-left: auto; } }
 @media (prefers-reduced-motion: reduce) { .chat-lightbox-nav { transition: none; } }
 

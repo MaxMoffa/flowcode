@@ -32,15 +32,136 @@ impl std::io::Write for ByteCount {
     }
 }
 
+/// Most JSON bytes of one event: what is left of a frame once the `chatevents`
+/// envelope (type, chat id, replay flag) is taken out. A chat log line can be
+/// 16 MiB but a frame is at most `MAX_FRAME`, and a frame too big would be
+/// dropped by the writer while the cursor moves past it: the event would be
+/// lost for good. So a bigger event is shrunk (see `shrink_event`).
+const MAX_EVENT_BYTES: usize = proto::MAX_FRAME - 64 * 1024;
+/// Strings shorter than this are not worth cutting.
+const MIN_CUT_STRING: usize = 256;
+
+fn json_size(value: &Value) -> usize {
+    let mut size = ByteCount(0);
+    let _ = serde_json::to_writer(&mut size, value);
+    size.0
+}
+
+enum Seg {
+    Key(String),
+    Idx(usize),
+}
+
+/// Finds the longest string (and, if `want_array`, the longest array instead)
+/// in the tree, as a path.
+fn find_longest(value: &Value, path: &mut Vec<Seg>, best: &mut (usize, Vec<Seg>), arrays: bool) {
+    match value {
+        Value::String(s) if !arrays && s.len() > best.0 => {
+            *best = (s.len(), path.iter().map(|p| match p {
+                Seg::Key(k) => Seg::Key(k.clone()),
+                Seg::Idx(i) => Seg::Idx(*i),
+            }).collect());
+        }
+        Value::Array(items) => {
+            if arrays && items.len() > best.0 {
+                *best = (items.len(), path.iter().map(|p| match p {
+                    Seg::Key(k) => Seg::Key(k.clone()),
+                    Seg::Idx(i) => Seg::Idx(*i),
+                }).collect());
+            }
+            for (i, item) in items.iter().enumerate() {
+                path.push(Seg::Idx(i));
+                find_longest(item, path, best, arrays);
+                path.pop();
+            }
+        }
+        Value::Object(map) => {
+            for (k, item) in map {
+                path.push(Seg::Key(k.clone()));
+                find_longest(item, path, best, arrays);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn at_mut<'a>(mut value: &'a mut Value, path: &[Seg]) -> Option<&'a mut Value> {
+    for seg in path {
+        value = match seg {
+            Seg::Key(k) => value.get_mut(k.as_str())?,
+            Seg::Idx(i) => value.get_mut(*i)?,
+        };
+    }
+    Some(value)
+}
+
+/// Makes `value` serialize to at most `max` bytes, keeping its structure (seq,
+/// timestamps, kinds, ids, statuses): it cuts the longest strings, each at a
+/// char boundary, leaving a `… [truncated, N KB]` marker. A string under a
+/// `data` key (base64 of an image or file) is emptied to the marker instead of
+/// cut, so no broken base64 is left. If strings alone cannot make it fit (a
+/// huge array of small items), the longest array loses its tail. The work is
+/// bounded: cuts are sized from the excess, and the tree is re-serialized only
+/// a few times, never once per cut.
+fn shrink_event(value: &mut Value, max: usize) {
+    for round in 0..16u32 {
+        let mut excess = json_size(value).saturating_sub(max);
+        if excess == 0 {
+            return;
+        }
+        // Escapes make the serialized form bigger than the string: later
+        // rounds cut with a growing margin.
+        excess += excess * round as usize / 2 + 1024;
+        while excess > 0 {
+            let mut best = (MIN_CUT_STRING, Vec::new());
+            find_longest(value, &mut Vec::new(), &mut best, false);
+            let (len, path) = best;
+            let Some(target) = (len > MIN_CUT_STRING).then(|| at_mut(value, &path)).flatten() else { break };
+            let is_data = matches!(path.last(), Some(Seg::Key(k)) if k == "data") && len > 1024;
+            let Value::String(s) = target else { break };
+            // Serialized bytes per string byte (escapes make it more than 1).
+            let mut ser = ByteCount(0);
+            let _ = serde_json::to_writer(&mut ser, s.as_str());
+            let ser = ser.0.saturating_sub(2).max(len);
+            let need = (excess as u128 * len as u128 / ser as u128) as usize + 64;
+            let keep = if is_data { 0 } else { len.saturating_sub(need) };
+            let mut cut = keep;
+            while !s.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let dropped = len - cut;
+            s.truncate(cut);
+            let marker = format!("… [truncated, {} KB]", dropped / 1024);
+            s.push_str(&marker);
+            let freed = (dropped as u128 * ser as u128 / len as u128) as usize;
+            excess = excess.saturating_sub(freed.saturating_sub(marker.len()));
+        }
+        if excess > 0 {
+            // No string left worth cutting: drop the tail of the longest array.
+            let mut best = (1, Vec::new());
+            find_longest(value, &mut Vec::new(), &mut best, true);
+            let (len, path) = best;
+            match at_mut(value, &path) {
+                Some(Value::Array(items)) if len > 1 => items.truncate(len / 2),
+                _ => return,
+            }
+        }
+    }
+}
+
 /// Splits events into the groups that each go in one message, in order.
 fn chunk_events(events: &[ChatEvent]) -> Vec<Vec<Value>> {
     let mut chunks = Vec::new();
     let mut current: Vec<Value> = Vec::new();
     let mut bytes = 0;
     for event in events {
-        let Ok(value) = serde_json::to_value(event) else { continue };
-        let mut size = ByteCount(0);
-        let _ = serde_json::to_writer(&mut size, &value);
+        let Ok(mut value) = serde_json::to_value(event) else { continue };
+        let mut size = ByteCount(json_size(&value));
+        if size.0 > MAX_EVENT_BYTES {
+            shrink_event(&mut value, MAX_EVENT_BYTES);
+            size = ByteCount(json_size(&value));
+        }
         if !current.is_empty() && (current.len() >= MAX_EVENTS || bytes + size.0 > MAX_EVENTS_BYTES) {
             chunks.push(std::mem::take(&mut current));
             bytes = 0;
@@ -208,6 +329,48 @@ mod tests {
         let seqs: Vec<Vec<u64>> =
             chunks.iter().map(|c| c.iter().map(|e| e["seq"].as_u64().unwrap()).collect()).collect();
         assert_eq!(seqs, vec![vec![1], vec![2, 3], vec![4]]);
+    }
+
+    fn assert_fits(chunk: Vec<Value>) {
+        let msg = ServerMsg::ChatEvents { chat_id: "c".repeat(64), events: chunk, replay: true };
+        proto::encode_frame(&msg, false).expect("frame fits");
+    }
+
+    #[test]
+    fn a_huge_event_is_truncated_to_fit_a_frame() {
+        let events = vec![event(1, "a"), event(7, &"é\n".repeat(1_500_000)), event(8, "b")];
+        let chunks = chunk_events(&events);
+        let seqs: Vec<Vec<u64>> = chunks.iter().map(|c| c.iter().map(|e| e["seq"].as_u64().unwrap()).collect()).collect();
+        let big: Vec<&Vec<Value>> = chunks.iter().filter(|c| c[0]["seq"].as_u64() == Some(7)).collect();
+        assert_eq!(seqs, vec![vec![1], vec![7], vec![8]]);
+        assert_eq!(big.len(), 1);
+        assert_eq!(big[0].len(), 1);
+        assert!(json_size(&big[0][0]) <= MAX_EVENT_BYTES);
+        assert!(big[0][0].to_string().contains("[truncated,"));
+        for chunk in chunks {
+            assert_fits(chunk);
+        }
+    }
+
+    #[test]
+    fn many_medium_strings_fit_too() {
+        let mut value = serde_json::json!({ "seq": 3, "kind": "tool" });
+        for n in 0..40 {
+            value[format!("f{n}")] = Value::String("z".repeat(64 * 1024));
+        }
+        value["image"] = serde_json::json!({ "data": "A".repeat(100_000), "mime": "image/png" });
+        shrink_event(&mut value, MAX_EVENT_BYTES);
+        assert!(json_size(&value) <= MAX_EVENT_BYTES);
+        assert_eq!(value["seq"], 3);
+        assert_eq!(value["kind"], "tool");
+    }
+
+    #[test]
+    fn a_huge_array_loses_its_tail() {
+        let mut value = serde_json::json!({ "seq": 1, "items": vec!["ab"; 600_000] });
+        shrink_event(&mut value, MAX_EVENT_BYTES);
+        assert!(json_size(&value) <= MAX_EVENT_BYTES);
+        assert!(!value["items"].as_array().unwrap().is_empty());
     }
 
     #[test]

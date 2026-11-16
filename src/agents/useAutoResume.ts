@@ -10,6 +10,7 @@ import { detectLimit } from "./limitText";
 import { CLI_INFO, cliName } from "./cliInfo";
 import { hasCap } from "../../shared/agentRegistry";
 import { autoResumeMessage, getAutoResumeSettings } from "./autoResumeSettings";
+import { shouldArmReset } from "./autoResumeDecision";
 
 // Kept here for the importers that predate limitText.
 export { detectLimit };
@@ -60,6 +61,8 @@ export function useAutoResume(
   /** The reset each tab was last woken for: the old notice stays on screen
    * after a wake and must not arm it again. */
   const lastWokenFor = useRef(new Map<string, number>());
+  /** The reset each tab's user cancelled: the limit is still on screen and must not arm again at the next check. */
+  const cancelledFor = useRef(new Map<string, number>());
   const [armed, setArmed] = useState<ReadonlyMap<string, number>>(() => new Map());
   // The interval outlives renders, so it reads the latest of these.
   const latest = useRef({ agents, deps });
@@ -71,6 +74,8 @@ export function useAutoResume(
 
   const cancel = useCallback(
     (tabId: string) => {
+      const at = armedRef.current.get(tabId)?.at;
+      if (at !== undefined) cancelledFor.current.set(tabId, at);
       if (armedRef.current.delete(tabId)) publish();
     },
     [publish],
@@ -102,6 +107,9 @@ export function useAutoResume(
     for (const id of [...lastWokenFor.current.keys()]) {
       if (!agents.has(id)) lastWokenFor.current.delete(id);
     }
+    for (const id of [...cancelledFor.current.keys()]) {
+      if (!agents.has(id)) cancelledFor.current.delete(id);
+    }
 
     if (enabled) {
       for (const [id, agent] of agents) {
@@ -114,8 +122,7 @@ export function useAutoResume(
         if (!found) continue;
         const at = found.at ?? accountBlockedUntil(CLI_INFO[agent.cli].pluginId, tab.profileId) ?? null;
         if (at === null || at < now - LATE_MS) continue;
-        const woken = lastWokenFor.current.get(id);
-        if (woken !== undefined && at <= woken) continue;
+        if (!shouldArmReset(at, lastWokenFor.current.get(id), cancelledFor.current.get(id))) continue;
         armedRef.current.set(id, { at, cli: agent.cli, ptyId: term.getPtyId(), armedAt: now });
         changed = true;
       }

@@ -11,6 +11,7 @@ import { readString, writeString } from "../lib/storage";
 import { getConfiguredShell } from "../terminal/TerminalSettingsContext";
 import { NO_ACTIVITY, resumedActivity, trackActivity, type ChatActivity } from "./cacheWarning";
 import { applyEvent, applyLocalError, delegatesOf, forceCancels, initialChat, isAgentBusy, isAgentExited, liveModels, liveThought, mergeReplay, settleAttached, settleChat, type ChatModelState, type GoalAction } from "./chatModel";
+import { discardAttachment, releasePreview } from "./attachmentRelease";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 import { isProviderAuthError } from "../../shared/providerAuth";
 import { markProviderAuthRequired, PROVIDER_AUTHENTICATED, providerAuthRequired, useProviderAuthRequired, type ProviderAuthenticated } from "../profiles/providerAuth";
@@ -76,6 +77,10 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   // The WSL distro the agent runs in (its paths are Linux ones); null for a Windows chat.
   const [wslDistro, setWslDistro] = useState<string | null>(null);
   const [queued, setQueued] = useState<QueuedMessage[]>([]);
+  // Mirror of `queued` for cleanups; whatever is still queued at unmount is abandoned.
+  const queuedRef = useRef<QueuedMessage[]>([]);
+  queuedRef.current = queued;
+  useEffect(() => () => queuedRef.current.forEach((m) => m.attachments.forEach(discardAttachment)), []);
   const authRequired = useProviderAuthRequired(agent, profileId);
   const authRequiredRef = useRef(authRequired);
   authRequiredRef.current = authRequired;
@@ -287,13 +292,18 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     sentAtSeqRef.current = modelRef.current.lastSeq;
     invoke("chat_prompt", { chatId: id, text, attachments: attachments.map(({ preview: _p, size: _s, ...a }) => a) }).then(
       () => {
+        // The agent owns the staged files now; only the tiles' previews go.
+        attachments.forEach(releasePreview);
         if (chatIdRef.current === id) talkedRef.current = true;
       },
       (err) => {
+        const message = String(err);
+        const requeue = chatIdRef.current === id && (isAgentBusy(message) || isAgentExited(message));
+        // Not requeued (failed, or the chat is gone): nobody will send these files.
+        if (!requeue) attachments.forEach(discardAttachment);
         // The chat closed or restarted meanwhile: this answer is about an agent that is gone.
         if (chatIdRef.current !== id) return;
-        const message = String(err);
-        if (isAgentBusy(message) || isAgentExited(message)) {
+        if (requeue) {
           // Never sent: back to the front of the queue. It waits for an event
           // newer than now (the running turn's end), so a busy agent isn't
           // asked again in a loop; after an exit, a restart sends it.
@@ -487,6 +497,20 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     if (wantedThought && wantedThought !== thought.currentId && thought.available.some((l) => l.id === wantedThought)) setThought(wantedThought);
   }, [chatId, phase, loaded, attachChatId, agent, models, thought, setModel, setThought]);
 
+  /** Arms the message to send by itself at the usage limit's reset (`limitId`: the limit item it answers). */
+  const scheduleResume = useCallback((at: number, text: string, limitId: string) => {
+    const id = chatIdRef.current;
+    if (!id) return;
+    invoke("chat_resume_schedule", { chatId: id, at, text, limitId }).catch((e) => console.warn("chat_resume_schedule", e));
+  }, []);
+
+  /** Edits the scheduled resume message; `null` cancels it. */
+  const updateResume = useCallback((text: string | null) => {
+    const id = chatIdRef.current;
+    if (!id) return;
+    invoke("chat_resume_update", { chatId: id, text }).catch((e) => console.warn("chat_resume_update", e));
+  }, []);
+
   const unqueue = useCallback((index: number) => setQueued((q) => q.filter((_, i) => i !== index)), []);
 
   /** Starts the agent again - resuming the same session when it had a conversation. */
@@ -508,6 +532,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
    * session forgotten, so the start effect runs a `session/new` (and reports
    * its id); the old agent is closed by the effect's cleanup, mid-turn or not. */
   const clear = useCallback(() => {
+    queuedRef.current.forEach((m) => m.attachments.forEach(discardAttachment));
+    queuedRef.current = [];
     setQueued([]);
     talkedRef.current = false;
     sessionIdRef.current = undefined;
@@ -529,11 +555,15 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "goalAction"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "goalAction" | "scheduleResume" | "updateResume"> & {
+  /** Arms the message sent by itself at the usage limit's reset; absent for a chat running on another PC (its host arms its own chats). */
+  scheduleResume?: (at: number, text: string, limitId: string) => void;
+  /** Edits the scheduled resume message (`null` cancels it); absent for a chat running on another PC, unless its host supports `chatResume` (then it goes via the host). */
+  updateResume?: (text: string | null) => void;
   /** Pause, resume or stop the goal; absent for a chat running on another PC. */
   goalAction?: (action: GoalAction) => Promise<void>;
   /** Starts a fresh conversation in the same tab; absent for a chat running on another PC. */

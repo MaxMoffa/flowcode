@@ -18,6 +18,8 @@ import { CLI_INFO, cliName } from "../agents/cliInfo";
 import { delegatesOf } from "./chatModel";
 import { DelegateCards, DelegateRequests } from "./DelegateCards";
 import type { ChatAttachment, ChatCommand } from "./chatTypes";
+import { discardAttachment } from "./attachmentRelease";
+import { formatBytes } from "../imageView/imageActions";
 import { prepareAttachment } from "../../shared/attachPrepare";
 import { buildMenu, commandText, displayName, type CommandKind, type MenuEntry } from "./commandMenu";
 import { CommandChip, KindIcon, UserText } from "./CommandChip";
@@ -65,13 +67,6 @@ function fileExt(name: string): string {
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 ? name.slice(dot + 1) : "";
   return ext && ext.length <= 5 ? ext.toUpperCase() : "FILE";
-}
-
-/** A byte count as "412 KB" / "1.2 MB". */
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**
@@ -201,6 +196,26 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
 
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  // The composer's current files, readable from async code and cleanups without stale closures.
+  const attachmentsRef = useRef<ChatAttachment[]>([]);
+  attachmentsRef.current = attachments;
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      attachmentsRef.current.forEach(discardAttachment);
+    };
+  }, []);
+  /** Adds `incoming` to the composer's files up to the cap; the ones past it are discarded. */
+  function mergeAttachments(incoming: ChatAttachment[], front: boolean) {
+    const current = attachmentsRef.current;
+    const all = front ? [...incoming, ...current] : [...current, ...incoming];
+    const kept = all.slice(0, MAX_ATTACHMENTS);
+    all.slice(MAX_ATTACHMENTS).forEach(discardAttachment);
+    attachmentsRef.current = kept;
+    setAttachments(kept);
+  }
   const [attachError, setAttachError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -328,25 +343,27 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   const autoResume = useAutoResumeSettings();
   const armedLimit = useRef<string | null>(null);
   const chatId = chat.chatId ?? null;
+  const scheduleResume = chat.scheduleResume;
+  const updateResume = chat.updateResume;
   useEffect(() => {
-    if (sub || attached || !limit || limitResetAt === null || !chatId) return;
+    if (sub || attached || !limit || limitResetAt === null || !chatId || !scheduleResume) return;
     if (limitResetAt <= Date.now() - 15 * 60_000 || !autoResume.enabled || !hasCap(agent, "usageLimit")) return;
     if (model.resumeLimitId === limit.id || model.resume !== null || armedLimit.current === limit.id) return;
     armedLimit.current = limit.id;
-    invoke("chat_resume_schedule", { chatId, at: limitResetAt, text: autoResumeMessage(), limitId: limit.id }).catch((e) => console.warn("chat_resume_schedule", e));
-  }, [sub, attached, limit, limitResetAt, chatId, autoResume.enabled, agent, model.resumeLimitId, model.resume]);
+    scheduleResume(limitResetAt, autoResumeMessage(), limit.id);
+  }, [sub, attached, limit, limitResetAt, chatId, scheduleResume, autoResume.enabled, agent, model.resumeLimitId, model.resume]);
   // The queued resume message, edited in place.
   const [resumeDraft, setResumeDraft] = useState<string | null>(null);
   const saveResume = () => {
-    if (resumeDraft === null || !chatId) return;
+    if (resumeDraft === null || !updateResume) return;
     const text = resumeDraft.trim();
     setResumeDraft(null);
-    if (text) invoke("chat_resume_update", { chatId, text }).catch((e) => console.warn("chat_resume_update", e));
+    if (text) updateResume(text);
   };
   const cancelResume = () => {
-    if (!chatId) return;
+    if (!updateResume) return;
     setResumeDraft(null);
-    invoke("chat_resume_update", { chatId, text: null }).catch((e) => console.warn("chat_resume_update", e));
+    updateResume(null);
   };
   const lastSegment = timeline[timeline.length - 1];
   // In the main chat, the subagents still running, for the tray behind the composer.
@@ -483,7 +500,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
   /** Reads the files into attachments, refusing the ones past the caps with a notice. */
   async function addFiles(files: File[]) {
     if (files.length === 0 || !chat.canAttach) return;
-    let room = MAX_ATTACHMENTS - attachments.length;
+    let room = MAX_ATTACHMENTS - attachmentsRef.current.length;
     const accepted: File[] = [];
     let error: string | null = null;
     for (const file of files) {
@@ -495,12 +512,15 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
       }
     }
     setAttachError(error);
-    try {
-      const read = await Promise.all(accepted.map(readAttachment));
-      setAttachments((a) => [...a, ...read].slice(0, MAX_ATTACHMENTS));
-    } catch (err) {
-      setAttachError(String(err));
+    const settled = await Promise.allSettled(accepted.map(readAttachment));
+    const read = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    if (!aliveRef.current) {
+      read.forEach(discardAttachment);
+      return;
     }
+    const failed = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed) setAttachError(String(failed.reason));
+    if (read.length > 0) mergeAttachments(read, false);
   }
 
   function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
@@ -562,6 +582,8 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     setDraft("");
     setPickedCommand(null);
     setChipSelected(false);
+    attachmentsRef.current.forEach(discardAttachment);
+    attachmentsRef.current = [];
     setAttachments([]);
     setAttachError(null);
     dictation.discard();
@@ -609,7 +631,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
     if (!item) return;
     chat.unqueue(i);
     setDraft((d) => (d.trim() ? `${item.text}\n${d}` : item.text));
-    setAttachments((a) => [...item.attachments, ...a].slice(0, MAX_ATTACHMENTS));
+    mergeAttachments(item.attachments, true);
     inputRef.current?.focus();
   }
 
@@ -892,7 +914,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                         <path d="M11 2.5 13.5 5 5.5 13H3v-2.5z" />
                       </svg>
                     </button>
-                    <button type="button" className="chat-pending-btn" aria-label={t("chat.unqueue")} title={t("chat.unqueue")} onClick={() => chat.unqueue(i)}>
+                    <button type="button" className="chat-pending-btn" aria-label={t("chat.unqueue")} title={t("chat.unqueue")} onClick={() => { files.forEach(discardAttachment); chat.unqueue(i); }}>
                       {"×"}
                     </button>
                     <span className="chat-pending-pos">
@@ -931,7 +953,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                   )}
                 </div>
                 <div className="chat-pending-meta">
-                  {resumeDraft !== null ? (
+                  {!updateResume ? null : resumeDraft !== null ? (
                     <>
                       <button type="button" className="chat-pending-btn is-text" onClick={saveResume}>
                         {t("chat.resume.save")}
@@ -1202,7 +1224,7 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                           </>
                         )}
                         <button type="button" className="chat-attach-x" aria-label={t("chat.attach.remove")} title={t("chat.attach.remove")} onClick={() => {
-                            if (file.preview) URL.revokeObjectURL(file.preview);
+                            discardAttachment(file);
                             setAttachments((a) => a.filter((_, j) => j !== i));
                           }}>
                           {"✕"}

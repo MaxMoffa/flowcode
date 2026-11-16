@@ -5,26 +5,54 @@ type Mermaid = (typeof import("mermaid"))["default"];
 let mermaidPromise: Promise<Mermaid> | null = null;
 const loadMermaid = () => (mermaidPromise ??= import("mermaid").then((m) => m.default));
 
-/** Dark when the page background is dark: works for both apps without knowing their theme stores. */
-function isDark(): boolean {
-  const m = getComputedStyle(document.body).backgroundColor.match(/\d+(\.\d+)?/g);
-  if (!m || m.length < 3) return document.documentElement.getAttribute("data-theme") === "dark";
-  const [r, g, b] = m.map(Number);
-  return 0.299 * r + 0.587 * g + 0.114 * b < 128;
+export type MermaidTheme = "dark" | "default";
+
+/**
+ * The mermaid theme for the app: `data-theme` on the root ("dark" / "light") decides; without it, the
+ * page background decides (dark when its luminance is under 128; a transparent background counts as light).
+ */
+export function mermaidTheme(attr: string | null, bodyBg: string): MermaidTheme {
+  if (attr === "dark") return "dark";
+  if (attr === "light") return "default";
+  const m = bodyBg.match(/\d+(\.\d+)?/g);
+  if (!m || m.length < 3) return "default";
+  const [r, g, b, a] = m.map(Number);
+  if (a === 0) return "default";
+  return 0.299 * r + 0.587 * g + 0.114 * b < 128 ? "dark" : "default";
+}
+
+/** The current theme, kept up to date while the app switches `data-theme`. */
+function readDocumentTheme(): MermaidTheme {
+  return mermaidTheme(document.documentElement.getAttribute("data-theme"), getComputedStyle(document.body).backgroundColor);
+}
+
+function useDocumentTheme(): MermaidTheme {
+  const [theme, setTheme] = useState<MermaidTheme>(readDocumentTheme);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(readDocumentTheme()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
 }
 
 const cache = new Map<string, string>();
+/** Renders on their way (same source and theme): a second request shares the first one. */
+const inflight = new Map<string, Promise<string>>();
 let seq = 0;
 let lastTheme = "";
 /** Mermaid keeps one global config: renders run one at a time so the theme set for one is the theme it gets. */
 let queue: Promise<unknown> = Promise.resolve();
 
-function renderSvg(src: string): Promise<string> {
-  const theme = isDark() ? "dark" : "default";
+function renderSvg(src: string, theme: MermaidTheme): Promise<string> {
   const key = `${theme}:${src}`;
   const hit = cache.get(key);
   if (hit !== undefined) return Promise.resolve(hit);
+  const running = inflight.get(key);
+  if (running) return running;
   const job = queue.then(async () => {
+    const done = cache.get(key);
+    if (done !== undefined) return done;
     const mermaid = await loadMermaid();
     if (theme !== lastTheme) {
       mermaid.initialize({
@@ -44,6 +72,11 @@ function renderSvg(src: string): Promise<string> {
     cache.set(key, svg);
     return svg;
   });
+  inflight.set(key, job);
+  job.then(
+    () => inflight.delete(key),
+    () => inflight.delete(key),
+  );
   queue = job.catch(() => {});
   return job;
 }
@@ -63,12 +96,13 @@ export function MermaidView({
   const [svg, setSvg] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const theme = useDocumentTheme();
 
   useEffect(() => {
     let live = true;
     // Debounced so a streaming block is not re-parsed on every token.
     const timer = setTimeout(() => {
-      renderSvg(text).then(
+      renderSvg(text, theme).then(
         (out) => live && setSvg(out),
         () => {},
       );
@@ -77,7 +111,7 @@ export function MermaidView({
       live = false;
       clearTimeout(timer);
     };
-  }, [text]);
+  }, [text, theme]);
 
   useEffect(() => {
     if (!copied) return;

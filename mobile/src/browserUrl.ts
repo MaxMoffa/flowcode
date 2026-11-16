@@ -62,13 +62,38 @@ export function localLinkPage(url: string): Page | null {
   } catch { return null; }
 }
 
+/** Encodes one path segment of an address the user typed or a link carried: valid `%XX` escapes stay as they are (no double encoding), everything else unsafe is encoded (`100%` becomes `100%25`). */
+export function encodeTypedSegment(seg: string): string {
+  return seg
+    .split(/(%[0-9a-fA-F]{2})/)
+    .map((part, i) => {
+      if (i % 2 === 1) return part;
+      try {
+        return encodeURIComponent(part);
+      } catch {
+        // A lone surrogate cannot be encoded.
+        return encodeURIComponent(part.replace(/[\uD800-\uDFFF]/g, "�"));
+      }
+    })
+    .join("");
+}
+
 /** The iframe URL of a page. `base` builds the scheme URL of a path (injectable for tests). */
 export function pageSrc(page: Page, base: (path: string) => string = (p) => convertFileSrc(p, "flowcode-remote")): string {
   if (page.kind === "port") {
-    const [pathPart, ...q] = page.path.split("?");
-    const query = q.length ? "?" + q.join("?") : "";
-    return pluginFileUrl(base("p"), `${page.port}/${pathPart.replace(/^\/+/, "")}`) + query;
+    // A web address: `path?query#hash`, where the path may already be percent-encoded and a hash
+    // (e.g. `/#/settings` of a hash router) is a fragment, never part of the path.
+    const hashAt = page.path.indexOf("#");
+    const hash = hashAt >= 0 ? page.path.slice(hashAt) : "";
+    const beforeHash = hashAt >= 0 ? page.path.slice(0, hashAt) : page.path;
+    const queryAt = beforeHash.indexOf("?");
+    const query = queryAt >= 0 ? beforeHash.slice(queryAt) : "";
+    const pathname = queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash;
+    const segments = pathname.replace(/^\/+/, "").split("/").map(encodeTypedSegment).join("/");
+    return `${base("p").replace(/\/+$/, "")}/${page.port}/${segments}${query}${hash}`;
   }
+  // A file of the desktop: the path is a literal file name (`%` and `#` are part of it and get
+  // encoded). Only a `?` starts a query, and everything after it, hash included, is kept as is.
   const [pathPart, ...q] = page.path.split("?");
   const query = q.length ? "?" + q.join("?") : "";
   const prefix = page.kind === "chatFile" ? "c" : "f";

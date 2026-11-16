@@ -531,6 +531,14 @@ async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
       percent: Math.min(1, b.spent / b.limit),
       resets: b.resetsAt ? formatReset(b.resetsAt) : undefined,
     }));
+    // A failed read with nothing else to show is a failure: keep its debug info, but still name the workspace.
+    if (!spend.ok && budgets.length === 0) {
+      return {
+        ...spend,
+        account: console?.workspace ? t("usage.opencodeWorkspace", { name: console.workspace }) : undefined,
+        usageUrl: console?.usageUrl ?? undefined,
+      };
+    }
     const rows = spend.ok ? spend.metrics : [];
     const free = rows.every((m) => m.kind !== "spend" || m.cost === 0);
     const metrics = [...budgets, ...(free ? rows.map((m) => (m.kind === "spend" ? { ...m, cost: undefined } : m)) : rows)];

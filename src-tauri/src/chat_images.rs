@@ -104,7 +104,7 @@ pub(crate) fn read(id: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Decodes `%XX` escapes (invalid ones stay as they are).
-fn percent_decode(text: &str) -> String {
+pub(crate) fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(bytes.len());

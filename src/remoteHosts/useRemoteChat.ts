@@ -130,6 +130,9 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
       }),
     [hostId, chatId, update],
   );
+  // The host arms its own chats; only editing or cancelling its scheduled resume is forwarded (when it supports that).
+  const canUpdateResume = !!host?.caps.includes("chatResume");
+  const updateResume = useCallback((text: string | null) => void sendToHost(hostId, { t: "chatresume", chatId, text }), [hostId, chatId]);
   const unqueue = useCallback((index: number) => update((s) => ({ ...s, queued: s.queued.filter((_, i) => i !== index) })), [update]);
   const force = useCallback(
     (index: number) => {
@@ -174,6 +177,7 @@ export function useRemoteChat(hostId: string, chatId: string): ChatSession {
     setMode,
     setModel,
     setThought,
+    updateResume: canUpdateResume ? updateResume : undefined,
     unqueue,
     force,
     restart,

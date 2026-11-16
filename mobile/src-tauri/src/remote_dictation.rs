@@ -111,7 +111,11 @@ pub fn dict_audio_start(app: AppHandle, remote: State<'_, Arc<Remote>>, audio: S
         }
     });
     if let Err(e) = audio.capture_start() {
-        audio.finish(Msg::Abort);
+        // Only our own session: a cancel during the permission dialog may already have been followed by a newer one.
+        let ours = audio.active.lock().unwrap().as_ref().map(|a| a.session == session).unwrap_or(false);
+        if ours {
+            audio.finish(Msg::Abort);
+        }
         return Err(e);
     }
     Ok(())
@@ -125,7 +129,14 @@ pub fn dict_audio_stop(audio: State<'_, DictAudio>) {
 
 /// Drops the session: stops the microphone and resets the stream.
 #[tauri::command(async)]
-pub fn dict_audio_cancel(audio: State<'_, DictAudio>) {
+pub fn dict_audio_cancel(audio: State<'_, DictAudio>, session: Option<String>) {
+    // A late cancel of an old session must not kill a newer one.
+    if let Some(s) = &session {
+        let current = audio.active.lock().unwrap().as_ref().map(|a| a.session.clone());
+        if current.as_deref() != Some(s.as_str()) {
+            return;
+        }
+    }
     audio.finish(Msg::Abort);
 }
 

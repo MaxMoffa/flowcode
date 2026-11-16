@@ -40,6 +40,24 @@ describe("pageSrc", () => {
     expect(pageSrc(port(5173), base)).toBe("scheme://x/p/5173/");
     expect(pageSrc({ kind: "file", ptyId: "p1", path: "dist/my file.html" }, base)).toBe("scheme://x/f/p1/dist/my%20file.html");
   });
+  it("does not double-encode port paths", () => {
+    expect(pageSrc(port(5173, "/my%20page.html"), base)).toBe("scheme://x/p/5173/my%20page.html");
+    expect(pageSrc(port(5173, "/my page.html"), base)).toBe("scheme://x/p/5173/my%20page.html");
+    expect(pageSrc(port(5173, "/100%/a"), base)).toBe("scheme://x/p/5173/100%25/a");
+    expect(pageSrc(port(5173, "/caffè"), base)).toBe("scheme://x/p/5173/caff%C3%A8");
+    expect(pageSrc(port(5173, "/caff%C3%A8"), base)).toBe("scheme://x/p/5173/caff%C3%A8");
+  });
+  it("keeps query and fragment out of the path", () => {
+    expect(pageSrc(port(5173, "/#/settings"), base)).toBe("scheme://x/p/5173/#/settings");
+    expect(pageSrc(port(5173, "/app#/a/b?x=1"), base)).toBe("scheme://x/p/5173/app#/a/b?x=1");
+    expect(pageSrc(port(5173, "/a%20b?q=x%20y&z=1#top"), base)).toBe("scheme://x/p/5173/a%20b?q=x%20y&z=1#top");
+    expect(pageSrc(port(5173, "/a b?q=1"), base)).toBe("scheme://x/p/5173/a%20b?q=1");
+  });
+  it("encodes literal file names", () => {
+    expect(pageSrc({ kind: "file", ptyId: "p1", path: "a%b.html" }, base)).toBe("scheme://x/f/p1/a%25b.html");
+    expect(pageSrc({ kind: "file", ptyId: "p1", path: "my page.html" }, base)).toBe("scheme://x/f/p1/my%20page.html");
+    expect(pageSrc({ kind: "chatFile", chatId: "c1", path: "a#b.html?x=1#h" }, base)).toBe("scheme://x/c/c1/a%23b.html?x=1#h");
+  });
   it("labels and sandboxes", () => {
     expect(pageLabel(port(5173))).toBe("localhost:5173");
     expect(pageLabel(port(5173, "/a"))).toBe("localhost:5173/a");

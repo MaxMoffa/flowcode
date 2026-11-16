@@ -43,6 +43,7 @@ export function startRemoteDictation(language: string | undefined, h: RemoteHand
   // The caller may never await it (a cancelled start).
   ready.catch(() => {});
 
+  const isEnded = () => phase === "ended";
   const sendMsg = (msg: Record<string, unknown>) => invoke("send", { msg }).catch(() => {});
   const cleanup = () => {
     phase = "ended";
@@ -55,7 +56,7 @@ export function startRemoteDictation(language: string | undefined, h: RemoteHand
   };
   /** Ends the session on our side: microphone off, stream reset, desktop told. */
   const abort = () => {
-    invoke("dict_audio_cancel").catch(() => {});
+    invoke("dict_audio_cancel", { session }).catch(() => {});
     void sendMsg({ t: "dictcancel", session });
   };
   const failStart = (reason: string, tellDesktop = true) => {
@@ -69,7 +70,7 @@ export function startRemoteDictation(language: string | undefined, h: RemoteHand
     cleanup();
     // A session the desktop ended itself has nothing to cancel there, but the microphone may still run.
     if (tellDesktop) abort();
-    else invoke("dict_audio_cancel").catch(() => {});
+    else invoke("dict_audio_cancel", { session }).catch(() => {});
     h.onEnd(reason, code);
   };
 
@@ -117,10 +118,17 @@ export function startRemoteDictation(language: string | undefined, h: RemoteHand
   void (async () => {
     try {
       await invoke("send", { msg: { t: "dictstart", session, ...(language ? { language } : {}) } });
+      // Cancelled (or failed) while the start message was going out: never turn the microphone on.
+      if (phase !== "starting") return;
       // May wait for the microphone permission dialog; the timeout starts after it.
       await invoke("dict_audio_start", { session });
     } catch (e) {
       failStart(String(e));
+      return;
+    }
+    if (isEnded()) {
+      // Cancelled during the dialog: the capture that just began has no session any more.
+      invoke("dict_audio_cancel", { session }).catch(() => {});
       return;
     }
     if (phase === "starting") readyTimer = setTimeout(() => failStart("timeout"), READY_TIMEOUT_MS);

@@ -79,11 +79,6 @@ export function isExecutablePath(path: string): boolean {
   return EXECUTABLE_EXT.has(ext) || (ext !== "" && !SAFE_OPEN_EXT.has(ext));
 }
 
-/** A long path cut down for a menu header, keeping its end (the file name). */
-export function shortenPath(path: string, max = 60): string {
-  return path.length > max ? `…${path.slice(-(max - 1))}` : path;
-}
-
 /** One candidate taken as a whole: the path it names (and line/column), or null when it doesn't look like one. */
 export function parsePathToken(raw: string, opts: ParseOptions = {}): ParsedPath | null {
   if (!raw || raw.length > MAX_PATH_LENGTH || raw.includes("\0") || /[\r\n\t]/.test(raw)) return null;

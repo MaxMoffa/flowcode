@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findPaths, isExecutablePath, MAX_PATH_LENGTH, parsePathToken, shortenPath } from "./filePaths";
+import { findPaths, isExecutablePath, MAX_PATH_LENGTH, parsePathToken } from "./filePaths";
 
 /** The path texts found in `text`, as written (suffix included). */
 const found = (text: string, bare = false) => findPaths(text, { bare }).map((m) => text.slice(m.start, m.end));
@@ -169,16 +169,5 @@ describe("isExecutablePath", () => {
   });
   it("refuses unreviewed handlers and active documents", () => {
     for (const p of ["a.rdp", "a.theme", "a.themepack", "a.msh1", "a.docm", "a.html", "a.svg", "a.unknown"]) expect(isExecutablePath(p), p).toBe(true);
-  });
-});
-
-describe("shortenPath", () => {
-  it("keeps short paths and the end of long ones", () => {
-    expect(shortenPath("C:\\a.ts")).toBe("C:\\a.ts");
-    const long = `C:\\${"d\\".repeat(40)}file.ts`;
-    const short = shortenPath(long);
-    expect(short).toHaveLength(60);
-    expect(short.startsWith("…")).toBe(true);
-    expect(short.endsWith("file.ts")).toBe(true);
   });
 });

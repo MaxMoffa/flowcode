@@ -42,6 +42,11 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
     /** Permission requests whose dialog is still up; see `onDestroy`. */
     private val pendingPermission = mutableListOf<Invoke>()
 
+    /** Bumped by every stop/cancel; a permission request that started under an older value is dropped. Guarded by `pendingPermission` for the map, volatile for the counter. */
+    @Volatile
+    private var permissionEpoch = 0
+    private val permissionEpochs = HashMap<Invoke, Int>()
+
     private fun granted(): Boolean =
         ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
@@ -143,7 +148,10 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
         if (granted()) {
             startNow(invoke)
         } else {
-            synchronized(pendingPermission) { pendingPermission.add(invoke) }
+            synchronized(pendingPermission) {
+                pendingPermission.add(invoke)
+                permissionEpochs[invoke] = permissionEpoch
+            }
             requestPermissionForAlias(PERMISSION_ALIAS, invoke, "microphonePermissionResult")
         }
     }
@@ -154,20 +162,31 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
 
     @PermissionCallback
     fun microphonePermissionResult(invoke: Invoke) {
-        synchronized(pendingPermission) { pendingPermission.remove(invoke) }
+        val asked = synchronized(pendingPermission) {
+            pendingPermission.remove(invoke)
+            permissionEpochs.remove(invoke)
+        }
+        // A stop or cancel during the dialog: the session is gone, do not turn the microphone on.
+        if (asked != permissionEpoch) {
+            invoke.reject("cancelled")
+            return
+        }
         if (granted()) startNow(invoke) else invoke.reject("permission")
     }
 
     /** Stops recording after flushing the last chunk. */
     @Command
     fun stop(invoke: Invoke) {
+        permissionEpoch++
         end()
         invoke.resolve()
     }
 
     // A paused app must not keep the microphone: the page cancels its session too.
     override fun onPause() {
+        // Only a running capture is ended here, so a request still waiting on the dialog is not invalidated.
         if (running) {
+            permissionEpoch++
             end()
             fail("paused")
         }
@@ -176,7 +195,7 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
     // The activity can die while the system dialog is up, and the callback
     // never comes: let the caller go, and drop the recorder.
     override fun onDestroy(activity: AppCompatActivity) {
-        val waiting = synchronized(pendingPermission) { pendingPermission.toList().also { pendingPermission.clear() } }
+        val waiting = synchronized(pendingPermission) { pendingPermission.toList().also { pendingPermission.clear(); permissionEpochs.clear() } }
         for (invoke in waiting) {
             try {
                 invoke.reject("permission")

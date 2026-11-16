@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
 import { createStore } from "../lib/externalStore";
 import { readBool, readString, writeBool, writeString } from "../lib/storage";
@@ -24,6 +25,8 @@ export function setAutoResumeEnabled(enabled: boolean) {
   if (store.get().enabled === enabled) return;
   writeBool(ENABLED_KEY, enabled);
   store.update((s) => ({ ...s, enabled }));
+  // Resumes already scheduled in the backend (also for chats whose view isn't mounted) must not go out.
+  if (!enabled) invoke("chat_resume_cancel_all").catch((e) => console.warn("chat_resume_cancel_all", e));
 }
 
 export function setAutoResumeMessage(message: string) {

@@ -912,43 +912,104 @@ fn file_uri(path: &std::path::Path) -> String {
 /// Windows file), the only kind it can open.
 const MAX_ATTACHMENT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_ATTACHMENTS_TOTAL: u64 = 256 * 1024 * 1024;
-static ATTACHMENT_STORE: Mutex<()> = Mutex::new(());
+/// Total bytes of the staged files (`None`: not measured yet); the lock also serialises the store.
+static ATTACHMENT_STORE: Mutex<Option<u64>> = Mutex::new(None);
+const ATTACHMENT_MAX_AGE: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 
-pub(crate) fn purge_attachments() {
-    let _guard = lock(&ATTACHMENT_STORE);
-    let root = std::env::temp_dir().join("flowcode-attachments");
-    if !crate::fs::links_stay_local(&root) || std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) { return; }
-    let Ok(entries) = std::fs::read_dir(root) else { return };
+fn attachments_root() -> std::path::PathBuf {
+    std::env::temp_dir().join("flowcode-attachments")
+}
+
+fn root_is_safe(root: &std::path::Path) -> bool {
+    crate::fs::links_stay_local(root) && !std::fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// Bytes of the files directly inside `dir`.
+fn dir_files_size(dir: &std::path::Path) -> u64 {
+    std::fs::read_dir(dir).map(|files| {
+        files.flatten().filter_map(|f| f.metadata().ok()).fold(0u64, |t, m| t.saturating_add(m.len()))
+    }).unwrap_or(0)
+}
+
+/// Measures every staged directory.
+fn scan_attachments_total(root: &std::path::Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(root) else { return 0 };
+    entries.flatten()
+        .filter(|e| e.file_type().is_ok_and(|kind| kind.is_dir()))
+        .fold(0u64, |t, e| t.saturating_add(dir_files_size(&e.path())))
+}
+
+/// Removes the staged directories older than `max_age`; returns the bytes freed.
+fn purge_stale(root: &std::path::Path, max_age: Duration) -> u64 {
+    let Ok(entries) = std::fs::read_dir(root) else { return 0 };
+    let mut freed = 0u64;
     for entry in entries.flatten() {
         if uuid::Uuid::parse_str(&entry.file_name().to_string_lossy()).is_err() { continue; }
         let old = entry.metadata().and_then(|m| m.modified()).ok().and_then(|mtime| mtime.elapsed().ok())
-            .is_some_and(|age| age > Duration::from_secs(3 * 24 * 60 * 60));
-        if old { let _ = std::fs::remove_dir_all(entry.path()); }
-    }
-}
-
-/// Saves `bytes` as `<temp>/flowcode-attachments/<uuid>/<name>`; returns the uuid and the file.
-fn stage_attachment(name: &str, bytes: &[u8]) -> Result<(String, std::path::PathBuf), String> {
-    if bytes.len() > MAX_ATTACHMENT_BYTES { return Err("attachment exceeds 32 MiB".into()); }
-    let _guard = lock(&ATTACHMENT_STORE);
-    let root = std::env::temp_dir().join("flowcode-attachments");
-    if !crate::fs::links_stay_local(&root) || std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) { return Err("unsafe attachment directory".into()); }
-    let mut total = 0u64;
-    if let Ok(entries) = std::fs::read_dir(&root) {
-        for entry in entries.flatten() {
-            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) { continue; }
-            if let Ok(files) = std::fs::read_dir(entry.path()) {
-                total = files.flatten().filter_map(|f| f.metadata().ok()).fold(total, |total, m| total.saturating_add(m.len()));
-            }
+            .is_some_and(|age| age > max_age);
+        if old {
+            let size = dir_files_size(&entry.path());
+            if std::fs::remove_dir_all(entry.path()).is_ok() { freed = freed.saturating_add(size); }
         }
     }
-    if total.saturating_add(bytes.len() as u64) > MAX_ATTACHMENTS_TOTAL { return Err("temporary attachments exceed 256 MiB; remove old attachments before retrying".into()); }
+    freed
+}
+
+pub(crate) fn purge_attachments() {
+    let mut total = lock(&ATTACHMENT_STORE);
+    let root = attachments_root();
+    if !root_is_safe(&root) { return; }
+    purge_stale(&root, ATTACHMENT_MAX_AGE);
+    *total = Some(scan_attachments_total(&root));
+}
+
+/// Saves `bytes` as `<root>/<uuid>/<name>`; returns the uuid and the file.
+fn stage_in(root: &std::path::Path, total: &mut Option<u64>, max_age: Duration, name: &str, bytes: &[u8]) -> Result<(String, std::path::PathBuf), String> {
+    if bytes.len() > MAX_ATTACHMENT_BYTES { return Err("attachment exceeds 32 MiB".into()); }
+    if !root_is_safe(root) { return Err("unsafe attachment directory".into()); }
+    let len = bytes.len() as u64;
+    let mut current = *total.get_or_insert_with(|| scan_attachments_total(root));
+    if current.saturating_add(len) > MAX_ATTACHMENTS_TOTAL {
+        purge_stale(root, max_age);
+        current = scan_attachments_total(root);
+        *total = Some(current);
+        if current.saturating_add(len) > MAX_ATTACHMENTS_TOTAL {
+            return Err("temporary attachments exceed 256 MiB; remove some attachments or send them first".into());
+        }
+    }
     let id = uuid::Uuid::new_v4().to_string();
     let dir = root.join(&id);
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not save {name}: {e}"))?;
     let file = dir.join(sanitize_name(name));
-    std::fs::write(&file, bytes).map_err(|e| format!("could not save {name}: {e}"))?;
+    if let Err(e) = std::fs::write(&file, bytes) {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(format!("could not save {name}: {e}"));
+    }
+    *total = Some(current.saturating_add(len));
     Ok((id, file))
+}
+
+/// Deletes a staged upload (a missing one is fine) and frees its bytes.
+fn unstage_in(root: &std::path::Path, total: &mut Option<u64>, upload: &str) -> Result<(), String> {
+    uuid::Uuid::parse_str(upload).map_err(|_| "invalid attachment id".to_string())?;
+    if !root_is_safe(root) { return Err("unsafe attachment directory".into()); }
+    let dir = root.join(upload);
+    if std::fs::symlink_metadata(&dir).is_err() { return Ok(()); }
+    let size = dir_files_size(&dir);
+    std::fs::remove_dir_all(&dir).map_err(|e| format!("could not remove the attachment: {e}"))?;
+    if let Some(t) = total.as_mut() { *t = t.saturating_sub(size); }
+    Ok(())
+}
+
+/// Saves `bytes` as `<temp>/flowcode-attachments/<uuid>/<name>`; returns the uuid and the file.
+fn stage_attachment(name: &str, bytes: &[u8]) -> Result<(String, std::path::PathBuf), String> {
+    let mut total = lock(&ATTACHMENT_STORE);
+    stage_in(&attachments_root(), &mut total, ATTACHMENT_MAX_AGE, name, bytes)
+}
+
+fn unstage_attachment(upload: &str) -> Result<(), String> {
+    let mut total = lock(&ATTACHMENT_STORE);
+    unstage_in(&attachments_root(), &mut total, upload)
 }
 
 /// Stores a file the phone uploaded; returns its id for `uploaded_attachment`.
@@ -1126,7 +1187,7 @@ struct Chat {
 
 /// A prompt Flowcode sends by itself when the plan's usage limit resets
 /// (`chat_resume_schedule`), unless the user writes first or cancels it.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ScheduledResume {
     /// The reset time (ms); it goes out `RESUME_GRACE_MS` later.
     at: u64,
@@ -1803,27 +1864,46 @@ fn send_resume_when_due(chat: Weak<Chat>, generation: u64) {
         if current.closed.load(Ordering::Relaxed) || current.exited.load(Ordering::Acquire) {
             return;
         }
-        let Some(resume) = lock(&current.resume).clone().filter(|r| r.generation == generation) else { return };
-        if crate::util::now_ms() < resume.at.saturating_add(RESUME_GRACE_MS) || *lock(&current.status) != ChatStatus::Idle {
+        let peeked = lock(&current.resume).clone().filter(|r| r.generation == generation);
+        let Some(resume) = peeked else { return };
+        if crate::util::now_ms() < resume.at.saturating_add(RESUME_GRACE_MS) {
             continue;
         }
-        {
-            let mut slot = lock(&current.resume);
-            if slot.as_ref().map(|r| r.generation) != Some(generation) {
-                return;
-            }
-            *slot = None;
-        }
-        current.announce_resume("sent", &resume);
         let (id, app) = (current.id.clone(), current.app.clone());
         drop(current);
-        if let Some(state) = app.try_state::<ChatState>() {
-            if let Err(e) = state.prompt(&id, resume.text, Vec::new()) {
+        let Some(state) = app.try_state::<ChatState>() else { return };
+        // The resume is only consumed (and announced as sent) by the prompt
+        // itself, once the chat accepts it.
+        match state.prompt_resume(&id, generation, &resume.text) {
+            Ok(()) => return,
+            // Busy: try again on the next tick. Changed: the user edited the
+            // text since it was read; the next tick sends the new one.
+            Err(e) if e.starts_with("agent_busy") || e == "resume_changed" => continue,
+            Err(e) if e == "resume_gone" || e.starts_with("agent_exited") => return,
+            Err(e) => {
                 eprintln!("chat {id}: the scheduled resume could not be sent: {e}");
+                return;
             }
         }
-        return;
     }
+}
+
+/// The decision of `ChatState::prompt_resume`'s gate, under the status lock:
+/// the chat must accept a prompt (`prompt_gate`) and the slot must still hold
+/// the resume of `generation` with exactly `text`. On success the resume is
+/// taken out of the slot, so it is consumed atomically with the turn starting.
+/// Nothing is touched on error.
+fn take_resume_for_prompt(status: ChatStatus, slot: &mut Option<ScheduledResume>, generation: u64, text: &str) -> Result<ScheduledResume, String> {
+    prompt_gate(status)?;
+    match slot {
+        Some(r) if r.generation == generation => {
+            if r.text != text {
+                return Err("resume_changed".into());
+            }
+        }
+        _ => return Err("resume_gone".into()),
+    }
+    slot.take().ok_or_else(|| "resume_gone".to_string())
 }
 
 /// `kill_tree` plus `Child::kill`, only while the child hasn't been reaped:
@@ -2083,6 +2163,52 @@ impl ChatState {
     /// be sent, an `Error` closes it (back to idle) - unless the agent's exit
     /// already failed the registered prompt, which emits that `Error` itself.
     pub(crate) fn prompt(&self, chat_id: &str, text: String, attachments: Vec<Attachment>) -> Result<(), String> {
+        // The user wrote first: the resume scheduled for the limit's reset is moot.
+        self.prompt_with(chat_id, text, attachments, prompt_gate, |chat| chat.drop_resume("cancelled"))
+    }
+
+    /// Sends the scheduled resume of `generation` as the user's prompt. As
+    /// `prompt`, and in the same atomic step as the turn starting, the resume
+    /// slot must still hold that generation with exactly `text`
+    /// (`resume_gone` / `resume_changed` otherwise, nothing sent) and is
+    /// consumed, then announced as sent. Order rule with `update_resume`: an
+    /// edit accepted before the turn is acquired wins (the gate sees the new
+    /// text and refuses, so the timer retries with it); after that the edit
+    /// finds no resume scheduled.
+    pub(crate) fn prompt_resume(&self, chat_id: &str, generation: u64, text: &str) -> Result<(), String> {
+        let chat = self.get(chat_id)?;
+        let taken: std::cell::RefCell<Option<ScheduledResume>> = std::cell::RefCell::new(None);
+        let resume_slot = &chat.resume;
+        // Lock order: log, status (held by `emit_when`), then resume; nothing
+        // holds `resume` while taking those or while announcing.
+        self.prompt_with(
+            chat_id,
+            text.to_string(),
+            Vec::new(),
+            |status| {
+                let resume = take_resume_for_prompt(status, &mut lock(resume_slot), generation, text)?;
+                *taken.borrow_mut() = Some(resume);
+                Ok(())
+            },
+            |chat| {
+                if let Some(resume) = taken.borrow().as_ref() {
+                    chat.announce_resume("sent", resume);
+                }
+            },
+        )
+    }
+
+    /// The body of `prompt`: `gate` decides under `emit_when` whether the chat
+    /// takes the prompt, `after_user` runs right after the `User` event is out
+    /// (before the request is registered and sent).
+    fn prompt_with(
+        &self,
+        chat_id: &str,
+        text: String,
+        attachments: Vec<Attachment>,
+        gate: impl FnOnce(ChatStatus) -> Result<(), String>,
+        after_user: impl FnOnce(&Chat),
+    ) -> Result<(), String> {
         if attachments.len() > 16 { return Err("at most 16 attachments per prompt".into()); }
         let chat = self.get(chat_id)?;
         let session_id = chat.session_id()?.to_string();
@@ -2098,9 +2224,8 @@ impl ChatState {
         let names = attachments.iter().map(|a| a.name.clone()).collect();
         let shown = attachments.iter().filter_map(shown_image).collect();
         let asked = goal::parse_prompt(&chat.agent, &text);
-        chat.emit_when(ChatBody::User { text, attachments: names, images: shown }, prompt_gate)?;
-        // The user wrote first: the resume scheduled for the limit's reset is moot.
-        chat.drop_resume("cancelled");
+        chat.emit_when(ChatBody::User { text, attachments: names, images: shown }, gate)?;
+        after_user(&chat);
         if let Some(asked) = asked {
             chat.goal_asked(&asked);
         }
@@ -2149,7 +2274,11 @@ impl ChatState {
     }
 
     /// Edits the scheduled resume's message, or cancels it (`None`, or a
-    /// blank text).
+    /// blank text). Only touches the text under the `resume` lock, which the
+    /// `prompt_resume` gate also takes: an update accepted before the timer
+    /// acquires the turn wins (the gate sees the new text, refuses with
+    /// `resume_changed` and the next tick sends it); after the acquisition the
+    /// resume is gone and this returns "no resume scheduled".
     pub(crate) fn update_resume(&self, chat_id: &str, text: Option<String>) -> Result<(), String> {
         let chat = self.get(chat_id)?;
         let Some(text) = text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) else {
@@ -2169,6 +2298,15 @@ impl ChatState {
                 Ok(())
             }
             None => Err("no resume scheduled".into()),
+        }
+    }
+
+    /// Cancels the scheduled resume of every chat (auto-resume turned off).
+    /// The chats are collected first: `drop_resume` emits events.
+    pub(crate) fn cancel_all_resumes(&self) {
+        let chats: Vec<Arc<Chat>> = lock(&self.sessions).values().map(|s| Arc::clone(&s.chat)).collect();
+        for chat in chats {
+            chat.drop_resume("cancelled");
         }
     }
 
@@ -2895,9 +3033,15 @@ pub async fn chat_prompt(app: AppHandle, chat_id: String, text: String, attachme
 #[tauri::command]
 pub async fn chat_stage_attachment(request: tauri::ipc::Request<'_>) -> Result<String, String> {
     let name = request.headers().get("x-name").and_then(|v| v.to_str().ok()).unwrap_or_default();
-    let name = percent_decode(name);
+    let name = crate::chat_images::percent_decode(name);
     let bytes = invoke_bytes(request.body())?;
     crate::blocking(move || stage_upload(&name, &bytes)).await
+}
+
+/// Deletes a file the composer staged but never sent.
+#[tauri::command]
+pub async fn chat_unstage_attachment(upload: String) -> Result<(), String> {
+    crate::blocking(move || unstage_attachment(&upload)).await
 }
 
 /// The bytes of an upload invoke: the raw body, or `{"data": "<base64>"}` where
@@ -2914,25 +3058,6 @@ fn invoke_bytes(body: &tauri::ipc::InvokeBody) -> Result<Vec<u8>, String> {
     }
 }
 
-/// `%XX` escapes decoded (as `encodeURIComponent` writes them); bad escapes stay as they are.
-fn percent_decode(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let hex = |b: u8| (b as char).to_digit(16);
-        let pair = if bytes[i] == b'%' && i + 2 < bytes.len() { hex(bytes[i + 1]).zip(hex(bytes[i + 2])) } else { None };
-        if let Some((h, l)) = pair {
-            out.push((h * 16 + l) as u8);
-            i += 3;
-        } else {
-            out.push(bytes[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
 #[tauri::command]
 pub async fn chat_resume_schedule(app: AppHandle, chat_id: String, at: u64, text: String, limit_id: String) -> Result<(), String> {
     crate::blocking(move || app.state::<ChatState>().schedule_resume(&chat_id, at, text, limit_id)).await
@@ -2941,6 +3066,15 @@ pub async fn chat_resume_schedule(app: AppHandle, chat_id: String, at: u64, text
 #[tauri::command]
 pub async fn chat_resume_update(app: AppHandle, chat_id: String, text: Option<String>) -> Result<(), String> {
     crate::blocking(move || app.state::<ChatState>().update_resume(&chat_id, text)).await
+}
+
+#[tauri::command]
+pub async fn chat_resume_cancel_all(app: AppHandle) -> Result<(), String> {
+    crate::blocking(move || {
+        app.state::<ChatState>().cancel_all_resumes();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -3075,6 +3209,42 @@ pub async fn chat_image_path(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn staging_tracks_quota_and_unstage_frees_it() {
+        let root = std::env::temp_dir().join(format!("flowcode-att-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let age = std::time::Duration::from_secs(3 * 24 * 60 * 60);
+        let mut total = None;
+        let (id, file) = super::stage_in(&root, &mut total, age, "a.txt", b"hello").unwrap();
+        assert!(file.is_file());
+        assert_eq!(total, Some(5));
+        assert!(super::unstage_in(&root, &mut total, "not-a-uuid").is_err());
+        assert!(super::unstage_in(&root, &mut total, &format!("../{id}")).is_err());
+        super::unstage_in(&root, &mut total, &id).unwrap();
+        assert_eq!(total, Some(0));
+        assert!(!file.exists());
+        super::unstage_in(&root, &mut total, &uuid::Uuid::new_v4().to_string()).unwrap();
+        assert_eq!(total, Some(0));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stale_uploads_are_purged_before_refusing() {
+        let root = std::env::temp_dir().join(format!("flowcode-att-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut total = Some(super::MAX_ATTACHMENTS_TOTAL);
+        let (old, _) = super::stage_in(&root, &mut Some(0), std::time::Duration::ZERO, "a.txt", b"x").unwrap();
+        // The counter says full: with nothing old enough the stage is refused...
+        let day = std::time::Duration::from_secs(86_400);
+        assert!(super::stage_in(&root, &mut total, day, "b.txt", b"y").is_ok(), "recount shows room");
+        // ...and a zero max age purges the old one on the way.
+        let mut full = Some(super::MAX_ATTACHMENTS_TOTAL);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        super::stage_in(&root, &mut full, std::time::Duration::ZERO, "c.txt", b"z").unwrap();
+        assert!(!root.join(&old).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn uploads_are_staged_and_resolved_inside_the_store() {
         let id = super::stage_upload("note.txt", b"hello").unwrap();
@@ -3499,6 +3669,30 @@ mod tests {
             assert!(prompt_gate(status).unwrap_err().starts_with("agent_busy"), "{status:?}");
         }
         assert!(prompt_gate(ChatStatus::Exited).unwrap_err().starts_with("agent_exited"));
+    }
+
+    fn sample_resume(generation: u64, text: &str) -> Option<ScheduledResume> {
+        Some(ScheduledResume { at: 1, text: text.to_string(), limit_id: "l".into(), generation })
+    }
+
+    #[test]
+    fn a_resume_is_taken_only_by_the_prompt_that_starts_the_turn() {
+        // Busy: refused, the resume stays.
+        let mut slot = sample_resume(1, "go");
+        assert!(take_resume_for_prompt(ChatStatus::Busy, &mut slot, 1, "go").unwrap_err().starts_with("agent_busy"));
+        assert!(slot.is_some());
+        // Another schedule replaced it: gone, untouched.
+        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, &mut slot, 2, "go").unwrap_err(), "resume_gone");
+        assert!(slot.is_some());
+        // Edited between the peek and the acquisition: changed, untouched.
+        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, &mut slot, 1, "old text").unwrap_err(), "resume_changed");
+        assert_eq!(slot.as_ref().unwrap().text, "go");
+        // Nothing scheduled.
+        assert_eq!(take_resume_for_prompt(ChatStatus::Idle, &mut None, 1, "go").unwrap_err(), "resume_gone");
+        // Accepted: handed out and the slot emptied.
+        let taken = take_resume_for_prompt(ChatStatus::Idle, &mut slot, 1, "go").unwrap();
+        assert_eq!((taken.generation, taken.text.as_str()), (1, "go"));
+        assert!(slot.is_none());
     }
 
     #[test]
