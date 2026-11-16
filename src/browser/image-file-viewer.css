@@ -1,0 +1,13 @@
+.image-file-viewer { position: absolute; inset: 0; z-index: 1; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; background: var(--bg); color: var(--fg); }
+.image-file-info { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--fg-muted); font-size: 12px; }
+.image-file-chip { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--sidebar-hover); border: 1px solid var(--border); color: var(--fg); font: 11px var(--font-mono); }
+.image-file-reload { margin-left: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.image-file-stage .image-view-image { box-shadow: 0 12px 40px rgb(0 0 0 / .45); }
+.image-bg-dark { background: #0d0b09; }
+.image-bg-light { background: #f3efe9; }
+.image-bg-checker { background-color: #2a2420; background-image: linear-gradient(45deg, #3a322b 25%, transparent 25%), linear-gradient(-45deg, #3a322b 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #3a322b 75%), linear-gradient(-45deg, transparent 75%, #3a322b 75%); background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; }
+.image-file-tools { position: absolute; left: 50%; bottom: 12px; translate: -50% 0; display: flex; align-items: center; gap: 2px; max-width: calc(100% - 16px); overflow-x: auto; padding: 4px; border-radius: 11px; border: 1px solid var(--border); background: var(--menu-surface); box-shadow: 0 8px 30px rgb(0 0 0 / .45); cursor: default; }
+.image-file-swatch { width: 16px; height: 16px; border: 1px solid var(--border); border-radius: 4px; }
+.image-file-error { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #e7d8c5; font-size: 13px; pointer-events: none; }
+.image-bg-light .image-file-error { color: #443b33; }
+.image-file-error svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }

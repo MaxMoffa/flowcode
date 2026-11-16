@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode — visualizzazione immagini: anteprima chat e pannello browser</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --chrome: #15110e; --card: #221c17; --card-2: #2b241e;
+      --border: rgba(232,184,128,.12); --border-strong: rgba(231,216,197,.22);
+      --fg: #e7d8c5; --muted: #a08a6f; --accent: #9db984; --accent-bg: rgba(157,185,132,.14);
+      --amber: #d9a24e; --blue: #6f9bcf; --red: #e2645c; --hover: rgba(231,216,197,.06);
+      --menu: #2a231d;
+      --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0f0c09; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+    .page { max-width: 1240px; margin: auto; padding: 28px 24px 80px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
+    .lead { margin: 0 0 22px; color: var(--muted); max-width: 940px; }
+    .part { margin: 46px 0 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+    .part h2 { font-size: 20px; margin: 0 0 4px; }
+    .part p { margin: 0; color: var(--muted); max-width: 940px; }
+    section { margin: 30px 0 46px; }
+    section h3 { font-size: 16px; margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; }
+    .tag { font-size: 11px; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+    .tag.now { color: var(--red); }
+    section > p { margin: 0 0 8px; color: var(--muted); font-size: 13px; max-width: 940px; }
+    section ul { margin: 0 0 14px; padding-left: 18px; color: var(--muted); font-size: 13px; max-width: 940px; }
+    section ul b { color: var(--fg); font-weight: 600; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .hint kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; }
+
+    /* ---------- fake app window ---------- */
+    .win { position: relative; height: 520px; border-radius: 10px; border: 1px solid rgba(0,0,0,.55); background: var(--chrome); overflow: hidden; user-select: none; }
+    .ico { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    /* Zoomable image: anchored at the stage centre, never part of the layout (so it can't stretch the grid). */
+    [data-pan] { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
+    .stage-img { position: absolute; left: 50%; top: 50%; display: block; max-width: none; max-height: none; transform-origin: center; transition: transform .15s ease; }
+    .grab { cursor: grab; } .grab:active { cursor: grabbing; }
+
+    /* ---------- NOW: lightbox ---------- */
+    .now-lb { position: absolute; inset: 0; display: flex; flex-direction: column; background: rgb(8 6 4 / .88); }
+    .now-lb .bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--muted); font-size: 12.5px; }
+    .now-lb .bar .name { color: var(--fg); font-family: var(--mono); }
+    .now-lb .bar .sp { flex: 1; }
+    .now-lb .bar button { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--menu); }
+    .now-lb .st { position: relative; flex: 1; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; padding: 10px 60px 30px; }
+    .now-lb .st img { max-width: 100%; max-height: 100%; border-radius: 6px; box-shadow: 0 10px 40px rgb(0 0 0 / .6); }
+    .now-lb .nav { position: absolute; top: 50%; translate: 0 -50%; width: 38px; height: 38px; border-radius: 50%; background: var(--menu); font-size: 18px; }
+    .now-lb .nav.l { left: 14px; } .now-lb .nav.r { right: 14px; }
+    .now-lb .cnt { position: absolute; bottom: 8px; left: 50%; translate: -50% 0; font-size: 12px; color: var(--muted); }
+
+    /* ---------- A: studio ---------- */
+    .a-lb { position: absolute; inset: 0; display: grid; grid-template-rows: auto 1fr auto; background: rgb(10 8 6 / .94); }
+    .a-top { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--border); background: rgb(21 17 14 / .7); }
+    .a-title { display: flex; flex-direction: column; min-width: 0; }
+    .a-title b { font: 600 13px var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .a-title span { font-size: 11.5px; color: var(--muted); }
+    .a-sp { flex: 1; }
+    .icon-btn { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; color: var(--muted); }
+    .icon-btn:hover { background: var(--hover); color: var(--fg); }
+    .icon-btn.on { background: var(--accent-bg); color: var(--accent); }
+    .sep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 4px; }
+    .zoom-group { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 9px; background: rgba(0,0,0,.3); border: 1px solid var(--border); }
+    .zoom-val { min-width: 50px; text-align: center; font: 12px var(--mono); color: var(--fg); }
+    .a-stage { position: relative; overflow: hidden; display: grid; place-items: center; padding: 18px 70px; }
+    .a-stage img { border-radius: 4px; box-shadow: 0 18px 60px rgb(0 0 0 / .55); }
+    .a-nav { position: absolute; top: 0; bottom: 0; width: 70px; display: grid; place-items: center; color: var(--muted); opacity: .0; transition: opacity .15s; }
+    .a-stage:hover .a-nav { opacity: 1; }
+    .a-nav span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: rgb(42 35 29 / .85); border: 1px solid var(--border-strong); }
+    .a-nav:hover span { color: var(--fg); }
+    .a-nav.l { left: 0; } .a-nav.r { right: 0; }
+    .a-strip { display: flex; justify-content: center; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--border); background: rgb(21 17 14 / .7); }
+    .thumb { width: 64px; height: 42px; border-radius: 6px; overflow: hidden; opacity: .5; outline: 2px solid transparent; outline-offset: 1px; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .thumb.on { opacity: 1; outline-color: var(--accent); }
+    .thumb:hover { opacity: .85; }
+
+    /* ---------- B: side panel ---------- */
+    .b-lb { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 270px; background: rgb(10 8 6 / .94); }
+    .b-main { position: relative; display: grid; grid-template-rows: 1fr auto; min-width: 0; }
+    .b-stage { position: relative; overflow: hidden; display: grid; place-items: center; padding: 24px; }
+    .b-stage img { border-radius: 4px; box-shadow: 0 18px 60px rgb(0 0 0 / .55); }
+    .b-float { position: absolute; left: 50%; bottom: 14px; translate: -50% 0; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: rgb(42 35 29 / .92); border: 1px solid var(--border-strong); box-shadow: 0 8px 30px rgb(0 0 0 / .5); }
+    .b-side { border-left: 1px solid var(--border); background: var(--bg); display: flex; flex-direction: column; min-height: 0; }
+    .b-head { display: flex; align-items: center; padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+    .b-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+    .b-name { font: 600 14px var(--font); word-break: break-all; }
+    .kv { display: grid; grid-template-columns: 84px 1fr; gap: 6px 10px; font-size: 12.5px; }
+    .kv dt { color: var(--muted); } .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; word-break: break-all; }
+    .b-actions { display: flex; flex-direction: column; gap: 4px; }
+    .b-actions button { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 7px; font-size: 13px; text-align: left; }
+    .b-actions button:hover { background: var(--hover); }
+    .b-actions button .ico { color: var(--muted); }
+    .b-from { padding: 9px 11px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+    .b-from b { color: var(--fg); font-weight: 600; display: block; margin-bottom: 2px; font-size: 12px; }
+    .b-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .b-grid .thumb { width: auto; height: 50px; }
+
+    /* ---------- C: cinema ---------- */
+    .c-lb { position: absolute; inset: 0; background: #050403; overflow: hidden; }
+    .c-stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 14px; }
+    .c-ui { opacity: 0; transition: opacity .2s; }
+    .c-lb:hover .c-ui, .c-lb.pinned .c-ui { opacity: 1; }
+    .c-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; padding: 12px 14px 30px; background: linear-gradient(rgb(0 0 0 / .7), transparent); font-size: 12.5px; color: var(--muted); }
+    .c-top b { color: var(--fg); font-weight: 600; }
+    .c-pill { position: absolute; bottom: 16px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-radius: 999px; background: rgb(30 25 21 / .88); backdrop-filter: blur(10px); border: 1px solid var(--border-strong); }
+    .c-pill .icon-btn { border-radius: 999px; }
+    .c-cnt { font: 12px var(--mono); color: var(--muted); padding: 0 8px; }
+    .c-nav { position: absolute; top: 50%; translate: 0 -50%; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgb(30 25 21 / .7); border: 1px solid var(--border); color: var(--fg); }
+    .c-nav.l { left: 16px; } .c-nav.r { right: 16px; }
+
+    /* ---------- fake app behind (panel part) ---------- */
+    .app { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1.25fr; }
+    .chatpane { border-right: 1px solid var(--border); padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; justify-content: flex-end; background: var(--chrome); }
+    .msg-agent { font-size: 13px; }
+    .msg-agent .line { height: 8px; border-radius: 4px; background: rgba(231,216,197,.08); margin: 6px 0; }
+    .msg-agent a { color: var(--blue); font-family: var(--mono); font-size: 12.5px; text-decoration: underline dotted; text-underline-offset: 3px; }
+    .composer { height: 52px; border-radius: 12px; background: var(--card-2); border: 1px solid var(--border); margin-top: 6px; }
+    .panel { display: grid; grid-template-rows: auto 1fr; min-width: 0; background: var(--bg); }
+    .phead { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+    .url { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 7px; background: rgba(0,0,0,.25); border: 1px solid var(--border); font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+    .url .m { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+    .tabs-n { display: grid; place-items: center; min-width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border-strong); font-size: 11.5px; color: var(--muted); }
+    .pbody { position: relative; overflow: hidden; min-height: 0; }
+
+    /* NOW: raw image doc in the iframe */
+    .raw { position: absolute; inset: 0; background: #fff; overflow: auto; }
+    .raw img { display: block; margin: 0; }
+
+    /* PA: image viewer inside the panel */
+    .pv { position: absolute; inset: 0; display: grid; grid-template-rows: auto 1fr; }
+    .pv-info { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+    .pv-info .chip { padding: 1px 7px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--border); font: 11px var(--mono); color: var(--fg); }
+    .pv-stage { position: relative; overflow: hidden; display: grid; place-items: center; padding: 18px; }
+    .bg-dark { background: #0d0b09; }
+    .bg-light { background: #f3efe9; }
+    .bg-check { background-color: #2a2420; background-image: linear-gradient(45deg, #3a322b 25%, transparent 25%), linear-gradient(-45deg, #3a322b 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #3a322b 75%), linear-gradient(-45deg, transparent 75%, #3a322b 75%); background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; }
+    .pv-stage img { box-shadow: 0 12px 40px rgb(0 0 0 / .45); }
+    .pv-tools { position: absolute; left: 50%; bottom: 12px; translate: -50% 0; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 11px; background: rgb(42 35 29 / .93); border: 1px solid var(--border-strong); box-shadow: 0 8px 30px rgb(0 0 0 / .45); }
+    .swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border-strong); }
+    .pv-folder { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); overflow: hidden; align-items: center; }
+    .pv-folder .lab { font-size: 11px; color: var(--muted); letter-spacing: .06em; margin-right: 4px; white-space: nowrap; }
+    .pv-folder .thumb { width: 52px; height: 36px; }
+
+    .compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 12.5px; }
+    .compare > div { padding: 9px 12px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); color: var(--muted); }
+    .compare > div:nth-child(3n) { border-right: 0; }
+    .compare .h { color: var(--fg); font-weight: 600; background: var(--card); }
+    .compare .y { color: var(--accent); }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE · DESIGN · 2026-11-16</div>
+  <h1>Visualizzazione immagini</h1>
+  <p class="lead">Due punti: <b>1)</b> anteprima che si apre cliccando un'immagine in chat (lightbox, <code>ChatImage.tsx</code>); <b>2)</b> immagine aperta da un riferimento/link in chat, che oggi finisce nel pannello browser come file grezzo dentro l'iframe. Per ognuno: com'è ora e varianti proposte. Mockup interattivi: zoom, frecce, miniature e sfondi funzionano.</p>
+
+  <!-- ================================================================= -->
+  <div class="part">
+    <h2>1 · Anteprima dalla chat (lightbox)</h2>
+    <p>Problemi attuali: niente zoom né pan (le immagini grandi o gli screenshot fitti non si leggono), pulsanti testuali pesanti in alto, contatore minuscolo, nessuna vista d'insieme delle altre immagini, frecce sempre visibili sopra l'immagine.</p>
+  </div>
+
+  <section>
+    <h3><span class="tag now">ORA</span> Lightbox attuale</h3>
+    <p>Ricostruzione fedele del CSS di <code>.chat-lightbox</code>.</p>
+    <div class="win" id="now">
+      <div class="now-lb">
+        <div class="bar">
+          <span class="name" data-name></span><span>· <span data-meta></span></span>
+          <span class="sp"></span>
+          <button><svg class="ico"><use href="#i-copy"/></svg>Copia immagine</button>
+          <button><svg class="ico"><use href="#i-ext"/></svg>Apri</button>
+          <button><svg class="ico"><use href="#i-folder"/></svg>Mostra nella cartella</button>
+          <button>✕</button>
+        </div>
+        <div class="st">
+          <button class="nav l" data-step="-1">‹</button>
+          <img data-img alt="">
+          <button class="nav r" data-step="1">›</button>
+          <span class="cnt" data-count></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3><span class="tag">VARIANTE A</span> Studio — barra a icone, zoom, miniature</h3>
+    <ul>
+      <li><b>Testata a due righe</b>: nome + "1920×1080 · 412 KB · messaggio di Claude, 14:32"; azioni diventano icone con tooltip.</li>
+      <li><b>Zoom</b>: gruppo − / % / + , "Adatta" e "100 %"; rotella = zoom sul cursore, trascina = pan, doppio clic alterna adatta/100 %.</li>
+      <li><b>Striscia miniature</b> in basso con tutte le immagini della conversazione (solo se &gt;1).</li>
+      <li>Frecce laterali appaiono solo al passaggio del mouse, fuori dall'immagine.</li>
+    </ul>
+    <div class="win" id="va">
+      <div class="a-lb">
+        <div class="a-top">
+          <div class="a-title"><b data-name></b><span data-meta-long></span></div>
+          <span class="a-sp"></span>
+          <span class="zoom-group">
+            <button class="icon-btn" data-zoom="-1" title="Riduci"><svg class="ico"><use href="#i-minus"/></svg></button>
+            <span class="zoom-val" data-zoomval>Adatta</span>
+            <button class="icon-btn" data-zoom="1" title="Ingrandisci"><svg class="ico"><use href="#i-plus"/></svg></button>
+          </span>
+          <button class="icon-btn" data-fit title="Adatta alla finestra"><svg class="ico"><use href="#i-fit"/></svg></button>
+          <button class="icon-btn" data-one title="Dimensione reale (100 %)"><svg class="ico"><use href="#i-one"/></svg></button>
+          <span class="sep"></span>
+          <button class="icon-btn" title="Copia immagine"><svg class="ico"><use href="#i-copy"/></svg></button>
+          <button class="icon-btn" title="Apri con app predefinita"><svg class="ico"><use href="#i-ext"/></svg></button>
+          <button class="icon-btn" title="Mostra nella cartella"><svg class="ico"><use href="#i-folder"/></svg></button>
+          <span class="sep"></span>
+          <button class="icon-btn" title="Chiudi (Esc)"><svg class="ico"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="a-stage grab" data-pan>
+          <img class="stage-img" data-img alt="" draggable="false">
+          <button class="a-nav l" data-step="-1"><span><svg class="ico"><use href="#i-left"/></svg></span></button>
+          <button class="a-nav r" data-step="1"><span><svg class="ico"><use href="#i-right"/></svg></span></button>
+        </div>
+        <div class="a-strip" data-strip></div>
+      </div>
+    </div>
+    <div class="hint">Prova: rotella sull'immagine, trascina, doppio clic, <kbd>←</kbd> <kbd>→</kbd> con il mouse sopra.</div>
+  </section>
+
+  <section>
+    <h3><span class="tag">VARIANTE B</span> Pannello dettagli a destra</h3>
+    <ul>
+      <li>Immagine a sinistra, <b>pannello fisso</b> a destra: nome, dimensioni, peso, tipo, percorso completo, <b>da quale messaggio arriva</b> (clic = torna al punto della chat).</li>
+      <li>Azioni come lista leggibile (Copia, Copia percorso, Apri, Mostra nella cartella).</li>
+      <li>Griglia delle altre immagini della chat nel pannello; zoom in una pillola flottante sotto l'immagine.</li>
+      <li>Più informativa, ma ruba ~270 px: meno adatta a finestre strette.</li>
+    </ul>
+    <div class="win" id="vb">
+      <div class="b-lb">
+        <div class="b-main">
+          <div class="b-stage grab" data-pan>
+            <img class="stage-img" data-img alt="" draggable="false">
+          </div>
+          <div class="b-float">
+            <button class="icon-btn" data-step="-1" title="Precedente"><svg class="ico"><use href="#i-left"/></svg></button>
+            <span class="zoom-val" data-count></span>
+            <button class="icon-btn" data-step="1" title="Successiva"><svg class="ico"><use href="#i-right"/></svg></button>
+            <span class="sep"></span>
+            <button class="icon-btn" data-zoom="-1"><svg class="ico"><use href="#i-minus"/></svg></button>
+            <span class="zoom-val" data-zoomval>Adatta</span>
+            <button class="icon-btn" data-zoom="1"><svg class="ico"><use href="#i-plus"/></svg></button>
+            <button class="icon-btn" data-fit title="Adatta"><svg class="ico"><use href="#i-fit"/></svg></button>
+            <button class="icon-btn" data-one title="100 %"><svg class="ico"><use href="#i-one"/></svg></button>
+          </div>
+        </div>
+        <aside class="b-side">
+          <div class="b-head">DETTAGLI<span class="a-sp"></span><button class="icon-btn" title="Chiudi"><svg class="ico"><use href="#i-x"/></svg></button></div>
+          <div class="b-body">
+            <div class="b-name" data-name></div>
+            <dl class="kv">
+              <dt>Dimensioni</dt><dd data-dims></dd>
+              <dt>Peso</dt><dd data-bytes></dd>
+              <dt>Tipo</dt><dd>PNG</dd>
+              <dt>Percorso</dt><dd data-path></dd>
+            </dl>
+            <div class="b-from"><b>Da un messaggio di Claude · 14:32</b>"Ecco lo screenshot della nuova schermata…" ↩</div>
+            <div class="b-actions">
+              <button><svg class="ico"><use href="#i-copy"/></svg>Copia immagine</button>
+              <button><svg class="ico"><use href="#i-link"/></svg>Copia percorso</button>
+              <button><svg class="ico"><use href="#i-ext"/></svg>Apri con app predefinita</button>
+              <button><svg class="ico"><use href="#i-folder"/></svg>Mostra nella cartella</button>
+            </div>
+            <div class="eyebrow" style="margin:0">IN QUESTA CHAT</div>
+            <div class="b-grid" data-strip></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3><span class="tag">VARIANTE C</span> Cinema — immagine a tutto schermo, controlli a scomparsa</h3>
+    <ul>
+      <li>Sfondo quasi nero pieno, immagine al massimo spazio possibile.</li>
+      <li>Tutti i controlli spariscono e ricompaiono muovendo il mouse: titolo in alto su sfumatura, <b>pillola</b> in basso con contatore, zoom e azioni.</li>
+      <li>Stesso zoom/pan di A, senza miniature. La più pulita, la meno "scopribile".</li>
+    </ul>
+    <div class="win" id="vc">
+      <div class="c-lb">
+        <div class="c-stage grab" data-pan><img class="stage-img" data-img alt="" draggable="false"></div>
+        <div class="c-ui c-top"><b data-name></b><span data-meta></span><span class="a-sp"></span><button class="icon-btn" title="Chiudi"><svg class="ico"><use href="#i-x"/></svg></button></div>
+        <button class="c-ui c-nav l" data-step="-1"><svg class="ico"><use href="#i-left"/></svg></button>
+        <button class="c-ui c-nav r" data-step="1"><svg class="ico"><use href="#i-right"/></svg></button>
+        <div class="c-ui c-pill">
+          <span class="c-cnt" data-count></span>
+          <span class="sep"></span>
+          <button class="icon-btn" data-zoom="-1"><svg class="ico"><use href="#i-minus"/></svg></button>
+          <span class="zoom-val" data-zoomval>Adatta</span>
+          <button class="icon-btn" data-zoom="1"><svg class="ico"><use href="#i-plus"/></svg></button>
+          <button class="icon-btn" data-fit><svg class="ico"><use href="#i-fit"/></svg></button>
+          <span class="sep"></span>
+          <button class="icon-btn" title="Copia"><svg class="ico"><use href="#i-copy"/></svg></button>
+          <button class="icon-btn" title="Apri"><svg class="ico"><use href="#i-ext"/></svg></button>
+          <button class="icon-btn" title="Cartella"><svg class="ico"><use href="#i-folder"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="hint">Porta il mouse sopra per vedere i controlli.</div>
+  </section>
+
+  <!-- ================================================================= -->
+  <div class="part">
+    <h2>2 · Immagine aperta da un riferimento in chat (pannello browser)</h2>
+    <p>Oggi un link tipo <code>shots/home.png</code> apre una pagina di tipo <code>file</code>: l'iframe carica l'immagine nuda, come documento immagine del motore web. Risultato: immagine a dimensione reale in alto a sinistra su fondo bianco, scrollbar se è grande, nessuna informazione, nessun modo di adattarla o ingrandirla, trasparenze invisibili.</p>
+  </div>
+
+  <section>
+    <h3><span class="tag now">ORA</span> File grezzo nell'iframe</h3>
+    <div class="win" id="pnow">
+      <div class="app">
+        <div class="chatpane">
+          <div class="msg-agent"><div class="line" style="width:90%"></div><div class="line" style="width:70%"></div>Screenshot salvato in <a>shots/home.png</a></div>
+          <div class="composer"></div>
+        </div>
+        <div class="panel">
+          <div class="phead">
+            <div class="url"><svg class="ico"><use href="#i-file"/></svg><b>home.png</b><span class="m">C:\Users\massi\…\flowcode\shots</span></div>
+            <span class="tabs-n">2</span>
+          </div>
+          <div class="pbody"><div class="raw"><img data-img-raw alt=""></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3><span class="tag">VARIANTE P1</span> Visualizzatore immagini nel pannello</h3>
+    <ul>
+      <li>Se il file è un'immagine, il pannello mostra un <b>visualizzatore nativo</b> (non l'iframe): immagine centrata e adattata, ombra leggera.</li>
+      <li>Riga info sotto l'indirizzo: dimensioni · peso · tipo, con "si aggiorna quando il file cambia" (già c'è il ricaricamento automatico).</li>
+      <li>Pillola strumenti: zoom, adatta / 100 %, <b>sfondo</b> scuro / chiaro / scacchiera (per vedere le trasparenze), copia, apri, cartella.</li>
+      <li>Stesso motore di zoom della lightbox (codice condiviso).</li>
+    </ul>
+    <div class="win" id="p1">
+      <div class="app">
+        <div class="chatpane">
+          <div class="msg-agent"><div class="line" style="width:90%"></div><div class="line" style="width:70%"></div>Screenshot salvato in <a>shots/home.png</a></div>
+          <div class="composer"></div>
+        </div>
+        <div class="panel">
+          <div class="phead">
+            <div class="url"><svg class="ico"><use href="#i-image"/></svg><b>home.png</b><span class="m">C:\Users\massi\…\flowcode\shots</span></div>
+            <span class="tabs-n">2</span>
+          </div>
+          <div class="pv">
+            <div class="pv-info"><span class="chip" data-dims></span><span class="chip" data-bytes></span><span class="chip">PNG</span><span class="a-sp"></span><span>⟳ si aggiorna quando il file cambia</span></div>
+            <div class="pv-stage bg-check grab" data-pan data-bg>
+              <img class="stage-img" data-img alt="" draggable="false">
+              <div class="pv-tools">
+                <button class="icon-btn" data-zoom="-1"><svg class="ico"><use href="#i-minus"/></svg></button>
+                <span class="zoom-val" data-zoomval>Adatta</span>
+                <button class="icon-btn" data-zoom="1"><svg class="ico"><use href="#i-plus"/></svg></button>
+                <button class="icon-btn" data-fit title="Adatta"><svg class="ico"><use href="#i-fit"/></svg></button>
+                <button class="icon-btn" data-one title="100 %"><svg class="ico"><use href="#i-one"/></svg></button>
+                <span class="sep"></span>
+                <button class="icon-btn" data-setbg="bg-dark" title="Sfondo scuro"><span class="swatch" style="background:#0d0b09"></span></button>
+                <button class="icon-btn" data-setbg="bg-light" title="Sfondo chiaro"><span class="swatch" style="background:#f3efe9"></span></button>
+                <button class="icon-btn on" data-setbg="bg-check" title="Scacchiera (trasparenza)"><span class="swatch bg-check"></span></button>
+                <span class="sep"></span>
+                <button class="icon-btn" title="Copia immagine"><svg class="ico"><use href="#i-copy"/></svg></button>
+                <button class="icon-btn" title="Apri con app predefinita"><svg class="ico"><use href="#i-ext"/></svg></button>
+                <button class="icon-btn" title="Mostra nella cartella"><svg class="ico"><use href="#i-folder"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3><span class="tag">VARIANTE P2</span> P1 + altre immagini della cartella</h3>
+    <ul>
+      <li>Tutto di P1, più una <b>striscia</b> in fondo con le altre immagini della stessa cartella (utile per screenshot in serie: <code>step-1.png</code>, <code>step-2.png</code>…).</li>
+      <li>Frecce <kbd>←</kbd> <kbd>→</kbd> per scorrerle; il clic cambia la pagina del pannello (stessa scheda).</li>
+      <li>Costo: leggere la cartella lato Rust (già c'è il registro delle radici di anteprima).</li>
+    </ul>
+    <div class="win" id="p2">
+      <div class="app">
+        <div class="chatpane">
+          <div class="msg-agent"><div class="line" style="width:90%"></div><div class="line" style="width:70%"></div>Screenshot salvato in <a>shots/home.png</a></div>
+          <div class="composer"></div>
+        </div>
+        <div class="panel">
+          <div class="phead">
+            <div class="url"><svg class="ico"><use href="#i-image"/></svg><b data-name></b><span class="m">C:\Users\massi\…\flowcode\shots</span></div>
+            <span class="tabs-n">2</span>
+          </div>
+          <div class="pv" style="grid-template-rows:auto 1fr auto">
+            <div class="pv-info"><span class="chip" data-dims></span><span class="chip" data-bytes></span><span class="chip">PNG</span><span class="a-sp"></span><span data-count></span></div>
+            <div class="pv-stage bg-dark grab" data-pan data-bg>
+              <img class="stage-img" data-img alt="" draggable="false">
+              <div class="pv-tools">
+                <button class="icon-btn" data-zoom="-1"><svg class="ico"><use href="#i-minus"/></svg></button>
+                <span class="zoom-val" data-zoomval>Adatta</span>
+                <button class="icon-btn" data-zoom="1"><svg class="ico"><use href="#i-plus"/></svg></button>
+                <button class="icon-btn" data-fit><svg class="ico"><use href="#i-fit"/></svg></button>
+                <span class="sep"></span>
+                <button class="icon-btn on" data-setbg="bg-dark"><span class="swatch" style="background:#0d0b09"></span></button>
+                <button class="icon-btn" data-setbg="bg-light"><span class="swatch" style="background:#f3efe9"></span></button>
+                <button class="icon-btn" data-setbg="bg-check"><span class="swatch bg-check"></span></button>
+                <span class="sep"></span>
+                <button class="icon-btn"><svg class="ico"><use href="#i-copy"/></svg></button>
+                <button class="icon-btn"><svg class="ico"><use href="#i-folder"/></svg></button>
+              </div>
+            </div>
+            <div class="pv-folder"><span class="lab">SHOTS/</span><span data-strip style="display:flex;gap:6px"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3>Riepilogo</h3>
+    <div class="compare">
+      <div class="h">Variante</div><div class="h">Pro</div><div class="h">Contro</div>
+      <div>A · Studio</div><div class="y">Zoom + miniature, compatta, scopribile</div><div>Più elementi sullo schermo</div>
+      <div>B · Pannello dettagli</div><div class="y">Più info, torna al messaggio</div><div>Meno spazio all'immagine, stretta su finestre piccole</div>
+      <div>C · Cinema</div><div class="y">Massima pulizia</div><div>Controlli nascosti, niente vista d'insieme</div>
+      <div>P1 · Visualizzatore</div><div class="y">Risolve tutto il caso 2, codice condiviso con A/C</div><div>—</div>
+      <div>P2 · + cartella</div><div class="y">Ottimo per serie di screenshot</div><div>Lavoro extra lato Rust</div>
+    </div>
+    <p style="margin-top:12px;color:var(--muted);font-size:13px">Consiglio: <b style="color:var(--fg)">A</b> per la lightbox + <b style="color:var(--fg)">P1</b> per il pannello, con un unico componente di zoom/pan condiviso. P2 eventualmente in un secondo momento.</p>
+  </section>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+    <symbol id="i-one" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 10l1.5-1v6M14 10l1.5-1v6"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5-5 4 4 2.5-2.5L20 18"/></symbol>
+  </defs>
+</svg>
+
+<script>
+// Fake images: SVG "screenshots" with transparency, drawn as data urls.
+function shot(title, hue, w, h, transparent) {
+  const bars = Array.from({ length: 7 }, (_, i) => `<rect x="${w * .08}" y="${h * .3 + i * h * .075}" width="${w * (.3 + ((i * 37) % 50) / 100)}" height="${h * .03}" rx="6" fill="hsl(${hue} 20% ${i % 2 ? 78 : 70}%)"/>`).join("");
+  const bg = transparent ? "" : `<rect width="${w}" height="${h}" fill="hsl(${hue} 30% 95%)"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${bg}
+    <rect width="${w}" height="${h * .12}" fill="hsl(${hue} 45% 42%)"/>
+    <circle cx="${w * .05}" cy="${h * .06}" r="${h * .025}" fill="#fff" opacity=".8"/>
+    <text x="${w * .09}" y="${h * .075}" font-family="Segoe UI, sans-serif" font-size="${h * .04}" fill="#fff" font-weight="600">${title}</text>
+    <rect x="${w * .62}" y="${h * .22}" width="${w * .3}" height="${h * .5}" rx="18" fill="hsl(${hue + 40} 50% 60%)" opacity="${transparent ? .85 : 1}"/>
+    <text x="${w * .08}" y="${h * .24}" font-family="Segoe UI, sans-serif" font-size="${h * .05}" fill="hsl(${hue} 30% 25%)" font-weight="700">${title}</text>
+    ${bars}
+    <text x="${w * .08}" y="${h * .92}" font-family="Consolas, monospace" font-size="${h * .022}" fill="hsl(${hue} 15% 40%)">testo piccolo da leggere con lo zoom · ${w}×${h}</text>
+  </svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+const IMAGES = [
+  { name: "home.png", w: 1920, h: 1080, kb: "412 KB", src: shot("Home", 28, 1920, 1080) },
+  { name: "settings-dark.png", w: 1600, h: 1000, kb: "288 KB", src: shot("Impostazioni", 210, 1600, 1000) },
+  { name: "logo.png", w: 900, h: 900, kb: "64 KB", src: shot("Logo", 120, 900, 900, true) },
+  { name: "step-4-checkout.png", w: 1280, h: 1600, kb: "530 KB", src: shot("Checkout", 340, 1280, 1600) },
+];
+
+document.querySelectorAll("[data-img-raw]").forEach((img) => { img.src = IMAGES[0].src; img.width = IMAGES[0].w; img.height = IMAGES[0].h; });
+
+function viewer(root) {
+  let at = 0, scale = 1, fit = true, tx = 0, ty = 0;
+  const img = root.querySelector("[data-img]");
+  const stage = root.querySelector("[data-pan]");
+  const $ = (sel, fn) => root.querySelectorAll(sel).forEach(fn);
+  function fitScale() {
+    if (!stage) return 1;
+    const r = stage.getBoundingClientRect(), im = IMAGES[at];
+    return Math.min((r.width - 40) / im.w, (r.height - 40) / im.h, 1);
+  }
+  function apply() {
+    const im = IMAGES[at];
+    if (fit) { scale = fitScale(); tx = ty = 0; }
+    img.style.width = im.w + "px"; img.style.height = im.h + "px";
+    img.style.transform = `translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${scale})`;
+    $("[data-zoomval]", (e) => (e.textContent = fit ? "Adatta" : Math.round(scale * 100) + " %"));
+  }
+  function show() {
+    const im = IMAGES[at];
+    if (stage) img.src = im.src; else img.src = im.src;
+    $("[data-name]", (e) => (e.textContent = im.name));
+    $("[data-meta]", (e) => (e.textContent = `${im.w}×${im.h} · ${im.kb}`));
+    $("[data-meta-long]", (e) => (e.textContent = `${im.w}×${im.h} · ${im.kb} · da un messaggio di Claude, 14:32`));
+    $("[data-dims]", (e) => (e.textContent = `${im.w}×${im.h}`));
+    $("[data-bytes]", (e) => (e.textContent = im.kb));
+    $("[data-path]", (e) => (e.textContent = `C:\\Users\\massi\\…\\shots\\${im.name}`));
+    $("[data-count]", (e) => (e.textContent = `${at + 1} / ${IMAGES.length}`));
+    $("[data-strip] .thumb", (t, i) => t.classList.toggle("on", i === at));
+    fit = true;
+    if (stage) apply();
+  }
+  $("[data-strip]", (strip) => {
+    strip.innerHTML = IMAGES.map((im) => `<button class="thumb" title="${im.name}"><img src="${im.src}" alt=""></button>`).join("");
+    strip.querySelectorAll(".thumb").forEach((t, i) => t.addEventListener("click", () => { at = i; show(); }));
+  });
+  $("[data-step]", (b) => b.addEventListener("click", (e) => { e.stopPropagation(); at = (at + +b.dataset.step + IMAGES.length) % IMAGES.length; show(); }));
+  $("[data-zoom]", (b) => b.addEventListener("click", () => { fit = false; scale = Math.min(8, Math.max(.1, scale * (+b.dataset.zoom > 0 ? 1.25 : .8))); apply(); }));
+  $("[data-fit]", (b) => b.addEventListener("click", () => { fit = true; apply(); }));
+  $("[data-one]", (b) => b.addEventListener("click", () => { fit = false; scale = 1; tx = ty = 0; apply(); }));
+  $("[data-setbg]", (b) => b.addEventListener("click", () => {
+    const s = root.querySelector("[data-bg]");
+    s.classList.remove("bg-dark", "bg-light", "bg-check"); s.classList.add(b.dataset.setbg);
+    $("[data-setbg]", (x) => x.classList.toggle("on", x === b));
+  }));
+  if (stage) {
+    stage.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const r = stage.getBoundingClientRect();
+      const cx = e.clientX - r.left - r.width / 2, cy = e.clientY - r.top - r.height / 2;
+      const k = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const next = Math.min(8, Math.max(.1, scale * k));
+      tx = cx - (cx - tx) * (next / scale); ty = cy - (cy - ty) * (next / scale);
+      scale = next; fit = false; apply();
+    }, { passive: false });
+    let drag = null;
+    stage.addEventListener("pointerdown", (e) => { if (e.target.closest("button")) return; drag = { x: e.clientX - tx, y: e.clientY - ty }; stage.setPointerCapture(e.pointerId); });
+    stage.addEventListener("pointermove", (e) => { if (!drag || fit) return; tx = e.clientX - drag.x; ty = e.clientY - drag.y; img.style.transition = "none"; apply(); });
+    stage.addEventListener("pointerup", () => { drag = null; img.style.transition = ""; });
+    stage.addEventListener("dblclick", () => { if (fit) { fit = false; scale = 1; tx = ty = 0; } else fit = true; apply(); });
+    new ResizeObserver(() => fit && apply()).observe(stage);
+  } else {
+    // NOW lightbox: plain max-width/max-height image.
+    img.classList.remove("stage-img");
+  }
+  root.addEventListener("mouseenter", () => (active = root));
+  root._step = (d) => { at = (at + d + IMAGES.length) % IMAGES.length; show(); };
+  show();
+}
+let active = null;
+["now", "va", "vb", "vc", "p2"].forEach((id) => viewer(document.getElementById(id)));
+viewer(document.getElementById("p1"));
+document.addEventListener("keydown", (e) => {
+  if (!active || (e.key !== "ArrowLeft" && e.key !== "ArrowRight") || active.id === "p1") return;
+  active._step(e.key === "ArrowLeft" ? -1 : 1);
+});
+</script>
+</body>
+</html>

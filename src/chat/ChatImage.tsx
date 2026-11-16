@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -9,6 +9,8 @@ import { MenuIcons } from "../context-menu/menuIcons";
 import { useOpenLink } from "../terminal/useOpenLink";
 import { ChatImageSource, imageBytes, useChatImage } from "./chatImages";
 import type { ChatImageRef } from "./chatTypes";
+import { copyImage, formatBytes } from "../imageView/imageActions";
+import { ImageButton, ImageSeparator, ZoomControls, ZoomStage, useZoomPan } from "../imageView/ZoomStage";
 
 /** The image each [data-chat-img] element of the conversation shows, for the lightbox to browse them all. */
 const registry = new WeakMap<Element, ChatImageRef>();
@@ -20,19 +22,6 @@ const register = (image: ChatImageRef) => (el: Element | null) => {
 
 /** The name to show for an image. */
 const nameOf = (image: ChatImageRef, fallback: string) => image.name ?? (image.path ? basename(image.path) : fallback);
-
-/** Draws the image on a canvas and puts it on the clipboard as a PNG. */
-async function copyImage(src: string): Promise<void> {
-  const img = new Image();
-  img.src = src;
-  await img.decode();
-  const canvas = document.createElement("canvas");
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
-  canvas.getContext("2d")?.drawImage(img, 0, 0);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-  if (blob) await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-}
 
 type Point = { clientX: number; clientY: number; ctrlKey?: boolean; shiftKey?: boolean };
 
@@ -225,9 +214,18 @@ export function ChatImages({ images, variant = "single" }: { images: ChatImageRe
   );
 }
 
-/** "12 KB", "1.4 MB". */
-function formatBytes(n: number): string {
-  return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+/** A thumbnail loads its own source, including stored chat attachments. */
+function LightboxThumb({ image, active, onClick }: { image: ChatImageRef; active: boolean; onClick: () => void }) {
+  const { t } = useI18n();
+  const { src, onError } = useChatImage(image);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (active) button.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active]);
+  const name = nameOf(image, t("chat.image.alt"));
+  return <button ref={button} type="button" className={"chat-lightbox-thumb" + (active ? " is-active" : "")} title={name} aria-label={name} aria-current={active ? "true" : undefined} onClick={onClick}>
+    {src ? <img src={src} alt="" draggable={false} onError={onError} /> : MISSING_ICON}
+  </button>;
 }
 
 /** The images of the conversation full screen: arrows browse, Esc or a click outside closes. */
@@ -237,6 +235,7 @@ function ChatLightbox({ items, start, onClose }: { items: ChatImageRef[]; start:
   const image = items[at];
   const { src, state, onError } = useChatImage(image);
   const actions = useImageActions(image, src);
+  const zoom = useZoomPan(src);
   const [dims, setDims] = useState<{ src: string; w: number; h: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const step = useCallback((d: number) => setAt((i) => (i + d + items.length) % items.length), [items.length]);
@@ -255,75 +254,32 @@ function ChatLightbox({ items, start, onClose }: { items: ChatImageRef[]; start:
   }, [items.length, onClose, step]);
   const name = nameOf(image, t("chat.image.alt"));
   const bytes = src ? imageBytes(src) : undefined;
-  const size = dims && dims.src === src ? `${dims.w}×${dims.h}` : "";
-  const meta = [size, bytes !== undefined ? formatBytes(bytes) : ""].filter(Boolean).join(" · ");
+  const size = dims && dims.src === src ? `${dims.w}\u00d7${dims.h}` : "";
+  const meta = [size, bytes !== undefined ? formatBytes(bytes) : "", items.length > 1 ? `${at + 1} / ${items.length}` : ""].filter(Boolean).join(" \u00b7 ");
   return createPortal(
-    <div
-      ref={root}
-      tabIndex={-1}
-      className="chat-lightbox"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("chat.image.lightbox")}
-      onClick={(e: MouseEvent<HTMLDivElement>) => {
-        e.stopPropagation();
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <div ref={root} tabIndex={-1} className="chat-lightbox" role="dialog" aria-modal="true" aria-label={t("chat.image.lightbox")}
+      onClick={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) onClose(); }}>
       <div className="chat-lightbox-bar">
-        <span className="chat-lightbox-name">{name}</span>
-        {meta && <span>{"· "}{meta}</span>}
+        <div className="chat-lightbox-title"><b className="chat-lightbox-name" title={name}>{name}</b><span>{meta || "\u00a0"}</span></div>
         <span className="chat-lightbox-spacer" />
-        {actions.copy && (
-          <button type="button" title={t("chat.image.copy")} onClick={actions.copy}>
-            {PathIcons.copy}
-            {t("chat.image.copy")}
-          </button>
-        )}
-        {actions.open && (
-          <button type="button" title={t("chat.image.open")} onClick={(e) => actions.open?.(e)}>
-            {MenuIcons.openExternal}
-            {t("chat.image.open")}
-          </button>
-        )}
-        {actions.reveal && (
-          <button type="button" title={t("chat.image.reveal")} onClick={actions.reveal}>
-            {PathIcons.folder}
-            {t("chat.image.reveal")}
-          </button>
-        )}
-        <button type="button" title={t("chat.image.close")} aria-label={t("chat.image.close")} onClick={onClose}>
-          {"✕"}
-        </button>
+        <div className="chat-lightbox-tools">
+          <ZoomControls zoom={zoom} />
+          {(actions.copy || actions.open || actions.reveal) && <ImageSeparator />}
+          {actions.copy && <ImageButton title={t("chat.image.copy")} onClick={actions.copy}>{PathIcons.copy}</ImageButton>}
+          {actions.open && <ImageButton title={t("chat.image.open")} onClick={(event) => actions.open?.(event)}>{MenuIcons.openExternal}</ImageButton>}
+          {actions.reveal && <ImageButton title={t("chat.image.reveal")} onClick={actions.reveal}>{PathIcons.folder}</ImageButton>}
+          <ImageSeparator />
+          <ImageButton title={t("chat.image.close")} onClick={onClose}><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg></ImageButton>
+        </div>
       </div>
-      <div className="chat-lightbox-stage" onClick={(e) => e.target === e.currentTarget && onClose()}>
-        {items.length > 1 && (
-          <button type="button" className="chat-lightbox-nav is-prev" title={t("chat.image.prev")} aria-label={t("chat.image.prev")} onClick={() => step(-1)}>
-            {"‹"}
-          </button>
-        )}
-        {state === "ready" && src ? (
-          <img
-            key={src}
-            src={src}
-            alt={name}
-            draggable={false}
-            onLoad={(e) => setDims({ src, w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-            onError={onError}
-          />
-        ) : state === "missing" ? (
-          <div className="chat-lightbox-gone">{t("chat.image.missing")}</div>
-        ) : (
-          <span className="chat-spinner" aria-hidden="true" />
-        )}
-        {items.length > 1 && (
-          <button type="button" className="chat-lightbox-nav is-next" title={t("chat.image.next")} aria-label={t("chat.image.next")} onClick={() => step(1)}>
-            {"›"}
-          </button>
-        )}
-        {items.length > 1 && <span className="chat-lightbox-count">{at + 1} / {items.length}</span>}
-      </div>
-    </div>,
-    document.body,
+      <ZoomStage zoom={zoom} src={state === "ready" ? src : null} alt={name} className="chat-lightbox-stage" onDims={(w, h) => src && setDims({ src, w, h })} onError={onError} onBlankClick={onClose}>
+        {state !== "ready" && <div className="chat-lightbox-status">{state === "missing" || state === "blocked" ? <span className="chat-lightbox-gone">{t("chat.image.missing")}</span> : <span className="chat-spinner" aria-hidden="true" />}</div>}
+        {items.length > 1 && <>
+          <button type="button" className="chat-lightbox-nav is-prev" title={t("chat.image.prev")} aria-label={t("chat.image.prev")} onClick={() => step(-1)}><span><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6" /></svg></span></button>
+          <button type="button" className="chat-lightbox-nav is-next" title={t("chat.image.next")} aria-label={t("chat.image.next")} onClick={() => step(1)}><span><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg></span></button>
+        </>}
+      </ZoomStage>
+      {items.length > 1 && <div className="chat-lightbox-strip"><div className="chat-lightbox-thumbs">{items.map((item, i) => <LightboxThumb key={i} image={item} active={at === i} onClick={() => setAt(i)} />)}</div></div>}
+    </div>, document.body,
   );
 }

@@ -188,6 +188,24 @@ pub async fn preview_pdf_bytes(source: String) -> Result<tauri::ipc::Response, S
     .map_err(|e| e.to_string())?
 }
 
+fn read_local_image(path: &str) -> Result<Vec<u8>, String> {
+    let path = std::path::Path::new(path);
+    if crate::chat_images::mime_of(path) == "application/octet-stream" {
+        return Err("not an image file".into());
+    }
+    crate::chat_images::read_file(path)
+}
+
+/// The bytes of a local image, with the same locality and size limits as chat images.
+#[tauri::command]
+pub async fn preview_image_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        read_local_image(&path).map(tauri::ipc::Response::new)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Whether something listens on a local port. "localhost" can mean either
 /// loopback family (Vite on recent Node binds only `::1`), so both are tried.
 #[tauri::command]
@@ -381,6 +399,13 @@ mod tests {
         assert!(has_pdf_extension("/a/b.pdf"));
         assert!(!has_pdf_extension("/a/b.pdf.txt"));
         assert!(!has_pdf_extension("pdf"));
+    }
+
+    #[test]
+    fn image_preview_rejects_other_extensions_before_reading_files() {
+        for path in ["missing.txt", "missing.png.exe", "missing", "https://example.com/image"] {
+            assert_eq!(read_local_image(path).unwrap_err(), "not an image file");
+        }
     }
 
     #[test]

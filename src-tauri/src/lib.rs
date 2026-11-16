@@ -272,6 +272,7 @@ pub fn run() {
             preview::preview_register_root,
             preview::preview_frame_check,
             preview::preview_pdf_bytes,
+            preview::preview_image_bytes,
             preview::preview_probe_port,
             preview::preview_file_mtime,
             system::system_info,

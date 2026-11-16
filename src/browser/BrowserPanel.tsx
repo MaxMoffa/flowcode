@@ -25,6 +25,8 @@ import {
 import "./browser-panel.css";
 
 const PdfViewer = lazy(() => import("./PdfViewer"));
+const ImageFileViewer = lazy(() => import("./ImageFileViewer"));
+const isImagePath = (path: string) => /\.(?:png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(path);
 
 /** Sandbox of the page inside the host frame. A web page keeps its origin
  * (a dev server needs its own cookies and storage) but never gets popups or
@@ -77,6 +79,7 @@ const FileIcon = () =>
       <path d="M14 3v5h5" />
     </>,
   );
+const ImageIcon = () => svg(<><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="m4 18 5-5 4 4 3-3 4 4" /></>);
 const PdfIcon = () =>
   svg(
     <>
@@ -127,7 +130,7 @@ function tabLabel(page: PreviewPage): string {
 /** A page's badge: the kind icon for files, a server for local addresses, a lettered square for sites
  * (a cross-origin frame hides the real title and favicon). */
 function TabBadge({ page }: { page: PreviewPage }) {
-  if (page.kind === "file") return <span className="browser-tabs-badge is-icon"><FileIcon /></span>;
+  if (page.kind === "file") return <span className="browser-tabs-badge is-icon">{isImagePath(page.path) ? <ImageIcon /> : <FileIcon />}</span>;
   const url = page.kind === "pdf" ? page.src : page.url;
   if (page.kind === "pdf" && !/^https?:\/\//i.test(url)) return <span className="browser-tabs-badge is-icon"><PdfIcon /></span>;
   if (isLocalUrl(url)) return <span className="browser-tabs-badge is-local"><ServerIcon /></span>;
@@ -231,7 +234,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       setLoading(null);
       return;
     }
-    if (page.kind === "pdf") {
+    if (page.kind === "pdf" || (page.kind === "file" && isImagePath(page.path))) {
       // The viewer covers the host frame and reports its own loading.
       post({ type: "clear", sequence });
       setLoading((prev) => (prev === PDF_LOADING ? prev : null));
@@ -425,7 +428,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           />
         ) : (
           <button type="button" className="browser-panel-url" onClick={startEditing} title={info?.full ?? t("browser.address")} aria-label={t("browser.address")}>
-            {page?.kind === "file" ? <FileIcon /> : page?.kind === "pdf" ? <PdfIcon /> : <GlobeIcon />}
+            {page?.kind === "file" ? isImagePath(page.path) ? <ImageIcon /> : <FileIcon /> : page?.kind === "pdf" ? <PdfIcon /> : <GlobeIcon />}
             {info ? (
               <>
                 <span className="browser-panel-url-host">{info.bold}</span>
@@ -463,6 +466,11 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
         {page?.kind === "pdf" && (
           <Suspense fallback={null}>
             <PdfViewer src={page.src} reloadNonce={reloadNonce} onLoading={(busy) => setLoading(busy ? PDF_LOADING : null)} onOpenExternal={openExternal} />
+          </Suspense>
+        )}
+        {page?.kind === "file" && isImagePath(page.path) && (
+          <Suspense fallback={null}>
+            <ImageFileViewer key={page.path} path={page.path} reloadNonce={reloadNonce} onLoading={(busy) => setLoading(busy ? PDF_LOADING : null)} />
           </Suspense>
         )}
         {!page && (

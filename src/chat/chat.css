@@ -3754,106 +3754,36 @@ summary.chat-step-row {
 
 /* The images of the conversation, full screen. */
 .chat-lightbox {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: flex;
-  flex-direction: column;
-  background: rgb(8 6 4 / 0.88);
-  backdrop-filter: blur(6px);
-  outline: none;
+  position: fixed; inset: 0; z-index: 1100;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  background: rgb(10 8 6 / .94); backdrop-filter: blur(6px); outline: none;
+  --fg: #e7d8c5; --fg-muted: #a08a6f; --menu-surface: #2a231d;
 }
-
-.chat-lightbox-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  color: var(--fg-muted);
-  font-size: 12.5px;
-}
-
-.chat-lightbox-name {
-  color: var(--fg);
-  font-family: var(--font-mono);
-}
-
-.chat-lightbox-spacer {
-  flex: 1;
-}
-
-.chat-lightbox-bar button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--menu-surface);
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
-}
-
-.chat-lightbox-bar button:hover {
-  border-color: var(--accent);
-}
-
-.chat-lightbox-stage {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  place-items: center;
-  padding: 10px 60px 30px;
-}
-
-.chat-lightbox-stage img {
-  max-width: 100%;
-  max-height: 100%;
-  border-radius: 6px;
-  box-shadow: var(--drop-shadow, 0 10px 40px rgb(0 0 0 / 0.6));
-}
-
-.chat-lightbox-gone {
-  color: var(--fg-muted);
-}
-
-.chat-lightbox-nav {
-  position: absolute;
-  top: 50%;
-  translate: 0 -50%;
-  width: 38px;
-  height: 38px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--menu-surface);
-  color: var(--fg);
-  font-size: 18px;
-  cursor: pointer;
-}
-
-.chat-lightbox-nav:hover {
-  background: var(--sidebar-hover);
-}
-
-.chat-lightbox-nav.is-prev {
-  left: 14px;
-}
-
-.chat-lightbox-nav.is-next {
-  right: 14px;
-}
-
-.chat-lightbox-count {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  translate: -50% 0;
-  color: var(--fg-muted);
-  font-size: 12px;
-}
+.chat-lightbox-bar { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--border); background: rgb(21 17 14 / .7); }
+.chat-lightbox-title { display: flex; flex-direction: column; min-width: 0; }
+.chat-lightbox-name { font-size: 13px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-lightbox-title > span { font-size: 11.5px; color: var(--fg-muted); }
+.chat-lightbox-spacer { flex: 1; }
+.chat-lightbox-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.chat-lightbox-stage .image-view-image { border-radius: 4px; box-shadow: 0 18px 60px rgb(0 0 0 / .55); }
+.chat-lightbox-status { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.chat-lightbox-gone { color: var(--fg-muted); }
+.chat-lightbox-nav { position: absolute; top: 0; bottom: 0; width: 70px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--fg-muted); opacity: 0; transition: opacity .15s; cursor: pointer; }
+.chat-lightbox-stage:hover .chat-lightbox-nav, .chat-lightbox-nav:focus-visible { opacity: 1; }
+.chat-lightbox-nav > span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: rgb(42 35 29 / .85); border: 1px solid var(--border); }
+.chat-lightbox-nav:hover > span { color: var(--fg); }
+.chat-lightbox-nav svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.chat-lightbox-nav.is-prev { left: 0; }
+.chat-lightbox-nav.is-next { right: 0; }
+.chat-lightbox-strip { display: flex; justify-content: center; min-width: 0; overflow-x: auto; border-top: 1px solid var(--border); background: rgb(21 17 14 / .7); }
+.chat-lightbox-thumbs { display: flex; gap: 8px; width: max-content; margin: auto; padding: 10px 12px 12px; }
+.chat-lightbox-thumb { display: grid; place-items: center; flex: none; width: 64px; height: 42px; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: var(--menu-surface); color: var(--fg-muted); opacity: .5; outline: 2px solid transparent; outline-offset: 1px; cursor: pointer; }
+.chat-lightbox-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chat-lightbox-thumb.is-active { opacity: 1; outline-color: var(--accent); }
+.chat-lightbox-thumb:hover { opacity: .85; }
+.chat-lightbox-thumb:focus-visible { outline-color: var(--fg); opacity: 1; }
+@media (max-width: 640px) { .chat-lightbox-bar { flex-wrap: wrap; gap: 6px; } .chat-lightbox-title { flex: 1; } .chat-lightbox-tools { margin-left: auto; } }
+@media (prefers-reduced-motion: reduce) { .chat-lightbox-nav { transition: none; } }
 
 /* --- narrow pane -----------------------------------------------------------
    The chat follows its own pane, not the window: cards opened beside it narrow
