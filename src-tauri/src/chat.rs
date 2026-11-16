@@ -867,13 +867,16 @@ impl Log {
     }
 }
 
-/// A file sent along with a prompt: its bytes (base64) or a path on this PC.
+/// A file sent along with a prompt: its bytes (base64), a path on this PC, or
+/// the id of a file `chat_stage_attachment` stored (`upload`).
 #[derive(Deserialize, Debug)]
 pub(crate) struct Attachment {
     name: String,
     mime: String,
     data: Option<String>,
     path: Option<String>,
+    #[serde(default)]
+    upload: Option<String>,
 }
 
 /// A name that is safe as a single path component.
@@ -965,7 +968,7 @@ pub(crate) fn uploaded_attachment(id: &str, name: &str, mime: &str) -> Result<At
     }
     let valid = !mime.is_empty() && mime.len() <= 127 && mime.chars().all(|c| c.is_ascii_alphanumeric() || "!#$&^_.+-/".contains(c));
     let mime = if valid { mime } else { "application/octet-stream" };
-    Ok(Attachment { name: name.into(), mime: mime.into(), data: None, path: Some(path.to_string_lossy().into_owned()) })
+    Ok(Attachment { name: name.into(), mime: mime.into(), data: None, path: Some(path.to_string_lossy().into_owned()), upload: None })
 }
 
 fn attachment_block(a: &Attachment, images: bool, wsl: bool) -> Result<Value, String> {
@@ -2874,7 +2877,62 @@ pub async fn chat_start(
 /// an agent that stopped reading its stdin blocks until it reads again.
 #[tauri::command]
 pub async fn chat_prompt(app: AppHandle, chat_id: String, text: String, attachments: Option<Vec<Attachment>>) -> Result<(), String> {
-    crate::blocking(move || app.state::<ChatState>().prompt(&chat_id, text, attachments.unwrap_or_default())).await
+    crate::blocking(move || {
+        let attachments = attachments
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| match a.upload.as_deref() {
+                Some(id) => uploaded_attachment(id, &a.name, &a.mime),
+                None => Ok(a),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        app.state::<ChatState>().prompt(&chat_id, text, attachments)
+    })
+    .await
+}
+
+/// Stores a file the composer attached, sent as raw bytes (the body) with
+/// `x-name` (percent-encoded) as a header; returns the id `chat_prompt` takes
+/// as `upload`. Big files as base64 inside a JSON invoke crashed the WebView.
+#[tauri::command]
+pub async fn chat_stage_attachment(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let name = request.headers().get("x-name").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let name = percent_decode(name);
+    let bytes = invoke_bytes(request.body())?;
+    crate::blocking(move || stage_upload(&name, &bytes)).await
+}
+
+/// The bytes of an upload invoke: the raw body, or `{"data": "<base64>"}` where
+/// the webview can't send a raw body (Android's IPC goes through postMessage,
+/// which turns everything into JSON).
+fn invoke_bytes(body: &tauri::ipc::InvokeBody) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.clone()),
+        tauri::ipc::InvokeBody::Json(value) => {
+            let data = value.get("data").and_then(serde_json::Value::as_str).ok_or("expected the file's bytes")?;
+            base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| format!("bad file data: {e}"))
+        }
+    }
+}
+
+/// `%XX` escapes decoded (as `encodeURIComponent` writes them); bad escapes stay as they are.
+fn percent_decode(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        let pair = if bytes[i] == b'%' && i + 2 < bytes.len() { hex(bytes[i + 1]).zip(hex(bytes[i + 2])) } else { None };
+        if let Some((h, l)) = pair {
+            out.push((h * 16 + l) as u8);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[tauri::command]

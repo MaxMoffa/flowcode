@@ -18,6 +18,7 @@ import { CLI_INFO, cliName } from "../agents/cliInfo";
 import { delegatesOf } from "./chatModel";
 import { DelegateCards, DelegateRequests } from "./DelegateCards";
 import type { ChatAttachment, ChatCommand } from "./chatTypes";
+import { prepareAttachment } from "../../shared/attachPrepare";
 import { buildMenu, commandText, displayName, type CommandKind, type MenuEntry } from "./commandMenu";
 import { CommandChip, KindIcon, UserText } from "./CommandChip";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -73,17 +74,15 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Reads a file into an attachment: its bytes as base64 (no `data:` prefix). */
-function readAttachment(file: File): Promise<ChatAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error(file.name));
-    reader.onload = () => {
-      const url = String(reader.result);
-      resolve({ name: file.name || "attachment", mime: file.type || "application/octet-stream", data: url.slice(url.indexOf(",") + 1) });
-    };
-    reader.readAsDataURL(file);
-  });
+/**
+ * Stores a file in the backend as an attachment: images shrunk first, the bytes
+ * sent raw (a photo as base64 inside a JSON invoke crashed the WebView).
+ */
+async function readAttachment(file: File): Promise<ChatAttachment> {
+  const { bytes, name, mime } = await prepareAttachment(file);
+  const upload = await invoke<string>("chat_stage_attachment", bytes, { headers: { "x-name": encodeURIComponent(name || "attachment") } });
+  const preview = mime.startsWith("image/") ? URL.createObjectURL(new Blob([bytes], { type: mime })) : undefined;
+  return { name: name || "attachment", mime, upload, size: bytes.length, preview };
 }
 
 /** A context size as "118k" (rounded), or the plain number under a thousand. */
@@ -1186,21 +1185,26 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
                 <div className="chat-attach-strip">
                   {attachments.map((file, i) => {
                     // A file attached by path has no bytes here to show: it gets a file tile.
-                    const image = file.mime.startsWith("image/") && !!file.data;
+                    const src = file.preview ?? (file.data ? `data:${file.mime};base64,${file.data}` : null);
+                    const image = file.mime.startsWith("image/") && !!src;
+                    const size = file.size ?? (file.data ? Math.floor((file.data.length * 3) / 4) : null);
                     return (
                       <div key={i} className={`chat-attach-tile${image ? " is-image" : " is-file"}`} title={file.name}>
                         {image ? (
-                          <img src={`data:${file.mime};base64,${file.data}`} alt={file.name} />
+                          <img src={src ?? undefined} alt={file.name} />
                         ) : (
                           <>
                             <span className="chat-attach-ext">{fileExt(file.name)}</span>
                             <span className="chat-attach-meta">
                               <span className="chat-attach-name">{file.name}</span>
-                              {file.data && <span className="chat-attach-size">{formatBytes(Math.floor((file.data.length * 3) / 4))}</span>}
+                              {size !== null && <span className="chat-attach-size">{formatBytes(size)}</span>}
                             </span>
                           </>
                         )}
-                        <button type="button" className="chat-attach-x" aria-label={t("chat.attach.remove")} title={t("chat.attach.remove")} onClick={() => setAttachments((a) => a.filter((_, j) => j !== i))}>
+                        <button type="button" className="chat-attach-x" aria-label={t("chat.attach.remove")} title={t("chat.attach.remove")} onClick={() => {
+                            if (file.preview) URL.revokeObjectURL(file.preview);
+                            setAttachments((a) => a.filter((_, j) => j !== i));
+                          }}>
                           {"✕"}
                         </button>
                       </div>

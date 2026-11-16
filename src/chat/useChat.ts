@@ -285,7 +285,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     const id = chatIdRef.current;
     if (!id) return;
     sentAtSeqRef.current = modelRef.current.lastSeq;
-    invoke("chat_prompt", { chatId: id, text, attachments }).then(
+    invoke("chat_prompt", { chatId: id, text, attachments: attachments.map(({ preview: _p, size: _s, ...a }) => a) }).then(
       () => {
         if (chatIdRef.current === id) talkedRef.current = true;
       },

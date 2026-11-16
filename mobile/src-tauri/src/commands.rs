@@ -206,7 +206,7 @@ pub fn send(remote: State<'_, Arc<Remote>>, msg: serde_json::Value) -> Result<()
 }
 
 /// Uploads one chat attachment on a new stream of the live connection. The
-/// body is the raw file; `x-chat-id`, `x-name` (percent-encoded) and `x-mime`
+/// body is the raw file (base64 in JSON on Android, see `invoke_bytes`); `x-chat-id`, `x-name` (percent-encoded) and `x-mime`
 /// travel as headers. Returns the id the desktop stored it under.
 #[tauri::command]
 pub async fn upload_chat_file(request: tauri::ipc::Request<'_>, remote: State<'_, Arc<Remote>>) -> Result<String, String> {
@@ -214,8 +214,7 @@ pub async fn upload_chat_file(request: tauri::ipc::Request<'_>, remote: State<'_
     let chat_id = header("x-chat-id").filter(|v| !v.is_empty()).ok_or("missing chat id")?;
     let name = percent_decode(&header("x-name").unwrap_or_default());
     let mime = header("x-mime").unwrap_or_default();
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("expected raw bytes".into()) };
-    let bytes = bytes.clone();
+    let bytes = invoke_bytes(request.body())?;
     if bytes.len() as u64 > UPLOAD_MAX_BYTES {
         return Err("File exceeds 32 MiB".into());
     }
@@ -246,6 +245,20 @@ pub async fn upload_chat_file(request: tauri::ipc::Request<'_>, remote: State<'_
         }
     };
     tokio::time::timeout(Duration::from_secs(150), exchange).await.map_err(|_| "upload timed out".to_string())?
+}
+
+/// The bytes of an upload invoke: the raw body, or `{"data": "<base64>"}` where
+/// the webview can't send a raw body (Android's IPC goes through postMessage,
+/// which turns everything into JSON).
+fn invoke_bytes(body: &tauri::ipc::InvokeBody) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.clone()),
+        tauri::ipc::InvokeBody::Json(value) => {
+            let data = value.get("data").and_then(serde_json::Value::as_str).ok_or("expected the file's bytes")?;
+            base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| format!("bad file data: {e}"))
+        }
+    }
 }
 
 /// Decodes `%XX` escapes as UTF-8; anything malformed stays as it is.

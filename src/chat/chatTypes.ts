@@ -131,6 +131,12 @@ export interface ChatAttachment {
   mime: string;
   data?: string;
   path?: string;
+  /** The id `chat_stage_attachment` stored the file under (the bytes stay in the backend). */
+  upload?: string;
+  /** Its size in bytes, for the tile. */
+  size?: number;
+  /** An object URL of an image's bytes, for the tile (never sent). */
+  preview?: string;
 }
 
 /** What `chat_start` answers. */
