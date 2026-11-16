@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
-import { buildAskContent, type AskAnswer, type AskOption, type AskQuestion } from "./askQuestions";
+import { buildAskContent, missingRequired, type AskAnswer, type AskOption, type AskQuestion } from "./askQuestions";
 import type { ChatItem } from "./chatModel";
 
 type AskItem = Extract<ChatItem, { type: "ask" }>;
@@ -34,7 +34,7 @@ export function AskComposer({ item, agent, onAnswer, autoFocus, head, actions, a
   const { t } = useI18n();
   const look: AskLook = { tag: t("chat.ask.tag", { agent }), head, actions, allowOther };
   // A question the schema couldn't be read for still shows its message, with a way to skip it.
-  const questions: AskQuestion[] = item.questions.length ? item.questions : [{ key: "question_0", text: item.message, multi: false, options: [] }];
+  const questions: AskQuestion[] = item.questions.length ? item.questions : [{ key: "question_0", text: item.message, multi: false, options: [], required: false }];
   // The first answer wins: a second one (double click, Enter then click) would reach the backend as an unknown request.
   const answered = useRef(false);
   const answer: Answer = (requestId, action, content) => {
@@ -210,6 +210,7 @@ function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: A
       go(step + 1);
     }
   };
+  const missing = missingRequired(questions, answers);
   const textOf = (i: number) => {
     const a = answers[i];
     const labels = [...a.picked].sort((x, y) => x - y).map((p) => questions[i].options[p]?.label);
@@ -226,7 +227,9 @@ function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: A
     if (e.key === "Escape") return handled(), onSkip();
     if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
       handled();
-      if (review) onSend(answers);
+      if (review) {
+        if (!missing.length) onSend(answers);
+      }
       else go(step + 1);
       return;
     }
@@ -253,19 +256,26 @@ function AskSteps({ questions, autoFocus, look, onSkip, onSend }: { questions: A
         <>
           <div className="chat-ask-q">{t("chat.ask.confirm")}</div>
           <div className="chat-ask-review">
-            {questions.map((x, i) => (
-              <div key={x.key}>
-                <span>{x.header ?? x.text}</span>
-                <b>{textOf(i)}</b>
-              </div>
-            ))}
+            {questions.map((x, i) =>
+              missing.includes(i) ? (
+                <button key={x.key} type="button" className="is-missing" onClick={() => go(i)}>
+                  <span>{x.header ?? x.text}</span>
+                  <b>{t("chat.ask.missing")}</b>
+                </button>
+              ) : (
+                <div key={x.key}>
+                  <span>{x.header ?? x.text}</span>
+                  <b>{textOf(i)}</b>
+                </div>
+              ),
+            )}
           </div>
           <div className="chat-ask-actions">
             <button type="button" className="chat-ask-btn is-ghost" onClick={() => go(step - 1)}>
               {t("chat.ask.back")}
             </button>
             <span className="chat-actions-spacer" />
-            <button type="button" className="chat-ask-btn is-primary" onClick={() => onSend(answers)}>
+            <button type="button" className="chat-ask-btn is-primary" disabled={missing.length > 0} title={missing.length ? t("chat.ask.missingHint") : undefined} onClick={() => onSend(answers)}>
               {t("chat.ask.sendAll")}
             </button>
           </div>

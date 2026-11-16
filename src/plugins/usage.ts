@@ -29,7 +29,6 @@ export interface UsageMetric {
     | "loggedOut"
     | "reauth"
     | "spend"
-    | "model"
     | "noApiKey"
     | "billing"
     | "unpriced"
@@ -122,8 +121,6 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
           .filter(Boolean)
           .join(" · "),
       };
-    case "model":
-      return { label: t("usage.model"), value: m.label };
     case "billing":
       return { label: t("usage.billing.api"), detail: t("usage.billing.estimate") };
     case "unpriced":
@@ -397,7 +394,6 @@ interface CliSpend {
   today: Spend;
   week: Spend;
   month: Spend;
-  lastModel: string | null;
   unpricedModels: string[];
 }
 
@@ -407,7 +403,6 @@ interface VibeUsage {
   today: Spend;
   week: Spend;
   month: Spend;
-  lastModel: string | null;
 }
 
 /** Today's local midnight (ms) - the backend has no timezone of its own. */

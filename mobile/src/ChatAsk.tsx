@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { buildAskContent, type AskAnswer, type AskOption, type AskQuestion } from "../../src/chat/askQuestions";
+import { buildAskContent, missingRequired, type AskAnswer, type AskOption, type AskQuestion } from "../../src/chat/askQuestions";
 import type { ChatItem } from "../../src/chat/chatModel";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
@@ -22,7 +22,7 @@ function OptionText({ option }: { option: AskOption }) {
 /** The agent's open question(s) in the composer's place: tap rows for one question, a stepper with a review for several. Drawn by the app, never by a plugin view: nothing a view can send answers it. */
 export function AskPanel({ ask, agent, onAnswer }: { ask: Ask; agent: string; onAnswer: Answer }) {
   // A question the schema couldn't be read for still shows its message, with a way to skip it.
-  const questions: AskQuestion[] = ask.questions.length ? ask.questions : [{ key: "question_0", text: ask.message, multi: false, options: [] }];
+  const questions: AskQuestion[] = ask.questions.length ? ask.questions : [{ key: "question_0", text: ask.message, multi: false, options: [], required: false }];
   /** The request just answered, until the desktop confirms it (the panel stays put but dead). */
   const [sent, setSent] = useState<string | null>(null);
   useEffect(() => setSent(null), [ask.requestId]);
@@ -165,6 +165,7 @@ function AskSteps({ questions, busy, onSkip, onSend }: { questions: AskQuestion[
       go(step + 1);
     }
   };
+  const missing = missingRequired(questions, answers);
   const textOf = (i: number) => {
     const x = answers[i];
     const labels = [...x.picked].sort((p, r) => p - r).map((p) => questions[i].options[p]?.label);
@@ -187,18 +188,34 @@ function AskSteps({ questions, busy, onSkip, onSend }: { questions: AskQuestion[
         {dots}
         <div className="chat-ask-q">{t("chatAskConfirm")}</div>
         <div className="chat-ask-review">
-          {questions.map((x, i) => (
-            <div key={x.key}>
-              <span>{x.header ?? x.text}</span>
-              <b>{textOf(i)}</b>
-            </div>
-          ))}
+          {questions.map((x, i) =>
+            missing.includes(i) ? (
+              <button
+                key={x.key}
+                type="button"
+                className="is-missing"
+                disabled={busy}
+                onClick={() => {
+                  tapFeedback();
+                  go(i);
+                }}
+              >
+                <span>{x.header ?? x.text}</span>
+                <b>{t("chatAskMissing")}</b>
+              </button>
+            ) : (
+              <div key={x.key}>
+                <span>{x.header ?? x.text}</span>
+                <b>{textOf(i)}</b>
+              </div>
+            ),
+          )}
         </div>
         <div className="chat-ask-actions">
           <button type="button" className="chat-ask-btn is-ghost" disabled={busy} onClick={() => go(step - 1)}>
             {t("chatAskBack")}
           </button>
-          <button type="button" className="chat-ask-btn is-primary" disabled={busy} onClick={() => onSend(answers)}>
+          <button type="button" className="chat-ask-btn is-primary" disabled={busy || missing.length > 0} title={missing.length ? t("chatAskMissingHint") : undefined} onClick={() => onSend(answers)}>
             {t("chatAskSendAll")}
           </button>
         </div>

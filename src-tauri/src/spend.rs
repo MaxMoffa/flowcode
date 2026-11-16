@@ -39,9 +39,6 @@ pub struct CliSpend {
     today: SpendPeriod,
     week: SpendPeriod,
     month: SpendPeriod,
-    /// The model of the most recent call.
-    #[serde(rename = "lastModel")]
-    last_model: Option<String>,
     /// Models used in the last 30 days that have no known price - their
     /// tokens are counted, their cost isn't.
     #[serde(rename = "unpricedModels")]
@@ -470,8 +467,6 @@ struct Totals {
     periods: [SpendPeriod; 3],
     sessions: [HashSet<String>; 3],
     unpriced: Vec<String>,
-    /// When and with which model the latest call was made.
-    last: Option<(u64, String)>,
     /// Calls already counted, by `Call::key`.
     seen: HashSet<u64>,
 }
@@ -484,7 +479,6 @@ impl Totals {
             periods: [SpendPeriod::default(); 3],
             sessions: Default::default(),
             unpriced: Vec::new(),
-            last: None,
             seen: HashSet::new(),
         }
     }
@@ -496,9 +490,6 @@ impl Totals {
         let age = self.now.saturating_sub(call.at);
         if age >= 30 * DAY_MS {
             return;
-        }
-        if self.last.as_ref().is_none_or(|(at, _)| call.at > *at) {
-            self.last = Some((call.at, call.model.clone()));
         }
         if call.cost.is_none() && !self.unpriced.contains(&call.model) {
             self.unpriced.push(call.model.clone());
@@ -523,7 +514,6 @@ impl Totals {
             today: self.periods[0],
             week: self.periods[1],
             month: self.periods[2],
-            last_model: self.last.map(|(_, model)| model),
             unpriced_models: self.unpriced,
         }
     }
@@ -825,6 +815,5 @@ mod tests {
         assert_eq!(spend.month.sessions, 3);
         assert_eq!(spend.month.tokens, 40);
         assert_eq!(spend.unpriced_models, vec!["unknown".to_string()]);
-        assert_eq!(spend.last_model.as_deref(), Some("m"));
     }
 }

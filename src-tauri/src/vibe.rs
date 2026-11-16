@@ -58,7 +58,6 @@ struct SessionMeta {
     updated_at: Option<u64>,
     cost: f64,
     tokens: u64,
-    model: Option<String>,
     dir: PathBuf,
 }
 
@@ -123,7 +122,6 @@ fn parse_meta(value: &serde_json::Value, dir: PathBuf, updated_at: Option<u64>) 
         updated_at,
         cost: if cost.is_finite() { cost.max(0.0) } else { 0.0 },
         tokens: (prompt + completion).max(0.0) as u64,
-        model: text(value.get("config").and_then(|c| c.get("active_model"))),
         dir,
     })
 }
@@ -375,9 +373,6 @@ pub struct VibeUsage {
     /// The last 7 and 30 days, today included.
     week: SpendPeriod,
     month: SpendPeriod,
-    /// The model of the most recent session (Vibe's alias for it).
-    #[serde(rename = "lastModel")]
-    last_model: Option<String>,
 }
 
 /// Whether Vibe has a Mistral API key to work with, in the Vibe home `home`.
@@ -615,7 +610,6 @@ fn summarize(metas: &[SessionMeta], now: u64, today_start: u64, has_api_key: boo
         today: SpendPeriod::default(),
         week: SpendPeriod::default(),
         month: SpendPeriod::default(),
-        last_model: metas.iter().find_map(|m| m.model.clone()),
     };
     let add = |p: &mut SpendPeriod, m: &SessionMeta| {
         p.cost += m.cost;
@@ -803,7 +797,6 @@ mod tests {
             updated_at: Some(at),
             cost,
             tokens: 10,
-            model: Some("mistral-large-4".into()),
             dir: PathBuf::new(),
         };
         let metas = vec![meta(now - 1000, 1.0, false), meta(now - 1000, 0.5, true), meta(now - 3 * day, 2.0, false), meta(now - 20 * day, 4.0, false)];

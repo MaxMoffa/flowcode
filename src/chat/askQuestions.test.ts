@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askSummary, buildAskContent, parseAskQuestions } from "./askQuestions";
+import { askSummary, buildAskContent, missingRequired, parseAskQuestions } from "./askQuestions";
 
 const opt = (label: string, description?: string) => ({ const: label, title: label, ...(description ? { description } : {}) });
 
@@ -53,7 +53,7 @@ describe("OpenCode forms", () => {
 });
 
 it("answers permission options by id even when their labels match", () => {
-  const question = { key: "question_0", text: "Allow?", multi: false, options: [
+  const question = { key: "question_0", text: "Allow?", multi: false, required: false, options: [
     { label: "Allow", value: "once", recommended: true },
     { label: "Allow", value: "always", recommended: false },
     { label: "Allow (2)", value: "other", recommended: false },
@@ -78,6 +78,7 @@ describe("parseAskQuestions", () => {
         header: "Storage",
         text: "Where to store?",
         multi: false,
+        required: false,
         options: [
           { label: "JSON", value: "JSON (Recommended)", description: "simple", recommended: true },
           { label: "SQLite", recommended: false },
@@ -123,5 +124,26 @@ describe("buildAskContent", () => {
   it("summarizes", () => {
     expect(askSummary(qs, { question_0: "B", question_1: ["X", "Y"], question_1_custom: "z" })).toBe("B · X, Y, z");
     expect(askSummary(qs, undefined)).toBe("");
+  });
+});
+
+describe("required questions", () => {
+  it("reads the schema's required list, also through the custom key", () => {
+    const qs = parseAskQuestions({ ...openCodeSchema, required: ["q0_custom", "q1"] }, "Questions");
+    expect(qs.map((q) => q.required)).toEqual([true, true]);
+    expect(parseAskQuestions({ ...openCodeSchema, required: ["q1"] }, "Questions").map((q) => q.required)).toEqual([false, true]);
+    expect(parseAskQuestions(openCodeSchema, "Questions").map((q) => q.required)).toEqual([false, false]);
+  });
+  it("legacy numbered questions without required stay optional", () => {
+    const qs = parseAskQuestions({ properties: { question_0: { type: "string", oneOf: [opt("A")] } } }, "m");
+    expect(qs[0].required).toBe(false);
+  });
+  it("lists the required questions left unanswered", () => {
+    const qs = parseAskQuestions({ ...openCodeSchema, required: ["q0", "q1"] }, "Questions");
+    expect(missingRequired(qs, [{ picked: [], custom: "" }, { picked: [], custom: "  " }])).toEqual([0, 1]);
+    expect(missingRequired(qs, [{ picked: [0], custom: "" }, { picked: [], custom: "" }])).toEqual([1]);
+    expect(missingRequired(qs, [{ picked: [], custom: "mine" }, { picked: [1], custom: "" }])).toEqual([]);
+    const optional = parseAskQuestions(openCodeSchema, "Questions");
+    expect(missingRequired(optional, [{ picked: [], custom: "" }, { picked: [], custom: "" }])).toEqual([]);
   });
 });

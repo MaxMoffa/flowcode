@@ -18,6 +18,8 @@ export interface AskQuestion {
   text: string;
   multi: boolean;
   options: AskOption[];
+  /** The form schema lists it in `required`: it must be answered before the form is accepted. */
+  required: boolean;
 }
 
 const RECOMMENDED = /\s*\(Recommended\)\s*$/i;
@@ -49,6 +51,7 @@ function optionsOf(list: unknown): AskOption[] {
 export function parseAskQuestions(schema: unknown, message: string): AskQuestion[] {
   const props = isRecord(schema) && isRecord(schema.properties) ? schema.properties : {};
   const found: AskQuestion[] = [];
+  const req = isRecord(schema) && Array.isArray(schema.required) ? schema.required.filter((r): r is string => typeof r === "string") : [];
   for (const [key, value] of Object.entries(props)) {
     const m = /^question_(\d+)$/.exec(key);
     if (!isRecord(value)) continue;
@@ -65,8 +68,11 @@ export function parseAskQuestions(schema: unknown, message: string): AskQuestion
     const desc = typeof value.description === "string" && value.description ? value.description : undefined;
     const custom = props[`${key}_custom`];
     const hasCustom = isRecord(custom) && custom.type === "string";
+    const customKey = !options.length && !m ? key : !hasCustom && !m ? null : undefined;
+    const customName = customKey === undefined ? (hasCustom ? `${key}_custom` : null) : customKey;
     found.push({ key, ...(header ? { header } : {}), text: desc ?? message, multi, options,
-      ...(!options.length && !m ? { customKey: key } : !hasCustom && !m ? { customKey: null } : {}),
+      required: req.includes(key) || (customName !== null && customName !== key && req.includes(customName)),
+      ...(customKey !== undefined ? { customKey } : {}),
     });
   }
   // Claude's numbered questions historically sort numerically; arbitrary forms keep schema order.
@@ -97,6 +103,17 @@ export function buildAskContent(questions: AskQuestion[], answers: AskAnswer[]):
     if (custom && q.customKey !== null) content[q.customKey ?? `${q.key}_custom`] = custom;
   });
   return content;
+}
+
+/** Indexes of the required questions with no picked option and no typed text. */
+export function missingRequired(questions: AskQuestion[], answers: AskAnswer[]): number[] {
+  const out: number[] = [];
+  questions.forEach((q, i) => {
+    if (!q.required) return;
+    const a = answers[i];
+    if (!a || (a.picked.length === 0 && a.custom.trim() === "")) out.push(i);
+  });
+  return out;
 }
 
 /** A one-line reading of an answer, for the transcript. */

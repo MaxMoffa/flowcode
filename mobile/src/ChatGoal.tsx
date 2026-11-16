@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { goalEnded, type ChatGoal as Goal, type ChatItem, type GoalAction, type GoalStatus } from "../../src/chat/chatModel";
 import { formatElapsed, formatElapsedLong, goalElapsedMs, goalKey, shouldShowGoal } from "../../src/chat/goalView";
+import { onChatGone } from "./chatGone";
 import { useBackHandler, useEscape } from "./back";
 import { tapFeedback } from "./haptics";
 import { t, type Key } from "./i18n";
@@ -9,6 +10,10 @@ import { useSupports } from "./remote";
 /** Open/closed per chat (starts closed) and the ended goals the user closed, for as long as the app runs. */
 const openByChat = new Map<string, boolean>();
 const dismissedByChat = new Map<string, string>();
+onChatGone((id) => {
+  openByChat.delete(id);
+  dismissedByChat.delete(id);
+});
 
 const CHIP_KEY: Record<GoalStatus, Key> = {
   active: "chatGoalChipActive",

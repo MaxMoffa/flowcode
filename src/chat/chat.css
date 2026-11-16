@@ -2515,6 +2515,24 @@ summary.chat-step-row {
   color: var(--fg-muted);
 }
 
+.chat-ask-review > button.is-missing {
+  display: flex;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--ansi-yellow) 48%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ansi-yellow) 10%, transparent);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chat-ask-review > button.is-missing b {
+  color: var(--ansi-yellow);
+}
+
 /* An answered question, in the transcript. */
 .chat-ask-answer {
   color: var(--fg-muted);

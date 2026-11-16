@@ -123,6 +123,7 @@ function permissionAsk(request: DelegateRequest): Extract<ChatItem, { type: "ask
     key: "question_0",
     text: title,
     multi: false,
+    required: false,
     options: (request.options ?? []).map((o) => ({ label: o.name, value: o.optionId, recommended: o.kind === "allow_once" })),
   };
   return { type: "ask", id: `delegate-ask-${delegateRequestKey(request.childChatId, request.requestId)}`, requestId: request.requestId, message: title, questions: [question] };

@@ -423,7 +423,7 @@ function UsagePane({ agent }: { agent: ActiveAgent }) {
                   {m.percent !== undefined ? (
                     <span className="plugin-usage-metric-pct">{Math.round(m.percent * 100)}%</span>
                   ) : (
-                    value && <span className={`plugin-usage-metric-pct${m.kind === "model" ? " plugin-usage-metric-pct--text" : ""}`}>{value}</span>
+                    value && <span className="plugin-usage-metric-pct">{value}</span>
                   )}
                 </div>
                 {m.percent !== undefined && (

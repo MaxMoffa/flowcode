@@ -14,6 +14,7 @@ import { ModeIcon, StarIcon } from "./ChatModeIcons";
 import { ChatModelPicker } from "./ChatModelPicker";
 import { getDefaultMode, isRiskyKind, modeKind, setDefaultMode } from "./chatModeDefaults";
 import { BackIcon, CloseIcon, SendIcon, StopIcon, Svg } from "./icons";
+import { onChatGone } from "./chatGone";
 import { AttachStrip, useAttachments } from "./useAttachments";
 import { useRemoteSelector } from "./remote";
 import { appendDictation, useDictation } from "./useDictation";
@@ -27,6 +28,10 @@ const drafts = new Map<string, string>();
 
 /** The picked command per chat, kept like the text. */
 const pickedDrafts = new Map<string, MenuEntry>();
+onChatGone((id) => {
+  drafts.delete(id);
+  pickedDrafts.delete(id);
+});
 
 /** Keeps the keyboard where it is while a button is tapped. */
 const keepFocus = {

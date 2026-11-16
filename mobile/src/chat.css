@@ -1617,6 +1617,23 @@ button.chat-step-row {
   overflow-wrap: anywhere;
 }
 
+.chat-ask-review > button.is-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--ansi-yellow, #e5c07b) 55%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ansi-yellow, #e5c07b) 10%, transparent);
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+
+.chat-ask-review > button.is-missing b {
+  color: var(--ansi-yellow, #e5c07b);
+}
+
 /* The trace an answered question leaves in the conversation. */
 .chat-ask-answer {
   margin: 6px 0;

@@ -18,6 +18,7 @@ import { acknowledgePrompt, pauseUnconfirmedPrompt, promptRequestId, applyEvents
 import { t } from "./i18n";
 import { currentChats, onMessage, send, sendChecked, showToast, useRemoteSelector } from "./remote";
 import type { ChatAttachmentRef, ChatInfo, ServerMsg } from "../../shared/remote-types";
+import { chatGone, onChatGone } from "./chatGone";
 import { beginPending, endPending } from "./pending";
 import { createStore } from "./store";
 
@@ -46,6 +47,8 @@ let awaitingChats = true;
 let lastHost: string | undefined;
 /** The agent session each chat ran when last seen: a different one means the history started over. */
 const sessionIds = new Map<string, string>();
+/** The chats of the last list: drafts and attachments exist for chats that have no session yet. */
+let seenChats = new Set<string>();
 const eventListeners = new Map<string, Set<(event: ChatEvent, replay: boolean) => void>>();
 
 const infoOf = (chatId: string): ChatInfo | undefined => currentChats()?.find((c) => c.chatId === chatId);
@@ -156,6 +159,10 @@ function onChatList(chats: ChatInfo[]) {
   }
   for (const id of Object.keys(sessions)) if (!live.has(id) && (refs.get(id) ?? 0) > 0) kept[id] = sessions[id];
   for (const id of [...sessionIds.keys()]) if (!live.has(id)) sessionIds.delete(id);
+  // The same rule for the other per-chat caches: a chat that left the list and is not on screen is gone.
+  const known = new Set([...Object.keys(sessions), ...sessionIds.keys(), ...lastChatViews.keys(), ...seenChats]);
+  seenChats = new Set(live);
+  for (const id of known) if (!live.has(id) && (refs.get(id) ?? 0) === 0) chatGone(id);
   store.set({ sessions: kept });
   syncFollows();
   pumpAll();
@@ -170,8 +177,11 @@ function onChatMsg(m: ServerMsg) {
       awaitingChats = true;
       if (m.hostName !== lastHost) {
         lastHost = m.hostName;
+        const all = new Set([...Object.keys(store.get().sessions), ...sessionIds.keys(), ...lastChatViews.keys(), ...seenChats]);
         sessionIds.clear();
+        seenChats = new Set();
         store.set({ sessions: {} });
+        all.forEach(chatGone);
         consumeClear();
       }
       break;
@@ -319,6 +329,7 @@ export const pendingPermissionTitle = (session: ChatSession | undefined, info?: 
 
 /** The view each chat was last shown with, so leaving a chat and coming back keeps a plugin view. */
 export const lastChatViews = new Map<string, string>();
+onChatGone((id) => void lastChatViews.delete(id));
 
 /** A list far from App (a drawer, a row) asks for a chat; App opens it. */
 export const requestOpenChat = (chatId: string) => store.set({ openRequest: chatId });
