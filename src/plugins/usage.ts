@@ -288,7 +288,8 @@ function claudeUsageKind(raw: string): UsageMetric["kind"] {
 }
 
 async function fetchClaudeUsage(profile?: string): Promise<UsageInfo> {
-  if ((await billingMode("claude", profile)) === "api") return fetchCliSpend("claude", "Claude Code", profile);
+  const mode = await billingMode("claude", profile);
+  if (mode === "api") return fetchCliSpend("claude", "Claude Code", profile);
   let out: string;
   try {
     // Dedicated command (not the generic `run_plugin_command`): it
@@ -332,6 +333,16 @@ async function fetchClaudeUsage(profile?: string): Promise<UsageInfo> {
     // not a format change worth reporting.
     if (/subscription|contributing to your limits/i.test(out)) {
       return reauthInfo("claude auth login", debugText("Claude Code", sections));
+    }
+    // Not signed in to a plan as far as `claude auth status` tells (e.g. an
+    // account left in .claude.json by the desktop app, without CLI
+    // credentials): `/usage` then prints only the per-session cost summary.
+    if (mode !== "subscription" && /total cost:/i.test(out)) {
+      return {
+        fetchedAt: Date.now(),
+        ok: false,
+        metrics: [{ kind: "loggedOut", command: "claude auth login" }],
+      };
     }
     return unavailable("Claude Code", sections);
   }
