@@ -905,9 +905,9 @@ fn file_uri(path: &std::path::Path) -> String {
     uri
 }
 
-/// The ACP content block for one attachment: an inline `image` when the
-/// agent takes them, else a `resource_link` to a file (the baseline every
-/// agent accepts; it opens the file with its own tools). For an agent running
+/// The ACP content blocks for one attachment: a `resource_link` to the file
+/// (the baseline every agent accepts; it opens the file with its own tools),
+/// preceded by an inline `image` when it is a picture and the agent takes them. For an agent running
 /// in WSL (`wsl`) the link is the file's Linux path (`/mnt/c/...` for a
 /// Windows file), the only kind it can open.
 const MAX_ATTACHMENT_BYTES: usize = 32 * 1024 * 1024;
@@ -971,33 +971,31 @@ pub(crate) fn uploaded_attachment(id: &str, name: &str, mime: &str) -> Result<At
     Ok(Attachment { name: name.into(), mime: mime.into(), data: None, path: Some(path.to_string_lossy().into_owned()), upload: None })
 }
 
-fn attachment_block(a: &Attachment, images: bool, wsl: bool) -> Result<Value, String> {
+fn attachment_blocks(a: &Attachment, images: bool, wsl: bool) -> Result<Vec<Value>, String> {
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD;
     if a.data.as_ref().is_some_and(|data| data.len() > MAX_ATTACHMENT_BYTES.div_ceil(3) * 4) {
         return Err("attachment exceeds 32 MiB".into());
     }
-    if images && a.mime.starts_with("image/") {
-        let data = match (&a.data, &a.path) {
-            (Some(data), _) => data.clone(),
-            (None, Some(path)) => b64.encode(crate::chat_images::read_file(std::path::Path::new(path))?),
-            _ => return Err(format!("attachment {} has no content", a.name)),
-        };
-        return Ok(json!({ "type": "image", "mimeType": a.mime, "data": data }));
-    }
-    let path = match (&a.data, &a.path) {
+    let (path, bytes) = match (&a.data, &a.path) {
         (Some(data), _) => {
             let bytes = b64.decode(data).map_err(|e| format!("bad attachment {}: {e}", a.name))?;
-            stage_attachment(&a.name, &bytes)?.1
+            (stage_attachment(&a.name, &bytes)?.1, Some(bytes))
         }
-        (None, Some(path)) => std::path::PathBuf::from(path),
+        (None, Some(path)) => (std::path::PathBuf::from(path), None),
         _ => return Err(format!("attachment {} has no content", a.name)),
     };
     let uri = match wsl.then(|| to_wsl_path(&path.to_string_lossy())).flatten() {
         Some(posix) => file_uri(std::path::Path::new(&posix)),
         None => file_uri(&path),
     };
-    Ok(json!({ "type": "resource_link", "uri": uri, "name": a.name, "mimeType": a.mime }))
+    let link = json!({ "type": "resource_link", "uri": uri, "name": a.name, "mimeType": a.mime });
+    if images && a.mime.starts_with("image/") {
+        let bytes = match bytes { Some(bytes) => bytes, None => crate::chat_images::read_file(&path)? };
+        // Inline so the agent sees it at once, plus the link so its tools can use the file.
+        return Ok(vec![json!({ "type": "image", "mimeType": a.mime, "data": b64.encode(bytes) }), link]);
+    }
+    Ok(vec![link])
 }
 
 /// An attached picture stored for the UI to show; `None` for any other
@@ -2095,7 +2093,7 @@ impl ChatState {
         }
         let images = chat.prompt_images.load(Ordering::Acquire);
         for attachment in &attachments {
-            blocks.push(attachment_block(attachment, images, chat.wsl)?);
+            blocks.extend(attachment_blocks(attachment, images, chat.wsl)?);
         }
         let names = attachments.iter().map(|a| a.name.clone()).collect();
         let shown = attachments.iter().filter_map(shown_image).collect();
