@@ -713,32 +713,104 @@ th[style*="center"] .chat-table-sort {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
-.chat-table-backdrop {
-  position: fixed;
+/* Expanded table: a sheet over the chat pane only (the other panes stay
+ * usable), opaque so the conversation does not show through. */
+.chat-table-sheet {
+  position: absolute;
   inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: 32px;
-  background: rgba(0, 0, 0, 0.55);
-}
-
-.chat-table-dialog {
-  display: flex;
-  width: min(1100px, 100%);
-  max-height: 100%;
-}
-
-.chat-table-dialog .chat-table-card {
+  z-index: 50;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  box-shadow: var(--drop-shadow, 0 18px 48px rgba(0, 0, 0, 0.45));
+  background: var(--term-bg);
+  animation: chat-table-sheet-in 0.2s ease;
 }
 
-.chat-table-dialog .chat-table-scroll {
+@keyframes chat-table-sheet-in {
+  from { opacity: 0; transform: translateY(12px); }
+}
+
+.chat-table-sheet-head,
+.chat-table-sheet-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--card-border);
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.chat-table-sheet-tools {
+  gap: 10px;
+  background: var(--card-bg);
+}
+
+.chat-table-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+  padding: 5px 10px 5px 7px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chat-table-back:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.chat-table-filter {
+  flex: 0 1 280px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  background: var(--term-bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+.chat-table-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-table-count {
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.chat-table-sheet-body {
   flex: 1;
-  max-height: none;
+  min-height: 0;
+  overflow: auto;
+}
+
+.chat-table-sheet-body .chat-table {
+  font-size: 13.5px;
+}
+
+.chat-table-sheet-body .chat-table th {
+  background: linear-gradient(var(--card-bg), var(--card-bg)), var(--term-bg);
+}
+
+.chat-table-sheet-body .chat-table-sort {
+  padding: 9px 16px;
+}
+
+.chat-table-sheet-body .chat-table td {
+  padding: 8px 16px;
+}
+
+.chat-table-sheet-body .chat-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
 }
 
 .chat-link {

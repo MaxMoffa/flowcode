@@ -475,25 +475,85 @@ th[style*="center"] .chat-table-sort {
   border-bottom: none;
 }
 
+/* Expanded table: a full-screen sheet with a back bar and a row filter. */
 .chat-table-full {
   position: fixed;
   inset: 0;
   z-index: 1000;
   display: flex;
-  padding: calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px);
+  flex-direction: column;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
   background: var(--bg);
 }
 
-.chat-table-full .chat-table-card {
+.chat-table-sheet-head,
+.chat-table-sheet-tools {
   display: flex;
-  flex-direction: column;
-  width: 100%;
-  margin: 0;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
-.chat-table-full .chat-table-scroll {
+.chat-table-sheet-tools {
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+}
+
+.chat-table-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  margin-right: 4px;
+  padding: 0 10px 0 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+}
+
+.chat-table-sheet-head .chat-table-size {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-table-filter {
   flex: 1;
-  max-height: none;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+}
+
+.chat-table-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-table-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chat-table-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .chat-agent blockquote {

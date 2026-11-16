@@ -21,6 +21,8 @@ export function ChatTable({ table, cell }: { table: MdTable; cell: (text: string
   return <SharedChatTable table={table} cell={cell} useDismiss={useDesktopDismiss} labels={{
     size: t("chat.table.size", { rows: table.rows.length, cols: table.header.length }),
     copied: t("chat.table.copied"), close: t("chat.table.close"), expand: t("chat.table.expand"), sort: t("chat.table.sort"),
+    back: t("chat.table.back"), filter: t("chat.table.filter"),
+    shown: (shown, total) => t("chat.table.shown", { shown, total }),
     copyMarkdownTitle: t("chat.table.copyMarkdownTitle"), copyCsvTitle: t("chat.table.copyCsvTitle"),
   }} />;
 }

@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tre proposte per espandere una tabella in chat.">
+  <title>Flowcode — espansione tabella in chat · 3 varianti</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #17120e; --panel: #211a14; --raised: #2a221b; --surface: #1c1611;
+      --fg: #e7d8c5; --muted: #ad967c; --dim: #7f6e5d; --line: #3a2f25;
+      --accent: #a5bd8f; --accent-bg: #30382a; --hover: #ffffff07;
+      --card-bg: rgb(0 0 0 / 0.22); --zebra: #ffffff05;
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eee6d9; --panel: #fffaf1; --raised: #f0e8da; --surface: #f7f0e4;
+      --fg: #3a2b17; --muted: #806a50; --dim: #99856c; --line: #dfd3c2;
+      --accent: #4f6e3a; --accent-bg: #e5ebdc; --hover: #57371007;
+      --card-bg: rgb(0 0 0 / 0.04); --zebra: #57371006;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 "Segoe UI", system-ui, sans-serif; }
+    button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; transition: background .16s, color .16s, opacity .2s; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .page { max-width: 1180px; margin: auto; padding: 30px 38px 48px; }
+    .eyebrow { font-size: 10px; letter-spacing: .13em; color: var(--muted); margin-bottom: 7px; }
+    h1 { font-size: clamp(21px, 2.5vw, 30px); font-weight: 550; letter-spacing: -.035em; margin: 0 0 5px; }
+    .intro p { margin: 0 0 8px; color: var(--muted); max-width: 780px; }
+    .intro p:last-child { margin-bottom: 22px; }
+    .intro code { font: 12px var(--mono); color: var(--fg); }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .seg { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+    .seg button { padding: 8px 14px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+    .seg button span { margin-right: 7px; opacity: .6; font: 11px var(--mono); }
+    .seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); box-shadow: 0 1px 2px #0002; }
+    .seg button:hover:not([aria-pressed="true"]) { background: var(--hover); }
+    .spacer { flex: 1; }
+    .tool-btn { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .tool-btn:hover { color: var(--fg); }
+
+    .stage { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
+    @media (max-width: 980px) { .stage { grid-template-columns: 1fr; } }
+    .label { font-size: 10px; letter-spacing: .12em; color: var(--dim); margin: 0 0 8px; text-transform: uppercase; }
+
+    /* Finta finestra app */
+    .window { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 70px -40px #0009; }
+    .tabs { height: 38px; display: flex; align-items: end; gap: 2px; padding: 0 10px; background: var(--raised); border-bottom: 1px solid var(--line); }
+    .tab { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-radius: 8px 8px 0 0; font-size: 11.5px; color: var(--muted); }
+    .tab.is-active { background: var(--panel); color: var(--fg); }
+    .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: #d97757; }
+    .chat { position: relative; height: 600px; display: flex; flex-direction: column; overflow: hidden; }
+    .transcript { flex: 1; overflow: auto; padding: 22px 0 10px; }
+    .col { max-width: 680px; margin: 0 auto; padding: 0 24px; transition: max-width .28s ease; }
+    .msg { margin-bottom: 14px; color: var(--fg); }
+    .msg p { margin: 0 0 8px; }
+    .msg.user { display: flex; justify-content: flex-end; }
+    .msg.user div { background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; max-width: 70%; }
+    .composer { margin: 0 auto 16px; max-width: 680px; width: calc(100% - 48px); height: 46px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--dim); display: flex; align-items: center; padding: 0 14px; font-size: 12.5px; }
+
+    /* Card tabella (come oggi) */
+    .tcard { max-width: 100%; overflow: hidden; border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent); border-radius: 10px; background: var(--card-bg); margin: 0 0 8px; }
+    .tbar { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border-bottom: 1px solid color-mix(in srgb, var(--fg) 16%, transparent); color: var(--muted); font-size: 12px; }
+    .tbar .title { color: var(--fg); font-weight: 600; font-size: 12.5px; margin-right: 6px; }
+    .tbtn { padding: 2px 7px; border-radius: 4px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+    .tbtn:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+    .tbtn svg { width: 13px; height: 13px; }
+    .tbtn.is-x { width: 26px; height: 26px; justify-content: center; padding: 0; border-radius: 6px; }
+    .tscroll { max-height: 220px; overflow: auto; }
+    table { border-collapse: separate; border-spacing: 0; min-width: 100%; font-size: 13px; }
+    th, td { padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--fg) 12%, transparent); text-align: left; white-space: nowrap; }
+    th { position: sticky; top: 0; z-index: 1; background: var(--panel); font-weight: 600; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+    .pill { font: 11px var(--mono); padding: 1px 6px; border-radius: 4px; background: var(--accent-bg); color: var(--accent); }
+    .pill.warn { background: #3a2f1d; color: #d4af6e; }
+    :root[data-theme="light"] .pill.warn { background: #f3e8cf; color: #96701c; }
+
+    /* ── Ora (bug): dialog con card semitrasparente ── */
+    .ov { position: absolute; inset: 0; z-index: 20; display: none; }
+    .ov.is-open { display: grid; }
+    .now-backdrop { place-items: center; padding: 32px; background: rgba(0,0,0,.55); }
+    .now-backdrop .tcard { width: 100%; max-height: 100%; display: flex; flex-direction: column; margin: 0; box-shadow: 0 18px 48px rgba(0,0,0,.45); }
+    .now-backdrop .tscroll { flex: 1; max-height: none; }
+    .now-backdrop th { background: rgb(0 0 0 / 0.22); }
+
+    /* ── A: modale opaco con intestazione ── */
+    .a-backdrop { place-items: center; padding: 28px; background: rgb(10 7 5 / .62); backdrop-filter: blur(6px); animation: fade .18s ease; }
+    :root[data-theme="light"] .a-backdrop { background: rgb(60 40 20 / .28); }
+    .a-dialog { width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 30px 80px -20px #000a; overflow: hidden; animation: pop .2s cubic-bezier(.2,.9,.3,1.2); }
+    .a-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 18px; border-bottom: 1px solid var(--line); background: var(--raised); }
+    .a-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+    .a-head .meta { color: var(--muted); font-size: 12px; }
+    .a-dialog .tscroll { flex: 1; max-height: none; }
+    .a-dialog table { font-size: 13.5px; }
+    .a-dialog th { background: var(--raised); padding: 9px 14px; }
+    .a-dialog td { padding: 8px 14px; }
+    .a-dialog tbody tr:nth-child(even) td { background: var(--zebra); }
+    .a-foot { padding: 7px 18px; border-top: 1px solid var(--line); color: var(--dim); font-size: 11.5px; display: flex; gap: 14px; }
+    kbd { font: 10.5px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); }
+
+    /* ── B: allargamento inline nella chat ── */
+    .chat.b-wide .col.has-table { max-width: 100%; }
+    .chat.b-wide .tcard.is-target { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+    .chat.b-wide .tcard.is-target .tscroll { max-height: 420px; }
+    .chat.b-wide .tcard.is-target th { background: var(--surface); }
+    .chat.b-wide .tcard.is-target tbody tr:nth-child(even) td { background: var(--zebra); }
+    .tscroll { transition: max-height .28s ease; }
+
+    /* ── C: foglio che copre solo il riquadro chat ── */
+    .c-sheet { grid-template-rows: auto auto 1fr; background: var(--panel); animation: slide .22s ease; }
+    .c-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+    .c-back { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 7px; border-radius: 7px; color: var(--muted); }
+    .c-back:hover { background: var(--hover); color: var(--fg); }
+    .c-back svg { width: 14px; height: 14px; }
+    .c-head h3 { margin: 0; font-size: 13.5px; font-weight: 600; }
+    .c-tools { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
+    .c-search { flex: 0 1 260px; height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--fg); padding: 0 10px; font: inherit; font-size: 12px; }
+    .c-search:focus { outline: none; border-color: var(--accent); }
+    .c-count { color: var(--dim); font-size: 11.5px; }
+    .c-body { overflow: auto; }
+    .c-body table { font-size: 13.5px; }
+    .c-body th { background: var(--raised); padding: 9px 16px; }
+    .c-body td { padding: 8px 16px; }
+    .c-body tbody tr:nth-child(even) td { background: var(--zebra); }
+
+    @keyframes fade { from { opacity: 0 } }
+    @keyframes pop { from { opacity: 0; transform: scale(.97) translateY(6px) } }
+    @keyframes slide { from { opacity: 0; transform: translateY(14px) } }
+
+    /* Note laterali */
+    .notes { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+    .notes h2 { font-size: 15px; margin: 0 0 4px; font-weight: 600; }
+    .notes .tag { font: 11px var(--mono); color: var(--accent); margin-bottom: 10px; }
+    .notes p { margin: 0 0 10px; color: var(--muted); }
+    .notes ul { margin: 0 0 10px; padding-left: 18px; color: var(--muted); }
+    .notes li { margin-bottom: 4px; }
+    .notes b { color: var(--fg); font-weight: 600; }
+    .hint { margin-top: 10px; font-size: 11.5px; color: var(--dim); }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="intro">
+    <div class="eyebrow">FLOWCODE · CHAT · TABELLE</div>
+    <h1>Espandere una tabella in chat</h1>
+    <p>Problema di oggi: il dialog mette la card con <code>--card-bg: rgb(0 0 0 / .22)</code>, quindi <b>semitrasparente</b>, sopra un backdrop al 55%. La chat dietro si vede attraverso le righe, l'intestazione sticky è trasparente e il testo perde contrasto. In più non c'è titolo né una X chiara: per chiudere resta solo il bottone "Chiudi" piccolo nella barra.</p>
+    <p>Premi <b>Espandi</b> sulla tabella in ciascuna variante. "Ora" riproduce il bug come riferimento.</p>
+  </div>
+
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="Variante">
+      <button data-v="now" aria-pressed="false"><span>00</span>Ora (bug)</button>
+      <button data-v="a" aria-pressed="true"><span>A</span>Modale opaco</button>
+      <button data-v="b" aria-pressed="false"><span>B</span>Allargamento inline</button>
+      <button data-v="c" aria-pressed="false"><span>C</span>Foglio sulla chat</button>
+    </div>
+    <div class="spacer"></div>
+    <button class="tool-btn" id="theme">Tema chiaro / scuro</button>
+  </div>
+
+  <div class="stage">
+    <div>
+      <p class="label">Desktop · chat</p>
+      <div class="window">
+        <div class="tabs"><div class="tab is-active"><span class="dot"></span>Claude · flowcode</div><div class="tab">Terminale</div></div>
+        <div class="chat" id="chat">
+          <div class="transcript">
+            <div class="col"><div class="msg user"><div>Mi fai un riepilogo delle dipendenze con versione attuale e ultima disponibile?</div></div></div>
+            <div class="col"><div class="msg"><p>Ecco lo stato delle dipendenze principali del progetto. Quelle in giallo hanno una major nuova.</p></div></div>
+            <div class="col has-table"><div class="msg" id="tableSlot"></div></div>
+            <div class="col"><div class="msg"><p>Consiglio di aggiornare prima le patch e lasciare le major a un ramo separato. Vuoi che preparo i comandi?</p></div></div>
+          </div>
+          <div class="composer">Scrivi un messaggio…</div>
+          <div class="ov" id="overlay"></div>
+        </div>
+      </div>
+    </div>
+    <aside class="notes" id="notes"></aside>
+  </div>
+</div>
+
+<script>
+const head = ["Pacchetto", "Attuale", "Ultima", "Tipo", "Licenza", "Peso (kB)", "Usato in", "Note"];
+const rows = [
+  ["react", "18.3.1", "19.1.0", "major", "MIT", "6.4", "src, mobile, shared", "Server components non usati"],
+  ["@tauri-apps/api", "2.1.1", "2.5.0", "minor", "MIT", "41.2", "src", "Nuove API finestre"],
+  ["vite", "5.4.10", "6.2.3", "major", "MIT", "—", "build", "Cambia config env"],
+  ["katex", "0.16.11", "0.16.21", "patch", "MIT", "283.0", "chat", "—"],
+  ["mermaid", "11.4.0", "11.6.0", "minor", "MIT", "2 410.0", "chat", "Caricato lazy"],
+  ["xterm", "5.3.0", "5.5.0", "minor", "MIT", "312.5", "terminale", "Rinominato @xterm/xterm"],
+  ["iroh", "0.28.1", "0.34.0", "minor", "MIT/Apache", "—", "remote", "API endpoint cambiate"],
+  ["pdfjs-dist", "4.7.76", "5.1.91", "major", "Apache-2.0", "1 180.0", "browser", "Worker separato"],
+  ["typescript", "5.6.3", "5.8.2", "minor", "Apache-2.0", "—", "dev", "—"],
+  ["zustand", "4.5.5", "5.0.3", "major", "MIT", "1.1", "mobile", "Store da migrare"],
+  ["date-fns", "3.6.0", "4.1.0", "major", "MIT", "18.0", "shared", "Fusi orari"],
+  ["dompurify", "3.1.7", "3.2.4", "minor", "MPL/Apache", "21.3", "chat", "Fix sicurezza"],
+];
+const numCols = new Set([5]);
+const icon = {
+  expand: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9"/></svg>',
+  shrink: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 6.5h-4v-4M2.5 9.5h4v4M9.5 6.5 14 2M6.5 9.5 2 14"/></svg>',
+  x: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m4 4 8 8M12 4l-8 8"/></svg>',
+  back: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"/></svg>',
+};
+
+function tableHtml(filter = "") {
+  const f = filter.trim().toLowerCase();
+  const list = f ? rows.filter(r => r.some(c => c.toLowerCase().includes(f))) : rows;
+  const cell = (v, c) => c === 3 ? `<span class="pill${v === "major" ? " warn" : ""}">${v}</span>` : v;
+  return `<table><thead><tr>${head.map((h, c) => `<th class="${numCols.has(c) ? "num" : ""}">${h} <span style="opacity:.45;font-size:10px">↕</span></th>`).join("")}</tr></thead>
+    <tbody>${list.map(r => `<tr>${r.map((v, c) => `<td class="${numCols.has(c) ? "num" : ""}">${cell(v, c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+const size = `${rows.length} righe × ${head.length} colonne`;
+const bar = (expandLabel, expandIcon) => `<div class="tbar"><span>${size}</span><span class="spacer"></span>
+  <button class="tbtn">Markdown</button><button class="tbtn">CSV</button>
+  <button class="tbtn" data-act="toggle">${expandIcon ? icon[expandIcon] : ""}${expandLabel}</button></div>`;
+
+const notes = {
+  now: `<h2>Ora</h2><div class="tag">riferimento · bug</div>
+    <p>Stesso componente della chat, solo spostato in un portale sopra un backdrop scuro.</p>
+    <ul><li>Card e intestazione <b>trasparenti</b>: la chat sotto si legge attraverso le righe.</li>
+    <li>Nessun titolo, nessuna X: il dialog sembra la stessa card "ingrandita male".</li>
+    <li>Padding e font identici alla versione piccola: non si sfrutta lo spazio.</li></ul>`,
+  a: `<h2>A · Modale opaco</h2><div class="tag">fix minimo, stesso modello</div>
+    <p>Resta un dialog sopra l'app, ma fatto come un dialog vero.</p>
+    <ul><li>Superficie <b>piena</b> (<code>--panel</code>), intestazione sticky opaca, backdrop con blur.</li>
+    <li>Header con titolo, misure, Markdown/CSV e <b>X</b>; footer con <kbd>Esc</kbd>.</li>
+    <li>Righe a zebra e celle più ariose: leggibile anche con tante colonne.</li></ul>
+    <p><b>Costo:</b> basso, quasi solo CSS + header nel portale. Uguale su desktop e tablet.</p>`,
+  b: `<h2>B · Allargamento inline</h2><div class="tag">niente overlay</div>
+    <p>La tabella esce dalla colonna di lettura e prende tutta la larghezza della chat, più alta, nel punto in cui si trova.</p>
+    <ul><li>Nessun livello sopra: resta il contesto del messaggio sopra e sotto.</li>
+    <li>Bordo accent per capire quale tabella è allargata; il bottone diventa <b>Riduci</b>.</li>
+    <li>Limite: guadagna solo la larghezza del riquadro chat, non tutta la finestra.</li></ul>
+    <p><b>Costo:</b> medio — la colonna del messaggio deve poter "rompere" il <code>max-width</code>.</p>`,
+  c: `<h2>C · Foglio sulla chat</h2><div class="tag">vista dedicata</div>
+    <p>La tabella copre solo il riquadro della chat (non l'intera app), come una pagina con "Torna alla chat".</p>
+    <ul><li>Superficie piena, header con titolo e azioni, barra con <b>filtro righe</b> e conteggio.</li>
+    <li>Altri pannelli (terminale, browser) restano visibili e usabili accanto.</li>
+    <li>Stesso schema del telefono (<code>chat-table-full</code>): desktop e mobile si allineano.</li></ul>
+    <p><b>Costo:</b> medio — il portale va montato nel contenitore della chat; il filtro è opzionale.</p>`,
+};
+
+let variant = "a", open = false, filter = "";
+const chat = document.getElementById("chat"), overlay = document.getElementById("overlay"), slot = document.getElementById("tableSlot");
+
+function render() {
+  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === variant)));
+  document.getElementById("notes").innerHTML = notes[variant] + `<div class="hint">Premi “Espandi” sulla tabella. <kbd>Esc</kbd> chiude.</div>`;
+  const inlineWide = variant === "b" && open;
+  chat.classList.toggle("b-wide", inlineWide);
+  slot.innerHTML = `<div class="tcard is-target">${bar(inlineWide ? "Riduci" : "Espandi", inlineWide ? "shrink" : "expand")}<div class="tscroll">${tableHtml()}</div></div>`;
+
+  overlay.className = "ov";
+  overlay.innerHTML = "";
+  if (!open || variant === "b") return;
+  overlay.classList.add("is-open");
+  if (variant === "now") {
+    overlay.classList.add("now-backdrop");
+    overlay.innerHTML = `<div class="tcard">${bar("Chiudi")}<div class="tscroll">${tableHtml()}</div></div>`;
+  } else if (variant === "a") {
+    overlay.classList.add("a-backdrop");
+    overlay.innerHTML = `<div class="a-dialog" role="dialog" aria-modal="true" aria-label="Tabella">
+      <div class="a-head"><h3>Dipendenze</h3><span class="meta">· ${size}</span><span class="spacer"></span>
+        <button class="tbtn">Markdown</button><button class="tbtn">CSV</button>
+        <button class="tbtn is-x" data-act="close" title="Chiudi">${icon.x}</button></div>
+      <div class="tscroll">${tableHtml()}</div>
+      <div class="a-foot"><span><kbd>Esc</kbd> chiude</span><span>Clic su una colonna per ordinare</span></div></div>`;
+  } else if (variant === "c") {
+    overlay.classList.add("c-sheet");
+    overlay.innerHTML = `<div class="c-head"><button class="c-back" data-act="close">${icon.back}Torna alla chat</button>
+        <h3>Dipendenze</h3><span class="spacer"></span><button class="tbtn">Markdown</button><button class="tbtn">CSV</button></div>
+      <div class="c-tools"><input class="c-search" id="cSearch" placeholder="Filtra righe…" value="${filter}"><span class="c-count" id="cCount"></span></div>
+      <div class="c-body" id="cBody">${tableHtml(filter)}</div>`;
+    const input = document.getElementById("cSearch");
+    const count = () => document.getElementById("cCount").textContent = `${document.querySelectorAll("#cBody tbody tr").length} di ${rows.length} righe`;
+    count();
+    input.addEventListener("input", e => { filter = e.target.value; document.getElementById("cBody").innerHTML = tableHtml(filter); count(); });
+  }
+}
+
+document.addEventListener("click", e => {
+  const v = e.target.closest(".seg button");
+  if (v) { variant = v.dataset.v; open = false; filter = ""; return render(); }
+  const act = e.target.closest("[data-act]");
+  if (act) { open = act.dataset.act === "toggle" ? !open : false; return render(); }
+  if (open && (e.target === overlay) && (variant === "a" || variant === "now")) { open = false; render(); }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && open) { open = false; render(); } });
+document.getElementById("theme").addEventListener("click", () => {
+  const r = document.documentElement;
+  r.dataset.theme = r.dataset.theme === "light" ? "dark" : "light";
+});
+render();
+</script>
+</body>
+</html>

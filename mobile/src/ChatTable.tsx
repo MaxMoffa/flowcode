@@ -13,5 +13,7 @@ export function ChatTable({ table, cell }: { table: MdTable; cell: (text: string
   return <SharedChatTable table={table} cell={cell} useDismiss={usePhoneDismiss} fullScreen labels={{
     size: t("chatTableSize", { rows: table.rows.length, cols: table.header.length }),
     copied: t("chatTableCopied"), close: t("chatTableClose"), expand: t("chatTableExpand"), sort: t("chatTableSort"),
+    back: t("chatTableBack"), filter: t("chatTableFilter"),
+    shown: (shown, total) => t("chatTableShown", { shown, total }),
   }} />;
 }
