@@ -2322,11 +2322,18 @@ function Shell() {
 
   /** An agent picked on the new tab page: it starts in a new tab (see
    * `launchAgentInNewTab`) that takes the page's place, in its folder and
-   * under its account profile. The page stays if the agent can't start. */
+   * under its account profile (the folder's own project default, when the pick points elsewhere). The page stays if the agent can't start. */
   async function launchAgentFromNewTab(tabId: string, cli: AgentCli, cwd?: string, shell?: string) {
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     if (!tab?.newTab) return;
-    if (!(await launchAgentInNewTab(cli, cwd || tab.cwd || homeDir, shell, tab.profileId))) return;
+    const startDir = cwd || tab.cwd || homeDir;
+    // A folder other than the one the page showed (a recent, a favorite, a
+    // folder found by search) may have its own project default profile -
+    // unless the profile was picked on purpose (as `launchFromNewTab` does).
+    const wsl = !!wslDistroOfPath(startDir) || wslDistroOfShell(shell) !== undefined;
+    const lookup = !wsl && !!cwd && cwd !== tab.cwd && !explicitProfileRef.current.has(tabId);
+    const profile = lookup ? ((await automaticProfile(tabId, startDir, false)) ?? tab.profileId) : tab.profileId;
+    if (!(await launchAgentInNewTab(cli, startDir, shell, profile))) return;
     setTabs((prev) => prev.filter((t) => t.id !== tabId));
     forgetTab(tabId);
     setActiveTerminalId((active) => (active === tabId ? (latestRef.current.tabs.find((t) => t.kind === "terminal" && t.id !== tabId)?.id ?? "") : active));

@@ -122,8 +122,10 @@
   display: flex;
   flex-direction: column;
   width: min(640px, 100%);
-  /* The list scrolls inside the panel rather than the panel outgrowing the page. */
-  max-height: calc(100cqh - 96px);
+  /* A fixed height: the card neither shrinks nor grows as the search narrows the
+     list (only .glass-body scrolls), and never outgrows the page. */
+  height: min(560px, calc(100cqh - 96px));
+  min-height: 300px;
   border: 1px solid var(--glass-edge);
   border-radius: 16px;
   background: var(--glass-fill);
@@ -260,17 +262,79 @@
   font-size: 13px;
 }
 
+/* Registered so the row's mask edges can animate (as the tab strip's do). */
+@property --agent-fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --agent-fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* The agents in one row that scrolls sideways, with no scrollbar. The arrows
+   (.term-tab-fade, from the tab strip) float over its faded edges. */
+.glass-agents-wrap {
+  position: relative;
+}
+
 .glass-agents {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  display: flex;
   gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* A chip scrolled into view clears the faded edges. */
+  scroll-padding-inline: 76px;
+  --agent-fade-left: 0px;
+  --agent-fade-right: 0px;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent calc(var(--agent-fade-left) * 0.55),
+    #000 var(--agent-fade-left),
+    #000 calc(100% - var(--agent-fade-right)),
+    transparent calc(100% - var(--agent-fade-right) * 0.55)
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent calc(var(--agent-fade-left) * 0.55),
+    #000 var(--agent-fade-left),
+    #000 calc(100% - var(--agent-fade-right)),
+    transparent calc(100% - var(--agent-fade-right) * 0.55)
+  );
+  transition: --agent-fade-left 160ms ease, --agent-fade-right 160ms ease;
+}
+
+.glass-agents::-webkit-scrollbar {
+  display: none;
+}
+
+.glass-agents.fade-left {
+  --agent-fade-left: 76px;
+}
+
+.glass-agents.fade-right {
+  --agent-fade-right: 76px;
+}
+
+/* The tab strip's arrow zones, wider and centred on the chips. */
+.glass-agents-wrap .term-tab-fade {
+  width: 76px;
+  align-items: center;
+}
+
+.glass-agents-wrap .term-tab-scroll {
+  margin-bottom: 0;
 }
 
 .glass-agent {
   display: flex;
+  flex: 0 0 auto;
+  min-width: 128px;
   align-items: center;
   gap: 10px;
-  min-width: 0;
   height: 44px;
   padding: 0 12px;
   border: 1px solid var(--glass-edge);
@@ -402,6 +466,99 @@
 .glass-favorite.is-selected,
 .glass-result.is-selected {
   background: var(--glass-selected);
+}
+
+/* ---------- search: filters, folders, paths ---------- */
+
+.glass-filters {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  padding: 10px 20px 0;
+}
+
+.glass-filter {
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.glass-filter:hover {
+  background: var(--glass-hover);
+}
+
+.glass-filter[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--glass-selected);
+}
+
+/* Where the folders were searched - a note, not a control. */
+.glass-scope {
+  max-width: 60%;
+  margin-left: auto;
+  padding: 2px 9px;
+  overflow: hidden;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.glass-section > .glass-heading:has(.glass-scope) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.glass-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+.glass-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--glass-edge);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: glass-spin 0.8s linear infinite;
+}
+
+@keyframes glass-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.glass-pathline {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.glass-pathline span {
+  opacity: 0.8;
+}
+
+.glass-result-name mark {
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ---------- foot ---------- */

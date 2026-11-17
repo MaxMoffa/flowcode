@@ -104,18 +104,26 @@ pub async fn read_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FsE
 /// and would otherwise dominate the (capped) result list with noise.
 const SEARCH_IGNORE_DIRS: &[&str] = &["node_modules", ".git", "target", "dist", "build", ".next", ".venv", "__pycache__"];
 const SEARCH_MAX_RESULTS: usize = 300;
+/// Skipped as well by a folders-only search: per-user app data (Windows,
+/// macOS), huge and never a project folder.
+const FOLDER_SEARCH_SKIP_DIRS: &[&str] = &["AppData", "Application Data", "Library"];
 
 /// A walk gives up after this long, however big the tree.
 const SEARCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
-/// The newest search each window has asked for (by label; the frontend's
-/// counter is per webview): an older walk of the same window sees it move on
-/// and stops (one is started per keystroke). Other windows don't interfere.
+/// The newest search each window has asked for (by label plus the caller's
+/// `channel`; the frontend's counter is per webview and per caller): an older
+/// walk of the same window and channel sees it move on and stops (one is
+/// started per keystroke). Other windows and channels don't interfere.
 static SEARCH_GENERATIONS: std::sync::Mutex<Option<std::collections::HashMap<String, u64>>> =
     std::sync::Mutex::new(None);
 
 struct SearchWalk<'a> {
     query: &'a str,
     show_hidden: bool,
+    /// Only folders count as matches (the new tab picks a folder to open).
+    dirs_only: bool,
+    /// How many folder levels below the start the walk reads; `None`: no limit.
+    max_depth: Option<u32>,
     label: String,
     generation: u64,
     deadline: std::time::Instant,
@@ -133,7 +141,7 @@ impl SearchWalk<'_> {
     }
 }
 
-fn search_dir_recursive(dir: &Path, walk: &SearchWalk, results: &mut Vec<FsEntry>) {
+fn search_dir_recursive(dir: &Path, walk: &SearchWalk, depth: u32, results: &mut Vec<FsEntry>) {
     let Ok(read) = std::fs::read_dir(dir) else { return };
     for entry in read.filter_map(|e| e.ok()) {
         if results.len() >= SEARCH_MAX_RESULTS || walk.stopped() {
@@ -147,14 +155,19 @@ fn search_dir_recursive(dir: &Path, walk: &SearchWalk, results: &mut Vec<FsEntry
         if is_dir && SEARCH_IGNORE_DIRS.contains(&name.as_str()) {
             continue;
         }
+        // A folder search from the home (the new tab) would otherwise spend its
+        // whole deadline in the OS's app data, which sorts before Documents.
+        if is_dir && walk.dirs_only && FOLDER_SEARCH_SKIP_DIRS.contains(&name.as_str()) {
+            continue;
+        }
         let path = entry.path();
-        if name.to_lowercase().contains(walk.query) {
+        if (is_dir || !walk.dirs_only) && name.to_lowercase().contains(walk.query) {
             results.push(FsEntry::new(&path, is_dir));
         }
         // Links are navigable in the explorer, but a recursive search must
         // not follow them into cycles or outside the chosen tree.
-        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            search_dir_recursive(&path, walk, results);
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) && walk.max_depth.is_none_or(|max| depth + 1 < max) {
+            search_dir_recursive(&path, walk, depth + 1, results);
         }
     }
 }
@@ -164,16 +177,22 @@ fn search_dir_recursive(dir: &Path, walk: &SearchWalk, results: &mut Vec<FsEntry
 /// `show_hidden`) dotfiles, and stops at `SEARCH_MAX_RESULTS` matches so a
 /// broad query over a big tree can't run forever. `generation` counts the
 /// frontend's searches up: a walk stops once a newer one has been asked for,
-/// and in any case after `SEARCH_DEADLINE`.
+/// and in any case after `SEARCH_DEADLINE`. `dirs_only` keeps folders only and
+/// `max_depth` caps how many levels the walk reads (1: just `path`'s
+/// children); both default to the unrestricted walk. `channel` keeps one
+/// caller's counter from cancelling another's in the same window.
 #[tauri::command]
 pub async fn search_dir(
     path: String,
     query: String,
     show_hidden: Option<bool>,
     generation: u64,
+    dirs_only: Option<bool>,
+    max_depth: Option<u32>,
+    channel: Option<String>,
     window: tauri::WebviewWindow,
 ) -> Result<Vec<FsEntry>, String> {
-    let label = window.label().to_string();
+    let label = format!("{}|{}", window.label(), channel.unwrap_or_default());
     {
         let mut map = SEARCH_GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
         let latest = map.get_or_insert_with(Default::default).entry(label.clone()).or_insert(0);
@@ -188,11 +207,13 @@ pub async fn search_dir(
         let walk = SearchWalk {
             query: &query,
             show_hidden: show_hidden.unwrap_or(false),
+            dirs_only: dirs_only.unwrap_or(false),
+            max_depth,
             label,
             generation,
             deadline: std::time::Instant::now() + SEARCH_DEADLINE,
         };
-        search_dir_recursive(Path::new(&path), &walk, &mut results);
+        search_dir_recursive(Path::new(&path), &walk, 0, &mut results);
         sort_entries(&mut results);
         Ok(results)
     })
@@ -840,6 +861,46 @@ mod tests {
             let _ = (target, link);
             false
         }
+    }
+
+    fn walk_for(query: &str, dirs_only: bool, max_depth: Option<u32>) -> SearchWalk<'_> {
+        SearchWalk {
+            query,
+            show_hidden: false,
+            dirs_only,
+            max_depth,
+            label: format!("test-{}", uuid::Uuid::new_v4()),
+            generation: 1,
+            deadline: std::time::Instant::now() + SEARCH_DEADLINE,
+        }
+    }
+
+    fn search_names(root: &Path, walk: &SearchWalk) -> Vec<String> {
+        let mut results = Vec::new();
+        search_dir_recursive(root, walk, 0, &mut results);
+        let mut names: Vec<String> = results.into_iter().map(|e| e.name).collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn search_can_keep_folders_only() {
+        let scratch = Scratch::new();
+        std::fs::create_dir(scratch.0.join("app-dir")).unwrap();
+        std::fs::write(scratch.0.join("app.txt"), "").unwrap();
+        assert_eq!(search_names(&scratch.0, &walk_for("app", false, None)), ["app-dir", "app.txt"]);
+        assert_eq!(search_names(&scratch.0, &walk_for("app", true, None)), ["app-dir"]);
+    }
+
+    #[test]
+    fn search_stops_at_max_depth() {
+        let scratch = Scratch::new();
+        std::fs::create_dir_all(scratch.0.join("a").join("b").join("target-c")).unwrap();
+        std::fs::create_dir_all(scratch.0.join("target-a")).unwrap();
+        assert_eq!(search_names(&scratch.0, &walk_for("target", true, Some(1))), ["target-a"]);
+        assert_eq!(search_names(&scratch.0, &walk_for("target", true, Some(2))), ["target-a"]);
+        assert_eq!(search_names(&scratch.0, &walk_for("target", true, Some(3))), ["target-a", "target-c"]);
+        assert_eq!(search_names(&scratch.0, &walk_for("target", true, None)), ["target-a", "target-c"]);
     }
 
     #[test]

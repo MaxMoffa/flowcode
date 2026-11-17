@@ -85,7 +85,7 @@ const AUTOSCROLL_MAX = 14;
  * --tab-fade-* in tabstrip.css): tabs scrolled into view clear it. */
 const FADE_WIDTH = 48;
 
-function ChevronIcon({ direction }: { direction: "left" | "right" }) {
+export function ChevronIcon({ direction }: { direction: "left" | "right" }) {
   return (
     <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d={direction === "left" ? "M15 6 9 12l6 6" : "M9 6l6 6-6 6"} />

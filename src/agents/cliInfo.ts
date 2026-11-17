@@ -48,6 +48,13 @@ export function invalidateCliStatus(cli: AgentCli): void {
   cliStatusInFlight.delete(cli);
 }
 
+/** The cached answer for `cli`, if there is a fresh one - synchronously, so a
+ * first render can already use it. */
+export function cachedCliStatus(cli: AgentCli): CliStatus | undefined {
+  const hit = cliStatusCache.get(cli);
+  return hit && Date.now() - hit.at < CLI_STATUS_TTL_MS ? hit.status : undefined;
+}
+
 /** Whether a CLI is installed and signed in under the default profile (the
  * probe may spawn the CLI, hence the cache); `null` when the check failed.
  * `fresh` skips the cached answer. */
