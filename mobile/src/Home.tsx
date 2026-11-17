@@ -133,6 +133,7 @@ export function Launcher({ hostName, tabs, onCreate, pending }: { hostName: stri
   // Spoken phrases land after what is already written, like in the chat composer.
   const dictation = useDictation((spoken) => setDraft(appendDictation(draftRef.current, spoken)), true);
   const listening = dictation.state === "listening";
+  const transcribing = dictation.state === "transcribing";
 
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
   const cwd = folder.cwd;
@@ -197,8 +198,8 @@ export function Launcher({ hostName, tabs, onCreate, pending }: { hostName: stri
               <span>{cwd ? shortCwd(cwd) : t("newTermStartFolder")}</span>
             </button>
             {dictation.supported && (
-              <button type="button" className="hm-mic" aria-label={t("dictate")} aria-pressed="false" onClick={() => { tapFeedback(); void dictation.start(); }}>
-                <MicIcon />
+              <button type="button" className={"hm-mic" + (transcribing ? " is-transcribing" : "")} aria-label={transcribing ? t("dictateTranscribing") : t("dictate")} aria-pressed="false" aria-busy={transcribing} onClick={() => { if (transcribing) return; tapFeedback(); void dictation.start(); }}>
+                {transcribing ? <span className="pend-spinner" aria-hidden="true" /> : <MicIcon />}
               </button>
             )}
             <button type="button" className="hm-go" aria-label={t("homeStart")} disabled={!draft.trim() || (!!pending && !pending.failed)} onClick={submit}>

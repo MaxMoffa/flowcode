@@ -2414,6 +2414,12 @@ button.chat-step-row {
   color: var(--fg);
 }
 
+/* Stopped: waiting for the last phrase. */
+.chat-round.chat-mic.is-transcribing .pend-spinner {
+  width: 18px;
+  height: 18px;
+}
+
 .chat-round.chat-mic.is-listening {
   background: var(--accent);
   color: var(--on-accent);

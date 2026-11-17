@@ -28,6 +28,9 @@ export function dictationError(code: string | null | undefined): string {
   return t((code && ERRORS[code]) || "dictateErrUnknown");
 }
 
+/** Longest "transcribing" wait after a stop (the desktop gives up on its own after 20 s). */
+const SETTLE_MAX_MS = 25_000;
+
 /** Whether the phone can dictate; asked once. */
 let supportedProbe: Promise<boolean> | null = null;
 function probeSupported(): Promise<boolean> {
@@ -66,6 +69,12 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
   const remoteRef = useRef<RemoteSession | null>(null);
   // Bumped by every start and cancel, so a start that lost its race does not fall back.
   const startRef = useRef(0);
+  // After `stop`, "transcribing" until the last phrase is in; this only guards against an end that never comes.
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const settle = useCallback((next: DictationState) => {
+    clearTimeout(settleTimer.current);
+    setState(next);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,23 +93,24 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
         setPartial("");
         if (e.payload.reason === "error") {
           setError(dictationError(e.payload.message));
-          setState("error");
+          settle("error");
         } else {
-          setState("idle");
+          settle("idle");
         }
       }),
     ]);
     return () => {
       cancelled = true;
       unlisten.then((fns) => fns.forEach((fn) => fn()));
+      clearTimeout(settleTimer.current);
     };
-  }, []);
+  }, [settle]);
 
   const start = useCallback(async () => {
     droppedRef.current = false;
     setError(null);
     setPartial("");
-    setState("listening");
+    settle("listening");
     const token = ++startRef.current;
     // A stopped session still waiting for its last finals gives way to this one.
     remoteRef.current?.cancel();
@@ -121,9 +131,9 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
           setPartial("");
           if (reason === "error") {
             setError(dictationError(code));
-            setState("error");
+            settle("error");
           } else {
-            setState("idle");
+            settle("idle");
           }
         },
       });
@@ -134,6 +144,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
       } catch (e) {
         console.debug("remote dictation unavailable, using the phone's recognizer:", String(e));
         if (remoteRef.current === session) remoteRef.current = null;
+        // Stopped before the desktop was ready: no phrase will come, the wait is over.
+        if (startRef.current === token && stateRef.current === "transcribing") settle("idle");
         // Stopped or cancelled meanwhile: nothing to fall back to.
         if (startRef.current !== token || stateRef.current !== "listening") return;
       }
@@ -142,18 +154,21 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
       await invoke("speech_start", { language: speechLocale() });
     } catch (e) {
       setError(String(e));
-      setState("error");
+      settle("error");
     }
-  }, []);
+  }, [settle]);
 
-  /** Ends the phrase; what was heard so far still arrives as final. */
+  /** Ends the phrase; what was heard so far still arrives as final, while the state says "transcribing". */
   const stop = useCallback(() => {
     if (stateRef.current !== "listening") return;
-    setState("idle");
+    settle("transcribing");
+    settleTimer.current = setTimeout(() => {
+      if (stateRef.current === "transcribing") setState("idle");
+    }, SETTLE_MAX_MS);
     setPartial("");
     if (remoteRef.current) remoteRef.current.stop();
     else invoke("speech_stop").catch(() => {});
-  }, []);
+  }, [settle]);
 
   /** Drops the session without a result - also the phrase a session already stopped may still deliver. */
   const cancel = useCallback(() => {
@@ -162,15 +177,17 @@ export function useDictation(onFinal: (text: string) => void, active: boolean) {
     const remote = remoteRef.current;
     remoteRef.current = null;
     remote?.cancel();
-    if (stateRef.current !== "listening") return;
-    setState("idle");
+    const was = stateRef.current;
+    if (was !== "listening" && was !== "transcribing") return;
+    settle("idle");
     setPartial("");
     if (!remote) invoke("speech_cancel").catch(() => {});
-  }, []);
+  }, [settle]);
 
   const toggle = useCallback(() => {
     if (stateRef.current === "listening") stop();
-    else void start();
+    // Still waiting for the last phrase: a tap must not drop it.
+    else if (stateRef.current !== "transcribing") void start();
   }, [start, stop]);
 
   const dismissError = useCallback(() => {

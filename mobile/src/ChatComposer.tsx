@@ -246,6 +246,7 @@ ${latest.current}` : added);
     if (dictation.supported && takeAutoDictation(chatId)) dictation.start();
   }, [dictation.supported, dictation.start, chatId]);
   const listening = dictation.state === "listening";
+  const transcribing = dictation.state === "transcribing";
   const elapsed = useElapsed(listening);
   const dictate = () => {
     tapFeedback();
@@ -460,8 +461,8 @@ ${latest.current}` : added);
               </>
             )}
             {dictation.supported && (
-              <button type="button" {...keepFocus} className={"chat-round chat-mic" + (listening ? " is-listening" : "")} aria-label={t("dictate")} aria-pressed={listening} onClick={dictate}>
-                <MicIcon />
+              <button type="button" {...keepFocus} className={"chat-round chat-mic" + (listening ? " is-listening" : "") + (transcribing ? " is-transcribing" : "")} aria-label={transcribing ? t("dictateTranscribing") : t("dictate")} aria-pressed={listening} aria-busy={transcribing} onClick={dictate}>
+                {transcribing ? <span className="pend-spinner" aria-hidden="true" /> : <MicIcon />}
               </button>
             )}
             {busy && !text.trim() && !picked && attach.items.length === 0 ? (

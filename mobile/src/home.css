@@ -206,6 +206,12 @@
   color: var(--fg);
 }
 
+/* Stopped: waiting for the last phrase. */
+.hm-mic.is-transcribing .pend-spinner {
+  width: 18px;
+  height: 18px;
+}
+
 .hm-mic + .hm-go {
   margin-left: 0;
 }
