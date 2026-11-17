@@ -128,14 +128,29 @@
   padding: 16px 18px 12px;
 }
 
-/* Under the phone's floating buttons: the thread starts below them and fades out as it passes behind. */
+/* Under the phone's floating buttons: the thread starts below them and fades out as it passes behind.
+   A long ease-out curve with many stops, so there is no visible edge where the fade begins or ends. */
 .has-floating-top .chat-thread-wrap {
   border-top: 0;
 }
 
 .has-floating-top .chat-thread {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 40px, #000 110px);
-  mask-image: linear-gradient(to bottom, transparent 0, transparent 40px, #000 110px);
+  --chat-top-fade: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0.06) 16px,
+    rgba(0, 0, 0, 0.14) 34px,
+    rgba(0, 0, 0, 0.24) 54px,
+    rgba(0, 0, 0, 0.36) 76px,
+    rgba(0, 0, 0, 0.5) 100px,
+    rgba(0, 0, 0, 0.64) 126px,
+    rgba(0, 0, 0, 0.78) 154px,
+    rgba(0, 0, 0, 0.9) 184px,
+    rgba(0, 0, 0, 0.97) 212px,
+    #000 234px
+  );
+  -webkit-mask-image: var(--chat-top-fade);
+  mask-image: var(--chat-top-fade);
 }
 
 .has-floating-top .chat-thread-inner {
