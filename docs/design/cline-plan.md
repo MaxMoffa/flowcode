@@ -38,7 +38,24 @@ Base già in master (PR #3): `src-tauri/src/cline.rs` (quote ClinePass via `api.
 - `cline history --json --limit N`: array di sessioni con `sessionId`, `source` (es. `cline-desktop-agent`), `pid`, `startedAt`, `endedAt`, `status` (`completed`/`failed`), `provider`, `model`, `cwd`, `workspaceRoot`, `isSubagent`, `prompt`, `metadata.title`, `metadata.usage {inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalCost}`, `metadata.aggregateUsage`, `messagesPath` (`data/sessions/<id>/<id>.messages.json`), `updatedAt`. Basta per History, sessione live (`pid` + `status`), spesa e contesto: niente sqlite da leggere.
 - Sul PC esiste già `~/.cline/data` (`db`, `logs`, `sessions`, sessioni di settembre da `cline-desktop-agent`) ma **nessun** `data/settings/providers.json`: oggi non c'è login.
 
-## Fase 0: ancora da verificare (serve il login)
+## Fase 0: verificato dal vivo con login (2026-11-17, Windows, account Cline OAuth)
+
+- `providers.json` dopo `cline auth`: `lastUsedProvider`, `providers.cline.settings.{provider, model, reasoning, auth}`, `tokenSource: "oauth"`. `auth.accessToken` è già prefissato `workos:` (compatibile con `cline.rs`), più `refreshToken`, `expiresAt`, `accountId`, `metadata.userInfo {email, name, firstName, lastName, clineUserId, accounts}` → l'email per "account identity" si legge da qui.
+- Quote: per un account senza piano `GET .../plan/usage-limits` risponde **HTTP 404** `{"data":null,"error":"no plan history found for user","success":false}`. `cline.rs` oggi lo tratta come errore: va mappato su `NoPlan`.
+- `session/new` → `sessionId` (es. `1794922229282_dSihr_cli`), `modes` (`plan`/`act`, corrente `act`), `models.availableModels` (catalogo Cline, ~decine), modello di default `anthropic/claude-sonnet-5.5`. Niente `configOptions`, niente `available_commands_update`, niente `usage_update` visti.
+- Tool call:
+  - L'agente **scrive i file da solo** (non usa `fs/write_text_file`) ed esegue i comandi da solo (non usa `terminal/*`).
+  - `edit`: `rawInput {path, new_text}`; `execute`: `rawInput {commands: [..]}`, `rawOutput` = array di `{query, result, success}`.
+  - Titoli grezzi: `editor: {"path":...` e `run_commands: dir` → Flowcode deve ricavare un titolo leggibile da `kind` + `rawInput`.
+  - **Ordine invertito in diretta**: `tool_call_update` (pending → permesso → in_progress) arriva **prima** del `tool_call`; il `tool_call` poi riparte da `pending`. Il modello chat deve creare la card al primo update sconosciuto e non far regredire lo stato quando arriva il `tool_call`.
+  - Permessi: `session/request_permission` con `allow_once` / `allow_always` / `reject_once` (standard).
+- `session/load` funziona: replay di `user_message_chunk`, testo, `tool_call` e `tool_call_update` (in replay l'ordine è corretto; `rawOutput` è una stringa JSON, non un oggetto), poi risponde con `modes`/`models`. Il nuovo prompt vede il contesto precedente.
+- Fine turno: `session_info_update {updatedAt}`, poi `stopReason: "end_turn"`.
+- History: la sessione ACP appare in `cline history --json` con `source: "cli"`, `pid`, `model`, titolo = primo prompt, `metadata.usage.totalCost` (es. 0,033 $ per il turno di prova). Se il processo viene ucciso lo stato diventa `failed` (`terminal_marker: failed_external_process_exit`).
+- Hub: la prima sessione avvia `cline.exe --cline-hub-daemon --cwd <cwd della chat> --host 127.0.0.1 --port <casuale> --pathname /hub`, che **resta vivo** dopo la chiusura di ACP. Con l'hub attivo, un `cline --acp` con `CLINE_DIR` vuota chiede comunque l'autenticazione → l'isolamento dei profili regge anche con l'hub condiviso.
+- Non verificato: WSL con login, subagenti (`spawn`), comandi in background, errore strutturato di limite/credito esaurito.
+
+## Fase 0: punti residui (durante la Fase 1)
 
 Serve Cline installato (Windows + WSL): `npm i -g cline`.
 1. `cline --acp`: handshake `initialize` (capability: `loadSession`, immagini, `promptCapabilities`), `session/new`, `session/load`, modalità e modelli esposti, forma delle tool call (shell, edit, spawn), errore strutturato su limite/quota.
