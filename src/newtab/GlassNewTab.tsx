@@ -260,8 +260,10 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
       }
       style={style}
       hidden={hidden}
-      // A press on the scrim, not on the panel: the dialog closes.
-      onMouseDown={dialog ? (e) => !(e.target as Element).closest(".glass-panel") && onDismiss?.() : undefined}
+      // A press on the scrim, not on the panel: the dialog closes. The profile
+      // menu is portaled out of the panel, but React still bubbles its presses
+      // here - they are not outside clicks.
+      onMouseDown={dialog ? (e) => !(e.target as Element).closest(".glass-panel, [data-profile-select-menu]") && onDismiss?.() : undefined}
     >
       {!dialog && <div className="glass-newtab-backdrop" aria-hidden="true" />}
       {!dialog && <div className="glass-newtab-grain" aria-hidden="true" />}
