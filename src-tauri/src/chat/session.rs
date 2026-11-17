@@ -107,6 +107,8 @@ pub(super) struct Chat {
     pub(super) launches: Mutex<Vec<(String, String)>>,
     /// Cline: ids of the tool calls already seen (it sends a `tool_call` after the updates of the same call).
     pub(super) cline_tools: Mutex<std::collections::HashSet<String>>,
+    /// Cline: the `spawn_agent` calls (sub-agents) seen and the ones still running.
+    pub(super) cline_spawns: Mutex<cline::Spawns>,
     /// The agent announced it takes image blocks in a prompt (`promptCapabilities.image`).
     pub(super) prompt_images: AtomicBool,
     /// What the views were told about the chat's goal.
@@ -212,6 +214,7 @@ impl Chat {
         *lock(&self.stale_session) = Some(session_id.to_string());
         log.reset();
         lock(&self.cline_tools).clear();
+        *lock(&self.cline_spawns) = cline::Spawns::default();
     }
 
     /// The new session took the id of the one `forget_session` dropped (an
@@ -583,6 +586,7 @@ impl Chat {
                         let mut update = update.clone();
                         if self.agent == "cline" {
                             cline::normalize_cline_tool(&mut update, &mut lock(&self.cline_tools));
+                            cline::mark_spawns(&mut update, &mut lock(&self.cline_spawns));
                         }
                         if !route_child_update(&mut lock(&self.children), &params, &mut update) {
                             return;

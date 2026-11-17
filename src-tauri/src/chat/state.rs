@@ -849,6 +849,7 @@ pub(super) fn start_once(
         children: Mutex::new(HashMap::new()),
         launches: Mutex::new(Vec::new()),
         cline_tools: Mutex::new(std::collections::HashSet::new()),
+        cline_spawns: Mutex::new(cline::Spawns::default()),
         prompt_images: AtomicBool::new(false),
         goal: Mutex::new(goal::GoalTrack::default()),
         resume: Mutex::new(None),

@@ -55,7 +55,7 @@ fn readable_title(word: &str, rest: &str, kind: &str, raw_input: Option<&Value>)
 /// The text of a tool's results: `{result}` or `[{query, result}]`.
 fn output_text(raw: &Value) -> Option<String> {
     let results: Vec<&str> = match raw {
-        Value::Object(_) => raw["result"].as_str().into_iter().collect(),
+        Value::Object(_) => raw["result"].as_str().or_else(|| raw["text"].as_str()).into_iter().collect(),
         Value::Array(items) => items.iter().filter_map(|i| i["result"].as_str()).collect(),
         _ => return None,
     };
@@ -104,6 +104,62 @@ pub(super) fn normalize_cline_tool(update: &mut Value, seen: &mut HashSet<String
             obj.insert("content".into(), json!([{ "type": "content", "content": { "type": "text", "text": text } }]));
         }
     }
+}
+
+/// Cline sub-agents (`spawn_agent`): the child's text and tool calls arrive on the parent session with
+/// nothing marking them, while the spawn call is `in_progress`.
+#[derive(Default)]
+pub(super) struct Spawns {
+    /// Ids of the spawn calls seen.
+    known: HashSet<String>,
+    /// Spawn calls running (in_progress, not finished), oldest first.
+    active: Vec<String>,
+}
+
+/// Marks sub-agent traffic of a (normalized) Cline update: the spawn call becomes a launch the chat
+/// model recognizes (`rawInput.subagent_type` + `description` / `prompt` from `task`), and while one runs
+/// every other update of the session is stamped `_meta.claudeCode.parentToolUseId` = the spawn call.
+/// Limitation: Cline may run several spawns in parallel and nothing tells their output apart, so the
+/// updates go to the OLDEST running one.
+pub(super) fn mark_spawns(update: &mut Value, spawns: &mut Spawns) {
+    let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("").to_string();
+    let is_tool = kind == "tool_call" || kind == "tool_call_update";
+    if !is_tool && kind != "agent_message_chunk" && kind != "agent_thought_chunk" {
+        return;
+    }
+    let Some(obj) = update.as_object_mut() else { return };
+    let id = obj.get("toolCallId").and_then(Value::as_str).map(str::to_string);
+    if is_tool {
+        let is_spawn = obj.get("toolName").and_then(Value::as_str) == Some("spawn_agent")
+            || id.as_ref().is_some_and(|i| spawns.known.contains(i));
+        if is_spawn {
+            let Some(id) = id else { return };
+            spawns.known.insert(id.clone());
+            if let Some(Value::Object(input)) = obj.get_mut("rawInput") {
+                if let Some(task) = input.get("task").and_then(Value::as_str).map(str::to_string) {
+                    input.entry("description").or_insert_with(|| json!(task));
+                    input.entry("prompt").or_insert_with(|| json!(task));
+                }
+                input.entry("subagent_type").or_insert_with(|| json!("Cline"));
+            }
+            match obj.get("status").and_then(Value::as_str) {
+                Some("in_progress") if !spawns.active.contains(&id) => spawns.active.push(id),
+                Some("completed" | "failed") => spawns.active.retain(|a| *a != id),
+                _ => {}
+            }
+            return;
+        }
+    }
+    let Some(parent) = spawns.active.first() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let code = &mut meta["claudeCode"];
+    if !code.is_object() {
+        *code = json!({});
+    }
+    code["parentToolUseId"] = json!(parent);
 }
 
 #[cfg(test)]
@@ -192,5 +248,56 @@ mod tests {
         normalize_cline_tool(&mut fresh, &mut seen);
         assert_eq!(fresh["sessionUpdate"], "tool_call");
         assert_eq!(fresh["status"], "pending");
+    }
+
+    fn spawn_flow(parallel: bool) -> (Spawns, Vec<Value>) {
+        let mut sp = Spawns::default();
+        let mut seen = HashSet::new();
+        let mut out = vec![];
+        let mut feed = |mut u: Value, sp: &mut Spawns, out: &mut Vec<Value>| {
+            normalize_cline_tool(&mut u, &mut seen);
+            mark_spawns(&mut u, sp);
+            out.push(u);
+        };
+        let call = |id: &str| json!({"sessionUpdate": "tool_call", "toolCallId": id, "title": "spawn_agent: reply with the word PONG", "kind": "think", "status": "pending",
+            "rawInput": {"systemPrompt": "s", "task": "reply with the word PONG"}});
+        feed(call("s1"), &mut sp, &mut out);
+        feed(json!({"sessionUpdate": "tool_call_update", "toolCallId": "s1", "status": "in_progress"}), &mut sp, &mut out);
+        if parallel {
+            feed(call("s2"), &mut sp, &mut out);
+            feed(json!({"sessionUpdate": "tool_call_update", "toolCallId": "s2", "status": "in_progress"}), &mut sp, &mut out);
+        }
+        feed(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "PONG"}}), &mut sp, &mut out);
+        feed(json!({"sessionUpdate": "tool_call_update", "toolCallId": "s1", "status": "completed", "rawOutput": {"text": "PONG", "iterations": 1}}), &mut sp, &mut out);
+        feed(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "DONE"}}), &mut sp, &mut out);
+        (sp, out)
+    }
+
+    #[test]
+    fn spawn_child_chunk_is_parented_and_parent_chunk_is_not() {
+        let (_, out) = spawn_flow(false);
+        assert_eq!(out[2]["_meta"]["claudeCode"]["parentToolUseId"], "s1");
+        assert!(out[4].get("_meta").is_none());
+        // The spawn call itself is never re-parented.
+        assert!(out[1].get("_meta").is_none());
+    }
+
+    #[test]
+    fn spawn_call_is_a_launch_with_report() {
+        let (_, out) = spawn_flow(false);
+        assert_eq!(out[0]["rawInput"]["subagent_type"], "Cline");
+        assert_eq!(out[0]["rawInput"]["description"], "reply with the word PONG");
+        assert_eq!(out[0]["rawInput"]["task"], "reply with the word PONG");
+        assert_eq!(out[0]["title"], "reply with the word PONG");
+        assert_eq!(out[3]["content"][0]["content"]["text"], "PONG");
+    }
+
+    #[test]
+    fn parallel_spawns_go_to_the_oldest() {
+        let (sp, out) = spawn_flow(true);
+        assert_eq!(out[4]["_meta"]["claudeCode"]["parentToolUseId"], "s1");
+        // s1 done, s2 still running: the next chunk is s2's.
+        assert_eq!(out[6]["_meta"]["claudeCode"]["parentToolUseId"], "s2");
+        assert_eq!(sp.active, vec!["s2".to_string()]);
     }
 }
