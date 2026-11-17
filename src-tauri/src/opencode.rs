@@ -6,6 +6,8 @@
 
 use std::time::Duration;
 
+use crate::usage_limits::{reset_time, QuotaPeriod, UsageWindow};
+
 /// `opencode [--standalone] <rest>`.
 pub fn command_line(standalone: bool, rest: &str) -> String {
     if standalone { format!("opencode --standalone {rest}") } else { format!("opencode {rest}") }
@@ -79,7 +81,7 @@ pub fn logout(envs: &[(String, String)], standalone: bool, timeout: Duration) ->
 pub struct ConsoleBudget {
     pub spent: f64,
     pub limit: f64,
-    pub resets_at: Option<String>,
+    pub resets_at: Option<serde_json::Value>,
 }
 
 /// The OpenCode Console (opencode.ai) workspace the CLI is signed in to.
@@ -90,12 +92,12 @@ pub struct ConsoleInfo {
     /// The workspace's activity page - only ever an https opencode.ai URL.
     pub usage_url: Option<String>,
     pub budgets: Vec<ConsoleBudget>,
+    pub(crate) windows: Vec<UsageWindow>,
 }
 
-/// Reads `opencode api get /api/experimental/usage/limits` defensively: only
-/// `workspace` (`name`, `usageURL`) and an empty `budgets` have been seen, so
-/// budget fields are looked up under a few likely names and skipped when absent.
+/// Newer CLI releases wrap the endpoint response in `{ location, data }`.
 fn parse_console(v: &serde_json::Value) -> ConsoleInfo {
+    let v = v.get("data").unwrap_or(v);
     let ws = &v["workspace"];
     let workspace = ws["name"].as_str().map(str::trim).filter(|s| !s.is_empty() && s.len() <= 100).map(String::from);
     let usage_url = ws["usageURL"].as_str().filter(|u| {
@@ -112,11 +114,22 @@ fn parse_console(v: &serde_json::Value) -> ConsoleInfo {
             (limit > 0.0 && spent >= 0.0).then(|| ConsoleBudget {
                 spent,
                 limit,
-                resets_at: ["resetsAt", "resetAt", "periodEnd"].iter().find_map(|k| b[*k].as_str().map(String::from)),
+                resets_at: ["resetsAt", "resetAt", "periodEnd"].iter().find_map(|k| reset_time(&b[*k])),
             })
         }).collect()
     }).unwrap_or_default();
-    ConsoleInfo { workspace, usage_url, budgets }
+    let windows = [
+        ("rolling", QuotaPeriod::FiveHours),
+        ("weekly", QuotaPeriod::Week),
+        ("monthly", QuotaPeriod::Month),
+    ]
+    .into_iter()
+    .filter_map(|(key, period)| {
+        let meter = &v["go"][key];
+        UsageWindow::new(period, &meter["percent"], &meter["resetsAt"])
+    })
+    .collect();
+    ConsoleInfo { workspace, usage_url, budgets, windows }
 }
 
 /// The OpenCode Console workspace and budgets of a profile (`None`: default).
@@ -172,7 +185,30 @@ mod tests {
         let info = parse_console(&odd);
         assert_eq!(info.workspace, None);
         assert_eq!(info.usage_url, None);
-        assert_eq!(info.budgets, vec![ConsoleBudget { spent: 3.2, limit: 20.0, resets_at: Some("2026-12-01T00:00:00Z".into()) }]);
+        assert_eq!(info.budgets, vec![ConsoleBudget { spent: 3.2, limit: 20.0, resets_at: Some(json!("2026-12-01T00:00:00Z")) }]);
         assert_eq!(parse_console(&json!(null)), ConsoleInfo::default());
+    }
+
+    #[test]
+    fn reads_wrapped_console_usage_without_inventing_windows() {
+        let payload = json!({
+            "location": {},
+            "data": {
+                "workspace": {"name": "Personal"},
+                "go": {
+                    "rolling": {"percent": 0, "resetsAt": 1796083200000_u64},
+                    "weekly": {"percent": 105},
+                    "monthly": {"resetsAt": 1796083200000_u64}
+                },
+                "budgets": [{"limit": 20, "spent": 2, "resetsAt": 1796083200000_u64}]
+            }
+        });
+        let info = parse_console(&payload);
+        assert_eq!(info.workspace.as_deref(), Some("Personal"));
+        assert_eq!(info.windows, vec![
+            UsageWindow { period: QuotaPeriod::FiveHours, percent_used: 0.0, resets_at: Some(json!(1796083200000_u64)) },
+            UsageWindow { period: QuotaPeriod::Week, percent_used: 100.0, resets_at: None },
+        ]);
+        assert_eq!(info.budgets[0].resets_at, Some(json!(1796083200000_u64)));
     }
 }

@@ -31,6 +31,8 @@ mod updater;
 mod util;
 mod gemini;
 mod opencode;
+mod cline;
+mod usage_limits;
 mod link_preview;
 mod mcp_icons;
 mod vibe;
@@ -254,6 +256,7 @@ pub fn run() {
             profiles::profile_logout,
             spend::cli_spend,
             opencode::opencode_console,
+            cline::cline_usage,
             context::agent_context,
             agent_insight::agent_tools,
             agent_insight::agent_session_usage,

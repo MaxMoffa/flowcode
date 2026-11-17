@@ -23,6 +23,7 @@ export interface UsageMetric {
   kind:
     | "session"
     | "week"
+    | "month"
     | "other"
     | "unavailable"
     | "loggedOut"
@@ -33,6 +34,8 @@ export interface UsageMetric {
     | "unpriced"
     | "budget";
   label?: string;
+  /** Set for a quota reported by the subscription provider. */
+  quota?: true;
   /** When the window resets, as the CLI worded it. */
   resets?: string;
   /** loggedOut / reauth / noApiKey: the command that signs in. */
@@ -124,12 +127,31 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
       return { label: t("usage.billing.api"), detail: t("usage.billing.estimate") };
     case "unpriced":
       return { label: t("usage.unpriced"), detail: m.label };
-    default:
+    case "session":
+    case "week":
+    case "month": {
+      const key = m.kind === "session" && m.quota ? "usage.fiveHours" : `usage.${m.kind}` as const;
+      const remaining = m.quota && m.percent !== undefined
+        ? t("usage.remaining", { percent: String(100 - Math.round(m.percent * 100)) })
+        : undefined;
+      const reset = m.resets ? t("usage.resets", { when: m.resets }) : undefined;
       return {
-        label: m.kind === "session" ? withScope(t("usage.session"), m.label) : m.kind === "week" ? withScope(t("usage.week"), m.label) : (m.label ?? ""),
-        detail: m.resets ? t("usage.resets", { when: m.resets }) : undefined,
+        label: withScope(t(key), m.label),
+        detail: [remaining, reset].filter(Boolean).join(" · ") || undefined,
       };
+    }
+    default:
+      return { label: m.label ?? "", detail: m.resets ? t("usage.resets", { when: m.resets }) : undefined };
   }
+}
+
+/** Surface the subscription window closest to its limit in the toolbar. */
+export function usageBarMetric(metrics: UsageMetric[] = []): UsageMetric | undefined {
+  const gauges = metrics.filter((m): m is UsageMetric & { percent: number } =>
+    m.percent !== undefined && Number.isFinite(m.percent));
+  const mostUsedQuota = gauges.reduce<(typeof gauges)[number] | undefined>((highest, m) =>
+    m.quota && m.percent > (highest?.percent ?? -1) ? m : highest, undefined);
+  return mostUsedQuota ?? gauges.find((m) => m.kind === "session") ?? gauges[0];
 }
 
 /** The plain-text report behind the popover's "copy debug info" button. */
@@ -492,24 +514,39 @@ async function fetchGeminiUsage(profile?: string): Promise<UsageInfo> {
   }
 }
 
-/** What `opencode_console` (src-tauri/src/opencode.rs) answers. */
+/** A subscription quota from the Rust usage endpoints. */
+interface UsageWindow {
+  period: "fiveHours" | "week" | "month";
+  percentUsed: number;
+  resetsAt: string | number | null;
+}
+
 interface OpencodeConsole {
   workspace: string | null;
   usageUrl: string | null;
-  budgets: { spent: number; limit: number; resetsAt: string | null }[];
+  budgets: { spent: number; limit: number; resetsAt: string | number | null }[];
+  windows: UsageWindow[];
 }
 
-/** "1 dic, 09:00" in the current language - `raw` as OpenCode sent it when it isn't a date. */
-function formatReset(raw: string): string {
+/** "1 dic, 09:00" in the current language. */
+function formatReset(raw: string | number | null): string | undefined {
+  if (raw === null) return undefined;
   const at = new Date(raw);
-  if (Number.isNaN(at.getTime())) return raw;
+  if (Number.isNaN(at.getTime())) return undefined;
   return at.toLocaleString(currentLanguage(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-/** OpenCode fronts many providers and has no quota of its own: the OpenCode
- * Console workspace (when signed in to opencode.ai) under the name, its
- * budgets as bars, and - like the other pay-per-token CLIs - what the last
- * 30 days cost, from OpenCode's own database. All free: tokens, not $0.00. */
+function quotaMetrics(windows: UsageWindow[], scope?: string): UsageMetric[] {
+  return windows.map((window) => ({
+    kind: window.period === "fiveHours" ? "session" : window.period,
+    label: scope,
+    quota: true,
+    percent: window.percentUsed / 100,
+    resets: formatReset(window.resetsAt),
+  }));
+}
+
+/** Workspace quotas and budgets from Console, plus spend from local sessions. */
 async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
   try {
     const auth = await invoke<ProviderAuthState>("provider_auth", { request: { op: "status", cli: "opencode", profile: profile ?? null } });
@@ -521,32 +558,53 @@ async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
     ]);
     const budgets: UsageMetric[] = (console?.budgets ?? []).map((b) => ({
       kind: "budget",
-      label: t("usage.budget"),
       cost: b.spent,
       limit: b.limit,
       percent: Math.min(1, b.spent / b.limit),
-      resets: b.resetsAt ? formatReset(b.resetsAt) : undefined,
+      resets: formatReset(b.resetsAt),
     }));
-    // A failed read with nothing else to show is a failure: keep its debug info, but still name the workspace.
-    if (!spend.ok && budgets.length === 0) {
-      return {
-        ...spend,
-        account: console?.workspace ? t("usage.opencodeWorkspace", { name: console.workspace }) : undefined,
-        usageUrl: console?.usageUrl ?? undefined,
-      };
-    }
+    const quotas = quotaMetrics(console?.windows ?? [], "(OpenCode Go)");
+    const workspace = {
+      account: console?.workspace ? t("usage.opencodeWorkspace", { name: console.workspace }) : undefined,
+      usageUrl: console?.usageUrl ?? undefined,
+    };
+    if (!spend.ok && quotas.length === 0 && budgets.length === 0) return { ...spend, ...workspace };
+    if (console?.workspace && quotas.length === 0) quotas.push({ kind: "other", label: t("usage.opencodeNoQuota") });
     const rows = spend.ok ? spend.metrics : [];
     const free = rows.every((m) => m.kind !== "spend" || m.cost === 0);
-    const metrics = [...budgets, ...(free ? rows.map((m) => (m.kind === "spend" ? { ...m, cost: undefined } : m)) : rows)];
+    const metrics = [...quotas, ...budgets, ...(free ? rows.map((m) => (m.kind === "spend" ? { ...m, cost: undefined } : m)) : rows)];
     return {
       fetchedAt: Date.now(),
       ok: true,
       metrics,
-      account: console?.workspace ? t("usage.opencodeWorkspace", { name: console.workspace }) : undefined,
-      usageUrl: console?.usageUrl ?? undefined,
+      ...workspace,
     };
   } catch (error) {
     return unavailable("OpenCode", { Error: String(error) });
+  }
+}
+
+type ClineUsage =
+  | { status: "available"; windows: UsageWindow[] }
+  | { status: "missingCredentials" | "rejectedCredentials" | "noPlan" };
+
+async function fetchClineUsage(): Promise<UsageInfo> {
+  const dashboard = { account: "ClinePass", usageUrl: "https://app.cline.bot/dashboard/subscription?personal=true" };
+  try {
+    const result = await invoke<ClineUsage>("cline_usage");
+    const fetchedAt = Date.now();
+    switch (result.status) {
+      case "missingCredentials":
+        return { fetchedAt, ok: false, metrics: [{ kind: "other", label: t("usage.clineSignIn") }], ...dashboard };
+      case "rejectedCredentials":
+        return { fetchedAt, ok: false, metrics: [{ kind: "other", label: t("usage.clineRejected") }], ...dashboard };
+      case "noPlan":
+        return { fetchedAt, ok: true, metrics: [{ kind: "other", label: t("usage.clineNoPlan") }], ...dashboard };
+      case "available":
+        return { fetchedAt, ok: true, metrics: quotaMetrics(result.windows), ...dashboard };
+    }
+  } catch (error) {
+    return { ...unavailable("ClinePass", { Error: String(error) }), ...dashboard };
   }
 }
 
@@ -556,6 +614,7 @@ const FETCHERS: Record<string, UsageFetcher> = {
   "mistral-vibe": fetchVibeUsage,
   "gemini-cli": fetchGeminiUsage,
   opencode: fetchOpencodeUsage,
+  cline: fetchClineUsage,
 };
 
 export function usageFetcherFor(id: string): UsageFetcher | undefined {

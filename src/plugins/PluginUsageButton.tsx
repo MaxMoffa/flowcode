@@ -4,7 +4,7 @@ import type { PluginDef } from "./types";
 import { useHoverPopover, useUsageProfile, useUsageState } from "./useUsageState";
 import { usagePopoverPosition } from "./usagePopoverLayout";
 import { UsagePopoverContent } from "./UsagePopoverContent";
-import { metricText } from "./usage";
+import { metricText, usageBarMetric } from "./usage";
 import { useI18n } from "../i18n";
 import { profileById, useProfiles } from "../profiles/profiles";
 import "./plugin-usage.css";
@@ -50,13 +50,7 @@ export function PluginUsageButton({ plugin, icon, onRun, active, parked }: Plugi
     );
   }
 
-  // Always the rolling 5-hour session window, not the weekly one - that's
-  // the limit that actually moves while you work, so it's the one worth a
-  // glance at without opening the popover. The popover still lists every
-  // metric (including the weekly one), labelled, in its own order.
-  const barMetric =
-    usage?.metrics.find((m) => m.kind === "session" && m.percent !== undefined && Number.isFinite(m.percent)) ??
-    usage?.metrics.find((m) => m.percent !== undefined && Number.isFinite(m.percent));
+  const barMetric = usageBarMetric(usage?.metrics);
   // Clamp: a future CLI wording change could yield something outside 0-1, and
   // a width over 100% would silently overflow the track instead of showing
   // "full".

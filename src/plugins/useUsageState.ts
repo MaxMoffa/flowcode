@@ -209,7 +209,7 @@ export function useUsageProfile(
   // A profile id can only be resolved once the list is in; until then
   // nothing is fetched rather than the default account's usage by mistake.
   const ready = !wanted || profilesLoaded;
-  return [usable ? wanted : undefined, set, ready];
+  return cliOfPlugin(pluginId) ? [usable ? wanted : undefined, set, ready] : [undefined, set, true];
 }
 
 /** Hover-driven popover anchoring shared by the shortcut-bar button and the
