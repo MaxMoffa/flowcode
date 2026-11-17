@@ -69,17 +69,24 @@ Serve Cline installato (Windows + WSL): `npm i -g cline`.
 
 Registro `cline` in `cliInfo.ts` (`AGENT_CLIS`, `CLI_INFO`, loginCommand `cline auth`), plugin di esempio + icona + `remotePublish.ts`, `cliInstallCommands.ts` (`npm i -g cline`), rilevamento processo (+ WSL), profili (`ProfileDirs`, `env_for`, `login_state`, logout, `copy_settings_from_default`), stato login in `plugins.rs`, login: terminale nativo (`cline auth`, picker multi-provider come OpenCode) + dialog API key solo per `CLINE_API_KEY`, `provider_launcher.rs`, chat ACP `cline --acp`, resume `cline --id`, `remote/*` + mobile dietro `useSupports("cline")`, i18n, test. Quote ClinePass: collegare `fetchClineUsage` al plugin dell'agente e far seguire a `cline_usage` il profilo (oggi legge solo il default).
 
-## Fase 2: supporto completo (dopo la Fase 0)
+Fatta: 4e6b341 (collegamenti), 56821f1 (`chat/cline.rs`: titoli, output, ordine; quote per profilo, 404 = nessun piano; email nei profili).
 
-- History, `agent_session_saved`, sessione live da `cline history --json` o `sessions.db` (sola lettura).
-- Spesa e contesto, se i dati di sessione riportano token/costo.
-- Subagenti in chat (se `spawn` emette metadati riconoscibili via ACP).
-- Terminali in background (forma della tool call shell).
-- Auto-resume e notifica di reset sulle quote ClinePass (`limitResetWatcher` copre già 5 ore/settimana/mese).
-- Aggiornare la matrice in `docs/agents-integration-map.md`.
+## Fase 2: fatti verificati dal vivo (2026-11-17)
+
+- Sessioni: `data/db/sessions.db` (sqlite WAL, tabella `sessions`: `session_id`, `source`, `pid`, `started_at`, `ended_at`, `status` idle/completed/failed, `provider`, `model`, `cwd`, `is_subagent`, `parent_session_id`, `agent_id`, `prompt`, `metadata_json` con `title`/`usage`/`aggregateUsage`/`totalCost`, `messages_path`, `updated_at`). Il prompt è avvolto in `<user_input mode="act">…</user_input>`. Si legge con `rusqlite` in sola lettura: niente processo `cline history` a ogni refresh.
+- Messaggi: `data/sessions/<id>/<id>.messages.json` → `messages[]` con `role`, `content` (text / tool_use / tool_result), `ts`, e sulle risposte `modelInfo` + `metrics {inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, cost}` → contesto = ultima risposta (input + cache read + cache write).
+- Subagenti: tool `spawn_agent` (`kind: "think"`, `rawInput {systemPrompt, task}`, `rawOutput {text, iterations, finishReason, usage}`). Il testo del figlio arriva come `agent_message_chunk` **sulla sessione del padre, senza `_meta`**, mentre la spawn è `in_progress`. Nel DB il figlio è una riga `is_subagent = 1`, `session_id = <padre>__agent_<uuid>`, messaggi in `data/sessions/<padre>/agent_<uuid>.messages.json`.
+- Tool disponibili (3.0.74): `read_files`, `search_codebase`, `run_commands`, `editor`, `fetch_web_content`, `web_search`, `skills`, `spawn_agent`, `composio_*`. `run_commands` **non** ha il background → le card dei terminali in background non si applicano (—).
+- Hub: ogni chat con un cwd nuovo avvia un `cline.exe --cline-hub-daemon --cwd <cwd>` che resta vivo (3 rimasti dopo le prove). È un comportamento di Cline: Flowcode non li chiude (potrebbero servire ad altri client), da tenere d'occhio.
+
+## Fase 2: implementazione
+
+- `cline_db.rs`: History, `agent_session_saved`, sessione live (pid → riga), spesa (`aggregateUsage.totalCost`), contesto, insight (MCP `cline_mcp_settings.json`, skills, rules); `readsSessions: true`.
+- Subagenti in chat: in `chat/cline.rs`, durante una `spawn_agent` in corso gli update della sessione vanno sotto la sua card (`parentToolUseId`); con più spawn parallele vanno alla più vecchia (limite: Cline non li distingue).
+- Popup usage: quote ClinePass + spesa degli ultimi 30 giorni, come OpenCode.
+- Non fatto: auto-resume e notifica di reset (serve l'errore strutturato a credito/quota esaurita, non ancora visto), pulizia della dettatura con Cline.
 
 ## Domande aperte
 
-- Hub condiviso: serve una modalità "standalone" per i profili come per OpenCode?
 - Default auto-approve in ACP è `false`: allinearlo alla modalità di revisione scelta in Flowcode tramite l'opzione di sessione ACP.
-- Account identity nei profili: per l'account Cline l'email è leggibile? (`providers.json` o API `users/me`).
+- Hub lasciati vivi da Cline: chiuderli alla chiusura della chat se nessun altro client li usa?
