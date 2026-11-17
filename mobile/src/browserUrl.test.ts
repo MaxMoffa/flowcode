@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { localLinkPage, pageLabel, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
+import { deskPageToPage, localLinkPage, pageLabel, pageToOp, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
 
 const port = (p: number, path = "/"): Page => ({ kind: "port", port: p, path });
 
@@ -77,5 +77,28 @@ describe("localLinkPage", () => {
     expect(localLinkPage("http://localhost/x")).toBeNull();
     expect(localLinkPage("mailto:a@b.c")).toBeNull();
     expect(localLinkPage("not a url")).toBeNull();
+  });
+});
+
+describe("desktop tabs", () => {
+  it("maps tabs to phone pages", () => {
+    expect(deskPageToPage({ id: "a", kind: "url", url: "http://localhost:5173/x?y=1", canBack: false, canForward: false })).toEqual(port(5173, "/x?y=1"));
+    expect(deskPageToPage({ id: "a", kind: "url", url: "https://example.com/", canBack: false, canForward: false })).toEqual({ kind: "external", url: "https://example.com/" });
+    expect(deskPageToPage({ id: "b", kind: "file", path: "C:\\site\\index.html" })).toEqual({ kind: "deskFile", pageId: "b", name: "index.html" });
+    expect(deskPageToPage({ id: "b", kind: "file", path: "/home/me/a b.html" })).toEqual({ kind: "deskFile", pageId: "b", name: "a b.html" });
+    expect(deskPageToPage({ id: "c", kind: "pdf", src: "https://x.org/a.pdf" })).toEqual({ kind: "pdf", src: "https://x.org/a.pdf" });
+  });
+  it("builds the iframe url and label of a desktop file", () => {
+    const page: Page = { kind: "deskFile", pageId: "b1", name: "my page.html" };
+    const base = (p: string) => `https://flowcode-remote.localhost/${p}`;
+    expect(pageSrc(page, base)).toBe(pageSrc({ kind: "file", ptyId: "b1", path: "my page.html" }, (p) => base(p === "f" ? "b" : p)));
+    expect(pageLabel(page)).toBe("my page.html");
+    expect(sandboxFor(page)).toBe("allow-scripts");
+  });
+  it("turns a visited page into an op", () => {
+    expect(pageToOp(port(5173, "/a?b=1"), "n")).toEqual({ op: "openUrl", url: "http://localhost:5173/a?b=1", nonce: "n" });
+    expect(pageToOp({ kind: "chatFile", chatId: "c", path: "x.html" }, "n")).toEqual({ op: "openFile", root: { chatId: "c" }, path: "x.html", nonce: "n" });
+    expect(pageToOp({ kind: "file", ptyId: "p", path: "x.html" }, "n")).toEqual({ op: "openFile", root: { ptyId: "p" }, path: "x.html", nonce: "n" });
+    expect(pageToOp({ kind: "deskFile", pageId: "b", name: "x.html" }, "n")).toBeNull();
   });
 });

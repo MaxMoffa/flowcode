@@ -6,7 +6,7 @@
 //!
 //! URLs: `/p/<port>/<rest>` is a dev server on the desktop's loopback,
 //! `/f/<pty_id>/<rest>` the files of a terminal tab, `/c/<chat_id>/<rest>`
-//! the files of a chat. Anything else (a page
+//! the files of a chat, `/b/<page_id>/<rest>` the files next to a desktop browser page. Anything else (a page
 //! asking for root-absolute `/assets/app.js`) is placed by its `Referer`.
 
 use crate::state::Remote;
@@ -41,7 +41,7 @@ impl Route {
     fn host(&self) -> String {
         match &self.target {
             PreviewTarget::Port(port) => format!("localhost:{port}"),
-            PreviewTarget::Files(_) | PreviewTarget::ChatFiles(_) | PreviewTarget::ChatUpload(_) | PreviewTarget::DictAudio(_) => "localhost".into(),
+            PreviewTarget::Files(_) | PreviewTarget::ChatFiles(_) | PreviewTarget::BrowserPage(_) | PreviewTarget::ChatUpload(_) | PreviewTarget::DictAudio(_) => "localhost".into(),
         }
     }
 }
@@ -64,6 +64,7 @@ fn split_prefix(path: &str) -> Option<(PreviewTarget, &str)> {
         }
         "f" if !id.is_empty() => Some((PreviewTarget::Files(id.to_string()), tail)),
         "c" if !id.is_empty() => Some((PreviewTarget::ChatFiles(id.to_string()), tail)),
+        "b" if !id.is_empty() => Some((PreviewTarget::BrowserPage(id.to_string()), tail)),
         _ => None,
     }
 }
@@ -104,6 +105,7 @@ fn prefix_of(target: &PreviewTarget) -> String {
         PreviewTarget::Port(port) => format!("/p/{port}"),
         PreviewTarget::Files(pty_id) => format!("/f/{pty_id}"),
         PreviewTarget::ChatFiles(chat_id) => format!("/c/{chat_id}"),
+        PreviewTarget::BrowserPage(page_id) => format!("/b/{page_id}"),
         // The browser never routes here.
         PreviewTarget::ChatUpload(_) | PreviewTarget::DictAudio(_) => String::new(),
     }
@@ -262,6 +264,7 @@ async fn fetch(conn: &iroh::endpoint::Connection, route: &Route, request: Reques
         let (kind, id) = match &route.target {
             PreviewTarget::Files(id) => ("f", id),
             PreviewTarget::ChatFiles(id) => ("c", id),
+            PreviewTarget::BrowserPage(id) => ("b", id),
             _ => unreachable!(),
         };
         if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') { return Err("invalid preview id".into()); }
@@ -415,5 +418,17 @@ mod tests {
         assert_eq!(route("/assets/app.js", Some("http://flowcode-remote.localhost/c/chat-1/docs/report.html")), Some(Route { target: target.clone(), upstream: "/assets/app.js".into() }));
         assert_eq!(rewrite_location("/docs/next.html", &target), "/c/chat-1/docs/next.html");
         assert_eq!(route("/c/", None), None);
+    }
+
+    #[test]
+    fn browser_pages_route_like_chat_files() {
+        let target = PreviewTarget::BrowserPage("pg-1".into());
+        assert_eq!(route("/b/pg-1/site/index.html?v=2", None), Some(Route { target: target.clone(), upstream: "/site/index.html?v=2".into() }));
+        assert_eq!(route("/b/pg-1", None), Some(Route { target: target.clone(), upstream: "/".into() }));
+        assert_eq!(route("/app.css", Some("http://flowcode-remote.localhost/b/pg-1/site/index.html")), Some(Route { target: target.clone(), upstream: "/app.css".into() }));
+        assert_eq!(rewrite_location("/next.html", &target), "/b/pg-1/next.html");
+        assert_eq!(Route { target: target.clone(), upstream: "/".into() }.host(), "localhost");
+        assert!(missing_file(&target, StatusCode::NOT_FOUND, 0));
+        assert_eq!(route("/b/", None), None);
     }
 }

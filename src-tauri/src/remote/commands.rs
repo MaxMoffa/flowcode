@@ -87,6 +87,12 @@ pub fn remote_publish_settings(state: tauri::State<'_, RemoteState>, settings: s
     publish(&state.0.settings, settings);
 }
 
+/// The desktop's browser tabs the phone mirrors (published by the leader window's browser store).
+#[tauri::command]
+pub fn remote_publish_browser_tabs(state: tauri::State<'_, RemoteState>, tabs: serde_json::Value) {
+    publish(&state.0.browser_tabs, tabs);
+}
+
 /// The account profiles the phone lists (built by the frontend's RemoteSettingsBridge).
 #[tauri::command]
 pub fn remote_publish_profiles(state: tauri::State<'_, RemoteState>, profiles: serde_json::Value, default_logged_in: Option<serde_json::Value>) {

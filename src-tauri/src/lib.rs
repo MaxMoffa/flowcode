@@ -295,6 +295,7 @@ pub fn run() {
             remote::remote_size_claim,
             remote::remote_publish_usage,
             remote::remote_publish_settings,
+            remote::remote_publish_browser_tabs,
             remote::remote_publish_update,
             remote::remote_set_allow_update,
             remote::remote_publish_profiles,

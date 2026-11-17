@@ -60,6 +60,7 @@ import { consumeUpdatedVersion } from "./changelog/lastRunVersion";
 import { SettingsNav } from "./settings/SettingsNav";
 import { SettingsSectionProvider, useSettingsSection } from "./settings/SettingsSectionContext";
 import { RemoteSettingsBridge } from "./remote/RemoteSettingsBridge";
+import { RemoteBrowserBridge } from "./remote/RemoteBrowserBridge";
 import { RemoteUpdateBridge } from "./remote/RemoteUpdateBridge";
 import { RemotePairConfirm } from "./remote/RemotePairConfirm";
 import { ShortcutsProvider } from "./shortcuts/ShortcutsContext";
@@ -3498,6 +3499,7 @@ export default function App() {
                     <Shell />
                     <ProviderAuthHost />
                     <RemoteSettingsBridge />
+                    <RemoteBrowserBridge />
                     <RemoteUpdateBridge />
                     <RemotePairConfirm />
                   </ShortcutsProvider>

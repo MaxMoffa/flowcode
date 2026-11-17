@@ -86,6 +86,10 @@ async fn serve_stream(shared: &Shared, conn_id: u64, mut send: iroh::endpoint::S
             let root = shared.app.state::<crate::chat::ChatState>().preview_root(&chat_id).ok();
             serve_files(tokio::io::join(recv, send), root).await;
         }
+        PreviewTarget::BrowserPage(page_id) => {
+            let root = browser_page_root(&shared.browser_tabs.borrow(), &page_id);
+            serve_files(tokio::io::join(recv, send), root).await;
+        }
         PreviewTarget::ChatUpload(chat_id) => {
             let reply = match receive_upload(shared, &chat_id, &mut recv).await {
                 Ok(id) => UploadReply { id: Some(id), error: None },
@@ -197,6 +201,25 @@ where
         async move { Ok::<_, Infallible>(answer(root, req).await) }
     });
     let _ = hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(io), service).await;
+}
+
+/// The folder served for the desktop browser page `page_id` of the published
+/// snapshot: the parent of a `file` page's `path`, or of a `pdf` page's `src`
+/// when that is a local path. `None` for an unknown page, an http(s) pdf, or a
+/// page of any other kind.
+fn browser_page_root(snapshot: &serde_json::Value, page_id: &str) -> Option<PathBuf> {
+    let page = snapshot.get("pages")?.as_array()?.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(page_id))?;
+    let field = match page.get("kind")?.as_str()? {
+        "file" => "path",
+        "pdf" => "src",
+        _ => return None,
+    };
+    let path = page.get(field)?.as_str()?;
+    let lower = path.to_ascii_lowercase();
+    if path.is_empty() || lower.starts_with("http://") || lower.starts_with("https://") {
+        return None;
+    }
+    Path::new(path).parent().filter(|p| !p.as_os_str().is_empty()).map(Path::to_path_buf)
 }
 
 enum Served {
@@ -314,6 +337,22 @@ mod tests {
         assert_eq!(header_of(&[0xff, 0xfe, b'\n']).await.0, None);
         // The sender went away mid-line.
         assert_eq!(header_of(b"port 80").await.0, None);
+    }
+
+    #[test]
+    fn browser_page_roots_come_from_the_snapshot() {
+        let snap = serde_json::json!({ "pages": [
+            { "id": "u", "kind": "url", "url": "http://localhost:3000", "canBack": false, "canForward": false },
+            { "id": "f", "kind": "file", "path": "C:/work/site/index.html" },
+            { "id": "p", "kind": "pdf", "src": "C:/work/doc.pdf" },
+            { "id": "h", "kind": "pdf", "src": "https://a.b/x.pdf" },
+        ], "activeId": null, "servers": [], "opened": null });
+        assert_eq!(browser_page_root(&snap, "f"), Some(PathBuf::from("C:/work/site")));
+        assert_eq!(browser_page_root(&snap, "p"), Some(PathBuf::from("C:/work")));
+        assert_eq!(browser_page_root(&snap, "h"), None);
+        assert_eq!(browser_page_root(&snap, "u"), None);
+        assert_eq!(browser_page_root(&snap, "nope"), None);
+        assert_eq!(browser_page_root(&serde_json::Value::Null, "f"), None);
     }
 
     fn site(name: &str) -> PathBuf {

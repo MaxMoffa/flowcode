@@ -65,6 +65,30 @@ pub enum TabTarget {
     Chat { chat_id: String },
 }
 
+/// Where a `BrowserOp::OpenFile` path is relative to: `{ "chatId": .. }` (the
+/// chat's working folder) or `{ "ptyId": .. }` (the terminal tab's).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged, rename_all_fields = "camelCase")]
+pub enum BrowserRoot {
+    Pty { pty_id: String },
+    Chat { chat_id: String },
+}
+
+/// A change the phone asks of the desktop's shared browser tabs (see
+/// `ServerMsg::BrowserTabs`), available only with `browserTabs`. `OpenUrl` and
+/// `Navigate` take http(s) URLs only; `OpenFile`'s `path` is relative to `root`.
+/// `nonce` comes back in the snapshot's `opened`, so the phone finds the tab it got.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum BrowserOp {
+    OpenUrl { url: String, nonce: String },
+    OpenFile { root: BrowserRoot, path: String, nonce: String },
+    Close { id: String },
+    Back { id: String },
+    Forward { id: String },
+    Navigate { id: String, url: String },
+}
+
 /// What a `TabOp` does: `duplicate`, `notify` (`on`: false mutes the tab's agent
 /// notifications) or `move` (`index`: the new position in the tab's window strip,
 /// terminals and chats together; at most 1000).
@@ -231,6 +255,8 @@ pub enum ClientMsg {
     ChatClear { chat_id: String },
     /// A tab-strip action on a terminal or chat tab, available only with `tabOps`.
     TabOp { target: TabTarget, op: TabOp },
+    /// Open, close or navigate one of the desktop's shared browser tabs, available only with `browserTabs`.
+    BrowserOp { op: BrowserOp },
     /// Open a new desktop chat tab for `cli`, in `cwd` (else the shell's start folder).
     NewChat {
         cli: String,
@@ -392,6 +418,10 @@ pub enum ServerMsg {
     /// The desktop settings the phone mirrors, as one JSON object. Sent after
     /// `ready` once the desktop has published them, and again on every change.
     Settings { settings: serde_json::Value },
+    /// The desktop's browser tabs, as one JSON object (the shared `BrowserTabsSnapshot`:
+    /// `{pages, activeId, servers, opened}`). Sent after `ready` once the desktop has
+    /// published them, and again on every change. Needs `browserTabs`.
+    BrowserTabs { tabs: serde_json::Value },
     /// The desktop's update state, as one JSON object:
     /// `{state, version?, currentVersion?, notes?, size?, stage?, downloaded?, total?, error?, allowed}`.
     /// `allowed` tells whether the user lets phones install updates.
@@ -1071,6 +1101,34 @@ mod tests {
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"tabop","target":{"ptyId":"p"},"op":{"kind":"move","index":3}}"#).unwrap();
         assert_eq!(msg, ClientMsg::TabOp { target: TabTarget::Pty { pty_id: "p".into() }, op: TabOp::Move { index: 3 } });
         assert!(serde_json::from_str::<ClientMsg>(r#"{"t":"tabop","target":{},"op":{"kind":"duplicate"}}"#).is_err());
+    }
+
+    #[test]
+    fn browser_messages_round_trip() {
+        let json = serde_json::json!({ "t": "browserop", "op": { "op": "openUrl", "url": "https://a.b", "nonce": "n1" } });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(msg, ClientMsg::BrowserOp { op: BrowserOp::OpenUrl { url: "https://a.b".into(), nonce: "n1".into() } });
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        let json = serde_json::json!({ "t": "browserop", "op": { "op": "openFile", "root": { "chatId": "c1" }, "path": "a/b.html", "nonce": "n2" } });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(msg, ClientMsg::BrowserOp { op: BrowserOp::OpenFile { root: BrowserRoot::Chat { chat_id: "c1".into() }, path: "a/b.html".into(), nonce: "n2".into() } });
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        let json = serde_json::json!({ "t": "browserop", "op": { "op": "openFile", "root": { "ptyId": "p1" }, "path": "x.md", "nonce": "n3" } });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        for (name, op) in [("close", BrowserOp::Close { id: "i".into() }), ("back", BrowserOp::Back { id: "i".into() }), ("forward", BrowserOp::Forward { id: "i".into() })] {
+            let json = serde_json::json!({ "t": "browserop", "op": { "op": name, "id": "i" } });
+            assert_eq!(serde_json::from_value::<ClientMsg>(json.clone()).unwrap(), ClientMsg::BrowserOp { op });
+        }
+        let json = serde_json::json!({ "t": "browserop", "op": { "op": "navigate", "id": "i", "url": "http://localhost:3000" } });
+        let msg: ClientMsg = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(msg, ClientMsg::BrowserOp { op: BrowserOp::Navigate { id: "i".into(), url: "http://localhost:3000".into() } });
+        assert_eq!(serde_json::to_value(msg).unwrap(), json);
+        assert!(serde_json::from_str::<ClientMsg>(r#"{"t":"browserop","op":{"op":"openFile","root":{},"path":"a","nonce":"n"}}"#).is_err());
+        let tabs = serde_json::json!({ "pages": [], "activeId": null, "servers": [], "opened": null });
+        let json = serde_json::to_value(ServerMsg::BrowserTabs { tabs: tabs.clone() }).unwrap();
+        assert_eq!(json, serde_json::json!({ "t": "browsertabs", "tabs": tabs }));
+        assert_eq!(serde_json::from_value::<ServerMsg>(json).unwrap(), ServerMsg::BrowserTabs { tabs });
     }
 
     #[test]

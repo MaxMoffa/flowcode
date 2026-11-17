@@ -179,6 +179,8 @@ const EVT_UPDATE_INSTALL: &str = "remote://update-install";
 const EVT_NEW_CHAT: &str = "remote://new-chat";
 /// A phone resuming an agent session from the history (see `ClientMsg::Resume`).
 const EVT_RESUME_SESSION: &str = "remote://resume-session";
+/// `{op, ...}`: a phone changed the shared browser tabs (see `ClientMsg::BrowserOp`), to all windows; only the leader acts.
+const EVT_BROWSER_OP: &str = "remote://browser-op";
 /// How long the user has to confirm a new phone on the desktop. The phone
 /// waits longer for its reply (see mobile/src-tauri/src/link.rs).
 const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -281,6 +283,8 @@ struct Shared {
     /// Latest desktop settings the frontend published for the phone to mirror
     /// (`Null` until the first publish).
     settings: watch::Sender<serde_json::Value>,
+    /// Latest browser tabs snapshot the leader window published (`Null` until then).
+    browser_tabs: watch::Sender<serde_json::Value>,
     /// Latest update state the frontend published (`Null` until then); `allowed` is added on send.
     update: watch::Sender<serde_json::Value>,
     /// Latest account profiles the frontend published, as `{profiles, defaultLoggedIn}` (`Null` until then).

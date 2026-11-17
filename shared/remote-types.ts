@@ -307,6 +307,8 @@ export type RemoteCap =
   | "preview"
   /** Preview files rooted in a chat's working folder, without a terminal. */
   | "chatPreview"
+  /** `browsertabs` / `browserop` and the `browserpage` preview stream: the phone shares the desktop browser's tabs. */
+  | "browserTabs"
   /** `linkpreview`: link preview cards fetched by the desktop. */
   | "linkPreview"
   /** `agentinsight`: an agent's context, session usage and tools, for the phone's agent panel. */
@@ -365,6 +367,7 @@ export type ServerMsg =
   | { t: "ls"; ptyId: string; path: string; entries: LsEntry[] }
   | { t: "file"; ptyId: string; path: string; text: string; truncated: boolean }
   | { t: "settings"; settings: MirroredSettings }
+  | { t: "browsertabs"; tabs: BrowserTabsSnapshot }
   /** The desktop's self-update state; sent after `ready` and on every change. Needs the "desktopUpdate" cap. */
   | { t: "update"; update: DesktopUpdate }
   | { t: "profiles"; profiles: ProfileInfo[]; defaultLoggedIn?: (Record<ProfileCli, boolean> & { accounts?: ProfileAccounts }) | null }
@@ -402,6 +405,7 @@ type TabOp = { kind: "duplicate" } | { kind: "notify"; on: boolean } | { kind: "
 
 export type ClientMsg =
   | { t: "tabop"; target: TabTarget; op: TabOp }
+  | { t: "browserop"; op: BrowserOp }
   | { t: "providerauth"; requestId: string; request: ProviderAuthRequest }
   | { t: "fs"; requestId: string; request: FsRequest }
   | { t: "git"; requestId: string; request: GitRequest }
@@ -480,3 +484,39 @@ export type ClientMsg =
   | { t: "dictcancel"; session: string }
   | { t: "background"; on: boolean }
   | { t: "ping" };
+
+/** The desktop browser's tabs as the phone mirrors them (`browsertabs`). See docs/design/mobile-browser-tabs-plan.md. */
+export interface BrowserTabsSnapshot {
+  pages: BrowserTabPage[];
+  /** The page the desktop shows (the phone marks it "PC"). */
+  activeId: string | null;
+  /** Dev servers detected in desktop terminals. */
+  servers: { url: string; port: number; alive: boolean }[];
+  /** The last open the phone asked for, so it can select the tab it gets. */
+  opened: { nonce: string; pageId: string } | null;
+}
+
+export type BrowserTabPage =
+  | { id: string; kind: "url"; url: string; canBack: boolean; canForward: boolean }
+  /** `path`: absolute, on the desktop. */
+  | { id: string; kind: "file"; path: string }
+  /** `src`: an http(s) URL or an absolute desktop path. */
+  | { id: string; kind: "pdf"; src: string };
+
+/** A change the phone asks of the desktop's browser tabs (`browserop`). `openFile`'s `path` is relative to the chat's or terminal's folder. */
+export type BrowserOp =
+  | { op: "openUrl"; url: string; nonce: string }
+  | { op: "openFile"; root: { chatId: string } | { ptyId: string }; path: string; nonce: string }
+  | { op: "close"; id: string }
+  | { op: "back"; id: string }
+  | { op: "forward"; id: string }
+  | { op: "navigate"; id: string; url: string };
+
+/** `remote://browser-op` as the desktop backend emits it to the leader window: `openFile`'s path made absolute. */
+export type BrowserOpEvent =
+  | { op: "openUrl"; url: string; nonce: string }
+  | { op: "openFile"; path: string; nonce: string }
+  | { op: "close"; id: string }
+  | { op: "back"; id: string }
+  | { op: "forward"; id: string }
+  | { op: "navigate"; id: string; url: string };

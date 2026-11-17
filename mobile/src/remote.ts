@@ -11,7 +11,7 @@ import { normalizeDesktopUpdate } from "./desktopUpdate";
 import { listenForNetworkRecovery } from "./connectionRecovery";
 import { normalizeAccounts, normalizeLoggedIn, normalizeProfiles, normalizeSettings } from "./settingsModel";
 
-import type { Action, ChatInfo, ClientMsg, DesktopUpdate, RemoteCap, MirroredSettings, ProfileAccounts, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
+import type { Action, ChatInfo, BrowserOp, BrowserTabPage, BrowserTabsSnapshot, ClientMsg, DesktopUpdate, RemoteCap, MirroredSettings, ProfileAccounts, ProfileAction, ProfileCli, ProfileInfo, ServerMsg, SettingKey, Tab, UsageItem } from "../../shared/remote-types";
 
 // The wire types live in shared/ (also used by the desktop); screens keep importing them from here.
 export type { Action, ChatInfo, LsEntry, MirroredSettings, ProfileAccounts, ProfileCli, ProfileInfo, Tab, UsageItem, UsageMetric } from "../../shared/remote-types";
@@ -42,6 +42,8 @@ interface Snapshot {
   actions: Action[];
   /** The desktop's settings, mirrored; null until it sends them (older desktops never do). */
   settings: MirroredSettings | null;
+  /** The desktop browser's tabs, mirrored; null until it sends them (older desktops never do). */
+  browserTabs: BrowserTabsSnapshot | null;
   /** The desktop's account profiles besides the default; null until it sends them (older desktops never do). */
   profiles: ProfileInfo[] | null;
   /** The desktop's own update state; null until it sends it. Kept across plain disconnects (it restarts while installing). */
@@ -97,7 +99,7 @@ export function resetSettingsCache() {
   store.set({ settings: null });
 }
 
-const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, chats: null, usage: [], actions: [], settings: loadSettings(), profiles: null, desktopUpdate: null, defaultLoggedIn: null, defaultAccounts: {}, host: null, compatDismissed: false, lastOpened: null, openTab: null, toast: null });
+const store = createStore<Snapshot>({ status: "loading", wasOnline: false, pairing: false, firstConnect: false, tabs: null, chats: null, usage: [], actions: [], settings: loadSettings(), browserTabs: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, defaultAccounts: {}, host: null, compatDismissed: false, lastOpened: null, openTab: null, toast: null });
 const msgListeners = new Set<(m: ServerMsg) => void>();
 const set = store.set;
 
@@ -185,6 +187,9 @@ function handleMsg(m: ServerMsg) {
       set({ settings });
       break;
     }
+    case "browsertabs":
+      set({ browserTabs: normalizeBrowserTabs(m.tabs) });
+      break;
     case "update":
       set({ desktopUpdate: normalizeDesktopUpdate(m.update) });
       break;
@@ -244,13 +249,13 @@ async function wire(): Promise<void> {
     const { status, hostName, error, phase, attempt, retryAt } = e.payload;
     // Cached data belongs to the old pairing/connection; a reconnect refreshes it.
     if (status === "unpaired") saveSettings(null);
-    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, chats: null, usage: [], actions: [], settings: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, defaultAccounts: {}, host: null, compatDismissed: false, lastOpened: null, openTab: null } : {}) });
+    set({ status, hostName, error, phase, attempt, retryAt, ...(status === "online" ? { wasOnline: true, firstConnect: false } : {}), ...(status === "offline" ? { firstConnect: false } : {}), ...(status === "unpaired" ? { wasOnline: false, firstConnect: false, pairing: false, tabs: null, chats: null, usage: [], actions: [], settings: null, browserTabs: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, defaultAccounts: {}, host: null, compatDismissed: false, lastOpened: null, openTab: null } : {}) });
   }));
   // Another desktop became the active one: what is shown belongs to the old one.
   unlisteners.push(await listen("remote://computer", () => {
     saveSettings(null);
     pending.clear();
-    set({ wasOnline: false, firstConnect: true, tabs: null, chats: null, usage: [], actions: [], settings: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, defaultAccounts: {}, host: null, compatDismissed: false, lastOpened: null, openTab: null });
+    set({ wasOnline: false, firstConnect: true, tabs: null, chats: null, usage: [], actions: [], settings: null, browserTabs: null, profiles: null, desktopUpdate: null, defaultLoggedIn: null, defaultAccounts: {}, host: null, compatDismissed: false, lastOpened: null, openTab: null });
   }));
   // The active desktop refused this phone for good; the core already moved to another saved one.
   unlisteners.push(await listen<{ host: string; message: string }>("remote://revoked", (e) => showToast(t("computerRevoked", { host: e.payload.host, message: e.payload.message }))));
@@ -340,6 +345,37 @@ export const listComputers = (): Promise<Computer[]> => invoke<Computer[]>("comp
 export const switchComputer = (id: string): Promise<void> => invoke("switch_computer", { id });
 /** Removes a saved, non-active computer from this phone (the desktop keeps listing the phone until revoked there). */
 export const forgetComputer = (id: string): Promise<void> => invoke("forget_computer", { id });
+
+/** The desktop browser's tabs; null without the capability or before the first snapshot. */
+export const useBrowserTabs = (): BrowserTabsSnapshot | null => store.useSelector((s) => s.browserTabs);
+/** Asks the desktop to change its browser tabs. */
+export const sendBrowserOp = (op: BrowserOp) => send({ t: "browserop", op });
+
+/** Keeps only well-formed pages and servers of a `browsertabs` snapshot; null for anything else. */
+export function normalizeBrowserTabs(raw: unknown): BrowserTabsSnapshot | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  if (!Array.isArray(r.pages)) return null;
+  const pages: BrowserTabPage[] = [];
+  for (const p of r.pages as unknown[]) {
+    if (typeof p !== "object" || p === null) continue;
+    const q = p as Record<string, unknown>;
+    if (typeof q.id !== "string") continue;
+    if (q.kind === "url" && typeof q.url === "string") pages.push({ id: q.id, kind: "url", url: q.url, canBack: q.canBack === true, canForward: q.canForward === true });
+    else if (q.kind === "file" && typeof q.path === "string") pages.push({ id: q.id, kind: "file", path: q.path });
+    else if (q.kind === "pdf" && typeof q.src === "string") pages.push({ id: q.id, kind: "pdf", src: q.src });
+  }
+  const servers: BrowserTabsSnapshot["servers"] = [];
+  if (Array.isArray(r.servers)) {
+    for (const x of r.servers as unknown[]) {
+      const q = x as Record<string, unknown> | null;
+      if (q && typeof q.url === "string" && typeof q.port === "number") servers.push({ url: q.url, port: q.port, alive: q.alive === true });
+    }
+  }
+  const o = r.opened as Record<string, unknown> | null | undefined;
+  const opened = o && typeof o.nonce === "string" && typeof o.pageId === "string" ? { nonce: o.nonce, pageId: o.pageId } : null;
+  return { pages, activeId: typeof r.activeId === "string" ? r.activeId : null, servers, opened };
+}
 
 export function send(msg: ClientMsg) {
   // "not connected" is routine while reconnecting; the UI already shows the reconnect sheet.

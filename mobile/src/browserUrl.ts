@@ -4,11 +4,14 @@
 // of that terminal's working folder, `/c/<chatId>/...` a file of a chat).
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { pluginFileUrl } from "../../shared/agentViewBridge";
+import type { BrowserOp, BrowserTabPage } from "../../shared/remote-types";
 
 export type Page =
   | { kind: "port"; port: number; path: string }
   | { kind: "file"; ptyId: string; path: string }
-  | { kind: "chatFile"; chatId: string; path: string };
+  | { kind: "chatFile"; chatId: string; path: string }
+  /** A file of a desktop browser tab (`/b/<pageId>/<name>`), served from the file's folder. */
+  | { kind: "deskFile"; pageId: string; name: string };
 
 const HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -94,6 +97,7 @@ export function pageSrc(page: Page, base: (path: string) => string = (p) => conv
   }
   // A file of the desktop: the path is a literal file name (`%` and `#` are part of it and get
   // encoded). Only a `?` starts a query, and everything after it, hash included, is kept as is.
+  if (page.kind === "deskFile") return pluginFileUrl(base("b"), `${page.pageId}/${page.name}`);
   const [pathPart, ...q] = page.path.split("?");
   const query = q.length ? "?" + q.join("?") : "";
   const prefix = page.kind === "chatFile" ? "c" : "f";
@@ -103,10 +107,32 @@ export function pageSrc(page: Page, base: (path: string) => string = (p) => conv
 
 /** A short label for the address field. */
 export function pageLabel(page: Page): string {
+  if (page.kind === "deskFile") return page.name;
   return page.kind === "port" ? `localhost:${page.port}${page.path === "/" ? "" : page.path}` : page.path;
 }
 
 /** A served file is an artifact and must not share the origin of the app; a dev server needs its own. */
 export function sandboxFor(page: Page): string {
   return page.kind === "port" ? "allow-scripts allow-same-origin allow-forms allow-modals" : "allow-scripts";
+}
+
+/** A desktop tab as the phone shows it: an iframe page, or a placeholder for an external address or a PDF. */
+export function deskPageToPage(p: BrowserTabPage): Page | { kind: "external"; url: string } | { kind: "pdf"; src: string } {
+  if (p.kind === "pdf") return { kind: "pdf", src: p.src };
+  if (p.kind === "file") return { kind: "deskFile", pageId: p.id, name: p.path.split(/[/\\]/).filter(Boolean).pop() ?? p.path };
+  return localLinkPage(p.url) ?? { kind: "external", url: p.url };
+}
+
+/** The request that makes the desktop open a page the phone visits; null for a desktop tab (it already exists). */
+export function pageToOp(page: Page, nonce: string): BrowserOp | null {
+  switch (page.kind) {
+    case "port":
+      return { op: "openUrl", url: `http://localhost:${page.port}${page.path}`, nonce };
+    case "chatFile":
+      return { op: "openFile", root: { chatId: page.chatId }, path: page.path, nonce };
+    case "file":
+      return { op: "openFile", root: { ptyId: page.ptyId }, path: page.path, nonce };
+    default:
+      return null;
+  }
 }

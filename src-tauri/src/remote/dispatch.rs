@@ -333,6 +333,7 @@ impl Conn {
                 payload["op"] = serde_json::to_value(&op).unwrap_or_default();
                 let _ = self.shared.app.emit_to(window.as_str(), EVT_TAB_OP, payload);
             }
+            ClientMsg::BrowserOp { op } => self.browser_op(op),
             ClientMsg::ChatClear { chat_id } => {
                 let Some(chat) = self.chat(&chat_id) else { return };
                 let _ = self.shared.app.emit_to(chat.window.as_str(), EVT_CHAT_CLEAR, serde_json::json!({ "chatId": chat_id }));
@@ -528,5 +529,168 @@ impl Conn {
                 Err(message) => ServerMsg::Error { message, pty_id: Some(pty_id), fatal: false },
             });
         });
+    }
+}
+
+const BROWSER_URL_MAX: usize = 4096;
+const BROWSER_ID_MAX: usize = 64;
+
+/// An http(s) URL a phone may open or navigate a shared browser tab to.
+pub(super) fn browser_url_ok(url: &str) -> bool {
+    if url.is_empty() || url.len() > BROWSER_URL_MAX || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return false;
+    }
+    let lower = url.to_ascii_lowercase();
+    ["http://", "https://"].iter().any(|p| lower.starts_with(p) && lower.len() > p.len())
+}
+
+/// A page, tab or nonce id: not empty, at most 64 bytes.
+pub(super) fn browser_id_ok(id: &str) -> bool {
+    !id.is_empty() && id.len() <= BROWSER_ID_MAX
+}
+
+/// The path of an `openFile` as `/`-separated relative segments: `\` becomes `/`,
+/// `.` and empty segments are dropped. `None` for an absolute path, a drive
+/// letter, a `..` segment or nothing at all.
+pub(super) fn browser_relative_path(path: &str) -> Option<String> {
+    if path.is_empty() || path.len() > BROWSER_URL_MAX || path.contains('\0') {
+        return None;
+    }
+    let path = path.replace('\\', "/");
+    let bytes = path.as_bytes();
+    if path.starts_with('/') || (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':') {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => return None,
+            p => parts.push(p),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+/// Checks the fields of a phone's `BrowserOp` that don't depend on desktop state.
+/// The error is the (Italian, English) text to report.
+pub(super) fn check_browser_op(op: &proto::BrowserOp) -> Result<(), (&'static str, &'static str)> {
+    use proto::BrowserOp as O;
+    const BAD_URL: (&str, &str) = ("Indirizzo non valido (solo http e https)", "Invalid address (http and https only)");
+    const BAD_ID: (&str, &str) = ("Pagina non valida", "Invalid page");
+    const BAD_NONCE: (&str, &str) = ("Richiesta non valida", "Invalid request");
+    match op {
+        O::OpenUrl { url, nonce } => {
+            if !browser_url_ok(url) {
+                return Err(BAD_URL);
+            }
+            if nonce.len() > BROWSER_ID_MAX {
+                return Err(BAD_NONCE);
+            }
+        }
+        O::OpenFile { path, nonce, .. } => {
+            if browser_relative_path(path).is_none() {
+                return Err(("Percorso non valido", "Invalid path"));
+            }
+            if nonce.len() > BROWSER_ID_MAX {
+                return Err(BAD_NONCE);
+            }
+        }
+        O::Close { id } | O::Back { id } | O::Forward { id } => {
+            if !browser_id_ok(id) {
+                return Err(BAD_ID);
+            }
+        }
+        O::Navigate { id, url } => {
+            if !browser_id_ok(id) {
+                return Err(BAD_ID);
+            }
+            if !browser_url_ok(url) {
+                return Err(BAD_URL);
+            }
+        }
+    }
+    Ok(())
+}
+
+impl Conn {
+    /// A phone's change to the shared browser tabs: checked here, then passed to
+    /// the windows (the leader one applies it).
+    pub(super) fn browser_op(&self, op: proto::BrowserOp) {
+        use proto::BrowserOp as O;
+        if let Err((it, en)) = check_browser_op(&op) {
+            self.error(tr(it, en), None);
+            return;
+        }
+        let payload = match op {
+            O::OpenUrl { url, nonce } => serde_json::json!({ "op": "openUrl", "url": url, "nonce": nonce }),
+            O::OpenFile { root, path, nonce } => {
+                let cwd = match root {
+                    proto::BrowserRoot::Chat { chat_id } => {
+                        let Some(chat) = self.chat(&chat_id) else { return };
+                        chat.cwd
+                    }
+                    proto::BrowserRoot::Pty { pty_id } => {
+                        let Some(tab) = self.shared.latest_tabs().into_iter().find(|t| t.pty_id == pty_id) else {
+                            self.error(tr("Terminale non trovato", "Terminal not found"), Some(pty_id));
+                            return;
+                        };
+                        tab.cwd
+                    }
+                };
+                let Some(rel) = browser_relative_path(&path) else { return };
+                if cwd.is_empty() {
+                    self.error(tr("Cartella non disponibile", "Folder not available"), None);
+                    return;
+                }
+                let file = PathBuf::from(cwd).join(rel);
+                serde_json::json!({ "op": "openFile", "path": file.to_string_lossy(), "nonce": nonce })
+            }
+            O::Close { id } => serde_json::json!({ "op": "close", "id": id }),
+            O::Back { id } => serde_json::json!({ "op": "back", "id": id }),
+            O::Forward { id } => serde_json::json!({ "op": "forward", "id": id }),
+            O::Navigate { id, url } => serde_json::json!({ "op": "navigate", "id": id, "url": url }),
+        };
+        let _ = self.shared.app.emit(EVT_BROWSER_OP, payload);
+    }
+}
+
+#[cfg(test)]
+mod browser_op_tests {
+    use super::*;
+    use proto::{BrowserOp as O, BrowserRoot};
+
+    #[test]
+    fn urls_are_http_or_https_and_bounded() {
+        assert!(browser_url_ok("http://localhost:3000/x"));
+        assert!(browser_url_ok("HTTPS://example.com"));
+        for bad in ["", "http://", "javascript:alert(1)", "file:///C:/x", "ftp://a.b", "example.com", "https://a b", "https://a\n.b"] {
+            assert!(!browser_url_ok(bad), "{bad:?}");
+        }
+        assert!(!browser_url_ok(&format!("https://a.b/{}", "x".repeat(BROWSER_URL_MAX))));
+    }
+
+    #[test]
+    fn relative_paths_are_normalized_and_confined() {
+        assert_eq!(browser_relative_path("a\\b/c.html").as_deref(), Some("a/b/c.html"));
+        assert_eq!(browser_relative_path("./a//b.html").as_deref(), Some("a/b.html"));
+        for bad in ["", ".", "/etc/passwd", "\\a", "C:\\x", "c:/x", "C:x", "../a", "a/../b", "a\\..\\b", "a\0b"] {
+            assert_eq!(browser_relative_path(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn ops_are_checked() {
+        let root = || BrowserRoot::Chat { chat_id: "c".into() };
+        assert!(check_browser_op(&O::OpenUrl { url: "https://a.b".into(), nonce: "n".into() }).is_ok());
+        assert!(check_browser_op(&O::OpenUrl { url: "https://a.b".into(), nonce: "n".repeat(65) }).is_err());
+        assert!(check_browser_op(&O::OpenUrl { url: "file:///x".into(), nonce: "n".into() }).is_err());
+        assert!(check_browser_op(&O::OpenFile { root: root(), path: "a.html".into(), nonce: "n".into() }).is_ok());
+        assert!(check_browser_op(&O::OpenFile { root: root(), path: "../a.html".into(), nonce: "n".into() }).is_err());
+        assert!(check_browser_op(&O::Close { id: "p".into() }).is_ok());
+        assert!(check_browser_op(&O::Back { id: "p".repeat(65) }).is_err());
+        assert!(check_browser_op(&O::Forward { id: String::new() }).is_err());
+        assert!(check_browser_op(&O::Navigate { id: "p".into(), url: "http://localhost:1".into() }).is_ok());
+        assert!(check_browser_op(&O::Navigate { id: "p".into(), url: "data:text/html,x".into() }).is_err());
     }
 }

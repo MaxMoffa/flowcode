@@ -42,7 +42,17 @@ export function useBrowserDrag(handleRef: RefObject<HTMLElement | null>, rootRef
     let height = 0;
     let samples: Sample[] = [];
 
-    const fullHeight = () => window.visualViewport?.height ?? window.innerHeight;
+    // The full detent stops `--br-top-gap` below the top (clear of the status bar, see browser.css).
+    const topGap = () => {
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--br-top-gap)";
+      root!.appendChild(probe);
+      const gap = probe.offsetHeight;
+      probe.remove();
+      return gap;
+    };
+    let fullAtDown = 0;
+    const fullHeight = () => fullAtDown;
 
     function end() {
       pointerId = -1;
@@ -58,6 +68,7 @@ export function useBrowserDrag(handleRef: RefObject<HTMLElement | null>, rootRef
       pointerId = e.pointerId;
       startY = e.clientY;
       startHeight = root!.offsetHeight;
+      fullAtDown = (window.visualViewport?.height ?? window.innerHeight) - topGap();
       dragging = false;
       samples = [];
     }

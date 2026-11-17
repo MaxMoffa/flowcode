@@ -4,7 +4,10 @@ import { useBackHandler, useEscape } from "./back";
 import { chatLinkPages } from "./agentPreview";
 import { useChatInfo, useChatSession } from "./chats";
 import { useBrowserDrag, type Detent } from "./browserDrag";
+import { BrowserTabs, shownLabel, TabPlaceholder } from "./BrowserTabs";
 import { pageLabel, pageSrc, parseTyped, sandboxFor, type Page } from "./browserUrl";
+import { openLink } from "./TermLink";
+import { useBrowserTabsSync, type Shown } from "./useBrowserTabsSync";
 import { t } from "./i18n";
 import { BackIcon, ChevronIcon, CloseIcon, CopyIcon, FileIcon, GlobeIcon, MonitorIcon, RefreshIcon } from "./icons";
 import { showToast } from "./remote";
@@ -16,8 +19,8 @@ const LOAD_TIMEOUT_MS = 20_000;
 const CLOSE_MS = 220;
 
 /** The small icon of a page's kind: desktop server, file, or none yet. */
-function KindIcon({ page }: { page: Page | undefined }) {
-  return page?.kind === "port" ? <MonitorIcon /> : page ? <FileIcon /> : <GlobeIcon />;
+function KindIcon({ page }: { page: Shown | undefined }) {
+  return page?.kind === "port" ? <MonitorIcon /> : page && page.kind !== "external" ? <FileIcon /> : <GlobeIcon />;
 }
 
 /** The pages the chat linked, computed only while the suggestions are on screen; says the empty text itself when it has nothing and the browser has no page. */
@@ -69,7 +72,17 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
   const [detent, setDetent] = useState<Detent>("half");
   const [armed, setArmed] = useState(false);
   const [closing, setClosing] = useState(false);
-  const page: Page | undefined = pages[index];
+  const sync = useBrowserTabsSync();
+  const synced = sync.synced;
+  const [tabsOpen, setTabsOpen] = useState(false);
+  const newPage = useRef(false);
+  // What is on screen: the desktop's tab when the tabs are shared, else this browser's own history.
+  const shown: Shown | undefined = synced ? sync.shown : pages[index];
+  const page: Page | undefined = shown && shown.kind !== "external" && shown.kind !== "pdf" ? shown : undefined;
+  const placeholder = shown?.kind === "external" || shown?.kind === "pdf" ? shown : undefined;
+  const label = shown ? shownLabel(shown) : "";
+  const src = page ? pageSrc(page) : "";
+  const urlTab = synced && !sync.isLocal && sync.activeTab?.kind === "url" ? sync.activeTab : undefined;
   const rootRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -89,28 +102,44 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
   }
 
   useBackHandler(!docked, requestClose);
+  useBackHandler(tabsOpen, () => setTabsOpen(false));
   useBackHandler(!wide && !docked && detent === "full", () => setDetent("half"));
-  useEscape(!docked, () => (document.querySelector(".tm-layer.open") ? undefined : detent === "full" && !wide ? setDetent("half") : requestClose()));
+  useEscape(!docked || tabsOpen, () => (document.querySelector(".tm-layer.open") ? undefined : tabsOpen ? setTabsOpen(false) : detent === "full" && !wide ? setDetent("half") : requestClose()));
   useBrowserDrag(dragRef, rootRef, !wide && !docked, (target) => (target === "closed" ? requestClose() : setDetent(target)));
 
+  // With shared tabs the page the opener asked for becomes a desktop tab (once per page).
+  const syncedHandled = useRef<Page | null>(null);
   useEffect(() => {
-    if (!initialPage || initialPage === previousPage.current) return;
+    if (!synced || !initialPage || initialPage === syncedHandled.current) return;
+    syncedHandled.current = initialPage;
+    previousPage.current = initialPage;
+    sync.visit(initialPage);
+    setEditing(false);
+    setBad(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [synced, initialPage]);
+
+  useEffect(() => {
+    if (synced || !initialPage || initialPage === previousPage.current) return;
     previousPage.current = initialPage;
     if (page && pageSrc(initialPage) === pageSrc(page)) return;
     setPages((previous) => [...previous.slice(0, index + 1), initialPage]);
     setIndex(index + 1);
     setEditing(false);
     setBad(false);
-  }, [initialPage, index, page]);
+  }, [synced, initialPage, index, page]);
 
   // A new load (page or reload) shows the bar until `onLoad` or the timeout.
   useEffect(() => {
-    if (!page) return;
+    if (!src) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setFailed(false);
     const id = setTimeout(() => setLoading(false), LOAD_TIMEOUT_MS);
     return () => clearTimeout(id);
-  }, [page, reload]);
+  }, [src, reload]);
 
   // The tunnel's error page tells us it could not reach the desktop.
   useEffect(() => {
@@ -127,6 +156,13 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
     setBad(false);
     setEditing(false);
     inputRef.current?.blur();
+    newPage.current = false;
+    setTabsOpen(false);
+    if (synced) {
+      sync.visit(next);
+      setReload((n) => n + 1);
+      return;
+    }
     const kept = pages.slice(0, index + 1);
     setPages([...kept, next]);
     setIndex(kept.length);
@@ -139,18 +175,35 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
       setBad(true);
       return;
     }
+    // An address typed over a url tab loads in that tab, unless "New page" was asked.
+    if (synced && urlTab && next.kind === "port" && !newPage.current) {
+      setBad(false);
+      setEditing(false);
+      inputRef.current?.blur();
+      sync.navigate(urlTab.id, next);
+      setReload((n) => n + 1);
+      return;
+    }
     visit(next);
   }
 
+  function startNewPage() {
+    setTabsOpen(false);
+    newPage.current = true;
+    setDraft("");
+    setEditing(true);
+    inputRef.current?.focus();
+  }
+
   function copyAddress() {
-    if (!page) return;
-    void navigator.clipboard?.writeText(pageLabel(page));
+    if (!shown) return;
+    void navigator.clipboard?.writeText(label);
     showToast(t("linkCopied"));
     inputRef.current?.blur();
   }
 
   const full = wide || editing || detent === "full";
-  const showSuggestions = editing || !page;
+  const showSuggestions = editing || !shown;
   const rootClass = docked ? "br-root is-docked" : "br-root" + (wide ? " is-wide" : "") + (full ? " is-full" : "") + (!armed || closing ? " is-closed" : "");
 
   return (
@@ -158,17 +211,17 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
       <div ref={dragRef} className="br-drag">
         {!wide && !docked && <button type="button" className="br-grab" aria-label={t("browser.resize")} onClick={() => setDetent(detent === "full" ? "half" : "full")} />}
         <header className="br-head">
-          <button type="button" className="br-btn" aria-label={t("browser.back")} disabled={index <= 0} onClick={() => setIndex(index - 1)}>
+          <button type="button" className="br-btn" aria-label={t("browser.back")} disabled={synced ? !urlTab?.canBack : index <= 0} onClick={() => (synced ? urlTab && sync.step(urlTab.id, "back") : setIndex(index - 1))}>
             <BackIcon />
           </button>
-          {index < pages.length - 1 && (
-            <button type="button" className="br-btn" aria-label={t("browser.forward")} onClick={() => setIndex(index + 1)}>
+          {(synced ? !!urlTab?.canForward : index < pages.length - 1) && (
+            <button type="button" className="br-btn" aria-label={t("browser.forward")} onClick={() => (synced ? urlTab && sync.step(urlTab.id, "forward") : setIndex(index + 1))}>
               <ChevronIcon />
             </button>
           )}
           <div className="br-addr-wrap">
             <span className="br-kind" aria-hidden="true">
-              <KindIcon page={page} />
+              <KindIcon page={shown} />
             </span>
             <input
               ref={inputRef}
@@ -181,13 +234,14 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
               placeholder="localhost:5173"
               aria-label={t("browser.address")}
               aria-invalid={bad}
-              value={editing ? draft : page ? pageLabel(page) : draft}
+              value={editing ? draft : shown ? label : draft}
               onFocus={(e) => {
-                setDraft(page ? pageLabel(page) : draft);
+                setDraft(newPage.current ? "" : shown ? label : draft);
                 setEditing(true);
                 e.currentTarget.select();
               }}
               onBlur={() => {
+                newPage.current = false;
                 setEditing(false);
                 setBad(false);
               }}
@@ -200,6 +254,11 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
               }}
             />
           </div>
+          {synced && (
+            <button type="button" className="br-btn br-tabs-count" aria-label={t("browser.tabsCount", { n: sync.tabs.length })} aria-expanded={tabsOpen} onPointerDown={(e) => e.preventDefault()} onClick={() => setTabsOpen((v) => !v)}>
+              <b>{sync.tabs.length}</b>
+            </button>
+          )}
           <button type="button" className="br-btn" aria-label={t("browser.reload")} disabled={!page} onClick={() => setReload((n) => n + 1)}>
             <RefreshIcon />
           </button>
@@ -210,7 +269,8 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
       </div>
       <div className={"br-bar" + (loading ? " on" : "")} role="progressbar" aria-hidden={!loading} />
       <div className="br-body">
-        {page && <iframe ref={frameRef} key={`${index}:${reload}`} className="br-frame" title={pageLabel(page)} src={pageSrc(page)} sandbox={sandboxFor(page)} onLoad={() => setLoading(false)} />}
+        {page && <iframe ref={frameRef} key={`${synced ? "s" : index}:${reload}`} className="br-frame" title={label} src={src} sandbox={sandboxFor(page)} onLoad={() => setLoading(false)} />}
+        {placeholder && <TabPlaceholder shown={placeholder} onOpenExternal={(url) => void openLink(url)} />}
         {page && failed && (
           <div className="br-fail">
             <h3>{page.kind === "port" ? t("browser.noServer", { port: page.port }) : t("browser.noFile")}</h3>
@@ -223,8 +283,8 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
         {showSuggestions && (
           <div className="br-sugg">
             {bad && <p className="br-bad">{t("browser.badAddress")}</p>}
-            {linksChatId && <ChatPages chatId={linksChatId} filesChatId={chatId} hasPage={!!page} bad={bad} onPick={visit} />}
-            {page && editing && (
+            {linksChatId && <ChatPages chatId={linksChatId} filesChatId={chatId} hasPage={!!shown} bad={bad} onPick={visit} />}
+            {shown && editing && (
               <button type="button" className="br-row" onPointerDown={(e) => e.preventDefault()} onClick={copyAddress}>
                 <span className="br-kind-box" aria-hidden="true">
                   <CopyIcon />
@@ -234,8 +294,27 @@ export function Browser({ ptyId, chatId = null, initialPage = null, linksChatId 
                 </span>
               </button>
             )}
-            {!page && !linksChatId && !bad && <div className="br-empty">{t("browser.empty")}</div>}
+            {!shown && !linksChatId && !bad && <div className="br-empty">{t("browser.empty")}</div>}
           </div>
+        )}
+        {synced && tabsOpen && (
+          <BrowserTabs
+            tabs={sync.tabs}
+            servers={sync.servers}
+            activeId={sync.isLocal ? null : sync.activeId}
+            pcActiveId={sync.pcActiveId}
+            onPick={(id) => {
+              sync.select(id);
+              setTabsOpen(false);
+              setEditing(false);
+              setBad(false);
+              setReload((n) => n + 1);
+            }}
+            onClose={sync.close}
+            onOpenServer={(port) => visit({ kind: "port", port, path: "/" })}
+            onNew={startNewPage}
+            onDismiss={() => setTabsOpen(false)}
+          />
         )}
       </div>
     </div>

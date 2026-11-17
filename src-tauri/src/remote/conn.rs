@@ -31,6 +31,7 @@ pub(super) async fn run_connection(
     let mut usage_rx = shared.usage.subscribe();
     let mut actions_rx = shared.actions.subscribe();
     let mut settings_rx = shared.settings.subscribe();
+    let mut browser_tabs_rx = shared.browser_tabs.subscribe();
     let mut update_rx = shared.update.subscribe();
     let mut profiles_rx = shared.profiles.subscribe();
     let mut notices_rx = shared.notices.subscribe();
@@ -67,6 +68,10 @@ pub(super) async fn run_connection(
     let settings = settings_rx.borrow_and_update().clone();
     if !settings.is_null() {
         conn.send(ServerMsg::Settings { settings });
+    }
+    let browser_tabs = browser_tabs_rx.borrow_and_update().clone();
+    if !browser_tabs.is_null() {
+        conn.send(ServerMsg::BrowserTabs { tabs: browser_tabs });
     }
     let allowed = lock(&shared.config).allow_phone_update;
     if let Some(msg) = update_msg(&update_rx.borrow_and_update(), allowed) {
@@ -131,6 +136,12 @@ pub(super) async fn run_connection(
                 let settings = settings_rx.borrow_and_update().clone();
                 if !conn.background && !settings.is_null() {
                     conn.send(ServerMsg::Settings { settings });
+                }
+            }
+            Ok(()) = browser_tabs_rx.changed() => {
+                let tabs = browser_tabs_rx.borrow_and_update().clone();
+                if !conn.background && !tabs.is_null() {
+                    conn.send(ServerMsg::BrowserTabs { tabs });
                 }
             }
             Ok(()) = update_rx.changed() => {
@@ -398,6 +409,10 @@ impl Conn {
         let settings = self.shared.settings.borrow().clone();
         if !settings.is_null() {
             self.send(ServerMsg::Settings { settings });
+        }
+        let browser_tabs = self.shared.browser_tabs.borrow().clone();
+        if !browser_tabs.is_null() {
+            self.send(ServerMsg::BrowserTabs { tabs: browser_tabs });
         }
         let allowed = lock(&self.shared.config).allow_phone_update;
         if let Some(msg) = update_msg(&self.shared.update.borrow(), allowed) {

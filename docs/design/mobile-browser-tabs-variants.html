@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flowcode mobile — browser allineato al desktop · schede condivise + maniglia</title>
+  <style>
+    /* Token copiati da mobile/src/ui.css e browser.css. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26; --surface-3: #3c3731;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-2: #c9975a; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --wait: #d1a752; --danger: #d9776a;
+      --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(.2, .8, .2, 1);
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    svg { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    code { font: 12.5px var(--mono); }
+
+    .page { max-width: 1180px; margin: auto; padding: 28px 24px 56px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 760px; }
+    .variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .variants button { flex: 1 1 150px; min-height: 40px; padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+    .variants button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .variants button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    .layout { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .side { display: grid; gap: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 13px; color: var(--muted); }
+    .controls label { display: flex; gap: 7px; align-items: center; min-height: 32px; }
+    .controls input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .ctl { min-height: 32px; padding: 0 11px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); color: var(--fg); font-size: 13px; }
+    .note h2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+    .tag { padding: 1px 8px; border-radius: 999px; background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-border); color: var(--accent); font-size: 12px; font-weight: 500; }
+    .tag.warn { background: rgba(209,167,82,.1); box-shadow: inset 0 0 0 1px rgba(209,167,82,.3); color: var(--wait); }
+    .note p { margin: 0 0 10px; color: var(--muted); max-width: 64ch; }
+    .note h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--muted); }
+    .note ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 64ch; }
+    .section { margin-top: 44px; }
+    .section h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+    .section > p { margin: 0 0 12px; color: var(--muted); max-width: 78ch; }
+    .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 13.5px; }
+    th { padding: 9px 14px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+    td { padding: 10px 14px; border-top: 1px solid var(--border); vertical-align: top; }
+    td:nth-child(2), td:nth-child(3) { color: var(--muted); }
+    .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+    .box { padding: 14px 16px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
+    .box.warn { background: rgba(209,167,82,.07); box-shadow: inset 0 0 0 1px rgba(209,167,82,.24); }
+    .box h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+    .box.warn h3 { color: var(--wait); }
+    .box ul, .box ol { margin: 0; padding-left: 18px; display: grid; gap: 5px; }
+
+    /* ---- telefono ---- */
+    .phone { position: relative; width: 390px; max-width: 100%; height: 780px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border-radius: 34px; box-shadow: 0 0 0 8px #0a0806, 0 0 0 9px var(--border-strong), 0 30px 60px -30px #000; isolation: isolate; margin: 9px auto 0; touch-action: none; user-select: none; }
+    .status { position: absolute; top: 0; left: 0; right: 0; z-index: 30; height: 30px; display: flex; justify-content: space-between; align-items: center; padding: 0 26px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+    .danger { position: absolute; top: 0; left: 0; right: 0; z-index: 29; height: 48px; background: repeating-linear-gradient(135deg, rgba(217,119,106,.22) 0 8px, rgba(217,119,106,.08) 8px 16px); border-bottom: 1px dashed var(--danger); pointer-events: none; }
+    .danger span { position: absolute; right: 10px; bottom: 3px; font-size: 10.5px; color: var(--danger); letter-spacing: .04em; }
+    .phone:not(.show-zones) .danger, .phone:not(.show-zones) .hit { display: none; }
+    .stage { position: absolute; inset: 0; padding-top: 30px; display: flex; flex-direction: column; }
+    .conv { flex: 1; min-height: 0; overflow: hidden; padding: 56px 16px 12px; }
+    .topbtns { position: absolute; top: 38px; left: 12px; right: 12px; display: flex; justify-content: space-between; }
+    .fbtn { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); box-shadow: 0 0 0 1px var(--border-strong); color: var(--muted); }
+    .msg-user { width: fit-content; max-width: 82%; margin: 0 0 16px auto; padding: 9px 14px; border-radius: 18px 18px 5px 18px; background: var(--surface-2); font-size: 15px; }
+    .msg { margin: 0 0 12px; font-size: 15px; line-height: 1.55; }
+    .lnk { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+    .composer { flex: none; padding: 0 12px 22px; }
+    .card { padding: 14px 16px; border-radius: 28px; background: var(--surface-2); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); color: var(--muted); font-size: 15px; }
+    .reopen { position: absolute; right: 16px; bottom: 98px; z-index: 4; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 20px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong), var(--shadow); font-size: 13px; }
+    .reopen b { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 6px; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px currentColor; font: 600 11px var(--mono); }
+
+    /* ---- drawer ---- */
+    .scrim { position: absolute; inset: 0; z-index: 8; background: rgba(0,0,0,.38); opacity: 0; pointer-events: none; transition: opacity .26s; }
+    .scrim.on { opacity: 1; pointer-events: auto; }
+    .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); border-radius: 22px 22px 0 0; box-shadow: 0 -10px 30px rgba(0,0,0,.45), 0 0 0 1px var(--border-strong); transition: height .28s var(--ease), border-radius .28s; }
+    .sheet.dragging { transition: none; }
+    .sheet.flat { border-radius: 0; }
+    .drag { position: relative; flex: none; touch-action: none; cursor: grab; }
+    .grab { display: block; width: 100%; height: 22px; padding-top: 9px; }
+    .grab::before { content: ""; display: block; width: 38px; height: 4px; margin: auto; border-radius: 999px; background: var(--border-strong); }
+    .grab.big { height: 30px; padding-top: 12px; }
+    .grab.big::before { width: 48px; height: 5px; }
+    .hit { position: absolute; inset: 0; background: rgba(157,185,132,.16); outline: 1px dashed var(--accent); pointer-events: none; }
+    .head { display: flex; align-items: center; gap: 4px; padding: 0 6px 6px; }
+    .head.bottom { padding: 6px 6px 4px; border-top: 1px solid var(--border); }
+    .btn { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; color: var(--fg); }
+    .btn:active { background: var(--surface-2); }
+    .btn:disabled { opacity: .35; }
+    .addr { flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 11px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--fg); font: 14px var(--mono); }
+    .addr span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .addr svg { color: var(--muted); }
+    .count { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; }
+    .count b { min-width: 22px; height: 22px; padding: 0 5px; border-radius: 6px; display: grid; place-items: center; box-shadow: inset 0 0 0 1.6px currentColor; font: 600 11.5px var(--mono); }
+    .count[aria-expanded="true"] { background: var(--accent-bg); color: var(--accent); }
+    .body { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #f4efe7; color: #2a241d; }
+    .peek { position: absolute; left: 0; right: 0; z-index: 9; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--fg); font-size: 12.5px; cursor: pointer; }
+    .peek span { padding: 4px 12px; border-radius: 999px; background: rgba(41,36,32,.9); box-shadow: 0 0 0 1px var(--border-strong); }
+
+    /* finto contenuto delle pagine */
+    .site { height: 100%; padding: 18px; overflow: hidden; font-size: 13px; }
+    .site .nav { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; }
+    .site .nav i { width: 22px; height: 22px; border-radius: 6px; background: var(--c); }
+    .site .nav b { flex: 1; }
+    .site .nav em { width: 40px; height: 8px; border-radius: 4px; background: #d8cfc2; }
+    .site h4 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.02em; }
+    .site p { margin: 0 0 14px; color: #6d6155; }
+    .site .bar { height: 10px; border-radius: 5px; background: #e1d8cb; margin-bottom: 8px; }
+    .site .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    .site .grid div { height: 70px; border-radius: 10px; background: #e7dfd3; }
+    .site .cta { display: inline-block; margin-top: 4px; padding: 8px 14px; border-radius: 8px; background: var(--c); color: #fff; font-weight: 600; }
+    .site.pdf { background: #5b544c; display: grid; place-items: start center; padding-top: 22px; }
+    .site.pdf .sheetpdf { width: 78%; height: 120%; background: #fff; padding: 18px; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+    .site.ext { display: grid; place-content: center; text-align: center; background: var(--surface); color: var(--fg); }
+    .site.ext p { color: var(--muted); max-width: 260px; }
+    .site.ext button { margin: 6px auto 0; padding: 0 16px; height: 40px; border-radius: 12px; background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+
+    /* ---- elenco schede (stessa struttura del popover desktop) ---- */
+    .tabs { position: absolute; left: 8px; right: 8px; z-index: 12; max-height: 72%; overflow-y: auto; padding: 6px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow), 0 0 0 1px var(--border-strong); animation: pop .16s var(--ease); scrollbar-width: none; }
+    .tabs.at-top { top: 4px; }
+    .tabs.at-bottom { bottom: 4px; }
+    @keyframes pop { from { opacity: 0; transform: translateY(-6px) scale(.98); } }
+    .tabs h5 { margin: 8px 10px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; }
+    .trow { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 0 0 0 8px; border-radius: 11px; }
+    .trow.active { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border-strong); }
+    .trow .pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 52px; }
+    .badge { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--accent-bg); color: var(--accent); font: 600 12px var(--mono); }
+    .badge.file { background: rgba(201,151,90,.14); color: var(--accent-2); }
+    .badge.ext { background: var(--surface-3); color: var(--muted); }
+    .ttxt { min-width: 0; flex: 1; }
+    .ttxt b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; font-size: 13.5px; }
+    .ttxt small { display: flex; gap: 6px; align-items: center; overflow: hidden; white-space: nowrap; color: var(--muted); font: 11.5px var(--mono); }
+    .ttxt small span { overflow: hidden; text-overflow: ellipsis; }
+    .pcdot { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; height: 18px; border-radius: 9px; background: var(--surface-3); color: var(--fg); font: 500 10.5px var(--font); }
+    .tx { flex: none; width: 44px; height: 52px; display: grid; place-items: center; color: var(--muted); }
+    .srv { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 6px 0 8px; }
+    .srv .ttxt b { font-family: var(--mono); font-size: 13px; }
+    .srv button { height: 34px; padding: 0 12px; border-radius: 10px; background: var(--accent-bg); color: var(--accent); font-weight: 600; font-size: 13px; }
+    .newp { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 8px; margin-top: 4px; border-top: 1px solid var(--border); color: var(--accent); }
+
+    /* ---- desktop in miniatura ---- */
+    .desk { border-radius: 12px; overflow: hidden; background: var(--bg); box-shadow: 0 0 0 1px var(--border-strong); }
+    .desk-top { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+    .desk-top i { width: 9px; height: 9px; border-radius: 50%; background: var(--surface-3); }
+    .desk-top b { margin-left: 6px; color: var(--fg); font-weight: 500; }
+    .desk-body { display: grid; grid-template-columns: 1fr 1.25fr; min-height: 260px; }
+    .desk-term { padding: 12px; font: 11.5px/1.6 var(--mono); color: var(--muted); border-right: 1px solid var(--border); }
+    .desk-term em { color: var(--accent); font-style: normal; }
+    .desk-br { display: flex; flex-direction: column; }
+    .desk-head { display: flex; gap: 6px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .desk-head .addr { height: 30px; font-size: 12px; border-radius: 8px; }
+    .desk-head .count { width: 30px; height: 30px; }
+    .desk-pop { margin: 6px; padding: 4px; border-radius: 10px; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); }
+    .desk-pop .trow { min-height: 38px; }
+    .desk-pop .trow .pick { min-height: 38px; }
+    .desk-pop .badge { width: 22px; height: 22px; font-size: 10.5px; border-radius: 6px; }
+    .desk-pop .tx { height: 38px; width: 32px; }
+    .desk-pop .ttxt b { font-size: 12.5px; }
+    .flash { animation: flash .9s var(--ease); }
+    @keyframes flash { 0% { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-bg); } 100% { box-shadow: none; } }
+    .log { margin: 0; padding: 10px 12px; min-height: 66px; max-height: 120px; overflow-y: auto; border-top: 1px solid var(--border); font: 11.5px/1.6 var(--mono); color: var(--muted); }
+    .log div::before { content: "⇄ "; color: var(--accent); }
+
+    @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { .sheet, .scrim, .tabs { transition: none; animation: none; } }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · BROWSER · 2026-11-17</div>
+  <h1>Browser del telefono allineato al desktop</h1>
+  <p class="lead">Le schede sono le stesse del PC: quelle aperte sul desktop compaiono sul telefono e viceversa, con lo stesso elenco del pulsante contatore (variante C del desktop). Le tre varianti cambiano dove sta la maniglia, così che trascinare giù il browser non apra la tendina di Android.</p>
+
+  <div class="variants" role="group" aria-label="Variante">
+    <button type="button" data-v="a" aria-pressed="true"><span>A</span>Margine in alto</button>
+    <button type="button" data-v="b" aria-pressed="false"><span>B</span>Striscia di chat visibile</button>
+    <button type="button" data-v="c" aria-pressed="false"><span>C</span>Barra in basso</button>
+    <button type="button" data-v="now" aria-pressed="false"><span>—</span>Oggi</button>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="phone show-zones" id="phone">
+        <div class="status"><span>9:41</span><span>5G ▮▮▮ 82%</span></div>
+        <div class="danger"><span>zona tendina Android</span></div>
+        <div class="stage">
+          <div class="topbtns"><span class="fbtn">≡</span><span class="fbtn">⋯</span></div>
+          <div class="conv">
+            <div class="msg-user">Avvia il dev server e fammi vedere la landing</div>
+            <div class="msg">Fatto. Il server è su <span class="lnk">localhost:5173</span> e ho aperto anche <span class="lnk">docs/report.pdf</span> nel browser.</div>
+            <div class="msg">Ho modificato la hero e il footer, controlla da qui.</div>
+          </div>
+          <div class="composer"><div class="card">Scrivi a Claude…</div></div>
+        </div>
+        <button type="button" class="reopen" id="reopen" hidden><svg width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Browser <b id="reopenCount">3</b></button>
+        <div class="scrim" id="scrim"></div>
+        <div class="peek" id="peek" hidden><span>Tocca o trascina giù per ridurre</span></div>
+        <div class="sheet" id="sheet"></div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="controls">
+        <label><input type="checkbox" id="zones" checked> Mostra zone di presa</label>
+        <button type="button" class="ctl" data-detent="half">Metà</button>
+        <button type="button" class="ctl" data-detent="full">Tutto schermo</button>
+        <button type="button" class="ctl" id="pcOpen">Il PC apre una pagina</button>
+      </div>
+      <div class="note" id="note"></div>
+      <div class="desk">
+        <div class="desk-top"><i></i><i></i><i></i><b>Flowcode — PC</b><span style="margin-left:auto">pannello Browser</span></div>
+        <div class="desk-body">
+          <div class="desk-term">$ npm run dev<br>  VITE ready in 412 ms<br>  ➜ Local: <em>http://localhost:5173/</em><br>$ cargo run -p api<br>  listening on <em>:8080</em></div>
+          <div class="desk-br">
+            <div class="desk-head">
+              <div class="addr"><span id="deskAddr"></span></div>
+              <span class="count" aria-expanded="true"><b id="deskCount"></b></span>
+            </div>
+            <div class="desk-pop" id="deskTabs"></div>
+          </div>
+        </div>
+        <div class="log" id="log"><div>Sincronizzato: 3 schede</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Le schede: come si allineano</h2>
+    <p>Il PC resta l'unico a sapere quali schede esistono (oggi sono in <code>src/browser/browserStore.ts</code> e valgono solo per la sessione). Il telefono ne riceve l'elenco e ogni sua azione (apri, chiudi, naviga) la chiede al PC, che la applica e la rimanda a tutti. La pagina mostrata invece è scelta da ciascun dispositivo: se cambi scheda sul telefono, il PC resta dov'è. Il chip <b>PC</b> nell'elenco indica la scheda che il PC sta mostrando.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Scheda sul PC</th><th>Sul telefono</th><th>Come arriva</th></tr></thead>
+        <tbody>
+          <tr><td><code>url</code> localhost / 127.0.0.1 con porta</td><td>Si apre nel drawer</td><td>Pagina <code>port</code> esistente, tunnel <code>/p/&lt;porta&gt;</code></td></tr>
+          <tr><td><code>file</code> HTML dentro la cartella di un terminale o di una chat</td><td>Si apre nel drawer</td><td>Pagina <code>file</code> / <code>chatFile</code> esistente</td></tr>
+          <tr><td><code>file</code> o <code>pdf</code> fuori da quelle cartelle</td><td>Si apre nel drawer</td><td>Nuovo target <code>page &lt;id&gt;</code>: il PC serve solo la cartella del file di quella scheda</td></tr>
+          <tr><td><code>pdf</code> da http(s)</td><td>Si apre nel drawer</td><td>Visore PDF sul telefono (oggi non c'è: da fare)</td></tr>
+          <tr><td><code>url</code> esterno (https://…)</td><td>Nell'elenco, con “Apri nel browser del telefono”</td><td>Il telefono non lo carica nell'iframe (come oggi)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section cols">
+    <div class="box">
+      <h3>Lavoro previsto</h3>
+      <ol>
+        <li>Protocollo: nuova capability <code>browserTabs</code>; il PC manda l'elenco completo a ogni modifica (pochi elementi, niente diff); il telefono manda <code>open</code> / <code>close</code> / <code>navigate</code>.</li>
+        <li>PC: <code>browserStore</code> pubblica le modifiche verso il remoto e accetta i comandi del telefono (le pagine aperte dal telefono non fanno comparire il pannello sul PC).</li>
+        <li>Telefono: <code>Browser.tsx</code> legge le schede dal PC invece che dalla cronologia locale; pulsante contatore + elenco come sul desktop; server rilevati compresi.</li>
+        <li>Maniglia secondo la variante scelta (<code>browser.css</code>, <code>browserDrag.ts</code>).</li>
+        <li>Desktop vecchio senza <code>browserTabs</code>: il telefono si comporta come oggi.</li>
+      </ol>
+    </div>
+    <div class="box warn">
+      <h3>Da decidere</h3>
+      <ul>
+        <li><b>Pagina attiva</b>: separata per dispositivo (proposta) o la stessa ovunque?</li>
+        <li><b>Link toccato in chat sul telefono</b>: apre una scheda nuova condivisa anche sul PC (proposta) o resta solo sul telefono?</li>
+        <li><b>Avanti/indietro</b>: la cronologia di una scheda è del PC (<code>back</code>/<code>forward</code>), quindi è condivisa anche quella.</li>
+        <li><b>Tablet</b>: stesse schede; la maniglia non serve (è un pannello).</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const NOTES = {
+  a: { title: "A · Margine in alto", tag: "modifica minima", html: `
+    <p>A tutto schermo il drawer si ferma sotto la status bar con un margine di 16px e tiene gli angoli arrotondati. La maniglia diventa più alta (30px) e si trascina da tutta la barra dell'indirizzo, come oggi.</p>
+    <h3>PRO</h3><ul><li>Cambia solo CSS e il calcolo dell'altezza piena.</li><li>Resta chiaro che è un drawer sopra la chat.</li></ul>
+    <h3>CONTRO</h3><ul><li>La presa resta in alto: con una mano sola è lontana dal pollice.</li><li>Il margine è stretto: se il dito parte troppo in alto apre ancora la tendina.</li></ul>` },
+  b: { title: "B · Striscia di chat visibile", tag: "consigliata", html: `
+    <p>A tutto schermo il drawer lascia scoperti 56px sotto la status bar: si vede la chat scurita dietro. Toccare la striscia riporta il drawer a metà; trascinare giù dalla barra lo riduce. La presa è lontana dalla zona della tendina.</p>
+    <h3>PRO</h3><ul><li>Due modi per ridurlo: tocco sulla striscia o trascinamento.</li><li>Gesto già noto dai fogli di Android e iOS.</li><li>Poco codice: un detent "full" più basso più un'area da toccare.</li></ul>
+    <h3>CONTRO</h3><ul><li>Rimangono 56px in meno per la pagina a tutto schermo.</li></ul>` },
+  c: { title: "C · Barra in basso", tag: "cambio maggiore", html: `
+    <p>Indirizzo, contatore delle schede e maniglia passano in fondo al drawer, vicino al pollice, come in Chrome per Android con la barra in basso. In alto non c'è niente da prendere, quindi la tendina non si apre mai per sbaglio; a tutto schermo la pagina arriva fino alla status bar.</p>
+    <h3>PRO</h3><ul><li>Tutto a portata di pollice, schede comprese.</li><li>Pagina a tutto schermo senza perdere spazio.</li></ul>
+    <h3>CONTRO</h3><ul><li>Il drawer che sale dal basso ha i comandi in basso: a metà altezza la barra copre il composer (il drawer va chiuso per scrivere).</li><li>Vicino alla barra gesti di Android: lo swipe verso l'alto dal bordo porta alla home.</li><li>Più lavoro su <code>Browser.tsx</code> e sul trascinamento.</li></ul>` },
+  now: { title: "Oggi", tag: "riferimento", html: `
+    <p>Il drawer a tutto schermo arriva fino in cima: la maniglia (22px) sta subito sotto la status bar e il dito che parte lì apre la tendina di Android. Una sola pagina alla volta, cronologia solo sul telefono e nessuna scheda condivisa con il PC.</p>` },
+};
+
+const ICON = {
+  back: '<svg width="20" height="20" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
+  reload: '<svg width="19" height="19" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>',
+  close: '<svg width="19" height="19" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+  globe: '<svg width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+  mon: '<svg width="16" height="16" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+  file: '<svg width="16" height="16" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>',
+  plus: '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  ext: '<svg width="16" height="16" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
+};
+
+let seq = 0;
+const mk = (kind, label, url, c) => ({ id: ++seq, kind, label, url, c });
+const state = {
+  v: "a",
+  detent: "half",
+  tabsOpen: false,
+  tabs: [
+    mk("port", "localhost:5173", "http://localhost:5173/", "#5b8a4a"),
+    mk("pdf", "report.pdf", "C:\\Progetti\\sito\\docs\\report.pdf"),
+    mk("ext", "developer.mozilla.org", "https://developer.mozilla.org/docs/Web/CSS"),
+  ],
+  servers: [{ port: 8080, url: "http://localhost:8080/" }],
+  phoneActive: 1,
+  pcActive: 2,
+};
+const PC_POOL = [mk("file", "index.html", "C:\\Progetti\\sito\\dist\\index.html", "#b06d3c"), mk("port", "localhost:3000", "http://localhost:3000/", "#5a6fb0")];
+
+const $ = (s, r = document) => r.querySelector(s);
+const phone = $("#phone"), sheet = $("#sheet"), scrim = $("#scrim"), peek = $("#peek");
+
+const STATUS = 30;      // altezza status bar finta
+const PHONE_H = 780;
+function detentHeight(d) {
+  const v = state.v;
+  if (d === "closed") return 0;
+  if (d === "half") return Math.round(PHONE_H * 0.62);
+  if (v === "a") return PHONE_H - STATUS - 16;
+  if (v === "b") return PHONE_H - STATUS - 56;
+  if (v === "c") return PHONE_H;            // la pagina arriva fino in cima: niente da prendere lassù
+  return PHONE_H;                            // oggi
+}
+
+const badgeLetter = (t) => String.fromCharCode(64 + state.tabs.indexOf(t) + 1);
+const badgeClass = (t) => "badge" + (t.kind === "file" || t.kind === "pdf" ? " file" : t.kind === "ext" ? " ext" : "");
+const kindIcon = (t) => (t ? (t.kind === "port" ? ICON.mon : t.kind === "ext" ? ICON.ext : ICON.file) : ICON.globe);
+const active = () => state.tabs.find((t) => t.id === state.phoneActive);
+
+function log(text) {
+  const l = $("#log");
+  const d = document.createElement("div");
+  d.textContent = text;
+  l.prepend(d);
+}
+
+function siteHtml(t) {
+  if (!t) return `<div class="site ext"><p>Nessuna pagina aperta.</p></div>`;
+  if (t.kind === "ext") return `<div class="site ext"><div>${ICON.ext}</div><b>${t.label}</b><p>I siti esterni non si caricano nel browser dell'app.</p><button type="button">Apri nel browser del telefono</button></div>`;
+  if (t.kind === "pdf") return `<div class="site pdf"><div class="sheetpdf"><h4 style="font-size:15px">Report Q4</h4><div class="bar"></div><div class="bar" style="width:80%"></div><div class="bar" style="width:92%"></div><div class="bar" style="width:60%"></div></div></div>`;
+  return `<div class="site" style="--c:${t.c}"><div class="nav"><i></i><b>${t.label}</b><em></em><em></em></div><h4>Costruisci più veloce</h4><p>La nuova hero aggiornata dall'agente.</p><span class="cta">Inizia</span><div class="grid"><div></div><div></div><div></div><div></div></div></div>`;
+}
+
+function tabsHtml(where) {
+  const rows = state.tabs.map((t) => `
+    <div class="trow${t.id === state.phoneActive ? " active" : ""}" data-id="${t.id}">
+      <button type="button" class="pick" data-pick="${t.id}">
+        <span class="${badgeClass(t)}">${badgeLetter(t)}</span>
+        <span class="ttxt"><b>${t.label}</b><small>${t.id === state.pcActive ? '<span class="pcdot">PC</span>' : ""}<span>${t.url}</span></small></span>
+      </button>
+      <button type="button" class="tx" data-close="${t.id}" aria-label="Chiudi scheda">${ICON.close}</button>
+    </div>`).join("");
+  const srv = state.servers.filter((s) => !state.tabs.some((t) => t.url === s.url)).map((s) => `
+    <div class="srv"><span class="badge">${ICON.mon}</span><span class="ttxt"><b>localhost:${s.port}</b><small><span>server rilevato sul PC</span></small></span><button type="button" data-srv="${s.port}">Apri</button></div>`).join("");
+  return `<div class="tabs ${where}" id="tabs">
+    <h5>Schede · condivise con il PC</h5>${rows}
+    ${srv ? `<h5>Server rilevati</h5>${srv}` : ""}
+    <button type="button" class="newp" data-new>${ICON.plus} Nuova pagina</button></div>`;
+}
+
+function headHtml(bottom) {
+  const t = active();
+  const now = state.v === "now";
+  return `<header class="head${bottom ? " bottom" : ""}">
+    <button type="button" class="btn" aria-label="Indietro">${ICON.back}</button>
+    <div class="addr">${kindIcon(t)}<span>${t ? t.label : "localhost:5173"}</span></div>
+    ${now ? "" : `<button type="button" class="count" id="countBtn" aria-expanded="${state.tabsOpen}" aria-label="Schede"><b>${state.tabs.length}</b></button>`}
+    <button type="button" class="btn" aria-label="Ricarica">${ICON.reload}</button>
+    <button type="button" class="btn" data-x aria-label="Chiudi">${ICON.close}</button>
+  </header>`;
+}
+
+function render() {
+  const v = state.v;
+  const bottom = v === "c";
+  const grab = `<div class="grab${v === "now" ? "" : " big"}"></div>`;
+  const drag = bottom
+    ? `<div class="drag" id="drag">${headHtml(true)}${grab}<div class="hit"></div></div>`
+    : `<div class="drag" id="drag">${grab}${headHtml(false)}<div class="hit"></div></div>`;
+  const body = `<div class="body">${siteHtml(v === "now" ? state.tabs[0] : active())}${state.tabsOpen && v !== "now" ? tabsHtml(bottom ? "at-bottom" : "at-top") : ""}</div>`;
+  sheet.innerHTML = bottom ? body + drag : drag + body;
+
+  const h = detentHeight(state.detent);
+  sheet.style.height = h + "px";
+  const full = state.detent === "full";
+  sheet.classList.toggle("flat", full && (v === "now" || v === "c"));
+  if (full && (v === "now" || v === "c")) sheet.querySelector(".body").style.paddingTop = bottom ? STATUS + "px" : "0";
+  if (full && v === "now") $("#drag").style.paddingTop = STATUS + "px";
+  scrim.classList.toggle("on", full && v === "b");
+  peek.hidden = !(full && v === "b");
+  peek.style.top = STATUS + "px";
+  peek.style.height = "56px";
+  $("#reopen").hidden = state.detent !== "closed";
+  $("#reopenCount").textContent = state.tabs.length;
+  renderDesk();
+}
+
+function renderDesk() {
+  const pc = state.tabs.find((t) => t.id === state.pcActive) || state.tabs[0];
+  $("#deskAddr").textContent = pc ? pc.label : "";
+  $("#deskCount").textContent = state.tabs.length;
+  $("#deskTabs").innerHTML = state.tabs.map((t) => `
+    <div class="trow${pc && t.id === pc.id ? " active" : ""}" data-desk="${t.id}">
+      <button type="button" class="pick" data-deskpick="${t.id}"><span class="${badgeClass(t)}">${badgeLetter(t)}</span><span class="ttxt"><b>${t.label}</b><small><span>${t.url}</span></small></span></button>
+      <button type="button" class="tx" data-deskclose="${t.id}" aria-label="Chiudi">${ICON.close}</button>
+    </div>`).join("");
+}
+
+function flashDesk(id) {
+  const row = document.querySelector(`[data-desk="${id}"]`);
+  if (row) { row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash"); }
+}
+
+// ---- azioni ----
+sheet.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.id === "countBtn") { state.tabsOpen = !state.tabsOpen; if (state.tabsOpen && state.detent === "half" && state.v !== "c") state.detent = "full"; render(); return; }
+  if (b.dataset.x !== undefined) { state.detent = "closed"; state.tabsOpen = false; render(); return; }
+  if (b.dataset.pick) { state.phoneActive = +b.dataset.pick; state.tabsOpen = false; render(); return; }
+  if (b.dataset.close) {
+    const id = +b.dataset.close;
+    const t = state.tabs.find((x) => x.id === id);
+    state.tabs = state.tabs.filter((x) => x.id !== id);
+    if (state.phoneActive === id) state.phoneActive = state.tabs[0]?.id;
+    if (state.pcActive === id) state.pcActive = state.tabs[0]?.id;
+    log(`telefono → PC: chiudi ${t.label}`);
+    render(); return;
+  }
+  if (b.dataset.srv) {
+    const port = +b.dataset.srv;
+    const t = mk("port", "localhost:" + port, `http://localhost:${port}/`, "#8a5ab0");
+    state.tabs.push(t); state.phoneActive = t.id; state.tabsOpen = false;
+    log(`telefono → PC: apri localhost:${port}`);
+    render(); flashDesk(t.id); return;
+  }
+  if (b.dataset.new !== undefined) {
+    const t = mk("file", "landing.html", "docs/design/landing.html", "#3c8a86");
+    state.tabs.push(t); state.phoneActive = t.id; state.tabsOpen = false;
+    log("telefono → PC: apri docs/design/landing.html");
+    render(); flashDesk(t.id); return;
+  }
+});
+
+$("#deskTabs").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.deskpick) { state.pcActive = +b.dataset.deskpick; log("PC: mostra un'altra scheda (il telefono resta dov'è)"); render(); }
+  if (b.dataset.deskclose) {
+    const id = +b.dataset.deskclose;
+    const t = state.tabs.find((x) => x.id === id);
+    state.tabs = state.tabs.filter((x) => x.id !== id);
+    if (state.pcActive === id) state.pcActive = state.tabs[0]?.id;
+    if (state.phoneActive === id) state.phoneActive = state.tabs[0]?.id;
+    log(`PC → telefono: chiusa ${t.label}`);
+    render();
+  }
+});
+
+$("#pcOpen").addEventListener("click", () => {
+  const t = PC_POOL.shift();
+  if (!t) return;
+  state.tabs.push(t); state.pcActive = t.id;
+  log(`PC → telefono: nuova scheda ${t.label}`);
+  render(); flashDesk(t.id);
+});
+
+peek.addEventListener("click", () => { state.detent = "half"; state.tabsOpen = false; render(); });
+scrim.addEventListener("click", () => { state.detent = "half"; state.tabsOpen = false; render(); });
+$("#reopen").addEventListener("click", () => { state.detent = "half"; render(); });
+document.querySelectorAll("[data-detent]").forEach((b) => b.addEventListener("click", () => { state.detent = b.dataset.detent; render(); }));
+$("#zones").addEventListener("change", (e) => phone.classList.toggle("show-zones", e.target.checked));
+
+document.querySelectorAll(".variants button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".variants button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  state.v = b.dataset.v; state.tabsOpen = false; state.detent = "full";
+  const n = NOTES[state.v];
+  $("#note").innerHTML = `<h2>${n.title} <span class="tag${n.tag === "cambio maggiore" ? " warn" : ""}">${n.tag}</span></h2>${n.html}`;
+  render();
+}));
+
+// ---- trascinamento (dalla barra con la maniglia) ----
+let drag = null;
+sheet.addEventListener("pointerdown", (e) => {
+  if (!e.target.closest("#drag") || e.target.closest("button:not(.grab), .addr")) return;
+  drag = { y: e.clientY, h: sheet.offsetHeight, moved: false, samples: [] };
+});
+window.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dy = e.clientY - drag.y;
+  if (!drag.moved && Math.abs(dy) < 6) return;
+  drag.moved = true;
+  sheet.classList.add("dragging");
+  const h = Math.max(0, Math.min(PHONE_H, drag.h + (state.v === "c" ? -dy : -dy)));
+  sheet.style.height = h + "px";
+  drag.samples.push({ t: e.timeStamp, y: e.clientY });
+  while (drag.samples.length > 1 && e.timeStamp - drag.samples[0].t > 160) drag.samples.shift();
+});
+window.addEventListener("pointerup", (e) => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  sheet.classList.remove("dragging");
+  if (!d.moved) { if (e.target.closest(".grab")) { state.detent = state.detent === "full" ? "half" : "full"; render(); } return; }
+  const s = d.samples, vel = s.length > 1 ? (s[s.length - 1].y - s[0].y) / Math.max(1, s[s.length - 1].t - s[0].t) : 0;
+  const projected = sheet.offsetHeight - vel * 180;
+  const opts = ["closed", "half", "full"];
+  state.detent = opts.reduce((best, o) => Math.abs(detentHeight(o) - projected) < Math.abs(detentHeight(best) - projected) ? o : best, "closed");
+  if (state.detent !== "full") state.tabsOpen = false;
+  render();
+});
+
+document.querySelector('.variants button[data-v="a"]').click();
+</script>
+</body>
+</html>

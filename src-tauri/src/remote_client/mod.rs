@@ -180,6 +180,7 @@ fn cache_kind(msg: &ServerMsg) -> Option<&'static str> {
         ServerMsg::Tabs { .. } => "tabs",
         ServerMsg::Chats { .. } => "chats",
         ServerMsg::Settings { .. } => "settings",
+        ServerMsg::BrowserTabs { .. } => "browsertabs",
         ServerMsg::Actions { .. } => "actions",
         ServerMsg::Profiles { .. } => "profiles",
         ServerMsg::Usage { .. } => "usage",

@@ -7,7 +7,7 @@ import { termMock } from "./devMockTerm";
 import { explorerMock } from "./devMockExplorer";
 import { gitMock } from "./devMockGit";
 import { providerAuthMock } from "./devMockProviderAuth";
-import type { ClientMsg, Tab } from "../../shared/remote-types";
+import type { BrowserTabsSnapshot, ClientMsg, Tab } from "../../shared/remote-types";
 
 const tabs: Tab[] = [
   { ptyId: "p1", tabId: "t1", window: "w1", label: "flowcode", cwd: "C:/Users/massi/Progetti/flowcode", cols: 80, rows: 24, cli: "claude", status: "waiting", context: { used: 16000, window: 200000 } },
@@ -117,6 +117,36 @@ const mockSettings = {
   autoResume: { enabled: true, message: "continua" },
 };
 
+// The desktop browser's tabs: a dev server, a file, an external page. `browserop` changes them like the desktop would.
+const mockBrowser: BrowserTabsSnapshot = {
+  pages: [
+    { id: "bp1", kind: "url", url: "http://localhost:5173/", canBack: false, canForward: false },
+    { id: "bp2", kind: "file", path: "C:/Users/massi/Documents/site/index.html" },
+    { id: "bp3", kind: "url", url: "https://developer.mozilla.org/en-US/docs/Web", canBack: false, canForward: false },
+  ],
+  activeId: "bp1",
+  servers: [{ url: "http://localhost:3000", port: 3000, alive: true }],
+  opened: null,
+};
+const emitBrowserTabs = () => emit("remote://msgs", [{ t: "browsertabs", tabs: structuredClone(mockBrowser) }]);
+
+function mockBrowserOp(msg: ClientMsg | undefined) {
+  if (msg?.t !== "browserop") return;
+  const op = msg.op;
+  if (op.op === "openUrl" || op.op === "openFile") {
+    const id = `bp${Date.now()}`;
+    mockBrowser.pages.push(op.op === "openUrl" ? { id, kind: "url", url: op.url, canBack: false, canForward: false } : { id, kind: "file", path: `C:/Users/massi/${op.path}` });
+    mockBrowser.opened = { nonce: op.nonce, pageId: id };
+  } else if (op.op === "close") {
+    mockBrowser.pages = mockBrowser.pages.filter((p) => p.id !== op.id);
+    if (mockBrowser.activeId === op.id) mockBrowser.activeId = mockBrowser.pages[0]?.id ?? null;
+  } else if (op.op === "navigate") {
+    const p = mockBrowser.pages.find((x) => x.id === op.id);
+    if (p?.kind === "url") p.url = op.url;
+  }
+  setTimeout(() => void emitBrowserTabs(), 150);
+}
+
 /** Closing or renaming a terminal tab: the list the desktop would push next. */
 function mockTabs(msg: ClientMsg | undefined) {
   if (msg?.t === "newtab") {
@@ -159,8 +189,9 @@ function mockTabs(msg: ClientMsg | undefined) {
 
 // What the desktop sends once the link is up: its features, the chats and the view plugins.
 async function chatHello() {
-  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "tabOps", "git", "history", "resume", ...chatMockCaps] }]);
+  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "tabOps", "git", "history", "resume", "browserTabs", ...chatMockCaps] }]);
   await chatMockConnect();
+  await emitBrowserTabs();
   await emit("remote://msgs", [{ t: "views", views: mockViews }]);
 }
 
@@ -242,7 +273,10 @@ mockIPC(
       case "view_cache_prune":
         return undefined;
       default:
-        if (cmd === "send") mockTabs((args as { msg?: ClientMsg }).msg);
+        if (cmd === "send") {
+          mockTabs((args as { msg?: ClientMsg }).msg);
+          mockBrowserOp((args as { msg?: ClientMsg }).msg);
+        }
         if (cmd === "send") explorerMock((args as { msg?: ClientMsg }).msg);
         if (cmd === "send") gitMock((args as { msg?: ClientMsg }).msg);
         if (cmd === "send") providerAuthMock((args as { msg?: ClientMsg }).msg);

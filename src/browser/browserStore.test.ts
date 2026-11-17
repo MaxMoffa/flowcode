@@ -14,6 +14,9 @@ import {
   isPdfTarget,
   isPreviewableFile,
   navigatePage,
+  browserTabsSnapshot,
+  openFileFromRemote,
+  openUrlFromRemote,
   normalizeLocalUrl,
   normalizeTypedUrl,
   openFileInPreview,
@@ -298,5 +301,67 @@ describe("calls for a background tab", () => {
     setBrowserFocusTab("tab-b");
     await Promise.resolve();
     expect(getCalls()).toEqual([]);
+  });
+});
+
+describe("pages opened from the phone", () => {
+  beforeEach(() => {
+    for (const p of [...getBrowser().pages]) closePage(p.id);
+    setBrowserOpen(false);
+    setBrowserFocusTab(null);
+  });
+
+  it("add a page without opening the panel or taking the active page", () => {
+    openUrlInPreview("http://localhost:1");
+    setBrowserOpen(false);
+    const active = getBrowser().activeId;
+    openUrlFromRemote("http://localhost:2", "n1");
+    expect(getBrowser().pages).toHaveLength(2);
+    expect(getBrowser().open).toBe(false);
+    expect(getBrowser().activeId).toBe(active);
+    expect(getBrowser().remoteOpened).toEqual({ nonce: "n1", pageId: getBrowser().pages[1].id });
+  });
+  it("dedupe and turn pdf targets into pdf pages", () => {
+    openUrlInPreview("http://localhost:1");
+    openUrlFromRemote("http://localhost:1", "n2");
+    expect(getBrowser().pages).toHaveLength(1);
+    expect(getBrowser().remoteOpened).toEqual({ nonce: "n2", pageId: getBrowser().pages[0].id });
+    openFileFromRemote("C:/docs/a.pdf", "n3");
+    openFileFromRemote("C:/docs/a.pdf", "n4");
+    expect(getBrowser().pages.filter((p) => p.kind === "pdf")).toHaveLength(1);
+    openFileFromRemote("C:/docs/a.html", "n5");
+    expect(getBrowser().pages[getBrowser().pages.length - 1]).toMatchObject({ kind: "file", path: "C:/docs/a.html" });
+  });
+  it("make the page active when there was none", () => {
+    openUrlFromRemote("http://localhost:9", "n6");
+    expect(getBrowser().activeId).toBe(getBrowser().pages[0].id);
+    expect(getBrowser().open).toBe(false);
+  });
+});
+
+describe("browserTabsSnapshot", () => {
+  beforeEach(() => {
+    for (const p of [...getBrowser().pages]) closePage(p.id);
+    for (const s of [...getBrowser().servers]) removeServersOfTab(s.tabId);
+  });
+
+  it("maps pages, servers, active and opened", () => {
+    openUrlInPreview("http://localhost:1");
+    const id = getBrowser().pages[0].id;
+    navigatePage(id, "http://localhost:2");
+    openFileInPreview("C:/a.html");
+    openUrlInPreview("https://x.com/s.pdf");
+    addDetectedServer("http://localhost:3000", 3000, "tab-z");
+    openUrlFromRemote("http://localhost:2", "nn");
+    const snap = browserTabsSnapshot(getBrowser());
+    const [u, f, p] = getBrowser().pages;
+    expect(snap.pages).toEqual([
+      { id: u.id, kind: "url", url: "http://localhost:2", canBack: true, canForward: false },
+      { id: f.id, kind: "file", path: "C:/a.html" },
+      { id: p.id, kind: "pdf", src: "https://x.com/s.pdf" },
+    ]);
+    expect(snap.servers).toEqual([{ url: "http://localhost:3000", port: 3000, alive: true }]);
+    expect(snap.activeId).toBe(p.id);
+    expect(snap.opened).toEqual({ nonce: "nn", pageId: u.id });
   });
 });

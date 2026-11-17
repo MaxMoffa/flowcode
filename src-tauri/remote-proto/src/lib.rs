@@ -34,7 +34,7 @@ pub const PROTOCOL_VERSION: u32 = 2;
 /// Features this desktop supports, sent in `ready` as `caps`, so the phone
 /// can hide what an older desktop lacks. Keep in step with `RemoteCap` in
 /// shared/remote-types.ts and docs/remote-protocol.md.
-pub const CAPABILITIES: &[&str] = &["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview", "chatPreview", "agentInsight", "chatPromptAck", "chatImageRequestId", "chatCacheInfo", "git", "history", "resume", "tabOps", "chatAttach", "mcpIcon", "stats", "dictation", "chatResume"];
+pub const CAPABILITIES: &[&str] = &["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "chat", "agentViews", "linkPreview", "compress", "terminalChat", "chatRename", "chatCloseTab", "chatModel", "chatThought", "chatGoal", "chatClear", "chatImage", "chatWebImages", "desktopUpdate", "preview", "chatPreview", "agentInsight", "chatPromptAck", "chatImageRequestId", "chatCacheInfo", "git", "history", "resume", "tabOps", "chatAttach", "mcpIcon", "stats", "dictation", "chatResume", "browserTabs"];
 
 /// What a preview stream is pointed at. After `auth`, the phone opens one extra
 /// bidirectional stream per HTTP connection of its in-app browser. The first
@@ -55,6 +55,9 @@ pub enum PreviewTarget {
     /// Raw audio of a remote dictation session (see `ClientMsg::DictStart`):
     /// s16le mono 16 kHz until the phone finishes the stream; requires `dictation`.
     DictAudio(String),
+    /// Files next to a desktop browser page (`BrowserTabs` `pages[].id`), served by
+    /// the same confined file server; requires `browserTabs`.
+    BrowserPage(String),
 }
 
 /// Longest metadata line of an upload stream, newline included.
@@ -92,6 +95,7 @@ pub fn preview_header(target: &PreviewTarget) -> String {
         PreviewTarget::ChatFiles(chat_id) => format!("chatfiles {chat_id}\n"),
         PreviewTarget::ChatUpload(chat_id) => format!("chatupload {chat_id}\n"),
         PreviewTarget::DictAudio(session) => format!("dictaudio {session}\n"),
+        PreviewTarget::BrowserPage(id) => format!("browserpage {id}\n"),
     }
 }
 
@@ -105,6 +109,7 @@ pub fn parse_preview_header(line: &str) -> Option<PreviewTarget> {
         "chatfiles" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::ChatFiles(rest.to_string())),
         "chatupload" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::ChatUpload(rest.to_string())),
         "dictaudio" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::DictAudio(rest.to_string())),
+        "browserpage" if !rest.is_empty() && !rest.contains(char::is_whitespace) => Some(PreviewTarget::BrowserPage(rest.to_string())),
         _ => None,
     }
 }
@@ -118,11 +123,11 @@ mod tests {
 
     #[test]
     fn preview_headers_round_trip_and_refuse_junk() {
-        for target in [PreviewTarget::Port(5173), PreviewTarget::Files("pty-1".into()), PreviewTarget::ChatFiles("chat-1".into()), PreviewTarget::ChatUpload("chat-1".into()), PreviewTarget::DictAudio("d-1".into())] {
+        for target in [PreviewTarget::Port(5173), PreviewTarget::Files("pty-1".into()), PreviewTarget::ChatFiles("chat-1".into()), PreviewTarget::ChatUpload("chat-1".into()), PreviewTarget::DictAudio("d-1".into()), PreviewTarget::BrowserPage("pg-1".into())] {
             assert_eq!(parse_preview_header(&preview_header(&target)), Some(target));
         }
         assert_eq!(parse_preview_header("port 80\r\n"), Some(PreviewTarget::Port(80)));
-        for bad in ["", "port", "port 0", "port 70000", "port x", "files", "files a b", "chatfiles", "chatfiles ", "chatfiles a b", "chatupload", "chatupload a b", "dictaudio", "dictaudio a b", "ftp 1", "GET / HTTP/1.1"] {
+        for bad in ["", "port", "port 0", "port 70000", "port x", "files", "files a b", "chatfiles", "chatfiles ", "chatfiles a b", "chatupload", "chatupload a b", "dictaudio", "dictaudio a b", "browserpage", "browserpage ", "browserpage a b", "ftp 1", "GET / HTTP/1.1"] {
             assert_eq!(parse_preview_header(bad), None, "{bad:?}");
         }
     }

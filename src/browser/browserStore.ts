@@ -3,6 +3,7 @@ import { readBool, writeBool } from "../lib/storage";
 import { isPdfTarget } from "../../shared/agentOpen";
 import { addCall, removeCallByKey } from "../calls/callStore";
 import { t } from "../i18n";
+import type { BrowserTabPage, BrowserTabsSnapshot } from "../../shared/remote-types";
 export { isPdfTarget, isPreviewableFile } from "../../shared/agentOpen";
 
 const BROWSER_OPEN_KEY = "flowcode.browserOpen";
@@ -21,16 +22,18 @@ interface DetectedServer {
   alive: boolean;
 }
 
-interface BrowserState {
+export interface BrowserState {
   open: boolean;
   pages: PreviewPage[];
   activeId: string | null;
   servers: DetectedServer[];
+  /** The last page the phone asked to open (see openUrlFromRemote). */
+  remoteOpened: { nonce: string; pageId: string } | null;
 }
 
 // Only `open` outlives the session: the pages point at servers and files that
 // may be gone by the next launch.
-const store = createStore<BrowserState>({ open: readBool(BROWSER_OPEN_KEY, false), pages: [], activeId: null, servers: [] });
+const store = createStore<BrowserState>({ open: readBool(BROWSER_OPEN_KEY, false), pages: [], activeId: null, servers: [], remoteOpened: null });
 
 export const useBrowser = store.use;
 export const getBrowser = store.get;
@@ -159,11 +162,56 @@ function showPage(id: string, fromTabId?: string) {
   setBrowserOpen(true);
 }
 
+/** The page for this target, reusing an existing one (same url / path / pdf src) or adding it. */
+function addOrFindPage(target: { kind: "url"; url: string } | { kind: "file"; path: string } | { kind: "pdf"; src: string }): string {
+  const existing = store.get().pages.find((p) => {
+    if (p.kind !== target.kind) return false;
+    return p.kind === "url" ? p.url === (target as { url: string }).url : p.kind === "file" ? p.path === (target as { path: string }).path : p.src === (target as { src: string }).src;
+  });
+  if (existing) return existing.id;
+  const id = newId();
+  const page: PreviewPage =
+    target.kind === "url" ? { id, kind: "url", url: target.url, back: [], forward: [] } : target.kind === "file" ? { id, kind: "file", path: target.path } : { id, kind: "pdf", src: target.src };
+  store.update((s) => ({ ...s, pages: [...s.pages, page] }));
+  return id;
+}
+
+/** The page a target opens as: a PDF target becomes a viewer page whatever the kind asked. */
+function addOrFindTarget(kind: "url" | "file", value: string): string {
+  if (isPdfTarget(value)) return addOrFindPage({ kind: "pdf", src: value });
+  return addOrFindPage(kind === "url" ? { kind: "url", url: value } : { kind: "file", path: value });
+}
+
+/** A page the phone asked for: added (or found) without opening the Browser or taking the desktop's active page.
+ * Exception: with no page before, the new one becomes active so the panel isn't empty when opened later. */
+function openFromRemote(kind: "url" | "file", value: string, nonce: string) {
+  const hadPages = store.get().pages.length > 0;
+  const pageId = addOrFindTarget(kind, value);
+  store.update((s) => ({ ...s, activeId: hadPages ? s.activeId : pageId, remoteOpened: { nonce, pageId } }));
+}
+
+export function openUrlFromRemote(url: string, nonce: string) {
+  openFromRemote("url", url, nonce);
+}
+
+export function openFileFromRemote(path: string, nonce: string) {
+  openFromRemote("file", path, nonce);
+}
+
+/** The tabs as the phone mirrors them. */
+export function browserTabsSnapshot(state: BrowserState): BrowserTabsSnapshot {
+  return {
+    pages: state.pages.map((p): BrowserTabPage =>
+      p.kind === "url" ? { id: p.id, kind: "url", url: p.url, canBack: p.back.length > 0, canForward: p.forward.length > 0 } : p.kind === "file" ? { id: p.id, kind: "file", path: p.path } : { id: p.id, kind: "pdf", src: p.src },
+    ),
+    activeId: state.activeId,
+    servers: state.servers.map((s) => ({ url: s.url, port: s.port, alive: s.alive })),
+    opened: state.remoteOpened,
+  };
+}
+
 function openPdfInPreview(src: string, fromTabId?: string) {
-  const existing = store.get().pages.find((p) => p.kind === "pdf" && p.src === src);
-  const id = existing?.id ?? newId();
-  if (!existing) store.update((s) => ({ ...s, pages: [...s.pages, { id, kind: "pdf", src }] }));
-  showPage(id, fromTabId);
+  showPage(addOrFindPage({ kind: "pdf", src }), fromTabId);
 }
 
 /** A url page that turned out to serve a PDF becomes a viewer page, in place. */
@@ -177,18 +225,12 @@ export function convertPageToPdf(id: string, url: string) {
 /** `fromTabId`: the tab this is opened for, when not the user's own action on screen. */
 export function openUrlInPreview(url: string, fromTabId?: string) {
   if (isPdfTarget(url)) return openPdfInPreview(url, fromTabId);
-  const existing = store.get().pages.find((p) => p.kind === "url" && p.url === url);
-  const id = existing?.id ?? newId();
-  if (!existing) store.update((s) => ({ ...s, pages: [...s.pages, { id, kind: "url", url, back: [], forward: [] }] }));
-  showPage(id, fromTabId);
+  showPage(addOrFindPage({ kind: "url", url }), fromTabId);
 }
 
 export function openFileInPreview(path: string, fromTabId?: string) {
   if (isPdfTarget(path)) return openPdfInPreview(path, fromTabId);
-  const existing = store.get().pages.find((p) => p.kind === "file" && p.path === path);
-  const id = existing?.id ?? newId();
-  if (!existing) store.update((s) => ({ ...s, pages: [...s.pages, { id, kind: "file", path }] }));
-  showPage(id, fromTabId);
+  showPage(addOrFindPage({ kind: "file", path }), fromTabId);
 }
 
 export function activatePage(id: string) {

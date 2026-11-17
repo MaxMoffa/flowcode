@@ -51,6 +51,7 @@ impl RemoteState {
             usage: watch::channel(Vec::new()).0,
             actions: watch::channel(Vec::new()).0,
             settings: watch::channel(serde_json::Value::Null).0,
+            browser_tabs: watch::channel(serde_json::Value::Null).0,
             update: watch::channel(serde_json::Value::Null).0,
             profiles: watch::channel(serde_json::Value::Null).0,
             notices: broadcast::channel(32).0,
