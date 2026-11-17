@@ -29,7 +29,16 @@ Base già in master (PR #3): `src-tauri/src/cline.rs` (quote ClinePass via `api.
 - Stato login da file: `providers.json` → `providers.<id>.settings` con `auth.accessToken` o `apiKey` (stessa lettura di `cline.rs::settings_token`, da generalizzare oltre il provider `cline`).
 - Logout: rimuovere le credenziali da `providers.json` (non c'è un comando).
 
-## Fase 0: verifica dal vivo (prima di scrivere codice)
+## Fase 0: verificato dal vivo (2026-11-17, cline 3.0.74, senza login)
+
+- Installato: Windows `C:\nvm4w\nodejs\cline.cmd` (npm globale); WSL `~/.local/bin/cline` (`npm i -g --prefix ~/.local cline`: il prefix di sistema `/usr` vuole sudo). Il comando d'installazione di Flowcode per WSL deve usare lo stesso prefix.
+- Processo: `cline.cmd` → wrapper node `node_modules/cline/bin/cline` → binario nativo `@cline/cli-windows-x64/bin/cline.exe` (Linux: `@cline/cli-linux-x64/bin/cline`, eventuale cache `bin/.cline`). Per `AGENT_BINARIES` basta `cline` / `cline.exe` (Bun incorporato, non `node`).
+- `cline --acp` → `initialize`: `loadSession: true`, `promptCapabilities.image: true`, `agentInfo {name: "cline", version}`, `authMethods`: `cline`, `cline-pass`, `openai-codex`. Senza credenziali `session/new` risponde `-32000 "Authentication required: Call authenticate before starting a session"` → il login può passare da ACP `authenticate` (come `vibe-acp`), oltre che da `cline auth`.
+- `CLINE_DIR=<dir>` vuota: l'avvio ACP scrive lì (`cli-node-extra-ca-certs.pem`) e non tocca `~/.cline` → isolamento dei profili plausibile; da confermare con login e sessioni.
+- `cline history --json --limit N`: array di sessioni con `sessionId`, `source` (es. `cline-desktop-agent`), `pid`, `startedAt`, `endedAt`, `status` (`completed`/`failed`), `provider`, `model`, `cwd`, `workspaceRoot`, `isSubagent`, `prompt`, `metadata.title`, `metadata.usage {inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalCost}`, `metadata.aggregateUsage`, `messagesPath` (`data/sessions/<id>/<id>.messages.json`), `updatedAt`. Basta per History, sessione live (`pid` + `status`), spesa e contesto: niente sqlite da leggere.
+- Sul PC esiste già `~/.cline/data` (`db`, `logs`, `sessions`, sessioni di settembre da `cline-desktop-agent`) ma **nessun** `data/settings/providers.json`: oggi non c'è login.
+
+## Fase 0: ancora da verificare (serve il login)
 
 Serve Cline installato (Windows + WSL): `npm i -g cline`.
 1. `cline --acp`: handshake `initialize` (capability: `loadSession`, immagini, `promptCapabilities`), `session/new`, `session/load`, modalità e modelli esposti, forma delle tool call (shell, edit, spawn), errore strutturato su limite/quota.
