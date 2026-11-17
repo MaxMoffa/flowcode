@@ -721,7 +721,8 @@ th[style*="center"] .chat-table-sort {
   z-index: 50;
   display: flex;
   flex-direction: column;
-  background: var(--term-bg);
+  /* Opaque: --term-bg is translucent glass, the chat under the sheet bled through. */
+  background: rgb(var(--surface-rgb));
   animation: chat-table-sheet-in 0.2s ease;
 }
 
@@ -798,7 +799,7 @@ th[style*="center"] .chat-table-sort {
 }
 
 .chat-table-sheet-body .chat-table th {
-  background: linear-gradient(var(--card-bg), var(--card-bg)), var(--term-bg);
+  background: linear-gradient(var(--card-bg), var(--card-bg)), rgb(var(--surface-rgb));
 }
 
 .chat-table-sheet-body .chat-table-sort {
