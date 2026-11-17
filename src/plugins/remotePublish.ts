@@ -71,7 +71,7 @@ export function watchUsageForRemote(labelOf: (pluginId: string) => string): Usag
           kind: m.kind,
           // Gauges get the desktop's translated wording (scope included), not
           // the CLI's raw English row.
-          label: m.kind === "session" || m.kind === "week" ? metricText(m).label : (m.label ?? metricText(m).label),
+          label: m.kind === "session" || m.kind === "week" || m.kind === "month" ? metricText(m).label : (m.label ?? metricText(m).label),
           percent: m.percent,
           resets: m.resets,
           command: m.command,

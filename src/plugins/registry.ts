@@ -45,6 +45,15 @@ export function builtinPlugins(): PluginDef[] {
       command: "opencode",
       icon: "M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM9 9h6v6H9z",
     },
+    {
+      id: "cline",
+      label: "Cline",
+      description: t("plugin.cli.description", { name: "Cline" }),
+      action: "runCommand",
+      command: "cline",
+      builtin: true,
+      icon: "M16 6a7 7 0 1 0 0 12M17 10l3 2-3 2",
+    },
   ];
 }
 
