@@ -436,10 +436,8 @@ export const en: Record<MessageKey, string> = {
   "pluginAction.commandOutput": "Run a command and show its output in a popup",
 
   "usage.session": "Session (5 hours)",
-  "usage.fiveHours": "5 hours",
   "usage.week": "Week",
   "usage.month": "Month",
-  "usage.remaining": "{percent}% remaining",
   "usage.allModels": "all models",
   "usage.resets": "Resets {when}",
   "usage.unavailable": "Unavailable",
@@ -462,7 +460,6 @@ export const en: Record<MessageKey, string> = {
   "usage.budget": "Budget",
   "usage.budget.detail": "{spent} of {limit}",
   "usage.opencodeWorkspace": "{name} · OpenCode Console",
-  "usage.opencodeNoQuota": "Go quotas unavailable for this workspace",
   "usage.clineSignIn": "Run “cline auth” to see ClinePass limits.",
   "usage.clineRejected": "Run “cline auth” again or check your API key.",
   "usage.clineNoPlan": "No ClinePass quota for this account",

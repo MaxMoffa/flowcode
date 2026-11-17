@@ -240,7 +240,7 @@ export function UsagePopoverContent({
           <div className="plugin-usage-popover-title">{label}</div>
           {account && <div className="plugin-usage-popover-account" title={account}>{account}</div>}
         </div>
-        {cli && onProfileChange && <ProfileSelect
+        {onProfileChange && <ProfileSelect
             value={profile}
             onChange={onProfileChange}
             cli={cli}

@@ -53,7 +53,7 @@ export function sparkBars(turns: number[]): { heights: number[]; max: number } {
 
 /** What the usage metrics describe: a subscription's limits, pay-per-token spend, or neither. */
 export function planKind(metrics: UsageMetric[]): "plan" | "payg" | "other" {
-  if (metrics.some((m) => m.kind === "session" || m.kind === "week")) return "plan";
+  if (metrics.some((m) => m.kind === "session" || m.kind === "week" || m.kind === "month")) return "plan";
   if (metrics.some((m) => m.kind === "billing" || m.kind === "budget" || (m.kind === "spend" && typeof m.cost === "number"))) return "payg";
   return "other";
 }

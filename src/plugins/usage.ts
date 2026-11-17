@@ -34,8 +34,6 @@ export interface UsageMetric {
     | "unpriced"
     | "budget";
   label?: string;
-  /** Set for a quota reported by the subscription provider. */
-  quota?: true;
   /** When the window resets, as the CLI worded it. */
   resets?: string;
   /** loggedOut / reauth / noApiKey: the command that signs in. */
@@ -130,14 +128,9 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
     case "session":
     case "week":
     case "month": {
-      const key = m.kind === "session" && m.quota ? "usage.fiveHours" : `usage.${m.kind}` as const;
-      const remaining = m.quota && m.percent !== undefined
-        ? t("usage.remaining", { percent: String(100 - Math.round(m.percent * 100)) })
-        : undefined;
-      const reset = m.resets ? t("usage.resets", { when: m.resets }) : undefined;
       return {
-        label: withScope(t(key), m.label),
-        detail: [remaining, reset].filter(Boolean).join(" · ") || undefined,
+        label: withScope(t(`usage.${m.kind}` as const), m.label),
+        detail: m.resets ? t("usage.resets", { when: m.resets }) : undefined,
       };
     }
     default:
@@ -145,13 +138,12 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
   }
 }
 
-/** Surface the subscription window closest to its limit in the toolbar. */
+/** The toolbar mini-bar: always the rolling 5-hour session window, the
+ * limit that moves while you work; else the first metric with a percent.
+ * The popover still lists every metric. */
 export function usageBarMetric(metrics: UsageMetric[] = []): UsageMetric | undefined {
-  const gauges = metrics.filter((m): m is UsageMetric & { percent: number } =>
-    m.percent !== undefined && Number.isFinite(m.percent));
-  const mostUsedQuota = gauges.reduce<(typeof gauges)[number] | undefined>((highest, m) =>
-    m.quota && m.percent > (highest?.percent ?? -1) ? m : highest, undefined);
-  return mostUsedQuota ?? gauges.find((m) => m.kind === "session") ?? gauges[0];
+  const gauge = (m: UsageMetric) => m.percent !== undefined && Number.isFinite(m.percent);
+  return metrics.find((m) => m.kind === "session" && gauge(m)) ?? metrics.find(gauge);
 }
 
 /** The plain-text report behind the popover's "copy debug info" button. */
@@ -540,7 +532,6 @@ function quotaMetrics(windows: UsageWindow[], scope?: string): UsageMetric[] {
   return windows.map((window) => ({
     kind: window.period === "fiveHours" ? "session" : window.period,
     label: scope,
-    quota: true,
     percent: window.percentUsed / 100,
     resets: formatReset(window.resetsAt),
   }));
@@ -569,7 +560,6 @@ async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
       usageUrl: console?.usageUrl ?? undefined,
     };
     if (!spend.ok && quotas.length === 0 && budgets.length === 0) return { ...spend, ...workspace };
-    if (console?.workspace && quotas.length === 0) quotas.push({ kind: "other", label: t("usage.opencodeNoQuota") });
     const rows = spend.ok ? spend.metrics : [];
     const free = rows.every((m) => m.kind !== "spend" || m.cost === 0);
     const metrics = [...quotas, ...budgets, ...(free ? rows.map((m) => (m.kind === "spend" ? { ...m, cost: undefined } : m)) : rows)];

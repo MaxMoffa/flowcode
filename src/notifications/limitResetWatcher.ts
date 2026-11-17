@@ -78,10 +78,10 @@ async function notifyReset(key: string, at: number) {
 }
 
 /** When the account is blocked: the latest reset among the limits it has
- * used up (a spent weekly limit outlasts the 5-hour one). */
+ * used up (a spent weekly or monthly limit outlasts the 5-hour one). */
 function blockedUntil(usage: UsageInfo): number | null {
   const resets = usage.metrics
-    .filter((m) => (m.kind === "session" || m.kind === "week") && (m.percent ?? 0) >= 1 && m.resets)
+    .filter((m) => (m.kind === "session" || m.kind === "week" || m.kind === "month") &&(m.percent ?? 0) >= 1 && m.resets)
     .map((m) => parseResetTimeGuarded(m.resets!))
     .filter((at): at is number => at !== null);
   return resets.length ? Math.max(...resets) : null;
