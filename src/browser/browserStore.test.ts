@@ -25,6 +25,7 @@ import {
   setBrowserFocusTab,
   setBrowserOpen,
   setServerAlive,
+  switchBrowserTab,
   takePendingPage,
   whenTabFocused,
 } from "./browserStore";
@@ -363,5 +364,36 @@ describe("browserTabsSnapshot", () => {
     expect(snap.servers).toEqual([{ url: "http://localhost:3000", port: 3000, alive: true }]);
     expect(snap.activeId).toBe(p.id);
     expect(snap.opened).toEqual({ nonce: "nn", pageId: u.id });
+  });
+});
+
+describe("page in front per tab", () => {
+  beforeEach(() => {
+    for (const p of [...getBrowser().pages]) closePage(p.id);
+    setBrowserFocusTab(null);
+  });
+
+  it("each tab gets back the page it had in front", () => {
+    openUrlInPreview("http://localhost:11");
+    const first = getBrowser().activeId!;
+    switchBrowserTab("tab-a", "tab-b");
+    expect(getBrowser().activeId).toBe(first);
+    openUrlInPreview("http://localhost:12");
+    const second = getBrowser().activeId!;
+    switchBrowserTab("tab-b", "tab-a");
+    expect(getBrowser().activeId).toBe(first);
+    switchBrowserTab("tab-a", "tab-b");
+    expect(getBrowser().activeId).toBe(second);
+  });
+
+  it("a closed page is not brought back", () => {
+    openUrlInPreview("http://localhost:13");
+    const first = getBrowser().activeId!;
+    switchBrowserTab("tab-a", "tab-b");
+    openUrlInPreview("http://localhost:14");
+    const second = getBrowser().activeId!;
+    closePage(first);
+    switchBrowserTab("tab-b", "tab-a");
+    expect(getBrowser().activeId).toBe(second);
   });
 });

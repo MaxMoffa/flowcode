@@ -127,10 +127,23 @@ export function takePendingPage(tabId: string): string | null {
   return id && store.get().pages.some((p) => p.id === id) ? id : null;
 }
 
+// The page each tab last had in front: pages are shared, the one shown is the tab's own.
+const activeByTab = new Map<string, string>();
+
+/** The user moved from tab `from` to tab `to`: `from` keeps its page in front, `to` gets back the one it had
+ * (if still open; a tab without one keeps whatever is in front). */
+export function switchBrowserTab(from: string | null, to: string) {
+  const { activeId, pages } = store.get();
+  if (from && activeId) activeByTab.set(from, activeId);
+  const saved = activeByTab.get(to);
+  if (saved && saved !== activeId && pages.some((p) => p.id === saved)) store.update((s) => ({ ...s, activeId: saved }));
+}
+
 /** A tab closed: nothing waits for it any more. */
 export function forgetBrowserTab(tabId: string) {
   focusWaiters.delete(tabId);
   pendingByTab.delete(tabId);
+  activeByTab.delete(tabId);
 }
 
 /** Brings page `id` in front and opens the Browser - unless `fromTabId` is a

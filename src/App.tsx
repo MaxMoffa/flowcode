@@ -6,7 +6,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentInsightPanel } from "./agents/AgentInsightPanel";
-import { activatePage, forgetBrowserTab, openFileInPreview, setBrowserFocusTab, setBrowserOpen, takePendingPage, useBrowser } from "./browser/browserStore";
+import { activatePage, forgetBrowserTab, openFileInPreview, setBrowserFocusTab, setBrowserOpen, switchBrowserTab, takePendingPage, useBrowser } from "./browser/browserStore";
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
@@ -261,6 +261,8 @@ function Shell() {
     const map = panelsByTabRef.current;
     map.set(previous, panelsNowRef.current);
     const next = map.get(activeTabId) ?? { ...panelsNowRef.current, browserOpen: false };
+    // Each tab keeps its own page in front of the Browser.
+    switchBrowserTab(previous, activeTabId);
     // A page an agent or dev server of this tab opened while the user was elsewhere shows now.
     const pending = takePendingPage(activeTabId);
     if (pending) activatePage(pending);
