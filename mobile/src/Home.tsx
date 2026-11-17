@@ -10,7 +10,7 @@ import { ComputerSwitcher } from "./ComputerSwitcher";
 import { agentName, shortCwd } from "./common";
 import { tapFeedback } from "./haptics";
 import { appendDictation, useDictation } from "./useDictation";
-import { groupSessions, lastInWindow, sessionsOf, useStateSince, type Session } from "./homeSessions";
+import { byRecent, groupSessions, lastInWindow, sessionsOf, useStateSince, type Session } from "./homeSessions";
 import { leftText } from "./homeUsage";
 import { UsageSection } from "./HomeUsageCards";
 import { t } from "./i18n";
@@ -463,8 +463,8 @@ export function HomeScreen({ hostName, tabs, onOpen, onAddComputer }: { hostName
 
   const list: [string, string, Session[]][] = [
     [t("homeWorking"), "busy", groups.working],
-    [t("homeIdle"), "", groups.idle],
-    [t("homeExited"), "", groups.exited],
+    [t("homeIdle"), "", byRecent(groups.idle, since)],
+    [t("homeExited"), "", byRecent(groups.exited, since)],
   ];
   const ago = (s: Session) => Math.max(0, now - since(s.key));
 

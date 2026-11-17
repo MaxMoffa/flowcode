@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupSessions, lastInWindow, sessionsOf, trackSince, type SessionStatus } from "./homeSessions";
+import { byRecent, groupSessions, lastInWindow, sessionsOf, trackSince, type SessionStatus } from "./homeSessions";
 import type { ChatInfo, Tab } from "./remote";
 
 const tab = (ptyId: string, extra: Partial<Tab> = {}): Tab => ({ ptyId, tabId: "t" + ptyId, window: "main", label: ptyId, cwd: "/a/b", cols: 80, rows: 24, ...extra });
@@ -49,5 +49,13 @@ describe("trackSince", () => {
     trackSince(seen, "k", "busy", 100);
     expect(trackSince(seen, "k", "idle", 500)).toBe(500);
     expect(trackSince(seen, "k", "idle", 900)).toBe(500);
+  });
+});
+
+describe("byRecent", () => {
+  it("puts the chat that changed state last first, terminals by when the phone saw them", () => {
+    const list = sessionsOf([tab("1", { cli: "claude" })], [chat("old", { activeAt: 100 }), chat("new", { activeAt: 300 })]);
+    const since = (key: string) => (key === "t:1" ? 200 : 0);
+    expect(byRecent(list, since).map((s) => s.key)).toEqual(["c:new", "t:1", "c:old"]);
   });
 });

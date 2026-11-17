@@ -560,6 +560,11 @@ pub struct ChatInfo {
     /// (chat tabs cannot be muted on the desktop today).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify: Option<bool>,
+    /// When the chat last changed status (ms since the epoch, desktop
+    /// clock): phones list idle and ended chats most recent first. Absent
+    /// from an older desktop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_at: Option<u64>,
 }
 
 /// An installed agent view plugin: its manifest plus what a phone needs to
@@ -878,6 +883,7 @@ mod tests {
             thought: None,
             order: None,
             notify: None,
+            active_at: None,
         };
         let json = serde_json::to_value(ServerMsg::Chats { chats: vec![info] }).unwrap();
         assert_eq!(

@@ -62,6 +62,8 @@ export interface ChatInfo {
   order?: number;
   /** `false` when muted; chat tabs cannot be muted on the desktop today, so normally absent. */
   notify?: boolean;
+  /** When the chat last changed status (ms since the epoch, desktop clock); absent from older desktops. */
+  activeAt?: number;
 }
 
 /** An installed agent view plugin offered to phones (its manifest, see

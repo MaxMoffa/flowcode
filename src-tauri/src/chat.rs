@@ -259,6 +259,8 @@ pub(crate) struct ChatSummary {
     /// The WSL distro the agent runs in; `None` on Windows.
     pub wsl_distro: Option<String>,
     pub status: ChatStatus,
+    /// When `status` last changed (ms since the epoch).
+    pub status_at: u64,
 }
 
 #[derive(Serialize)]

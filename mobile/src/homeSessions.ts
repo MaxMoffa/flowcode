@@ -52,6 +52,12 @@ export function groupSessions(list: Session[]): SessionGroups {
   return { waiting: of("waiting"), working: of("busy", "starting"), idle: of("idle"), exited: of("exited") };
 }
 
+/** Most recently changed first: a chat by the desktop's `activeAt`, else (terminals, older desktops) by `since`; ties keep their order. */
+export function byRecent(list: Session[], since: (key: string) => number): Session[] {
+  const at = (s: Session) => s.chat?.activeAt ?? since(s.key);
+  return [...list].sort((a, b) => at(b) - at(a));
+}
+
 /** Remembers when each key's status was first seen and returns that moment; a different status starts over. */
 export function trackSince(seen: Map<string, { status: SessionStatus; since: number }>, key: string, status: SessionStatus, now: number): number {
   const known = seen.get(key);

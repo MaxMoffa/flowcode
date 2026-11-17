@@ -62,6 +62,7 @@ impl ChatState {
                 thought: lock(&s.chat.thought).as_ref().map(ThoughtLevels::to_json),
                 wsl_distro: if s.chat.wsl { s.chat.wsl_distro.clone() } else { None },
                 status: *lock(&s.chat.status),
+                status_at: s.chat.status_at.load(Ordering::Relaxed),
             })
             .collect()
     }
@@ -834,6 +835,7 @@ pub(super) fn start_once(
         log: Mutex::new(Log::new(MAX_LOG_EVENTS, MAX_LOG_BYTES)),
         feed: broadcast::channel(FEED_CAPACITY).0,
         status: Mutex::new(ChatStatus::Starting),
+        status_at: AtomicU64::new(now_ms()),
         stderr: Mutex::new(Vec::new()),
         stderr_done: AtomicBool::new(false),
         exited: AtomicBool::new(false),

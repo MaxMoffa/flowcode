@@ -78,6 +78,8 @@ pub(super) struct Chat {
     /// Every event, as `emit` logs it, for the phones following this chat.
     pub(super) feed: broadcast::Sender<ChatEvent>,
     pub(super) status: Mutex<ChatStatus>,
+    /// When `status` last changed (ms since the epoch), for the phones' list order.
+    pub(super) status_at: AtomicU64,
     pub(super) stderr: Mutex<Vec<u8>>,
     pub(super) stderr_done: AtomicBool,
     /// The agent's stdout ended; set under the `pending` lock, so nothing is
@@ -147,6 +149,9 @@ impl Chat {
             allow(before)?;
             let permissions_pending = !lock(&self.permissions).is_empty() || !lock(&self.asks).is_empty();
             *status = next_status(before, &body, permissions_pending);
+            if *status != before {
+                self.status_at.store(now_ms(), Ordering::Relaxed);
+            }
             (before, *status)
         };
         let live = is_live(before, &body);
@@ -186,6 +191,7 @@ impl Chat {
             let moved = *status == ChatStatus::Starting;
             if moved {
                 *status = ChatStatus::Idle;
+                self.status_at.store(now_ms(), Ordering::Relaxed);
             }
             moved
         };

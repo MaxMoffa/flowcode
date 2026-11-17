@@ -82,6 +82,7 @@ impl Shared {
                     thought: chat.thought.clone(),
                     order: tab.index,
                     notify: None,
+                    active_at: Some(chat.status_at),
                 })
             })
             .collect()
