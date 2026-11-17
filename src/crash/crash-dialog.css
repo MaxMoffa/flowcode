@@ -1,0 +1,258 @@
+/* Crash report dialog: translated from docs/design/crash-report-a-v2.html
+ * (the `.dlg` block). The mock's variables are mapped onto the app's theme:
+ * --border-strong -> fg at 22%, --track -> fg at 5%, --surface2 -> fg at 4%,
+ * --hover -> --ctrl-hover-bg. Every class is prefixed with `crash-`. */
+
+.crash-dialog {
+  --modal-w: 520px;
+  --modal-pad: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--bg-elevated, var(--surface));
+}
+
+.crash-main {
+  padding: 22px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.crash-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.crash-head-ico {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--danger, #e5484d) 15%, transparent);
+  color: var(--danger, #e5484d);
+}
+
+.crash-head h3 {
+  margin: 1px 0 3px;
+  color: var(--fg);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.crash-head p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+/* Cause card: one human line plus one technical line. */
+.crash-cause {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+}
+
+.crash-cause dt {
+  color: var(--fg-muted);
+  opacity: 0.75;
+  font-size: 12px;
+}
+
+.crash-cause dd {
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.crash-cause dd.crash-mono {
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.crash-more {
+  margin-top: -8px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  opacity: 0.75;
+}
+
+.crash-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.crash-field label {
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.crash-field label span {
+  font-weight: 400;
+  color: var(--fg-muted);
+  opacity: 0.75;
+}
+
+.crash-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-elevated, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  resize: none;
+  outline: none;
+}
+
+.crash-dialog textarea:focus {
+  border-color: color-mix(in srgb, var(--fg) 22%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.crash-dialog textarea::placeholder {
+  color: var(--fg-muted);
+  opacity: 0.75;
+}
+
+.crash-dialog textarea.crash-md {
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+/* Disclosure toggle for the details textarea. */
+.crash-disc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.crash-disc:hover {
+  color: var(--fg);
+}
+
+.crash-disc svg {
+  transition: transform 0.15s;
+}
+
+.crash-disc[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.crash-disc-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--fg-muted);
+  opacity: 0.75;
+}
+
+.crash-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.crash-privacy {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+.crash-privacy svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.crash-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.crash-check input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* Footer, separated from the content by a rule. */
+.crash-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+
+.crash-spacer {
+  flex: 1;
+}
+
+.crash-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9px;
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.crash-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.crash-btn.is-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.crash-btn.is-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.crash-btn.is-ghost {
+  background: transparent;
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 22%, transparent);
+}
+
+.crash-btn.is-ghost:hover:not(:disabled) {
+  background: var(--ctrl-hover-bg);
+}

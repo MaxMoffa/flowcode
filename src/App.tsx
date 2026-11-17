@@ -12,6 +12,7 @@ import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTran
 import { TabStrip } from "./terminal/TabStrip";
 import { HostSelector, MonitorIcon } from "./remoteHosts/HostSelector";
 import { PairHostDialog } from "./remoteHosts/PairHostDialog";
+import { CrashReportDialog } from "./crash/CrashReportDialog";
 import { isSafeSessionId } from "./agents/sessionId";
 import { RemoteTabStrip } from "./remoteHosts/RemoteTabStrip";
 import { frontRemoteTerminal, LOCAL_HOST, onRemoteNotice, remoteShortcuts, setActiveHost, useActiveHost, useHosts } from "./remoteHosts/remoteHosts";
@@ -3487,6 +3488,7 @@ function Shell() {
       )}
       {pluginToast && <PluginToast message={pluginToast} />}
       {pairingHost && <PairHostDialog onClose={() => setPairingHost(false)} />}
+      {isMainWindow && <CrashReportDialog />}
       {pluginDialog && (
         <PluginDialog plugin={pluginDialog} onRunButton={(button) => runPlugin(button)} onClose={() => setPluginDialog(null)} />
       )}
