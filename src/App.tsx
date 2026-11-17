@@ -158,6 +158,7 @@ import {
   VIBE_PLUGIN_SEEDED_KEY,
   GEMINI_PLUGIN_SEEDED_KEY,
   OPENCODE_PLUGIN_SEEDED_KEY,
+  CLINE_PLUGIN_SEEDED_KEY,
   PLUGIN_APPROVALS_KEY,
   FAVORITES_BUTTON_VISIBLE_KEY,
   SIDEBAR_COLLAPSED_KEY,
@@ -456,6 +457,10 @@ function Shell() {
         const opencode = examplePlugins().find((p) => p.id === CLI_INFO.opencode.pluginId);
         if (opencode) await invoke("save_plugin", { plugin: opencode });
       }
+      if (seededBefore && !chosen && !readString(CLINE_PLUGIN_SEEDED_KEY) && !byId.has(CLI_INFO.cline.pluginId)) {
+        const cline = examplePlugins().find((p) => p.id === CLI_INFO.cline.pluginId);
+        if (cline) await invoke("save_plugin", { plugin: cline });
+      }
     } catch {
       /* plugins folder unavailable (e.g. dev in a plain browser) */
     }
@@ -464,6 +469,7 @@ function Shell() {
     writeString(VIBE_PLUGIN_SEEDED_KEY, "1");
     writeString(GEMINI_PLUGIN_SEEDED_KEY, "1");
     writeString(OPENCODE_PLUGIN_SEEDED_KEY, "1");
+    writeString(CLINE_PLUGIN_SEEDED_KEY, "1");
   }
 
   async function reloadCustomPlugins() {
@@ -1067,6 +1073,7 @@ function Shell() {
     if (cli === "gemini") return `gemini --resume ${sessionId}`;
     // A named profile has its own data dir: --standalone keeps opencode off the shared background service (default profile).
     if (cli === "opencode") return `opencode${profileId ? " --standalone" : ""} --session ${sessionId}`;
+    if (cli === "cline") return `cline --id ${sessionId}`;
     return host ? await withCodexLaunchFlags(`codex resume ${sessionId}`) : `codex resume ${sessionId}`;
   }
 
@@ -1672,7 +1679,7 @@ function Shell() {
    * folder instead of running in the terminal. A line with arguments, and a
    * prompt that isn't a plain host shell (busy, WSL, ssh, an agent), runs as typed. */
   function interceptCommandLine(tabId: string, line: string): boolean {
-    const match = line.trim().match(/^(claude|codex|vibe|gemini|opencode)(?:\.exe)?$/i);
+    const match = line.trim().match(/^(claude|codex|vibe|gemini|opencode|cline)(?:\.exe)?$/i);
     if (!match || !defaultOpensChat()) return false;
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     if (!tab || tab.busy || tab.nestedShell || wslDistroOfShell(tabShell(tab)) !== undefined) return false;
@@ -1715,7 +1722,7 @@ function Shell() {
     // Same tracking as `markAgentLaunching` (see its doc comment), but for
     // the CLI typed straight into the prompt rather than launched through a
     // shortcut - `checkCliAndMaybeLaunch` only ever sees the shortcut path.
-    if (/^(claude|codex|vibe|gemini|opencode)(\.exe)?(?:\s|$)/i.test(trimmed)) {
+    if (/^(claude|codex|vibe|gemini|opencode|cline)(\.exe)?(?:\s|$)/i.test(trimmed)) {
       setTabs((prev) => patchTermTab(prev, tabId, { nestedShell: "agent", wslDistro: undefined }));
     }
   }

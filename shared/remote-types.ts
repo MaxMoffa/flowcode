@@ -23,7 +23,7 @@ export interface Tab {
   cwd: string;
   cols: number;
   rows: number;
-  /** Agent running in the tab (`claude`, `codex`, `vibe`, `gemini`, `opencode`). */
+  /** Agent running in the tab (`claude`, `codex`, `vibe`, `gemini`, `opencode`, `cline`). */
   cli?: string;
   /** Account profile the agent runs under; absent for the default one (and from desktops before 0.11.3). */
   profile?: string;
@@ -44,7 +44,7 @@ export interface ChatInfo {
   /** Label of the desktop window showing the tab. */
   window: string;
   label: string;
-  /** `claude`, `codex`, `vibe`, `gemini` or `opencode`. */
+  /** `claude`, `codex`, `vibe`, `gemini`, `opencode` or `cline`. */
   agent: string;
   cwd: string;
   /** Account profile the agent runs under; absent for the default one. */
@@ -178,7 +178,7 @@ export type FsResponse =
   | { kind: "file"; path: string; text: string; truncated: boolean; version: string | null }
   | { kind: "done"; path: string };
 
-export type ProfileCli = "claude" | "codex" | "vibe" | "gemini" | "opencode";
+export type ProfileCli = "claude" | "codex" | "vibe" | "gemini" | "opencode" | "cline";
 
 /** Who an agent is signed in as: an email, or the last characters of an API key - never the key. */
 export interface AccountIdent {
@@ -298,6 +298,7 @@ export type RemoteCap =
   | "background"
   | "gemini"
   | "opencode"
+  | "cline"
   | "closeTab"
   /** `chats`, `chatevents` and the `chat*` / `newchat` client messages. */
   | "chat"

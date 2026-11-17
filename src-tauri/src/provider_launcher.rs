@@ -61,6 +61,7 @@ pub(crate) fn install(
         ("gemini", dirs.gemini.join(".gemini")),
         ("vibe", dirs.vibe),
         ("opencode", dirs.opencode_config),
+        ("cline", dirs.cline),
     ] {
         let Some(program) = find_program(cli) else {
             continue;

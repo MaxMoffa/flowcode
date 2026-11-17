@@ -107,12 +107,12 @@ export function RemoteSettingsBridge() {
   // CLIs' files, so it is re-read when the window regains focus (the usual way
   // back from signing in) and for a while after the phone asked for a login.
   const profileList: ProfileInfo[] = useMemo(
-    () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe, gemini: p.logged_in.gemini, opencode: p.logged_in.opencode }, accounts: compactAccounts(p.accounts) })),
+    () => profiles.map((p) => ({ id: p.id, name: p.name, color: p.color, loggedIn: { claude: p.logged_in.claude, codex: p.logged_in.codex, vibe: p.logged_in.vibe, gemini: p.logged_in.gemini, opencode: p.logged_in.opencode, cline: p.logged_in.cline }, accounts: compactAccounts(p.accounts) })),
     [profiles],
   );
   const defaultLogin = useMemo(
     // Rides inside defaultLoggedIn: older phones read only its booleans, and the desktop's Rust side passes it through as JSON.
-    () => (defaultLoggedIn ? { claude: defaultLoggedIn.claude, codex: defaultLoggedIn.codex, vibe: defaultLoggedIn.vibe, gemini: defaultLoggedIn.gemini, opencode: defaultLoggedIn.opencode, accounts: compactAccounts(defaultAccounts) } : null),
+    () => (defaultLoggedIn ? { claude: defaultLoggedIn.claude, codex: defaultLoggedIn.codex, vibe: defaultLoggedIn.vibe, gemini: defaultLoggedIn.gemini, opencode: defaultLoggedIn.opencode, cline: defaultLoggedIn.cline, accounts: compactAccounts(defaultAccounts) } : null),
     [defaultLoggedIn, defaultAccounts],
   );
   useEffect(() => {

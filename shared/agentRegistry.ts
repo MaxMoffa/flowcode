@@ -2,8 +2,8 @@
  * place to touch when an agent is added or gains a feature (see
  * docs/agents-integration-map.md). No imports: shared by desktop and phone. */
 
-export type AgentCli = "claude" | "codex" | "vibe" | "gemini" | "opencode";
-export const AGENT_CLIS: readonly AgentCli[] = ["claude", "codex", "vibe", "gemini", "opencode"];
+export type AgentCli = "claude" | "codex" | "vibe" | "gemini" | "opencode" | "cline";
+export const AGENT_CLIS: readonly AgentCli[] = ["claude", "codex", "vibe", "gemini", "opencode", "cline"];
 
 export interface AgentCaps {
   /** Flowcode reads its session transcripts: context fill, agent insight (MCP, skills, memory, cost). */
@@ -24,6 +24,7 @@ export const AGENT_CAPS: Record<AgentCli, AgentCaps> = {
   vibe: { readsSessions: false, usageLimit: false, cacheWarning: false, authManualCode: false, authNativeTerminal: false },
   gemini: { readsSessions: false, usageLimit: false, cacheWarning: false, authManualCode: true, authNativeTerminal: true },
   opencode: { readsSessions: true, usageLimit: false, cacheWarning: false, authManualCode: true, authNativeTerminal: true },
+  cline: { readsSessions: false, usageLimit: false, cacheWarning: false, authManualCode: false, authNativeTerminal: true },
 };
 
 export const isAgentCli = (value: unknown): value is AgentCli => (AGENT_CLIS as readonly unknown[]).includes(value);

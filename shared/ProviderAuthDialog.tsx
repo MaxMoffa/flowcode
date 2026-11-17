@@ -8,7 +8,7 @@ import { AGENT_CAPS } from "./agentRegistry";
 import type { AuthMethod, ProviderAuthRequest, ProviderAuthState, ProviderAuthTarget, ProviderAuthTransport } from "./providerAuth";
 import "./provider-auth.css";
 
-const NAMES = { claude: "Claude Code", codex: "Codex CLI", gemini: "Gemini CLI", vibe: "Mistral Vibe", opencode: "OpenCode" };
+const NAMES = { claude: "Claude Code", codex: "Codex CLI", gemini: "Gemini CLI", vibe: "Mistral Vibe", opencode: "OpenCode", cline: "Cline" };
 const COPY = {
   it: {
     title: "Accesso provider", profile: "Profilo", close: "Chiudi", cancel: "Annulla", loading: "Controllo dei metodi di accesso…",
@@ -73,7 +73,7 @@ export function ProviderAuthDialog({ target, transport, remote = false, language
   const [manual, setManual] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
-  const [details, setDetails] = useState(target.cli === "opencode");
+  const [details, setDetails] = useState(target.cli === "opencode" || target.cli === "cline");
   const [copied, setCopied] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -210,7 +210,7 @@ export function ProviderAuthDialog({ target, transport, remote = false, language
     if (sessionId) void latest.current.transport({ ...base, op: "cancel", sessionId }).catch(() => {});
     currentSession.current = null;
     setSnapshot(previous => previous ? { ...previous, phase: "idle", sessionId: null, output: "", error: undefined, url: undefined, code: undefined } : null);
-    setFailure(""); setKey(""); setManual(""); setBusy(false); setDetails(target.cli === "opencode"); setCopied(false); notified.current = false;
+    setFailure(""); setKey(""); setManual(""); setBusy(false); setDetails(target.cli === "opencode" || target.cli === "cline"); setCopied(false); notified.current = false;
     if (!snapshot) void request({ ...base, op: "status" });
   }
 
@@ -235,7 +235,7 @@ export function ProviderAuthDialog({ target, transport, remote = false, language
             {snapshot.code && <div className="provider-auth-code"><span>{text.code}</span><strong>{snapshot.code}</strong></div>}
             {snapshot.url ? <div className="provider-auth-browser-actions"><button type="button" className="provider-auth-button is-primary" onClick={() => void Promise.resolve(onOpenUrl(snapshot.url!)).catch(() => setFailure("browser_open_failed"))}>{text.open} ↗</button><button type="button" className="provider-auth-link" onClick={() => void navigator.clipboard.writeText(snapshot.url!).then(() => setCopied(true)).catch(() => setFailure("clipboard_failed"))}>{copied ? text.copied : text.copy}</button></div> : target.cli === "opencode" ? null : <p className="provider-auth-progress"><span className="provider-auth-spinner" />{text.preparing}</p>}
             {AGENT_CAPS[target.cli].authManualCode && <form className="provider-auth-manual" onSubmit={event => { event.preventDefault(); const value = manual.trim(); if (value) { inputRef.current(value + "\r"); setManual(""); } }}><label htmlFor="provider-auth-code-input">{text.manual}</label><p>{text.manualHint}</p><input id="provider-auth-code-input" value={manual} autoComplete="off" spellCheck={false} onChange={event => setManual(event.target.value)} /><button type="submit" className="provider-auth-button" disabled={!manual.trim()}>{text.submit}</button></form>}
-            {AGENT_CAPS[target.cli].authNativeTerminal && <><button type="button" className="provider-auth-link" aria-expanded={details} onClick={() => setDetails(value => !value)}>{text.details} {details ? '−' : '+'}</button>{details && <div className="provider-auth-native"><p>{target.cli === "opencode" ? text.chooseProvider : text.nativeHint}</p><div className="provider-auth-terminal" ref={terminalRef} /><div className="provider-auth-native-buttons"><button type="button" onClick={() => inputRef.current("\u001b[A")}>{text.up}</button><button type="button" onClick={() => inputRef.current("\u001b[B")}>{text.down}</button><button type="button" onClick={() => inputRef.current("\r")}>{text.enter}</button></div></div>}</>}
+            {AGENT_CAPS[target.cli].authNativeTerminal && <><button type="button" className="provider-auth-link" aria-expanded={details} onClick={() => setDetails(value => !value)}>{text.details} {details ? '−' : '+'}</button>{details && <div className="provider-auth-native"><p>{target.cli === "opencode" || target.cli === "cline" ? text.chooseProvider : text.nativeHint}</p><div className="provider-auth-terminal" ref={terminalRef} /><div className="provider-auth-native-buttons"><button type="button" onClick={() => inputRef.current("\u001b[A")}>{text.up}</button><button type="button" onClick={() => inputRef.current("\u001b[B")}>{text.down}</button><button type="button" onClick={() => inputRef.current("\r")}>{text.enter}</button></div></div>}</>}
           </> : snapshot && snapshot.installed ? <>
             <div className="provider-auth-methods" role="radiogroup" aria-label={text.title}>{(["browser", "apiKey"] as const).map(value => <button type="button" role="radio" aria-checked={method === value} disabled={busy || (value === "browser" ? !snapshot.canBrowser : !snapshot.canApiKey)} className={"provider-auth-method" + (method === value ? " is-selected" : "")} key={value} onClick={() => { setMethod(value); setFailure(""); setKey(""); }}><span className="provider-auth-radio" /><span><strong>{value === "browser" ? text.browser : text.key}</strong><small>{value === "browser" ? text.browserHint : text.keyHint}</small></span></button>)}</div>
             <form onSubmit={event => { event.preventDefault(); if (busy) return; if (method === "apiKey") { const apiKey = key.trim(); if (!apiKey) return; setKey(""); void request({ ...base, op: "key", method, apiKey }); } else void request({ ...base, op: "start", method }); }}>

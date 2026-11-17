@@ -129,7 +129,7 @@ fn state_for(app: &AppHandle, cli: &str, profile: Option<&str>, probe: bool) -> 
     AuthState {
         cli: cli.into(), profile: profile.map(str::to_owned),
         method: crate::provider_auth_keys::method(app, cli, profile), phase: "idle".into(), session_id: None,
-        installed, authenticated, can_browser: true, can_api_key: cli != "opencode", output: String::new(), url: None, code: None, error: None,
+        installed, authenticated, can_browser: true, can_api_key: cli != "opencode" && cli != "cline", output: String::new(), url: None, code: None, error: None,
     }
 }
 
@@ -141,8 +141,8 @@ fn validate_provider(cli: &str) -> Result<(), String> {
 fn safe_auth_url(cli: &str, raw: &str) -> Option<String> {
     let parsed: tauri::Url = raw.parse().ok()?;
     if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() { return None; }
-    // OpenCode signs in to many providers: any https host, no fixed list.
-    if cli == "opencode" { return parsed.host_str().is_some().then(|| parsed.into()); }
+    // OpenCode and Cline sign in to many providers: any https host, no fixed list.
+    if matches!(cli, "opencode" | "cline") { return parsed.host_str().is_some().then(|| parsed.into()); }
     if parsed.port().is_some() { return None; }
     let host = parsed.host_str()?;
     let allowed = match cli {
@@ -239,6 +239,7 @@ fn credential_stamp(app: &AppHandle, cli: &str, profile: Option<&str>) -> Vec<(P
         "gemini" => vec![d.gemini.join(".gemini/oauth_creds.json")],
         "vibe" => vec![d.vibe.join(".env")],
         "opencode" => vec![d.opencode_db.clone(), d.opencode_db.with_file_name("opencode.db-wal")],
+        "cline" => vec![d.cline.join("data").join("settings").join("providers.json")],
         _ => vec![],
     };
     paths.into_iter().map(|p| { let m = std::fs::metadata(&p).ok(); let modified = m.as_ref().and_then(|m| m.modified().ok()); let len = m.map_or(0, |m| m.len()); (p, modified, len) }).collect()
@@ -248,8 +249,8 @@ type CredentialStamp = Vec<(PathBuf, Option<std::time::SystemTime>, u64)>;
 
 fn browser_ready_to_probe(cli: &str, exited: Option<bool>, before: &CredentialStamp, after: &CredentialStamp) -> bool {
     if exited.is_some() { return exited == Some(true); }
-    // Claude/Codex/OpenCode login commands exit on success (OpenCode's server also writes its db on
-    // start, so a db change proves nothing). Only Gemini stays open; unrelated credential refreshes
+    // Claude/Codex/OpenCode/Cline login commands exit on success (OpenCode's server also writes its db on
+    // start, so a db change proves nothing), and Cline's `auth` exits when done. Only Gemini stays open; unrelated credential refreshes
     // must not finish another provider's login.
     cli == "gemini" && after.iter().any(|(path, modified, len)| {
         *len > 0 && modified.is_some() && !before.iter().any(|(old_path, old_modified, _)| old_path == path && old_modified == modified)
@@ -435,7 +436,7 @@ fn start(app: &AppHandle, owner: &str, mut state: AuthState, remote: bool) -> Re
         #[cfg(target_os = "windows")]
         crate::pty::warmup_conpty();
         let pair = native_pty_system().openpty(PtySize { rows: 24, cols: PTY_COLS, pixel_width: 0, pixel_height: 0 }).map_err(|_| "auth_failed")?;
-        let line = match state.cli.as_str() { "claude" => "claude auth login".to_string(), "codex" if remote => "codex login --device-auth".to_string(), "codex" => "codex login".to_string(), "gemini" => "gemini".to_string(), "opencode" => crate::opencode::command_line(state.profile.is_some(), "auth login"), _ => return Err("unsupported_provider".into()) };
+        let line = match state.cli.as_str() { "claude" => "claude auth login".to_string(), "codex" if remote => "codex login --device-auth".to_string(), "codex" => "codex login".to_string(), "gemini" => "gemini".to_string(), "opencode" => crate::opencode::command_line(state.profile.is_some(), "auth login"), "cline" => "cline auth".to_string(), _ => return Err("unsupported_provider".into()) };
         let line = line.as_str();
         #[cfg(target_os = "windows")]
         let mut command = { let mut cmd = CommandBuilder::new("cmd.exe"); cmd.args(["/D", "/C", line]); cmd };
@@ -591,6 +592,8 @@ mod tests {
         assert!(safe_auth_url("opencode", "https://auth.example.org:8443/login?x=1").is_some());
         assert!(safe_auth_url("opencode", "http://auth.example.org/login").is_none());
         assert!(safe_auth_url("opencode", "https://u:p@auth.example.org/login").is_none());
+        assert!(safe_auth_url("cline", "https://auth.example.org/login").is_some());
+        assert!(safe_auth_url("cline", "http://auth.example.org/login").is_none());
         for url in ["https://claude.ai.evil.com/login", "http://claude.ai/login", "https://evil@claude.ai/login", "https://claude.ai:8443/login", "javascript:alert(1)"] { assert!(safe_auth_url("claude", url).is_none()); }
     }
     #[test]
@@ -644,7 +647,7 @@ mod tests {
         let stamp = |modified, len| vec![(PathBuf::from("oauth_creds.json"), modified, len)];
         let old = stamp(Some(first), 100);
         let written = stamp(Some(next), 100);
-        for cli in ["claude", "codex", "opencode"] {
+        for cli in ["claude", "codex", "opencode", "cline"] {
             assert!(!browser_ready_to_probe(cli, None, &old, &written));
             assert!(browser_ready_to_probe(cli, Some(true), &old, &old));
             assert!(!browser_ready_to_probe(cli, Some(false), &old, &written));

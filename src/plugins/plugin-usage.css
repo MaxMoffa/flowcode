@@ -282,6 +282,11 @@
   --usage-accent: var(--ansi-white, #9ca3af);
 }
 
+/* Cline: a neutral grey. */
+[data-plugin="cline"] {
+  --usage-accent: var(--ansi-white, #9ca3af);
+}
+
 /* "Context" expander at the bottom of the CLI popovers. */
 .plugin-usage-context {
   margin-top: 8px;

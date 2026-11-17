@@ -22,6 +22,8 @@ export const CLI_INFO: Record<AgentCli, CliInfo> = {
   gemini: { pluginId: "gemini-cli", name: "Gemini", label: "Gemini CLI", loginCommand: "gemini" },
   // OpenCode signs in with a multi-provider picker (OpenRouter, Ollama, Anthropic, OpenAI...) in the terminal.
   opencode: { pluginId: "opencode", name: "OpenCode", label: "OpenCode", loginCommand: "opencode auth login" },
+  // Cline signs in with its own multi-provider picker (`cline auth`) in the terminal.
+  cline: { pluginId: "cline", name: "Cline", label: "Cline", loginCommand: "cline auth" },
 };
 
 export const cliOfPlugin = (pluginId: string): AgentCli | undefined => AGENT_CLIS.find((c) => CLI_INFO[c].pluginId === pluginId);

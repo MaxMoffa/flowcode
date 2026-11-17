@@ -59,7 +59,7 @@ impl ProbePids {
 /// launcher (uv/pip) starting Python, elsewhere a script whose process takes
 /// its name - and `vibe-rs` when it runs its Rust TUI.
 const AGENT_BINARIES: &[(&str, &str)] =
-    &[("claude", "Claude Code"), ("codex", "Codex CLI"), ("vibe", "Mistral Vibe"), ("gemini", "Gemini CLI"), ("opencode", "OpenCode")];
+    &[("claude", "Claude Code"), ("codex", "Codex CLI"), ("vibe", "Mistral Vibe"), ("gemini", "Gemini CLI"), ("opencode", "OpenCode"), ("cline", "Cline")];
 
 /// Matches a process name against `AGENT_BINARIES` - the binary itself or a
 /// `<bin>-...` variant of it, except for Vibe's editor/desktop servers
@@ -762,6 +762,7 @@ mod tests {
         assert!(super::node_runs_gemini(&["node".into(), r"C:\Users\u\AppData\Roaming\npm\node_modules\@google\gemini-cli\dist\index.js".into()]));
         assert!(!super::node_runs_gemini(&["node".into(), "server.js".into()]));
         assert_eq!(agent_of("opencode", "opencode --standalone").map(|a| a.0), Some("opencode"));
+        assert_eq!(agent_of("cline", "cline --id abc").map(|a| a.0), Some("cline"));
         assert_eq!(agent_of("node", "node /usr/lib/node_modules/opencode-ai/bin/opencode").map(|a| a.0), Some("opencode"));
         assert!(super::node_runs_opencode(&["node".into(), r"C:\npm\node_modules\opencode-ai\bin\opencode.js".into()]));
         assert!(super::node_runs_opencode(&["node".into(), "/usr/bin/opencode".into()]));

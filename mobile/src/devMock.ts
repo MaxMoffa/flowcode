@@ -22,6 +22,7 @@ const mockActions = [{ id: "commit", label: "Commit" }, { id: "usage", label: "U
   { id: "claude-code", label: "Claude Code", cli: "claude" },
   { id: "codex-cli", label: "Codex CLI", cli: "codex" },
   { id: "opencode", label: "OpenCode", cli: "opencode" },
+  { id: "cline", label: "Cline", cli: "cline" },
 ];
 
 /** A reset about two hours ahead, worded the way Claude Code words it ("3pm"). */
@@ -51,6 +52,7 @@ const usage = [
     ],
   },
   { pluginId: "gemini-cli", label: "Gemini CLI", metrics: [{ kind: "loggedOut", label: "Non collegato", command: "gemini" }] },
+  { pluginId: "cline", label: "Cline", metrics: [{ kind: "other", label: "Collegato" }] },
   {
     pluginId: "opencode",
     label: "OpenCode",
@@ -71,10 +73,10 @@ const mockProfiles = [
     id: "lavoro-1fa968",
     name: "Lavoro",
     color: "#6f9bcf",
-    loggedIn: { claude: true, codex: true, vibe: false, gemini: false, opencode: false },
+    loggedIn: { claude: true, codex: true, vibe: false, gemini: false, opencode: false, cline: false },
     accounts: { claude: { kind: "account", label: "max.rossi@example.com", detail: "Personale" }, codex: { kind: "apiKey", label: "…x9Qz", detail: null } },
   },
-  { id: "personale-22b1c0", name: "Personale", color: "#22c55e", loggedIn: { claude: true, codex: false, vibe: false, gemini: false, opencode: false }, accounts: { claude: { kind: "account", label: "luca.bianchi@example.com", detail: null } } },
+  { id: "personale-22b1c0", name: "Personale", color: "#22c55e", loggedIn: { claude: true, codex: false, vibe: false, gemini: false, opencode: false, cline: false }, accounts: { claude: { kind: "account", label: "luca.bianchi@example.com", detail: null } } },
 ];
 
 // The default profile's sign-ins, with the identities behind them.
@@ -84,6 +86,7 @@ const mockDefaultLoggedIn = {
   vibe: false,
   gemini: false,
   opencode: false,
+  cline: false,
   accounts: { claude: { kind: "account", label: "mario.verdi@example.com", detail: "Team" } },
 };
 
@@ -189,7 +192,7 @@ function mockTabs(msg: ClientMsg | undefined) {
 
 // What the desktop sends once the link is up: its features, the chats and the view plugins.
 async function chatHello() {
-  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "closeTab", "tabOps", "git", "history", "resume", "browserTabs", ...chatMockCaps] }]);
+  await emit("remote://msgs", [{ t: "ready", deviceName: "Telefono", hostName: "Il mio PC", appVersion: "0.14.0", proto: 2, caps: ["fileExplorer", "rename", "profiles", "profileLogin", "providerAuth", "profileAgents", "newTabProfile", "background", "gemini", "opencode", "cline", "closeTab", "tabOps", "git", "history", "resume", "browserTabs", ...chatMockCaps] }]);
   await chatMockConnect();
   await emitBrowserTabs();
   await emit("remote://msgs", [{ t: "views", views: mockViews }]);

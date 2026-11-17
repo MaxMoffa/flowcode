@@ -194,6 +194,8 @@ pub(crate) fn cli_is_logged_in(app: &AppHandle, cli: &str, profile: Option<&str>
         // Credentials sit in OpenCode's sqlite: ask the CLI. Named profiles
         // need `--standalone` or the shared background service answers.
         "opencode" => crate::opencode::is_logged_in(&envs, profile.is_some(), STATUS_TIMEOUT) == Some(true),
+        // Cline keeps its login in `providers.json` (file-based, like Gemini).
+        "cline" => crate::profiles::dirs(app, profile).is_some_and(|d| crate::cline::has_login(&d.cline)),
         _ => false,
     }
 }
@@ -208,6 +210,7 @@ pub(crate) fn cli_browser_is_logged_in(app: &AppHandle, cli: &str, profile: Opti
         "codex" => run_status_command("codex login status", envs)
             .ok().is_some_and(|output| output.status.success() && codex_billing_mode(&combined_output(&output)) == "subscription"),
         "opencode" => crate::opencode::is_logged_in(envs, profile.is_some(), STATUS_TIMEOUT) == Some(true),
+        "cline" => crate::profiles::dirs(app, profile).is_some_and(|d| crate::cline::has_login(&d.cline)),
         "gemini" => crate::profiles::dirs(app, profile).is_some_and(|dirs| {
             let path = dirs.gemini.join(".gemini/oauth_creds.json");
             if !std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file() && metadata.len() <= 64 * 1024) { return false; }

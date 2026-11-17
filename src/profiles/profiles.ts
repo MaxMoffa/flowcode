@@ -10,6 +10,7 @@ export interface LoginState {
   vibe: boolean;
   gemini: boolean;
   opencode: boolean;
+  cline: boolean;
 }
 
 /** Who a CLI is signed in as - read off its files, see `AccountIdent` in src-tauri/src/profiles.rs. */

@@ -72,6 +72,7 @@ const LOGO_ICONS: Record<string, { viewBox: string; path: string }> = {
   "mistral-vibe": AGENT_LOGOS.vibe,
   "gemini-cli": AGENT_LOGOS.gemini,
   opencode: AGENT_LOGOS.opencode,
+  cline: AGENT_LOGOS.cline,
   openInVsCode: {
     // Drawn edge-to-edge in its 24x24 box, like the Claude mark: padded the
     // same way so it doesn't look oversized next to the other icons.
@@ -105,7 +106,9 @@ export function agentCliIcon(cli: string): ReactNode {
             ? LOGO_ICONS["gemini-cli"]
             : cli === "opencode"
               ? LOGO_ICONS.opencode
-              : undefined;
+              : cli === "cline"
+                ? LOGO_ICONS.cline
+                : undefined;
   return logo ? renderLogo(logo) : GENERIC_ICON;
 }
 

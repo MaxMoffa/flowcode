@@ -22,7 +22,7 @@ const SUBMIT_DELAY_MS = 250;
 const COMPACT_FEEDBACK_MS = 2500;
 
 /** Usage plugin of each agent CLI. */
-const PLUGIN_OF: Record<string, string> = { claude: "claude-code", codex: "codex-cli", vibe: "mistral-vibe", gemini: "gemini-cli", opencode: "opencode" };
+const PLUGIN_OF: Record<string, string> = { claude: "claude-code", codex: "codex-cli", vibe: "mistral-vibe", gemini: "gemini-cli", opencode: "opencode", cline: "cline" };
 
 interface Ctx {
   used: number;

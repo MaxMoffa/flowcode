@@ -53,7 +53,8 @@ Base già in master (PR #3): `src-tauri/src/cline.rs` (quote ClinePass via `api.
 - Fine turno: `session_info_update {updatedAt}`, poi `stopReason: "end_turn"`.
 - History: la sessione ACP appare in `cline history --json` con `source: "cli"`, `pid`, `model`, titolo = primo prompt, `metadata.usage.totalCost` (es. 0,033 $ per il turno di prova). Se il processo viene ucciso lo stato diventa `failed` (`terminal_marker: failed_external_process_exit`).
 - Hub: la prima sessione avvia `cline.exe --cline-hub-daemon --cwd <cwd della chat> --host 127.0.0.1 --port <casuale> --pathname /hub`, che **resta vivo** dopo la chiusura di ACP. Con l'hub attivo, un `cline --acp` con `CLINE_DIR` vuota chiede comunque l'autenticazione → l'isolamento dei profili regge anche con l'hub condiviso.
-- Non verificato: WSL con login, subagenti (`spawn`), comandi in background, errore strutturato di limite/credito esaurito.
+- WSL (Ubuntu, login fatto con `~/.local/bin/cline auth`): stesso comportamento di Windows (ordine invertito degli update, `run_commands`, permessi). Nessun hub rimasto vivo dopo la chiusura. Attenzione: in WSL anche `/mnt/c/nvm4w/nodejs/cline` è nel PATH; nelle shell non di login può vincere quello Windows.
+- Non verificato: subagenti (`spawn`), comandi in background, errore strutturato di limite/credito esaurito.
 
 ## Fase 0: punti residui (durante la Fase 1)
 

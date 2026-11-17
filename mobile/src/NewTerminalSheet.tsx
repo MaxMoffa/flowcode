@@ -19,6 +19,7 @@ export const AGENTS: { id: Cli; name: string }[] = [
   { id: "vibe", name: "Mistral Vibe" },
   { id: "gemini", name: "Gemini CLI" },
   { id: "opencode", name: "OpenCode" },
+  { id: "cline", name: "Cline" },
 ];
 
 /** A terminal the user created before: what the "Recenti" chips replay with one tap. */
@@ -143,6 +144,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate, initialCwd 
   const canPickProfile = useSupports("newTabProfile");
   const canGemini = useSupports("gemini");
   const canOpencode = useSupports("opencode");
+  const canCline = useSupports("cline");
   const canChat = useSupports("chat");
   const [asChat, setAsChat] = useState(() => safeStorage.get(AS_CHAT_KEY) === "1");
   const profiles = useRemoteSelector((r) => r.profiles);
@@ -163,7 +165,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate, initialCwd 
   useEscape(menu !== null && menu !== "cwd", closeMenu);
 
   const showProfiles = canPickProfile && !!profiles && profiles.length > 0;
-  const usable = (c: Cli, p: string | null) => (c !== "gemini" || canGemini) && (c !== "opencode" || canOpencode) && agentAvailable(c, p, canPickProfile ? profiles : null, defaultLoggedIn);
+  const usable = (c: Cli, p: string | null) => (c !== "gemini" || canGemini) && (c !== "opencode" || canOpencode) && (c !== "cline" || canCline) && agentAvailable(c, p, canPickProfile ? profiles : null, defaultLoggedIn);
 
   const create = (v: Recent = { cwd, cli, profile }) => {
     const p = canPickProfile ? v.profile : null;

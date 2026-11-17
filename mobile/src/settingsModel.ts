@@ -84,12 +84,12 @@ export function normalizeSettings(raw: unknown): MirroredSettings | null {
   };
 }
 
-/** One `{claude, codex, vibe, gemini, opencode}` sign-in map as sent; null when it isn't an object. */
+/** One `{claude, codex, vibe, gemini, opencode, cline}` sign-in map as sent; null when it isn't an object. */
 export function normalizeLoggedIn(raw: unknown): ProfileInfo["loggedIn"] | null {
-  return isObj(raw) ? { claude: bool(raw.claude, false), codex: bool(raw.codex, false), vibe: bool(raw.vibe, false), gemini: bool(raw.gemini, false), opencode: bool(raw.opencode, false) } : null;
+  return isObj(raw) ? { claude: bool(raw.claude, false), codex: bool(raw.codex, false), vibe: bool(raw.vibe, false), gemini: bool(raw.gemini, false), opencode: bool(raw.opencode, false), cline: bool(raw.cline, false) } : null;
 }
 
-const ACCOUNT_CLIS: ProfileCli[] = ["claude", "codex", "vibe", "gemini", "opencode"];
+const ACCOUNT_CLIS: ProfileCli[] = ["claude", "codex", "vibe", "gemini", "opencode", "cline"];
 
 /** A trimmed text field capped at 200 characters; null when it isn't a string or is empty. */
 function accountText(v: unknown): string | null {
@@ -120,6 +120,6 @@ export function normalizeProfiles(raw: unknown): ProfileInfo[] {
   return raw.flatMap((x) => {
     if (!isObj(x) || typeof x.id !== "string") return [];
     const color = typeof x.color === "string" && /^#[0-9a-fA-F]{6}$/.test(x.color) ? x.color : "#64748b";
-    return [{ id: x.id, name: str(x.name, x.id), color, loggedIn: normalizeLoggedIn(x.loggedIn) ?? { claude: false, codex: false, vibe: false, gemini: false, opencode: false }, accounts: normalizeAccounts(x.accounts) }];
+    return [{ id: x.id, name: str(x.name, x.id), color, loggedIn: normalizeLoggedIn(x.loggedIn) ?? { claude: false, codex: false, vibe: false, gemini: false, opencode: false, cline: false }, accounts: normalizeAccounts(x.accounts) }];
   });
 }

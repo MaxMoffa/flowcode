@@ -123,6 +123,28 @@ pub(crate) async fn cline_usage() -> Result<ClineUsage, String> {
     .await
 }
 
+/// Whether the Cline config folder `dir` holds a saved login (OAuth token or API key).
+pub(crate) fn has_login(dir: &std::path::Path) -> bool {
+    let file = dir.join("data").join("settings").join("providers.json");
+    std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| settings_token(&v).is_some())
+}
+
+/// Removes the saved Cline login of the config folder `dir`.
+pub(crate) fn logout(dir: &std::path::Path) -> Result<(), String> {
+    let file = dir.join("data").join("settings").join("providers.json");
+    let Ok(bytes) = std::fs::read(&file) else { return Ok(()) };
+    let mut v: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    if let Some(providers) = v.get_mut("providers").and_then(Value::as_object_mut) {
+        for p in providers.values_mut() {
+            if let Some(s) = p.get_mut("settings").and_then(Value::as_object_mut) {
+                s.remove("auth");
+                s.remove("apiKey");
+            }
+        }
+    }
+    std::fs::write(&file, serde_json::to_vec_pretty(&v).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

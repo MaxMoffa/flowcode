@@ -427,9 +427,9 @@ pub enum ServerMsg {
     /// `allowed` tells whether the user lets phones install updates.
     Update { update: serde_json::Value },
     /// The account profiles, as a JSON array of
-    /// `{id, name, color, loggedIn: {claude, codex, vibe, gemini, opencode}}`. Sent after `ready`
+    /// `{id, name, color, loggedIn: {claude, codex, vibe, gemini, opencode, cline}}`. Sent after `ready`
     /// once the desktop has published them, and again on every change.
-    /// `default_logged_in` is the default profile's `{claude, codex, vibe, gemini, opencode}`
+    /// `default_logged_in` is the default profile's `{claude, codex, vibe, gemini, opencode, cline}`
     /// login state, when the desktop knows it.
     Profiles {
         profiles: serde_json::Value,
@@ -560,7 +560,7 @@ pub struct ChatInfo {
     /// Label of the desktop window showing the tab.
     pub window: String,
     pub label: String,
-    /// `claude`, `codex`, `vibe`, `gemini` or `opencode`.
+    /// `claude`, `codex`, `vibe`, `gemini`, `opencode` or `cline`.
     pub agent: String,
     pub cwd: String,
     /// Account profile the agent runs under (absent: the default one).
@@ -689,7 +689,7 @@ pub struct Action {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// The agent CLI the action launches ("claude", "codex", "vibe", "gemini", "opencode"): the phone draws its logo.
+    /// The agent CLI the action launches ("claude", "codex", "vibe", "gemini", "opencode", "cline"): the phone draws its logo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli: Option<String>,
 }
