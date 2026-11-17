@@ -55,6 +55,7 @@ jobs:
             echo "CMAKE_CXX_COMPILER=clang-cl"
             echo "CXXFLAGS=-EHsc"
             echo "GGML_CCACHE=OFF"
+            echo "GGML_NATIVE=OFF"
             echo "LIBCLANG_PATH=C:/Program Files/LLVM/bin"
           } >> "$GITHUB_ENV"
       - name: Vulkan SDK (GPU dictation)

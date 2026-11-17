@@ -21,6 +21,9 @@ jobs:
     runs-on: windows-latest
     # whisper.cpp (dictation) must be built with clang-cl + Ninja: the MSVC
     # build runs inference ~20x slower. Both come with the runner image.
+    # GGML_NATIVE off: ggml's default compiles for the runner's own CPU, and
+    # GitHub runners often have AVX-512 - the build then crashes with an
+    # illegal instruction on CPUs without it (e.g. Intel Lunar Lake 258V).
     env:
       CC: clang-cl
       CXX: clang-cl
@@ -30,6 +33,7 @@ jobs:
       CMAKE_CXX_COMPILER: clang-cl
       CXXFLAGS: -EHsc
       GGML_CCACHE: "OFF"
+      GGML_NATIVE: "OFF"
       LIBCLANG_PATH: C:/Program Files/LLVM/bin
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +102,9 @@ jobs:
     # The oldest supported Ubuntu LTS runner: glibc is forward- but not
     # backward-compatible, so building on an older base runs on more distros.
     runs-on: ubuntu-22.04
+    # Portable whisper.cpp build, see the Windows job.
+    env:
+      GGML_NATIVE: "OFF"
     steps:
       - uses: actions/checkout@v4
 
