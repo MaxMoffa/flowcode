@@ -545,6 +545,14 @@ pub async fn cli_spend(
             }
             return Ok(totals.finish());
         }
+        if cli == "cline" {
+            // Cline records its own cost per session (sub-agents rolled into the parent).
+            let mut totals = Totals::new(now, today);
+            for c in crate::cline_db::cost_calls(&dirs.cline, since) {
+                totals.add(&Call { at: c.at, cost: Some(c.cost), tokens: c.tokens, model: c.model, session: c.session, key: 0 });
+            }
+            return Ok(totals.finish());
+        }
         let mut files = Vec::new();
         let (root, filter, parse): (PathBuf, LineFilter, ParseLine) = match cli.as_str() {
             "claude" => {
@@ -650,6 +658,9 @@ pub async fn activity_stats(app: tauri::AppHandle, today_start: Option<u64>) -> 
         }
         for c in crate::opencode_db::cost_calls(&dirs.opencode_db, since) {
             calls.push((c.at, format!("opencode:{}", c.session)));
+        }
+        for c in crate::cline_db::cost_calls(&dirs.cline, since) {
+            calls.push((c.at, format!("cline:{}", c.session)));
         }
         Ok(compute_activity(calls, today))
     })

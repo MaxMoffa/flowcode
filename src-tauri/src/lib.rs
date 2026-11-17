@@ -37,6 +37,7 @@ mod link_preview;
 mod mcp_icons;
 mod vibe;
 mod opencode_db;
+mod cline_db;
 mod view_plugins;
 mod watcher;
 mod windows;
@@ -270,6 +271,7 @@ pub fn run() {
             newtab_background::newtab_background_clear,
             vibe::list_vibe_sessions,
             opencode_db::list_opencode_sessions,
+            cline_db::list_cline_sessions,
             vibe::vibe_usage_stats,
             vibe::vibe_ensure_model,
             link_preview::link_preview,

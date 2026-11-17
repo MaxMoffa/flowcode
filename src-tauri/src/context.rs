@@ -140,6 +140,14 @@ fn opencode_context(db: &Path, session_id: &str) -> Option<AgentContext> {
     Some(AgentContext { used: read.used, window: limit.unwrap_or(CLAUDE_DEFAULT_WINDOW), window_estimated: limit.is_none(), model: read.model })
 }
 
+/// Cline's `messages.json` has per-call token metrics but its models carry no
+/// context window on disk (no catalog is cached), so the window is estimated
+/// at 200K.
+fn cline_context(home: &Path, session_id: &str) -> Option<AgentContext> {
+    let read = crate::cline_db::latest_context(home, session_id)?;
+    Some(AgentContext { used: read.used, window: CLAUDE_DEFAULT_WINDOW, window_estimated: true, model: read.model })
+}
+
 pub(crate) fn plain_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
@@ -211,6 +219,9 @@ pub(crate) fn read_context(
     };
     if cli == "opencode" {
         return Ok(opencode_context(&dirs.opencode_db, session_id));
+    }
+    if cli == "cline" {
+        return Ok(cline_context(&dirs.cline, session_id));
     }
     let key = (cli.to_string(), profile, session_id.to_string());
     let cached = lock(&PATHS).get(&key).cloned().filter(|p| p.is_file());

@@ -38,7 +38,7 @@ describe("git, history and resume requests", () => {
   it("resolves history and ignores replies of the other kind", async () => {
     const pending = historyRequest("/a");
     reply({ t: "git", requestId: id(0), result: 1 });
-    const result = { roots: ["/a"], claude: [], codex: [], vibe: [], opencode: [] };
+    const result = { roots: ["/a"], claude: [], codex: [], vibe: [], opencode: [], cline: [] };
     reply({ t: "history", requestId: id(0), result });
     expect(await pending).toEqual(result);
   });

@@ -2,7 +2,7 @@
 import { isRootPath, separatorOf, comparablePath, isWindowsHostPath } from "../lib/path";
 import { toWslPath, wslDistroOfPath } from "../terminal/wslPathPure";
 import type { AgentCli } from "../../shared/agentRegistry";
-import type { ClaudeSessionEntry, CodexSessionEntry, OpencodeSessionEntry, VibeSessionEntry } from "./entryTypes";
+import type { ClaudeSessionEntry, ClineSessionEntry, CodexSessionEntry, OpencodeSessionEntry, VibeSessionEntry } from "./entryTypes";
 
 /** Whether an agent works in the project folder or somewhere below it. An
  * agent inside WSL reports a Linux path, so the project folder is brought to
@@ -53,6 +53,7 @@ export interface HistoryEntries {
   codex: CodexSessionEntry[];
   vibe: VibeSessionEntry[];
   opencode: OpencodeSessionEntry[];
+  cline: ClineSessionEntry[];
 }
 
 /** A session open in a tab: marks its saved row, or is listed on its own when not saved yet. */
@@ -92,7 +93,7 @@ export function buildHistoryRows({ entries, roots, wslDistro, open = [], exclude
     if (!inRoots(s.cwd, null)) continue;
     add({ cli: "claude", sessionId: s.sessionId, title: s.title, cwd: s.cwd, at: s.updatedAt ?? s.startedAt ?? 0, profile: s.profile, wslDistro: null });
   }
-  for (const [cli, list] of [["codex", entries.codex], ["vibe", entries.vibe], ["opencode", entries.opencode]] as const) {
+  for (const [cli, list] of [["codex", entries.codex], ["vibe", entries.vibe], ["opencode", entries.opencode], ["cline", entries.cline]] as const) {
     for (const s of list) {
       if (!inRoots(s.cwd, s.wslDistro)) continue;
       add({ cli, sessionId: s.sessionId, title: s.name, cwd: s.cwd, at: s.startedAt ?? 0, profile: s.profile, wslDistro: s.wslDistro });

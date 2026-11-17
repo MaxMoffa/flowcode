@@ -17,7 +17,7 @@ import { childKeys, useDelegateHistory, type DelegateChild } from "./delegateHis
 import { useAllTabDelegations } from "../chat/delegateStore";
 import type { DelegateInfo } from "../chat/chatModel";
 import { historyDot, TONE_LABEL, delegateTone } from "./delegateView";
-import type { ClaudeSessionEntry, CodexSessionEntry, OpencodeSessionEntry, VibeSessionEntry } from "./entryTypes";
+import type { ClaudeSessionEntry, ClineSessionEntry, CodexSessionEntry, OpencodeSessionEntry, VibeSessionEntry } from "./entryTypes";
 import "./agent-history.css";
 
 const POLL_MS = 5000;
@@ -122,6 +122,7 @@ export function AgentHistoryPanel({
   const [codex, setCodex] = useState<CodexSessionEntry[]>([]);
   const [vibe, setVibe] = useState<VibeSessionEntry[]>([]);
   const [opencode, setOpencode] = useState<OpencodeSessionEntry[]>([]);
+  const [cline, setCline] = useState<ClineSessionEntry[]>([]);
   const [repo, setRepo] = useState<{ cwd: string; roots: string[]; worktrees: GitWorktree[] } | null>(null);
 
   // The repo's worktrees count as the project; looked up when the folder changes.
@@ -173,6 +174,9 @@ export function AgentHistoryPanel({
       invoke<OpencodeSessionEntry[]>("list_opencode_sessions", { fresh: false })
         .then((r) => !cancelled && setOpencode((prev) => keepIfSame(prev, r)))
         .catch(() => {});
+      invoke<ClineSessionEntry[]>("list_cline_sessions", { fresh: false })
+        .then((r) => !cancelled && setCline((prev) => keepIfSame(prev, r)))
+        .catch(() => {});
     }
     load();
     const interval = setInterval(() => {
@@ -207,9 +211,9 @@ export function AgentHistoryPanel({
       open.push({ cli: session.cli, sessionId: session.session_id ?? "", title: session.session_name || tab.label, cwd, at: session.started_at, profile: session.profile, wslDistro: session.wsl_distro, tabId: tab.id, status });
     }
     // Delegated children are listed under their orchestrator, not as conversations of their own.
-    return buildHistoryRows({ entries: { claude, codex, vibe, opencode }, roots, wslDistro, open, exclude: childKeys(delegateHistory) });
+    return buildHistoryRows({ entries: { claude, codex, vibe, opencode, cline }, roots, wslDistro, open, exclude: childKeys(delegateHistory) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claude, codex, vibe, opencode, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro]);
+  }, [claude, codex, vibe, opencode, cline, sessions, tabs, chatTabs, delegateHistory, rootsKey, wslDistro]);
 
   const titleOf = (row: HistoryRow) => row.title || `${CLI_INFO[row.cli].label} · ${row.sessionId.slice(0, 8)}`;
   const shown = filterRows(rows, query, titleOf);

@@ -42,6 +42,10 @@ export interface VibeSessionEntry {
  * see `list_opencode_sessions` in src-tauri. */
 export type OpencodeSessionEntry = VibeSessionEntry;
 
+/** One saved Cline session (read from its sessions database) - same shape as Vibe's;
+ * see `list_cline_sessions` in src-tauri. */
+export type ClineSessionEntry = VibeSessionEntry;
+
 /** One saved Claude Code conversation, read off its transcript on disk - see
  * `list_claude_sessions` in src-tauri. Unlike `ClaudeAgentEntry` it covers
  * sessions that are no longer running; newest first. */

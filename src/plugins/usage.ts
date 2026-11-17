@@ -462,7 +462,7 @@ export function modelDisplayName(id: string): string {
  * session transcripts on this machine and priced at list prices (see
  * spend.rs), which the popup says: the vendor's console stays the
  * authority for the bill. */
-async function fetchCliSpend(cli: "claude" | "codex" | "opencode", name: string, profile?: string, withBilling = true): Promise<UsageInfo> {
+async function fetchCliSpend(cli: "claude" | "codex" | "opencode" | "cline", name: string, profile?: string, withBilling = true): Promise<UsageInfo> {
   let usage: CliSpend;
   try {
     usage = await invoke<CliSpend>("cli_spend", { cli, todayStart: todayStart(), profile: profile ?? null });
@@ -578,7 +578,21 @@ type ClineUsage =
   | { status: "available"; windows: UsageWindow[] }
   | { status: "missingCredentials" | "rejectedCredentials" | "noPlan" };
 
+/** ClinePass quotas first, then the spend of local sessions (Cline records its own cost; free models show tokens, not $0). */
+async function withClineSpend(info: UsageInfo, profile?: string): Promise<UsageInfo> {
+  if (!info.ok) return info;
+  const spend = await fetchCliSpend("cline", "Cline", profile, false);
+  if (!spend.ok) return info;
+  const free = spend.metrics.every((m) => m.kind !== "spend" || m.cost === 0);
+  const rows = free ? spend.metrics.map((m) => (m.kind === "spend" ? { ...m, cost: undefined } : m)) : spend.metrics;
+  return { ...info, metrics: [...info.metrics, ...rows] };
+}
+
 async function fetchClineUsage(profile?: string): Promise<UsageInfo> {
+  return withClineSpend(await fetchClineQuota(profile), profile);
+}
+
+async function fetchClineQuota(profile?: string): Promise<UsageInfo> {
   const dashboard = { account: "ClinePass", usageUrl: "https://app.cline.bot/dashboard/subscription?personal=true" };
   try {
     const result = await invoke<ClineUsage>("cline_usage", { profile: profile ?? null });

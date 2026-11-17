@@ -40,16 +40,20 @@ describe("subscription usage", () => {
     expect(result.metrics[4]).toMatchObject({ kind: "spend", tokens: 10 });
   });
 
-  it("shows only the windows ClinePass reports", async () => {
-    mockInvoke.mockResolvedValue({
-      status: "available",
-      windows: [{ period: "month", percentUsed: 100, resetsAt: "2026-12-01T00:00:00Z" }],
-    });
+  it("shows the windows ClinePass reports, then the local spend", async () => {
+    const spend = { cost: 0, tokens: 7, sessions: 1 };
+    mockInvoke.mockImplementation(async (command: string) =>
+      command === "cli_spend"
+        ? { today: spend, week: spend, month: spend, unpricedModels: [] }
+        : { status: "available", windows: [{ period: "month", percentUsed: 100, resetsAt: "2026-12-01T00:00:00Z" }] },
+    );
     const result = await usageFetcherFor("cline")!();
 
     expect(mockInvoke).toHaveBeenCalledWith("cline_usage", { profile: null });
     expect(result.ok).toBe(true);
-    expect(result.metrics).toHaveLength(1);
+    // Free models: tokens, not "$0".
+    expect(result.metrics.slice(1)).toMatchObject([{ kind: "spend", tokens: 7 }, { kind: "spend" }, { kind: "spend" }]);
+    expect(result.metrics.slice(1).every((m) => m.kind === "spend" && m.cost === undefined)).toBe(true);
     expect(result.metrics[0]).toMatchObject({ kind: "month", percent: 1 });
     expect(metricText(result.metrics[0]).detail).toBeDefined();
   });

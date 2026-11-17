@@ -14,6 +14,7 @@ const tabs: Tab[] = [
   { ptyId: "p2", tabId: "t2", window: "w1", label: "api-server", cwd: "C:/Users/massi/api", cols: 80, rows: 24, cli: "codex", status: "busy", context: { used: 48000, window: 200000 } },
   { ptyId: "p3", tabId: "t3", window: "w1", label: "docs", cwd: "C:/Users/massi/Progetti/docs", cols: 80, rows: 24 },
   { ptyId: "p5", tabId: "t5", window: "w1", label: "opencode-lab", cwd: "C:/Users/massi/Progetti/lab", cols: 80, rows: 24, cli: "opencode", status: "idle", context: { used: 31000, window: 128000 } },
+  { ptyId: "p6", tabId: "t6", window: "w1", label: "cline-lab", cwd: "C:/Users/massi/Progetti/lab", cols: 80, rows: 24, cli: "cline", status: "idle", context: { used: 42000, window: 200000 } },
   { ptyId: "p4", tabId: "t4", window: "w2", label: "PowerShell", cwd: "C:/Users/massi", cols: 80, rows: 24 },
 ];
 
@@ -52,7 +53,16 @@ const usage = [
     ],
   },
   { pluginId: "gemini-cli", label: "Gemini CLI", metrics: [{ kind: "loggedOut", label: "Non collegato", command: "gemini" }] },
-  { pluginId: "cline", label: "Cline", metrics: [{ kind: "other", label: "Collegato" }] },
+  {
+    pluginId: "cline",
+    label: "Cline",
+    metrics: [
+      { kind: "other", label: "Collegato" },
+      { kind: "spend", label: "Oggi", period: "today", cost: 0.12, tokens: 95_000, sessions: 1 },
+      { kind: "spend", label: "7 giorni", period: "week", cost: 1.4, tokens: 540_000, sessions: 6 },
+      { kind: "spend", label: "30 giorni", period: "month", cost: 5.2, tokens: 2_100_000, sessions: 19 },
+    ],
+  },
   {
     pluginId: "opencode",
     label: "OpenCode",

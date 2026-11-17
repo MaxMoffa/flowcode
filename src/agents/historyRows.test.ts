@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildHistoryRows, filterRows, groupByDay, inProject, type HistoryEntries, type OpenSession } from "./historyRows";
 
-const empty: HistoryEntries = { claude: [], codex: [], vibe: [], opencode: [] };
+const empty: HistoryEntries = { claude: [], codex: [], vibe: [], opencode: [], cline: [] };
 const claude = (sessionId: string, cwd: string, updatedAt: number, title: string | null = null) => ({ cwd, sessionId, title, startedAt: updatedAt, updatedAt, profile: null });
 const codex = (sessionId: string, cwd: string, startedAt: number, wslDistro: string | null = null) => ({
   cwd, sessionId, startedAt, wslDistro, name: null, live: false, status: null, inFlowcode: false, profile: null,

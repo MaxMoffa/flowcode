@@ -151,6 +151,30 @@ fn mcp_from_opencode(servers: Option<&serde_json::Value>, scope: &str, out: &mut
     }
 }
 
+/// The `mcpServers` object of a Cline settings file without the servers marked `disabled`.
+fn enabled_servers(servers: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    let map = servers?.as_object()?;
+    Some(serde_json::Value::Object(
+        map.iter().filter(|(_, d)| d.get("disabled").and_then(|x| x.as_bool()) != Some(true)).map(|(k, v)| (k.clone(), v.clone())).collect(),
+    ))
+}
+
+/// Rule files (`.md`/`.txt`) of `path`: the file itself, or those directly inside a folder.
+fn rule_files(path: &Path, out: &mut Vec<PathBuf>) {
+    if path.is_file() {
+        out.push(path.to_path_buf());
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(path) else { return };
+    let mut found: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && matches!(p.extension().and_then(|x| x.to_str()), Some("md" | "txt" | "mdc")))
+        .collect();
+    found.sort();
+    out.extend(found);
+}
+
 /// The `[mcp_servers.<name>]` tables of a Codex `config.toml`. Env and
 /// headers sub-tables are never looked at. An invalid file gives nothing.
 fn mcp_from_codex_toml(text: &str) -> Vec<McpServer> {
@@ -304,6 +328,17 @@ pub(crate) fn read_tools(app: &tauri::AppHandle, cli: &str, cwd: &str, profile: 
             memory.push(dirs.claude.join("CLAUDE.md"));
         }
         skills_in(&dirs.claude.join("skills"), "user", &mut tools.skills);
+    } else if cli == "cline" {
+        let settings = dirs.cline.join("data").join("settings").join("cline_mcp_settings.json");
+        mcp_from_json(read_json(&settings).as_ref().and_then(|j| enabled_servers(j.get("mcpServers"))).as_ref(), "user", &mut tools.mcp);
+        skills_in(&dirs.cline.join("skills"), "user", &mut tools.skills);
+        rule_files(&dirs.cline.join("rules"), &mut memory);
+        if let Some(cwd_path) = &cwd_path {
+            skills_in(&cwd_path.join(".cline").join("skills"), "project", &mut tools.skills);
+            rule_files(&cwd_path.join(".cline").join("rules"), &mut memory);
+            rule_files(&cwd_path.join(".clinerules"), &mut memory);
+            memory.push(cwd_path.join("AGENTS.md"));
+        }
     } else if cli == "opencode" {
         mcp_from_opencode(crate::opencode_db::read_config(&dirs.opencode_config).as_ref().and_then(|c| c.get("mcp")), "user", &mut tools.mcp);
         skills_in(&dirs.opencode_config.join("skills"), "user", &mut tools.skills);
@@ -334,7 +369,7 @@ pub(crate) fn read_tools(app: &tauri::AppHandle, cli: &str, cwd: &str, profile: 
 }
 
 /// The MCP servers, skills and memory files a `cli` (`"claude"` or
-/// `"codex"` / `"opencode"`) session started in `cwd` loads. Missing or unreadable files are
+/// `"codex"` / `"opencode"` / `"cline"`) session started in `cwd` loads. Missing or unreadable files are
 /// skipped; any other `cli` gives an empty answer.
 #[tauri::command]
 pub async fn agent_tools(
@@ -539,6 +574,19 @@ pub(crate) fn read_usage(
     let Some(dirs) = crate::profiles::dirs(app, profile.as_deref()) else {
         return Err(format!("unknown profile {profile:?}"));
     };
+    if cli == "cline" {
+        let read = crate::cline_db::session_usage(&dirs.cline, session_id, MAX_TURNS)
+            .ok_or_else(|| format!("no cline session {session_id}"))?;
+        return Ok(SessionUsage {
+            input: read.input,
+            output: read.output,
+            cache_read: read.cache_read,
+            cache_write: read.cache_write,
+            turns: read.turns,
+            cost: Some(read.cost),
+            model: read.model,
+        });
+    }
     if cli == "opencode" {
         let read = crate::opencode_db::session_usage(&dirs.opencode_db, session_id, MAX_TURNS)
             .ok_or_else(|| format!("no opencode session {session_id}"))?;
@@ -796,6 +844,17 @@ mod tests {
         assert_eq!(out.len(), 3);
         mcp_from_json(None, "user", &mut out);
         assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn parses_cline_mcp_skipping_disabled() {
+        let config = json(r#"{"mcpServers":{"fs":{"command":"npx","args":["-y","srv"]},"off":{"command":"x","disabled":true},"web":{"url":"https://h.io/mcp?t=1","type":"streamableHttp"}}}"#);
+        let mut out = Vec::new();
+        mcp_from_json(enabled_servers(config.get("mcpServers")).as_ref(), "user", &mut out);
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(out.len(), 2);
+        assert_eq!((out[0].name.as_str(), out[0].target.as_str()), ("fs", "npx -y srv"));
+        assert_eq!((out[1].transport.as_str(), out[1].target.as_str()), ("http", "https://h.io/mcp"));
     }
 
     #[test]

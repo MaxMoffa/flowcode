@@ -39,6 +39,7 @@ const historyMock = (cwd: string): HistoryResult => ({
   ],
   vibe: [],
   opencode: [],
+  cline: [],
 });
 
 export function gitMock(msg: ClientMsg | undefined) {

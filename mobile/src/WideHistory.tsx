@@ -8,7 +8,7 @@ import { send, showToast, useRemoteSelector } from "./remote";
 import "./wide-history.css";
 
 const POLL_MS = 15_000;
-const CLI_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex", vibe: "Vibe", gemini: "Gemini", opencode: "OpenCode" };
+const CLI_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex", vibe: "Vibe", gemini: "Gemini", opencode: "OpenCode", cline: "Cline" };
 const isAgentCli = (cli: string | undefined): cli is AgentCli => !!cli && (AGENT_CLIS as readonly string[]).includes(cli);
 const statusOf = (s: string | undefined): "busy" | "waiting" | "idle" | undefined => (s === "busy" || s === "waiting" ? s : s === "exited" ? undefined : "idle");
 
@@ -24,7 +24,7 @@ function ageOf(at: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-const EMPTY: HistoryEntries = { claude: [], codex: [], vibe: [], opencode: [] };
+const EMPTY: HistoryEntries = { claude: [], codex: [], vibe: [], opencode: [], cline: [] };
 
 /** The phone's History tab of the wide sidebar: the sessions of the project at `cwd`, saved ones from the desktop plus those open in a chat or terminal tab. */
 export function WideHistory({ cwd, cli, profile, currentSessionId, view, visible, onOpenChat, onOpenPty }: {
@@ -63,6 +63,7 @@ export function WideHistory({ cwd, cli, profile, currentSessionId, view, visible
             codex: r.codex as HistoryEntries["codex"],
             vibe: r.vibe as HistoryEntries["vibe"],
             opencode: r.opencode as HistoryEntries["opencode"],
+            cline: (r.cline ?? []) as HistoryEntries["cline"],
           },
         });
       })

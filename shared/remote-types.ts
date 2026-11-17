@@ -166,7 +166,7 @@ export type GitRequest =
   | { op: "show"; root: string; path: string; rev: string };
 
 /** Reply to `history` (`history` cap): session entries as in src/agents/entryTypes.ts. */
-export interface HistoryResult { roots: string[]; claude: unknown[]; codex: unknown[]; vibe: unknown[]; opencode: unknown[] }
+export interface HistoryResult { roots: string[]; claude: unknown[]; codex: unknown[]; vibe: unknown[]; opencode: unknown[]; /** Absent on hosts older than Cline history. */ cline?: unknown[] }
 /** Reply to `stats` (`stats` cap): activity for the phone's home-screen widgets; `days` oldest first, last = today. */
 export interface ActivityStats { days: number[]; streak: number; todayMinutes: number }
 

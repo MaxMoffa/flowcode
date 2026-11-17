@@ -37,14 +37,15 @@ pub(super) async fn run_history(app: AppHandle, cwd: String) -> Result<serde_jso
         r.ok().and_then(|v| serde_json::to_value(v).ok()).unwrap_or_else(|| serde_json::json!([]))
     }
     // Independent lists: gathered together, so a cold cache costs the slowest one, not their sum.
-    let (claude, codex, vibe, opencode) = tokio::join!(
+    let (claude, codex, vibe, opencode, cline) = tokio::join!(
         crate::agents::claude_history::list_claude_sessions(app.clone(), roots.clone()),
         crate::agents::list_codex_sessions(app.clone(), Some(false)),
         crate::vibe::list_vibe_sessions(app.clone(), Some(false)),
-        crate::opencode_db::list_opencode_sessions(app, Some(false)),
+        crate::opencode_db::list_opencode_sessions(app.clone(), Some(false)),
+        crate::cline_db::list_cline_sessions(app, Some(false)),
     );
-    let (claude, codex, vibe, opencode) = (list(claude), list(codex), list(vibe), list(opencode));
-    Ok(serde_json::json!({ "roots": roots, "claude": claude, "codex": codex, "vibe": vibe, "opencode": opencode }))
+    let (claude, codex, vibe, opencode, cline) = (list(claude), list(codex), list(vibe), list(opencode), list(cline));
+    Ok(serde_json::json!({ "roots": roots, "claude": claude, "codex": codex, "vibe": vibe, "opencode": opencode, "cline": cline }))
 }
 
 impl Conn {

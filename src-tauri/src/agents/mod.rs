@@ -241,6 +241,7 @@ pub async fn agent_session_saved(app: tauri::AppHandle, cli: String, session_id:
                 .unwrap_or(false),
             "codex" => codex::find_codex_rollout(&dirs.codex.join("sessions"), &session_id).is_some_and(|path| codex::rollout_has_turn(&path)),
             "opencode" => crate::opencode_db::session_saved(&dirs.opencode_db, &session_id),
+            "cline" => crate::cline_db::session_saved(&dirs.cline, &session_id),
             _ => true,
         })
     })
@@ -285,22 +286,29 @@ struct ProfileHomes {
     vibe: Vec<(Option<String>, PathBuf)>,
     /// (profile, `opencode.db`)
     opencode: Vec<(Option<String>, PathBuf)>,
+    /// (profile, Cline home)
+    cline: Vec<(Option<String>, PathBuf)>,
 }
 
 impl ProfileHomes {
     fn of(app: &tauri::AppHandle) -> Self {
-        let mut homes = ProfileHomes { claude: Vec::new(), codex: Vec::new(), vibe: Vec::new(), opencode: Vec::new() };
+        let mut homes = ProfileHomes { claude: Vec::new(), codex: Vec::new(), vibe: Vec::new(), opencode: Vec::new(), cline: Vec::new() };
         for (profile, dirs) in crate::profiles::all_dirs(app) {
             homes.claude.push((profile.clone(), dirs.claude));
             homes.codex.push((profile.clone(), dirs.codex));
             homes.vibe.push((profile.clone(), dirs.vibe));
-            homes.opencode.push((profile, dirs.opencode_db));
+            homes.opencode.push((profile.clone(), dirs.opencode_db));
+            homes.cline.push((profile, dirs.cline));
         }
         homes
     }
 
     fn vibe_of(&self, profile: &Option<String>) -> Option<&Path> {
         self.vibe.iter().find(|(p, _)| p == profile).map(|(_, h)| h.as_path())
+    }
+
+    fn cline_of(&self, profile: &Option<String>) -> Option<&Path> {
+        self.cline.iter().find(|(p, _)| p == profile).map(|(_, h)| h.as_path())
     }
 
     fn opencode_of(&self, profile: &Option<String>) -> Option<&Path> {
@@ -314,7 +322,7 @@ fn find_agent_sessions(
     profiles: &HashMap<String, Option<String>>,
     chat_ids: &HashSet<String>,
 ) -> Vec<AgentSession> {
-    let (mut sessions, codex_tabs, mut vibe_tabs, mut opencode_tabs, wsl_tabs) = crate::system::with_processes(|sys| {
+    let (mut sessions, codex_tabs, mut vibe_tabs, mut opencode_tabs, mut cline_tabs, wsl_tabs) = crate::system::with_processes(|sys| {
         let mut children_of: HashMap<Pid, Vec<Pid>> = HashMap::new();
         for (pid, process) in sys.processes() {
             if let Some(parent) = process.parent() {
@@ -326,6 +334,7 @@ fn find_agent_sessions(
         let mut codex_tabs: Vec<usize> = Vec::new();
         let mut vibe_tabs: Vec<usize> = Vec::new();
         let mut opencode_tabs: Vec<usize> = Vec::new();
+        let mut cline_tabs: Vec<usize> = Vec::new();
         // Distro -> the tabs whose agent can only be found inside it.
         let mut wsl_tabs: HashMap<Option<String>, HashSet<String>> = HashMap::new();
         for (pty_id, shell_pid) in shell_pids {
@@ -353,17 +362,19 @@ fn find_agent_sessions(
                     vibe_tabs.push(sessions.len());
                 } else if cli == "opencode" {
                     opencode_tabs.push(sessions.len());
+                } else if cli == "cline" {
+                    cline_tabs.push(sessions.len());
                 }
                 sessions.push(session);
             } else if let Some(distro) = find_wsl_client(sys, root, &children_of) {
                 wsl_tabs.entry(distro).or_default().insert(pty_id);
             }
         }
-        (sessions, codex_tabs, vibe_tabs, opencode_tabs, wsl_tabs)
+        (sessions, codex_tabs, vibe_tabs, opencode_tabs, cline_tabs, wsl_tabs)
     });
     // Registry/transcript reads can be slow: no filesystem I/O under the process lock.
     for session in &mut sessions {
-        if !matches!(session.cli.as_str(), "codex" | "vibe" | "opencode") {
+        if !matches!(session.cli.as_str(), "codex" | "vibe" | "opencode" | "cline") {
             if let Some(entry) = claude_registry_entry(session.pid, &homes.claude) {
                 session.apply_claude_entry(&entry);
             }
@@ -390,6 +401,17 @@ fn find_agent_sessions(
         let found = homes.opencode_of(&sessions[i].profile).and_then(|db| {
             let cwd = sessions[i].cwd.as_deref()?;
             crate::opencode_db::live_session_in(db, cwd, sessions[i].started_at, &claimed)
+        });
+        if let Some(found) = found {
+            claimed.insert(found.0.clone());
+            sessions[i].apply_vibe_session(found);
+        }
+    }
+    cline_tabs.sort_by_key(|&i| std::cmp::Reverse(sessions[i].started_at));
+    for i in cline_tabs {
+        let found = homes.cline_of(&sessions[i].profile).and_then(|home| {
+            let cwd = sessions[i].cwd.as_deref()?;
+            crate::cline_db::live_session_in(home, sessions[i].pid, cwd, sessions[i].started_at, &claimed)
         });
         if let Some(found) = found {
             claimed.insert(found.0.clone());
