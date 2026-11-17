@@ -105,6 +105,8 @@ pub(super) struct Chat {
     pub(super) children: Mutex<HashMap<String, Option<String>>>,
     /// OpenCode: `subagent` tool calls not yet matched to a child session, as (session that ran it, tool call id).
     pub(super) launches: Mutex<Vec<(String, String)>>,
+    /// Cline: ids of the tool calls already seen (it sends a `tool_call` after the updates of the same call).
+    pub(super) cline_tools: Mutex<std::collections::HashSet<String>>,
     /// The agent announced it takes image blocks in a prompt (`promptCapabilities.image`).
     pub(super) prompt_images: AtomicBool,
     /// What the views were told about the chat's goal.
@@ -209,6 +211,7 @@ impl Chat {
         let mut log = lock(&self.log);
         *lock(&self.stale_session) = Some(session_id.to_string());
         log.reset();
+        lock(&self.cline_tools).clear();
     }
 
     /// The new session took the id of the one `forget_session` dropped (an
@@ -578,6 +581,9 @@ impl Chat {
                         let stale = |_| if self.is_stale(&params) { Err(String::new()) } else { Ok(()) };
                         // Pictures go to disk before the log lock is taken.
                         let mut update = update.clone();
+                        if self.agent == "cline" {
+                            cline::normalize_cline_tool(&mut update, &mut lock(&self.cline_tools));
+                        }
                         if !route_child_update(&mut lock(&self.children), &params, &mut update) {
                             return;
                         }

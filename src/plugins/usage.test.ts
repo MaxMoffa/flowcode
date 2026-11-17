@@ -47,7 +47,7 @@ describe("subscription usage", () => {
     });
     const result = await usageFetcherFor("cline")!();
 
-    expect(mockInvoke).toHaveBeenCalledWith("cline_usage");
+    expect(mockInvoke).toHaveBeenCalledWith("cline_usage", { profile: null });
     expect(result.ok).toBe(true);
     expect(result.metrics).toHaveLength(1);
     expect(result.metrics[0]).toMatchObject({ kind: "month", percent: 1 });

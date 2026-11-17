@@ -548,6 +548,10 @@ function upsertTool(state: ChatModelState, update: ChatUpdate, at: number): Chat
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined && value !== null) merged[key] = value;
     }
+    // Some agents (Cline) send the `tool_call` after its updates, starting again from `pending`: never go back.
+    if (patch.status === "pending" && (prev.call.status === "in_progress" || prev.call.status === "completed" || prev.call.status === "failed")) {
+      merged.status = prev.call.status;
+    }
     const call = merged as unknown as ChatToolCall;
     // A promoted Codex activity launch keeps its child thread when a later update resends the bare activity input.
     const prevInput = prev.call.rawInput;

@@ -89,6 +89,7 @@ pub struct Accounts {
     pub codex: Option<AccountIdent>,
     pub vibe: Option<AccountIdent>,
     pub gemini: Option<AccountIdent>,
+    pub cline: Option<AccountIdent>,
 }
 
 #[derive(serde::Serialize)]
@@ -350,6 +351,19 @@ fn codex_ident(v: &serde_json::Value) -> Option<AccountIdent> {
     Some(AccountIdent { kind: "apiKey", label: key_hint(key), detail: None })
 }
 
+/// Cline's `data/settings/providers.json`: the email of the last used provider's
+/// account login, else the hint of its API key.
+fn cline_ident(v: &serde_json::Value) -> Option<AccountIdent> {
+    let provider = non_empty_str(v, "lastUsedProvider").unwrap_or("cline");
+    let settings = v.get("providers")?.get(provider)?.get("settings")?;
+    let email = settings.pointer("/auth/metadata/userInfo").and_then(|u| non_empty_str(u, "email"));
+    if let Some(email) = email {
+        return Some(AccountIdent { kind: "account", label: Some(email.to_string()), detail: None });
+    }
+    let key = non_empty_str(settings, "apiKey")?;
+    Some(AccountIdent { kind: "apiKey", label: key_hint(key), detail: None })
+}
+
 /// First plan name found in Vibe's `whoami_cache.json`.
 fn vibe_plan(v: &serde_json::Value) -> Option<String> {
     v.as_object()?
@@ -426,7 +440,8 @@ fn accounts(app: &AppHandle, d: &ProfileDirs, profile: Option<&str>, use_keyring
             None
         }
     };
-    Accounts { claude, codex, vibe, gemini }
+    let cline = read_json(&d.cline.join("data").join("settings").join("providers.json")).as_ref().and_then(cline_ident);
+    Accounts { claude, codex, vibe, gemini, cline }
 }
 
 /// Folder-name-safe id stem: lowercase ascii alphanumerics and single dashes,
@@ -770,6 +785,18 @@ mod tests {
         let i = codex_ident(&v).unwrap();
         assert_eq!((i.kind, i.label.as_deref()), ("apiKey", Some("…5555")));
         assert!(codex_ident(&serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn cline_ident_cases() {
+        let v = serde_json::json!({"lastUsedProvider": "cline", "providers": {"cline": {"settings": {"auth": {"accessToken": "workos:x", "metadata": {"userInfo": {"email": "a@b.c"}}}}}}});
+        let i = cline_ident(&v).unwrap();
+        assert_eq!((i.kind, i.label.as_deref(), i.detail), ("account", Some("a@b.c"), None));
+        let v = serde_json::json!({"lastUsedProvider": "openrouter", "providers": {"openrouter": {"settings": {"apiKey": "sk-or-abcdefghijkl1234"}}}});
+        let i = cline_ident(&v).unwrap();
+        assert_eq!((i.kind, i.label.as_deref()), ("apiKey", Some("…1234")));
+        assert!(cline_ident(&serde_json::json!({})).is_none());
+        assert!(cline_ident(&serde_json::json!({"providers": {"cline": {"settings": {"auth": {"metadata": {"userInfo": {"email": ""}}}}}}})).is_none());
     }
 
     #[test]

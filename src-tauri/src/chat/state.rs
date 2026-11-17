@@ -848,6 +848,7 @@ pub(super) fn start_once(
         stale_session: Mutex::new(None),
         children: Mutex::new(HashMap::new()),
         launches: Mutex::new(Vec::new()),
+        cline_tools: Mutex::new(std::collections::HashSet::new()),
         prompt_images: AtomicBool::new(false),
         goal: Mutex::new(goal::GoalTrack::default()),
         resume: Mutex::new(None),

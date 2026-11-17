@@ -104,6 +104,14 @@ describe("chat model", () => {
     expect(tool(s, "t1")).toMatchObject({ title: "Read a.ts", kind: "read", status: "completed" } satisfies Partial<ChatToolCall>);
   });
 
+  it("never moves a tool call back to pending (late tool_call after its updates)", () => {
+    const s = run([
+      update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: "in_progress" }),
+      update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit a.ts", kind: "edit", status: "pending" }),
+    ]);
+    expect(tool(s, "t1")).toMatchObject({ title: "Edit a.ts", kind: "edit", status: "in_progress" } satisfies Partial<ChatToolCall>);
+  });
+
   it("keeps the plan, commands and mode from their updates", () => {
     const s = run([
       update({ sessionUpdate: "plan", entries: [{ content: "a", status: "pending" }] }),

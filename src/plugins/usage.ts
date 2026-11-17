@@ -578,10 +578,10 @@ type ClineUsage =
   | { status: "available"; windows: UsageWindow[] }
   | { status: "missingCredentials" | "rejectedCredentials" | "noPlan" };
 
-async function fetchClineUsage(): Promise<UsageInfo> {
+async function fetchClineUsage(profile?: string): Promise<UsageInfo> {
   const dashboard = { account: "ClinePass", usageUrl: "https://app.cline.bot/dashboard/subscription?personal=true" };
   try {
-    const result = await invoke<ClineUsage>("cline_usage");
+    const result = await invoke<ClineUsage>("cline_usage", { profile: profile ?? null });
     const fetchedAt = Date.now();
     switch (result.status) {
       case "missingCredentials":
