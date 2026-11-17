@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Flowcode — segnalazione crash: 3 varianti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#17120d; --surface:#1f1812; --surface3:#2c231a; --fg:#e7d8c5; --fg-muted:#a08a6f; --border:rgba(232,184,128,.14);
+  --accent:#9db984; --accent-ink:#17210f; --warn:#e0b252; --danger:#e07a5f; --track:rgba(232,184,128,.10); --hover:rgba(232,184,128,.07);
+  --panel:#1f1812f5; --mono:"Cascadia Code",Consolas,monospace;
+}
+body.light{
+  --bg:#efe6d6; --surface:#f8f1e3; --surface3:#e6dac4; --fg:#3a2b17; --fg-muted:#8b7457; --border:rgba(120,80,36,.2);
+  --accent:#4f6e3a; --accent-ink:#f6f9f0; --warn:#a67a14; --danger:#b5452b; --track:rgba(120,80,36,.10); --hover:rgba(140,88,32,.06);
+  --panel:#f8f1e3f5;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--fg-muted);margin:0 0 14px;max-width:900px}
+.sub code{background:var(--track);padding:1px 5px;border-radius:4px}
+.bar{display:flex;gap:8px;margin-bottom:22px}
+.bar button{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+.variant{margin-bottom:40px}
+.variant h2{font-size:14px;margin:0 0 2px}
+.variant p.d{margin:0 0 12px;color:var(--fg-muted);max-width:900px}
+
+/* finta finestra app */
+.win{position:relative;width:min(1000px,100%);height:560px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
+.win .tabs{height:34px;display:flex;gap:6px;padding:6px 10px;background:var(--bg)}
+.win .tabs i{width:120px;border-radius:6px;background:var(--hover)}
+.win .body{position:absolute;inset:34px 0 0;padding:18px;display:flex;flex-direction:column;gap:10px}
+.win .body i{display:block;height:14px;border-radius:4px;background:var(--hover)}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.38);display:flex;align-items:center;justify-content:center}
+
+/* pannello modale (come .modal-panel) */
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.3);padding:18px;color:var(--fg)}
+.title{display:flex;gap:10px;align-items:flex-start;margin:0 0 6px}
+.title .ico{flex:none;width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger);font-weight:700}
+.title h3{margin:0;font-size:15px}
+.title small{display:block;color:var(--fg-muted);font-size:12px;margin-top:2px}
+.lead{margin:8px 0 12px;color:var(--fg-muted)}
+.cause{display:flex;gap:8px;align-items:baseline;padding:8px 10px;border-radius:8px;background:var(--track);margin-bottom:12px;font-size:12.5px}
+.cause b{font-weight:600}
+.cause code{font-family:var(--mono);font-size:11.5px;color:var(--fg-muted)}
+label.l{display:block;font-size:12px;color:var(--fg-muted);margin:0 0 4px}
+textarea{width:100%;font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;resize:none}
+textarea.md{font-family:var(--mono);font-size:11.5px;line-height:1.5}
+details{margin:10px 0 0}
+summary{cursor:pointer;color:var(--fg-muted);font-size:12px}
+.privacy{font-size:11.5px;color:var(--fg-muted);margin:10px 0 0;display:flex;gap:6px}
+.actions{display:flex;gap:8px;align-items:center;margin-top:14px}
+.actions .sp{flex:1}
+.btn{font:inherit;border:0;border-radius:8px;padding:7px 14px;cursor:pointer;color:var(--fg);background:var(--track)}
+.btn.main{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.ghost{background:transparent;box-shadow:inset 0 0 0 1px var(--border)}
+.btn.link{background:transparent;color:var(--fg-muted);padding:7px 4px;text-decoration:underline;text-underline-offset:3px}
+.more{font-size:11.5px;color:var(--fg-muted)}
+
+/* B: due colonne */
+.cols{display:grid;grid-template-columns:260px 1fr;gap:16px}
+.pv-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.pv-head span{font-size:12px;color:var(--fg-muted)}
+.tag{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--track);color:var(--fg-muted)}
+
+/* C: toast */
+.toast{position:absolute;right:16px;bottom:16px;width:360px;display:flex;gap:10px;align-items:flex-start}
+.toast .txt{flex:1}
+.toast .txt b{display:block;font-size:13px}
+.toast .txt span{font-size:12px;color:var(--fg-muted)}
+.toast .x{background:transparent;border:0;color:var(--fg-muted);cursor:pointer;font-size:14px}
+.toast .row{display:flex;gap:6px;margin-top:8px}
+</style>
+</head>
+<body>
+<h1>Segnalazione crash — 3 varianti</h1>
+<p class="sub">Compare al riavvio dopo un crash, solo nella finestra principale. In tutte: anteprima di cosa parte (già ripulita da percorsi utente, nome PC, email), nota facoltativa, invio = apre il browser su una nuova issue GitHub già compilata. Dati d'esempio: crash AVX-512 del collega.</p>
+<div class="bar"><button onclick="document.body.classList.toggle('light')">Chiaro / scuro</button></div>
+
+<!-- ============ A ============ -->
+<section class="variant">
+  <h2>A — Dialog compatto</h2>
+  <p class="d">Larghezza come gli altri dialog (~460px). Causa in una riga leggibile, nota facoltativa, dettagli tecnici chiusi in "Mostra cosa verrà inviato" (modificabili). Il più vicino allo stile attuale.</p>
+  <div class="win">
+    <div class="tabs"><i></i><i></i></div>
+    <div class="body"><i style="width:60%"></i><i style="width:80%"></i><i style="width:40%"></i></div>
+    <div class="scrim">
+      <div class="panel" style="width:460px">
+        <div class="title"><div class="ico">!</div><div><h3>Flowcode si è chiuso in modo imprevisto</h3><small>Ieri alle 15:33 · versione 0.36.0</small></div></div>
+        <p class="lead">Inviaci una segnalazione: ci aiuta a capire e correggere il problema.</p>
+        <div class="cause"><b>Istruzione non supportata dalla CPU</b><code>0xc000001d · flowcode.exe</code></div>
+        <label class="l">Cosa stavi facendo? (facoltativo)</label>
+        <textarea rows="3" placeholder="Es. stavo dettando un messaggio in chat…"></textarea>
+        <details><summary>Mostra cosa verrà inviato</summary>
+          <textarea class="md" rows="7" style="margin-top:6px">### What happened
+- Kind: native crash
+- Time: 2026-11-17 14:33:12 UTC (uptime 2h 4m 10s)
+
+### Error
+- Exception: 0xc000001d Illegal instruction
+- Module: flowcode.exe 0.36.0 +0x1a3f2c
+
+### System
+- Windows 11 Home 24H2 · x86_64 · Intel Core Ultra 7 258V · 32 GB
+- AVX2: yes · AVX-512: no</textarea>
+        </details>
+        <p class="privacy">🔒 Nessuna chat o file inviato. Percorsi, nome utente e PC già rimossi. Si apre GitHub: controlli prima di pubblicare.</p>
+        <div class="actions"><button class="btn link">Non chiedere più per questo errore</button><span class="sp"></span><button class="btn ghost">Non ora</button><button class="btn main">Segnala su GitHub</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B ============ -->
+<section class="variant">
+  <h2>B — Dialog largo con anteprima sempre visibile</h2>
+  <p class="d">~760px. A sinistra spiegazione e nota, a destra il testo dell'issue intero, modificabile. Massima trasparenza su cosa parte, ma più "tecnico" per chi non è sviluppatore.</p>
+  <div class="win">
+    <div class="tabs"><i></i><i></i></div>
+    <div class="body"><i style="width:60%"></i><i style="width:80%"></i></div>
+    <div class="scrim">
+      <div class="panel" style="width:760px">
+        <div class="title"><div class="ico">!</div><div><h3>Flowcode si è chiuso in modo imprevisto</h3><small>Ieri alle 15:33 · versione 0.36.0 <span class="more">· +2 altri crash non segnalati</span></small></div></div>
+        <div class="cols" style="margin-top:12px">
+          <div>
+            <div class="cause" style="flex-direction:column;gap:2px"><b>Istruzione non supportata dalla CPU</b><code>0xc000001d · flowcode.exe</code></div>
+            <label class="l">Cosa stavi facendo? (facoltativo)</label>
+            <textarea rows="6" placeholder="Es. stavo dettando un messaggio in chat…"></textarea>
+            <p class="privacy">🔒 Nessuna chat o file inviato. Percorsi, nome utente e PC già rimossi.</p>
+          </div>
+          <div>
+            <div class="pv-head"><span>Testo della segnalazione</span><span class="tag">modificabile</span></div>
+            <textarea class="md" rows="15">### What happened
+- Kind: native crash
+- Time: 2026-11-17 14:33:12 UTC (uptime 2h 4m 10s)
+
+### Error
+- Exception: 0xc000001d Illegal instruction
+- Module: flowcode.exe 0.36.0 +0x1a3f2c
+
+### System
+- Windows 11 Home 24H2 · x86_64
+- Intel Core Ultra 7 258V · 8 cores · 32 GB
+- AVX2: yes · AVX-512: no
+
+### Signature
+`0xc000001d@flowcode.exe+0x1a3f2c`</textarea>
+          </div>
+        </div>
+        <div class="actions"><button class="btn link">Non chiedere più per questo errore</button><span class="sp"></span><button class="btn ghost">Non ora</button><button class="btn main">Segnala su GitHub</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C ============ -->
+<section class="variant">
+  <h2>C — Avviso discreto in basso a destra → dialog A al clic</h2>
+  <p class="d">Non blocca l'app all'avvio: un toast resta finché non lo chiudi. "Segnala" apre il dialog A. Meno invadente, ma più facile da ignorare (meno segnalazioni).</p>
+  <div class="win">
+    <div class="tabs"><i></i><i></i></div>
+    <div class="body"><i style="width:60%"></i><i style="width:80%"></i><i style="width:40%"></i><i style="width:70%"></i></div>
+    <div class="panel toast">
+      <div class="title" style="margin:0"><div class="ico">!</div></div>
+      <div class="txt"><b>Flowcode si è chiuso in modo imprevisto</b><span>Ieri alle 15:33 · Istruzione non supportata dalla CPU</span>
+        <div class="row"><button class="btn main">Segnala…</button><button class="btn ghost">Non ora</button></div>
+      </div>
+      <button class="x" title="Chiudi">✕</button>
+    </div>
+  </div>
+</section>
+</body>
+</html>

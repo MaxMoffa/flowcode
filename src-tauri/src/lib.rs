@@ -9,6 +9,7 @@ mod chat_images;
 mod chat_mcp;
 mod agent_insight;
 mod context;
+mod crash;
 mod dictation;
 pub use dictation::run_gpu_probe_if_requested as run_gpu_probe;
 mod newtab_background;
@@ -66,6 +67,9 @@ fn set_ui_language(language: String) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // First, so a panic anywhere later (even in startup) is recorded for the
+    // next launch to report; see crash.rs.
+    crash::install_panic_hook();
     gpu::apply_at_startup();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -113,6 +117,8 @@ pub fn run() {
                 acp_adapters::refresh_in_background(&handle, "claude");
                 acp_adapters::refresh_in_background(&handle, "codex");
             });
+            // After the marker exists, look for sessions that died uncleanly.
+            crash::init(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -150,6 +156,11 @@ pub fn run() {
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
             set_ui_language,
+            crash::crash_pending,
+            crash::crash_dismiss,
+            crash::crash_dismiss_all,
+            crash::crash_issue_url,
+            crash::crash_simulate,
             gpu::get_hardware_acceleration,
             gpu::set_hardware_acceleration,
             pty::pty_spawn,
@@ -321,6 +332,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                crash::end_session();
                 provider_auth::shutdown();
                 app.state::<chat::ChatState>().shutdown();
                 app.state::<PtyState>().shutdown();
