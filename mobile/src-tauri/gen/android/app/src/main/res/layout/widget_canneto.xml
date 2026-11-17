@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Scene (24 frames in a flipper, ~12 fps), a dark corner behind the number,
+     the number itself and new-chat buttons. Anything else opens the app. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
@@ -10,66 +12,102 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:autoStart="true"
-        android:flipInterval="250">
-        <ImageView android:id="@+id/f0" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
-        <ImageView android:id="@+id/f1" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
-        <ImageView android:id="@+id/f2" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
-        <ImageView android:id="@+id/f3" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
-        <ImageView android:id="@+id/f4" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
-        <ImageView android:id="@+id/f5" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
-        <ImageView android:id="@+id/f6" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
-        <ImageView android:id="@+id/f7" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
+        android:flipInterval="83">
+        <ImageView android:id="@+id/f0" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f1" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f2" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f3" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f4" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f5" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f6" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f7" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f8" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f9" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f10" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f11" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f12" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f13" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f14" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f15" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f16" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f17" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f18" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f19" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f20" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f21" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f22" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+        <ImageView android:id="@+id/f23" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
     </ViewFlipper>
+    <ImageView
+        android:id="@+id/scrim"
+        android:layout_width="170dp"
+        android:layout_height="110dp"
+        android:layout_gravity="top|start"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_scrim" />
     <LinearLayout
-        android:id="@+id/chip"
+        android:id="@+id/stat"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
-        android:layout_margin="9dp"
-        android:background="@drawable/widget_glass_chip"
-        android:orientation="vertical"
-        android:paddingStart="9dp"
-        android:paddingTop="5dp"
-        android:paddingEnd="9dp"
-        android:paddingBottom="5dp">
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="10dp"
+        android:orientation="vertical">
         <TextView
-            android:id="@+id/chip_num"
+            android:id="@+id/stat_num"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
             android:includeFontPadding="false"
-            android:shadowColor="#59000000"
+            android:letterSpacing="-0.03"
+            android:shadowColor="#99000000"
             android:shadowDy="1"
-            android:shadowRadius="2"
+            android:shadowRadius="6"
             android:text="–"
-            android:textColor="#fff6ea"
-            android:textSize="18sp"
+            android:textColor="#fffaf2"
+            android:textSize="28sp"
             android:textStyle="bold" />
         <TextView
-            android:id="@+id/chip_label"
+            android:id="@+id/stat_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="3dp"
             android:includeFontPadding="false"
             android:maxLines="1"
-            android:shadowColor="#59000000"
+            android:shadowColor="#99000000"
             android:shadowDy="1"
-            android:shadowRadius="2"
-            android:textColor="#D9fff6ea"
-            android:textSize="10sp" />
+            android:shadowRadius="6"
+            android:textColor="#EBfffaf2"
+            android:textSize="11sp" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/new_pill"
+        android:layout_width="wrap_content"
+        android:layout_height="34dp"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="10dp"
+        android:background="@drawable/widget_white_pill"
+        android:contentDescription="@string/widget_cd_new"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="11dp"
+        android:paddingEnd="14dp">
+        <ImageView
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/widget_ic_plus" />
         <TextView
-            android:id="@+id/chip_mono"
+            android:id="@+id/new_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:fontFamily="monospace"
-            android:includeFontPadding="false"
+            android:layout_marginStart="6dp"
             android:maxLines="1"
-            android:shadowColor="#59000000"
-            android:shadowDy="1"
-            android:shadowRadius="2"
-            android:textColor="#B3fff6ea"
-            android:textSize="10sp" />
+            android:text="@string/widget_new_chat"
+            android:textColor="#1a1511"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
     </LinearLayout>
     <LinearLayout
         android:id="@+id/row"
@@ -77,78 +115,14 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_margin="10dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        >
-        <LinearLayout
-            android:id="@+id/new_pill"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginEnd="6dp"
-            android:background="@drawable/widget_accent_pill"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="9dp"
-            android:paddingEnd="12dp">
-            <ImageView
-                android:layout_width="15dp"
-                android:layout_height="15dp"
-                android:src="@drawable/widget_ic_plus" />
-            <TextView
-                android:id="@+id/new_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:maxLines="1"
-                android:text="@string/widget_new"
-                android:textColor="#0e0a07"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+        android:visibility="gone">
         <ImageView
-            android:id="@+id/new_fab"
+            android:id="@+id/fab"
             android:layout_width="38dp"
             android:layout_height="38dp"
-            android:background="@drawable/widget_accent_round"
+            android:background="@drawable/widget_white_round"
             android:contentDescription="@string/widget_cd_new"
             android:padding="10dp"
-            android:layout_marginEnd="6dp"
-            android:src="@drawable/widget_ic_plus"
-            android:visibility="gone" />
-        <LinearLayout
-            android:id="@+id/resume_pill"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginEnd="6dp"
-            android:background="@drawable/widget_glass_pill"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="9dp"
-            android:paddingEnd="12dp">
-            <ImageView
-                android:layout_width="15dp"
-                android:layout_height="15dp"
-                android:src="@drawable/widget_ic_resume" />
-            <TextView
-                android:id="@+id/resume_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:maxLines="1"
-                android:text="@string/widget_resume"
-                android:textColor="#fff6ea"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-        <ImageView
-            android:id="@+id/resume_round"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:background="@drawable/widget_glass_round"
-            android:contentDescription="@string/widget_cd_resume"
-            android:padding="8dp"
-            android:layout_marginEnd="6dp"
-            android:src="@drawable/widget_ic_resume"
-            android:visibility="gone" />
+            android:src="@drawable/widget_ic_plus" />
     </LinearLayout>
 </FrameLayout>

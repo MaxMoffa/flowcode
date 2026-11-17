@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Darkens the sky only behind the number and its label (top-left corner). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:type="radial"
+        android:centerX="0"
+        android:centerY="0"
+        android:gradientRadius="100%p"
+        android:startColor="#9E080604"
+        android:centerColor="#61080604"
+        android:endColor="#00080604" />
+</shape>

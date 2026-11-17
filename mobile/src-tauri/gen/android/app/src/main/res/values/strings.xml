@@ -8,18 +8,15 @@
     <string name="widget_b_label">Flowcode reeds</string>
     <string name="widget_c_label">Flowcode pond</string>
     <string name="widget_a_desc">A small pixel-art window: the frog, the sky of the hour and your streak.</string>
-    <string name="widget_b_desc">Seven reeds, one for each of the last days, and quick buttons to start or resume.</string>
-    <string name="widget_c_desc">A pond with a lily for each session today and one button per agent.</string>
+    <string name="widget_b_desc">Seven reeds, one for each of the last days, and a button for a new chat.</string>
+    <string name="widget_c_desc">A pond with a lily for each session today and a new-chat button per agent.</string>
+    <string name="widget_day_in_row">day in a row</string>
     <string name="widget_days_in_row">days in a row</string>
     <string name="widget_start_today">start again today</string>
-    <string name="widget_sessions_week">sessions this week</string>
-    <string name="widget_time_today">%1$s today</string>
+    <string name="widget_sessions_7_days">sessions in 7 days</string>
     <string name="widget_session_today">session today</string>
     <string name="widget_sessions_today">sessions today</string>
-    <string name="widget_new">New</string>
-    <string name="widget_resume">Resume</string>
+    <string name="widget_new_chat">New chat</string>
     <string name="widget_open">Open Flowcode</string>
     <string name="widget_cd_new">New chat</string>
-    <string name="widget_cd_voice">New chat by voice</string>
-    <string name="widget_cd_resume">Resume the last chat</string>
 </resources>

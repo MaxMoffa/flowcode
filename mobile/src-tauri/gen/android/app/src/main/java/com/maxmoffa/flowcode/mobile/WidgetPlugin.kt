@@ -63,7 +63,7 @@ class WidgetPlugin(private val activity: Activity) : Plugin(activity) {
     fun update(invoke: Invoke) {
         val args = invoke.parseArgs(WidgetUpdateArgs::class.java)
         WidgetRender.saveSnapshot(activity, args.snapshot)
-        // Drawing 24 frames takes a moment: answer first, draw on its own thread.
+        // Drawing every widget's frames takes a moment: answer first, draw on its own thread.
         Thread {
             try {
                 WidgetRender.refreshAll(activity)

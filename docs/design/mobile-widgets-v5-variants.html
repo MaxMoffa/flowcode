@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Widget Android di Flowcode: prima e dopo, versioni più chiare e minimali, tocchi che aprono solo l'app e animazioni più fluide.">
+  <title>Flowcode mobile — widget · V5 prima e dopo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1511; --surface: #292420; --surface-2: #302b26;
+      --border: rgba(232, 184, 128, .12); --border-strong: rgba(231, 216, 197, .2);
+      --fg: #e7d8c5; --muted: #a08a6f;
+      --accent: #9db984; --accent-bg: rgba(157, 185, 132, .12); --accent-border: rgba(157, 185, 132, .3);
+      --on-accent: #0e0a07; --wait: #d1a752; --wait-border: rgba(209, 167, 82, .3);
+      --info: #8fb0d6;
+      --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #120e0b; color: var(--fg); font: 14px/1.5 var(--font); }
+    button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    .mono { font-family: var(--mono); }
+    .page { max-width: 1120px; margin: auto; padding: 28px 24px 48px; }
+    .eyebrow { font-size: 11px; letter-spacing: .13em; color: var(--muted); margin-bottom: 6px; }
+    h1 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 4px; }
+    .lead { margin: 0 0 18px; color: var(--muted); max-width: 820px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-bottom: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .tabs button { flex: 1 1 160px; min-height: 38px; padding: 7px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; text-align: left; }
+    .tabs button span { margin-right: 8px; opacity: .6; font: 12px var(--mono); }
+    .tabs button[aria-selected="true"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--border-strong); }
+    .tabs.small button { flex: 1 1 120px; }
+
+    .ctrlbar { display: flex; flex-wrap: wrap; gap: 14px 22px; margin: 14px 0 20px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+    .ctrlbar h4 { margin: 0 0 6px; font-size: 10.5px; letter-spacing: .1em; color: var(--muted); font-weight: 500; }
+    .ctrls { display: flex; flex-wrap: wrap; gap: 6px; }
+    .ctrls button { padding: 5px 11px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border); font-size: 12.5px; }
+    .ctrls button[aria-pressed="true"] { border-color: var(--accent-border); background: var(--accent-bg); color: var(--accent); }
+
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; justify-items: center; }
+    @media (max-width: 760px) { .compare { grid-template-columns: 1fr; } }
+    .side { display: grid; justify-items: center; gap: 10px; }
+    .side-h { font: 600 11px var(--mono); letter-spacing: .14em; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border-strong); color: var(--muted); }
+    .side-h.after { color: var(--accent); border-color: var(--accent-border); background: var(--accent-bg); }
+    .fpsnote { font: 11.5px var(--mono); color: var(--muted); }
+
+    /* ---- telefono ---- */
+    .phone { width: 320px; height: 600px; border-radius: 42px; padding: 10px; background: #0b0907; box-shadow: 0 0 0 1px #2a2420, 0 30px 60px rgba(0,0,0,.5); }
+    .screen { position: relative; height: 100%; border-radius: 34px; overflow: hidden; }
+    .status { display: flex; justify-content: space-between; padding: 12px 22px 0; font-size: 12px; color: #e9dccb; }
+    .clock { text-align: center; margin: 18px 0 4px; font-weight: 300; font-size: 46px; letter-spacing: -.03em; color: #f1e6d6; line-height: 1; }
+    .date { text-align: center; font-size: 12.5px; color: #cbb89f; margin-bottom: 16px; }
+    .home { padding: 0 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px 10px; }
+    .app { display: grid; justify-items: center; gap: 5px; font-size: 10px; color: #e9dccb; }
+    .app i { width: 46px; height: 46px; border-radius: 15px; display: block; background: rgba(255,255,255,.09); }
+    .app.fc i { background: linear-gradient(140deg, #9db984, #5d7a4a); }
+    .dock { position: absolute; left: 16px; right: 16px; bottom: 16px; display: flex; justify-content: space-around; padding: 9px; border-radius: 24px; background: rgba(255,255,255,.07); }
+    .dock i { width: 42px; height: 42px; border-radius: 14px; background: rgba(255,255,255,.1); display: block; }
+    .span4 { grid-column: span 4; } .span2 { grid-column: span 2; }
+    .apps2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 10px; align-content: start; }
+
+    /* ---- widget ---- */
+    .art { position: relative; border-radius: 22px; overflow: hidden; background: #0d0b09; cursor: pointer; box-shadow: 0 0 0 1px rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.35); }
+    .art::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 0 0 1px rgba(255,255,255,.04); }
+    .sbox { position: absolute; inset: 0; overflow: hidden; }
+    .sbox canvas { position: absolute; left: 0; top: 0; image-rendering: pixelated; image-rendering: crisp-edges; }
+    .wa { aspect-ratio: 1; }
+    .wb, .wc { height: 140px; }
+
+    /* prima: vetro */
+    .glass { background: rgba(12, 10, 8, .34); -webkit-backdrop-filter: blur(7px) saturate(1.2); backdrop-filter: blur(7px) saturate(1.2); border: 1px solid rgba(255,255,255,.14); color: #fff6ea; }
+    .chip { position: absolute; left: 9px; top: 9px; border-radius: 11px; padding: 5px 9px; text-align: left; display: block; }
+    .chip b { display: block; font: 600 18px/1 var(--mono); }
+    .chip span { display: block; font-size: 10px; opacity: .85; margin-top: 2px; white-space: nowrap; }
+    .chip em { display: block; font-style: normal; font: 10px var(--mono); opacity: .7; margin-top: 2px; white-space: nowrap; }
+    .gbtn { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; }
+    .fab { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 12px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.35); }
+    .pill { height: 32px; padding: 0 12px 0 9px; border-radius: 16px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .pill.pri { background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 12px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.35); }
+    .ag { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font: 700 11.5px var(--mono); }
+    .ag i { font-style: normal; }
+    .row { position: absolute; display: flex; gap: 6px; align-items: center; }
+    .br { right: 10px; bottom: 10px; } .bl { left: 10px; bottom: 10px; }
+    .col { position: absolute; right: 10px; bottom: 10px; display: grid; gap: 6px; justify-items: center; }
+    .daylbl { position: absolute; font: 600 8.5px var(--mono); color: #fff6ea; opacity: .62; transform: translateX(-50%); pointer-events: none; text-shadow: 0 1px 1px rgba(0,0,0,.5); }
+    .daylbl.today { opacity: 1; color: #dff3cf; }
+
+    /* dopo 1 · pulito: testo direttamente sulla scena, una sola riga di pulsanti */
+    .scrim { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(150px 110px at 0 0, rgba(8,6,4,.62) 0%, rgba(8,6,4,.38) 45%, rgba(8,6,4,0) 100%); }
+    .stat { position: absolute; left: 12px; top: 10px; pointer-events: none; color: #fffaf2; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+    .stat b { display: block; font: 700 28px/1 var(--mono); letter-spacing: -.03em; }
+    .stat span { display: block; font-size: 11px; font-weight: 500; margin-top: 3px; opacity: .92; white-space: nowrap; }
+    .stat.dim b { opacity: .7; }
+    .nfab { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: #fffaf2; color: #1a1511; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
+    .npill { height: 34px; padding: 0 14px 0 11px; border-radius: 17px; display: inline-flex; align-items: center; gap: 6px; background: #fffaf2; color: #1a1511; font-size: 12.5px; font-weight: 600; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
+    .nag { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: #fffaf2; box-shadow: 0 3px 10px rgba(0,0,0,.28); font: 700 12px var(--mono); }
+    .nag i { font-style: normal; }
+
+    /* zone di tocco */
+    .zones .art { outline: 2px dashed rgba(143, 176, 214, .85); outline-offset: -2px; }
+    .zones .art::before { content: attr(data-zone); position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; font: 600 10px var(--mono); padding: 3px 8px; border-radius: 6px; background: rgba(143, 176, 214, .92); color: #0e1420; pointer-events: none; white-space: nowrap; }
+    .zones .art [data-act] { outline: 2px solid #ffd36b; outline-offset: 2px; }
+    .zones .art [data-act="other"] { outline-color: #ff7a7a; }
+
+    .toast { position: absolute; left: 50%; bottom: 86px; transform: translateX(-50%); background: #f1e6d6; color: #1a1511; font-size: 12px; padding: 8px 14px; border-radius: 20px; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; z-index: 5; max-width: 290px; overflow: hidden; text-overflow: ellipsis; }
+    .toast.on { opacity: 1; }
+
+    /* ---- note ---- */
+    .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 26px; }
+    .card { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+    .card h3 { margin: 0 0 8px; font-size: 11.5px; letter-spacing: .1em; color: var(--muted); font-weight: 500; }
+    .card ul { margin: 0; padding-left: 18px; } .card li { margin: 3px 0; }
+    .card.rec { border-color: var(--accent-border); }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    td, th { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: .06em; }
+    td.g { color: var(--accent); } td.y { color: var(--wait); }
+    .del { text-decoration: line-through; color: var(--muted); }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">FLOWCODE MOBILE · ANDROID · WIDGET · V5 · PRIMA E DOPO</div>
+  <h1>Widget più chiari, tocchi semplici, animazione più fluida</h1>
+  <p class="lead">A sinistra i widget di oggi (0.35), a destra la nuova versione. Tre cambi: niente riquadri sopra la scena e un numero leggibile da lontano; ogni tocco che non è “nuova chat” apre solo Flowcode; la scena resta quella di oggi, tutta animata, ma passa da 4 a 12 fotogrammi al secondo. Tocca i widget per provare, attiva “zone di tocco” per vedere cosa fa ogni punto.</p>
+
+  <div class="tabs" role="tablist" id="wtabs">
+    <button role="tab" data-w="a"><span>A</span>Finestra · 2×2</button>
+    <button role="tab" data-w="b"><span>B</span>Canneto · 4×2</button>
+    <button role="tab" data-w="c"><span>C</span>Stagno · 4×2</button>
+  </div>
+
+  <div class="ctrlbar" id="ctrlbar"></div>
+
+  <div class="compare">
+    <div class="side">
+      <div class="side-h">PRIMA · 0.35</div>
+      <div class="phone"><div class="screen" id="scrA"></div></div>
+      <div class="fpsnote">8 fotogrammi · 250 ms · 4 fps · scena intera</div>
+    </div>
+    <div class="side">
+      <div class="side-h after">DOPO</div>
+      <div class="phone"><div class="screen" id="scrB"></div></div>
+      <div class="fpsnote" id="fpsB"></div>
+    </div>
+  </div>
+
+  <div class="notes" id="notes"></div>
+</div>
+
+<script>
+// ── La rana di Flowcode, port di src/terminal/frogArt.ts ──
+const FROG_BOX = { x: 130, y: 205, width: 764, height: 650 };
+const COLS = 30, ROWS = 24;
+function hexToRgb(hex) { const m = hex.trim().match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i); return m ? m.slice(1).map(c => parseInt(c, 16)) : [0, 0, 0]; }
+function hexToHsl(hex) {
+  const [r, g, b] = hexToRgb(hex).map(v => v / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min, s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function hslToHex([h, s, l]) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const m = l - c / 2;
+  return "#" + [r, g, b].map(v => Math.round((v + m) * 255).toString(16).padStart(2, "0")).join("");
+}
+const ACCENT = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#9db984";
+const PAL = (() => { const [h, s, l] = hexToHsl(ACCENT); return { green: hslToHex([h, s, l]), dark: hslToHex([h, s, Math.max(.1, l * .35)]), white: "#ebebeb" }; })();
+const REST = { lookX: 0, lookY: 6, lid: 0, scaleX: 1, scaleY: 1, rotate: 0, lift: 0, cursor: true };
+function frogPixel(px, py, pose, pal) {
+  const ox = 512, oy = 830, a = (-pose.rotate * Math.PI) / 180;
+  const dx = px - ox, dy = py - pose.lift - oy;
+  const x = ox + (dx * Math.cos(a) - dy * Math.sin(a)) / pose.scaleX;
+  const y = oy + (dx * Math.sin(a) + dy * Math.cos(a)) / pose.scaleY;
+  const seg = (ax, ay, bx, by) => { const sx = bx - ax, sy = by - ay; const t = Math.max(0, Math.min(1, ((x - ax) * sx + (y - ay) * sy) / (sx * sx + sy * sy))); return Math.hypot(x - (ax + t * sx), y - (ay + t * sy)); };
+  for (const cx of [340, 684]) {
+    if (pose.lid > 0 && Math.hypot(x - cx, y - 393) <= 89 && y <= 304 + 178 * pose.lid) return pal.green;
+    if (Math.hypot(x - (cx + 14 + pose.lookX), y - 378 - pose.lookY) <= 16) return pal.white;
+    if (Math.hypot(x - (cx + pose.lookX), y - 393 - pose.lookY) <= 45) return pal.dark;
+    if (Math.hypot(x - cx, y - 393) <= 85) return pal.white;
+  }
+  const strokes = [[396, 575, 472, 632], [472, 632, 396, 689]];
+  if (pose.cursor) strokes.push([526, 689, 636, 689]);
+  if (strokes.some(s => seg(...s) <= 24)) return pal.dark;
+  const body = Math.hypot(x - 340, y - 400) <= 135 || Math.hypot(x - 684, y - 400) <= 135 || ((x - 512) / 360) ** 2 + ((y - 610) / 220) ** 2 <= 1;
+  return body ? pal.green : null;
+}
+// Sprite 30×24 in cache per posa: la scena è a bassa risoluzione, quindi 1 pixel rana = 1 pixel scena.
+const spriteCache = new Map();
+function frogSprite(p) {
+  const pose = { ...REST, ...p }, k = `${pose.lid}|${pose.lookX}|${pose.lookY}|${pose.scaleY}|${pose.cursor}`;
+  let c = spriteCache.get(k);
+  if (!c) {
+    c = document.createElement("canvas"); c.width = COLS; c.height = ROWS;
+    const ctx = c.getContext("2d");
+    for (let r = 0; r < ROWS; r++) {
+      const y = FROG_BOX.y + ((r + .5) * FROG_BOX.height) / ROWS;
+      for (let q = 0; q < COLS; q++) {
+        const col = frogPixel(FROG_BOX.x + ((q + .5) * FROG_BOX.width) / COLS, y, pose, PAL);
+        if (col) { ctx.fillStyle = col; ctx.fillRect(q, r, 1, 1); }
+      }
+    }
+    spriteCache.set(k, c);
+  }
+  return c;
+}
+// Posa + saltello per l'istante t. Tutto ha periodo 2 s, così gli 8 fotogrammi Android fanno un loop pulito.
+function frogPose(t, mood) {
+  const blink = (t % 2) < .2;
+  if (mood === 'sleep') return { pose: { lid: 1, cursor: false, scaleY: Math.round((1 + .03 * Math.sin(t * Math.PI)) * 100) / 100 }, hop: 0 };
+  if (mood === 'happy') {
+    const ph = t % 2, hop = ph > 1 && ph < 1.5 ? -Math.round(Math.sin((ph - 1) * 2 * Math.PI) * 3) : 0;
+    return { pose: { lid: blink ? 1 : 0, lookX: Math.round(Math.sin(t * Math.PI) * 2) * 6 }, hop };
+  }
+  return { pose: { lid: blink ? 1 : 0, lookX: (t % 2) < 1 ? 12 : -4, lookY: 4 }, hop: 0 };
+}
+function drawFrog(ctx, t, mood, cx, footY, sc) {
+  const { pose, hop } = frogPose(t, mood), w = Math.round(COLS * sc), h = Math.round(ROWS * sc);
+  ctx.drawImage(frogSprite(pose), Math.round(cx - w / 2), Math.round(footY - h + hop), w, h);
+  return { x: Math.round(cx - w / 2), y: Math.round(footY - h + hop), w, h };
+}
+
+// ── Pittura a bassa risoluzione ──
+const BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+const mix = (a, b, f) => { const A = hexToRgb(a), B = hexToRgb(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * f).toString(16).padStart(2, '0')).join(''); };
+const rnd = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const P = (ctx, x, y, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(Math.round(x), Math.round(y), w, h); };
+function disc(ctx, cx, cy, r, col) { ctx.fillStyle = col; for (let y = -r; y <= r; y++) { const hw = Math.floor(Math.sqrt(r * r - y * y) + .3); ctx.fillRect(Math.round(cx - hw), Math.round(cy + y), hw * 2 + 1, 1); } }
+function oval(ctx, cx, cy, rx, ry, col) { ctx.fillStyle = col; for (let y = -ry; y <= ry; y++) { const hw = Math.floor(rx * Math.sqrt(1 - (y * y) / (ry * ry + .01)) + .3); ctx.fillRect(Math.round(cx - hw), Math.round(cy + y), hw * 2 + 1, 1); } }
+// Gradiente a bande con dithering ordinato: dà l'aria "stampata" del pixel art.
+const gradCache = new Map();
+function grad(w, h, top, bot, steps = 7) {
+  const k = `${w}|${h}|${top}|${bot}`; if (gradCache.has(k)) return gradCache.get(k);
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const ctx = c.getContext('2d');
+  const cols = Array.from({ length: steps }, (_, i) => mix(top, bot, i / (steps - 1)));
+  for (let y = 0; y < h; y++) {
+    const f = (y / Math.max(1, h - 1)) * (steps - 1), b = Math.min(steps - 2, Math.floor(f)), fr = f - b;
+    for (let x = 0; x < w; x++) { ctx.fillStyle = BAYER[y % 4][x % 4] / 16 < fr ? cols[b + 1] : cols[b]; ctx.fillRect(x, y, 1, 1); }
+  }
+  gradCache.set(k, c); return c;
+}
+
+// ── Ora del giorno: tavolozze ──
+const SLOTS = {
+  alba:     { label: 'Alba', clock: '6:48', top: '#e48f78', bot: '#fbe1bb', far: '#c48d80', near: '#6f8a55', ground: '#4c6a3b', water: '#a6c0b6', water2: '#5f8a80', sun: '#fff0c4', cloud: '#fdd8c6', reed: '#6c8a4c', tint: '#ffe6d6', stars: 0, sunAt: [.22, .5], screen: '#3a2a24' },
+  giorno:   { label: 'Giorno', clock: '11:20', top: '#6cb0d6', bot: '#d4ecdc', far: '#8bb490', near: '#5b8f4d', ground: '#3d6a36', water: '#6aa89d', water2: '#3a6e66', sun: '#fff6d2', cloud: '#f6fbff', reed: '#5f8a45', tint: null, stars: 0, sunAt: [.74, .17], screen: '#24302a' },
+  tramonto: { label: 'Tramonto', clock: '18:52', top: '#4a3a6c', bot: '#f2a35e', far: '#8a5a6a', near: '#4b593b', ground: '#33422b', water: '#7c5f7c', water2: '#3c3350', sun: '#ffc27a', cloud: '#e99d8d', reed: '#4a5a36', tint: '#f6d6c8', stars: .35, sunAt: [.8, .5], screen: '#2e2028' },
+  notte:    { label: 'Notte', clock: '23:15', top: '#0a1226', bot: '#2a3d62', far: '#1c2944', near: '#14221e', ground: '#0e1915', water: '#1c2e46', water2: '#0d1727', sun: '#f2ebd2', cloud: '#2d3c5c', reed: '#1f3226', tint: '#8494c6', stars: 1, sunAt: [.74, .2], moon: true, screen: '#0f1420' },
+};
+const autoSlot = () => { const h = new Date().getHours(); return h >= 5 && h < 8 ? 'alba' : h >= 8 && h < 17 ? 'giorno' : h >= 17 && h < 20 ? 'tramonto' : 'notte'; };
+
+// Pezzi di paesaggio condivisi
+function skyAndSun(ctx, w, h, t, pal, skyH = h) {
+  ctx.drawImage(grad(w, skyH, pal.top, pal.bot), 0, 0);
+  if (pal.stars) for (let i = 0; i < 18; i++) {
+    const a = pal.stars * (.35 + .65 * Math.abs(Math.sin(t * Math.PI + i * 1.7)));
+    ctx.globalAlpha = a; P(ctx, rnd(i) * w, rnd(i + 40) * skyH * .6, 1, 1, '#fff8e6');
+  }
+  ctx.globalAlpha = 1;
+  const [sx, sy] = pal.sunAt, cx = sx * w, cy = sy * skyH;
+  ctx.globalAlpha = .18; disc(ctx, cx, cy, 7, pal.sun); ctx.globalAlpha = 1;
+  disc(ctx, cx, cy, 4, pal.sun);
+  if (pal.moon) disc(ctx, cx + 2, cy - 1, 3, mix(pal.top, pal.bot, cy / skyH));
+}
+function clouds(ctx, w, h, t, pal, n = 2) {
+  for (let k = 0; k < n; k++) {
+    const span = w + 26, x = ((rnd(k + 9) * w + t * 2.5 * (k + 1)) % span + span) % span - 13, y = h * (.14 + .13 * k);
+    ctx.globalAlpha = pal.moon ? .55 : .9;
+    P(ctx, x, y, 12, 2, pal.cloud); P(ctx, x + 3, y - 2, 6, 2, pal.cloud); P(ctx, x + 8, y - 1, 3, 1, pal.cloud);
+    ctx.globalAlpha = .35; P(ctx, x + 1, y + 2, 10, 1, mix(pal.cloud, pal.top, .5));
+  }
+  ctx.globalAlpha = 1;
+}
+function hills(ctx, w, h, base, amp, col, seed) {
+  ctx.fillStyle = col;
+  for (let x = 0; x < w; x++) { const y = Math.round(base + Math.sin(x * .13 + seed) * amp + Math.sin(x * .047 + seed * 2) * amp * .7); ctx.fillRect(x, y, 1, h - y); }
+}
+function tint(ctx, w, h, pal) { if (!pal.tint) return; ctx.globalCompositeOperation = 'multiply'; P(ctx, 0, 0, w, h, pal.tint); ctx.globalCompositeOperation = 'source-over'; }
+function fireflies(ctx, w, h, t, pal, n, y0 = .35, y1 = .8) {
+  if (!pal.stars) return;
+  for (let i = 0; i < n; i++) {
+    const x = w * (.08 + .84 * rnd(i + 3)) + Math.sin(t * Math.PI + i) * 3, y = h * (y0 + (y1 - y0) * rnd(i + 21)) + Math.cos(t * Math.PI + i * 2) * 2;
+    const a = pal.stars * (.4 + .6 * Math.abs(Math.sin(t * Math.PI * .5 + i)));
+    ctx.globalAlpha = a * .3; P(ctx, x - 1, y - 1, 3, 3, '#f8f0a0');
+    ctx.globalAlpha = a; P(ctx, x, y, 1, 1, '#fffbd0');
+  }
+  ctx.globalAlpha = 1;
+}
+function zzz(ctx, x, y, t) {
+  const g = ['1111', '..1.', '.1..', '1111'];
+  [0, 1].forEach(k => {
+    const ph = ((t / 2 + k * .5) % 1), ox = x + k * 4, oy = y - ph * 8;
+    ctx.globalAlpha = 1 - ph;
+    g.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '1') P(ctx, ox + c, oy + r, 1, 1, '#eef4ff'); }));
+  });
+  ctx.globalAlpha = 1;
+}
+function sceneA(ctx, w, h, t, pal, s) {
+  skyAndSun(ctx, w, h, t, pal, Math.round(h * .8));
+  if (!pal.moon) clouds(ctx, w, h, t, pal, 2);
+  hills(ctx, w, h, h * .62, 2.2, pal.far, 1);
+  hills(ctx, w, h, h * .8, 1.2, pal.near, 4);
+  P(ctx, 0, h - 3, w, 3, pal.ground);
+  // ciuffi d'erba che ondeggiano
+  for (let i = 0; i < 9; i++) { const x = rnd(i + 70) * w, sw = Math.round(Math.sin(t * Math.PI + i) * .8); P(ctx, x, h * .8 - 2, 1, 2, mix(pal.near, '#ffffff', .12)); P(ctx, x + sw, h * .8 - 3, 1, 1, mix(pal.near, '#ffffff', .12)); }
+  // sasso + rana
+  const rx = w * .32, ry = Math.round(h * .88);
+  oval(ctx, rx, ry, 9, 2, mix(pal.ground, '#8a8f88', .35));
+  P(ctx, rx - 6, ry - 2, 10, 1, mix(pal.ground, '#c9ccc4', .45));
+  const f = drawFrog(ctx, t, s.mood, rx, ry - 1, .62);
+  tint(ctx, w, h, pal);
+  fireflies(ctx, w, h, t, pal, 5, .4, .78);
+  if (s.mood === 'sleep') zzz(ctx, f.x + f.w - 2, f.y + 2, t);
+}
+function reedX(w, i) { return Math.round(w * .5 + i * (w * .45 / 6)); }
+function sceneB(ctx, w, h, t, pal, s) {
+  const wy = h - 12;
+  skyAndSun(ctx, w, h, t, pal, wy);
+  if (!pal.moon) clouds(ctx, w, h, t, pal, 3);
+  hills(ctx, w, wy + 1, h * .56, 2.5, pal.far, 2);
+  hills(ctx, w, wy + 1, h * .74, 1.4, mix(pal.near, pal.far, .3), 5);
+  // acqua con riflessi
+  ctx.drawImage(grad(w, h - wy, pal.water, pal.water2, 4), 0, wy);
+  for (let i = 0; i < 9; i++) { const x = ((rnd(i + 90) * w + t * 3 * (1 + (i % 3))) % w), y = wy + 2 + (i % 4) * 2; ctx.globalAlpha = .35; P(ctx, x, y, 3 + (i % 3), 1, '#ffffff'); }
+  ctx.globalAlpha = 1;
+  const max = Math.max(...s.week, 1), tallest = s.week.indexOf(Math.max(...s.week));
+  const maxH = h * .52;
+  s.week.forEach((n, i) => {
+    const x = reedX(w, i), today = i === 6, hh = n ? Math.round(5 + (n / max) * maxH) : 2, top = wy - hh;
+    const col = today ? ACCENT : pal.reed, sway = Math.round(Math.sin(t * Math.PI + i * .9) * 1);
+    // riflesso
+    ctx.globalAlpha = .28; for (let y = 0; y < Math.min(10, hh); y += 2) P(ctx, x + (y % 4 ? 1 : 0), wy + 1 + y, 1, 1, col); ctx.globalAlpha = 1;
+    // stelo (la parte alta ondeggia)
+    P(ctx, x, top + Math.round(hh * .4), 1, hh - Math.round(hh * .4) + 1, col);
+    P(ctx, x + sway, top, 1, Math.round(hh * .4) + 1, col);
+    // foglia
+    if (hh > 6) { P(ctx, x - 1, wy - 3, 1, 2, col); P(ctx, x - 2, wy - 5, 1, 2, col); P(ctx, x + 1, wy - 6, 1, 3, col); P(ctx, x + 2, wy - 8, 1, 2, col); }
+    if (i === tallest && n) return;
+    if (!n) return;
+    if (today) { // oggi fiorisce
+      const fx = x + sway, fy = top - 1, petal = '#f2a9bd';
+      P(ctx, fx - 1, fy, 3, 1, petal); P(ctx, fx, fy - 1, 1, 3, petal); P(ctx, fx - 2, fy - 2, 1, 1, petal); P(ctx, fx + 2, fy - 2, 1, 1, petal); P(ctx, fx, fy, 1, 1, '#ffe08a');
+    } else { // tifa
+      P(ctx, x + sway - 1, top - 1, 3, 5, '#7a5233'); P(ctx, x + sway, top - 3, 1, 2, col); P(ctx, x + sway - 1, top, 1, 3, '#94683f');
+    }
+  });
+  // rana sulla canna più alta, su una foglia
+  let f = null;
+  if (s.week[tallest]) {
+    const x = reedX(w, tallest), top = wy - Math.round(5 + maxH);
+    P(ctx, x - 5, top + 1, 11, 1, mix(pal.reed, '#000000', .2)); P(ctx, x - 4, top, 9, 1, tallest === 6 ? ACCENT : mix(pal.reed, '#ffffff', .12));
+    f = drawFrog(ctx, t, s.mood, x, top + 1, .55);
+  }
+  // libellula
+  const dx = w * .3 + Math.sin(t * Math.PI) * w * .1, dy = h * .3 + Math.sin(t * Math.PI * 2) * 4, flap = Math.floor(t * 8) % 2;
+  P(ctx, dx, dy, 5, 1, '#3aa3b5'); P(ctx, dx + 5, dy, 1, 1, '#1d5560');
+  ctx.globalAlpha = .7; P(ctx, dx + 1, dy - (flap ? 2 : 1), 2, 1, '#e8f6ff'); P(ctx, dx + 3, dy - (flap ? 1 : 2), 2, 1, '#e8f6ff'); ctx.globalAlpha = 1;
+  tint(ctx, w, h, pal);
+  fireflies(ctx, w, h, t, pal, 6, .45, .8);
+  if (f && s.mood === 'sleep') zzz(ctx, f.x + f.w, f.y, t);
+}
+const PADS = [[.12, .9], [.56, .84], [.66, .58], [.86, .72], [.47, .5], [.8, .4], [.95, .54], [.6, .32], [.2, .62]];
+function sceneC(ctx, w, h, t, pal, s) {
+  const shore = 8;
+  // sponda lontana in alto, poi acqua che riflette il cielo
+  ctx.drawImage(grad(w, shore + 1, pal.top, pal.bot, 4), 0, 0);
+  if (pal.stars) for (let i = 0; i < 8; i++) { ctx.globalAlpha = pal.stars * (.4 + .6 * Math.abs(Math.sin(t * Math.PI + i))); P(ctx, rnd(i + 5) * w, rnd(i + 8) * 4, 1, 1, '#fff8e6'); }
+  ctx.globalAlpha = 1;
+  hills(ctx, w, shore + 2, 4, 1.4, pal.far, 3);
+  ctx.drawImage(grad(w, h - shore, mix(pal.bot, pal.water, .55), pal.water2, 6), 0, shore);
+  P(ctx, 0, shore, w, 1, mix(pal.far, '#000000', .25));
+  // riflesso di sole/luna spezzato
+  const rx = pal.sunAt[0] * w;
+  for (let y = shore + 3; y < h - 4; y += 3) { const ww = Math.max(1, Math.round(3 + Math.sin(t * Math.PI * 2 + y) * 2 - (y - shore) * .05)); ctx.globalAlpha = .45; P(ctx, rx - ww / 2 + Math.sin(t * Math.PI + y) * 1, y, ww, 1, pal.sun); }
+  ctx.globalAlpha = 1;
+  // pesce che passa sotto
+  const fx = ((t * 9) % (w + 24)) - 12; ctx.globalAlpha = .22; oval(ctx, fx, h * .66, 5, 1, '#000000'); P(ctx, fx - 7, h * .66 - 1, 2, 3, '#000000'); ctx.globalAlpha = 1;
+  // ninfee: una in fiore per ogni sessione di oggi
+  const padCol = mix(pal.reed, '#88b060', .35), padDark = mix(pal.reed, '#000000', .25);
+  PADS.forEach(([px, py], i) => {
+    const x = px * w, y = py * h + Math.round(Math.sin(t * Math.PI + i) * .6);
+    oval(ctx, x, y, 4, 1, padCol); P(ctx, x, y - 1, 3, 1, mix(pal.water, pal.water2, .5)); P(ctx, x - 3, y + 1, 7, 1, padDark);
+    if (i < s.today) {
+      const pc = '#f4aac0', glow = pal.stars > .5;
+      if (glow) { ctx.globalAlpha = .25; P(ctx, x - 2, y - 4, 5, 4, '#ffd6e2'); ctx.globalAlpha = 1; }
+      P(ctx, x - 1, y - 2, 3, 1, pc); P(ctx, x, y - 3, 1, 1, pc); P(ctx, x - 2, y - 3, 1, 1, pc); P(ctx, x + 2, y - 3, 1, 1, pc); P(ctx, x, y - 2, 1, 1, '#ffe08a');
+    }
+  });
+  // cerchi d'acqua attorno alla rana
+  const cx = w * .25, cy = Math.round(h * .8);
+  for (let k = 0; k < 2; k++) { const r = 12 + ((t * 5 + k * 6) % 12); ctx.globalAlpha = .3 * (1 - (r - 12) / 12); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(cx, cy, r, r * .25, 0, 0, Math.PI * 2); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+  oval(ctx, cx, cy, 9, 2, padCol); P(ctx, cx + 3, cy - 2, 5, 1, mix(pal.water, pal.water2, .5)); P(ctx, cx - 7, cy + 2, 14, 1, padDark);
+  const f = drawFrog(ctx, t, s.mood, cx, cy, .6);
+  // mosche + lingua (solo se sveglia)
+  const flies = [[.46, .3], [.52, .42], [.4, .2]].map(([a, b], i) => [w * a + Math.sin(t * Math.PI * 2 + i * 2) * 3, h * b + Math.cos(t * Math.PI * 2 + i) * 2]);
+  const catching = s.mood !== 'sleep' && (t % 2) >= 1.25 && (t % 2) < 1.5;
+  flies.forEach(([x, y], i) => { if (catching && i === 0) return; P(ctx, x, y, 1, 1, '#141110'); ctx.globalAlpha = .6; P(ctx, x - 1, y - 1, 1, 1, '#ffffff'); P(ctx, x + 1, y - 1, 1, 1, '#ffffff'); ctx.globalAlpha = 1; });
+  if (catching) { const mx = f.x + Math.round(f.w * .62), my = f.y + Math.round(f.h * .78), [tx, ty] = flies[0]; ctx.strokeStyle = '#e88aa0'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mx + .5, my + .5); ctx.lineTo(tx + .5, ty + .5); ctx.stroke(); P(ctx, tx - 1, ty - 1, 2, 2, '#e88aa0'); }
+  // canne in primo piano a sinistra
+  [[2, 22], [5, 30], [8, 18]].forEach(([x, hh], i) => { const sway = Math.round(Math.sin(t * Math.PI + i) * 1), c = mix(pal.reed, '#000000', .35); P(ctx, x, h - hh * .55, 1, hh * .55, c); P(ctx, x + sway, h - hh, 1, hh * .45 + 1, c); P(ctx, x + sway - 1, h - hh - 1, 2, 4, '#5a3c26'); });
+  tint(ctx, w, h, pal);
+  fireflies(ctx, w, h, t, pal, 6, .25, .7);
+  if (s.mood === 'sleep') zzz(ctx, f.x + f.w - 3, f.y + 1, t);
+}
+
+// ════════ Dati finti ════════
+const AG = { claude: ['C', '#d98b5f'], codex: ['X', '#5f86b8'], gemini: ['G', '#b49a3c'], opencode: ['O', '#8f73b8'] };
+const SCEN = [
+  { name: 'Settimana piena', mood: 'happy', streak: 12, today: 7, hours: '4 h 20', week: [9, 8, 8, 8, 10, 3, 7] },
+  { name: 'Settimana calma', mood: 'calm', streak: 3, today: 2, hours: '0 h 50', week: [1, 1, 0, 2, 2, 0, 2] },
+  { name: 'Oggi niente', mood: 'sleep', streak: 0, today: 0, hours: '0 h 00', week: [4, 3, 5, 3, 4, 3, 0] },
+];
+const DAYS = ['L', 'M', 'M', 'G', 'V', 'S', 'D'];
+const state = { w: 'a', s: 0, slot: 'auto', fps: 12, zones: false };
+const S = () => SCEN[state.s];
+const PALNOW = () => SLOTS[state.slot === 'auto' ? autoSlot() : state.slot];
+
+const I = {
+  plus: '<svg class="ic" width="19" height="19" viewBox="0 0 24 24" style="stroke-width:2.6"><path d="M12 5v14M5 12h14"/></svg>',
+  plusS: '<svg class="ic" width="15" height="15" viewBox="0 0 24 24" style="stroke-width:2.6"><path d="M12 5v14M5 12h14"/></svg>',
+  mic: '<svg class="ic" width="15" height="15" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  resume: '<svg class="ic" width="14" height="14" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M10 9l5 3-5 3z" fill="currentColor"/></svg>',
+};
+const apps = (n, from = 0) => Array.from({ length: n }, (_, i) => { const k = i + from; const nm = ['Flowcode', 'Foto', 'Mappe', 'Note', 'Meteo', 'Musica', 'File', 'Orologio'][k % 8];
+  return `<div class="app${k === 0 ? ' fc' : ''}"><i></i>${nm}</div>`; }).join('');
+const NEW = 'Nuova chat · ultimo agente e progetto';
+const grid = (w, inner) => w === 'a' ? `<div class="span2">${inner}</div><div class="span2 apps2">${apps(4)}</div>${apps(4, 4)}` : `<div class="span4">${inner}</div>${apps(8)}`;
+
+// ── PRIMA (0.35) ──
+function before(w) {
+  const s = S();
+  if (w === 'a') return grid(w, `<div class="art wa"><div class="sbox" data-scene="a" data-mode="old"><canvas></canvas></div>
+      <button class="chip glass" data-act="open" data-toast="Apre Flowcode"><b>${s.streak || '–'}</b><span>${s.streak ? 'giorni di fila' : 'riparti oggi'}</span></button>
+      <div class="col"><button class="gbtn glass" data-act="new" data-toast="Nuova chat con la dettatura accesa">${I.mic}</button><button class="fab" data-act="new" data-toast="${NEW}">${I.plus}</button></div></div>`);
+  if (w === 'b') { const sum = s.week.reduce((a, b) => a + b, 0);
+    return grid(w, `<div class="art wb"><div class="sbox" data-scene="b" data-mode="old"><canvas></canvas><div class="dl"></div></div>
+      <button class="chip glass" data-act="open" data-toast="Apre Flowcode"><b>${sum}</b><span>sessioni in settimana</span><em>${s.hours} oggi</em></button>
+      <div class="row bl"><button class="pill pri" data-act="new" data-toast="${NEW}">${I.plusS}Nuova</button><button class="pill glass" data-act="other" data-toast="Riprende l'ultima sessione">${I.resume}Riprendi</button></div></div>`); }
+  const ag = Object.entries(AG).map(([k, [m, c]]) => `<button class="ag glass" data-act="new" data-toast="Nuova chat ${k}"><i style="color:${c}">${m}</i></button>`).join('');
+  return grid(w, `<div class="art wc"><div class="sbox" data-scene="c" data-mode="old"><canvas></canvas></div>
+      <button class="chip glass" data-act="open" data-toast="Apre Flowcode"><b>${s.today}</b><span>${s.today === 1 ? 'sessione oggi' : 'sessioni oggi'}</span><em>${s.hours}</em></button>
+      <div class="row br">${ag}<button class="fab" data-act="new" data-toast="${NEW}">${I.plus}</button></div></div>`);
+}
+
+// ── DOPO ──
+function statText(w, s) {
+  if (w === 'a') return s.streak ? [s.streak, s.streak === 1 ? 'giorno di fila' : 'giorni di fila'] : ['0', 'oggi si riparte'];
+  if (w === 'b') return [s.week.reduce((a, b) => a + b, 0), 'sessioni in 7 giorni'];
+  return [s.today, s.today === 1 ? 'sessione oggi' : 'sessioni oggi'];
+}
+// Scena di oggi (tutta animata) + interfaccia pulita: numero sulla scena con
+// sfumatura scura dietro, pulsanti bianchi pieni, solo nuova chat.
+function after(w) {
+  const s = S(), [num, lbl] = statText(w, s);
+  const cls = w === 'a' ? 'wa' : w === 'b' ? 'wb' : 'wc';
+  const agents = Object.entries(AG).slice(0, 3);
+  const stat = `<div class="scrim"></div><div class="stat${+num === 0 ? ' dim' : ''}"><b>${num}</b><span>${lbl}</span></div>`;
+  const btns = w === 'a' ? `<div class="row br"><button class="nfab" data-act="new" aria-label="Nuova chat" data-toast="${NEW}">${I.plus}</button></div>`
+    : w === 'b' ? `<div class="row bl"><button class="npill" data-act="new" data-toast="${NEW}">${I.plusS}Nuova chat</button></div>`
+    : `<div class="row br">${agents.map(([k, [m, c]]) => `<button class="nag" data-act="new" aria-label="Nuova chat ${k}" data-toast="Nuova chat ${k}"><i style="color:${c}">${m}</i></button>`).join('')}<button class="nfab" data-act="new" style="width:36px;height:36px" aria-label="Nuova chat" data-toast="${NEW}">${I.plusS}</button></div>`;
+  return grid(w, `<div class="art ${cls}" data-zone="tutto il resto = apre Flowcode"><div class="sbox" data-scene="${w}" data-mode="new"><canvas></canvas></div>${stat}${btns}</div>`);
+}
+
+const CHANGES = {
+  a: { before: ['Riquadro di vetro con numero + etichetta', 'Due pulsanti: microfono e +', 'Riquadro del numero con un suo tocco'],
+       after: ['Numero grande sulla scena, sfumatura scura dietro', 'Un solo pulsante: + nuova chat', 'Tocco ovunque tranne +: apre Flowcode'] },
+  b: { before: ['Riquadro con 3 righe: totale, ore, progetto', 'Nuova + Riprendi', 'Riquadro del numero con un suo tocco'],
+       after: ['Una riga: totale dei 7 giorni', 'Solo “Nuova chat”: Riprendi tolto (aprire l\'app già riporta dove eri)', 'Tocco ovunque tranne Nuova chat: apre Flowcode'] },
+  c: { before: ['Riquadro con sessioni e ore', '4 agenti + pulsante +', 'Riquadro del numero con un suo tocco'],
+       after: ['Numero di oggi, una riga', '3 agenti + “+”, pulsanti bianchi pieni', 'Tocco ovunque tranne i pulsanti: apre Flowcode'] },
+};
+function notes() {
+  const c = CHANGES[state.w];
+  return `
+    <div class="card"><h3>COSA CAMBIA · ${({ a: 'FINESTRA', b: 'CANNETO', c: 'STAGNO' })[state.w]}</h3>
+      <table><tr><th>PRIMA</th><th>DOPO</th></tr>${c.before.map((b, i) => `<tr><td class="del">${b}</td><td>${c.after[i]}</td></tr>`).join('')}</table>
+      <p style="margin:10px 0 0;color:var(--muted);font-size:12.5px">Scena identica a oggi: nuvole, erba, canne, libellula, pesce, lucciole, mosche. Cambia solo cosa c'è sopra.</p></div>
+    <div class="card"><h3>CONTRASTO</h3><ul>
+      <li>Dietro numero ed etichetta una <b>sfumatura scura radiale</b> dall'angolo in alto a sinistra: scurisce il cielo solo dove c'è testo, il resto del quadro resta pieno di colore.</li>
+      <li>Ombra del testo più ampia (raggio 6, nero al 60%): stacca il numero anche sull'alba chiara.</li>
+      <li>Su Android: un <span class="mono">ImageView</span> con un drawable <span class="mono">&lt;gradient type="radial"&gt;</span> tra scena e testo, e <span class="mono">shadowRadius</span> sul <span class="mono">TextView</span>. Niente di nuovo da caricare.</li>
+      <li>Pulsanti bianchi pieni: leggibili su qualsiasi cielo, senza vetro.</li></ul></div>
+    <div class="card"><h3>TOCCHI</h3><ul>
+      <li><b>Pulsanti</b> = solo nuova chat (+, Nuova chat, agenti). Tolti microfono e Riprendi.</li>
+      <li><b>Tutto il resto</b> (scena, numero) apre Flowcode e basta, come l'icona dell'app.</li>
+      <li>Tecnica: il fondo usa l'intent del launcher (<span class="mono">getLaunchIntentForPackage</span>) senza extra; il numero non ha più un suo tocco.</li></ul>
+      <div class="legend"><span><i style="background:#8fb0d6"></i>apre l'app</span><span><i style="background:#ffd36b"></i>nuova chat</span><span><i style="background:#ff7a7a"></i>altra azione (solo prima)</span></div></div>
+    <div class="card rec"><h3>FLUIDITÀ CON LA SCENA TUTTA ANIMATA</h3>
+      <table><tr><th></th><th>PRIMA</th><th>DOPO</th></tr>
+        <tr><td>Fotogrammi</td><td class="y">8 × 250 ms = 4 fps</td><td class="g">24 × 83 ms = 12 fps</td></tr>
+        <tr><td>Risoluzione salvata</td><td>piena (es. 690 × 300 px)</td><td>metà circa (es. 375 × 165 px), il launcher la ingrandisce</td></tr>
+        <tr><td>Memoria (4×2)</td><td>8 × 0,8 MB ≈ 6,5 MB</td><td>24 × 0,25 MB ≈ 6 MB</td></tr></table>
+      <ul style="margin-top:8px">
+        <li>I widget non eseguono codice: si anima solo girando immagini pronte nel <span class="mono">ViewFlipper</span>. Con la scena intera e 24 fotogrammi a piena risoluzione servirebbero ~20 MB e il launcher rischia di scartarli.</li>
+        <li>Trucco: la scena è pixel art a bassa risoluzione, quindi la salvo ingrandita solo ×3 invece che fino alla risoluzione dello schermo. Stessa memoria di oggi, tre volte i fotogrammi.</li>
+        <li>Rischio da verificare sul telefono: il launcher ingrandisce l'ultimo pezzo con filtro, i bordi dei “pixel” possono ammorbidirsi di ~1 px. Se si nota: 16 fotogrammi (8 fps) a piena risoluzione, ~13 MB.</li>
+        <li>Batteria: il launcher ferma l'animazione a schermo spento.</li></ul></div>`;
+}
+// ════════ Motore ════════
+const SCENES = { old: { a: [sceneA, 3], b: [sceneB, 2], c: [sceneC, 3] }, new: { a: [sceneA, 3], b: [sceneB, 2], c: [sceneC, 3] } };
+let scenes = [];
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function mountScenes() {
+  scenes = [...document.querySelectorAll('[data-scene]')].map(el => {
+    const mode = el.dataset.mode, key = el.dataset.scene, [fn, px] = SCENES[mode][key], cv = el.querySelector('canvas');
+    const w = Math.ceil(el.clientWidth / px), h = Math.ceil(el.clientHeight / px);
+    cv.width = w; cv.height = h; cv.style.width = w * px + 'px'; cv.style.height = h * px + 'px';
+    const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false;
+    if (mode === 'old' && key === 'b') el.querySelector('.dl').innerHTML = DAYS.map((d, i) => `<span class="daylbl${i === 6 ? ' today' : ''}" style="left:${(reedX(w, i) + .5) * px}px;bottom:4px">${d}</span>`).join('');
+    return { fn, w, h, ctx, mode, last: -1 };
+  });
+  paint(performance.now(), true);
+}
+function paint(now, force) {
+  const pal = PALNOW(), s = S();
+  for (const sc of scenes) {
+    // prima: 8 fotogrammi da 250 ms; dopo: fps scelti, sempre loop di 2 s
+    const fps = sc.mode === 'old' ? 4 : state.fps, n = fps * 2, fi = Math.floor(now / (1000 / fps)) % n;
+    if (fi === sc.last && !force) continue;
+    sc.last = fi;
+    const t = reduced ? 0 : fi / fps;
+    sc.ctx.clearRect(0, 0, sc.w, sc.h); sc.fn(sc.ctx, sc.w, sc.h, t, pal, s);
+  }
+}
+function loop(now) { paint(now); requestAnimationFrame(loop); }
+
+// ════════ Note ════════
+// ════════ UI ════════
+function phoneShell(id, inner) {
+  const pal = PALNOW(), cur = state.slot === 'auto' ? autoSlot() : state.slot, clock = state.slot === 'auto' ? new Date().toTimeString().slice(0, 5).replace(/^0/, '') : SLOTS[cur].clock;
+  const el = document.getElementById(id);
+  el.style.background = `radial-gradient(120% 70% at 20% 0%, ${mix(pal.top, '#17120e', .45)} 0%, transparent 62%), radial-gradient(90% 60% at 100% 100%, ${mix(pal.bot, '#17120e', .65)} 0%, transparent 60%), ${pal.screen}`;
+  el.innerHTML = `<div class="status"><span>${clock}</span><span>5G ▮▮▮ 82%</span></div><div class="clock">${clock}</div><div class="date">martedì 17 novembre</div>
+    <div class="home">${inner}</div><div class="dock"><i></i><i></i><i></i><i></i></div><div class="toast"></div>`;
+  el.classList.toggle('zones', state.zones);
+}
+function ctrlbar() {
+  const ctl = (key, cur, opts) => `<div class="ctrls">${opts.map(([v, l]) => `<button data-k="${key}" data-val="${v}" aria-pressed="${String(cur) === String(v)}">${l}</button>`).join('')}</div>`;
+  return `<div><h4>DATI</h4>${ctl('s', state.s, SCEN.map((x, i) => [i, x.name]))}</div>
+    <div><h4>ORA DEL GIORNO</h4>${ctl('slot', state.slot, [['auto', 'Adesso'], ...Object.entries(SLOTS).map(([k, v]) => [k, v.label])])}</div>
+    <div><h4>FLUIDITÀ DOPO</h4>${ctl('fps', state.fps, [[4, '4 fps (come prima)'], [8, '8 fps'], [12, '12 fps · consigliato']])}</div>
+    <div><h4>VEDI</h4>${ctl('zones', state.zones, [[false, 'Widget'], [true, 'Zone di tocco']])}</div>`;
+}
+function render() {
+  document.querySelectorAll('#wtabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.w === state.w));
+  document.getElementById('ctrlbar').innerHTML = ctrlbar();
+  phoneShell('scrA', before(state.w));
+  phoneShell('scrB', after(state.w));
+  document.querySelectorAll('#scrA .art').forEach(a => a.dataset.zone = 'fondo = apre Flowcode');
+  document.getElementById('fpsB').textContent = `${state.fps * 2} fotogrammi · ${Math.round(1000 / state.fps)} ms · ${state.fps} fps · scena intera`;
+  document.getElementById('notes').innerHTML = notes();
+  mountScenes();
+}
+const tt = new WeakMap();
+function toast(scr, msg) { const t = scr.querySelector('.toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(tt.get(t)); tt.set(t, setTimeout(() => t.classList.remove('on'), 1700)); }
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b?.dataset.w) { state.w = b.dataset.w; render(); return; }
+  if (b?.dataset.k) { const k = b.dataset.k, v = b.dataset.val; state[k] = k === 's' || k === 'fps' ? +v : k === 'zones' ? v === 'true' : v; render(); return; }
+  const scr = e.target.closest('.screen'); if (!scr) return;
+  if (b?.dataset.toast) { toast(scr, b.dataset.toast); return; }
+  if (e.target.closest('.art')) toast(scr, 'Apre Flowcode, dove eri rimasto');
+});
+addEventListener('resize', () => mountScenes());
+render();
+if (!reduced) requestAnimationFrame(loop);
+</script>
+</body>
+</html>

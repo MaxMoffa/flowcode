@@ -6,18 +6,15 @@
     <string name="widget_b_label">Flowcode Canneto</string>
     <string name="widget_c_label">Flowcode Stagno</string>
     <string name="widget_a_desc">Una piccola finestra in pixel art: la rana, il cielo dell\'ora e i tuoi giorni di fila.</string>
-    <string name="widget_b_desc">Sette canne, una per ognuno degli ultimi giorni, e pulsanti per iniziare o riprendere.</string>
-    <string name="widget_c_desc">Uno stagno con una ninfea per ogni sessione di oggi e un pulsante per agente.</string>
+    <string name="widget_b_desc">Sette canne, una per ognuno degli ultimi giorni, e un pulsante per una nuova chat.</string>
+    <string name="widget_c_desc">Uno stagno con una ninfea per ogni sessione di oggi e una nuova chat per agente.</string>
+    <string name="widget_day_in_row">giorno di fila</string>
     <string name="widget_days_in_row">giorni di fila</string>
-    <string name="widget_start_today">riparti oggi</string>
-    <string name="widget_sessions_week">sessioni in settimana</string>
-    <string name="widget_time_today">%1$s oggi</string>
+    <string name="widget_start_today">oggi si riparte</string>
+    <string name="widget_sessions_7_days">sessioni in 7 giorni</string>
     <string name="widget_session_today">sessione oggi</string>
     <string name="widget_sessions_today">sessioni oggi</string>
-    <string name="widget_new">Nuova</string>
-    <string name="widget_resume">Riprendi</string>
+    <string name="widget_new_chat">Nuova chat</string>
     <string name="widget_open">Apri Flowcode</string>
     <string name="widget_cd_new">Nuova chat</string>
-    <string name="widget_cd_voice">Nuova chat a voce</string>
-    <string name="widget_cd_resume">Riprendi l\'ultima chat</string>
 </resources>

@@ -218,7 +218,7 @@ internal object WidgetArt {
         bmp
     }
 
-    // Pose + hop for time t. Period is 2 s so the 8 frames loop cleanly.
+    // Pose + hop for time t. Period is 2 s so the 24 frames loop cleanly.
     private fun framePose(t: Double, mood: String): Pair<Pose, Int> {
         val blink = (t % 2) < .2
         val lid = if (blink) 1.0 else 0.0

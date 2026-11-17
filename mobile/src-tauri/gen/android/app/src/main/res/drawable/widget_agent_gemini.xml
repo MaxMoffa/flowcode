@@ -7,7 +7,7 @@
     android:viewportHeight="31.2">
     <group android:translateX="3.6" android:translateY="3.6">
         <path
-            android:fillColor="#c9b36a"
+            android:fillColor="#9c8530"
             android:pathData="M12 0C12.7 6.7 17.3 11.3 24 12 17.3 12.7 12.7 17.3 12 24 11.3 17.3 6.7 12.7 0 12 6.7 11.3 11.3 6.7 12 0Z" />
     </group>
 </vector>

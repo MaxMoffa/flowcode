@@ -17,7 +17,6 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Calendar
-import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -26,7 +25,9 @@ import kotlin.math.min
 private const val TAG = "WidgetRender"
 private const val PREFS = "flowcode_widgets"
 private const val KEY_SNAPSHOT = "snapshot"
-private const val FRAMES = 8
+// 24 frames over the same 2 s loop: ~12 fps (the flippers flip every 83 ms).
+private const val FRAMES = 24
+private const val FPS = 12.0
 private const val MAX_SIDE_PX = 1400
 
 /** The three widgets: scene index, dp per scene pixel and default size. */
@@ -117,19 +118,18 @@ internal object WidgetRender {
         val w = max(1, ceil(wDp.toDouble() / kind.px).toInt())
         val h = max(1, ceil(hDp.toDouble() / kind.px).toInt())
         val widthPx = wDp * ctx.resources.displayMetrics.density
-        var k = max(1, ceil(widthPx / w).toInt())
+        // Stored at about half the screen resolution and enlarged by the launcher:
+        // three times the frames of 0.35 for about the same memory.
+        var k = max(1, ceil(ceil(widthPx / w) / 2.0).toInt())
         while (k > 1 && max(w, h) * k > MAX_SIDE_PX) k--
         val now = Calendar.getInstance()
-        val letters = if (kind == WidgetKind.CANNETO) {
-            WidgetArt.dayLetters(Locale.getDefault().language == "it", (now.get(Calendar.DAY_OF_WEEK) + 5) % 7)
-        } else null
         val data = SceneData(snap.mood, snap.days, snap.today)
         val hour = now.get(Calendar.HOUR_OF_DAY)
         val dir = framesDir(ctx, id).apply { mkdirs() }
         val gen = System.currentTimeMillis()
         val uris = ArrayList<Uri>(FRAMES)
         for (i in 0 until FRAMES) {
-            val low = WidgetArt.render(kind.scene, w, h, i / 4.0, hour, data, letters)
+            val low = WidgetArt.render(kind.scene, w, h, i / FPS, hour, data, null)
             // Nearest neighbour keeps the pixels square.
             val big = Bitmap.createScaledBitmap(low, w * k, h * k, false)
             val name = "${gen}_$i.png"
@@ -169,11 +169,29 @@ internal object WidgetRender {
         return PendingIntent.getActivity(ctx, id * 16 + index, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
+    /** What tapping the app icon does: brings Flowcode up where it was, with no widget action. */
+    private fun openApp(ctx: Context, id: Int): PendingIntent {
+        val intent = (ctx.packageManager.getLaunchIntentForPackage(ctx.packageName) ?: Intent(ctx, MainActivity::class.java))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return PendingIntent.getActivity(ctx, id * 16, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
     private fun RemoteViews.show(viewId: Int, on: Boolean) = setViewVisibility(viewId, if (on) View.VISIBLE else View.GONE)
 
-    private val FRAME_IDS = intArrayOf(R.id.f0, R.id.f1, R.id.f2, R.id.f3, R.id.f4, R.id.f5, R.id.f6, R.id.f7)
+    private val FRAME_IDS = intArrayOf(
+        R.id.f0, R.id.f1, R.id.f2, R.id.f3, R.id.f4, R.id.f5, R.id.f6, R.id.f7,
+        R.id.f8, R.id.f9, R.id.f10, R.id.f11, R.id.f12, R.id.f13, R.id.f14, R.id.f15,
+        R.id.f16, R.id.f17, R.id.f18, R.id.f19, R.id.f20, R.id.f21, R.id.f22, R.id.f23,
+    )
 
-    private fun timeText(ctx: Context, minutes: Int) = ctx.getString(R.string.widget_time_today, "${minutes / 60} h %02d".format(minutes % 60))
+    /** The number on the scene and its label; the label goes on small sizes. */
+    private fun stat(ctx: Context, rv: RemoteViews, w: Int, h: Int, num: String, label: Int) {
+        rv.setTextViewText(R.id.stat_num, num)
+        rv.setTextViewText(R.id.stat_label, ctx.getString(label))
+        rv.show(R.id.stat, !(w < 80 && h < 80))
+        rv.show(R.id.scrim, !(w < 80 && h < 80))
+        rv.show(R.id.stat_label, w >= 100 && h >= 90)
+    }
 
     private fun build(ctx: Context, kind: WidgetKind, id: Int, w: Int, h: Int, snap: Snap, uris: List<Uri>): RemoteViews {
         val layout = when (kind) {
@@ -183,8 +201,8 @@ internal object WidgetRender {
         }
         val rv = RemoteViews(ctx.packageName, layout)
         uris.forEachIndexed { i, u -> rv.setImageViewUri(FRAME_IDS[i], u) }
-        rv.setOnClickPendingIntent(R.id.root, pending(ctx, id, 0, "open"))
-        rv.setOnClickPendingIntent(R.id.chip, pending(ctx, id, 1, "open"))
+        // Everything that is not a new-chat button just opens the app.
+        rv.setOnClickPendingIntent(R.id.root, openApp(ctx, id))
         when (kind) {
             WidgetKind.FINESTRA -> buildFinestra(ctx, rv, id, w, h, snap)
             WidgetKind.CANNETO -> buildCanneto(ctx, rv, id, w, h, snap)
@@ -195,48 +213,28 @@ internal object WidgetRender {
 
     private fun buildFinestra(ctx: Context, rv: RemoteViews, id: Int, w: Int, h: Int, snap: Snap) {
         val streak = snap.streak
-        rv.setTextViewText(R.id.chip_num, if (streak > 0) streak.toString() else "–")
-        rv.setTextViewText(R.id.chip_label, ctx.getString(if (!snap.known) R.string.widget_open else if (streak > 0) R.string.widget_days_in_row else R.string.widget_start_today))
-        rv.show(R.id.chip, !(w < 80 && h < 80))
-        rv.show(R.id.chip_label, !(w < 110 || h < 110))
-        // Wide and short: the buttons sit in a row instead of a column.
-        val row = w >= 170 && h < 130
-        rv.show(R.id.col, !row)
-        rv.show(R.id.btn_row, row)
-        rv.show(R.id.mic, !(h < 110 || w < 90))
-        rv.setOnClickPendingIntent(R.id.mic, pending(ctx, id, 2, "voice"))
-        rv.setOnClickPendingIntent(R.id.fab, pending(ctx, id, 3, "new"))
-        rv.setOnClickPendingIntent(R.id.mic_r, pending(ctx, id, 4, "voice"))
-        rv.setOnClickPendingIntent(R.id.fab_r, pending(ctx, id, 5, "new"))
+        val label = if (!snap.known) R.string.widget_open else if (streak == 1) R.string.widget_day_in_row else if (streak > 1) R.string.widget_days_in_row else R.string.widget_start_today
+        stat(ctx, rv, w, h, if (snap.known) streak.toString() else "–", label)
+        rv.setOnClickPendingIntent(R.id.fab, pending(ctx, id, 1, "new"))
     }
 
     private fun buildCanneto(ctx: Context, rv: RemoteViews, id: Int, w: Int, h: Int, snap: Snap) {
-        rv.setTextViewText(R.id.chip_num, if (snap.known) snap.days.sum().toString() else "–")
-        rv.setTextViewText(R.id.chip_label, ctx.getString(if (snap.known) R.string.widget_sessions_week else R.string.widget_open))
-        rv.setTextViewText(R.id.chip_mono, timeText(ctx, snap.minutes))
-        rv.show(R.id.chip_mono, snap.known && h >= 100)
-        rv.show(R.id.chip_label, h >= 80)
-        val fabNew = w < 200
-        rv.show(R.id.new_pill, !fabNew)
-        rv.show(R.id.new_fab, fabNew)
-        rv.show(R.id.resume_pill, w >= 230)
-        rv.show(R.id.resume_round, w in 160..229)
-        rv.setOnClickPendingIntent(R.id.new_pill, pending(ctx, id, 2, "new"))
-        rv.setOnClickPendingIntent(R.id.new_fab, pending(ctx, id, 3, "new"))
-        rv.setOnClickPendingIntent(R.id.resume_pill, pending(ctx, id, 4, "resume"))
-        rv.setOnClickPendingIntent(R.id.resume_round, pending(ctx, id, 5, "resume"))
+        stat(ctx, rv, w, h, if (snap.known) snap.days.sum().toString() else "–", if (snap.known) R.string.widget_sessions_7_days else R.string.widget_open)
+        // Narrow: the round + instead of the "New chat" pill.
+        val narrow = w < 200
+        rv.show(R.id.new_pill, !narrow)
+        rv.show(R.id.row, narrow)
+        rv.setOnClickPendingIntent(R.id.new_pill, pending(ctx, id, 1, "new"))
+        rv.setOnClickPendingIntent(R.id.fab, pending(ctx, id, 2, "new"))
     }
 
     private fun buildStagno(ctx: Context, rv: RemoteViews, id: Int, w: Int, h: Int, snap: Snap) {
-        rv.setTextViewText(R.id.chip_num, if (snap.known) snap.today.toString() else "–")
-        rv.setTextViewText(R.id.chip_label, ctx.getString(if (!snap.known) R.string.widget_open else if (snap.today == 1) R.string.widget_session_today else R.string.widget_sessions_today))
-        rv.setTextViewText(R.id.chip_mono, timeText(ctx, snap.minutes))
-        rv.show(R.id.chip_mono, snap.known && h >= 100)
-        rv.show(R.id.chip_label, h >= 80)
-        val room = if (w < 150) 0 else max(0, min(floor((w - 20 - 38 - 6) / 36.0).toInt(), snap.agents.count { it in AGENT_ICON }))
-        val ids = intArrayOf(R.id.ag0, R.id.ag1, R.id.ag2, R.id.ag3)
+        val label = if (!snap.known) R.string.widget_open else if (snap.today == 1) R.string.widget_session_today else R.string.widget_sessions_today
+        stat(ctx, rv, w, h, if (snap.known) snap.today.toString() else "–", label)
         // An agent without a mark here (a newer one) gets no button.
         val agents = snap.agents.filter { it in AGENT_ICON }
+        val room = if (w < 150) 0 else max(0, min(floor((w - 20 - 36) / 38.0).toInt(), min(3, agents.size)))
+        val ids = intArrayOf(R.id.ag0, R.id.ag1, R.id.ag2)
         ids.forEachIndexed { i, viewId ->
             val agent = agents.getOrNull(i)
             val on = i < room && agent != null
