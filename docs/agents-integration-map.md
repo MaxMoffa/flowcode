@@ -1,58 +1,61 @@
 # Mappa integrazione agenti
 
-Stato al 2026-11-08 (dopo la release 0.30.0). Elenca ogni punto del codice in cui Flowcode tratta un agente in modo specifico, così da sapere cosa serve per aggiungerne uno nuovo con supporto completo.
+Stato al 2026-11-17 (Cline aggiunto, Fase 1). Elenca ogni punto del codice in cui Flowcode tratta un agente in modo specifico, così da sapere cosa serve per aggiungerne uno nuovo con supporto completo.
 
-Agenti supportati (`src/agents/cliInfo.ts`, `AGENT_CLIS`): **claude** (Claude Code), **codex** (Codex CLI), **vibe** (Mistral Vibe), **gemini** (Gemini CLI), **opencode** (OpenCode, multi-provider: OpenRouter, Ollama, LM Studio…).
+Agenti supportati (`src/agents/cliInfo.ts`, `AGENT_CLIS`): **claude** (Claude Code), **codex** (Codex CLI), **vibe** (Mistral Vibe), **gemini** (Gemini CLI), **opencode** (OpenCode, multi-provider: OpenRouter, Ollama, LM Studio…), **cline** (Cline CLI 3.x, ACP nativo).
 
 OpenCode (aggiunto il 2026-11-08) è l'ultima colonna della matrice. Fatti, peculiarità (`--standalone` per i profili nominati, credenziali e sessioni in `opencode.db`) e Fase 2 sono in `docs/design/opencode-plan.md`.
+
+Cline (aggiunto il 2026-11-17) è l'ultima colonna. Fatti verificati dal vivo e fasi in `docs/design/cline-plan.md`.
 
 Legenda: ✅ completo · 🟡 parziale/approssimato · ❌ assente · — non applicabile
 
 ## 1. Matrice delle funzionalità
 
-| Area | Claude | Codex | Vibe | Gemini | OpenCode |
-|---|---|---|---|---|---|
-| **Identità / registro** (`cliInfo.ts`, `plugins/registry.ts`, `icons.tsx`, `remotePublish.ts`, `remote/chat.rs::agent_name`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Comando d'installazione** (`cli/cliInstallCommands.ts`) | ✅ | ✅ npm | ✅ (uv/pip) | ✅ npm | ✅ npm |
-| **Rilevamento processo nel terminale** (`agents/mod.rs::AGENT_BINARIES`, `agent_of`, `node_runs_gemini`) | ✅ | ✅ | ✅ (python/vibe-rs) | ✅ (node+argv) | ✅ |
-| **Sessione live del terminale → id sessione/stato** | ✅ registro `claude agents --json` / `~/.claude/sessions/<pid>.json`: id, titolo, busy/idle | 🟡 thread accoppiati per cwd+orario di avvio (`assign_codex_threads`) | 🟡 `vibe::live_session_in` (cwd+orario) | ❌ solo processo | 🟡 cwd+orario dal DB |
-| **Rilevamento dentro WSL** (`agents/wsl.rs`) | ✅ (+ json registro) | ✅ (+ thread) | ✅ | 🟡 solo processo | 🟡 solo processo |
-| **Sessioni salvate / pannello History** (`AgentHistoryPanel.tsx`) | ✅ `list_claude_sessions` (`claude_history.rs`) | ✅ `list_codex_sessions` (rollout) | ✅ `list_vibe_sessions` | ❌ non letto (`gemini.rs` lo dice) | ✅ `list_opencode_sessions` (`opencode.db`) |
-| **`agent_session_saved`** (`agents/mod.rs:224`) | ✅ controllo reale | ✅ controllo reale (rollout con turn) | 🟡 sempre `true` | 🟡 sempre `true` | ✅ controllo reale |
-| **Riprendi nel terminale** (`App.tsx::resumeCommand`) | ✅ `claude --resume` | ✅ `codex resume` + flag di avvio | ✅ `vibe --resume` | ✅ `gemini --resume` | ✅ `opencode [--standalone] --session` |
-| **Flag di avvio speciali** | — | ✅ `withCodexLaunchFlags` (`--no-daemon` su Windows) | ✅ `vibe_ensure_model` (registra Mistral Large 4) | — | — |
-| **Auto-resume dopo il limite** (`useAutoResume.ts`) | ✅ | ✅ (+ `/goal resume`) | ❌ | ❌ | ❌ |
-| **Gauge usage/limiti** (`plugins/usage.ts`) | ✅ probe `claude -p "/usage"` (`run_claude_usage_probe`) | ✅ PTY nascosto con `/status` (`codexStatus.ts`) | 🟡 spesa da `meta.json` (`vibe_usage_stats`) | ❌ solo "connesso" | ❌ solo "connesso" |
-| **Spesa in modalità API key** (`spend.rs`) | ✅ transcript `projects/**/*.jsonl` | ✅ rollout `token_count` | ✅ (costo proprio di Vibe) | ❌ | ✅ costo proprio di OpenCode |
-| **Notifica reset limite** (`limitResetWatcher.ts`) | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Riempimento contesto** (`context.rs`, mobile `contexts_for`) | ✅ | ✅ | ❌ | ❌ | ✅ |
-| **Agent insight: MCP/skill/memorie + costo sessione** (`agent_insight.rs`, `AgentInsightPanel.tsx`, `useAgentInsight.ts`) | ✅ (non in WSL) | ✅ (non in WSL) | ❌ "unsupported" | ❌ "unsupported" | ✅ (non in WSL) |
-| **Avviso cache TTL** (`cacheWarning.ts`, `useCacheWarning.ts`, `agent_insight::read_cache_info`) | ✅ desktop+mobile | ❌ | ❌ | ❌ | ❌ |
-| **Profili account: cartella/env** (`profiles.rs::env_for`) | ✅ `CLAUDE_CONFIG_DIR` | ✅ `CODEX_HOME` | ✅ `VIBE_HOME` (+ keyring off nei profili nominati) | ✅ `GEMINI_CLI_HOME` | ✅ `OPENCODE_CONFIG_DIR` + `OPENCODE_DB` |
-| **Profili: copia impostazioni dal default** (`copy_settings_from_default`) | ✅ settings, CLAUDE.md, commands, agents, skills, output-styles, mcpServers | ✅ config.toml, AGENTS.md, prompts | ✅ config.toml, prompts, agents | ✅ settings.json, GEMINI.md, commands | ✅ |
-| **Stato login da file** (`profiles.rs::login_state`) | ✅ `.credentials.json` / `.claude.json` | ✅ `auth.json` | ✅ `.env`/keyring | ✅ `oauth_creds.json` / `.env` | — |
-| **Stato login via comando** (`plugins.rs`) | ✅ `claude auth status` | ✅ `codex login status` | 🟡 "api" | 🟡 file / "unknown" | 🟡 `opencode auth list` |
-| **Logout** (`profiles.rs:499`) | ✅ `claude auth logout` | ✅ `codex logout` | ✅ rimuove API key | ✅ rimuove oauth file | ✅ |
-| **Dialog login browser** (`provider_auth.rs`, `shared/ProviderAuthDialog.tsx`) | ✅ `claude auth login` + codice manuale | ✅ `codex login` / `--device-auth` da remoto (device code) | ✅ via ACP `vibe-acp` (`read_vibe`, `signInUrl`) | ✅ `gemini` + codice manuale | ✅ terminale nativo, multi-provider |
-| **Login con API key** (`provider_auth_keys.rs`) | ✅ `ANTHROPIC_API_KEY` | ✅ `OPENAI_API_KEY` (+ `auth.json`) | ✅ `MISTRAL_API_KEY` | ✅ `GEMINI_API_KEY`/`GOOGLE_API_KEY` (+ `settings.json`) | — (gestita da OpenCode) |
-| **Validazione key** (endpoint `/models`) | ✅ | ✅ | ✅ | ✅ | — |
-| **Shim credenziali nel terminale** (`provider_launcher.rs`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Chat mode: avvio ACP** (`chat.rs::launch_command`) | ✅ `claude-agent-acp@0.101.0` | ✅ `codex-acp@2.5.0` | ✅ `vibe-acp` nativo | 🟡 `gemini --experimental-acp` | ✅ `opencode acp` |
-| **Adapter ACP installato e pinnato** (`acp_adapters.rs`, avvio in `lib.rs`) | ✅ | ✅ | — (binario proprio) | — (binario proprio) | — (nativo) |
-| **Chat in WSL** (`chat.rs::wsl_target`) | ✅ | ✅ | ✅ | ✅ (generico) | ✅ generico |
-| **Retry su store occupato + start gate** (`transient_start_failure`, `start_gate`) | — | ✅ sqlite `~/.codex` | — | — | — |
-| **Retry `session/load` con sessione in uso** | generico | ✅ (`thread_active_writer`) | generico | generico | generico |
-| **Immagini in chat** (capability `promptCapabilities.image`) | generico (dipende dall'adapter) | generico | generico | generico | generico |
-| **Subagenti in chat** (`chatModel.ts`, `codexSubagents.ts`) | ✅ `_meta.claudeCode.parentToolUseId` + transcript subagente | ✅ parser dedicato | ❌ | ❌ | ✅ via `opencode/child-session` |
-| **Subagenti nativi (esperimento `FLOWCODE_NATIVE_SUBAGENTS`)** | 🟡 solo Claude | ❌ (disattivato apposta) | ❌ | ❌ | ❌ |
-| **Card terminali in background** (`backgroundTerminals.ts`) | ✅ `run_in_background` | ✅ execute aperto | ✅ `background` + `session_id` | ✅ `is_background` + PID | ❌ (da definire) |
-| **Comandi slash / skill** (`commandMenu.ts`) | generico (ACP `available_commands`) | ✅ trattamento `/$x` e `$skill` | generico | generico | generico |
-| **Compaction, ask in composer (elicitation), modello/modalità** | generico ACP | generico ACP | generico ACP | generico ACP | generico ACP |
-| **Handoff terminale ↔ chat** (`App.tsx:2436`, `chat.rs` attende la morte dell'agente) | ✅ | ✅ | ✅ | 🟡 serve l'id sessione, che per Gemini non viene rilevato | ✅ |
-| **Delega cross-agente (Flowcode MCP)** (`chat/delegate.rs`, `agentToolsSettings.ts`) | ✅ | ✅ | ✅ | ✅ (lista configurabile) | ✅ |
-| **Pulizia della dettatura** (`dictation/cleanup.rs`, `dictationModels.ts`) | ✅ | ✅ (`codex.cmd`, file temporaneo) | ❌ | ❌ | ✅ |
-| **Mobile: lancio/profili/login** (`mobile/src/*`) | ✅ | ✅ | ✅ | 🟡 dietro `useSupports("gemini")` (desktop recenti) | ✅ dietro `useSupports("opencode")` |
-| **Mobile: insight/contesto** (`remote/mod.rs`) | ✅ | ✅ | ❌ | ❌ | ✅ |
+| Area | Claude | Codex | Vibe | Gemini | OpenCode | Cline |
+|---|---|---|---|---|---|---|
+| **Identità / registro** (`cliInfo.ts`, `plugins/registry.ts`, `icons.tsx`, `remotePublish.ts`, `remote/chat.rs::agent_name`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Comando d'installazione** (`cli/cliInstallCommands.ts`) | ✅ | ✅ npm | ✅ (uv/pip) | ✅ npm | ✅ npm | ✅ npm |
+| **Rilevamento processo nel terminale** (`agents/mod.rs::AGENT_BINARIES`, `agent_of`, `node_runs_gemini`) | ✅ | ✅ | ✅ (python/vibe-rs) | ✅ (node+argv) | ✅ | ✅ (`cline`/`cline.exe` nativo) |
+| **Sessione live del terminale → id sessione/stato** | ✅ registro `claude agents --json` / `~/.claude/sessions/<pid>.json`: id, titolo, busy/idle | 🟡 thread accoppiati per cwd+orario di avvio (`assign_codex_threads`) | 🟡 `vibe::live_session_in` (cwd+orario) | ❌ solo processo | 🟡 cwd+orario dal DB | ❌ solo processo (Fase 2: `cline history --json`, `pid`+`status`) |
+| **Rilevamento dentro WSL** (`agents/wsl.rs`) | ✅ (+ json registro) | ✅ (+ thread) | ✅ | 🟡 solo processo | 🟡 solo processo | 🟡 solo processo |
+| **Sessioni salvate / pannello History** (`AgentHistoryPanel.tsx`) | ✅ `list_claude_sessions` (`claude_history.rs`) | ✅ `list_codex_sessions` (rollout) | ✅ `list_vibe_sessions` | ❌ non letto (`gemini.rs` lo dice) | ✅ `list_opencode_sessions` (`opencode.db`) | ❌ (Fase 2) |
+| **`agent_session_saved`** (`agents/mod.rs:224`) | ✅ controllo reale | ✅ controllo reale (rollout con turn) | 🟡 sempre `true` | 🟡 sempre `true` | ✅ controllo reale | 🟡 sempre `true` |
+| **Riprendi nel terminale** (`App.tsx::resumeCommand`) | ✅ `claude --resume` | ✅ `codex resume` + flag di avvio | ✅ `vibe --resume` | ✅ `gemini --resume` | ✅ `opencode [--standalone] --session` | ✅ `cline --id` |
+| **Flag di avvio speciali** | — | ✅ `withCodexLaunchFlags` (`--no-daemon` su Windows) | ✅ `vibe_ensure_model` (registra Mistral Large 4) | — | — | — |
+| **Auto-resume dopo il limite** (`useAutoResume.ts`) | ✅ | ✅ (+ `/goal resume`) | ❌ | ❌ | ❌ | ❌ |
+| **Gauge usage/limiti** (`plugins/usage.ts`) | ✅ probe `claude -p "/usage"` (`run_claude_usage_probe`) | ✅ PTY nascosto con `/status` (`codexStatus.ts`) | 🟡 spesa da `meta.json` (`vibe_usage_stats`) | ❌ solo "connesso" | ❌ solo "connesso" | 🟡 quote ClinePass (`cline.rs`, per profilo) |
+| **Spesa in modalità API key** (`spend.rs`) | ✅ transcript `projects/**/*.jsonl` | ✅ rollout `token_count` | ✅ (costo proprio di Vibe) | ❌ | ✅ costo proprio di OpenCode | ❌ (Fase 2: `metadata.usage.totalCost`) |
+| **Notifica reset limite** (`limitResetWatcher.ts`) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Riempimento contesto** (`context.rs`, mobile `contexts_for`) | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| **Agent insight: MCP/skill/memorie + costo sessione** (`agent_insight.rs`, `AgentInsightPanel.tsx`, `useAgentInsight.ts`) | ✅ (non in WSL) | ✅ (non in WSL) | ❌ "unsupported" | ❌ "unsupported" | ✅ (non in WSL) | ❌ "unsupported" |
+| **Avviso cache TTL** (`cacheWarning.ts`, `useCacheWarning.ts`, `agent_insight::read_cache_info`) | ✅ desktop+mobile | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Profili account: cartella/env** (`profiles.rs::env_for`) | ✅ `CLAUDE_CONFIG_DIR` | ✅ `CODEX_HOME` | ✅ `VIBE_HOME` (+ keyring off nei profili nominati) | ✅ `GEMINI_CLI_HOME` | ✅ `OPENCODE_CONFIG_DIR` + `OPENCODE_DB` | ✅ `CLINE_DIR` |
+| **Profili: copia impostazioni dal default** (`copy_settings_from_default`) | ✅ settings, CLAUDE.md, commands, agents, skills, output-styles, mcpServers | ✅ config.toml, AGENTS.md, prompts | ✅ config.toml, prompts, agents | ✅ settings.json, GEMINI.md, commands | ✅ | ✅ settings (senza `providers.json`), rules, skills, agents, hooks, plugins |
+| **Stato login da file** (`profiles.rs::login_state`) | ✅ `.credentials.json` / `.claude.json` | ✅ `auth.json` | ✅ `.env`/keyring | ✅ `oauth_creds.json` / `.env` | — | ✅ `data/settings/providers.json` |
+| **Stato login via comando** (`plugins.rs`) | ✅ `claude auth status` | ✅ `codex login status` | 🟡 "api" | 🟡 file / "unknown" | 🟡 `opencode auth list` | — (da file) |
+| **Logout** (`profiles.rs:499`) | ✅ `claude auth logout` | ✅ `codex logout` | ✅ rimuove API key | ✅ rimuove oauth file | ✅ | ✅ rimuove credenziali da `providers.json` |
+| **Dialog login browser** (`provider_auth.rs`, `shared/ProviderAuthDialog.tsx`) | ✅ `claude auth login` + codice manuale | ✅ `codex login` / `--device-auth` da remoto (device code) | ✅ via ACP `vibe-acp` (`read_vibe`, `signInUrl`) | ✅ `gemini` + codice manuale | ✅ terminale nativo, multi-provider | ✅ terminale nativo `cline auth`, multi-provider |
+| **Login con API key** (`provider_auth_keys.rs`) | ✅ `ANTHROPIC_API_KEY` | ✅ `OPENAI_API_KEY` (+ `auth.json`) | ✅ `MISTRAL_API_KEY` | ✅ `GEMINI_API_KEY`/`GOOGLE_API_KEY` (+ `settings.json`) | — (gestita da OpenCode) | — (gestita da Cline) |
+| **Validazione key** (endpoint `/models`) | ✅ | ✅ | ✅ | ✅ | — | — |
+| **Shim credenziali nel terminale** (`provider_launcher.rs`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Chat mode: avvio ACP** (`chat.rs::launch_command`) | ✅ `claude-agent-acp@0.101.0` | ✅ `codex-acp@2.5.0` | ✅ `vibe-acp` nativo | 🟡 `gemini --experimental-acp` | ✅ `opencode acp` | ✅ `cline --acp` |
+| **Normalizzazione tool call** (`chat/cline.rs`) | — | — | — | — | — | ✅ titoli, output, ordine invertito |
+| **Adapter ACP installato e pinnato** (`acp_adapters.rs`, avvio in `lib.rs`) | ✅ | ✅ | — (binario proprio) | — (binario proprio) | — (nativo) | — (nativo) |
+| **Chat in WSL** (`chat.rs::wsl_target`) | ✅ | ✅ | ✅ | ✅ (generico) | ✅ generico | ✅ generico |
+| **Retry su store occupato + start gate** (`transient_start_failure`, `start_gate`) | — | ✅ sqlite `~/.codex` | — | — | — | — |
+| **Retry `session/load` con sessione in uso** | generico | ✅ (`thread_active_writer`) | generico | generico | generico | generico |
+| **Immagini in chat** (capability `promptCapabilities.image`) | generico (dipende dall'adapter) | generico | generico | generico | generico | generico |
+| **Subagenti in chat** (`chatModel.ts`, `codexSubagents.ts`) | ✅ `_meta.claudeCode.parentToolUseId` + transcript subagente | ✅ parser dedicato | ❌ | ❌ | ✅ via `opencode/child-session` | ❌ (da verificare `spawn`) |
+| **Subagenti nativi (esperimento `FLOWCODE_NATIVE_SUBAGENTS`)** | 🟡 solo Claude | ❌ (disattivato apposta) | ❌ | ❌ | ❌ | ❌ |
+| **Card terminali in background** (`backgroundTerminals.ts`) | ✅ `run_in_background` | ✅ execute aperto | ✅ `background` + `session_id` | ✅ `is_background` + PID | ❌ (da definire) | ❌ (da definire) |
+| **Comandi slash / skill** (`commandMenu.ts`) | generico (ACP `available_commands`) | ✅ trattamento `/$x` e `$skill` | generico | generico | generico | generico |
+| **Compaction, ask in composer (elicitation), modello/modalità** | generico ACP | generico ACP | generico ACP | generico ACP | generico ACP | generico ACP (Plan/Act + catalogo modelli) |
+| **Handoff terminale ↔ chat** (`App.tsx:2436`, `chat.rs` attende la morte dell'agente) | ✅ | ✅ | ✅ | 🟡 serve l'id sessione, che per Gemini non viene rilevato | ✅ | 🟡 serve l'id sessione, non ancora rilevato |
+| **Delega cross-agente (Flowcode MCP)** (`chat/delegate.rs`, `agentToolsSettings.ts`) | ✅ | ✅ | ✅ | ✅ (lista configurabile) | ✅ | ✅ |
+| **Pulizia della dettatura** (`dictation/cleanup.rs`, `dictationModels.ts`) | ✅ | ✅ (`codex.cmd`, file temporaneo) | ❌ | ❌ | ✅ | ❌ |
+| **Mobile: lancio/profili/login** (`mobile/src/*`) | ✅ | ✅ | ✅ | 🟡 dietro `useSupports("gemini")` (desktop recenti) | ✅ dietro `useSupports("opencode")` | ✅ dietro `useSupports("cline")` |
+| **Mobile: insight/contesto** (`remote/mod.rs`) | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
 
 ## 2. Classifica del supporto
 
@@ -61,6 +64,7 @@ Legenda: ✅ completo · 🟡 parziale/approssimato · ❌ assente · — non ap
 3. **OpenCode**: supporto alto, vicino a Codex: sessioni live (approssimate) e salvate da `opencode.db`, resume, contesto, insight, spesa propria, subagenti via `opencode/child-session`, dettatura, login multi-provider e chat ACP nativa; mancano limiti/auto-resume, avviso cache e terminali in background.
 4. **Vibe**: supporto medio. Ci sono sessioni live/salvate, spesa, login completo e chat ACP nativa; mancano contesto, insight, limiti, auto-resume, subagenti e dettatura.
 5. **Gemini**: supporto base. Ci sono lancio, profili, login/key e chat ACP sperimentale; non si leggono le sessioni (né live né salvate), quindi niente history, insight, usage, spesa né handoff affidabile.
+6. **Cline**: supporto base (Fase 1). Lancio, profili, login, chat ACP nativa con tool call normalizzate, resume e quote ClinePass; mancano History, sessione live, spesa, contesto, insight e subagenti (Fase 2).
 
 ## 3. Checklist per aggiungere un nuovo agente `X`
 
