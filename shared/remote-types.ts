@@ -365,7 +365,7 @@ export type ServerMsg =
   | { t: "exit"; ptyId: string }
   | { t: "usage"; items: UsageItem[] }
   | { t: "actions"; actions: Action[] }
-  | { t: "ls"; ptyId: string; path: string; entries: LsEntry[] }
+  | { t: "ls"; ptyId: string; path: string; entries: LsEntry[]; truncated?: boolean }
   | { t: "file"; ptyId: string; path: string; text: string; truncated: boolean }
   | { t: "settings"; settings: MirroredSettings }
   | { t: "browsertabs"; tabs: BrowserTabsSnapshot }

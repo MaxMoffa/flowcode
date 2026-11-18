@@ -67,11 +67,34 @@ pub enum TabTarget {
 
 /// Where a `BrowserOp::OpenFile` path is relative to: `{ "chatId": .. }` (the
 /// chat's working folder) or `{ "ptyId": .. }` (the terminal tab's).
+///
+/// The wire format has no tag; a payload carrying both ids (or neither) is
+/// refused instead of silently becoming one of them.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(untagged, rename_all_fields = "camelCase")]
+#[serde(untagged, rename_all_fields = "camelCase", try_from = "RawBrowserRoot")]
 pub enum BrowserRoot {
     Pty { pty_id: String },
     Chat { chat_id: String },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawBrowserRoot {
+    pty_id: Option<String>,
+    chat_id: Option<String>,
+}
+
+impl TryFrom<RawBrowserRoot> for BrowserRoot {
+    type Error = &'static str;
+
+    fn try_from(raw: RawBrowserRoot) -> Result<Self, Self::Error> {
+        match (raw.pty_id, raw.chat_id) {
+            (Some(pty_id), None) => Ok(BrowserRoot::Pty { pty_id }),
+            (None, Some(chat_id)) => Ok(BrowserRoot::Chat { chat_id }),
+            (Some(_), Some(_)) => Err("a browser root names either ptyId or chatId, not both"),
+            (None, None) => Err("a browser root needs ptyId or chatId"),
+        }
+    }
 }
 
 /// A change the phone asks of the desktop's shared browser tabs (see
@@ -382,7 +405,14 @@ pub enum ServerMsg {
     Exit { pty_id: String },
     Usage { items: Vec<UsageItem> },
     Actions { actions: Vec<Action> },
-    Ls { pty_id: String, path: String, entries: Vec<LsEntry> },
+    /// `truncated`: the folder had more entries than were listed (absent from older desktops: false).
+    Ls {
+        pty_id: String,
+        path: String,
+        entries: Vec<LsEntry>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        truncated: bool,
+    },
     File { pty_id: String, path: String, text: String, truncated: bool },
     Fs {
         request_id: String,
@@ -1101,6 +1131,14 @@ mod tests {
         let msg: ClientMsg = serde_json::from_str(r#"{"t":"tabop","target":{"ptyId":"p"},"op":{"kind":"move","index":3}}"#).unwrap();
         assert_eq!(msg, ClientMsg::TabOp { target: TabTarget::Pty { pty_id: "p".into() }, op: TabOp::Move { index: 3 } });
         assert!(serde_json::from_str::<ClientMsg>(r#"{"t":"tabop","target":{},"op":{"kind":"duplicate"}}"#).is_err());
+    }
+
+    #[test]
+    fn browser_root_refuses_both_or_neither_id() {
+        assert_eq!(serde_json::from_str::<BrowserRoot>(r#"{"ptyId":"p"}"#).unwrap(), BrowserRoot::Pty { pty_id: "p".into() });
+        assert_eq!(serde_json::from_str::<BrowserRoot>(r#"{"chatId":"c"}"#).unwrap(), BrowserRoot::Chat { chat_id: "c".into() });
+        assert!(serde_json::from_str::<BrowserRoot>(r#"{"ptyId":"p","chatId":"c"}"#).is_err());
+        assert!(serde_json::from_str::<BrowserRoot>("{}").is_err());
     }
 
     #[test]

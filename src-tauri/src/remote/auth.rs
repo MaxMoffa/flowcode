@@ -201,9 +201,58 @@ impl AuthLimiter {
     }
 }
 
+/// Handshakes from nodes that aren't paired devices, per source (a direct IP,
+/// or the node id behind a relay). Each holds one of the few stranger slots
+/// for up to the auth timeouts, so without a cap a single source could keep
+/// them all busy. Paired phones never go through this.
+#[derive(Default)]
+pub(super) struct UnknownLimiter {
+    /// source -> (window start, handshakes started in it)
+    sources: HashMap<String, (u64, u32)>,
+}
+
+/// Stranger handshakes one source may start per `UNKNOWN_WINDOW_MS`: a real
+/// new phone needs one, maybe a couple more on retries.
+pub(super) const MAX_UNKNOWN_PER_SOURCE: u32 = 4;
+pub(super) const UNKNOWN_WINDOW_MS: u64 = 60_000;
+
+impl UnknownLimiter {
+    /// Counts a new stranger handshake from `source`; false when it is over its share.
+    pub(super) fn admit(&mut self, source: &str, now: u64) -> bool {
+        // Bounded: a source can be made up freely.
+        if self.sources.len() >= 1024 {
+            self.sources.retain(|_, (start, _)| now.saturating_sub(*start) < UNKNOWN_WINDOW_MS);
+            if self.sources.len() >= 1024 {
+                self.sources.clear();
+            }
+        }
+        let entry = self.sources.entry(source.to_string()).or_insert((now, 0));
+        if now.saturating_sub(entry.0) >= UNKNOWN_WINDOW_MS {
+            *entry = (now, 0);
+        }
+        if entry.1 >= MAX_UNKNOWN_PER_SOURCE {
+            return false;
+        }
+        entry.1 += 1;
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stranger_source_is_capped_per_window() {
+        let mut l = UnknownLimiter::default();
+        for i in 0..MAX_UNKNOWN_PER_SOURCE as u64 {
+            assert!(l.admit("ip:1.2.3.4", i));
+        }
+        assert!(!l.admit("ip:1.2.3.4", 100));
+        // Another source is unaffected, and the window rolls over.
+        assert!(l.admit("ip:5.6.7.8", 100));
+        assert!(l.admit("ip:1.2.3.4", UNKNOWN_WINDOW_MS + 1));
+    }
 
     #[test]
     fn pairing_code_is_single_use_and_expires() {

@@ -34,10 +34,13 @@ const HEADER_TIMEOUT: Duration = Duration::from_secs(5);
 /// The whole body of a chat upload has to arrive within this.
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 /// Uploads buffered at once (each up to `UPLOAD_MAX_BYTES` in memory), across all phones.
-static UPLOAD_SLOTS: Semaphore = Semaphore::const_new(4);
+static UPLOAD_SLOTS: Semaphore = Semaphore::const_new(3);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// Largest file the `files` server sends; it is read whole.
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+/// Files held in memory at once, across all phones and streams (so at most
+/// `FILE_SLOTS * MAX_FILE_BYTES` at a time, instead of that per request).
+static FILE_SLOTS: Semaphore = Semaphore::const_new(3);
 
 /// Accepts the preview streams of `connection` until it ends. The first
 /// bidirectional stream was the control stream (taken by the handshake), so
@@ -66,6 +69,11 @@ async fn serve_stream(shared: &Shared, conn_id: u64, mut send: iroh::endpoint::S
     };
     match target {
         PreviewTarget::Port(port) => {
+            if port_blocked(port) {
+                shared.log.line(&format!("preview: refused the tunnel to port {port} (not a web port)"));
+                let _ = send.reset(2u32.into());
+                return;
+            }
             let Some(mut tcp) = connect_loopback(port).await else {
                 shared.log.line(&format!("preview: nothing listening on port {port}"));
                 let _ = send.reset(2u32.into());
@@ -179,6 +187,23 @@ async fn read_header<R: AsyncRead + Unpin>(reader: &mut R) -> Option<PreviewTarg
     parse_preview_header(std::str::from_utf8(&line).ok()?)
 }
 
+/// Loopback ports the phone's tunnel never reaches: system, remote-access and
+/// database/admin services that are not something to browse. Why a denylist
+/// and not an allowlist of the desktop's browser-tab ports: the phone opens
+/// `http://localhost:<port>` itself (typed or from a link) at the same moment
+/// it sends the `openUrl` op, so the port is in no snapshot yet when the
+/// stream arrives, and servers the user started outside the app are never
+/// detected. The app itself listens on no TCP port (the Flowcode MCP server
+/// talks over files, see chat_mcp.rs), so there is no own port to hide; in a
+/// debug build the Vite dev server (1420) is blocked too.
+const BLOCKED_PORTS: &[u16] = &[
+    21, 22, 23, 25, 135, 137, 139, 445, 1433, 1521, 2375, 2376, 3306, 3389, 5432, 5900, 5985, 5986, 6379, 9200, 11211, 27017,
+];
+
+fn port_blocked(port: u16) -> bool {
+    BLOCKED_PORTS.contains(&port) || (cfg!(debug_assertions) && port == 1420)
+}
+
 /// Some dev servers bind only `::1`, others only `127.0.0.1`.
 async fn connect_loopback(port: u16) -> Option<TcpStream> {
     for ip in [SocketAddr::from((Ipv4Addr::LOCALHOST, port)), SocketAddr::from((Ipv6Addr::LOCALHOST, port))] {
@@ -240,6 +265,7 @@ async fn answer(root: Option<Arc<PathBuf>>, req: Request<Incoming>) -> Response<
     };
     let Some(root) = root else { return status(StatusCode::NOT_FOUND) };
     let path = req.uri().path().to_string();
+    let _slot = if head { None } else { FILE_SLOTS.acquire().await.ok() };
     let served = tokio::task::spawn_blocking(move || {
         let Some(file) = resolve_file(&root, &path) else { return Served::Missing };
         let Ok(len) = file.metadata().map(|m| m.len()) else { return Served::Missing };
@@ -337,6 +363,12 @@ mod tests {
         assert_eq!(header_of(&[0xff, 0xfe, b'\n']).await.0, None);
         // The sender went away mid-line.
         assert_eq!(header_of(b"port 80").await.0, None);
+    }
+
+    #[test]
+    fn tunnel_refuses_system_and_database_ports_only() {
+        assert!(port_blocked(22) && port_blocked(3306) && port_blocked(6379));
+        assert!(!port_blocked(3000) && !port_blocked(5173) && !port_blocked(8080));
     }
 
     #[test]

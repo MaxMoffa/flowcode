@@ -51,10 +51,13 @@ fn display_path(root: &Path, full: &Path) -> String {
         .unwrap_or_default()
 }
 
-pub(super) fn list_dir(root: &Path, rel: &str) -> Result<(String, Vec<LsEntry>), String> {
+/// The folder's entries (dirs first, by name) and whether more than
+/// `MAX_LS_ENTRIES` existed: the cut happens after sorting, so the listing
+/// is the first N in display order rather than an arbitrary N.
+pub(super) fn list_dir(root: &Path, rel: &str) -> Result<(String, Vec<LsEntry>, bool), String> {
     let dir = confine(root, rel)?;
     let mut entries: Vec<LsEntry> = Vec::new();
-    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten().take(MAX_LS_ENTRIES) {
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
         if !crate::fs::links_stay_local(&entry.path()) { continue; }
         // `metadata` follows symlinks so a link to a folder lists as one; a
         // dangling link falls back to the link's own type.
@@ -65,7 +68,9 @@ pub(super) fn list_dir(root: &Path, rel: &str) -> Result<(String, Vec<LsEntry>),
         entries.push(LsEntry { name: entry.file_name().to_string_lossy().into_owned(), dir: is_dir, size, hidden: false });
     }
     entries.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-    Ok((display_path(root, &dir), entries))
+    let truncated = entries.len() > MAX_LS_ENTRIES;
+    entries.truncate(MAX_LS_ENTRIES);
+    Ok((display_path(root, &dir), entries, truncated))
 }
 
 /// A text file's contents, cut at `MAX_READ_BYTES` and then further if the
@@ -135,7 +140,8 @@ mod tests {
         std::fs::write(base.join("secret.txt"), "s").unwrap();
 
         // Dirs first, hidden files included.
-        let (path, entries) = list_dir(&root, "").unwrap();
+        let (path, entries, truncated) = list_dir(&root, "").unwrap();
+        assert!(!truncated);
         assert_eq!(path, "");
         let names: Vec<_> = entries.iter().map(|e| (e.name.as_str(), e.dir)).collect();
         assert_eq!(names, vec![("src", true), (".env", false), ("zeta.txt", false)]);

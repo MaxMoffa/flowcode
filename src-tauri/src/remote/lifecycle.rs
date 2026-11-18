@@ -39,6 +39,7 @@ impl RemoteState {
             handshaking: AtomicUsize::new(0),
             handshaking_unknown: AtomicUsize::new(0),
             auth_limiter: Mutex::new(AuthLimiter::default()),
+            unknown_limiter: Mutex::new(UnknownLimiter::default()),
             log: ConnLog::new(dir.join("remote.log")),
             waiters: Mutex::new(HashMap::new()),
             pair_waiters: Mutex::new(HashMap::new()),
@@ -286,6 +287,18 @@ impl Shared {
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
+        }
+    }
+
+    /// Hangs up the live connections of devices already removed from the config.
+    /// As "replaced", not "revoked": the same phone may be re-pairing, and a
+    /// revoked error would make it forget the pairing it just got.
+    pub(super) fn kick_removed(&self, device_ids: &[String]) {
+        if device_ids.is_empty() {
+            return;
+        }
+        for conn in lock(&self.conns).values().filter(|c| device_ids.contains(&c.device_id)) {
+            let _ = conn.kick.send(Some(Kick::Replaced));
         }
     }
 

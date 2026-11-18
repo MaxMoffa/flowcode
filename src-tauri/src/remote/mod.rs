@@ -57,7 +57,7 @@ use crate::chat::{AlertKind, ChatAlert, ChatState};
 use crate::pty::PtyState;
 use crate::util::{lock, now_ms};
 
-use self::auth::{clean_name, AuthLimiter, Config, Device, PairError, Pairings};
+use self::auth::{clean_name, AuthLimiter, Config, Device, PairError, Pairings, UnknownLimiter};
 use self::chat::{agent_name, stream_chat};
 use self::stream::stream_pty;
 use self::connlog::{short_id, ConnLog};
@@ -259,6 +259,8 @@ struct Shared {
     /// Of `handshaking`, those from nodes that aren't paired devices.
     handshaking_unknown: AtomicUsize,
     auth_limiter: Mutex<AuthLimiter>,
+    /// Stranger handshakes per source, so one can't hold the stranger slots.
+    unknown_limiter: Mutex<UnknownLimiter>,
     /// Connection diagnostics: stderr plus `remote.log` next to the node key.
     log: ConnLog,
     waiters: Mutex<HashMap<String, oneshot::Sender<SnapshotReply>>>,

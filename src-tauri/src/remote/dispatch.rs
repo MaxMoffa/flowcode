@@ -443,7 +443,7 @@ impl Conn {
                 let _ = self.shared.app.emit_to(window.as_str(), event, payload);
             }
             ClientMsg::Ls { pty_id, path } => self.spawn_fs(pty_id, move |root, pty_id| {
-                list_dir(root, path.as_deref().unwrap_or("")).map(|(path, entries)| ServerMsg::Ls { pty_id, path, entries })
+                list_dir(root, path.as_deref().unwrap_or("")).map(|(path, entries, truncated)| ServerMsg::Ls { pty_id, path, entries, truncated })
             }),
             ClientMsg::Read { pty_id, path } => self.spawn_fs(pty_id, move |root, pty_id| {
                 read_text(root, &path).map(|(path, text, truncated)| ServerMsg::File { pty_id, path, text, truncated })

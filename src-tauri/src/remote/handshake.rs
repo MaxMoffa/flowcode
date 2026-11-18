@@ -10,6 +10,8 @@ pub(super) struct HandshakeGuard {
     pub(super) counted: bool,
     /// Also holds one of the few `Shared::handshaking_unknown` slots.
     pub(super) unknown: bool,
+    /// Where the connection came from (see `UnknownLimiter`).
+    pub(super) source: String,
 }
 
 impl HandshakeGuard {
@@ -18,6 +20,9 @@ impl HandshakeGuard {
     pub(super) fn claim_unknown(&mut self) -> bool {
         if self.unknown {
             return true;
+        }
+        if !lock(&self.shared.unknown_limiter).admit(&self.source, now_ms()) {
+            return false;
         }
         if self.shared.handshaking_unknown.fetch_add(1, Ordering::AcqRel) >= MAX_UNKNOWN_HANDSHAKING {
             self.shared.handshaking_unknown.fetch_sub(1, Ordering::AcqRel);
@@ -110,6 +115,7 @@ pub(super) async fn confirm_pairing(
     shared: &Shared,
     node_id: &str,
     device_name: &str,
+    connection: &Connection,
     shutdown: &mut watch::Receiver<bool>,
 ) -> Result<(Device, String), String> {
     let declined = || tr("Collegamento rifiutato sul computer", "Pairing declined on the computer").to_string();
@@ -136,11 +142,23 @@ pub(super) async fn confirm_pairing(
             }
         },
         _ = shutdown.changed() => false,
+        // The phone left while the user was deciding: no ghost device, no held slot.
+        _ = connection.closed() => {
+            return Err(tr("Collegamento annullato dal telefono", "Pairing cancelled by the phone").to_string())
+        }
     };
     if !accepted {
         return Err(declined());
     }
-    let (device, token) = lock(&shared.config).add_device(device_name, node_id, now_ms())?;
+    // A re-pairing replaces the node's earlier devices; their live
+    // connections must not outlive the token they authenticated with.
+    let (device, token, stale) = {
+        let mut config = lock(&shared.config);
+        let stale: Vec<String> = config.devices.iter().filter(|d| d.node_id == node_id).map(|d| d.id.clone()).collect();
+        let (device, token) = config.add_device(device_name, node_id, now_ms())?;
+        (device, token, stale)
+    };
+    shared.kick_removed(&stale);
     shared.save();
     shared.devices_changed();
     shared.notify(tr("Nuovo telefono collegato", "New phone paired").to_string(), device.name.clone());
@@ -228,7 +246,7 @@ pub(super) async fn handshake(
     let admission = admit(shared, msg, &node_id);
     let admitted = match admission {
         Ok(Admission::Known(device)) => Ok((device, None)),
-        Ok(Admission::PairRequest { device_name }) => confirm_pairing(shared, &node_id, &device_name, shutdown)
+        Ok(Admission::PairRequest { device_name }) => confirm_pairing(shared, &node_id, &device_name, connection, shutdown)
             .await
             .map(|(device, token)| (device, Some(token))),
         Err(message) => Err(message),

@@ -42,21 +42,27 @@ fn append_capped(path: &Path, line: &str, cap: u64) {
 /// One line per connection event, to stderr (the `tauri dev` console) and a
 /// small rotating file. Best effort: logging never fails a connection.
 pub(super) struct ConnLog {
-    path: PathBuf,
-    /// Keeps lines from two threads from interleaving or racing a rotation.
-    write: Mutex<()>,
+    /// Lines go to a dedicated writer thread, so file IO never blocks (or
+    /// holds a lock in) the async tasks that log; it also keeps lines in order
+    /// and rotation race-free. The thread ends when this is dropped.
+    tx: Mutex<std::sync::mpsc::Sender<String>>,
 }
 
 impl ConnLog {
     pub(super) fn new(path: PathBuf) -> Self {
-        ConnLog { path, write: Mutex::new(()) }
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let _ = std::thread::Builder::new().name("remote-log".into()).spawn(move || {
+            for line in rx {
+                append_capped(&path, &line, LOG_CAP_BYTES);
+            }
+        });
+        ConnLog { tx: Mutex::new(tx) }
     }
 
     pub(super) fn line(&self, text: &str) {
         let line = format!("{} {text}", format_utc(now_ms()));
         eprintln!("remote: {line}");
-        let _held = lock(&self.write);
-        append_capped(&self.path, &line, LOG_CAP_BYTES);
+        let _ = lock(&self.tx).send(line);
     }
 }
 

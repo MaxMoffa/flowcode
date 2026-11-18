@@ -15,7 +15,12 @@ pub(super) async fn accept_loop(shared: Arc<Shared>, endpoint: Endpoint, mut shu
                     incoming.refuse();
                     continue;
                 }
-                let guard = HandshakeGuard { shared: Arc::clone(&shared), counted: true, unknown: false };
+                let source = match incoming.remote_addr() {
+                    iroh::endpoint::IncomingAddr::Ip(addr) => format!("ip:{}", addr.ip()),
+                    iroh::endpoint::IncomingAddr::Relay { endpoint_id, .. } => format!("relay:{endpoint_id}"),
+                    other => format!("{other:?}"),
+                };
+                let guard = HandshakeGuard { shared: Arc::clone(&shared), counted: true, unknown: false, source };
                 let shutdown = shutdown.clone();
                 tauri::async_runtime::spawn(async move {
                     let shared = Arc::clone(&guard.shared);
