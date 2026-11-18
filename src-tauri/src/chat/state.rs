@@ -899,7 +899,8 @@ pub(super) fn start_once(
         }
         Err(e) => {
             chat.kill();
-            if e.starts_with("auth_required") {
+            // Offline, an expired token's refresh fails with an auth error that isn't one; don't tell the phone to sign in.
+            if e.starts_with("auth_required") && crate::net::online() {
                 chat.app.state::<crate::remote::RemoteState>().notify_provider_auth_required(&chat.agent, chat.profile.as_deref());
             }
             Err(if e.starts_with("auth_required") || e.starts_with("resume_unsupported") { e } else { format!("`{line}`: {e}") })

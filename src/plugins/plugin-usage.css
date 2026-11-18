@@ -60,6 +60,56 @@
   background: var(--ansi-bright-red);
 }
 
+/* Offline: the last reading, shown greyed. */
+.plugin-usage-btn.is-offline > svg,
+.plugin-usage-btn.is-offline .plugin-usage-mini {
+  opacity: 0.5;
+}
+.plugin-usage-btn.is-offline .plugin-usage-mini-fill,
+.plugin-usage-metric.is-offline .plugin-usage-bar-fill {
+  background: var(--fg-muted);
+}
+.plugin-usage-offline-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  vertical-align: 1px;
+  color: var(--ansi-blue);
+  background: color-mix(in srgb, var(--ansi-blue) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ansi-blue) 30%, var(--border));
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.plugin-usage-metric.is-offline .plugin-usage-metric-pct {
+  color: var(--fg-muted);
+}
+.plugin-usage-offline-foot .chat-offline-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ansi-blue);
+  animation: plugin-usage-offline-pulse 1.6s ease-in-out infinite;
+}
+@keyframes plugin-usage-offline-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plugin-usage-offline-foot .chat-offline-dot { animation: none; }
+}
+.plugin-usage-offline-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
 .plugin-usage-popover {
   position: fixed;
   z-index: 1200;

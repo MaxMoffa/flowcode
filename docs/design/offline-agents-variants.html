@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Agenti senza internet — varianti</title>
+<style>
+  :root {
+    --bg: #1a1511;
+    --surface: #24201b;
+    --surface-2: #302b26;
+    --menu: #211c18;
+    --border: rgba(231, 216, 197, 0.1);
+    --border-strong: rgba(231, 216, 197, 0.2);
+    --fg: #e7d8c5;
+    --muted: #a08a6f;
+    --accent: #9db984;
+    --yellow: #d8b26a;
+    --blue: #8fb3c9;
+    --red: #d48a7a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 28px 60px; background: #0e0b09; color: var(--fg);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 21px; margin: 0 0 6px; }
+  h2 { font-size: 16px; margin: 40px 0 4px; }
+  h3 { font-size: 14px; margin: 0 0 2px; }
+  .lead { color: var(--muted); max-width: 980px; margin: 0 0 18px; }
+  .note { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; max-width: 980px; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 10px; background: var(--surface-2); color: var(--muted); margin-left: 6px; vertical-align: 2px; }
+  .tag.rec { background: var(--accent); color: #1a1511; }
+  .controls { display: flex; gap: 8px; margin: 0 0 20px; flex-wrap: wrap; position: sticky; top: 0; padding: 10px 0; background: #0e0b09; z-index: 50; }
+  .controls button { background: var(--surface); border: 1px solid var(--border-strong); color: var(--fg); padding: 7px 14px; border-radius: 18px; font: inherit; cursor: pointer; }
+  .controls button.on { background: var(--accent); color: #1a1511; border-color: transparent; }
+  .row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .col { width: 430px; }
+  .col p.desc { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; min-height: 56px; }
+
+  /* ---- finestra chat desktop ---- */
+  .win { background: var(--bg); border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; height: 430px; display: flex; flex-direction: column; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .hdr { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .hdr .agent-dot { width: 8px; height: 8px; border-radius: 50%; background: #d9835b; }
+  .hdr .sp { flex: 1; }
+  .thread { flex: 1; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; font-size: 13px; }
+  .msg.user { align-self: flex-end; background: var(--surface-2); border-radius: 14px 14px 4px 14px; padding: 7px 11px; max-width: 80%; }
+  .msg.agent { color: var(--fg); }
+  .msg.queued { opacity: .6; border: 1px dashed var(--border-strong); background: transparent; }
+  .msg .q { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .composer { margin: 0 14px 14px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); padding: 10px 12px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+  .composer .sp { flex: 1; }
+  .send { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; color: #1a1511; font-weight: 700; }
+  .send.dim { background: var(--surface-2); color: var(--muted); }
+
+  /* stato offline: blu tenue, NON giallo (giallo = login richiesto) */
+  .off-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 11.5px;
+    color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, var(--menu)); border: 1px solid color-mix(in srgb, var(--blue) 40%, var(--border)); }
+  .off-ico { width: 14px; height: 14px; flex: none; }
+  .strip { margin: 0 14px 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--blue); padding: 6px 10px; border-radius: 8px;
+    background: color-mix(in srgb, var(--blue) 9%, var(--menu)); border: 1px solid color-mix(in srgb, var(--blue) 30%, var(--border)); }
+  .strip .m { color: var(--muted); }
+  .strip .sp { flex: 1; }
+  .lnk { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: 12px; }
+  .card { margin: 0 14px 14px; padding: 14px 16px; border-radius: 12px; background: color-mix(in srgb, var(--blue) 9%, var(--menu)); border: 1px solid color-mix(in srgb, var(--blue) 40%, var(--border)); }
+  .card .t { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--blue); font-size: 13px; }
+  .card .b { color: var(--muted); font-size: 12px; margin: 4px 0 10px; }
+  .btns { display: flex; gap: 8px; }
+  .btn { background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--fg); padding: 5px 12px; border-radius: 7px; font-size: 12px; }
+  .btn.pri { background: var(--accent); color: #1a1511; border-color: transparent; }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); animation: p 1.6s infinite; flex: none; }
+  @keyframes p { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+
+  .back { margin: 0 14px 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--accent); padding: 6px 10px; border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--menu)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); }
+
+  /* ---- stato avvio fallito ---- */
+  .state { flex: 1; display: grid; place-items: center; padding: 20px; }
+  .state-box { text-align: center; max-width: 320px; padding: 22px; border-radius: 10px; }
+  .state-box.auth { background: color-mix(in srgb, var(--yellow) 10%, var(--menu)); border: 1px solid color-mix(in srgb, var(--yellow) 48%, var(--border)); }
+  .state-box.off { background: color-mix(in srgb, var(--blue) 9%, var(--menu)); border: 1px solid color-mix(in srgb, var(--blue) 40%, var(--border)); }
+  .state-box .tt { font-weight: 600; margin-bottom: 8px; }
+  .state-box .bb { color: var(--muted); font-size: 12.5px; margin: 8px 0 14px; }
+  .sym { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px solid currentColor; border-radius: 8px; font-weight: 700; }
+  .state-box.auth .sym { color: var(--yellow); }
+  .state-box.off .sym { color: var(--blue); }
+  .state-box .btns { justify-content: center; }
+  .wait { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--blue); margin-top: 10px; }
+
+  /* ---- popup usage ---- */
+  .pop { width: 300px; background: var(--menu); border: 1px solid var(--border-strong); border-radius: 12px; padding: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.5); font-size: 12.5px; }
+  .pop .ph { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 10px; }
+  .pop .ph .sp { flex: 1; }
+  .metric { margin: 8px 0; }
+  .metric .l { display: flex; justify-content: space-between; }
+  .bar { height: 5px; border-radius: 3px; background: var(--surface-2); margin-top: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .stale .bar i { background: var(--muted); }
+  .stale .l { color: var(--muted); }
+  .pop .foot { color: var(--muted); font-size: 11.5px; margin-top: 10px; display: flex; align-items: center; gap: 6px; }
+  .bad { color: var(--yellow); font-weight: 600; }
+  .shortcut { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border-strong); font-size: 12px; }
+  .mini { width: 34px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+  .mini i { display: block; height: 100%; background: var(--muted); width: 42%; }
+
+  /* ---- telefono ---- */
+  .phone { width: 260px; height: 520px; border-radius: 34px; background: var(--bg); border: 7px solid #2a2622; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .phone .pt { height: 74px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 10px; }
+  .phone .thread { padding: 10px 14px; }
+  .phone .composer { margin: 0 10px 14px; }
+  .phone .strip, .phone .card { margin-left: 10px; margin-right: 10px; }
+
+  table.plan { border-collapse: collapse; font-size: 12.5px; max-width: 1000px; }
+  table.plan td, table.plan th { border: 1px solid var(--border-strong); padding: 6px 10px; text-align: left; vertical-align: top; }
+  table.plan th { background: var(--surface); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="claude" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1.5v13M1.5 8h13M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2"/></g></symbol>
+  <symbol id="codex" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.5l5.6 3.25v6.5L8 14.5l-5.6-3.25v-6.5z"/></g></symbol>
+  <symbol id="term" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3.5 3.5L3 11.5M8.5 12h4.5"/></g></symbol>
+  <symbol id="nonet" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1.5 6a9.5 9.5 0 0 1 13 0"/><path d="M3.8 8.6a6.2 6.2 0 0 1 8.4 0"/><path d="M6.2 11.1a2.8 2.8 0 0 1 3.6 0"/><path d="M2 2l12 12"/></g></symbol>
+</svg>
+
+<h1>Agenti senza internet</h1>
+<p class="lead">Oggi offline = "Accedi a Claude" (giallo) e la chat resta bloccata anche quando la rete torna.
+Proposta: nuovo stato <b style="color:var(--blue)">Offline</b> (blu tenue, icona Wi-Fi barrata), distinto dal login (giallo).
+Mai bloccare il composer per la rete: i messaggi vanno in coda e partono da soli al ritorno della connessione.</p>
+
+<div class="controls">
+  <button class="on" data-st="off">Offline</button>
+  <button data-st="back">Rete tornata</button>
+  <button data-st="now">Oggi (comportamento attuale)</button>
+</div>
+
+<h2>1 · Chat aperta, rete persa</h2>
+<p class="note">Il composer resta attivo. Invio → messaggio in coda (stile bolla in coda di auto-resume). Al ritorno rete: invio automatico.</p>
+<div class="row">
+  <div class="col">
+    <h3>A · Striscia sopra il composer <span class="tag rec">consigliata</span></h3>
+    <p class="desc">Una riga sottile, non copre niente. Composer sempre usabile. Scompare da sola 3 s dopo "Connessione ripristinata".</p>
+    <div class="win">
+      <div class="hdr"><span class="agent-dot"></span>Claude · flowcode<span class="sp"></span><span class="m" style="color:var(--muted);font-size:12px">Opus 5.5</span></div>
+      <div class="thread">
+        <div class="msg user">Sistema il test di useChat</div>
+        <div class="msg agent">Ho trovato il problema in <code>authRequiredRef</code>…</div>
+        <div class="msg user queued x-off">Ora lancia vitest<span class="q">In coda · parte quando torna la connessione</span></div>
+        <div class="msg user x-back hidden">Ora lancia vitest</div>
+      </div>
+      <div class="strip x-off"><svg class="off-ico"><use href="#nonet"/></svg>Nessuna connessione<span class="m">· i messaggi restano in coda</span><span class="sp"></span><span class="pulse"></span></div>
+      <div class="back x-back hidden">✓ Connessione ripristinata · invio 1 messaggio in coda</div>
+      <div class="x-now hidden" style="margin:0 14px 6px;padding:10px 12px;border-radius:9px;font-size:12px;background:color-mix(in srgb,var(--yellow) 10%,var(--menu));border:1px solid color-mix(in srgb,var(--yellow) 48%,var(--border))"><b style="color:var(--yellow)">Accedi a Claude</b><br><span style="color:var(--muted)">Il login sembra scaduto.</span></div>
+      <div class="composer"><span>Scrivi a Claude…</span><span class="sp"></span><span class="send x-off x-back">↑</span><span class="send dim x-now hidden">↑</span></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>B · Card al posto del composer</h3>
+    <p class="desc">Come la card cache warning A: più visibile, ma nasconde il composer (si riapre con "Scrivi comunque").</p>
+    <div class="win">
+      <div class="hdr"><span class="agent-dot"></span>Claude · flowcode<span class="sp"></span></div>
+      <div class="thread">
+        <div class="msg user">Sistema il test di useChat</div>
+        <div class="msg agent">Ho trovato il problema in <code>authRequiredRef</code>…</div>
+      </div>
+      <div class="card x-off">
+        <div class="t"><svg class="off-ico"><use href="#nonet"/></svg>Sei offline</div>
+        <div class="b">Claude ha bisogno di internet per rispondere. La chat riprende da sola quando la rete torna.</div>
+        <div class="btns"><span class="btn pri">Scrivi comunque</span><span class="btn">Riprova ora</span></div>
+      </div>
+      <div class="back x-back hidden" style="margin-bottom:6px">✓ Connessione ripristinata</div>
+      <div class="composer x-back x-now hidden"><span>Scrivi a Claude…</span><span class="sp"></span><span class="send">↑</span></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>C · Solo chip nell'header</h3>
+    <p class="desc">Minimo: chip "Offline" nell'header della chat, nessun banner. Discreto, ma facile da non notare.</p>
+    <div class="win">
+      <div class="hdr"><span class="agent-dot"></span>Claude · flowcode<span class="sp"></span>
+        <span class="off-chip x-off"><svg class="off-ico"><use href="#nonet"/></svg>Offline</span>
+        <span class="off-chip x-back hidden" style="color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--border));background:color-mix(in srgb,var(--accent) 10%,var(--menu))">✓ Online</span>
+      </div>
+      <div class="thread">
+        <div class="msg user">Sistema il test di useChat</div>
+        <div class="msg agent">Ho trovato il problema in <code>authRequiredRef</code>…</div>
+        <div class="msg user queued x-off">Ora lancia vitest<span class="q">In coda</span></div>
+      </div>
+      <div class="composer"><span>Scrivi a Claude…</span><span class="sp"></span><span class="send">↑</span></div>
+    </div>
+  </div>
+</div>
+
+<h2>2 · Avvio chat fallito senza rete</h2>
+<p class="note">Oggi un errore di rete può finire nel riquadro giallo "Accedi". Nuovo: riquadro blu, nessun pulsante di login, riprova automatica all'evento <code>online</code>.</p>
+<div class="row">
+  <div class="col">
+    <h3>Oggi</h3>
+    <p class="desc">Login richiesto anche se il problema è la rete.</p>
+    <div class="win" style="height:300px">
+      <div class="hdr"><span class="agent-dot"></span>Claude · flowcode</div>
+      <div class="state"><div class="state-box auth">
+        <div class="tt">Accedi a Claude</div><span class="sym">!</span>
+        <div class="bb">Per usare Claude in chat devi prima accedere.</div>
+        <div class="btns"><span class="btn pri">Accedi</span><span class="btn">Riprova</span></div>
+      </div></div>
+    </div>
+  </div>
+  <div class="col">
+    <h3>Nuovo</h3>
+    <p class="desc">Stesso layout del riquadro attuale, colore e testo diversi. "Accedi" compare solo se a rete presente l'errore è davvero di login.</p>
+    <div class="win" style="height:300px">
+      <div class="hdr"><span class="agent-dot"></span>Claude · flowcode</div>
+      <div class="state"><div class="state-box off">
+        <div class="tt">Nessuna connessione</div><span class="sym"><svg class="off-ico"><use href="#nonet"/></svg></span>
+        <div class="bb">Claude non raggiunge i suoi server. Il tuo accesso è a posto: la chat parte appena torna internet.</div>
+        <div class="btns"><span class="btn pri">Riprova ora</span></div>
+        <div class="wait"><span class="pulse"></span>In attesa della rete…</div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<h2>3 · Popup consumi e pulsante nella barra</h2>
+<p class="note">Offline: non segnare "login richiesto". Mostrare gli ultimi valori noti in grigio, con l'ora dell'ultimo aggiornamento.</p>
+<div class="row">
+  <div>
+    <h3>Oggi</h3>
+    <div class="pop" style="margin-top:8px">
+      <div class="ph">Claude Code<span class="sp"></span></div>
+      <div class="bad">Accesso scaduto</div>
+      <div style="color:var(--muted);margin-top:4px">Impossibile leggere i limiti: rifai l'accesso per vederli.</div>
+      <div class="btns" style="margin-top:10px"><span class="btn pri">Accedi</span></div>
+    </div>
+  </div>
+  <div>
+    <h3>Nuovo</h3>
+    <div class="pop stale" style="margin-top:8px">
+      <div class="ph">Claude Code<span class="sp"></span><span class="off-chip"><svg class="off-ico"><use href="#nonet"/></svg>Offline</span></div>
+      <div class="metric"><div class="l"><span>Sessione corrente</span><span>42%</span></div><div class="bar"><i style="width:42%"></i></div></div>
+      <div class="metric"><div class="l"><span>Settimana</span><span>18%</span></div><div class="bar"><i style="width:18%"></i></div></div>
+      <div class="foot"><span class="pulse"></span>Ultimo aggiornamento 14:32 · si aggiorna quando torna la rete</div>
+    </div>
+  </div>
+</div>
+
+<h2>3b · Pulsante nella barra in alto</h2>
+<p class="note">Il pulsante reale: icona 16 px in un bottone 28 px, sotto una barretta 16×3 px con la percentuale del limite più vicino (rossa da 75%), in alto a destra il pallino colorato del profilo.
+Qui ingrandito 3× (sopra) e a grandezza reale nella barra (sotto). Offline il pulsante non deve sembrare "rotto" né "da rifare login": solo "dato vecchio".</p>
+<div class="row" style="gap:34px">
+  <div class="bv"><h3>Online (oggi)</h3><div class="zoom"><span class="ib"><svg><use href="#claude"/></svg><span class="pb"></span><span class="mb"><i style="width:42%"></i></span></span></div>
+    <div class="bar-real"><span class="ib s"><svg><use href="#term"/></svg></span><span class="ib s"><svg><use href="#claude"/></svg><span class="pb"></span><span class="mb"><i style="width:42%"></i></span></span><span class="ib s"><svg><use href="#codex"/></svg><span class="mb"><i style="width:80%;background:var(--red)"></i></span></span></div>
+    <p class="desc">Barretta verde 42%.</p></div>
+
+  <div class="bv"><h3>Oggi, offline</h3><div class="zoom"><span class="ib"><svg><use href="#claude"/></svg><span class="pb"></span></span></div>
+    <div class="bar-real"><span class="ib s"><svg><use href="#term"/></svg></span><span class="ib s"><svg><use href="#claude"/></svg><span class="pb"></span></span><span class="ib s"><svg><use href="#codex"/></svg></span></div>
+    <p class="desc">La barretta sparisce (nessun valore letto) e solo aprendo il popup vedi "Accesso scaduto".</p></div>
+
+  <div class="bv"><h3>Offline 1 · barretta grigia <span class="tag rec">consigliata</span></h3><div class="zoom"><span class="ib"><svg><use href="#claude"/></svg><span class="pb"></span><span class="mb stale"><i style="width:42%"></i></span></span></div>
+    <div class="bar-real"><span class="ib s"><svg><use href="#term"/></svg></span><span class="ib s"><svg><use href="#claude"/></svg><span class="pb"></span><span class="mb stale"><i style="width:42%"></i></span></span><span class="ib s"><svg><use href="#codex"/></svg><span class="mb stale"><i style="width:80%"></i></span></span></div>
+    <p class="desc">Resta l'ultimo valore, ma grigio (anche se era rosso). Nessun altro segno: il "perché" è nel popup e nel tooltip ("Offline · ultimo valore 14:32").</p></div>
+
+  <div class="bv"><h3>Offline 2 · grigia + Wi-Fi barrato</h3><div class="zoom"><span class="ib"><svg><use href="#claude"/></svg><span class="pb"></span><span class="mb stale"><i style="width:42%"></i></span><span class="nb"><svg><use href="#nonet"/></svg></span></span></div>
+    <div class="bar-real"><span class="ib s"><svg><use href="#term"/></svg></span><span class="ib s"><svg><use href="#claude"/></svg><span class="pb"></span><span class="mb stale"><i style="width:42%"></i></span><span class="nb"><svg><use href="#nonet"/></svg></span></span><span class="ib s"><svg><use href="#codex"/></svg><span class="mb stale"><i style="width:80%"></i></span><span class="nb"><svg><use href="#nonet"/></svg></span></span></div>
+    <p class="desc">In più un mini Wi-Fi barrato blu in basso a destra. Più esplicito, ma a 28 px è affollato (c'è già il pallino profilo).</p></div>
+
+  <div class="bv"><h3>Offline 3 · icona attenuata</h3><div class="zoom"><span class="ib dim"><svg><use href="#claude"/></svg><span class="pb"></span><span class="mb stale"><i style="width:42%"></i></span></span></div>
+    <div class="bar-real"><span class="ib s"><svg><use href="#term"/></svg></span><span class="ib s dim"><svg><use href="#claude"/></svg><span class="pb"></span><span class="mb stale"><i style="width:42%"></i></span></span><span class="ib s dim"><svg><use href="#codex"/></svg><span class="mb stale"><i style="width:80%"></i></span></span></div>
+    <p class="desc">Icona e barretta al 50%. Chiaro che "è spento", ma sembra disabilitato: il clic invece funziona ancora (apre il terminale dell'agente).</p></div>
+</div>
+<style>
+  .bv { width: 170px; }
+  .bv .desc { min-height: 0; margin-top: 8px; }
+  .zoom { width: 120px; height: 120px; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-top: 6px; }
+  .zoom .ib { transform: scale(3); }
+  .ib { position: relative; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg); border-radius: 6px; }
+  .ib svg { width: 16px; height: 16px; }
+  .ib .pb { position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: #c792ea; box-shadow: 0 0 0 1.5px var(--surface); }
+  .ib .mb { position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); width: 16px; height: 3px; border-radius: 9px; background: rgba(231,216,197,.18); overflow: hidden; }
+  .ib .mb i { display: block; height: 100%; background: var(--accent); }
+  .ib .mb.stale i { background: var(--muted); opacity: .8; }
+  .ib .nb { position: absolute; right: 0; bottom: 0; width: 9px; height: 9px; border-radius: 50%; background: var(--surface); color: var(--blue); display: grid; place-items: center; }
+  .ib .nb svg { width: 8px; height: 8px; }
+  .ib.dim { opacity: .5; }
+  .bar-real { display: flex; gap: 2px; align-items: center; height: 36px; padding: 0 8px; margin-top: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; width: fit-content; }
+</style>
+
+<h2>4 · Telefono</h2>
+<p class="note">Stesso stato della variante scelta. Due casi diversi: il PC è offline (l'agente non risponde) o il telefono non raggiunge il PC (già gestito dalla schermata di riconnessione).</p>
+<div class="row">
+  <div>
+    <h3>A su telefono</h3>
+    <div class="phone" style="margin-top:8px">
+      <div class="pt"><span class="off-chip" style="color:var(--fg);background:var(--surface);border-color:var(--border-strong)">Claude · flowcode</span></div>
+      <div class="thread">
+        <div class="msg user">Sistema il test</div>
+        <div class="msg agent">Fatto, ora…</div>
+        <div class="msg user queued x-off">Lancia vitest<span class="q">In coda</span></div>
+      </div>
+      <div class="strip x-off"><svg class="off-ico"><use href="#nonet"/></svg>Il PC è offline<span class="sp"></span><span class="pulse"></span></div>
+      <div class="back x-back hidden">✓ Il PC è di nuovo online</div>
+      <div class="composer"><span>Scrivi…</span><span class="sp"></span><span class="send">↑</span></div>
+    </div>
+  </div>
+</div>
+
+<h2>Cosa cambia sotto</h2>
+<table class="plan">
+  <tr><th>Dove</th><th>Cambio</th></tr>
+  <tr><td>Desktop: stato rete</td><td>Nuovo hook <code>useOnline()</code>: <code>navigator.onLine</code> + eventi <code>online</code>/<code>offline</code> + verifica rapida lato Rust (DNS/TCP verso api.anthropic.com, chatgpt.com…) perché <code>navigator.onLine</code> mente con Wi-Fi senza internet.</td></tr>
+  <tr><td><code>plugins.rs</code> <code>cli_is_logged_in</code></td><td><code>bool</code> → <code>Option&lt;bool&gt;</code>: timeout o errore = "non so", non "non loggato".</td></tr>
+  <tr><td><code>usage.ts</code></td><td>Nuovo metric <code>offline</code>. Il fallback <code>loggedOut</code> della riga 375 solo con login negato confermato. Offline: ultimi valori noti.</td></tr>
+  <tr><td><code>useUsageState.ts</code> / <code>providerAuth.ts</code></td><td>Offline: niente <code>markProviderAuthRequired</code>. Il flag si toglie anche al ritorno della rete (nuova verifica), non solo dopo il login.</td></tr>
+  <tr><td>Chat (<code>errors.rs</code>, <code>isProviderAuthError</code>)</td><td>Nuova classe di errore <code>network:</code> (connection error, ENOTFOUND, ECONNRESET, fetch failed, timeout). Errore di auth mentre si è offline → trattato come rete.</td></tr>
+  <tr><td><code>useChat.ts</code></td><td>Offline: invio → coda (riusa la coda di auto-resume). Evento <code>online</code> → riavvio o invio della coda.</td></tr>
+  <tr><td>Telefono</td><td>Il desktop pubblica il suo stato di rete; il telefono mostra la striscia "Il PC è offline".</td></tr>
+  <tr><td>i18n</td><td>Testi it/en: <code>chat.offline.*</code>, <code>usage.offline</code>.</td></tr>
+</table>
+
+<script>
+  const btns = document.querySelectorAll(".controls button");
+  function show(st) {
+    btns.forEach(b => b.classList.toggle("on", b.dataset.st === st));
+    document.querySelectorAll(".x-off,.x-back,.x-now").forEach(el => {
+      const vis = el.classList.contains("x-" + st);
+      el.classList.toggle("hidden", !vis);
+    });
+  }
+  btns.forEach(b => b.addEventListener("click", () => show(b.dataset.st)));
+  show("off");
+</script>
+</body>
+</html>

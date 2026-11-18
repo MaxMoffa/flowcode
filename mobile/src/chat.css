@@ -1688,6 +1688,44 @@ button.chat-step-row {
 
 
 
+/* The desktop has no internet: a strip above the card. */
+.chat-offline-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--ansi-blue, #8fb3c9);
+  background: color-mix(in srgb, var(--ansi-blue, #8fb3c9) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--ansi-blue, #8fb3c9) 30%, var(--border));
+}
+
+.chat-offline-strip .pulse {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: chat-offline-pulse 1.6s infinite;
+}
+
+@keyframes chat-offline-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-offline-strip .pulse { animation: none; }
+}
+
+.chat-offline-strip.is-back {
+  color: var(--ansi-green, var(--accent));
+  background: color-mix(in srgb, var(--ansi-green, var(--accent)) 9%, var(--surface));
+  border-color: color-mix(in srgb, var(--ansi-green, var(--accent)) 30%, var(--border));
+}
+
 /* The floating card: text on top, one row of actions under it. */
 .chat-card {
   position: relative;

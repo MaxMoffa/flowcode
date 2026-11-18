@@ -48,6 +48,16 @@ const ClipIcon = () => (
   </Svg>
 );
 
+/** A Wi-Fi symbol with a slash: the desktop has no internet. */
+const OfflineGlyph = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+    <path d="M1.5 6a9 9 0 0 1 13 0" />
+    <path d="M4 8.8a5.5 5.5 0 0 1 8 0" />
+    <path d="M6.5 11.5a2 2 0 0 1 3 0" />
+    <path d="M2 2l12 12" />
+  </svg>
+);
+
 const MicIcon = () => (
   <Svg size={24}>
     <rect x="9" y="3" width="6" height="11" rx="3" />
@@ -156,6 +166,24 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(fu
   const [text, setText] = useState(() => drafts.get(chatId) ?? "");
   const attachSupported = useRemoteSelector((s) => !!s.host?.caps.includes("chatAttach"));
   const attach = useAttachments(chatId);
+  // The desktop's internet state; undefined on older desktops, which show nothing.
+  const hostOnline = useRemoteSelector((s) => s.settings?.hostOnline);
+  /** True for 3s after the desktop comes back online. */
+  const [hostBack, setHostBack] = useState(false);
+  const prevHostOnline = useRef(hostOnline);
+  useEffect(() => {
+    const was = prevHostOnline.current;
+    prevHostOnline.current = hostOnline;
+    if (hostOnline === false) {
+      setHostBack(false);
+      return;
+    }
+    if (was === false && hostOnline === true) {
+      setHostBack(true);
+      const id = setTimeout(() => setHostBack(false), 3000);
+      return () => clearTimeout(id);
+    }
+  }, [hostOnline]);
   const fileInput = useRef<HTMLInputElement>(null);
   const [modeOpen, setModeOpen] = useState(false);
   const [defaultMode, setDefault] = useState(() => getDefaultMode(agent));
@@ -330,6 +358,16 @@ ${latest.current}` : added);
         </div>
       )}
       {subagentTray}
+      {hostOnline === false && (
+        <div className="chat-offline-strip" role="status">
+          <OfflineGlyph /> {t("chat.hostOffline")} <span className="pulse" />
+        </div>
+      )}
+      {hostOnline !== false && hostBack && (
+        <div className="chat-offline-strip is-back" role="status">
+          ✓ {t("chat.hostBack")}
+        </div>
+      )}
       <div className={"chat-card" + (listening ? " is-listening" : "") + goalTone + (goalChip && !fullscreen ? " has-goal-chip" : "")}>
         {goal && !fullscreen && <ChatGoal chatId={chatId} goal={goal} actions={goalActions} items={goalItems} onAction={onGoal} onChipChange={setGoalChip} />}
         <AttachStrip items={attach.items} onRemove={attach.remove} onRetry={attach.retry} />

@@ -39,6 +39,53 @@
 .chat-auth-banner .chat-btn { flex: none; margin-left: auto; }
 .chat-auth-symbol { display: inline-grid; flex: none; place-items: center; width: 26px; height: 26px; border: 1px solid currentColor; border-radius: 7px; color: var(--ansi-yellow); font-weight: 700; }
 .chat-auth-callout { padding: 22px; }
+
+/* Offline: soft blue, never the login yellow. */
+.chat-offline-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--ansi-blue) 9%, var(--menu-surface));
+  border: 1px solid color-mix(in srgb, var(--ansi-blue) 30%, var(--border));
+  border-radius: 8px;
+}
+.chat-offline-strip svg { flex: none; color: var(--ansi-blue); }
+.chat-offline-muted { color: var(--fg-muted); margin-left: -3px; }
+.chat-offline-strip .chat-offline-dot { margin-left: auto; }
+.chat-offline-strip.is-back {
+  background: color-mix(in srgb, var(--ansi-green) 9%, var(--menu-surface));
+  border-color: color-mix(in srgb, var(--ansi-green) 30%, var(--border));
+}
+.chat-offline-strip.is-back span { color: var(--ansi-green); }
+.chat-offline-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ansi-blue);
+  animation: chat-offline-pulse 1.6s ease-in-out infinite;
+}
+@keyframes chat-offline-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-offline-dot { animation: none; }
+}
+.chat-offline-callout {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--ansi-blue) 9%, var(--menu-surface));
+  border: 1px solid color-mix(in srgb, var(--ansi-blue) 30%, var(--border));
+  border-radius: 9px;
+  padding: 22px;
+}
+.chat-offline-symbol { display: inline-grid; flex: none; place-items: center; width: 26px; height: 26px; border: 1px solid currentColor; border-radius: 7px; color: var(--ansi-blue); }
+.chat-offline-waiting { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--fg-muted); font-size: 11px; }
 @media (max-width: 640px) {
   .chat-auth-banner { flex-wrap: wrap; gap: 10px; margin: 10px; }
   .chat-auth-banner > div { flex: 1; min-width: 180px; }

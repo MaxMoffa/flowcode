@@ -14,6 +14,8 @@ import { applyEvent, applyLocalError, delegatesOf, forceCancels, initialChat, is
 import { discardAttachment, releasePreview } from "./attachmentRelease";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 import { isProviderAuthError } from "../../shared/providerAuth";
+import { isNetworkError } from "../../shared/network";
+import { checkOnline, isOnline, noteNetworkOk, noteNetworkTrouble, useOnline } from "../net/online";
 import { markProviderAuthRequired, PROVIDER_AUTHENTICATED, providerAuthRequired, useProviderAuthRequired, type ProviderAuthenticated } from "../profiles/providerAuth";
 
 /** A message waiting for the agent to be idle. */
@@ -87,11 +89,23 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   const authQueuePausedRef = useRef(false);
   if (authRequired) authQueuePausedRef.current = true;
   const needsAuthRestartRef = useRef(false);
+  const online = useOnline();
+  const onlineRef = useRef(online);
+  onlineRef.current = online;
+  const [networkFailed, setNetworkFailed] = useState(false);
   const reportAuthError = useCallback((message: string) => {
+    if (isNetworkError(message)) {
+      noteNetworkTrouble();
+      return;
+    }
     if (attachChatId || !isProviderAuthError(message)) return;
-    needsAuthRestartRef.current = true;
-    authQueuePausedRef.current = true;
-    markProviderAuthRequired(agent, profileId);
+    // Offline, an expired token's refresh looks like a sign-in error.
+    void checkOnline().then((ok) => {
+      if (!ok) return;
+      needsAuthRestartRef.current = true;
+      authQueuePausedRef.current = true;
+      markProviderAuthRequired(agent, profileId);
+    });
   }, [agent, profileId, attachChatId]);
   // The agent loaded the session asked for (false for a fresh one, or a resume that fell back to a new session).
   const [loaded, setLoaded] = useState(false);
@@ -142,6 +156,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     setModelState(initialChat());
     setPhase("starting");
     setError(null);
+    setNetworkFailed(false);
     setLoaded(false);
     sentAtSeqRef.current = null;
 
@@ -150,6 +165,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     let distro: string | null = null;
     const followOpen = (ev: ChatEvent) => {
       if (ev.kind === "error") reportAuthError(ev.message);
+      // A streamed reply proves the network works.
+      if (ev.kind === "update" && (ev.update as { sessionUpdate?: string }).sessionUpdate === "agent_message_chunk") noteNetworkOk();
       // An attached child's opens are routed by its orchestrator's chat, whether or not this tab exists.
       if (attachChatId) return;
       const open = trackOpen(ev);
@@ -261,8 +278,13 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           setPhase("ready");
         } catch (err) {
           if (cancelled) return;
-          reportAuthError(String(err));
-          setError(String(err));
+          const msg = String(err);
+          if (isNetworkError(msg) || !isOnline()) {
+            setNetworkFailed(true);
+            noteNetworkTrouble();
+          } else void checkOnline().then((ok) => { if (!ok && !cancelled) setNetworkFailed(true); });
+          reportAuthError(msg);
+          setError(msg);
           setPhase("failed");
         }
       })();
@@ -333,6 +355,11 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       authQueuePausedRef.current = false;
       const trimmed = text.trim();
       if ((!trimmed && attachments.length === 0) || (!chatIdRef.current && !closedRef.current)) return;
+      // Offline, messages wait in the queue and go out when the network is back.
+      if (!onlineRef.current) {
+        setQueued((q) => [...q, { text: trimmed, attachments }]);
+        return;
+      }
       if (closedRef.current) setQueued((q) => [...q, { text: trimmed, attachments }]);
       else if (modelRef.current.status === "idle" && sentAtSeqRef.current === null) dispatch(trimmed, attachments);
       else setQueued((q) => [...q, { text: trimmed, attachments }]);
@@ -343,6 +370,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
   // The turn is over: send the next queued message.
   useEffect(() => {
     if (model.status !== "idle") return;
+    if (!online) return;
     if (authRequired || providerAuthRequired(agent, profileId)) return;
     if (authQueuePausedRef.current) return;
     if (closedRef.current) return;
@@ -351,7 +379,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     if (queued.length === 0) return;
     dispatch(queued[0].text, queued[0].attachments);
     setQueued((q) => q.slice(1));
-  }, [model.status, model.lastSeq, queued, dispatch, authRequired, agent, profileId]);
+  }, [model.status, model.lastSeq, queued, dispatch, authRequired, agent, profileId, online]);
 
   const cancel = useCallback(() => {
     // A delegated child is stopped through its task, so the orchestrator hears of it (status `cancelled`).
@@ -536,6 +564,15 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   /** Starts the agent again - resuming the same session when it had a conversation. */
   const restart = useCallback(() => setAttempt((n) => n + 1), []);
+  // The start failed for lack of network: try again as soon as it is back.
+  // Only on the offline -> online flip: a network error while the probe says
+  // online (a firewall in front of the provider) would otherwise restart in a loop.
+  const prevOnlineRef = useRef(online);
+  useEffect(() => {
+    const cameBack = online && !prevOnlineRef.current;
+    prevOnlineRef.current = online;
+    if (cameBack && phase === "failed" && networkFailed) restart();
+  }, [online, phase, networkFailed, restart]);
   useEffect(() => {
     const authenticated = (event: Event) => {
       const detail = (event as CustomEvent<ProviderAuthenticated>).detail;
@@ -576,11 +613,11 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     await invoke("chat_close", { chatId: id }).catch(() => {});
   }, []);
 
-  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };
+  return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, offline: !online, networkFailed, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "goalAction" | "scheduleResume" | "updateResume"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "offline" | "networkFailed" | "goalAction" | "scheduleResume" | "updateResume"> & {
   /** Arms the message sent by itself at the usage limit's reset; absent for a chat running on another PC (its host arms its own chats). */
   scheduleResume?: (at: number, text: string, limitId: string) => void;
   /** Edits the scheduled resume message (`null` cancels it); absent for a chat running on another PC, unless its host supports `chatResume` (then it goes via the host). */
@@ -596,6 +633,10 @@ export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear"
   answerAsk: (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void | Promise<unknown>;
   /** This provider needs authentication before sending another message. */
   authRequired?: boolean;
+  /** No internet: messages queue until it is back. */
+  offline?: boolean;
+  /** The agent could not start because of the network (it retries by itself once online). */
+  networkFailed?: boolean;
   /** A delegated child's chat shown read-only (see `useChat`'s `attachChatId`). */
   attached?: boolean;
 };

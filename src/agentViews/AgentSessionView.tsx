@@ -20,6 +20,7 @@ import "./builtins";
 import { AgentHeader } from "./AgentHeader";
 import { agentView, resolveAcpView, useAgentViews, viewLabel } from "./registry";
 import { isProviderAuthError } from "../../shared/providerAuth";
+import { OfflineIcon } from "../net/OfflineIcon";
 
 interface AgentSessionViewProps {
   agent: AgentCli;
@@ -195,7 +196,8 @@ export function AgentSessionView({
     }
   }
 
-  const authRequired = chat.authRequired || (phase === "failed" && !!error && isProviderAuthError(error));
+  const authRequired = (chat.authRequired || (phase === "failed" && !!error && isProviderAuthError(error))) && !chat.offline;
+  const offlineFailed = phase === "failed" && !authRequired && (chat.networkFailed || chat.offline);
 
   return (
     <FileLinkWslContext.Provider value={chat.wslDistro ?? null}>
@@ -288,8 +290,20 @@ export function AgentSessionView({
                 </div>
               )}
               {phase === "failed" && (
-                <div className={`chat-state${authRequired ? " chat-auth-callout" : ""}`}>
-                  {authRequired ? (
+                <div className={`chat-state${authRequired ? " chat-auth-callout" : offlineFailed ? " chat-offline-callout" : ""}`}>
+                  {offlineFailed ? (
+                    <>
+                      <div className="chat-state-title">{t("chat.offline.title")}</div>
+                      <span className="chat-offline-symbol" aria-hidden="true"><OfflineIcon size={16} /></span>
+                      <div>{t("chat.offline.body", { agent: label })}</div>
+                      <div className="chat-state-actions">
+                        <button type="button" className="chat-btn is-primary" onClick={chat.restart}>
+                          {t("chat.offline.retry")}
+                        </button>
+                      </div>
+                      <div className="chat-offline-waiting"><span className="chat-offline-dot" aria-hidden="true" />{t("chat.offline.waiting")}</div>
+                    </>
+                  ) : authRequired ? (
                     <>
                       <div className="chat-state-title">{t("chat.auth.title", { agent: label })}</div>
                       <span className="chat-auth-symbol" aria-hidden="true">!</span>

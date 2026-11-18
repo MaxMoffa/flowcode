@@ -12,6 +12,7 @@ mod context;
 mod crash;
 mod dictation;
 pub use dictation::run_gpu_probe_if_requested as run_gpu_probe;
+mod net;
 mod newtab_background;
 mod notify;
 mod plugins;
@@ -242,6 +243,7 @@ pub fn run() {
             plugins::save_plugin,
             plugins::delete_plugin,
             plugins::run_plugin_command,
+            net::network_online,
             plugins::check_cli_status,
             provider_auth::provider_auth,
             plugins::codex_needs_no_daemon,

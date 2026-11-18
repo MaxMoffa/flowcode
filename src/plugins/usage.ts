@@ -32,7 +32,8 @@ export interface UsageMetric {
     | "noApiKey"
     | "billing"
     | "unpriced"
-    | "budget";
+    | "budget"
+    | "offline";
   label?: string;
   /** When the window resets, as the CLI worded it. */
   resets?: string;
@@ -62,6 +63,8 @@ export interface UsageInfo {
   /** When `ok` is false: what went wrong, as plain text for the popover's
    * "copy debug info" button - never rendered in the popover itself. */
   debug?: string;
+  /** Result reused while offline; `fetchedAt` stays the time of the last real read. */
+  offline?: boolean;
 }
 
 /** "$0.42" - cents for anything under $100, "<$0.01" for a spend too small
@@ -94,6 +97,8 @@ export function metricText(m: UsageMetric): { label: string; detail?: string; va
   switch (m.kind) {
     case "unavailable":
       return { label: t("usage.unavailable") };
+    case "offline":
+      return { label: t("usage.offline"), detail: t("usage.offlineNoData") };
     case "loggedOut":
       return { label: t("usage.notLinked"), detail: t("usage.loginHint", { command: m.command ?? "" }) };
     case "reauth":

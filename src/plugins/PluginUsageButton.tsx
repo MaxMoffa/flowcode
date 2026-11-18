@@ -28,7 +28,7 @@ interface PluginUsageButtonProps {
  * UsagePopoverContent/usagePopoverPosition with this component so both
  * stay in sync instead of drifting into two different caches/looks. */
 export function PluginUsageButton({ plugin, icon, onRun, active, parked }: PluginUsageButtonProps) {
-  useI18n();
+  const { t } = useI18n();
   const [profile, setProfile, profileReady] = useUsageProfile(plugin.id);
   const { fetcher, usage, loading, load } = useUsageState(plugin.id, profile, profileReady);
   const profileInfo = profileById(useProfiles(), profile);
@@ -55,16 +55,22 @@ export function PluginUsageButton({ plugin, icon, onRun, active, parked }: Plugi
   // a width over 100% would silently overflow the track instead of showing
   // "full".
   const barPct = barMetric?.percent === undefined ? undefined : Math.max(0, Math.min(100, Math.round(barMetric.percent * 100)));
-  const barWarn = barPct !== undefined && barPct >= 75;
+  const offline = !!usage?.offline;
+  const barWarn = !offline && barPct !== undefined && barPct >= 75;
+  const offlineTitle = !offline
+    ? plugin.label
+    : barPct !== undefined && usage?.fetchedAt
+      ? t("usage.offlineTooltip", { label: plugin.label, time: new Date(usage.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })
+      : `${plugin.label} · ${t("usage.offline")}`;
 
   return (
     <div className="plugin-usage-anchor" data-plugin={plugin.id} onMouseEnter={show} onMouseLeave={scheduleHide} onContextMenu={hide}>
       <button
         ref={btnRef}
         type="button"
-        className="icon-button plugin-usage-btn"
+        className={"icon-button plugin-usage-btn" + (offline ? " is-offline" : "")}
         aria-label={barPct === undefined ? plugin.label : `${plugin.label} - ${barMetric ? metricText(barMetric).label : ""}: ${barPct}%`}
-        title={plugin.label}
+        title={offlineTitle}
         onClick={onRun}
       >
         {icon}

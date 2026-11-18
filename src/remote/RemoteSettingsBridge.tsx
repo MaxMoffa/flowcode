@@ -14,6 +14,7 @@ import { isValidSetting, type SettingContext } from "./settingDefs";
 import { parseProfileOp } from "./profileOps";
 import { createProfile, deleteProfile, logoutProfile, refreshProfiles, updateProfile, useProfiles } from "../profiles/profiles";
 import { defaultCliStatus } from "../agents/cliInfo";
+import { useOnline } from "../net/online";
 
 /** Settings changes are coalesced: dragging a slider on the phone or the
  * desktop fires many in a row. */
@@ -46,6 +47,7 @@ export function RemoteSettingsBridge() {
   const autoResume = useAutoResumeSettings();
   const leader = useRemoteLeader();
   const { profiles, default_logged_in: defaultLoggedIn, default_accounts: defaultAccounts } = useProfiles();
+  const hostOnline = useOnline();
 
   // Palettes only depend on the theme, not on what a tab's zoom does.
   const palettes = useMemo(() => {
@@ -83,6 +85,7 @@ export function RemoteSettingsBridge() {
       linkPreviews,
       chatWebImages,
       chatMcpIcons,
+      hostOnline,
       restoreSession,
       newTabPage,
       notify: { done, input, exited, limitReset },
@@ -90,7 +93,7 @@ export function RemoteSettingsBridge() {
     }),
     [
       theme, mode, paletteId, terminalPaletteId, contrast, glassOpacity, language, preference, palettes,
-      fontSize, bannerEnabled, confirmLinkOpen, linkPreviews, chatWebImages, chatMcpIcons, restoreSession, newTabPage,
+      fontSize, bannerEnabled, confirmLinkOpen, linkPreviews, chatWebImages, chatMcpIcons, hostOnline, restoreSession, newTabPage,
       done, input, exited, limitReset, autoResumeEnabled, autoResumeMessage,
     ],
   );

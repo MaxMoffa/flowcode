@@ -252,6 +252,8 @@ export interface MirroredSettings {
   chatWebImages?: boolean;
   /** Read-only: whether the phone may ask for MCP server icons (`mcpicon`). */
   chatMcpIcons?: boolean;
+  /** The desktop reaches the internet (see src/net/online.ts); absent from older desktops. */
+  hostOnline?: boolean;
   restoreSession: boolean;
   newTabPage: boolean;
   notify: { done: boolean; input: boolean; exited: boolean; limitReset: boolean };

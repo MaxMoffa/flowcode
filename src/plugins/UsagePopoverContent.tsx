@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { formatTokens, metricText, modelDisplayName, type UsageInfo } from "./usage";
 import { useI18n } from "../i18n";
+import { OfflineIcon } from "../net/OfflineIcon";
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { useActiveAgent } from "../agents/activeAgent";
 import { cliOfPlugin } from "../agents/cliInfo";
@@ -237,7 +238,15 @@ export function UsagePopoverContent({
     <>
       <div className="plugin-usage-popover-head">
         <div className="plugin-usage-popover-titles">
-          <div className="plugin-usage-popover-title">{label}</div>
+          <div className="plugin-usage-popover-title">
+            {label}
+            {usage?.offline && (
+              <span className="plugin-usage-offline-chip">
+                <OfflineIcon size={11} />
+                {t("usage.offline")}
+              </span>
+            )}
+          </div>
           {account && <div className="plugin-usage-popover-account" title={account}>{account}</div>}
         </div>
         {onProfileChange && <ProfileSelect
@@ -253,7 +262,7 @@ export function UsagePopoverContent({
         const warn = m.percent !== undefined && m.percent >= 0.75;
         const { label, detail, value } = metricText(m);
         return (
-          <div key={i} className={`plugin-usage-metric${warn ? " plugin-usage-metric--warn" : ""}`}>
+          <div key={i} className={`plugin-usage-metric${warn && !usage.offline ? " plugin-usage-metric--warn" : ""}${usage.offline ? " is-offline" : ""}`}>
             <div className="plugin-usage-metric-top">
               <span className="plugin-usage-metric-label">{label}</span>
               {m.percent !== undefined ? (
@@ -272,7 +281,7 @@ export function UsagePopoverContent({
               </div>
             )}
             {detail && <div className="plugin-usage-metric-detail">{detail}</div>}
-            {m.command && (m.kind === "loggedOut" || m.kind === "reauth" || m.kind === "noApiKey") && (
+            {m.command && !usage.offline && (m.kind === "loggedOut" || m.kind === "reauth" || m.kind === "noApiKey") && (
               <button
                 type="button"
                 className="plugin-usage-login-btn"
@@ -286,6 +295,12 @@ export function UsagePopoverContent({
           </div>
         );
       })}
+      {usage?.offline && usage.metrics.some((m) => m.kind !== "offline") && usage.fetchedAt && (
+        <div className="plugin-usage-offline-foot">
+          <span className="chat-offline-dot" aria-hidden="true" />
+          {t("usage.offlineUpdated", { time: new Date(usage.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}
+        </div>
+      )}
       {usage?.usageUrl && (
         <button type="button" className="plugin-usage-link" onClick={() => void openUrl(usage.usageUrl!).catch(() => {})}>
           {t("usage.openConsole")} ↗

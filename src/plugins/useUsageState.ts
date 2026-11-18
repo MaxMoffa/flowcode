@@ -5,6 +5,7 @@ import { createStore } from "../lib/externalStore";
 import { cliOfPlugin } from "../agents/cliInfo";
 import { activeTabProfile } from "../profiles/activeTabProfile";
 import { CLI_INFO } from "../agents/cliInfo";
+import { checkOnline, isOnline, onOnlineChange } from "../net/online";
 import { markProviderAuthRequired, useProviderAuthRequired } from "../profiles/providerAuth";
 
 const STALE_MS = 30_000;
@@ -74,6 +75,20 @@ function update(entry: Entry, patch: Partial<Snapshot>) {
   entry.listeners.forEach((listener) => listener());
 }
 
+const AUTH_KINDS: string[] = ["reauth", "loggedOut", "noApiKey"];
+
+function offlineUsage(prev?: UsageInfo): UsageInfo {
+  return prev ? { ...prev, offline: true } : { fetchedAt: Date.now(), ok: false, offline: true, metrics: [{ kind: "offline" }] };
+}
+
+// Back online: refetch whatever is showing a reused/offline result.
+onOnlineChange((online) => {
+  if (!online) return;
+  for (const entry of entries.values()) {
+    if (entry.snapshot.usage?.offline) loadUsage(entry.pluginId, entry.profile, true);
+  }
+});
+
 function loadUsage(pluginId: string, profile?: string, force = false) {
   const fetcher = usageFetcherFor(pluginId);
   if (!fetcher) return;
@@ -82,12 +97,25 @@ function loadUsage(pluginId: string, profile?: string, force = false) {
   // for Codex, two concurrent probes means two real CLI sessions.
   if (entry.snapshot.loading) return;
   if (!force && entry.snapshot.usage && Date.now() - entry.lastFetch < STALE_MS) return;
+  const prevUsage = entry.snapshot.usage ?? undefined;
+  // Offline: keep the last reading, and leave lastFetch alone so it refetches once online.
+  if (!isOnline()) {
+    update(entry, { usage: offlineUsage(prevUsage) });
+    return;
+  }
   entry.lastFetch = Date.now();
   const generation = entry.generation;
   update(entry, { loading: true });
   fetcher(profile)
-    .then((usage) => {
+    .then(async (usage) => {
       if (generation !== entry.generation) return;
+      // Offline, a failed read (or an expired token's refresh) looks like a sign-in problem.
+      if ((!usage.ok || usage.metrics.some((metric) => AUTH_KINDS.includes(metric.kind))) && !(await checkOnline())) {
+        if (generation !== entry.generation) return;
+        update(entry, { usage: offlineUsage(prevUsage) });
+        entry.lastFetch = 0;
+        return;
+      }
       update(entry, { usage });
       const cli = cliOfPlugin(pluginId);
       if (cli && usage.metrics.some((metric) => ["reauth", "loggedOut", "noApiKey"].includes(metric.kind))) markProviderAuthRequired(cli, profile);

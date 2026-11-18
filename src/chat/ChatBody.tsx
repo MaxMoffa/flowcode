@@ -7,6 +7,7 @@ import ChatModeSelect from "./ChatModeSelect";
 import ChatModelSelect from "./ChatModelSelect";
 import type { AgentViewProps } from "../agentViews/types";
 import { AskComposer } from "./AskComposer";
+import { OfflineIcon } from "../net/OfflineIcon";
 import { GoalChip } from "./GoalChip";
 import { useCacheWarning } from "./useCacheWarning";
 import { ChatItemView, PaperclipIcon, PermissionCard, SubagentCards, SubagentMarker, SubagentTray, ToolGroup } from "./ChatItems";
@@ -168,6 +169,22 @@ const TranscriptRows = memo(function TranscriptRows({ timeline, nested, liveGrou
 export default function ChatBody({ session: chat, agent, hidden, cwd, openSubagent: sub = null, onOpenSubagent, onOpenDelegate }: AgentViewProps) {
   const { t, language } = useI18n();
   const { model, phase, queued } = chat;
+  // The connection came back after a drop: a green "back online" strip for a moment.
+  const offline = !!chat.offline;
+  const [backOnline, setBackOnline] = useState(false);
+  const wasOffline = useRef(false);
+  useEffect(() => {
+    if (offline) {
+      wasOffline.current = true;
+      setBackOnline(false);
+      return;
+    }
+    if (!wasOffline.current) return;
+    wasOffline.current = false;
+    setBackOnline(true);
+    const timer = window.setTimeout(() => setBackOnline(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [offline]);
   const status = model.status;
   const working = status === "busy" || status === "waiting";
   const notice = model.notice;
@@ -1039,6 +1056,18 @@ export default function ChatBody({ session: chat, agent, hidden, cwd, openSubage
           </ChatPondEnd>
         ) : (
           <div className="chat-composer-wrap">
+            {offline ? (
+              <div className="chat-offline-strip" role="status">
+                <OfflineIcon size={14} />
+                <span>{t("chat.offline.strip")}</span>
+                <span className="chat-offline-muted"> · {t("chat.offline.queued")}</span>
+                <span className="chat-offline-dot" aria-hidden="true" />
+              </div>
+            ) : backOnline ? (
+              <div className="chat-offline-strip is-back" role="status">
+                <span>✓ {t("chat.offline.back")}</span>
+              </div>
+            ) : null}
             {pending.map((item) => (
               <PermissionCard key={item.id} item={item} onAnswer={chat.answerPermission} />
             ))}
