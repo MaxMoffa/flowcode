@@ -86,7 +86,11 @@ fn run(agent: &str, model: Option<String>, prompt: String, probe_pids: &ProbePid
         if let Some(m) = &model {
             cmd.arg("--model").arg(m);
         }
-        cmd.current_dir(std::env::temp_dir()).arg(&prompt);
+        // The real prompt goes through stdin (opencode appends piped input to the
+        // message): as a `.cmd` argument its newlines fail with InvalidInput and
+        // `%VAR%` in dictated text would be expanded by cmd.exe. The argument is
+        // a fixed, newline-free line that keeps the message non-empty.
+        cmd.current_dir(std::env::temp_dir()).arg("Follow the instructions below.");
     } else {
         cmd.args(["-p", "--tools", "", "--no-session-persistence", "--output-format", "text"]);
         if let Some(m) = &model {
@@ -110,10 +114,7 @@ fn run(agent: &str, model: Option<String>, prompt: String, probe_pids: &ProbePid
     probe_pids.track(pid);
     if let Some(mut stdin) = child.stdin.take() {
         // A write error (child died early) surfaces through its exit status.
-        // `opencode run` takes the prompt as its argument (stdin just closes).
-        if bin != "opencode" {
-            let _ = stdin.write_all(prompt.as_bytes());
-        }
+        let _ = stdin.write_all(prompt.as_bytes());
     }
     let result = flowcode_shared::wait_with_timeout(child, TIMEOUT);
     probe_pids.untrack(pid);

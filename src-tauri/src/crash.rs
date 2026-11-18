@@ -153,7 +153,9 @@ pub fn init(app: &tauri::AppHandle) {
     let pid = std::process::id();
     let marker = Marker { pid, started_at: now_ms(), version: env!("CARGO_PKG_VERSION").to_string() };
     let _ = write_json(&marker_path(&dir, pid), &marker);
-    std::thread::spawn(move || detect(&dir, &base, pid));
+    // remote/lifecycle.rs writes remote.log under app_config_dir, not app_data_dir.
+    let log_dir = app.path().app_config_dir().unwrap_or(base);
+    std::thread::spawn(move || detect(&dir, &log_dir, pid));
 }
 
 /// Clean exit: nothing to report. Also drops a panic file a caught panic (debug
@@ -249,9 +251,12 @@ fn detect(dir: &Path, app_data: &Path, own_pid: u32) {
         // Several Flowcode windows/processes can run at once: a marker whose
         // process is still alive (same name, same start time, so not a reused
         // pid) belongs to a healthy instance.
+        // The marker is written after the process started (webview/setup
+        // delay), so the OS start time lies shortly BEFORE `started_at`.
         let alive = sys.process(Pid::from_u32(marker.pid)).is_some_and(|p| {
+            let delta = p.start_time() as i64 - (marker.started_at / 1000) as i64;
             p.name().to_string_lossy().to_ascii_lowercase().contains("flowcode")
-                && (p.start_time() as i64 - (marker.started_at / 1000) as i64).abs() <= 5
+                && (-120..=2).contains(&delta)
         });
         if alive {
             continue;
@@ -711,13 +716,78 @@ fn redact_long_runs(token: &str) -> String {
     out
 }
 
+/// Whether `run` (hex digits, '.' and ':' only) is an IPv4/IPv6 address,
+/// optionally with an IPv4 `:port`. Addresses starting with 0 (such as the
+/// four-part module version "0.36.0.0") are left alone.
+fn is_ip_run(run: &str) -> bool {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    let v4 = |s: &str| s.parse::<Ipv4Addr>().is_ok_and(|a| a.octets()[0] != 0);
+    // The digit requirement keeps Rust paths such as "bad::dec" intact.
+    if v4(run) || (run.bytes().any(|b| b.is_ascii_digit()) && run.parse::<Ipv6Addr>().is_ok()) {
+        return true;
+    }
+    run.rsplit_once(':').is_some_and(|(host, port)| {
+        !port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit()) && v4(host)
+    })
+}
+
+/// Replaces IPv4 / IPv6 addresses (and IPv4 host:port) with `<ip>`.
+fn redact_ips(token: &str) -> String {
+    let is_ip_char = |b: u8| b.is_ascii_hexdigit() || b == b'.' || b == b':';
+    let bytes = token.as_bytes();
+    let mut out = String::with_capacity(token.len());
+    let mut i = 0;
+    let mut copied = 0;
+    while i < bytes.len() {
+        if !is_ip_char(bytes[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && is_ip_char(bytes[i]) {
+            i += 1;
+        }
+        // Trailing sentence punctuation is not part of the address.
+        // Likewise a leading separator ("addr:1.2.3.4").
+        let mut s = start;
+        loop {
+            let mut end = i;
+            let mut hit = false;
+            loop {
+                if is_ip_run(&token[s..end]) {
+                    hit = true;
+                    break;
+                }
+                if end > s && matches!(bytes[end - 1], b'.' | b':') {
+                    end -= 1;
+                } else {
+                    break;
+                }
+            }
+            if hit {
+                out.push_str(&token[copied..s]);
+                out.push_str("<ip>");
+                copied = end;
+                break;
+            }
+            if s < i && matches!(bytes[s], b'.' | b':') {
+                s += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    out.push_str(&token[copied..]);
+    out
+}
+
 fn scrub_token(token: &str) -> String {
     if let Some(at) = token.find('@') {
         if token[at..].contains('.') {
             return "<email>".to_string();
         }
     }
-    redact_long_runs(token)
+    redact_long_runs(&redact_ips(token))
 }
 
 fn scrub(text: &str, ctx: &ScrubCtx) -> String {
@@ -867,11 +937,9 @@ pub fn crash_issue_url(title: String, body: String) -> String {
 /// Debug-only way to produce a crash on purpose. Debug builds unwind on panic,
 /// so rather than panicking this writes what the hook would have written and
 /// aborts, leaving the session marker behind just as a real release crash does.
+#[cfg(debug_assertions)]
 #[tauri::command]
 pub fn crash_simulate(kind: String) -> Result<(), String> {
-    if !cfg!(debug_assertions) {
-        return Err("crash simulation is only available in debug builds".to_string());
-    }
     if kind == "panic" {
         write_panic_file("simulated crash", "src/crash.rs:0:0", "main");
     }
@@ -947,6 +1015,18 @@ mod tests {
         assert_eq!(scrub("short abc123 and a_very_long_identifier_without_digits_in_it", &c),
             "short abc123 and a_very_long_identifier_without_digits_in_it");
         assert_eq!(scrub("line1\n  line2", &c), "line1\n  line2");
+    }
+
+    #[test]
+    fn scrubs_ip_addresses() {
+        let c = ctx();
+        assert_eq!(scrub("peer 192.168.1.20:8080 down", &c), "peer <ip> down");
+        assert_eq!(scrub("connect(10.0.0.5).", &c), "connect(<ip>).");
+        assert_eq!(scrub("addr:1.2.3.4, x", &c), "addr:<ip>, x");
+        assert_eq!(scrub("v6 2001:db8::ff00:42:8329 and ::1 and [fe80::1]:443", &c), "v6 <ip> and <ip> and [<ip>]:443");
+        assert_eq!(scrub("http://203.0.113.9:80/x", &c), "http://<ip>/x");
+        // Versions and source locations survive.
+        assert_eq!(scrub("flowcode.exe 0.36.0.0 at src/a.rs:12:5 v10.0.26300.1", &c), "flowcode.exe 0.36.0.0 at src/a.rs:12:5 v10.0.26300.1");
     }
 
     #[test]

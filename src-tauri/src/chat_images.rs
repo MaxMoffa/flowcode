@@ -22,10 +22,29 @@ const MAX_AGE: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 /// Extensions served as images (lowercase).
 const EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "ico"];
 
-/// Where stored images live. Temporary on purpose: replayed history stores
-/// them again.
+static STORE_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Points the store at the app's private cache folder (set once at startup).
+/// Without it (tests) the shared temp folder is used. The cache is disposable
+/// on purpose: replayed history stores the images again.
+pub(crate) fn init(dir: PathBuf) {
+    let _ = STORE_DIR.set(dir);
+}
+
 fn dir() -> PathBuf {
-    std::env::temp_dir().join("flowcode-chat-images")
+    STORE_DIR.get().cloned().unwrap_or_else(|| std::env::temp_dir().join("flowcode-chat-images"))
+}
+
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)
+    }
 }
 
 /// Writes `bytes` to the store (nothing if they are there already) and returns
@@ -41,7 +60,7 @@ pub(crate) fn store(bytes: &[u8]) -> Result<String, String> {
     if target.exists() {
         return Ok(id);
     }
-    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    create_private_dir(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     let temp = dir.join(format!(".{id}.{}.tmp", uuid::Uuid::new_v4()));
     std::fs::write(&temp, bytes).map_err(|e| format!("could not write {}: {e}", temp.display()))?;
     if let Err(e) = std::fs::rename(&temp, &target) {

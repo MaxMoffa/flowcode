@@ -16,6 +16,7 @@ const RECORD_NAME: &str = ".flowcode-auth.json";
 const KEY_TIMEOUT: Duration = Duration::from_secs(15);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_KEY_BYTES: usize = 8192;
+const SEALED_PREFIX: &str = "dpapi1:";
 static STORE_LOCK: Mutex<()> = Mutex::new(());
 
 // Deliberately not Debug: these values contain credentials.
@@ -52,7 +53,15 @@ fn read_record(dir: &Path) -> Option<AuthRecord> {
         return None;
     }
     let raw = fs::read(path).ok()?;
-    let record: AuthRecord = serde_json::from_slice(&raw).ok()?;
+    let mut record: AuthRecord = serde_json::from_slice(&raw).ok()?;
+    // Sealed values are unsealed here; plaintext (legacy) values are accepted
+    // as is and get sealed by the next `record_bytes`.
+    if let Some(stored) = record.api_key.take() {
+        record.api_key = match stored.strip_prefix(SEALED_PREFIX) {
+            Some(hex) => Some(unseal_key(hex)?),
+            None => Some(stored),
+        };
+    }
     match record.method.as_str() {
         "browser" => Some(AuthRecord { method: record.method, api_key: None }),
         "apiKey" if record.api_key.as_deref().is_some_and(|key| normalize_key(key).is_ok()) => Some(record),
@@ -207,8 +216,32 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     result
 }
 
+fn unseal_key(hex: &str) -> Option<String> {
+    let blob = crate::util::decode_hex(hex.trim())?;
+    let plain = crate::remote::keystore::unseal(&blob)?;
+    String::from_utf8(plain).ok()
+}
+
+/// On Windows the API key is stored DPAPI-sealed (`dpapi1:<hex>`), like the
+/// node key. Elsewhere it stays plaintext in a 0600 file.
+fn seal_key(key: &str) -> Result<String, String> {
+    if !cfg!(windows) {
+        return Ok(key.to_string());
+    }
+    let blob = crate::remote::keystore::seal(key.as_bytes())
+        .filter(|blob| !blob.is_empty())
+        .ok_or("key_storage_failed")?;
+    let hex: String = blob.iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(format!("{SEALED_PREFIX}{hex}"))
+}
+
 fn record_bytes(record: &AuthRecord) -> Result<Vec<u8>, String> {
-    serde_json::to_vec_pretty(record).map_err(|_| "key_storage_failed".into())
+    let api_key = match record.api_key.as_deref() {
+        Some(key) if !key.starts_with(SEALED_PREFIX) => Some(seal_key(key)?),
+        other => other.map(str::to_string),
+    };
+    let stored = AuthRecord { method: record.method.clone(), api_key };
+    serde_json::to_vec_pretty(&stored).map_err(|_| "key_storage_failed".into())
 }
 
 /// Preserve unknown Gemini preferences instead of replacing the settings file.

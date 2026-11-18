@@ -42,6 +42,62 @@ fn find_program(cli: &str) -> Option<PathBuf> {
     None
 }
 
+/// Writes the shim through a temp file so a shell launching it concurrently
+/// never sees half a script.
+fn write_shim(path: &Path, script: &str) -> Result<(), String> {
+    let temporary = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
+    let result = (|| {
+        std::fs::write(&temporary, script)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o700))?;
+        }
+        std::fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result.map_err(|e| e.to_string())
+}
+
+/// The script an npm `.cmd` shim runs, relative to the shim's folder: the last
+/// quoted `%dp0%\...` / `%~dp0\...` path with a script or executable extension.
+#[cfg(any(windows, test))]
+fn shim_target(text: &str) -> Option<String> {
+    let mut found = None;
+    for piece in text.split('"') {
+        let lower = piece.to_ascii_lowercase();
+        let rest = ["%dp0%\\", "%~dp0\\", "%dp0%/", "%~dp0/"]
+            .iter()
+            .find_map(|prefix| lower.starts_with(prefix).then(|| &piece[prefix.len()..]));
+        let Some(rest) = rest else { continue };
+        let ext = rest.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+        if matches!(ext.as_str(), "js" | "mjs" | "cjs" | "exe") && !rest.contains('%') && !rest.eq_ignore_ascii_case("node.exe") {
+            found = Some(rest.to_string());
+        }
+    }
+    found
+}
+
+/// A `.cmd`/`.bat` program resolved to what it really runs, so arguments reach it
+/// without passing through cmd.exe (which rejects newlines and expands `%VAR%`).
+#[cfg(windows)]
+fn resolve_cmd_shim(program: &Path) -> Option<(PathBuf, Vec<std::ffi::OsString>)> {
+    let text = std::fs::read_to_string(program).ok()?;
+    let dir = program.parent()?;
+    let target = dir.join(shim_target(&text)?.replace('/', "\\"));
+    if !target.is_file() {
+        return None;
+    }
+    if target.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
+        return Some((target, Vec::new()));
+    }
+    let local_node = dir.join("node.exe");
+    let node = if local_node.is_file() { local_node } else { find_program("node").filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")))? };
+    Some((node, vec![target.into_os_string()]))
+}
+
 pub(crate) fn install(
     app: &AppHandle,
     profile: Option<&str>,
@@ -100,13 +156,7 @@ pub(crate) fn install(
             (root.join(cli), format!("#!/bin/sh\nexec {quoted} \"$@\"\n"))
         };
         if std::fs::read_to_string(&path).ok().as_deref() != Some(&script) {
-            std::fs::write(&path, script).map_err(|e| e.to_string())?;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-                .map_err(|e| e.to_string())?;
+            write_shim(&path, &script)?;
         }
     }
     let mut paths = vec![root];
@@ -143,7 +193,21 @@ pub fn run_if_requested() {
             windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS,
         );
     }
-    let mut command = Command::new(program);
+    let mut args: Vec<std::ffi::OsString> = args.collect();
+    let mut program = std::path::PathBuf::from(program);
+    #[cfg(windows)]
+    if program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat")) {
+        if let Some((real, mut prefix)) = resolve_cmd_shim(&program) {
+            prefix.append(&mut args);
+            args = prefix;
+            program = real;
+        } else if args.iter().any(|a| a.to_string_lossy().contains(['\n', '\r'])) {
+            // cmd.exe cannot take a multi-line argument; fail loudly, not with a silent 127.
+            eprintln!("flowcode: {} cannot receive a multi-line argument through a .cmd launcher; run its .exe or node entry point directly", program.display());
+            std::process::exit(1);
+        }
+    }
+    let mut command = Command::new(&program);
     command
         .args(args)
         .envs(crate::provider_auth_keys::cli_record_env(
@@ -153,17 +217,18 @@ pub fn run_if_requested() {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        let _ = command.exec();
+        let error = command.exec();
+        eprintln!("flowcode: cannot start {}: {error}", program.display());
         std::process::exit(127);
     }
     #[cfg(not(unix))]
-    std::process::exit(
-        command
-            .status()
-            .ok()
-            .and_then(|status| status.code())
-            .unwrap_or(127),
-    );
+    match command.status() {
+        Ok(status) => std::process::exit(status.code().unwrap_or(127)),
+        Err(error) => {
+            eprintln!("flowcode: cannot start {}: {error}", program.display());
+            std::process::exit(127);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -173,5 +238,12 @@ mod tests {
     #[test]
     fn shell_paths_are_quoted_without_expansion() {
         assert_eq!(quote_shell("a'b$(x)"), "'a'\"'\"'b$(x)'");
+    }
+
+    #[test]
+    fn npm_shim_target_is_extracted() {
+        let shim = "@ECHO off\r\nIF EXIST \"%dp0%\\node.exe\" (\r\n  SET \"_prog=%dp0%\\node.exe\"\r\n)\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  \"%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js\" %*\r\n";
+        assert_eq!(shim_target(shim).as_deref(), Some("node_modules\\@openai\\codex\\bin\\codex.js"));
+        assert_eq!(shim_target("@echo off\r\ncall other.cmd %*"), None);
     }
 }

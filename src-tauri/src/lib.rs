@@ -104,6 +104,9 @@ pub fn run() {
                 }
             }
             // Pictures of past chats; replayed history stores the ones it needs again.
+            if let Ok(cache) = app.path().app_cache_dir() {
+                chat_images::init(cache.join("chat-images"));
+            }
             std::thread::spawn(chat_images::purge_old);
             std::thread::spawn(chat::purge_attachments);
             let remote = remote::RemoteState::load(app.handle());
@@ -160,6 +163,7 @@ pub fn run() {
             crash::crash_dismiss,
             crash::crash_dismiss_all,
             crash::crash_issue_url,
+            #[cfg(debug_assertions)]
             crash::crash_simulate,
             gpu::get_hardware_acceleration,
             gpu::set_hardware_acceleration,
@@ -326,7 +330,6 @@ pub fn run() {
             remote_client::remote_host_forget,
             remote_client::remote_host_send,
             remote_client::remote_host_cached,
-            remote_client::remote_host_log,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

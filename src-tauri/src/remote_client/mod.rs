@@ -700,12 +700,6 @@ pub fn remote_host_cached(clients: State<'_, Arc<RemoteClients>>, id: String) ->
     clients.lock().get(&id).map(|c| c.cache.iter().map(|(_, m)| m.clone()).collect()).unwrap_or_default()
 }
 
-/// The recent connection events of a host, oldest first.
-#[tauri::command]
-pub fn remote_host_log(clients: State<'_, Arc<RemoteClients>>, id: String) -> Vec<connlog::Entry> {
-    clients.lock().get(&id).map(|c| c.log.snapshot()).unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

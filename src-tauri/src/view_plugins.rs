@@ -244,7 +244,9 @@ fn install_package(views: &Path, files: Vec<PackageFile>, overwrite: bool) -> Re
     if target.exists() && !overwrite {
         return Err(format!("exists:{}", manifest.id));
     }
+    clean_stale_staging(views, &manifest.id);
     let staging = views.join(format!(".{}.tmp-{}", manifest.id, uuid::Uuid::new_v4()));
+    let backup = views.join(format!(".{}.old-{}", manifest.id, uuid::Uuid::new_v4()));
     let written = (|| -> std::io::Result<()> {
         for (path, bytes) in paths.iter().zip(&contents) {
             let file = staging.join(path);
@@ -253,16 +255,41 @@ fn install_package(views: &Path, files: Vec<PackageFile>, overwrite: bool) -> Re
             }
             std::fs::write(file, bytes)?;
         }
-        if target.exists() {
-            std::fs::remove_dir_all(&target)?;
+        // The old version is moved aside, not deleted, until the new one is in
+        // place: a failed swap restores it instead of losing the plugin.
+        let had_old = target.exists();
+        if had_old {
+            std::fs::rename(&target, &backup)?;
         }
-        std::fs::rename(&staging, &target)
+        if let Err(e) = std::fs::rename(&staging, &target) {
+            if had_old {
+                let _ = std::fs::rename(&backup, &target);
+            }
+            return Err(e);
+        }
+        if had_old {
+            let _ = std::fs::remove_dir_all(&backup);
+        }
+        Ok(())
     })();
     if let Err(e) = written {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(e.to_string());
     }
     Ok(manifest)
+}
+
+/// Removes leftover `.{id}.tmp-*` / `.{id}.old-*` folders of an install that was
+/// interrupted (crash, power loss). Hidden folders are never listed as views.
+fn clean_stale_staging(views: &Path, id: &str) {
+    let (tmp, old) = (format!(".{id}.tmp-"), format!(".{id}.old-"));
+    let Ok(entries) = std::fs::read_dir(views) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(&tmp) || name.starts_with(&old) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 #[tauri::command]

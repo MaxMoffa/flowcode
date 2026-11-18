@@ -158,9 +158,25 @@ fn has_pdf_extension(path: &str) -> bool {
 }
 
 fn fetch_pdf(url: &str) -> Result<Vec<u8>, String> {
-    let builder = ureq::AgentBuilder::new().timeout(PDF_TIMEOUT).redirects(FRAME_CHECK_REDIRECTS).user_agent(FRAME_CHECK_USER_AGENT);
-    let agent = if local_frame_target(url) { builder } else { builder.resolver(crate::link_preview::PublicOnly) }.build();
-    let response = agent.get(url).call().map_err(|e| e.to_string())?;
+    // Redirects are followed by hand so that every hop is classified again:
+    // a loopback page may redirect to another loopback URL, but a redirect
+    // to an internal address from a public host (or from loopback to a
+    // non-loopback host) must go through the public-only resolver.
+    let deadline = std::time::Instant::now() + PDF_TIMEOUT;
+    let mut current = tauri::Url::parse(url).map_err(|e| e.to_string())?;
+    let mut hops = 0;
+    let response = loop {
+        let builder = ureq::AgentBuilder::new().redirects(0).user_agent(FRAME_CHECK_USER_AGENT);
+        let agent = if local_frame_target(current.as_str()) { builder } else { builder.resolver(crate::link_preview::PublicOnly) }.build();
+        let left = deadline.checked_duration_since(std::time::Instant::now()).filter(|d| !d.is_zero()).ok_or("timed out")?;
+        let response = agent.get(current.as_str()).timeout(left).call().map_err(|e| e.to_string())?;
+        if !(300..400).contains(&response.status()) { break response; }
+        hops += 1;
+        if hops > FRAME_CHECK_REDIRECTS { return Err("too many redirects".into()); }
+        let location = response.header("Location").ok_or("redirect without a location")?;
+        current = current.join(location).map_err(|e| e.to_string())?;
+        if !matches!(current.scheme(), "http" | "https") { return Err("bad redirect".into()); }
+    };
     let mut bytes = Vec::new();
     response.into_reader().take(PDF_MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > PDF_MAX_BYTES { return Err("PDF too large".into()); }
@@ -169,6 +185,10 @@ fn fetch_pdf(url: &str) -> Result<Vec<u8>, String> {
 
 fn read_local_pdf(path: &str) -> Result<Vec<u8>, String> {
     if !has_pdf_extension(path) { return Err("not a PDF file".into()); }
+    let local = std::path::Path::new(path);
+    if !crate::fs::is_local_path(local, false) || !crate::fs::links_stay_local(local) {
+        return Err("network paths cannot be previewed".into());
+    }
     let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
     if !meta.is_file() { return Err("not a file".into()); }
     if meta.len() > PDF_MAX_BYTES { return Err("PDF too large".into()); }
@@ -222,7 +242,9 @@ pub async fn preview_probe_port(port: u16) -> bool {
 /// Last modification time of a file in ms since the epoch, for live reload.
 #[tauri::command]
 pub fn preview_file_mtime(path: String) -> Option<u64> {
-    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let local = std::path::Path::new(&path);
+    if !crate::fs::is_local_path(local, false) || !crate::fs::links_stay_local(local) { return None; }
+    let modified = std::fs::metadata(local).ok()?.modified().ok()?;
     Some(modified.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64)
 }
 
