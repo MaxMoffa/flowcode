@@ -4,7 +4,7 @@ import { buildAskContent, missingRequired, type AskAnswer, type AskOption, type 
 import type { ChatItem } from "./chatModel";
 
 type AskItem = Extract<ChatItem, { type: "ask" }>;
-type Answer = (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+type Answer = (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void | Promise<unknown>;
 
 interface AskComposerProps {
   item: AskItem;
@@ -40,7 +40,15 @@ export function AskComposer({ item, agent, onAnswer, autoFocus, head, actions, a
   const answer: Answer = (requestId, action, content) => {
     if (answered.current) return;
     answered.current = true;
-    onAnswer(requestId, action, content);
+    // A failed send (the backend refused, the link dropped) frees the card for another try.
+    const reset = () => {
+      answered.current = false;
+    };
+    try {
+      void Promise.resolve(onAnswer(requestId, action, content)).catch(reset);
+    } catch {
+      reset();
+    }
   };
   const skip = () => answer(item.requestId, "decline");
   return questions.length === 1 ? (

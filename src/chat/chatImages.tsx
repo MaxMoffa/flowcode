@@ -39,7 +39,7 @@ function mimeOf(ref: ChatImageRef, fallback?: string): string {
 }
 
 /** IDs identify content; relative paths belong to one chat and host. */
-const keyOf = (ref: ChatImageRef, chatId: string | null) => (ref.id ? `id:${ref.id}` : ref.path ? `path:${chatId ?? ""}:${ref.path}` : ref.url ? `url:${ref.url}` : null);
+const keyOf = (ref: ChatImageRef, chatId: string | null) => (ref.id ? `id:${ref.id}` : ref.path ? `path:${chatId ?? ""}:${ref.rev ?? ""}:${ref.path}` : ref.url ? `url:${ref.url}` : null);
 const cacheKey = (scope: string, ref: ChatImageRef, chatId: string | null) => {
   const key = keyOf(ref, chatId);
   return key ? `${scope}:${key}` : null;

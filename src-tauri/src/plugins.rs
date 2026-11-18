@@ -317,9 +317,27 @@ fn codex_billing_mode(output: &str) -> &'static str {
 /// Runs a plugin's `commandOutput` command headlessly and returns its
 /// combined stdout+stderr for display in a popup. Still just the same fixed
 /// action vocabulary as everything else: the command text comes from a
-/// manifest field, never from anywhere else.
+/// manifest field, never from anywhere else. The webview only names the
+/// plugin (and, for a dialog's button, which one): the command is read from
+/// the installed manifest on disk, so a compromised page can't run arbitrary
+/// strings through here.
 #[tauri::command]
-pub async fn run_plugin_command(command: String) -> Result<String, String> {
+pub async fn run_plugin_command(app: AppHandle, plugin_id: String, button: Option<usize>) -> Result<String, String> {
+    let dir = plugins_dir(&app)?;
+    let not_found = || tr("Plugin non trovato", "Plugin not found").to_string();
+    let path = find_plugin_file(&dir, &plugin_id).ok_or_else(not_found)?;
+    let manifest: PluginManifest =
+        serde_json::from_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let (action, command) = match button {
+        Some(i) => {
+            let b = manifest.buttons.get(i).ok_or_else(not_found)?;
+            (b.action.as_str(), b.command.clone())
+        }
+        None => (manifest.action.as_str(), manifest.command.clone()),
+    };
+    if action != "commandOutput" || command.trim().is_empty() {
+        return Err(tr("Il plugin non ha un comando da eseguire", "The plugin has no command to run").to_string());
+    }
     flowcode_shared::run_command_for_display(command).await
 }
 

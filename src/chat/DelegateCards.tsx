@@ -137,7 +137,7 @@ interface DelegateRequestsProps {
   requests: DelegateRequest[];
   /** Answers a permission request in the child's chat; null cancels it. */
   onPermission: (childChatId: string, requestId: string, optionId: string | null) => void;
-  onAsk: (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  onAsk: (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void | Promise<unknown>;
   onOpen: (request: DelegateRequest) => void;
   autoFocus: boolean;
 }

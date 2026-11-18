@@ -456,14 +456,6 @@ function Shell() {
         const gemini = examplePlugins().find((p) => p.id === CLI_INFO.gemini.pluginId);
         if (gemini) await invoke("save_plugin", { plugin: gemini });
       }
-      if (seededBefore && !chosen && !readString(OPENCODE_PLUGIN_SEEDED_KEY) && !byId.has(CLI_INFO.opencode.pluginId)) {
-        const opencode = examplePlugins().find((p) => p.id === CLI_INFO.opencode.pluginId);
-        if (opencode) await invoke("save_plugin", { plugin: opencode });
-      }
-      if (seededBefore && !chosen && !readString(CLINE_PLUGIN_SEEDED_KEY) && !byId.has(CLI_INFO.cline.pluginId)) {
-        const cline = examplePlugins().find((p) => p.id === CLI_INFO.cline.pluginId);
-        if (cline) await invoke("save_plugin", { plugin: cline });
-      }
     } catch {
       /* plugins folder unavailable (e.g. dev in a plain browser) */
     }
@@ -1557,7 +1549,7 @@ function Shell() {
     if (!tab || tab.kind === "chat") return;
     const target = await invoke<CursorTarget>("window_at_cursor").catch(() => null);
     if (!target) return;
-    const alone = latestRef.current.tabs.length === 1;
+    const alone = listedTabs(latestRef.current.tabs).length === 1;
     const otherWindow = target.label !== null && target.label !== appWindow.label ? target.label : null;
     if (!otherWindow && alone) {
       if (target.label === null) await invoke("window_move_to_cursor").catch(() => {});
@@ -1583,6 +1575,7 @@ function Shell() {
   /** Drops the per-tab bookkeeping kept outside `tabs` itself. */
   function forgetTab(id: string) {
     forgetBrowserTab(id);
+    panelsByTabRef.current.delete(id);
     termRefs.current.delete(id);
     termCallbacksRef.current.delete(id);
     editorRefs.current.delete(id);
@@ -1616,7 +1609,8 @@ function Shell() {
   async function closeTab(id: string) {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
-    if (latestRef.current.tabs.length === 1) {
+    // The new-tab dialog draft doesn't count: closing the only real tab closes the window.
+    if (!isDialogTab(tab) && listedTabs(latestRef.current.tabs).length === 1) {
       void appWindow.close();
       return;
     }
@@ -1654,7 +1648,7 @@ function Shell() {
     // nothing left to show, so close the window rather than leave it empty.
     // Any other tab can go, terminals included - a window holding just
     // Settings or an editor is fine.
-    if (current.tabs.length === 1) {
+    if (current.tabs.length === 1 || (!isDialogTab(tab) && listedTabs(current.tabs).length === 1)) {
       appWindow.close();
       return;
     }
@@ -2751,7 +2745,11 @@ function Shell() {
         break;
       case "commandOutput":
         if (!plugin.command) break;
-        invoke<string>("run_plugin_command", { command: plugin.command })
+        // The backend resolves the command from the installed manifest: only the plugin id (and a dialog button's index) goes over.
+        invoke<string>("run_plugin_command", {
+          pluginId: "id" in plugin ? plugin.id : (pluginDialog?.id ?? ""),
+          button: "id" in plugin ? null : (pluginDialog?.buttons?.indexOf(plugin as PluginButtonDef) ?? -1),
+        })
           .then((output) => setPluginDialog({ id: "__result", label: plugin.label, action: "dialog", title: plugin.label, message: output }))
           .catch((err) =>
             setPluginDialog({ id: "__result", label: plugin.label, action: "dialog", title: plugin.label, message: String(err) }),

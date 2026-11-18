@@ -123,6 +123,8 @@ export interface ChatImageRef {
   url?: string;
   mimeType?: string;
   name?: string;
+  /** Which item the ref was shown in: part of a `path` ref's cache key, so a file rewritten later is read again, not served from the cache. */
+  rev?: string;
 }
 
 /** A file sent with a prompt: its bytes (base64, no `data:` prefix) or a path on this PC. */

@@ -239,6 +239,14 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
           }
           if (cancelled) return;
           const events = mergeReplay(past, buffer);
+          // What arrived live while the replay was fetched is new, not history: it still goes through followOpen (opens, `call_user`).
+          const maxPast = past.reduce((max, ev) => Math.max(max, ev.seq), -Infinity);
+          const seenLive = new Set<number>();
+          for (const ev of buffer) {
+            if (ev.seq <= maxPast || seenLive.has(ev.seq)) continue;
+            seenLive.add(ev.seq);
+            followOpen(ev);
+          }
           buffer = null;
           const replayedActivity = events.reduce(trackActivity, activityRef.current);
           // A loaded session replays old history stamped with the load time: its real time is the one known from before.
@@ -379,7 +387,12 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   const answerAsk = useCallback((requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => {
     const id = chatIdRef.current;
-    if (id) invoke("chat_ask", { chatId: id, requestId, action, content }).catch((err) => failed(id, err));
+    if (!id) return Promise.reject(new Error("no chat"));
+    // Resolves on success; a failure is shown in the conversation and rejects, so the card can be answered again.
+    return invoke<void>("chat_ask", { chatId: id, requestId, action, content }).catch((err) => {
+      failed(id, err);
+      throw err;
+    });
   }, [failed]);
 
   /** Answers a permission request one of this chat's delegates asked, in the child's own chat. */
@@ -389,19 +402,27 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 
   /** Answers a question one of this chat's delegates asked. */
   const answerDelegateAsk = useCallback((childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => {
-    invoke("chat_ask", { chatId: childChatId, requestId, action, content }).catch((err) => failed(chatIdRef.current ?? "", err));
+    return invoke<void>("chat_ask", { chatId: childChatId, requestId, action, content }).catch((err) => {
+      failed(chatIdRef.current ?? "", err);
+      throw err;
+    });
   }, [failed]);
 
   // The pages this chat's delegates open (their own events reach no one when their tab is closed): live events only, from the chat's own window.
   const wslDistroRef = useRef(wslDistro);
   wslDistroRef.current = wslDistro;
+  // This chat's delegates' ids, kept apart so an event of any chat is checked with a lookup, not a scan of the items.
+  const childIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    childIdsRef.current = new Set(delegatesOf(model.items).map((d) => d.childChatId));
+  }, [model.items]);
   useEffect(() => {
     if (attachChatId) return;
     let off: (() => void) | null = null;
     let gone = false;
     const track = createAgentOpenTracker(cwd);
     void listen<ChatEventPayload>("chat-event", (e) => {
-      if (!delegatesOf(modelRef.current.items).some((d) => d.childChatId === e.payload.chatId)) return;
+      if (!childIdsRef.current.has(e.payload.chatId)) return;
       const open = track(e.payload.event);
       if (open) void routeAgentOpen(open, wslDistroRef.current, confirmOpenRef.current, openTabIdRef.current);
     }).then((stop) => (gone ? stop() : (off = stop)));
@@ -559,7 +580,7 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
 }
 
 /** One running chat session, as `useChat` hands it to an agent view. */
-export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "goalAction" | "scheduleResume" | "updateResume"> & {
+export type ChatSession = Omit<ReturnType<typeof useChat>, "answerAsk" | "clear" | "answerDelegatePermission" | "answerDelegateAsk" | "attached" | "authRequired" | "goalAction" | "scheduleResume" | "updateResume"> & {
   /** Arms the message sent by itself at the usage limit's reset; absent for a chat running on another PC (its host arms its own chats). */
   scheduleResume?: (at: number, text: string, limitId: string) => void;
   /** Edits the scheduled resume message (`null` cancels it); absent for a chat running on another PC, unless its host supports `chatResume` (then it goes via the host). */
@@ -570,7 +591,9 @@ export type ChatSession = Omit<ReturnType<typeof useChat>, "clear" | "answerDele
   clear?: () => void;
   /** Answer a permission request or question one of the chat's delegates asked (in the child's own chat); absent for a chat running on another PC, whose delegates are not shown. */
   answerDelegatePermission?: (childChatId: string, requestId: string, optionId: string | null) => void;
-  answerDelegateAsk?: (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  answerDelegateAsk?: (childChatId: string, requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void | Promise<unknown>;
+  /** Answers the open question; a returned promise rejects when the answer didn't go through, so the card can be answered again. */
+  answerAsk: (requestId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void | Promise<unknown>;
   /** This provider needs authentication before sending another message. */
   authRequired?: boolean;
   /** A delegated child's chat shown read-only (see `useChat`'s `attachChatId`). */

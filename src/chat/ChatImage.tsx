@@ -191,7 +191,9 @@ export function ChatImageView({ image, variant, caption, more }: { image: ChatIm
 }
 
 /** Images of one message: one alone at its size, several as a grid of squares (four at most, the last with "+N" for the rest, which stay in the lightbox's reach). `thumb` draws a user's attachments. */
-export function ChatImages({ images, variant = "single" }: { images: ChatImageRef[]; variant?: "single" | "thumb" }) {
+export function ChatImages({ images: given, variant = "single", rev }: { images: ChatImageRef[]; variant?: "single" | "thumb"; rev?: string }) {
+  // `rev` (the item or tool call these come from) keeps a file rewritten under the same path from showing its old picture.
+  const images = rev ? given.map((image) => (image.path ? { ...image, rev } : image)) : given;
   if (images.length === 0) return null;
   if (variant === "thumb") {
     return (

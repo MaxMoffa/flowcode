@@ -9,6 +9,8 @@ function useDesktopDismiss(open: boolean, close: () => void) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      // Capture phase: stop it here so Escape doesn't reach the composer and cancel the turn.
+      event.stopPropagation();
       close();
     };
     window.addEventListener("keydown", onKeyDown, true);

@@ -167,7 +167,8 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
       if (ok) ensureModelsLoaded();
     });
     type Own = { session?: string | null };
-    const unlisten = Promise.all([
+    // Settled one by one: a listener that failed to register must not leave the others registered (or reject unhandled).
+    const unlisten = Promise.allSettled([
       listen<Own & { text: string }>("dictation://partial", (e) => {
         if (!isOwnEvent(sessionRef.current, e.payload)) return;
         heardRef.current = true;
@@ -206,7 +207,7 @@ export function useDictation(onFinal: (text: string) => void, active: boolean, o
     ]);
     return () => {
       cancelled = true;
-      unlisten.then((fns) => fns.forEach((fn) => fn()));
+      void unlisten.then((results) => results.forEach((r) => r.status === "fulfilled" && r.value()));
     };
   }, [flushPending, commit, afterCleanup]);
 

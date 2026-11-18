@@ -100,7 +100,7 @@ function ToolStep({ step, live, index }: { step: Extract<TimelineStep, { type: "
       ))}
       {images.length > 0 && (
         <div className="chat-step-media">
-          <ChatImages images={images} />
+          <ChatImages images={images} rev={call.toolCallId} />
         </div>
       )}
     </div>
@@ -350,6 +350,7 @@ const STOP_TEXT: Record<StopKind, Parameters<ReturnType<typeof useI18n>["t"]>[0]
   maxTokens: "chat.stop.maxTokens",
   maxTurnRequests: "chat.stop.maxTurnRequests",
   refusal: "chat.stop.refusal",
+  skipped: "chat.stop.skipped",
   other: "chat.stop.other",
 };
 
@@ -407,7 +408,7 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
       const files = item.attachments ?? [];
       return (
         <>
-          {item.images && item.images.length > 0 && <ChatImages images={item.images} variant="thumb" />}
+          {item.images && item.images.length > 0 && <ChatImages images={item.images} variant="thumb" rev={item.id} />}
           {(item.text || files.length > 0) && (
             <div className="chat-user">
               <UserText text={item.text} />
@@ -435,7 +436,7 @@ export const ChatItemView = memo(function ChatItemView({ item }: ChatItemViewPro
               <LinkPreviews text={item.text} />
             </>
           )}
-          {item.images && item.images.length > 0 && <ChatImages images={item.images} />}
+          {item.images && item.images.length > 0 && <ChatImages images={item.images} rev={item.id} />}
         </>
       );
     case "thought":

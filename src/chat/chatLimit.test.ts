@@ -26,6 +26,16 @@ describe("limitOf", () => {
     expect(limitOf([user("u1"), error("e2", "Quota exceeded for model")], NOW)).toBeNull();
   });
 
+  it("ignores a long reply that only quotes a limit message", () => {
+    const long = `Here is how the CLI words it: "You've hit your limit · resets 3pm". ${"It then waits for the reset. ".repeat(20)}`;
+    expect(limitOf([user("u1"), agent("a1", long)], NOW)).toBeNull();
+  });
+
+  it("takes the reset time from the text of a flagged error", () => {
+    const flagged: ChatItem = { type: "error", id: "e1", message: "You've hit your limit · resets 3pm", limit: true };
+    expect(limitOf([user("u1"), flagged], NOW)).toEqual({ id: "e1", at: new Date(2026, 9, 20, 15, 0, 0).getTime() });
+  });
+
   it("ignores a notice before a newer user message", () => {
     expect(limitOf([agent("a1", "You've hit your limit"), user("u2"), agent("a2", "ok")], NOW)).toBeNull();
   });
