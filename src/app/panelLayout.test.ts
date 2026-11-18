@@ -12,16 +12,16 @@ describe("solvePanels", () => {
     expect(r.parked).toEqual([]);
   });
 
-  it("shrinks the lowest-priority panel first", () => {
-    // 420 + 488 + 248 + 248 = 1404; 1374 available -> 30 short, taken from agents.
+  it("shrinks the browser first, even when it has top priority", () => {
+    // 420 + 488 + 248 + 248 = 1404; 1374 available -> 30 short, taken from the browser.
     const r = solvePanels(1374, 420, 8, [browser, sidebar, agents]);
-    expect(r.shown).toEqual({ browser: 480, sidebar: 240, agents: 210 });
+    expect(r.shown).toEqual({ browser: 450, sidebar: 240, agents: 240 });
   });
 
-  it("moves up to the next panel once the lowest is at its min", () => {
-    // 150 short: agents gives 40 (to its min), sidebar 60 (to its min), browser the last 50.
-    const r = solvePanels(1254, 420, 8, [browser, sidebar, agents]);
-    expect(r.shown).toEqual({ browser: 430, sidebar: 180, agents: 200 });
+  it("then shrinks the lowest-priority panel up", () => {
+    // 250 short: browser gives 160 (to its min), agents 40 (to its min), sidebar the last 50.
+    const r = solvePanels(1154, 420, 8, [browser, sidebar, agents]);
+    expect(r.shown).toEqual({ browser: 320, sidebar: 190, agents: 200 });
     expect(r.parked).toEqual([]);
   });
 

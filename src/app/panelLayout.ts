@@ -25,8 +25,9 @@ export interface LayoutResult {
  * while the center keeps `centerMin`; the first one that doesn't fit and every
  * lower one are parked. The top panel is the exception: the user just asked
  * for it, so it stays (at its min if need be) even if it squeezes the center.
- * Whatever still overflows after that is taken from the lowest-priority panel
- * first, down to its min, then from the next one up. */
+ * Whatever still overflows after that is taken from the browser first (it is
+ * the elastic panel: opening it must not squeeze the explorer), then from the
+ * lowest-priority panel up, each down to its min. */
 export function solvePanels(available: number, centerMin: number, gap: number, byPriority: PanelReq[]): LayoutResult {
   const kept: PanelReq[] = [];
   let used = centerMin;
@@ -44,7 +45,11 @@ export function solvePanels(available: number, centerMin: number, gap: number, b
 
   const widths = kept.map((p) => Math.max(p.width, p.min));
   let deficit = centerMin + widths.reduce((sum, w) => sum + w + gap, 0) - available;
-  for (let i = kept.length - 1; i >= 0 && deficit > 0; i--) {
+  const browserAt = kept.findIndex((p) => p.key === "browser");
+  const shrinkOrder = kept.map((_, i) => kept.length - 1 - i).filter((i) => i !== browserAt);
+  if (browserAt >= 0) shrinkOrder.unshift(browserAt);
+  for (const i of shrinkOrder) {
+    if (deficit <= 0) break;
     const take = Math.min(deficit, widths[i] - kept[i].min);
     widths[i] -= take;
     deficit -= take;

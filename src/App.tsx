@@ -224,7 +224,8 @@ function Shell() {
     storageKey: "flowcode.browserWidth",
     defaultWidth: 480,
     min: 320,
-    max: 1100,
+    // The layout caps it to what leaves the center its minimum.
+    max: 4000,
     handleSide: "left",
     getMax: () => layoutLiveRef.current.maxWidth.browser ?? Infinity,
     getCurrent: () => layoutLiveRef.current.shown.browser,
@@ -558,7 +559,7 @@ function Shell() {
     setBrowserOpen,
     bodyRef: appBodyRef,
     // A chat needs more room than a terminal to stay readable.
-    centerMin: tabs.some((t) => t.id === activeTabId && t.kind === "chat") ? 420 : 360,
+    centerMin: tabs.some((t) => t.id === activeTabId && t.kind === "chat") ? 320 : 360,
     panels: {
       sidebar: { width: sidebarResize.width, min: sidebarResize.min },
       agents: { width: agentsResize.width, min: agentsResize.min },
