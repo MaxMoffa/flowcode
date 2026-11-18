@@ -6,7 +6,7 @@ import { emitTo } from "@tauri-apps/api/event";
 import { Sidebar } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentInsightPanel } from "./agents/AgentInsightPanel";
-import { activatePage, forgetBrowserTab, openFileInPreview, setBrowserFocusTab, setBrowserOpen, switchBrowserTab, takePendingPage, useBrowser } from "./browser/browserStore";
+import { forgetBrowserTab, openFileInPreview, setBrowserFocusTab, setBrowserOpen, useBrowser } from "./browser/browserStore";
 import { AgentHistoryPanel } from "./agents/AgentHistoryPanel";
 import { TerminalView, type PromptAnchor, type TerminalHandle, type TerminalTransfer } from "./terminal/Terminal";
 import { TabStrip } from "./terminal/TabStrip";
@@ -37,7 +37,6 @@ import {
   toWslPath,
   wslDistroOfPath,
   wslDistroOfShell,
-  wslHomeDir,
   wslShellId,
 } from "./terminal/wslPath";
 import { useAutoResume } from "./agents/useAutoResume";
@@ -72,16 +71,17 @@ import { PluginUsageButton } from "./plugins/PluginUsageButton";
 import { moveShortcut, useQuickActionReorder } from "./plugins/useQuickActionReorder";
 import { PluginToast } from "./plugins/PluginToast";
 import { PluginDialog } from "./plugins/PluginDialog";
-import { builtinPlugins, examplePlugins } from "./plugins/registry";
+import { usePluginHost } from "./plugins/usePluginHost";
+import { examplePlugins } from "./plugins/registry";
 import { pluginIconNode } from "./plugins/icons";
-import type { PluginDef, PluginManifest, PluginButtonDef } from "./plugins/types";
+import type { PluginDef, PluginButtonDef } from "./plugins/types";
 import { FavoritesButton, StarIcon, favoritesMenuItem } from "./favorites/FavoritesButton";
 import type { FavoriteFolder } from "./favorites/favoritesStore";
 import { hasSeenWelcome } from "./welcome/welcomeSeen";
 import { useResizablePanelWidth } from "./hooks/useResizablePanelWidth";
 import { type SidebarMode, type ExplorerLinkMode } from "./settings/modes";
-import { readJson, readString, removeKey, usePersistentState, writeBool, writeJson, writeString } from "./lib/storage";
-import { basename, expandHome, isAbsolutePath, isWindowsHostPath, isWindowsPlatform } from "./lib/path";
+import { readJson, removeKey, usePersistentState, writeBool, writeJson, writeString } from "./lib/storage";
+import { basename, isWindowsPlatform } from "./lib/path";
 import { withCodexLaunchFlags } from "./plugins/codexLaunch";
 import { atShellPrompt, cdCommand, ptyForeground, type Foreground } from "./terminal/shellDialect";
 import { useI18n } from "./i18n";
@@ -106,17 +106,17 @@ import { useActiveAgentSync } from "./app/useActiveAgentSync";
 import { useUsageWatch } from "./app/useUsageWatch";
 import { usePanelLayout } from "./app/usePanelLayout";
 import type { PanelKey } from "./app/panelLayout";
+import { usePerTabPanels } from "./app/usePerTabPanels";
 import { useWindowChrome } from "./window/useWindowChrome";
 import { ZoomRow } from "./terminal/ZoomRow";
 import {
-  TITLE_HOST_PREFIX,
-  cleanTitle,
   cmdTitlePathCandidates,
   firstExistingDir,
   labelForCwd,
-  looksLikeExecutablePath,
 } from "./terminal/tabTitle";
 import { takeWindowInit, packTabTransfer, tabStripDropIndex, type CursorTarget, type TabTransfer } from "./tabs/transfer";
+import { resolveTitle } from "./terminal/titleResolver";
+import { newChatPane as newChatPaneIn, patchChatPane as patchChatPaneIn, patchChatTab as patchChatTabIn, showChatSession as showChatSessionIn } from "./tabs/chatPanes";
 import { newTabId } from "./tabs/tabId";
 import { isDialogTab, listedTabs, makeTermTab, patchTermTab } from "./tabs/tabState";
 import "./App.css";
@@ -154,18 +154,12 @@ import {
   SIDEBAR_MODE_KEY,
   EXPLORER_LINK_MODE_KEY,
   QUICK_ACTIONS_KEY,
-  PLUGINS_SEEDED_KEY,
-  PLUGINS_MIGRATED_KEY,
-  VIBE_PLUGIN_SEEDED_KEY,
-  GEMINI_PLUGIN_SEEDED_KEY,
-  OPENCODE_PLUGIN_SEEDED_KEY,
-  CLINE_PLUGIN_SEEDED_KEY,
   PLUGIN_APPROVALS_KEY,
   FAVORITES_BUTTON_VISIBLE_KEY,
   SIDEBAR_COLLAPSED_KEY,
   AGENTS_SIDEBAR_OPEN_KEY,
   isStringArray,
-  hashText,
+  commandStamp,
   readQuickActions,
   readTrue,
   readFalse,
@@ -246,36 +240,12 @@ function Shell() {
   const sessionDirtyRef = useRef(true);
   if (latestRef.current.tabs !== tabs || latestRef.current.activeTabId !== activeTabId) sessionDirtyRef.current = true;
   latestRef.current = { tabs, activeTabId, activeTerminalId };
-  // Each tab keeps which side panels were open in it (not their widths): leaving a tab saves them, coming back restores them.
-  // A tab not seen before inherits the file/agents panels as they are but starts without the Browser, which belongs to the tab that opened it.
-  const panelsByTabRef = useRef(new Map<string, { sidebarCollapsed: boolean; agentsSidebarOpen: boolean; browserOpen: boolean }>());
-  const panelsNowRef = useRef({ sidebarCollapsed, agentsSidebarOpen, browserOpen });
-  panelsNowRef.current = { sidebarCollapsed, agentsSidebarOpen, browserOpen };
-  const panelsTabRef = useRef(activeTabId);
-  // usePanelLayout's markRestore, set once the hook has run below.
-  const panelRestoreRef = useRef<() => void>(() => {});
-  useEffect(() => {
-    const previous = panelsTabRef.current;
-    if (previous === activeTabId) return;
-    panelsTabRef.current = activeTabId;
-    const map = panelsByTabRef.current;
-    map.set(previous, panelsNowRef.current);
-    const next = map.get(activeTabId) ?? { ...panelsNowRef.current, browserOpen: false };
-    // Each tab keeps its own page in front of the Browser.
-    switchBrowserTab(previous, activeTabId);
-    // A page an agent or dev server of this tab opened while the user was elsewhere shows now.
-    const pending = takePendingPage(activeTabId);
-    if (pending) activatePage(pending);
-    const browser = next.browserOpen || pending !== null;
-    const now = panelsNowRef.current;
-    // Restored panels are not the user asking for them: in a narrow window they stay parked instead of popping over the content.
-    if ((now.sidebarCollapsed && !next.sidebarCollapsed) || (!now.agentsSidebarOpen && next.agentsSidebarOpen) || (!now.browserOpen && browser)) {
-      panelRestoreRef.current();
-    }
-    setSidebarCollapsed(next.sidebarCollapsed);
-    setAgentsSidebarOpen(next.agentsSidebarOpen);
-    setBrowserOpen(browser);
-  }, [activeTabId, setSidebarCollapsed, setAgentsSidebarOpen]);
+  const { restoreRef: panelRestoreRef, forget: forgetTabPanels } = usePerTabPanels(
+    activeTabId,
+    { sidebarCollapsed, agentsSidebarOpen, browserOpen },
+    setSidebarCollapsed,
+    setAgentsSidebarOpen,
+  );
   // The tab on screen, for pages opened on behalf of another tab (see browserStore).
   useLayoutEffect(() => setBrowserFocusTab(activeTabId), [activeTabId]);
   useLayoutEffect(() => setCallFocusTab(activeTabId), [activeTabId]);
@@ -295,10 +265,6 @@ function Shell() {
   const { isMaximized, isEdgeFlush, isFullscreen, toggleFullscreen } = useWindowChrome();
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [pluginMenuAnchor, setPluginMenuAnchor] = useState<DOMRect | null>(null);
-  const [customPlugins, setCustomPlugins] = useState<PluginDef[]>([]);
-  const [pluginToast, setPluginToast] = useState<string | null>(null);
-  const [pluginDialog, setPluginDialog] = useState<PluginDef | null>(null);
-  const pluginToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showPluginToastRef = useRef<(message: string) => void>(() => {});
   const termRefs = useRef(new Map<string, TerminalHandle>());
   // Command to type into a tab the instant its shell is ready - set by
@@ -337,7 +303,7 @@ function Shell() {
   const pluginBtnRef = useRef<HTMLButtonElement>(null);
   const confirm = useConfirmDialog();
   const chooseClose = useConfirmChoice();
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const openMenu = useOpenContextMenu();
   const activeHost = useActiveHost();
   // No PC paired yet: the header has no PC selector, so pairing is in the "more options" menu.
@@ -386,6 +352,9 @@ function Shell() {
   // the file before it was ever read.
   const [sessionChecked, setSessionChecked] = useState(false);
 
+  const { allPlugins, pluginToast, pluginDialog, setPluginDialog, showPluginToast, seedExamplePlugins, reloadCustomPlugins, addPlugin, deletePlugin } =
+    usePluginHost(setQuickActionIds, pinToQuickActions);
+
   function toggleQuickAction(id: string) {
     setQuickActionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
@@ -393,106 +362,6 @@ function Shell() {
   function pinToQuickActions(ids: string[]) {
     if (ids.length === 0) return;
     setQuickActionIds((prev) => [...prev, ...ids.filter((id) => !prev.includes(id))]);
-  }
-
-  /** Installs the example plugins (see registry.ts) once, ever - a flag in
-   * localStorage (not "is the file missing") tracks that, so deleting one
-   * later doesn't bring it back on the next launch. Also runs a one-time
-   * migration for anyone who already had the first shipped shape of these
-   * two (a "dialog" chooser popup) - superseded by launching directly on
-   * click, with account status moved to the hover popover instead.
-   * An install seeded before Mistral Vibe shipped gets its plugin added once
-   * too - listed in the plugin menu, not pinned to a bar the user arranged. */
-  async function seedExamplePlugins() {
-    const seededBefore = !!readString(PLUGINS_SEEDED_KEY);
-    try {
-      const existing = await invoke<PluginManifest[]>("list_plugins");
-      const byId = new Map(existing.map((p) => [p.id, p]));
-
-      if (!readString(PLUGINS_MIGRATED_KEY)) {
-        const migratedIds: string[] = [];
-        for (const manifest of examplePlugins()) {
-          const current = byId.get(manifest.id);
-          if (current && current.action !== manifest.action) {
-            await invoke("save_plugin", { plugin: manifest });
-            migratedIds.push(manifest.id);
-          }
-        }
-        // Pin them to the shortcut bar too - the account-status ring/popover
-        // this migration exists for is only visible there.
-        pinToQuickActions(migratedIds);
-      }
-
-      // The installer's "Integrazioni" step: enable and pin exactly what was
-      // picked there (reinstalls included - an already-present plugin just
-      // gets re-pinned), and skip the blanket seeding below, which would
-      // otherwise add back whatever was left unchecked.
-      const chosen = await invoke<string[] | null>("take_installer_features").catch(() => null);
-      if (chosen) {
-        const chosenIds: string[] = [];
-        for (const manifest of examplePlugins()) {
-          if (!chosen.includes(manifest.id)) continue;
-          if (!byId.has(manifest.id)) await invoke("save_plugin", { plugin: manifest });
-          chosenIds.push(manifest.id);
-        }
-        pinToQuickActions(chosenIds);
-        writeString(PLUGINS_SEEDED_KEY, "1");
-      }
-
-      if (!readString(PLUGINS_SEEDED_KEY)) {
-        const newIds: string[] = [];
-        for (const manifest of examplePlugins()) {
-          if (!byId.has(manifest.id)) {
-            await invoke("save_plugin", { plugin: manifest });
-            newIds.push(manifest.id);
-          }
-        }
-        pinToQuickActions(newIds);
-      } else if (seededBefore && !chosen && !readString(VIBE_PLUGIN_SEEDED_KEY) && !byId.has(CLI_INFO.vibe.pluginId)) {
-        const vibe = examplePlugins().find((p) => p.id === CLI_INFO.vibe.pluginId);
-        if (vibe) await invoke("save_plugin", { plugin: vibe });
-      }
-      if (seededBefore && !chosen && !readString(GEMINI_PLUGIN_SEEDED_KEY) && !byId.has(CLI_INFO.gemini.pluginId)) {
-        const gemini = examplePlugins().find((p) => p.id === CLI_INFO.gemini.pluginId);
-        if (gemini) await invoke("save_plugin", { plugin: gemini });
-      }
-    } catch {
-      /* plugins folder unavailable (e.g. dev in a plain browser) */
-    }
-    writeString(PLUGINS_MIGRATED_KEY, "1");
-    writeString(PLUGINS_SEEDED_KEY, "1");
-    writeString(VIBE_PLUGIN_SEEDED_KEY, "1");
-    writeString(GEMINI_PLUGIN_SEEDED_KEY, "1");
-    writeString(OPENCODE_PLUGIN_SEEDED_KEY, "1");
-    writeString(CLINE_PLUGIN_SEEDED_KEY, "1");
-  }
-
-  async function reloadCustomPlugins() {
-    try {
-      const list = await invoke<PluginManifest[]>("list_plugins");
-      setCustomPlugins(list.map((m) => ({ ...m, builtin: false })));
-    } catch {
-      /* plugins folder unavailable (e.g. dev in a plain browser) */
-    }
-  }
-
-  async function addPlugin(manifest: PluginManifest) {
-    try {
-      await invoke("save_plugin", { plugin: manifest });
-      await reloadCustomPlugins();
-    } catch (e) {
-      window.alert(t("plugins.saveFailed", { error: String(e) }));
-    }
-  }
-
-  async function deletePlugin(id: string) {
-    try {
-      await invoke("delete_plugin", { id });
-      await reloadCustomPlugins();
-      setQuickActionIds((prev) => prev.filter((x) => x !== id));
-    } catch (e) {
-      window.alert(t("plugins.deleteFailed", { error: String(e) }));
-    }
   }
 
   useEffect(() => {
@@ -678,13 +547,6 @@ function Shell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(
-    () => () => {
-      if (pluginToastTimerRef.current) clearTimeout(pluginToastTimerRef.current);
-    },
-    [],
-  );
 
   const panelLayout = usePanelLayout({
     sidebarMode,
@@ -1575,7 +1437,7 @@ function Shell() {
   /** Drops the per-tab bookkeeping kept outside `tabs` itself. */
   function forgetTab(id: string) {
     forgetBrowserTab(id);
-    panelsByTabRef.current.delete(id);
+    forgetTabPanels(id);
     termRefs.current.delete(id);
     termCallbacksRef.current.delete(id);
     editorRefs.current.delete(id);
@@ -1724,165 +1586,12 @@ function Shell() {
     }
   }
 
-  /** Turns a WSL session's reported POSIX path into the Windows form the
-   * explorer can browse (`\\wsl.localhost\...`, or a plain `C:\...` for the
-   * distro's `/mnt` drive mounts - see `toWindowsPath`), and applies it to
-   * the tab.
-   *
-   * Async because both halves may need looking up: the distro name (a bare
-   * `wsl` with no `-d`) and the session's home dir (any `~`-shaped title,
-   * i.e. the whole home tree - which is where `wsl` drops you, so it's the
-   * normal case). Both lookups are memoized, so this costs one wsl.exe call
-   * per distro+user for the whole app session. Crucially the path travels
-   * *with* the lookup instead of the title update being dropped while one is
-   * in flight: bash emits its title once per prompt, so a dropped update
-   * would strand the explorer on the host path until the user happened to
-   * run another command - which is what "the explorer disconnects the moment
-   * I enter WSL" looked like. */
-  async function applyWslTitle(tabId: string, distro: string | undefined, user: string | undefined, path: string) {
-    const resolvedDistro = distro || (await defaultWslDistro());
-    if (!resolvedDistro) return;
-    let posixPath = path;
-    if (posixPath === "~" || posixPath.startsWith("~/")) {
-      const home = await wslHomeDir(resolvedDistro, user);
-      if (!home) return;
-      posixPath = home + posixPath.slice(1);
-    }
-    if (!posixPath.startsWith("/")) return;
-    const winPath = toWindowsPath(resolvedDistro, posixPath);
-    setTabs((prev) =>
-      patchTermTab(prev, tabId, (t) =>
-        // Still the same WSL session? The user may have exited back to the
-        // host shell (which clears `nestedShell`) while a lookup ran.
-        t.nestedShell === "wsl" ? { cwd: winPath, explorerPath: winPath, wslDistro: resolvedDistro } : null,
-      ),
-    );
-  }
-
-  /** What a shell's reported title does to its tab: the patch to apply, and
-   * any lookup that has to hit the filesystem first (applied when it
-   * resolves). Pure - it only reads `t` - so the caller applies it with a
-   * plain `setTabs`, and a title that changes nothing costs no render. */
-  function resolveTitle(t: TermTab, rawTitle: string): { patch: Partial<TermTab>; after?: () => void } {
-    const tabId = t.id;
-    const trimmed = rawTitle.trim();
-    const hostPrefix = trimmed.match(TITLE_HOST_PREFIX);
-    const reportedUser = hostPrefix?.[1];
-    const reportedPath = hostPrefix ? hostPrefix[2] : trimmed;
-    const isWindows = isWindowsPlatform();
-    const label = t.customLabel ? t.label : cleanTitle(trimmed);
-
-    // `~` only expands against *this app's own host* home dir - correct
-    // for a plain local shell, but meaningless for a nested WSL/remote
-    // session's own (different, unknown to this app) home. Left
-    // un-expanded there rather than turned into a bogus host path that
-    // would wrongly look like "back on the host shell" and drop the
-    // nested-shell tracking; a WSL tab's `~` is expanded further down
-    // against the distro's own home instead, a remote's is dropped.
-    const rawPath = t.nestedShell ? reportedPath : expandHome(reportedPath, homeDir);
-
-    // A WSL shell collapses its home tree to `~` in the title it reports
-    // (bash's `\w`), and `wsl` starts you right there - so unlike a host
-    // shell's, a WSL tab's `~` can't be written off as "not a real cwd".
-    // It's kept and expanded against the *distro's* home in
-    // `applyWslTitle` below, where the lookup belongs.
-    const isWslHomePath = t.nestedShell === "wsl" && (rawPath === "~" || rawPath.startsWith("~/"));
-    if ((!isAbsolutePath(rawPath) && !isWslHomePath) || looksLikeExecutablePath(rawPath)) return { patch: { label } };
-
-    // A genuine Windows path means we're back on a real host shell,
-    // whatever nested session we might have been tracking before - but
-    // only a title that names a directory that actually exists counts as
-    // one, whenever there's a nested session to drop. Windows-shaped
-    // console noise is emitted *during* a nested session too, and it
-    // isn't distinguishable from a real post-exit prompt by shape alone
-    // the way wsl/remote's POSIX titles are:
-    //   - `"agent"` (Claude Code/Codex) reports a resolved script or
-    //     shim path, or an OS default-title fallback, while it owns the
-    //     screen;
-    //   - cmd.exe retitles to "<cwd> - <command>" for the whole time a
-    //     command runs, so typing `wsl` produces a title like
-    //     `C:\...\flowcode - wsl` *before* the distro's own first title
-    //     lands - taking that at face value dropped the WSL tracking
-    //     that had just been set up, one keystroke into the session.
-    // So the candidate is verified against the filesystem first, the
-    // same deferred-update pattern as the wsl path translation below
-    // (this title update itself is left alone; a confirmed candidate is
-    // applied once the check resolves).
-    if (isWindowsHostPath(rawPath)) {
-      const nested = t.nestedShell;
-      if (nested) {
-        return {
-          patch: { label },
-          after: () => {
-            void invoke<boolean>("is_directory", { path: rawPath })
-              .catch(() => false)
-              .then((isDir) => {
-                if (!isDir) return;
-                setTabs((prev) =>
-                  patchTermTab(prev, tabId, (t2) =>
-                    // Still the same nested session? Anything that moved on
-                    // since (exited, launched an agent) owns the tab now.
-                    t2.nestedShell === nested
-                      ? { cwd: rawPath, explorerPath: rawPath, nestedShell: undefined, wslDistro: undefined }
-                      : null,
-                  ),
-                );
-              });
-          },
-        };
-      }
-      // "<cwd> - <command>" while a command runs in cmd.exe: taken at
-      // face value it's a folder that doesn't exist - and whatever is
-      // the cwd when the app closes is what session restore reopens.
-      // Resolved against the filesystem instead (deferred, like above).
-      if (rawPath.includes(" - ")) {
-        const cwdBefore = t.cwd;
-        return {
-          patch: { label, nestedShell: undefined, wslDistro: undefined },
-          after: () => {
-            void firstExistingDir(cmdTitlePathCandidates(rawPath)).then((dir) => {
-              if (!dir) return;
-              setTabs((prev) =>
-                patchTermTab(prev, tabId, (t2) =>
-                  // Unless a newer title already moved the tab on.
-                  !t2.nestedShell && t2.cwd === cwdBefore ? { cwd: dir, explorerPath: dir } : null,
-                ),
-              );
-            });
-          },
-        };
-      }
-      return { patch: { cwd: rawPath, explorerPath: rawPath, label, nestedShell: undefined, wslDistro: undefined } };
-    }
-
-    // From here `rawPath` is POSIX-shaped.
-    if (t.nestedShell === "remote" || t.nestedShell === "agent") {
-      // ssh / docker exec (this app has no way to read that filesystem)
-      // or Claude Code/Codex (a real filesystem, but not what a POSIX-
-      // shaped title fragment while its own TUI owns the screen would
-      // mean here) - cwd/explorerPath are left exactly where they were
-      // rather than pointed at a local path that means nothing.
-      return { patch: { label } };
-    }
-    if (t.nestedShell === "wsl" && isWindows) {
-      // Deferred (see `applyWslTitle`) even when the distro is already
-      // known, so every WSL title takes the same one path through the
-      // `~`-expansion; the lookups behind it are memoized and the update
-      // it applies is idempotent for a given title.
-      return { patch: { label }, after: () => void applyWslTitle(tabId, t.wslDistro, reportedUser, rawPath) };
-    }
-
-    // A plain POSIX path with no nested-shell context recognized - the
-    // real local cwd (this app running on macOS/Linux, most commonly).
-    return { patch: { cwd: rawPath, explorerPath: rawPath, label } };
-  }
-
   function handleTitleChange(tabId: string, rawTitle: string) {
     // Decided from the committed tabs, outside the updater: an updater must
     // stay pure (StrictMode runs it twice), and this one starts lookups.
     const tab = latestRef.current.tabs.find((t): t is TermTab => t.id === tabId && t.kind === "terminal");
     if (!tab) return;
-    const { patch, after } = resolveTitle(tab, rawTitle);
+    const { patch, after } = resolveTitle(tab, rawTitle, homeDir, setTabs);
     setTabs((prev) => patchTermTab(prev, tabId, patch));
     after?.();
   }
@@ -2075,12 +1784,6 @@ function Shell() {
           }
         : undefined;
 
-  // Built-in labels come from t(), so a language change rebuilds them.
-  const allPlugins = useMemo<PluginDef[]>(
-    () => [...builtinPlugins(), ...customPlugins],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [customPlugins, language],
-  );
   const terminalTabs = useMemo(() => stripTabs.filter((t): t is TermTab => t.kind === "terminal"), [stripTabs]);
   // The history lists conversations: a delegated child's tab is none of them.
   const chatTabs = useMemo(() => tabs.filter((t): t is ChatTab => t.kind === "chat" && !t.delegate), [tabs]);
@@ -2118,11 +1821,6 @@ function Shell() {
   }, [activeTabId]);
 
   showPluginToastRef.current = showPluginToast;
-  function showPluginToast(message: string) {
-    setPluginToast(message);
-    if (pluginToastTimerRef.current) clearTimeout(pluginToastTimerRef.current);
-    pluginToastTimerRef.current = setTimeout(() => setPluginToast(null), 2600);
-  }
 
   /** Marks a tab as owned by an about-to-launch agent CLI *before* it's
    * actually typed into the shell - see the `nestedShell: "agent"` doc
@@ -2427,53 +2125,23 @@ function Shell() {
 
   /** Patches a chat tab's fields as its view reports them. */
   function patchChatTab(id: string, patch: Partial<ChatTab>) {
-    setTabs((prev) => prev.map((t) => (t.id === id && t.kind === "chat" ? { ...t, ...patch } : t)));
+    setTabs((prev) => patchChatTabIn(prev, id, patch));
   }
 
   /** Patches one conversation of a chat tab: the shown one lives on the tab, a parked one in `parked`. */
   function patchChatPane(tabId: string, paneKey: string, patch: Partial<ChatPane>) {
-    setTabs((prev) =>
-      prev.map((t) => {
-        if (t.id !== tabId || t.kind !== "chat") return t;
-        if ((t.paneKey ?? t.id) === paneKey) return { ...t, ...patch };
-        return t.parked ? { ...t, parked: t.parked.map((p) => (p.paneKey === paneKey ? { ...p, ...patch } : p)) } : t;
-      }),
-    );
-  }
-
-  /** `next` becomes the conversation shown in chat tab `t`; the one shown until now is parked, its agent keeps running. */
-  function swapChatPane(t: ChatTab, next: ChatPane): ChatTab {
-    const current: ChatPane = { paneKey: t.paneKey ?? t.id, label: t.label, sessionId: t.sessionId, viewId: t.viewId, status: t.status, talked: t.talked, lastActiveAt: t.lastActiveAt };
-    return {
-      ...t,
-      paneKey: next.paneKey,
-      label: next.label,
-      sessionId: next.sessionId,
-      viewId: next.viewId,
-      status: next.status,
-      talked: next.talked,
-      lastActiveAt: next.lastActiveAt,
-      parked: [...(t.parked ?? []).filter((p) => p.paneKey !== next.paneKey), current],
-    };
+    setTabs((prev) => patchChatPaneIn(prev, tabId, paneKey, patch));
   }
 
   /** Shows `sessionId` in chat tab `tabId`: a parked conversation of it is swapped in, otherwise a new one
    * starts resuming it. */
   function showChatSession(tabId: string, sessionId: string, lastActiveAt?: number) {
-    setTabs((prev) =>
-      prev.map((t) => {
-        if (t.id !== tabId || t.kind !== "chat" || t.sessionId === sessionId) return t;
-        const found = t.parked?.find((p) => p.sessionId === sessionId);
-        return swapChatPane(t, found ?? { paneKey: newTabId("chat"), label: basename(t.cwd) || CLI_INFO[t.agent].name, sessionId, viewId: t.viewId, lastActiveAt });
-      }),
-    );
+    setTabs((prev) => showChatSessionIn(prev, tabId, sessionId, lastActiveAt));
   }
 
   /** Starts a fresh conversation in chat tab `tabId`, beside the one shown (which keeps running in the background). */
   function newChatPane(tabId: string) {
-    setTabs((prev) =>
-      prev.map((t) => (t.id === tabId && t.kind === "chat" ? swapChatPane(t, { paneKey: newTabId("chat"), label: basename(t.cwd) || CLI_INFO[t.agent].name, viewId: t.viewId, talked: false }) : t)),
-    );
+    setTabs((prev) => newChatPaneIn(prev, tabId));
   }
 
   /** A History row open in a tab was picked: the tab comes forward, showing that conversation if it is a parked one. */
@@ -2678,7 +2346,7 @@ function Shell() {
     }
     // A dialog's button belongs to the dialog plugin that is open.
     const owner = "id" in plugin ? plugin.id : (pluginDialog?.id ?? "");
-    const approvalKey = `${owner}:${hashText(command)}`;
+    const approvalKey = `${owner}:${commandStamp(command)}`;
     const approved = readJson(PLUGIN_APPROVALS_KEY, isStringArray, []);
     if (approved.includes(approvalKey)) {
       runPluginAction(plugin);

@@ -35,7 +35,7 @@ export const isStringArray = (value: unknown): value is string[] =>
 /** The approval stamp of a command: its full text, so two different commands
  * can never collide (the old 32-bit hash could). Older hashed approvals just
  * ask once more. */
-export function hashText(text: string): string {
+export function commandStamp(text: string): string {
   return text;
 }
 export const readQuickActions = (key: string) => readJson(key, isStringArray, DEFAULT_QUICK_ACTIONS);
