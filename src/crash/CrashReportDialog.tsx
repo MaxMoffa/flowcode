@@ -81,7 +81,9 @@ export function CrashReportDialog() {
   useEffect(() => {
     if (!pending) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       e.preventDefault();
       void notNow();
     };

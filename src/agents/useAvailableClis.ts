@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { AGENT_CLIS, cachedCliStatus, defaultCliStatus, type AgentCli } from "./cliInfo";
-import type { ProfileInfo } from "../profiles/profiles";
 
 type Installed = Partial<Record<AgentCli, boolean>>;
 
@@ -23,11 +22,10 @@ function cachedInstalled(): Installed {
  * the provider dialog when authentication is missing. Only agents confirmed
  * installed show: until the probe answers, an unknown one stays out rather
  * than appearing and vanishing. */
-export function useAvailableClis(account: ProfileInfo | undefined): AgentCli[] {
+export function useAvailableClis(_account?: unknown): AgentCli[] {
   // Installation is shared across account profiles; login is checked at launch.
   const [defaultOk, setDefaultOk] = useState<Installed>(cachedInstalled);
 
-  const profileId = account?.id;
   useEffect(() => {
     let cancelled = false;
     void Promise.all(AGENT_CLIS.map((cli) => defaultProfileCliOk(cli).then((ok) => [cli, ok] as const))).then((entries) => {
@@ -36,7 +34,7 @@ export function useAvailableClis(account: ProfileInfo | undefined): AgentCli[] {
     return () => {
       cancelled = true;
     };
-  }, [profileId]);
+  }, []);
 
   return AGENT_CLIS.filter((cli) => defaultOk[cli] ?? false);
 }

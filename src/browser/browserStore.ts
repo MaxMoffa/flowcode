@@ -3,6 +3,7 @@ import { readBool, writeBool } from "../lib/storage";
 import { isPdfTarget } from "../../shared/agentOpen";
 import { addCall, removeCallByKey } from "../calls/callStore";
 import { t } from "../i18n";
+import { basename } from "../lib/path";
 import type { BrowserTabPage, BrowserTabsSnapshot } from "../../shared/remote-types";
 export { isPdfTarget, isPreviewableFile } from "../../shared/agentOpen";
 
@@ -117,7 +118,7 @@ export function askFromAway(tabId: string | undefined, { title, detail, allowLab
 
 /** What a page is called in a bubble: its address, or the file's name. */
 function pageLabel(page: PreviewPage): string {
-  return page.kind === "url" ? page.url : page.kind === "file" ? (page.path.split(/[\/]/).pop() ?? page.path) : (page.src.split(/[\/]/).pop() ?? page.src);
+  return page.kind === "url" ? page.url : page.kind === "file" ? basename(page.path) : basename(page.src);
 }
 
 /** The page a background tab opened while the user was elsewhere, once. */

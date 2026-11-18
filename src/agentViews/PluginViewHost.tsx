@@ -109,7 +109,9 @@ function SessionPluginViewHost(props: PluginViewHostProps) {
       cancel: () => latest.current.session.cancel(),
       // A view may not lift the agent's permission prompts: the user picks the "bypass" modes in the mode menu.
       setMode: (modeId) => {
-        if (!BYPASS_MODE.test(modeId)) latest.current.session.setMode(modeId);
+        // Only modes the host's own mode menu offers, and never a bypass-like one (by id or by name).
+        const offered = latest.current.session.modes?.availableModes.find((m) => m.id === modeId);
+        if (offered && !BYPASS_MODE.test(offered.id) && !BYPASS_MODE.test(offered.name)) latest.current.session.setMode(modeId);
       },
       setModel: (modelId) => latest.current.session.setModel(modelId),
       openFile: (path) => latest.current.onOpenFile(path),

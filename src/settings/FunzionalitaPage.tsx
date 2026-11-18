@@ -15,7 +15,7 @@ import "./funzionalita-page.css";
 function isPluginManifest(value: unknown): value is PluginManifest {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return typeof v.id === "string" && v.id.trim() !== "" && typeof v.label === "string" && v.label.trim() !== "" && typeof v.action === "string" && v.action in PLUGIN_ACTION_LABELS;
+  return typeof v.id === "string" && v.id.trim() !== "" && typeof v.label === "string" && v.label.trim() !== "" && typeof v.action === "string" && Object.prototype.hasOwnProperty.call(PLUGIN_ACTION_LABELS, v.action);
 }
 
 interface FunzionalitaPageProps {

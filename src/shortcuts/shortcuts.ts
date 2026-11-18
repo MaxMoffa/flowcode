@@ -96,7 +96,9 @@ export async function loadShortcutDefaults(): Promise<ShortcutMap> {
 
 export async function loadShortcutOverrides(): Promise<ShortcutMap> {
   try {
-    return JSON.parse(await invoke<string>("read_shortcuts_overrides"));
+    const parsed: unknown = JSON.parse(await invoke<string>("read_shortcuts_overrides"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, v]) => typeof v === "string")) as ShortcutMap;
   } catch {
     // no user overrides saved yet
     return {};

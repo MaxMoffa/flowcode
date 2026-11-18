@@ -32,11 +32,11 @@ export const AGENTS_SIDEBAR_OPEN_KEY = "flowcode.agentsSidebarOpen";
 
 export const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((id) => typeof id === "string");
-/** Not a security boundary, just a compact stable stamp of a command's text. */
+/** The approval stamp of a command: its full text, so two different commands
+ * can never collide (the old 32-bit hash could). Older hashed approvals just
+ * ask once more. */
 export function hashText(text: string): string {
-  let hash = 5381;
-  for (let i = 0; i < text.length; i++) hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
-  return (hash >>> 0).toString(16);
+  return text;
 }
 export const readQuickActions = (key: string) => readJson(key, isStringArray, DEFAULT_QUICK_ACTIONS);
 export const readTrue = (key: string) => readBool(key, true);

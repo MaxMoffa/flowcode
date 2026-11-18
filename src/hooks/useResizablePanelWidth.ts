@@ -27,6 +27,7 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
   limitsRef.current = { getMax, getCurrent };
   const [width, setWidth] = useState(() => readNumber(storageKey, defaultWidth, min, max));
   const [dragging, setDragging] = useState(false);
+  const resizedRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(width);
   const captureRef = useRef<{ target: Element; pointerId: number; lost: () => void } | null>(null);
@@ -88,7 +89,7 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
 
   // Persist once the drag actually ends, not on every intermediate frame.
   useEffect(() => {
-    if (dragging) return;
+    if (dragging || !resizedRef.current) return;
     writeString(storageKey, String(width));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging]);
@@ -116,6 +117,7 @@ export function useResizablePanelWidth({ storageKey, defaultWidth, min, max, han
       }
       startXRef.current = e.clientX;
       startWidthRef.current = limitsRef.current.getCurrent?.() ?? width;
+      resizedRef.current = true;
       setDragging(true);
     },
     [width],

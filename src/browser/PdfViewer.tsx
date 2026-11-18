@@ -53,6 +53,8 @@ export default function PdfViewer({ src, reloadNonce, onLoading, onOpenExternal 
     let stale = false;
     let task: { destroy(): Promise<void> } | null = null;
     onLoadingRef.current(true);
+    // The old document is destroyed by the previous cleanup: never keep showing it.
+    setDoc(null);
     (async () => {
       try {
         const lib = await loadPdfJs();
@@ -70,7 +72,10 @@ export default function PdfViewer({ src, reloadNonce, onLoading, onOpenExternal 
         setDoc(loaded);
         setError(false);
       } catch {
-        if (!stale) setError(true);
+        if (!stale) {
+          setDoc(null);
+          setError(true);
+        }
       } finally {
         if (!stale) onLoadingRef.current(false);
       }

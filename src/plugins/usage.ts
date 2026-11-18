@@ -543,21 +543,21 @@ async function fetchOpencodeUsage(profile?: string): Promise<UsageInfo> {
     const auth = await invoke<ProviderAuthState>("provider_auth", { request: { op: "status", cli: "opencode", profile: profile ?? null } });
     if (!auth.installed) return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "unavailable" }] };
     if (!auth.authenticated) return { fetchedAt: Date.now(), ok: false, metrics: [{ kind: "loggedOut", command: "opencode auth login" }] };
-    const [spend, console] = await Promise.all([
+    const [spend, ocConsole] = await Promise.all([
       fetchCliSpend("opencode", "OpenCode", profile, false),
       invoke<OpencodeConsole>("opencode_console", { profile: profile ?? null }).catch(() => null),
     ]);
-    const budgets: UsageMetric[] = (console?.budgets ?? []).map((b) => ({
+    const budgets: UsageMetric[] = (ocConsole?.budgets ?? []).filter((b) => b.limit > 0).map((b) => ({
       kind: "budget",
       cost: b.spent,
       limit: b.limit,
       percent: Math.min(1, b.spent / b.limit),
       resets: formatReset(b.resetsAt),
     }));
-    const quotas = quotaMetrics(console?.windows ?? [], "(OpenCode Go)");
+    const quotas = quotaMetrics(ocConsole?.windows ?? [], "(OpenCode Go)");
     const workspace = {
-      account: console?.workspace ? t("usage.opencodeWorkspace", { name: console.workspace }) : undefined,
-      usageUrl: console?.usageUrl ?? undefined,
+      account: ocConsole?.workspace ? t("usage.opencodeWorkspace", { name: ocConsole.workspace }) : undefined,
+      usageUrl: ocConsole?.usageUrl ?? undefined,
     };
     if (!spend.ok && quotas.length === 0 && budgets.length === 0) return { ...spend, ...workspace };
     const rows = spend.ok ? spend.metrics : [];

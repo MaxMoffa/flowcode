@@ -409,6 +409,8 @@ export function GlassNewTab({ hidden, defaultShell, startDir, onLaunch, onLaunch
         void invoke<boolean>("is_directory", { path: typed }).then((isDir) => (isDir ? launch({ cwd: typed }) : fallback()), fallback);
         return;
       }
+      // Folder search still running for this query: don't mistake the text for a shell command yet.
+      if (command && !active && entries.length === 0 && folderPending) return;
       if (command && !active && entries.length === 0) {
         launch({ shell: chosenShell(), command });
         return;

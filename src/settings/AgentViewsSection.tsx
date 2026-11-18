@@ -25,9 +25,15 @@ type InstalledPlugin = ViewPluginManifest | NewTabPluginManifest;
 /** The fields of a picked folder's manifest the confirmation shows; the
  * backend validates the rest. */
 function readManifest(text: string): Partial<InstalledPlugin> | null {
-  const parsed: unknown = JSON.parse(text);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
   if (!parsed || typeof parsed !== "object") return null;
   const m = parsed as Partial<InstalledPlugin>;
+  if (m.permissions !== undefined && !Array.isArray(m.permissions)) return null;
   return typeof m.id === "string" && typeof m.label === "string" ? m : null;
 }
 

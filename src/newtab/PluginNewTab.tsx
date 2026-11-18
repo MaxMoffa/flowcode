@@ -83,6 +83,11 @@ export function PluginNewTab(props: PluginNewTabProps) {
   }, [manifest.id, manifest.entry, rev]);
 
   useEffect(() => {
+    setConnected(false);
+    setUnresponsive(false);
+  }, [src]);
+
+  useEffect(() => {
     const host = createNewTabBridgeHost({
       iframeWindow: () => frameRef.current?.contentWindow ?? null,
       manifest,
