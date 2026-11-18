@@ -411,16 +411,72 @@ pub(super) fn wsl_script(agent: &str) -> Option<(String, String)> {
     let (program, args) = launch_command(agent)?;
     let fallback = std::iter::once(program).chain(args.iter().copied()).collect::<Vec<_>>().join(" ");
     let version = crate::acp_adapters::package_spec(agent).and_then(|spec| spec.rsplit_once('@')).map(|(_, version)| version).unwrap_or_default();
+    // See `local_codex`; the distro's own codex only (not a Windows one seen through /mnt).
+    let codex = if agent == "codex" {
+        format!(
+            "[ -n \"$CODEX_PATH\" ] || {{ c=$(command -v codex 2>/dev/null); case \"$c\" in /mnt/*) ;; /*) \
+             v=$(timeout 10 \"$c\" --version 2>/dev/null | awk '{{print $NF}}'); \
+             [ \"$(printf '%s\\n' {MIN_LOCAL_CODEX} \"$v\" | sort -V | head -n1)\" = {MIN_LOCAL_CODEX} ] && export CODEX_PATH=\"$c\";; esac; }}; "
+        )
+    } else {
+        String::new()
+    };
     Some(match crate::acp_adapters::package(agent) {
         Some(_) => (
             format!(
-                "d=\"$HOME/.local/share/flowcode/acp-adapters/{agent}\"; e=$(cat \"$d/current\" 2>/dev/null); \
+                "{codex}d=\"$HOME/.local/share/flowcode/acp-adapters/{agent}\"; e=$(cat \"$d/current\" 2>/dev/null); \
                  case \"$e\" in \"$d/{version}/\"*) if [ -f \"$e\" ]; then exec node \"$e\"; fi;; esac; mkdir -p \"$HOME/.local/share/flowcode/adapter-launch\"; cd \"$HOME/.local/share/flowcode/adapter-launch\" || exit 1; exec {fallback}"
             ),
             format!("wsl: node <adapter> || {fallback}"),
         ),
         None => (format!("exec {fallback}"), format!("wsl: {fallback}")),
     })
+}
+
+/// The user's own `codex`, for codex-acp to run (`CODEX_PATH`) instead of the
+/// copy bundled with the pinned adapter: the models OpenAI lists depend on the
+/// client's version, and the bundled one lags behind (new models showed in the
+/// terminal's codex but not in chat). Absolute, since the adapter's Windows
+/// PATH lookup tries the cwd (the project) first. `None`: the bundled one runs
+/// (also when the user's is older than it, see `MIN_LOCAL_CODEX`).
+fn local_codex() -> Option<std::path::PathBuf> {
+    let names: &[&str] = if cfg!(windows) { &["codex.exe", "codex.cmd"] } else { &["codex"] };
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths)
+        .filter(|dir| dir.is_absolute())
+        .find_map(|dir| names.iter().map(|name| dir.join(name)).find(|path| path.is_file()))
+        .filter(|path| codex_recent_enough(path))
+}
+
+/// The oldest codex the pinned codex-acp works with: the one it bundles
+/// (`@openai/codex` in its package.json; bump with the pin). Older ones lack
+/// app-server methods it calls on every session (`permissionProfile/list`).
+const MIN_LOCAL_CODEX: &str = "0.166.0";
+
+/// Whether `codex --version` at `path` is at least `MIN_LOCAL_CODEX`; asked
+/// once per binary (path and mtime, so an upgrade is asked again).
+fn codex_recent_enough(path: &std::path::Path) -> bool {
+    type Seen = Mutex<HashMap<(std::path::PathBuf, Option<std::time::SystemTime>), bool>>;
+    static SEEN: std::sync::OnceLock<Seen> = std::sync::OnceLock::new();
+    let key = (path.to_path_buf(), std::fs::metadata(path).and_then(|m| m.modified()).ok());
+    if let Some(ok) = lock(SEEN.get_or_init(Default::default)).get(&key) {
+        return *ok;
+    }
+    let mut cmd = Command::new(path);
+    cmd.arg("--version");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let ok = crate::acp_adapters::run_with_timeout(cmd, "codex --version", std::time::Duration::from_secs(10))
+        .is_ok_and(|out| version_at_least(&out, MIN_LOCAL_CODEX));
+    lock(SEEN.get_or_init(Default::default)).insert(key, ok);
+    ok
+}
+
+/// Whether the last word of `output` (`codex-cli 0.167.0`) is a version >= `min`.
+fn version_at_least(output: &str, min: &str) -> bool {
+    let parse = |s: &str| -> Option<Vec<u64>> { s.split('.').map(|part| part.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()).collect() };
+    let Some(have) = output.split_whitespace().last().and_then(parse) else { return false };
+    parse(min).is_some_and(|min| have >= min)
 }
 
 /// Starts the agent's ACP server in `cwd` with its pipes open - inside the
@@ -496,7 +552,13 @@ pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Opti
     std::fs::create_dir_all(&neutral).map_err(|e| e.to_string())?;
     cmd.current_dir(if program == "npx" && installed.is_none() { neutral.as_path() } else { std::path::Path::new(cwd) })
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    for (k, v) in crate::profiles::env_for_cli(app, profile, agent) {
+    let env = crate::profiles::env_for_cli(app, profile, agent);
+    if agent == "codex" && std::env::var_os("CODEX_PATH").is_none() && !env.iter().any(|(k, _)| k.as_str() == "CODEX_PATH") {
+        if let Some(codex) = local_codex() {
+            cmd.env("CODEX_PATH", codex);
+        }
+    }
+    for (k, v) in env {
         cmd.env(k, v);
     }
     let child = cmd.spawn().map_err(|e| format!("could not start `{line}`: {e}"))?;
@@ -911,6 +973,25 @@ pub(super) fn start_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_codex_wsl_script_picks_the_distro_codex() {
+        let (codex, _) = wsl_script("codex").unwrap();
+        assert!(codex.starts_with("[ -n \"$CODEX_PATH\" ] ||") && codex.contains("/mnt/*) ;;") && codex.contains("exec node"));
+        assert!(codex.contains("awk '{print $NF}'") && codex.contains(&format!("printf '%s\\n' {MIN_LOCAL_CODEX} \"$v\"")));
+        let (claude, _) = wsl_script("claude").unwrap();
+        assert!(!claude.contains("CODEX_PATH"));
+    }
+
+    #[test]
+    fn compares_codex_versions() {
+        assert!(version_at_least("codex-cli 0.167.0\n", "0.166.0"));
+        assert!(version_at_least("codex-cli 0.166.0", "0.166.0"));
+        assert!(version_at_least("codex-cli 0.170.0-alpha.3", "0.166.0"));
+        assert!(!version_at_least("codex-cli 0.165.2", "0.166.0"));
+        assert!(!version_at_least("", "0.166.0"));
+        assert!(!version_at_least("codex-cli unknown", "0.166.0"));
+    }
 
     #[test]
     fn child_session_updates_are_filtered_and_nested_under_the_launch() {

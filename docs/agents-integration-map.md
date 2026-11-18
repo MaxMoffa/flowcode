@@ -39,7 +39,7 @@ Legenda: ✅ completo · 🟡 parziale/approssimato · ❌ assente · — non ap
 | **Login con API key** (`provider_auth_keys.rs`) | ✅ `ANTHROPIC_API_KEY` | ✅ `OPENAI_API_KEY` (+ `auth.json`) | ✅ `MISTRAL_API_KEY` | ✅ `GEMINI_API_KEY`/`GOOGLE_API_KEY` (+ `settings.json`) | — (gestita da OpenCode) | — (gestita da Cline) |
 | **Validazione key** (endpoint `/models`) | ✅ | ✅ | ✅ | ✅ | — | — |
 | **Shim credenziali nel terminale** (`provider_launcher.rs`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Chat mode: avvio ACP** (`chat.rs::launch_command`) | ✅ `claude-agent-acp@0.101.0` | ✅ `codex-acp@2.5.0` | ✅ `vibe-acp` nativo | 🟡 `gemini --experimental-acp` | ✅ `opencode acp` | ✅ `cline --acp` |
+| **Chat mode: avvio ACP** (`chat.rs::launch_command`) | ✅ `claude-agent-acp@0.101.0` | ✅ `codex-acp@2.7.0` | ✅ `vibe-acp` nativo | 🟡 `gemini --experimental-acp` | ✅ `opencode acp` | ✅ `cline --acp` |
 | **Normalizzazione tool call** (`chat/cline.rs`) | — | — | — | — | — | ✅ titoli, output, ordine invertito |
 | **Adapter ACP installato e pinnato** (`acp_adapters.rs`, avvio in `lib.rs`) | ✅ | ✅ | — (binario proprio) | — (binario proprio) | — (nativo) | — (nativo) |
 | **Chat in WSL** (`chat.rs::wsl_target`) | ✅ | ✅ | ✅ | ✅ (generico) | ✅ generico | ✅ generico |

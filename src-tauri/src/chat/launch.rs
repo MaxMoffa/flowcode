@@ -9,7 +9,7 @@ pub(super) fn launch_command(agent: &str) -> Option<(&'static str, &'static [&'s
         "opencode" => ("opencode", &["acp"]),
         "cline" => ("cline", &["--acp"]),
         "claude" => ("npx", &["-y", "--ignore-scripts", "@agentclientprotocol/claude-agent-acp@0.101.0"]),
-        "codex" => ("npx", &["-y", "--ignore-scripts", "@agentclientprotocol/codex-acp@2.5.0"]),
+        "codex" => ("npx", &["-y", "--ignore-scripts", "@agentclientprotocol/codex-acp@2.7.0"]),
         _ => return None,
     })
 }

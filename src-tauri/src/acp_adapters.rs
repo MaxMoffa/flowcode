@@ -31,7 +31,7 @@ const MAX_COMMAND_OUTPUT: usize = 1024 * 1024;
 pub(crate) fn package_spec(agent: &str) -> Option<&'static str> {
     match agent {
         "claude" => Some("@agentclientprotocol/claude-agent-acp@0.101.0"),
-        "codex" => Some("@agentclientprotocol/codex-acp@2.5.0"),
+        "codex" => Some("@agentclientprotocol/codex-acp@2.7.0"),
         _ => None,
     }
 }
@@ -239,7 +239,7 @@ impl Drop for CommandJob {
 
 /// Runs `cmd` (stdin closed) and returns its stdout; killed after `timeout`.
 /// `label` names it in errors.
-fn run_with_timeout(mut cmd: Command, label: &str, timeout: Duration) -> Result<String, String> {
+pub(crate) fn run_with_timeout(mut cmd: Command, label: &str, timeout: Duration) -> Result<String, String> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -390,7 +390,7 @@ mod tests {
         assert_eq!(package("claude"), Some("@agentclientprotocol/claude-agent-acp"));
         assert!(package("vibe").is_none());
         assert_eq!(pinned_version(package("claude").unwrap()).unwrap(), "0.101.0");
-        assert_eq!(pinned_version(package("codex").unwrap()).unwrap(), "2.5.0");
+        assert_eq!(pinned_version(package("codex").unwrap()).unwrap(), "2.7.0");
         assert!(package_spec("vibe").is_none());
         assert!(pinned_version("@unknown/pkg").is_err());
     }

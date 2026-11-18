@@ -611,10 +611,29 @@ impl Chat {
                     }
                     crate::chat_images::stash_images(&mut update);
                     let _ = self.emit_when(ChatBody::Update { update }, stale);
+                } else if method == "$/cancel_request" {
+                    if let Some(request_id) = params.get("requestId") {
+                        self.withdraw_request(request_id);
+                    }
                 } else if method.starts_with('_') {
                     self.emit(ChatBody::Ext { method, params });
                 }
             }
+        }
+    }
+
+    /// The agent withdrew a request it sent (`$/cancel_request`: codex-acp's
+    /// async questions when their turn ends): close its card, no reply owed.
+    fn withdraw_request(&self, request_id: &Value) {
+        let key = request_id.to_string();
+        let permission = lock(&self.permissions).remove(&key);
+        if let Some(request_id) = permission {
+            self.emit(ChatBody::PermissionResolved { request_id, option_id: None });
+            return;
+        }
+        let ask = lock(&self.asks).remove(&key);
+        if let Some(request_id) = ask {
+            self.emit(ChatBody::AskResolved { request_id, action: "cancel".to_string(), content: None });
         }
     }
 
