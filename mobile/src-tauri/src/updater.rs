@@ -29,6 +29,8 @@ const SIGNATURE_ASSET: &str = "SHA256SUMS.sig";
 /// release downloads, so a tampered API answer can't point the updater at
 /// some other host.
 const ASSET_URL_PREFIX: &str = "https://github.com/MaxMoffa/flowcode/releases/download/";
+/// Hard cap on a download, whatever the server claims.
+const MAX_APK_BYTES: u64 = 400 * 1024 * 1024;
 /// Subfolder of the app's cache dir the APK is stored in; the FileProvider's
 /// `update_file_paths.xml` and `InstallPlugin.kt` both name it.
 const UPDATE_DIR: &str = "updates";
@@ -84,7 +86,7 @@ struct PendingRelease {
     signature_url: Option<String>,
     /// The downloaded and verified APK, kept so a retry after the "install
     /// unknown apps" permission screen doesn't download it again.
-    verified: Option<PathBuf>,
+    verified: Option<(PathBuf, String)>,
 }
 
 #[derive(Default)]
@@ -333,6 +335,9 @@ fn download(url: &str, dest: &Path, expected_size: u64, on_progress: &Channel<Up
         file.write_all(&buf[..n]).map_err(|_| failed())?;
         hasher.update(&buf[..n]);
         downloaded += n as u64;
+        if downloaded > MAX_APK_BYTES || (total > 0 && downloaded > total) {
+            return Err("incomplete".into());
+        }
         if last_report.elapsed() >= Duration::from_millis(100) {
             last_report = Instant::now();
             let _ = on_progress.send(UpdateProgress::Download { downloaded, total });
@@ -344,6 +349,21 @@ fn download(url: &str, dest: &Path, expected_size: u64, on_progress: &Channel<Up
         return Err("incomplete".into());
     }
     Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Lowercase hex SHA-256 of a file; None if it can't be read.
+fn file_sha256(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Some(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
@@ -445,7 +465,20 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, installer: &Installe
     if ![Some(&asset_url), checksums_url.as_ref(), signature_url.as_ref()].into_iter().flatten().all(|u| is_trusted_url(u)) {
         return Err("untrusted".into());
     }
-    let apk = match verified.filter(|p| p.is_file()) {
+    // The cached file is hashed again: it sits in a cache dir other code can write to.
+    let verified = match verified {
+        Some((path, sha256)) => {
+            let again = tauri::async_runtime::spawn_blocking({
+                let path = path.clone();
+                move || file_sha256(&path)
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            if again.as_deref() == Some(sha256.as_str()) { Some(path) } else { None }
+        }
+        None => None,
+    };
+    let apk = match verified {
         Some(path) => path,
         None => {
             let dir = update_dir(app)?;
@@ -460,16 +493,20 @@ async fn run_install(app: &AppHandle, state: &UpdaterState, installer: &Installe
                 // No checksums, no install: skipping the check isn't a safe fallback.
                 let sums = checksums_url.ok_or("noChecksums")?;
                 let sig = signature_url.ok_or("badSignature")?;
-                verify_checksum(&sums, &sig, &asset_name, &sha256)
+                verify_checksum(&sums, &sig, &asset_name, &sha256)?;
+                Ok::<String, String>(sha256)
             })
             .await
             .map_err(|e| e.to_string())?;
-            if let Err(e) = result {
-                let _ = std::fs::remove_file(&path);
-                return Err(e);
-            }
+            let sha256 = match result {
+                Ok(sha256) => sha256,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&path);
+                    return Err(e);
+                }
+            };
             if let Some(p) = lock(&state.pending).as_mut() {
-                p.verified = Some(path.clone());
+                p.verified = Some((path.clone(), sha256));
             }
             path
         }

@@ -201,6 +201,7 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                         match item {
                             Some(Inbound::Msg(msg)) => {
                                 last_rx = Instant::now();
+                                remote.rx_count.fetch_add(1, Ordering::SeqCst);
                                 if let ServerMsg::Notify { title, body, tab_id } = &msg {
                                     remote.on_notify(title, body, tab_id.as_deref());
                                 }
@@ -212,6 +213,7 @@ pub(crate) async fn serve(app: &AppHandle, remote: &Remote, mut session: Session
                             Some(Inbound::Skipped(e)) => {
                                 // Still proof that the link is alive.
                                 last_rx = Instant::now();
+                                remote.rx_count.fetch_add(1, Ordering::SeqCst);
                                 if !warned_unknown {
                                     warned_unknown = true;
                                     remote.log.push(format!("skipped a message this version does not understand: {e}"));

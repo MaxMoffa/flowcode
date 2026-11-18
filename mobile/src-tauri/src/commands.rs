@@ -222,11 +222,16 @@ pub async fn upload_chat_file(request: tauri::ipc::Request<'_>, remote: State<'_
     let meta = serde_json::to_string(&UploadMeta { name, mime, size: bytes.len() as u64 }).map_err(|e| e.to_string())?;
     let exchange = async move {
         let (mut send, mut recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
-        send.write_all(preview_header(&PreviewTarget::ChatUpload(chat_id)).as_bytes()).await.map_err(|e| e.to_string())?;
-        send.write_all(meta.as_bytes()).await.map_err(|e| e.to_string())?;
-        send.write_all(b"\n").await.map_err(|e| e.to_string())?;
-        send.write_all(&bytes).await.map_err(|e| e.to_string())?;
-        send.finish().map_err(|e| e.to_string())?;
+        // A desktop that refuses the upload answers and stops reading: the
+        // write then fails, but its reply says why, so read it before giving up.
+        let write: Result<(), String> = async {
+            send.write_all(preview_header(&PreviewTarget::ChatUpload(chat_id)).as_bytes()).await.map_err(|e| e.to_string())?;
+            send.write_all(meta.as_bytes()).await.map_err(|e| e.to_string())?;
+            send.write_all(b"\n").await.map_err(|e| e.to_string())?;
+            send.write_all(&bytes).await.map_err(|e| e.to_string())?;
+            send.finish().map_err(|e| e.to_string())
+        }
+        .await;
         let mut line = Vec::with_capacity(128);
         loop {
             let mut byte = [0u8; 1];
@@ -238,7 +243,11 @@ pub async fn upload_chat_file(request: tauri::ipc::Request<'_>, remote: State<'_
                 break;
             }
         }
-        let reply: UploadReply = serde_json::from_slice(&line).map_err(|_| "no answer from the desktop".to_string())?;
+        let reply: UploadReply = match serde_json::from_slice(&line) {
+            Ok(reply) => reply,
+            // No usable reply: the write error (if any) is the best we have.
+            Err(_) => return Err(write.err().unwrap_or_else(|| "no answer from the desktop".to_string())),
+        };
         match (reply.id, reply.error) {
             (Some(id), _) => Ok(id),
             (None, error) => Err(error.unwrap_or_else(|| "upload failed".into())),
@@ -289,6 +298,10 @@ pub fn retry_now(remote: State<'_, Arc<Remote>>) {
     }
 }
 
+/// A link hidden for longer than this is restarted on resume even if it still
+/// answers: events sent to a frozen webview may have been lost.
+const RESUME_KEEP_MAX_HIDDEN: Duration = Duration::from_secs(30);
+
 /// Resume replaces background work immediately. Repeated visible events leave
 /// a fresh cold-start dial alone.
 #[tauri::command]
@@ -297,11 +310,26 @@ pub async fn app_resumed(app: AppHandle, remote: State<'_, Arc<Remote>>) -> Resu
     remote.log.push("app resumed");
     let was_hidden = !remote.visible.swap(true, Ordering::SeqCst);
     remote.hide_gen.fetch_add(1, Ordering::SeqCst);
+    if let Some(task) = remote.cap_task.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        task.abort();
+    }
+    let hidden_for = remote.hidden_at.lock().unwrap_or_else(|e| e.into_inner()).take().map(|t| t.elapsed());
     remote.bg_capped.store(false, Ordering::SeqCst);
     if remote.bg_settings().enabled {
         remote.queue(ClientMsg::Background { on: false });
     }
-    let restart = remote.lock().state.restart_on_resume(was_hidden);
+    let state = remote.lock().state.clone();
+    let mut restart = state.restart_on_resume(was_hidden);
+    // A link that answers a ping right away is healthy: keep it instead of
+    // tearing it down (a long hide may have lost events, so it restarts then).
+    if restart && state.status == Status::Online && hidden_for.map_or(true, |d| d < RESUME_KEEP_MAX_HIDDEN) {
+        if remote.link_answers(Duration::from_secs(2)).await {
+            remote.log.push("resume: link answered a ping, kept");
+            restart = false;
+        } else {
+            remote.log.push("resume: no answer to a ping, restarting the link");
+        }
+    }
     recover_link(&app, &remote, restart).await;
     Ok(())
 }
@@ -341,6 +369,10 @@ pub fn app_hidden(app: AppHandle, remote: State<'_, Arc<Remote>>) {
     let remote = Arc::clone(&remote);
     remote.log.push("app hidden");
     remote.visible.store(false, Ordering::SeqCst);
+    *remote.hidden_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+    if let Some(task) = remote.cap_task.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        task.abort();
+    }
     let generation = remote.hide_gen.fetch_add(1, Ordering::SeqCst) + 1;
     remote.bg_capped.store(false, Ordering::SeqCst);
     let settings = remote.bg_settings();
@@ -348,7 +380,8 @@ pub fn app_hidden(app: AppHandle, remote: State<'_, Arc<Remote>>) {
         remote.queue(ClientMsg::Background { on: true });
         if settings.cap_minutes > 0 {
             let cap = Duration::from_secs(u64::from(settings.cap_minutes) * 60);
-            tauri::async_runtime::spawn(async move {
+            let holder = Arc::clone(&remote);
+            let task = tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(cap).await;
                 if remote.hide_gen.load(Ordering::SeqCst) != generation || remote.visible.load(Ordering::SeqCst) {
                     return;
@@ -357,6 +390,7 @@ pub fn app_hidden(app: AppHandle, remote: State<'_, Arc<Remote>>) {
                 remote.log.push("background cap reached");
                 remote.suspend(&app);
             });
+            *holder.cap_task.lock().unwrap_or_else(|e| e.into_inner()) = Some(task);
         }
     }
 }

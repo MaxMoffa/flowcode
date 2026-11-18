@@ -11,6 +11,9 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 class MainActivity : TauriActivity() {
   // System bar insets as "top,bottom" in CSS px. Android's WebView doesn't
@@ -76,6 +79,17 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     webView.addJavascriptInterface(InsetsBridge(), "FlowcodeInsets")
     webView.addJavascriptInterface(ScreenshotsBridge(), "FlowcodeScreenshots")
+    // The write side goes through a web message listener: unlike a JS interface
+    // it reports the sender's frame, so iframes (dev servers, artifacts) can't
+    // flip FLAG_SECURE. Page side: window.FlowcodeScreenshotsSet.postMessage("1"|"0").
+    if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+      WebViewCompat.addWebMessageListener(webView, "FlowcodeScreenshotsSet", setOf("*")) { _, message: WebMessageCompat, _, isMainFrame, _ ->
+        if (!isMainFrame) return@addWebMessageListener
+        val on = when (message.data) { "1" -> true; "0" -> false; else -> return@addWebMessageListener }
+        prefs.edit().putBoolean(KEY_SCREENSHOTS, on).apply()
+        runOnUiThread { applySecure() }
+      }
+    }
     ViewCompat.setOnApplyWindowInsetsListener(webView) { view, all ->
       val bars = all.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
       val density = view.resources.displayMetrics.density
@@ -98,12 +112,6 @@ class MainActivity : TauriActivity() {
   inner class ScreenshotsBridge {
     @JavascriptInterface
     fun allowed(): Boolean = prefs.getBoolean(KEY_SCREENSHOTS, false)
-
-    @JavascriptInterface
-    fun setAllowed(on: Boolean) {
-      prefs.edit().putBoolean(KEY_SCREENSHOTS, on).apply()
-      runOnUiThread { applySecure() }
-    }
   }
 
   private companion object {

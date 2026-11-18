@@ -150,6 +150,12 @@ pub(crate) struct Remote {
     /// The background cap ran out while hidden: the service has stopped itself
     /// (see `ConnectionService`), so the link is treated as in the mode's absence.
     pub(crate) bg_capped: AtomicBool,
+    /// The sleeping task of the background cap; aborted on resume and on the next hide.
+    pub(crate) cap_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    /// When the app went out of sight (cleared on resume).
+    pub(crate) hidden_at: Mutex<Option<Instant>>,
+    /// Messages received from the desktop on any link: a resume ping is answered when it grows.
+    pub(crate) rx_count: AtomicU64,
 }
 
 /// Messages waiting for the link; `send` refuses more instead of growing
@@ -191,6 +197,24 @@ impl Remote {
     /// Like `rearm_with`, reading the pairing (a Keystore call: not on the main thread).
     pub(crate) fn rearm(&self) {
         self.rearm_with(store::load_pairing(&self.pairing_path(), &self.codec).is_paired());
+    }
+
+    /// Sends a Ping on the live link and waits up to `wait` for anything to come
+    /// back; false if there is no link or it stays silent.
+    pub(crate) async fn link_answers(&self, wait: Duration) -> bool {
+        if self.lock().out.is_none() {
+            return false;
+        }
+        let before = self.rx_count.load(Ordering::SeqCst);
+        self.queue(ClientMsg::Ping);
+        let deadline = Instant::now() + wait;
+        while Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if self.rx_count.load(Ordering::SeqCst) > before {
+                return true;
+            }
+        }
+        false
     }
 
     /// Queues a message on the live link, if there is one.

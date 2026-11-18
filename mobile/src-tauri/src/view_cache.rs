@@ -257,8 +257,36 @@ fn commit(views: &Path, id: &str, hash: &str, files: &[StagedFile]) -> Result<()
     Ok(())
 }
 
-/// Deletes every cached view and hash not in `keep`. Staging is left alone: a
-/// transfer may be running.
+/// Staging folders nothing has touched for this long belong to a transfer that
+/// was interrupted for good.
+const STALE_STAGING: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// The newest modification time in a folder tree (the folder included).
+fn newest_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    let mut newest = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if let Some(t) = newest_mtime(&entry.path()) {
+                newest = newest.max(t);
+            }
+        }
+    }
+    Some(newest)
+}
+
+/// Removes the staging entries older than `STALE_STAGING`. Called under `WRITE_LOCK`.
+fn prune_stale_staging(staging_root: &Path) {
+    let Ok(entries) = std::fs::read_dir(staging_root) else { return };
+    for entry in entries.flatten() {
+        let stale = newest_mtime(&entry.path()).and_then(|t| t.elapsed().ok()).is_some_and(|age| age > STALE_STAGING);
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Deletes every cached view and hash not in `keep`, and staging folders idle
+/// for over an hour; fresher staging is left alone: a transfer may be running.
 fn prune(views: &Path, keep: &[Keep]) -> Result<(), String> {
     let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let keep: HashSet<(&str, &str)> = keep.iter().map(|k| (k.id.as_str(), k.hash.as_str())).collect();
@@ -270,6 +298,7 @@ fn prune(views: &Path, keep: &[Keep]) -> Result<(), String> {
     for entry in entries.flatten() {
         let id = entry.file_name().to_string_lossy().into_owned();
         if id == STAGING {
+            prune_stale_staging(&entry.path());
             continue;
         }
         if !valid_id(&id) || !entry.path().is_dir() {

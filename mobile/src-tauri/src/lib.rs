@@ -66,6 +66,9 @@ pub fn run() {
                 visible: AtomicBool::new(true),
                 hide_gen: AtomicU64::new(0),
                 bg_capped: AtomicBool::new(false),
+                cap_task: Mutex::new(None),
+                hidden_at: Mutex::new(None),
+                rx_count: AtomicU64::new(0),
             });
             app.manage(Arc::clone(&remote));
             #[cfg(mobile)]

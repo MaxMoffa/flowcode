@@ -83,7 +83,15 @@ class SecureStorePlugin(activity: Activity) : Plugin(activity) {
         val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
         // Opening must never mint a fresh key: it could not decrypt anything.
-        if (!create) throw KeyMissingException()
+        if (!create) {
+            // Some devices answer null for a moment after boot: look again
+            // before declaring the key (and with it the pairing) gone.
+            repeat(3) {
+                Thread.sleep(200)
+                (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+            }
+            throw KeyMissingException()
+        }
         val spec = KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)

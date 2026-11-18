@@ -155,6 +155,7 @@ internal object WidgetRender {
     }
 
     fun deleteFrames(ctx: Context, ids: IntArray) {
+        for (id in ids) { tickets.remove(id); rendered.remove(id) }
         for (id in ids) framesDir(ctx, id).deleteRecursively()
     }
 
@@ -249,29 +250,57 @@ internal object WidgetRender {
     }
 
     // ---- entry points ----
-    @Synchronized
-    fun updateOne(ctx: Context, mgr: AppWidgetManager, kind: WidgetKind, id: Int) {
+    // One background thread renders everything, so a burst of resizes or
+    // updates queues up instead of running in parallel; per widget id only the
+    // latest request does any work.
+    private val executor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "widget-render").apply { isDaemon = true } }
+    private val tickets = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+    private val ticketSeq = java.util.concurrent.atomic.AtomicLong()
+
+    /** What the last render of a widget was drawn from: unchanged inputs reuse its frames. */
+    private class Rendered(val key: String, val uris: List<Uri>)
+    private val rendered = java.util.concurrent.ConcurrentHashMap<Int, Rendered>()
+
+    private fun updateOne(ctx: Context, mgr: AppWidgetManager, kind: WidgetKind, id: Int) {
         try {
             val (w, h) = sizeDp(ctx, mgr.getAppWidgetOptions(id), kind)
+            val raw = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_SNAPSHOT, null)
+            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            // The snapshot is shifted to the real day, so the day belongs in the key too.
+            val key = "${kind.name}|$w|$h|$hour|${midnight()}|${ctx.resources.displayMetrics.density}|$raw"
             val snap = loadSnap(ctx)
-            val uris = renderFrames(ctx, kind, id, w, h, snap)
+            val prev = rendered[id]
+            val uris = if (prev != null && prev.key == key && frameFilesExist(ctx, id, prev.uris)) prev.uris
+            else renderFrames(ctx, kind, id, w, h, snap).also { rendered[id] = Rendered(key, it) }
             mgr.updateAppWidget(id, build(ctx, kind, id, w, h, snap, uris))
         } catch (e: Exception) {
             Log.w(TAG, "could not update widget $id: ${e.message}")
         }
     }
 
-    /** Renders off the main thread; `pending` (from `goAsync()`) keeps the receiver alive. */
-    fun updateAsync(ctx: Context, kind: WidgetKind, ids: IntArray, pending: BroadcastReceiver.PendingResult?) {
-        val app = ctx.applicationContext
-        Thread {
+    private fun frameFilesExist(ctx: Context, id: Int, uris: List<Uri>): Boolean {
+        val dir = framesDir(ctx, id)
+        return uris.all { u -> u.lastPathSegment?.let { File(dir, it).exists() } == true }
+    }
+
+    private fun enqueue(app: Context, kind: WidgetKind, ids: IntArray, done: (() -> Unit)?) {
+        val mine = ids.associateWith { ticketSeq.incrementAndGet().also { t -> tickets[it] = t } }
+        executor.execute {
             try {
                 val mgr = AppWidgetManager.getInstance(app)
-                for (id in ids) updateOne(app, mgr, kind, id)
+                for (id in ids) {
+                    if (tickets[id] != mine[id]) continue // a newer request for this widget is queued
+                    updateOne(app, mgr, kind, id)
+                }
             } finally {
-                pending?.finish()
+                done?.invoke()
             }
-        }.start()
+        }
+    }
+
+    /** Renders off the main thread; `pending` (from `goAsync()`) keeps the receiver alive. */
+    fun updateAsync(ctx: Context, kind: WidgetKind, ids: IntArray, pending: BroadcastReceiver.PendingResult?) {
+        enqueue(ctx.applicationContext, kind, ids) { pending?.finish() }
     }
 
     /** After new stats from the app: every instance of every provider. */
@@ -279,7 +308,8 @@ internal object WidgetRender {
         val app = ctx.applicationContext
         val mgr = AppWidgetManager.getInstance(app)
         for (kind in WidgetKind.values()) {
-            for (id in mgr.getAppWidgetIds(ComponentName(app, kind.provider))) updateOne(app, mgr, kind, id)
+            val ids = mgr.getAppWidgetIds(ComponentName(app, kind.provider))
+            if (ids.isNotEmpty()) enqueue(app, kind, ids, null)
         }
     }
 }

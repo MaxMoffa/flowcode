@@ -352,7 +352,7 @@ internal object WidgetArt {
     // ---- B · Canneto ----
     fun reedX(w: Int, i: Int): Int = rd(w * .5 + i * (w * .45 / 6))
 
-    private fun sceneB(g: Pix, w: Int, h: Int, t: Double, pal: Pal, s: SceneData, fs: Double, letters: String?) {
+    private fun sceneB(g: Pix, w: Int, h: Int, t: Double, pal: Pal, s: SceneData, fs: Double) {
         val wy = h - 12
         skyAndSun(g, w, h, t, pal, wy)
         if (!pal.moon) clouds(g, w, h, t, pal, 3)
@@ -418,8 +418,6 @@ internal object WidgetArt {
         tint(g, w, h, pal)
         fireflies(g, w, h, t, pal, 6, .45, .8)
         if (f != null && s.mood == "sleep") zzz(g, f.x + f.w, f.y, t)
-        // day letters are part of the picture, not views, so they scale with it
-        if (letters != null) for (i in 0 until 7) drawLetter(g, letters[i], reedX(w, i), h - 2, i == 6)
     }
 
     // ---- C · Stagno ----
@@ -501,42 +499,10 @@ internal object WidgetArt {
         if (s.mood == "sleep") zzz(g, f.x + f.w - 3, f.y + 1, t)
     }
 
-    // ---- tiny pixel font for the day letters (3x5, 5x5 for M and W) ----
-    private val GLYPHS = mapOf(
-        'L' to arrayOf("1..", "1..", "1..", "1..", "111"),
-        'G' to arrayOf("111", "1..", "1.1", "1.1", "111"),
-        'V' to arrayOf("1.1", "1.1", "1.1", "1.1", ".1."),
-        'S' to arrayOf("111", "1..", "111", "..1", "111"),
-        'D' to arrayOf("11.", "1.1", "1.1", "1.1", "11."),
-        'T' to arrayOf("111", ".1.", ".1.", ".1.", ".1."),
-        'F' to arrayOf("111", "1..", "11.", "1..", "1.."),
-        'M' to arrayOf("1...1", "11.11", "1.1.1", "1...1", "1...1"),
-        'W' to arrayOf("1...1", "1...1", "1.1.1", "11.11", "1...1"),
-    )
-
-    private fun drawLetter(g: Pix, ch: Char, cx: Int, bottom: Int, today: Boolean) {
-        val rows = GLYPHS[ch] ?: return
-        val x0 = cx - rows[0].length / 2
-        val y0 = bottom - 5
-        // 1px shadow keeps the letters legible over the light water
-        g.alpha = .35
-        rows.forEachIndexed { r, row -> row.forEachIndexed { c, v -> if (v == '1') g.p(x0 + c, y0 + r + 1, 1, 1, hex("#000000")) } }
-        g.alpha = if (today) 1.0 else .62
-        val col = if (today) hex("#dff3cf") else hex("#fff6ea")
-        rows.forEachIndexed { r, row -> row.forEachIndexed { c, v -> if (v == '1') g.p(x0 + c, y0 + r, 1, 1, col) } }
-        g.alpha = 1.0
-    }
-
-    /** Weekday letters of the 7 days ending today (oldest first). */
-    fun dayLetters(italian: Boolean, todayMonIndex: Int): String {
-        val names = if (italian) "LMMGVSD" else "MTWTFSS"
-        return String(CharArray(7) { i -> names[(((todayMonIndex - (6 - i)) % 7) + 7) % 7] })
-    }
-
     // ---- entry point ----
     /** kind: 0 = A, 1 = B, 2 = C. Returns the low-res scene; the caller scales it up. */
     @Synchronized
-    fun render(kind: Int, w: Int, h: Int, t: Double, hour: Int, s: SceneData, letters: String?): Bitmap {
+    fun render(kind: Int, w: Int, h: Int, t: Double, hour: Int, s: SceneData): Bitmap {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val g = Pix(bmp)
         val pal = slotFor(hour)
@@ -545,7 +511,7 @@ internal object WidgetArt {
         fun frogScale(base: Double, refH: Double) = base * max(.7, min(1.8, m / refH))
         when (kind) {
             0 -> sceneA(g, w, h, t, pal, s, frogScale(.62, 37.0))
-            1 -> sceneB(g, w, h, t, pal, s, frogScale(.55, 55.0), letters)
+            1 -> sceneB(g, w, h, t, pal, s, frogScale(.55, 55.0))
             else -> sceneC(g, w, h, t, pal, s, frogScale(.6, 37.0))
         }
         return bmp

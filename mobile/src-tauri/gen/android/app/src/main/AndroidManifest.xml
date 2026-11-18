@@ -89,7 +89,7 @@
              files under filesDir/widgets, read-only. -->
         <receiver
             android:name=".FinestraWidget"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/widget_a_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -100,7 +100,7 @@
         </receiver>
         <receiver
             android:name=".CannetoWidget"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/widget_b_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -111,7 +111,7 @@
         </receiver>
         <receiver
             android:name=".StagnoWidget"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/widget_c_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

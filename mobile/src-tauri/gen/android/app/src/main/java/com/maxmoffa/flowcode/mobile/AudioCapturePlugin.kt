@@ -17,6 +17,8 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "AudioCapturePlugin"
 private const val PERMISSION_ALIAS = "microphone"
@@ -33,18 +35,17 @@ private const val CHUNK_BYTES = 3200
 @TauriPlugin(permissions = [Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = PERMISSION_ALIAS)])
 class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
     private val lock = Any()
-    private var recorder: AudioRecord? = null
     private var thread: Thread? = null
 
+    /** The live capture's own stop flag: a pump that outlives a timed-out join still sees only its own. */
     @Volatile
-    private var running = false
+    private var stopFlag: AtomicBoolean? = null
 
     /** Permission requests whose dialog is still up; see `onDestroy`. */
     private val pendingPermission = mutableListOf<Invoke>()
 
-    /** Bumped by every stop/cancel; a permission request that started under an older value is dropped. Guarded by `pendingPermission` for the map, volatile for the counter. */
-    @Volatile
-    private var permissionEpoch = 0
+    /** Bumped by every stop/cancel; a permission request that started under an older value is dropped. Guarded by `pendingPermission` for the map. */
+    private val permissionEpoch = AtomicInteger()
     private val permissionEpochs = HashMap<Invoke, Int>()
 
     private fun granted(): Boolean =
@@ -88,24 +89,25 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
                 rec.release()
                 return false
             }
-            recorder = rec
-            running = true
-            val worker = Thread({ pump(rec) }, "flowcode-audio-capture")
+            val stop = AtomicBoolean(false)
+            stopFlag = stop
+            val worker = Thread({ pump(rec, stop) }, "flowcode-audio-capture")
             thread = worker
             worker.start()
             return true
         }
     }
 
-    private fun pump(rec: AudioRecord) {
+    private fun pump(rec: AudioRecord, stop: AtomicBoolean) {
         val buf = ByteArray(CHUNK_BYTES)
-        while (running) {
+        while (!stop.get()) {
             val n = rec.read(buf, 0, buf.size)
             if (n > 0) {
                 emitChunk(buf, n)
             } else if (n < 0) {
                 // The recorder died (e.g. another app took the microphone).
-                running = false
+                stop.set(true)
+                if (stopFlag === stop) stopFlag = null
                 fail("capture")
                 break
             }
@@ -126,10 +128,10 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
 
     /** Stops the capture thread and waits for it, so the flushed chunks are out before we return. */
     private fun endLocked() {
-        running = false
+        stopFlag?.set(true)
+        stopFlag = null
         val worker = thread
         thread = null
-        recorder = null
         if (worker != null && worker !== Thread.currentThread()) {
             try {
                 worker.join(1500)
@@ -150,7 +152,7 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
         } else {
             synchronized(pendingPermission) {
                 pendingPermission.add(invoke)
-                permissionEpochs[invoke] = permissionEpoch
+                permissionEpochs[invoke] = permissionEpoch.get()
             }
             requestPermissionForAlias(PERMISSION_ALIAS, invoke, "microphonePermissionResult")
         }
@@ -167,7 +169,7 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
             permissionEpochs.remove(invoke)
         }
         // A stop or cancel during the dialog: the session is gone, do not turn the microphone on.
-        if (asked != permissionEpoch) {
+        if (asked != permissionEpoch.get()) {
             invoke.reject("cancelled")
             return
         }
@@ -177,7 +179,7 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
     /** Stops recording after flushing the last chunk. */
     @Command
     fun stop(invoke: Invoke) {
-        permissionEpoch++
+        permissionEpoch.incrementAndGet()
         end()
         invoke.resolve()
     }
@@ -185,10 +187,13 @@ class AudioCapturePlugin(private val activity: Activity) : Plugin(activity) {
     // A paused app must not keep the microphone: the page cancels its session too.
     override fun onPause() {
         // Only a running capture is ended here, so a request still waiting on the dialog is not invalidated.
-        if (running) {
-            permissionEpoch++
-            end()
-            fail("paused")
+        if (stopFlag != null) {
+            permissionEpoch.incrementAndGet()
+            // The join waits for the flush: keep that off the main thread.
+            Thread {
+                end()
+                fail("paused")
+            }.start()
         }
     }
 

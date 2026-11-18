@@ -75,6 +75,20 @@ enum Read {
     Found { plain: Vec<u8>, legacy: bool },
 }
 
+/// A "key missing" answer can be a transient Keystore null (some devices, just
+/// after boot): ask again a couple of times before calling the data lost.
+fn open_retrying(codec: &dyn Codec, sealed: &[u8]) -> Result<Vec<u8>, OpenError> {
+    let mut result = codec.open(sealed);
+    for _ in 0..2 {
+        if !matches!(result, Err(OpenError::Lost(_))) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        result = codec.open(sealed);
+    }
+    result
+}
+
 fn read_secret(path: &Path, codec: &dyn Codec) -> Read {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
@@ -83,7 +97,7 @@ fn read_secret(path: &Path, codec: &dyn Codec) -> Read {
         Err(e) => return Read::Failed(e.to_string()),
     };
     match bytes.strip_prefix(MAGIC) {
-        Some(sealed) if codec.seals() => match codec.open(sealed) {
+        Some(sealed) if codec.seals() => match open_retrying(codec, sealed) {
             Ok(plain) => Read::Found { plain, legacy: false },
             Err(OpenError::Lost(e)) => Read::Lost(e),
             Err(OpenError::Transient(e)) => Read::Failed(e),

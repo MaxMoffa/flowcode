@@ -46,10 +46,11 @@ class NotifyArgs {
  */
 @TauriPlugin(permissions = [Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = PERMISSION_ALIAS)])
 class BackgroundPlugin(private val activity: Activity) : Plugin(activity) {
-    private var armed = false
-    private var title = ""
-    private var text = ""
-    private var capMinutes = 0
+    private class Arm(val armed: Boolean, val title: String, val text: String, val capMinutes: Int)
+
+    /** Written by the command thread, read on the UI thread: one immutable snapshot. */
+    @Volatile
+    private var arm = Arm(false, "", "", 0)
     private val nextId = AtomicInteger(1000)
 
     /** Permission requests whose dialog is still up; see `onDestroy`. */
@@ -84,11 +85,12 @@ class BackgroundPlugin(private val activity: Activity) : Plugin(activity) {
     // Still in the foreground here, which is what lets Android 12+ start a
     // foreground service.
     override fun onPause(activity: AppCompatActivity) {
-        if (!armed) return
+        val a = arm
+        if (!a.armed) return
         val intent = Intent(activity, ConnectionService::class.java)
-            .putExtra(EXTRA_TITLE, title)
-            .putExtra(EXTRA_TEXT, text)
-            .putExtra(EXTRA_CAP_MINUTES, capMinutes)
+            .putExtra(EXTRA_TITLE, a.title)
+            .putExtra(EXTRA_TEXT, a.text)
+            .putExtra(EXTRA_CAP_MINUTES, a.capMinutes)
         try {
             ContextCompat.startForegroundService(activity, intent)
         } catch (e: Exception) {
@@ -107,10 +109,7 @@ class BackgroundPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun setArmed(invoke: Invoke) {
         val args = invoke.parseArgs(ArmArgs::class.java)
-        armed = args.armed
-        title = args.title
-        text = args.text
-        capMinutes = args.capMinutes
+        arm = Arm(args.armed, args.title, args.text, args.capMinutes)
         invoke.resolve()
     }
 
