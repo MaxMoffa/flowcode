@@ -34,6 +34,7 @@ import { answerChatAsk, answerChatPermission, cancelChat, clearChat, closeChatTa
 import { agentName, shortCwd } from "./common";
 import { defaultViewFor } from "./defaultView";
 import { lastInWindow } from "./homeSessions";
+import { onChatGone } from "./chatGone";
 import { tapFeedback } from "./haptics";
 import { speechLocale, t } from "./i18n";
 import { AgentLogo, AgentsIcon, BackIcon, ArrowDownIcon, ChevronDownIcon, CloseIcon, CopyIcon, GlobeIcon, PencilIcon, SendIcon, StopIcon, Svg } from "./icons";
@@ -65,6 +66,7 @@ const formatCacheTokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 
 /** `embedded`: the wide layout's main card, whose tab strip already says which chat this is, so there is no back button. `onTerminal` hands the session to a desktop terminal tab (App opens it once it appears). `onSwitch` opens another terminal from the agents drawer. */
 /** Chats whose default mode was already tried, so it is applied at most once per chat. */
 const defaultModeTried = new Set<string>();
+onChatGone((id) => void defaultModeTried.delete(id));
 
 export function ChatScreen({ chatId, onBack, onTerminal, onSwitch, embedded, onBrowser, onOpenPage, pendingPage, onOpenPending, onDismissPending, onOpenChat }: { chatId: string; onBack: () => void; onTerminal: (chat: ChatInfo) => void; onSwitch?: (ptyId: string) => void; embedded?: boolean; onBrowser?: () => void; onOpenPage?: (page: Page) => void; pendingPage?: Page | null; onOpenPending?: () => void; onDismissPending?: () => void; onOpenChat?: (chatId: string) => void }) {
   const browser = useChatBrowser(embedded ? null : chatId);

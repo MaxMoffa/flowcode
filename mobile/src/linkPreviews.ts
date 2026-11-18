@@ -11,7 +11,19 @@ type Entry = LinkPreview | null | "pending";
 
 const store = createStore<{ entries: Record<string, Entry> }>({ entries: {} });
 
-const setEntry = (url: string, entry: Entry) => store.set({ entries: { ...store.get().entries, [url]: entry } });
+/** Previews kept; the oldest written go first (they carry data: images). */
+const MAX_ENTRIES = 200;
+/** The desktop the previews came from. */
+let lastHost: string | undefined;
+
+function setEntry(url: string, entry: Entry) {
+  const next = { ...store.get().entries };
+  delete next[url];
+  next[url] = entry;
+  const keys = Object.keys(next);
+  for (let i = 0; i < keys.length - MAX_ENTRIES; i++) delete next[keys[i]];
+  store.set({ entries: next });
+}
 const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 const picture = (v: unknown) => (typeof v === "string" && v.startsWith("data:image/") ? v : undefined);
 
@@ -48,6 +60,10 @@ export function requestLinkPreview(url: string) {
 export const useLinkPreview = (url: string): Entry | undefined => store.useSelector((s) => s.entries[url]);
 
 onMessage((m) => {
+  if (m.t === "ready" && m.hostName !== lastHost) {
+    lastHost = m.hostName;
+    store.set({ entries: {} });
+  }
   // The reply names the url that was asked, which the preview's own `url` repeats.
   if (m.t === "linkpreview") setEntry(m.url, cleanPreview(m.preview));
 });

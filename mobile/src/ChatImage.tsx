@@ -324,11 +324,13 @@ function Viewer({ items, start, onClose }: { items: Registered[]; start: number;
         }
       }
       const a = document.createElement("a");
-      a.href = blob ? URL.createObjectURL(blob) : src;
+      const href = blob ? URL.createObjectURL(blob) : src;
+      a.href = href;
       a.download = blob ? fileName(blob) : name;
       document.body.appendChild(a);
       a.click();
       a.remove();
+      if (blob) setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } finally {
       setBusy(false);
     }

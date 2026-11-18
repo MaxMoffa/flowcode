@@ -5,6 +5,7 @@ import { permissionDetail } from "../../src/chat/permissionDetail";
 import { toolTitleText } from "../../src/chat/mcpToolLabel";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
+import { useRemoteSelector } from "./remote";
 
 type Permission = Extract<ChatItem, { type: "permission" }>;
 
@@ -32,6 +33,11 @@ export function PermissionBar({ pending, onAnswer }: { pending: Permission[]; on
   /** The request just answered, until the desktop confirms it (the buttons stay put but dead). */
   const [answered, setAnswered] = useState<string | null>(null);
   useEffect(() => setAnswered(null), [first?.requestId]);
+  // A dropped link loses the answer; the request is replayed once back, so it can be given again.
+  const status = useRemoteSelector((s) => s.status);
+  useEffect(() => {
+    if (status !== "online") setAnswered(null);
+  }, [status]);
   if (!first) return null;
 
   const options = [...first.options].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));

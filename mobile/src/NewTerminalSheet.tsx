@@ -22,6 +22,16 @@ export const AGENTS: { id: Cli; name: string }[] = [
   { id: "cline", name: "Cline" },
 ];
 
+/** Agents the desktop only offers when it advertises the capability of the same name. */
+const CAP_GATED: string[] = ["gemini", "opencode", "cline"];
+/** Whether an agent can be used on a desktop with these capabilities (everything counts while they are not known yet). */
+export const agentUsableOnHost = (id: string, caps: readonly string[] | undefined): boolean => !CAP_GATED.includes(id) || !caps || caps.includes(id);
+/** `agentUsableOnHost` bound to the connected desktop, reactive. */
+export function useAgentUsable(): (id: string) => boolean {
+  const caps = useRemoteSelector((r) => r.host?.caps);
+  return (id) => agentUsableOnHost(id, caps);
+}
+
 /** A terminal the user created before: what the "Recenti" chips replay with one tap. */
 interface Recent {
   cwd: string | null;
@@ -142,9 +152,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate, initialCwd 
   /** The select row whose menu is open. */
   const [menu, setMenu] = useState<"cwd" | "profile" | "agent" | null>(null);
   const canPickProfile = useSupports("newTabProfile");
-  const canGemini = useSupports("gemini");
-  const canOpencode = useSupports("opencode");
-  const canCline = useSupports("cline");
+  const agentUsable = useAgentUsable();
   const canChat = useSupports("chat");
   const [asChat, setAsChat] = useState(() => safeStorage.get(AS_CHAT_KEY) === "1");
   const profiles = useRemoteSelector((r) => r.profiles);
@@ -165,7 +173,7 @@ export function NewTerminalSheet({ open, folders, onClose, onCreate, initialCwd 
   useEscape(menu !== null && menu !== "cwd", closeMenu);
 
   const showProfiles = canPickProfile && !!profiles && profiles.length > 0;
-  const usable = (c: Cli, p: string | null) => (c !== "gemini" || canGemini) && (c !== "opencode" || canOpencode) && (c !== "cline" || canCline) && agentAvailable(c, p, canPickProfile ? profiles : null, defaultLoggedIn);
+  const usable = (c: Cli, p: string | null) => agentUsable(c) && agentAvailable(c, p, canPickProfile ? profiles : null, defaultLoggedIn);
 
   const create = (v: Recent = { cwd, cli, profile }) => {
     const p = canPickProfile ? v.profile : null;

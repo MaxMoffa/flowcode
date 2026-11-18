@@ -8,7 +8,7 @@ import { expectNewChat } from "./chats";
 import { statsRequest } from "./gitRemote";
 import { AGENT_KEY, cwdKey } from "./Home";
 import { launchPath } from "./explorerPaths";
-import { AGENTS } from "./NewTerminalSheet";
+import { AGENTS, agentUsableOnHost } from "./NewTerminalSheet";
 import { beginPending } from "./pending";
 import { hostSupports, send, useRemoteSelector } from "./remote";
 import { safeStorage } from "./store";
@@ -22,7 +22,10 @@ const COUNT_DEBOUNCE_MS = 10_000;
 const CHAT_WAIT_MS = 45_000;
 
 /** The agents the Home launcher offers on this desktop. */
-const usableAgents = () => AGENTS.filter((a) => (a.id !== "gemini" || hostSupports("gemini")) && (a.id !== "opencode" || hostSupports("opencode")));
+const usableAgents = () => {
+  const caps = AGENTS.map((a) => a.id as string).filter(hostSupports);
+  return AGENTS.filter((a) => agentUsableOnHost(a.id, caps));
+};
 
 let lastRefresh = 0;
 let refreshing = false;

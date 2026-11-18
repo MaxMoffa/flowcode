@@ -15,7 +15,7 @@ export interface WidgetSnapshot {
   updatedAt: number;
 }
 
-export const MAX_WIDGET_AGENTS = 4;
+const MAX_WIDGET_AGENTS = 4;
 
 /** Local midnight of the day `now` falls in. */
 export const localMidnight = (now: number): number => {
@@ -51,7 +51,9 @@ export const actionExpired = (at: number, now: number): boolean => now - at > AC
 /** What "resume" opens: the last terminal still in the tabs, else the most recently listed chat. */
 export function resumeTarget(lastOpened: string | null, tabs: Tab[], chats: ChatInfo[]): { kind: "tab" | "chat"; id: string } | null {
   if (lastOpened && tabs.some((x) => x.ptyId === lastOpened)) return { kind: "tab", id: lastOpened };
-  const chat = chats[chats.length - 1];
+  // The most recently active chat; desktops that don't send `activeAt` keep the old "last listed" rule (ties go to the later one).
+  let chat: ChatInfo | undefined;
+  for (const c of chats) if (!chat || (c.activeAt ?? 0) >= (chat.activeAt ?? 0)) chat = c;
   return chat ? { kind: "chat", id: chat.chatId } : null;
 }
 

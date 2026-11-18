@@ -20,8 +20,18 @@ const store = createStore<{ replies: Record<string, AgentInsightReply> }>({ repl
 /** Stores a reply under the key the desktop echoed. */
 /** @internal exported for tests */
 export function storeInsight(key: string, reply: AgentInsightReply) {
-  store.set({ replies: { ...store.get().replies, [key]: reply } });
+  const next = { ...store.get().replies };
+  delete next[key];
+  next[key] = reply;
+  const keys = Object.keys(next);
+  for (let i = 0; i < keys.length - MAX_REPLIES; i++) delete next[keys[i]];
+  store.set({ replies: next });
 }
+
+/** Replies kept; the oldest go first. */
+const MAX_REPLIES = 50;
+/** The desktop the replies came from. */
+let lastHost: string | undefined;
 
 /** @internal exported for tests */
 export const getInsight = (key: string): AgentInsightReply | undefined => store.get().replies[key];
@@ -53,5 +63,9 @@ export function useAgentInsight(target: InsightTarget, enabled: boolean): AgentI
 }
 
 onMessage((m) => {
+  if (m.t === "ready" && m.hostName !== lastHost) {
+    lastHost = m.hostName;
+    store.set({ replies: {} });
+  }
   if (m.t === "agentinsight") storeInsight(m.key, { cli: m.cli, context: m.context, usage: m.usage, tools: m.tools });
 });

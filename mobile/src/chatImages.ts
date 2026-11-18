@@ -8,6 +8,8 @@ import { createStore } from "./store";
 
 export type ChatImageState = "loading" | "ready" | "missing" | "blocked";
 let supportsRequestIds = false;
+/** The desktop the cached images came from. */
+let lastHost: string | undefined;
 const urls = createImageUrlCache();
 const changes = createStore({ generation: 0, retry: 0 });
 const fetcher = createChatImageFetcher((msg) => sendChecked(msg), 30_000, { supportsRequestIds: () => supportsRequestIds });
@@ -15,8 +17,12 @@ onMessage((message) => {
   if (message.t === "ready") {
     supportsRequestIds = !!message.caps?.includes("chatImageRequestId");
     fetcher.reset();
-    urls.clear();
-    changes.set({ generation: changes.get().generation + 1, retry: 0 });
+    // Only another desktop invalidates the images; a reconnect to the same one keeps them and just retries what was cut off.
+    if (message.hostName !== lastHost) {
+      lastHost = message.hostName;
+      urls.clear();
+      changes.set({ generation: changes.get().generation + 1, retry: 0 });
+    } else changes.set({ ...changes.get(), retry: changes.get().retry + 1 });
   } else fetcher.handle(message);
 });
 

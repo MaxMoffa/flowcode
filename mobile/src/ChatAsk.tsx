@@ -3,6 +3,7 @@ import { buildAskContent, missingRequired, type AskAnswer, type AskOption, type 
 import type { ChatItem } from "../../src/chat/chatModel";
 import { tapFeedback } from "./haptics";
 import { t } from "./i18n";
+import { useRemoteSelector } from "./remote";
 
 type Ask = Extract<ChatItem, { type: "ask" }>;
 
@@ -26,6 +27,11 @@ export function AskPanel({ ask, agent, onAnswer }: { ask: Ask; agent: string; on
   /** The request just answered, until the desktop confirms it (the panel stays put but dead). */
   const [sent, setSent] = useState<string | null>(null);
   useEffect(() => setSent(null), [ask.requestId]);
+  // A dropped link loses the answer; the request is replayed once back, so it can be given again.
+  const status = useRemoteSelector((s) => s.status);
+  useEffect(() => {
+    if (status !== "online") setSent(null);
+  }, [status]);
 
   const submit = (action: "accept" | "decline", content?: Record<string, unknown>) => {
     if (sent) return;

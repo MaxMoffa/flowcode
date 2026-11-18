@@ -15,7 +15,7 @@ import { leftText } from "./homeUsage";
 import { UsageSection } from "./HomeUsageCards";
 import { t } from "./i18n";
 import { AgentLogo, ArrowUpRightIcon, Svg, ChatIcon, CheckIcon, ChevronDownIcon, CloseIcon, DotsIcon, FolderIcon, PencilIcon, PlusIcon, SendIcon, TerminalIcon } from "./icons";
-import { AGENTS, loadRecents, recentsKey, NewTerminalSheet } from "./NewTerminalSheet";
+import { AGENTS, agentUsableOnHost, loadRecents, recentsKey, NewTerminalSheet } from "./NewTerminalSheet";
 import type { Pending } from "./pending";
 import { send, useRemoteSelector, useSupports, type Tab } from "./remote";
 import { safeStorage } from "./store";
@@ -116,11 +116,9 @@ const sent = { current: "" };
 
 /** The text field that starts a chat: what to do, with which agent, in which folder. */
 export function Launcher({ hostName, tabs, onCreate, pending }: { hostName: string | undefined; tabs: Tab[] | null; onCreate: (asChat: boolean, label: string, firstPrompt?: string, expect?: { agent: string; cwd?: string }) => void; pending: Pending | null }) {
-  const canGemini = useSupports("gemini");
-  const canOpencode = useSupports("opencode");
-  const canCline = useSupports("cline");
+  const caps = useRemoteSelector((r) => r.host?.caps);
   const chats = useRemoteSelector((r) => r.chats);
-  const agents = useMemo(() => AGENTS.filter((a) => (a.id !== "gemini" || canGemini) && (a.id !== "opencode" || canOpencode) && (a.id !== "cline" || canCline)), [canGemini, canOpencode, canCline]);
+  const agents = useMemo(() => AGENTS.filter((a) => agentUsableOnHost(a.id, caps)), [caps]);
   const key = cwdKey(hostName);
   const [agentId, setAgentId] = useState<string>(() => safeStorage.get(AGENT_KEY) ?? "");
   const [folder, setFolder] = useState(() => ({ key, cwd: safeStorage.get(key) || null }));

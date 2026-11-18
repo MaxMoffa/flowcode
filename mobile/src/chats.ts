@@ -81,16 +81,37 @@ function syncFollows() {
     opened.delete(chatId);
     if (known.has(chatId)) send({ t: "chatclose", chatId });
   }
+  pruneSessions(wanted, pendingSend);
+}
+
+/** Conversations kept in memory (each holds thousands of items); the least recently followed idle ones go first and are replayed from the desktop when followed again. */
+const MAX_SESSIONS = 8;
+/** When each chat was last followed or let go, for the eviction order. */
+const lastUsed = new Map<string, number>();
+let useTick = 0;
+const touch = (chatId: string) => void lastUsed.set(chatId, ++useTick);
+
+function pruneSessions(wanted: Set<string>, pendingSend: (id: string) => boolean) {
+  const { sessions } = store.get();
+  const ids = Object.keys(sessions);
+  if (ids.length <= MAX_SESSIONS) return;
+  const evictable = ids.filter((id) => !wanted.has(id) && (refs.get(id) ?? 0) === 0 && !opened.has(id) && !pendingSend(id)).sort((a, b) => (lastUsed.get(a) ?? 0) - (lastUsed.get(b) ?? 0));
+  const drop = new Set(evictable.slice(0, ids.length - MAX_SESSIONS));
+  if (drop.size === 0) return;
+  store.set({ sessions: Object.fromEntries(Object.entries(sessions).filter(([id]) => !drop.has(id))) });
+  drop.forEach((id) => lastUsed.delete(id));
 }
 
 /** Follows a chat while a screen shows it; returns the stop function. */
 export function followChat(chatId: string): () => void {
   refs.set(chatId, (refs.get(chatId) ?? 0) + 1);
+  touch(chatId);
   syncFollows();
   return () => {
     const n = (refs.get(chatId) ?? 1) - 1;
     if (n > 0) refs.set(chatId, n);
     else refs.delete(chatId);
+    touch(chatId);
     syncFollows();
   };
 }
@@ -153,8 +174,15 @@ function onChatList(chats: ChatInfo[]) {
   for (const chat of chats) {
     // The agent started a new session under the same chat: its history began again, so start over from the first event.
     const prev = sessionIds.get(chat.chatId);
-    if (chat.sessionId && prev && prev !== chat.sessionId) opened.delete(chat.chatId);
-    else if (sessions[chat.chatId]) kept[chat.chatId] = sessions[chat.chatId];
+    if (chat.sessionId && prev && prev !== chat.sessionId) {
+      opened.delete(chat.chatId);
+      // Nothing of the old history applies, but a message still on its way (or one sent and not seen arriving) must not vanish: it queues again in the fresh session.
+      const old = sessions[chat.chatId];
+      if (old && (old.queued.length > 0 || old.sentText !== null)) {
+        const inFlight = old.sentText !== null ? [{ text: old.sentText, files: old.sentFiles }] : [];
+        kept[chat.chatId] = { ...emptySession(), queued: [...inFlight, ...old.queued], deliveryVersion: old.deliveryVersion + 1 };
+      }
+    } else if (sessions[chat.chatId]) kept[chat.chatId] = sessions[chat.chatId];
     if (chat.sessionId) sessionIds.set(chat.chatId, chat.sessionId);
   }
   for (const id of Object.keys(sessions)) if (!live.has(id) && (refs.get(id) ?? 0) > 0) kept[id] = sessions[id];
@@ -180,6 +208,7 @@ function onChatMsg(m: ServerMsg) {
         const all = new Set([...Object.keys(store.get().sessions), ...sessionIds.keys(), ...lastChatViews.keys(), ...seenChats]);
         sessionIds.clear();
         seenChats = new Set();
+        lastUsed.clear();
         store.set({ sessions: {} });
         all.forEach(chatGone);
         consumeClear();
@@ -329,7 +358,10 @@ export const pendingPermissionTitle = (session: ChatSession | undefined, info?: 
 
 /** The view each chat was last shown with, so leaving a chat and coming back keeps a plugin view. */
 export const lastChatViews = new Map<string, string>();
-onChatGone((id) => void lastChatViews.delete(id));
+onChatGone((id) => {
+  lastChatViews.delete(id);
+  lastUsed.delete(id);
+});
 
 /** A list far from App (a drawer, a row) asks for a chat; App opens it. */
 export const requestOpenChat = (chatId: string) => store.set({ openRequest: chatId });

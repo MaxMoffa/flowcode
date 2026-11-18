@@ -39,7 +39,11 @@ export function useChatBrowser(chatId: string | null) {
     setPending(false);
     setOpened(true);
   }, []);
-  const close = useCallback(() => setOpened(false), []);
+  // The page goes with the drawer: reopening it by hand must not send the same open to the desktop again (it would bring back a tab closed there).
+  const close = useCallback(() => {
+    setOpened(false);
+    setPage(null);
+  }, []);
   const dismissPending = useCallback(() => setPending(false), []);
   const show = useCallback((next: Page) => {
     (document.activeElement as HTMLElement | null)?.blur?.();
