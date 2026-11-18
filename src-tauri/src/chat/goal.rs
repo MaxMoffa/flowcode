@@ -3,9 +3,13 @@
 //! where the agent keeps it - Claude's session transcript, Codex's goals
 //! database - and the views get it as a `_flowcode/goal` event.
 
+use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
+
+use crate::util::lock;
 
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
@@ -109,8 +113,7 @@ pub(crate) fn read(app: &AppHandle, agent: &str, session_id: &str, profile: Opti
                 }
                 None => crate::profiles::dirs(app, profile)?.claude,
             };
-            let path = crate::context::find_claude_transcript(&dir, session_id)?;
-            claude_goal_from_tail(&read_tail(&path)?)
+            claude_goal(&dir, session_id)
         }
         "codex" => {
             let dir = match wsl {
@@ -133,9 +136,43 @@ fn read_tail(path: &Path) -> Option<String> {
     file.seek(SeekFrom::Start(start)).ok()?;
     let mut buf = Vec::with_capacity((len - start) as usize);
     file.take(TAIL).read_to_end(&mut buf).ok()?;
-    let text = String::from_utf8_lossy(&buf).into_owned();
     // A cut tail starts mid-line.
-    Some(if start > 0 { text.split_once('\n').map(|(_, rest)| rest.to_string()).unwrap_or_default() } else { text })
+    if start > 0 {
+        let cut = buf.iter().position(|&b| b == b'\n').map_or(buf.len(), |i| i + 1);
+        buf.drain(..cut);
+    }
+    // Valid UTF-8 (nearly always) becomes the string without a copy.
+    Some(String::from_utf8(buf).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
+}
+
+/// Where a session's transcript was found, per folder and id: finding it lists every project folder.
+static PATHS: LazyLock<Mutex<HashMap<(PathBuf, String), PathBuf>>> = LazyLock::new(Default::default);
+
+/// What was read from a transcript (as `claude_goal_from_tail` says) and the file's length then: a poll
+/// of an idle session reads nothing.
+static RESULTS: LazyLock<Mutex<HashMap<PathBuf, (u64, Option<Option<Goal>>)>>> = LazyLock::new(Default::default);
+
+/// The goal in the Claude transcript of `session_id` under `dir`; `None`: unknown.
+fn claude_goal(dir: &Path, session_id: &str) -> Option<Option<Goal>> {
+    let key = (dir.to_path_buf(), session_id.to_string());
+    let cached = lock(&PATHS).get(&key).cloned().filter(|p| p.is_file());
+    let path = match cached {
+        Some(path) => path,
+        None => {
+            let found = crate::context::find_claude_transcript(dir, session_id)?;
+            crate::util::insert_bounded(&mut lock(&PATHS), key, found.clone());
+            found
+        }
+    };
+    let len = std::fs::metadata(&path).ok()?.len();
+    if let Some((at, goal)) = lock(&RESULTS).get(&path) {
+        if *at == len {
+            return goal.clone();
+        }
+    }
+    let goal = claude_goal_from_tail(&read_tail(&path)?);
+    crate::util::insert_bounded(&mut lock(&RESULTS), path, (len, goal.clone()));
+    goal
 }
 
 /// Reads the `goal_status` lines of a transcript tail in order. Outer `None`:

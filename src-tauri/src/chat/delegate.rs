@@ -572,6 +572,15 @@ fn get_task_result(state: &ChatState, chat: &Chat, args: &Value) -> Result<Strin
     Ok(describe(&task.id, &task.wait_terminal(wait)))
 }
 
+/// Records why the task failed (and tells the parent) before its child is closed: the Exit the closing
+/// emits would otherwise make it fail with a bare "the agent exited". No effect on an ended task.
+fn fail_task(parent: &Chat, task: &Task, message: &str) {
+    if lock(&task.state).fail(message, now_ms()) {
+        task.changed.notify_all();
+        emit_delegate(parent, task);
+    }
+}
+
 /// Starts the child chat of `task` and gives it its prompt.
 fn start_child(app: &AppHandle, state: &ChatState, parent: &Chat, task: &Task, deadline_ms: Option<u64>) -> Result<(), String> {
     let parent_live = || state.get(&parent.id).is_ok() && !parent.closed.load(Ordering::Relaxed) && !parent.exited.load(Ordering::Acquire);
@@ -606,6 +615,7 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &Chat, task: &Task, d
     if let Err(error) = inherit { child.kill(); return Err(error); }
     state.adopt(app, Arc::clone(&child))?;
     if let Err(error) = check() {
+        fail_task(parent, task, &error);
         close_child(state, &child.id);
         return Err(error);
     }
@@ -629,8 +639,10 @@ fn start_child(app: &AppHandle, state: &ChatState, parent: &Chat, task: &Task, d
     }
     // Cancellation can race the final check and the prompt write. Never leave that turn running.
     if !parent_live() || lock(&task.state).status == TaskStatus::Cancelled || chat_mcp::check_deadline(deadline_ms, now_ms()).is_err() {
+        let error = "the task was interrupted while starting";
+        fail_task(parent, task, error);
         close_child(state, &child.id);
-        return Err("the task was interrupted while starting".into());
+        return Err(error.into());
     }
     Ok(())
 }
@@ -686,9 +698,13 @@ fn cancel(app: &AppHandle, task: &Task) -> Result<(), String> {
 /// restrictions. Otherwise the child starts in its agent's auto-review mode
 /// (Codex "Auto review", Claude "auto"): it asks only for actions flagged as
 /// unsafe, so a delegated task doesn't stop on every command. A same-agent child
-/// of a full-access parent keeps that mode.
+/// of a full-access parent keeps that mode. A child with no auto-review mode (Gemini, Vibe, Cline,
+/// OpenCode) of an unrestricted parent starts in its normal editing mode (default / act / build),
+/// never a bypass one.
 fn inherited_mode(same_agent: bool, parent: Option<&str>, modes: Option<&Value>) -> Result<Option<String>, String> {
     const SAFE: [&str; 5] = ["read-only", "readonly", "read_only", "plan", "architect"];
+    // Normal editing modes: Gemini/Vibe "default", Cline "act", OpenCode "build".
+    const EDITING: [&str; 3] = ["default", "act", "build"];
     const FULL: [&str; 6] = ["bypasspermissions", "agent-full-access", "full-access", "fullaccess", "yolo", "dontask"];
     let listed: Vec<(&str, String)> = modes.and_then(|m| m.get("availableModes")).and_then(Value::as_array)
         .into_iter().flatten()
@@ -709,6 +725,13 @@ fn inherited_mode(same_agent: bool, parent: Option<&str>, modes: Option<&Value>)
     if same_agent {
         if inherit { return Ok(parent.map(str::to_string)); }
         if parent.is_none() && modes.is_none() { return Ok(None); }
+    }
+    if !restricted {
+        // No auto-review mode (Gemini, Vibe, Cline, OpenCode): the agent's normal editing mode, never
+        // plan/read-only, so the child can change files (it still asks per its own rules).
+        for normal in EDITING {
+            if let Some(id) = available.iter().find(|id| id.eq_ignore_ascii_case(normal)) { return Ok(Some(id.to_string())); }
+        }
     }
     for safe in SAFE {
         if available.contains(&safe) { return Ok(Some(safe.to_string())); }
@@ -734,7 +757,8 @@ mod tests {
     fn children_preserve_modes_or_fail_closed() {
         let modes = json!({ "availableModes": [{ "id": "default" }, { "id": "plan" }, { "id": "bypassPermissions" }] });
         assert_eq!(inherited_mode(true, Some("plan"), Some(&modes)).unwrap().as_deref(), Some("plan"));
-        assert_eq!(inherited_mode(false, Some("default"), Some(&modes)).unwrap().as_deref(), Some("plan"));
+        assert_eq!(inherited_mode(false, Some("default"), Some(&modes)).unwrap().as_deref(), Some("default"));
+        assert_eq!(inherited_mode(false, Some("plan"), Some(&modes)).unwrap().as_deref(), Some("plan"));
         let unsafe_only = json!({ "availableModes": [{ "id": "bypassPermissions" }] });
         assert!(inherited_mode(false, Some("plan"), Some(&unsafe_only)).is_err());
         assert!(inherited_mode(true, Some("read-only"), Some(&unsafe_only)).is_err());
@@ -755,6 +779,25 @@ mod tests {
         assert_eq!(inherited_mode(true, Some("default"), Some(&claude)).unwrap().as_deref(), Some("auto"));
         assert_eq!(inherited_mode(true, Some("bypassPermissions"), Some(&claude)).unwrap().as_deref(), Some("bypassPermissions"));
         assert_eq!(inherited_mode(true, Some("read-only"), Some(&codex)).unwrap().as_deref(), Some("read-only"));
+    }
+
+    #[test]
+    fn children_without_auto_mode_can_edit_unless_the_parent_is_restricted() {
+        let ids = |ids: &[&str]| json!({ "availableModes": ids.iter().map(|id| json!({ "id": id, "name": id })).collect::<Vec<_>>() });
+        let gemini = ids(&["default", "autoEdit", "yolo", "plan"]);
+        let vibe = ids(&["default", "plan", "accept-edits", "auto-approve"]);
+        let cline = ids(&["plan", "act"]);
+        let opencode = ids(&["build", "plan"]);
+        for (modes, expected) in [(&gemini, "default"), (&vibe, "default"), (&cline, "act"), (&opencode, "build")] {
+            assert_eq!(inherited_mode(false, Some("default"), Some(modes)).unwrap().as_deref(), Some(expected));
+            assert_eq!(inherited_mode(false, Some("bypassPermissions"), Some(modes)).unwrap().as_deref(), Some(expected));
+            assert_eq!(inherited_mode(false, None, Some(modes)).unwrap().as_deref(), Some(expected));
+        }
+        // A restricted parent keeps the safe behaviour.
+        assert_eq!(inherited_mode(false, Some("plan"), Some(&cline)).unwrap().as_deref(), Some("plan"));
+        assert_eq!(inherited_mode(false, Some("read-only"), Some(&opencode)).unwrap().as_deref(), Some("plan"));
+        // Same agent keeps its own mode.
+        assert_eq!(inherited_mode(true, Some("autoEdit"), Some(&gemini)).unwrap().as_deref(), Some("autoEdit"));
     }
 
     fn on() -> ToolsConfig {

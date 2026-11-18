@@ -214,6 +214,13 @@ fn is_safe_id(id: &str) -> bool {
 
 /// The request in `req-<file_id>.json`: its body must say the same id.
 fn parse_request(file_id: &str, text: &str) -> Result<Request, String> {
+    parse_request_at(file_id, text, crate::util::now_ms())
+}
+
+/// `parse_request` with the pickup time given. The script sends a relative `timeout_ms` (its clock,
+/// in WSL, can differ from this one): the deadline is computed here. A legacy absolute `deadline_ms`
+/// is only used when there is no `timeout_ms`.
+fn parse_request_at(file_id: &str, text: &str, now: u64) -> Result<Request, String> {
     let value: Value = serde_json::from_str(text).map_err(|e| format!("unreadable request: {e}"))?;
     if value.get("id").and_then(Value::as_str) != Some(file_id) {
         return Err("the request id does not match its file".into());
@@ -226,9 +233,10 @@ fn parse_request(file_id: &str, text: &str) -> Result<Request, String> {
         Some(args) if args.is_object() => args.clone(),
         Some(_) => return Err("the arguments must be an object".into()),
     };
-    let deadline_ms = match value.get("deadline_ms") {
-        None => None,
-        Some(value) => Some(value.as_u64().ok_or("deadline_ms must be an unsigned timestamp")?),
+    let deadline_ms = match (value.get("timeout_ms"), value.get("deadline_ms")) {
+        (Some(timeout), _) => Some(now.saturating_add(timeout.as_u64().ok_or("timeout_ms must be an unsigned number")?)),
+        (None, None) => None,
+        (None, Some(value)) => Some(value.as_u64().ok_or("deadline_ms must be an unsigned timestamp")?),
     };
     Ok(Request { token, tool, args, deadline_ms })
 }
@@ -632,6 +640,11 @@ mod tests {
         let mut invalid = timed;
         invalid["deadline_ms"] = json!("later");
         assert!(parse_request("a-1", &invalid.to_string()).is_err());
+        // A relative timeout is measured from the pickup, on this side's clock.
+        let relative = json!({ "id": "a-1", "token": "t", "tool": "x", "timeout_ms": 500, "deadline_ms": 1 });
+        assert_eq!(parse_request_at("a-1", &relative.to_string(), 1000).unwrap().deadline_ms, Some(1500));
+        let bad = json!({ "id": "a-1", "token": "t", "tool": "x", "timeout_ms": "soon" });
+        assert!(parse_request_at("a-1", &bad.to_string(), 1000).is_err());
     }
 
     #[test]

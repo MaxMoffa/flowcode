@@ -202,6 +202,13 @@ describe("chat model", () => {
     expect(["max_tokens", "max_turn_requests", "refusal", "something_new"].map(stopKind)).toEqual(["maxTokens", "maxTurnRequests", "refusal", "other"]);
   });
 
+  it("shows the backend's skipped-message warning as a notice in the conversation", () => {
+    const s = run([{ kind: "ext", seq: next(), at: 0, method: "_flowcode/warning", params: { message: "x" } }]);
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({ type: "stop", reason: "message_skipped" });
+    expect(stopKind("message_skipped")).toBe("skipped");
+  });
+
   describe("compaction", () => {
     const comp = (u: Record<string, unknown>, at = 0): ChatEvent => ({ kind: "update", seq: next(), at, update: { sessionUpdate: "compaction_update", compactionId: "c1", ...u } });
     const summaryChunk = (text: string): ChatEvent => update({ sessionUpdate: "compaction_summary_chunk", compactionId: "c1", content: { type: "text", text } });

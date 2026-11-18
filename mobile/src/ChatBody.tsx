@@ -297,6 +297,7 @@ const STOP_TEXT: Record<StopKind, Key> = {
   maxTokens: "chatStopMaxTokens",
   maxTurnRequests: "chatStopMaxTurnRequests",
   refusal: "chatStopRefusal",
+  skipped: "chatStopSkipped",
   other: "chatStopOther",
 };
 

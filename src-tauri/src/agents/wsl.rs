@@ -257,7 +257,7 @@ pub(super) fn wsl_agents(distro: Option<&str>, pty_ids: &HashSet<String>, chat_i
                 // Vibe's sessions inside the distro, through its file share.
                 if let Some(found) = distro_name.as_deref().and_then(|d| wsl_vibe_session(d, proc_, &claimed)) {
                     claimed.insert(found.0.clone());
-                    session.apply_vibe_session(found);
+                    session.apply_live_session(found);
                 }
             } else {
                 let free: Vec<&LiveThread> = threads.iter().filter(|t| !claimed.contains(&t.id)).collect();

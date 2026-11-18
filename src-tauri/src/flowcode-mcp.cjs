@@ -122,7 +122,7 @@ async function ask(tool, args) {
   const response = path.join(DIR, `res-${id}.json`);
   const deadline = Date.now() + tool.timeoutMs;
   try {
-    writeAtomic(request, JSON.stringify({ id, token: TOKEN, tool: tool.name, args: args ?? {}, deadline_ms: deadline }));
+    writeAtomic(request, JSON.stringify({ id, token: TOKEN, tool: tool.name, args: args ?? {}, timeout_ms: tool.timeoutMs }));
   } catch (e) {
     return { ok: false, error: `Could not reach Flowcode: ${e.message}` };
   }

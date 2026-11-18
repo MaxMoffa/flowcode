@@ -74,6 +74,9 @@ pub(super) fn normalize_cline_tool(update: &mut Value, seen: &mut HashSet<String
     }
     let Some(obj) = update.as_object_mut() else { return };
     if let Some(id) = obj.get("toolCallId").and_then(Value::as_str).map(str::to_string) {
+        if seen.len() >= MAX_REMEMBERED {
+            seen.clear();
+        }
         if !seen.insert(id) && kind == "tool_call" {
             obj.insert("sessionUpdate".into(), json!("tool_call_update"));
             obj.remove("status");
@@ -116,6 +119,17 @@ pub(super) struct Spawns {
     active: Vec<String>,
 }
 
+impl Spawns {
+    /// The turn ended (finished, failed or cancelled): nothing is running any more.
+    pub(super) fn clear_active(&mut self) {
+        self.active.clear();
+    }
+}
+
+/// Bound of the remembered ids (spawn calls, tool calls). Past it the set restarts: it only
+/// recognizes late `tool_call`s, so losing old ids is harmless.
+const MAX_REMEMBERED: usize = 2000;
+
 /// Marks sub-agent traffic of a (normalized) Cline update: the spawn call becomes a launch the chat
 /// model recognizes (`rawInput.subagent_type` + `description` / `prompt` from `task`), and while one runs
 /// every other update of the session is stamped `_meta.claudeCode.parentToolUseId` = the spawn call.
@@ -134,6 +148,9 @@ pub(super) fn mark_spawns(update: &mut Value, spawns: &mut Spawns) {
             || id.as_ref().is_some_and(|i| spawns.known.contains(i));
         if is_spawn {
             let Some(id) = id else { return };
+            if spawns.known.len() >= MAX_REMEMBERED {
+                spawns.known = spawns.active.iter().cloned().collect();
+            }
             spawns.known.insert(id.clone());
             if let Some(Value::Object(input)) = obj.get_mut("rawInput") {
                 if let Some(task) = input.get("task").and_then(Value::as_str).map(str::to_string) {

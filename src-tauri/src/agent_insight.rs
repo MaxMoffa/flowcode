@@ -7,9 +7,9 @@
 
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::util::{has_bytes as has, json_u64 as num, lock};
 
@@ -436,41 +436,106 @@ fn add_claude_line(acc: &mut ClaudeAcc, line: &serde_json::Value) {
     }
 }
 
-/// Calls `f` with each line (newline included) of `path`, without holding
-/// the file in memory.
-fn for_each_line(path: &Path, mut f: impl FnMut(&[u8])) -> Result<(), String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut reader = BufReader::new(file);
-    let mut buf: Vec<u8> = Vec::new();
-    loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => f(&buf),
-        }
-    }
-    Ok(())
-}
-
 fn keep_last_turns(turns: &mut Vec<u64>) {
     let skip = turns.len().saturating_sub(MAX_TURNS);
     turns.drain(..skip);
 }
 
-fn claude_usage(path: &Path) -> Result<SessionUsage, String> {
-    let mut acc = ClaudeAcc::default();
-    for_each_line(path, |line| {
-        if !has(line, br#""usage""#) || !has(line, br#""assistant""#) {
-            return;
+/// What was read of one transcript so far: the running sums and how far the file was parsed (always
+/// just after a complete line), so a poll only reads what was appended (as in spend.rs).
+#[derive(Default)]
+struct Scan<A> {
+    offset: u64,
+    acc: A,
+}
+
+/// A cheap check on a raw line before it is parsed as JSON.
+type Wanted = fn(&[u8]) -> bool;
+type Parse<A> = fn(&mut A, &serde_json::Value);
+type Scans<A> = Mutex<HashMap<PathBuf, Arc<Mutex<Scan<A>>>>>;
+
+/// New bytes are read this many at a time: a first read of a big transcript must not sit in memory whole.
+const READ_CHUNK: u64 = 4 * 1024 * 1024;
+
+/// Brings `scan` up to date with `path`. A file that shrank (rewritten) is read again from the start.
+fn refresh<A: Default>(scan: &mut Scan<A>, path: &Path, wanted: Wanted, parse: Parse<A>) -> Result<(), String> {
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    if len < scan.offset {
+        *scan = Scan::default();
+    }
+    let mut buf = Vec::new();
+    let mut want = READ_CHUNK;
+    while len > scan.offset {
+        file.seek(SeekFrom::Start(scan.offset)).map_err(|e| e.to_string())?;
+        buf.clear();
+        (&mut file).take(want).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        // Up to the last complete line: one still being written is read, whole, next time.
+        let Some(complete) = buf.iter().rposition(|&b| b == b'\n').map(|i| i + 1) else {
+            if buf.len() as u64 >= want {
+                // One line longer than the chunk: read more of it.
+                want *= 2;
+                continue;
+            }
+            break;
+        };
+        for line in buf[..complete].split(|&b| b == b'\n') {
+            if !wanted(line) {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) {
+                parse(&mut scan.acc, &value);
+            }
         }
-        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) {
-            add_claude_line(&mut acc, &value);
+        scan.offset += complete as u64;
+        if (buf.len() as u64) < want {
+            break;
         }
-    })?;
-    let mut usage = acc.usage;
-    keep_last_turns(&mut usage.turns);
-    usage.cost = (!acc.unpriced).then_some(acc.cost);
-    Ok(usage)
+    }
+    Ok(())
+}
+
+/// Runs `finish` over the sums of `path` (currently `len` bytes) once they are up to date; a file
+/// already read to `len` isn't even opened. Callers of one file take turns.
+fn scanned<A: Default>(
+    cache: &Scans<A>,
+    path: &Path,
+    len: u64,
+    wanted: Wanted,
+    parse: Parse<A>,
+    finish: impl FnOnce(&mut A) -> SessionUsage,
+) -> Result<SessionUsage, String> {
+    let entry = {
+        let mut map = lock(cache);
+        match map.get(path) {
+            Some(entry) => Arc::clone(entry),
+            None => {
+                let entry = Arc::<Mutex<Scan<A>>>::default();
+                crate::util::insert_bounded(&mut map, path.to_path_buf(), Arc::clone(&entry));
+                entry
+            }
+        }
+    };
+    let mut scan = lock(&entry);
+    if scan.offset != len {
+        refresh(&mut scan, path, wanted, parse)?;
+    }
+    Ok(finish(&mut scan.acc))
+}
+
+fn claude_wanted(line: &[u8]) -> bool {
+    has(line, br#""usage""#) && has(line, br#""assistant""#)
+}
+
+static CLAUDE_SCANS: LazyLock<Scans<ClaudeAcc>> = LazyLock::new(Default::default);
+
+fn claude_usage(path: &Path, len: u64) -> Result<SessionUsage, String> {
+    scanned(&CLAUDE_SCANS, path, len, claude_wanted, add_claude_line, |acc| {
+        keep_last_turns(&mut acc.usage.turns);
+        let mut usage = acc.usage.clone();
+        usage.cost = (!acc.unpriced).then_some(acc.cost);
+        usage
+    })
 }
 
 /// Running state over a Codex rollout.
@@ -540,26 +605,37 @@ fn add_codex_line(acc: &mut CodexAcc, line: &serde_json::Value) {
     }
 }
 
-fn codex_usage(path: &Path) -> Result<SessionUsage, String> {
-    let mut acc = CodexAcc::default();
-    for_each_line(path, |line| {
-        if !has(line, br#""token_count""#) && !has(line, br#""turn_context""#) {
-            return;
-        }
-        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) {
-            add_codex_line(&mut acc, &value);
-        }
-    })?;
-    let mut usage = acc.usage;
-    keep_last_turns(&mut usage.turns);
-    usage.cost = (acc.counted && !acc.unpriced).then_some(acc.cost);
-    Ok(usage)
+fn codex_wanted(line: &[u8]) -> bool {
+    has(line, br#""token_count""#) || has(line, br#""turn_context""#)
 }
 
-/// The last answer per transcript with its length when read, so polling an
-/// idle session costs nothing (as in context.rs).
-type ResultCache = HashMap<PathBuf, (u64, SessionUsage)>;
-static RESULTS: LazyLock<Mutex<ResultCache>> = LazyLock::new(Default::default);
+static CODEX_SCANS: LazyLock<Scans<CodexAcc>> = LazyLock::new(Default::default);
+
+fn codex_usage(path: &Path, len: u64) -> Result<SessionUsage, String> {
+    scanned(&CODEX_SCANS, path, len, codex_wanted, add_codex_line, |acc| {
+        keep_last_turns(&mut acc.usage.turns);
+        let mut usage = acc.usage.clone();
+        usage.cost = (acc.counted && !acc.unpriced).then_some(acc.cost);
+        usage
+    })
+}
+
+/// A session's usage as one of the agents' databases (OpenCode, Cline) read it: the field-for-field
+/// same `UsageRead` of both modules.
+macro_rules! usage_of_db_read {
+    ($read:expr) => {{
+        let read = $read;
+        SessionUsage {
+            input: read.input,
+            output: read.output,
+            cache_read: read.cache_read,
+            cache_write: read.cache_write,
+            turns: read.turns,
+            cost: Some(read.cost),
+            model: read.model,
+        }
+    }};
+}
 
 pub(crate) fn read_usage(
     app: &tauri::AppHandle,
@@ -577,28 +653,12 @@ pub(crate) fn read_usage(
     if cli == "cline" {
         let read = crate::cline_db::session_usage(&dirs.cline, session_id, MAX_TURNS)
             .ok_or_else(|| format!("no cline session {session_id}"))?;
-        return Ok(SessionUsage {
-            input: read.input,
-            output: read.output,
-            cache_read: read.cache_read,
-            cache_write: read.cache_write,
-            turns: read.turns,
-            cost: Some(read.cost),
-            model: read.model,
-        });
+        return Ok(usage_of_db_read!(read));
     }
     if cli == "opencode" {
         let read = crate::opencode_db::session_usage(&dirs.opencode_db, session_id, MAX_TURNS)
             .ok_or_else(|| format!("no opencode session {session_id}"))?;
-        return Ok(SessionUsage {
-            input: read.input,
-            output: read.output,
-            cache_read: read.cache_read,
-            cache_write: read.cache_write,
-            turns: read.turns,
-            cost: Some(read.cost),
-            model: read.model,
-        });
+        return Ok(usage_of_db_read!(read));
     }
     let found = match cli {
         "claude" => crate::context::find_claude_transcript(&dirs.claude, session_id),
@@ -612,14 +672,7 @@ pub(crate) fn read_usage(
     if len > MAX_TRANSCRIPT {
         return Err("transcript too large".into());
     }
-    if let Some((at, usage)) = lock(&RESULTS).get(&path) {
-        if *at == len {
-            return Ok(usage.clone());
-        }
-    }
-    let usage = if cli == "claude" { claude_usage(&path)? } else { codex_usage(&path)? };
-    crate::util::insert_bounded(&mut lock(&RESULTS), path, (len, usage.clone()));
-    Ok(usage)
+    if cli == "claude" { claude_usage(&path, len) } else { codex_usage(&path, len) }
 }
 
 /// Tokens, per-call context sizes and list-price cost of one `cli` session,
@@ -924,6 +977,28 @@ url = "https://r.dev/mcp?token=abc"
         assert_eq!((acc.usage.input, acc.usage.cache_read, acc.usage.output), (1_000_000, 1_000_000, 100_000));
         assert!(!acc.unpriced);
         assert!((acc.cost - 8.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn usage_scan_reads_only_what_was_appended_and_restarts_on_truncation() {
+        use std::io::Write;
+        let line = |id: &str| {
+            format!(
+                r#"{{"type":"assistant","requestId":"r-{id}","message":{{"id":"{id}","model":"claude-sonnet-4-6","usage":{{"input_tokens":10,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}}}}"#
+            )
+        };
+        let path = std::env::temp_dir().join(format!("flowcode-insight-{}.jsonl", uuid::Uuid::new_v4()));
+        let size = |p: &Path| std::fs::metadata(p).unwrap().len();
+        std::fs::write(&path, format!("{}\n", line("a"))).unwrap();
+        assert_eq!(claude_usage(&path, size(&path)).unwrap().input, 10);
+        // Appended: the first line is not counted twice, and a half-written line waits.
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        write!(file, "{}\n{}", line("b"), &line("c")[..20]).unwrap();
+        assert_eq!(claude_usage(&path, size(&path)).unwrap().input, 20);
+        // Rewritten shorter: read again from the start.
+        std::fs::write(&path, format!("{}\n", line("z"))).unwrap();
+        assert_eq!(claude_usage(&path, size(&path)).unwrap().input, 10);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

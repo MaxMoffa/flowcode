@@ -49,7 +49,7 @@ pub(super) const MAX_ATTACHMENT_BYTES: usize = 32 * 1024 * 1024;
 pub(super) const MAX_ATTACHMENTS_TOTAL: u64 = 256 * 1024 * 1024;
 /// Total bytes of the staged files (`None`: not measured yet); the lock also serialises the store.
 pub(super) static ATTACHMENT_STORE: Mutex<Option<u64>> = Mutex::new(None);
-pub(super) const ATTACHMENT_MAX_AGE: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+pub(super) const ATTACHMENT_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub(super) fn attachments_root() -> std::path::PathBuf {
     std::env::temp_dir().join("flowcode-attachments")
@@ -109,7 +109,7 @@ pub(super) fn stage_in(root: &std::path::Path, total: &mut Option<u64>, max_age:
         current = scan_attachments_total(root);
         *total = Some(current);
         if current.saturating_add(len) > MAX_ATTACHMENTS_TOTAL {
-            return Err("temporary attachments exceed 256 MiB; remove some attachments or send them first".into());
+            return Err("the attachment store (256 MiB) is full of recent attachments (files are removed after 24 hours); remove some attachments and try again".into());
         }
     }
     let id = uuid::Uuid::new_v4().to_string();

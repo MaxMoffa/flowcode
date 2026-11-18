@@ -223,6 +223,7 @@ export const MODEL_EXT_METHOD = "_flowcode/model";
 export const THOUGHT_EXT_METHOD = "_flowcode/thought";
 
 /** The backend's events about delegated tasks: on the orchestrator `delegate`, `delegate_request` and `delegate_request_resolved`, on the child `task`. */
+const WARNING_EXT_METHOD = "_flowcode/warning";
 const DELEGATE_EXT_METHOD = "_flowcode/delegate";
 const DELEGATE_REQUEST_EXT_METHOD = "_flowcode/delegate_request";
 const DELEGATE_RESOLVED_EXT_METHOD = "_flowcode/delegate_request_resolved";
@@ -763,6 +764,8 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
         if (typeof p.at !== "number" || !Number.isFinite(p.at) || typeof p.text !== "string") return state;
         return { ...state, resume: { at: p.at, text: p.text, limitId: p.limitId }, resumeLimitId: p.limitId };
       }
+      // The agent sent a message too big to read: it was skipped, so the answer may be incomplete. Said in the conversation.
+      if (ev.method === WARNING_EXT_METHOD) return withItems(state, [...state.items, { type: "stop", id: `stop-${ev.seq}`, reason: SKIPPED_MESSAGE_REASON }]);
       if (ev.method === GOAL_EXT_METHOD) return applyGoal(state, ev.params, ev.seq, ev.at);
       if (ev.method === TASK_EXT_METHOD) {
         const task = parseTask(ev.params);
@@ -855,7 +858,10 @@ function reduce(state: ChatModelState, ev: ChatEvent): ChatModelState {
 const QUIET_STOPS = new Set(["end_turn", "cancelled"]);
 
 /** How a `stop` item reads: one of the ACP stop reasons the UI words, or "other" (shown with the raw reason). */
-export type StopKind = "maxTokens" | "maxTurnRequests" | "refusal" | "other";
+export type StopKind = "maxTokens" | "maxTurnRequests" | "refusal" | "skipped" | "other";
+
+/** The `stop` reason of the notice the backend's `_flowcode/warning` (an agent message it had to skip) becomes. */
+export const SKIPPED_MESSAGE_REASON = "message_skipped";
 
 export function stopKind(reason: string): StopKind {
   switch (reason) {
@@ -865,6 +871,8 @@ export function stopKind(reason: string): StopKind {
       return "maxTurnRequests";
     case "refusal":
       return "refusal";
+    case SKIPPED_MESSAGE_REASON:
+      return "skipped";
     default:
       return "other";
   }

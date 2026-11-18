@@ -322,7 +322,7 @@ fn find_agent_sessions(
     profiles: &HashMap<String, Option<String>>,
     chat_ids: &HashSet<String>,
 ) -> Vec<AgentSession> {
-    let (mut sessions, codex_tabs, mut vibe_tabs, mut opencode_tabs, mut cline_tabs, wsl_tabs) = crate::system::with_processes(|sys| {
+    let (mut sessions, codex_tabs, vibe_tabs, opencode_tabs, cline_tabs, wsl_tabs) = crate::system::with_processes(|sys| {
         let mut children_of: HashMap<Pid, Vec<Pid>> = HashMap::new();
         for (pid, process) in sys.processes() {
             if let Some(parent) = process.parent() {
@@ -384,45 +384,42 @@ fn find_agent_sessions(
         assign_codex_threads(&mut sessions, &codex_tabs, &host_live_threads(&homes.codex), chat_ids);
     }
     // Newest process first, so it takes the newest session; each session once.
-    vibe_tabs.sort_by_key(|&i| std::cmp::Reverse(sessions[i].started_at));
     let mut claimed = chat_ids.clone();
-    for i in vibe_tabs {
-        let found = homes.vibe_of(&sessions[i].profile).and_then(|home| {
-            let cwd = sessions[i].cwd.as_deref()?;
-            crate::vibe::live_session_in(home, cwd, sessions[i].started_at, &claimed)
-        });
-        if let Some(found) = found {
-            claimed.insert(found.0.clone());
-            sessions[i].apply_vibe_session(found);
-        }
-    }
-    opencode_tabs.sort_by_key(|&i| std::cmp::Reverse(sessions[i].started_at));
-    for i in opencode_tabs {
-        let found = homes.opencode_of(&sessions[i].profile).and_then(|db| {
-            let cwd = sessions[i].cwd.as_deref()?;
-            crate::opencode_db::live_session_in(db, cwd, sessions[i].started_at, &claimed)
-        });
-        if let Some(found) = found {
-            claimed.insert(found.0.clone());
-            sessions[i].apply_vibe_session(found);
-        }
-    }
-    cline_tabs.sort_by_key(|&i| std::cmp::Reverse(sessions[i].started_at));
-    for i in cline_tabs {
-        let found = homes.cline_of(&sessions[i].profile).and_then(|home| {
-            let cwd = sessions[i].cwd.as_deref()?;
-            crate::cline_db::live_session_in(home, sessions[i].pid, cwd, sessions[i].started_at, &claimed)
-        });
-        if let Some(found) = found {
-            claimed.insert(found.0.clone());
-            sessions[i].apply_vibe_session(found);
-        }
-    }
+    claim_live_sessions(&mut sessions, vibe_tabs, &mut claimed, |s, claimed| {
+        let home = homes.vibe_of(&s.profile)?;
+        crate::vibe::live_session_in(home, s.cwd.as_deref()?, s.started_at, claimed)
+    });
+    claim_live_sessions(&mut sessions, opencode_tabs, &mut claimed, |s, claimed| {
+        let db = homes.opencode_of(&s.profile)?;
+        crate::opencode_db::live_session_in(db, s.cwd.as_deref()?, s.started_at, claimed)
+    });
+    claim_live_sessions(&mut sessions, cline_tabs, &mut claimed, |s, claimed| {
+        let home = homes.cline_of(&s.profile)?;
+        crate::cline_db::live_session_in(home, s.pid, s.cwd.as_deref()?, s.started_at, claimed)
+    });
     // This runs `wsl.exe`, also outside the process table's lock.
     for (distro, pty_ids) in wsl_tabs {
         sessions.extend(wsl_agents(distro.as_deref(), &pty_ids, chat_ids));
     }
     sessions
+}
+
+/// Pairs the tabs (`tabs`: indexes into `sessions`) of an agent that keeps its own session store
+/// (Vibe, OpenCode, Cline) with their live sessions, as `find` looks them up. Newest process first, so
+/// it takes the newest session; each session once (`claimed` grows with the ones taken).
+fn claim_live_sessions(
+    sessions: &mut [AgentSession],
+    mut tabs: Vec<usize>,
+    claimed: &mut HashSet<String>,
+    find: impl Fn(&AgentSession, &HashSet<String>) -> Option<(String, Option<String>, &'static str)>,
+) {
+    tabs.sort_by_key(|&i| std::cmp::Reverse(sessions[i].started_at));
+    for i in tabs {
+        if let Some(found) = find(&sessions[i], claimed) {
+            claimed.insert(found.0.clone());
+            sessions[i].apply_live_session(found);
+        }
+    }
 }
 
 /// Gives each Codex tab (`tabs`: indexes into `sessions`) its own live thread.
@@ -497,7 +494,8 @@ impl AgentSession {
         self.status = text("status");
     }
 
-    fn apply_vibe_session(&mut self, (id, name, status): (String, Option<String>, &'static str)) {
+    /// Id, name and status of a live session from an agent's own store (Vibe, OpenCode, Cline).
+    fn apply_live_session(&mut self, (id, name, status): (String, Option<String>, &'static str)) {
         self.session_id = Some(id).filter(|id| is_safe_session_id(id));
         self.session_name = name;
         self.status = Some(status.to_string());

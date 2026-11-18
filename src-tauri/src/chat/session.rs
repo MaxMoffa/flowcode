@@ -500,19 +500,25 @@ impl Chat {
                     Pending::Waiter(tx) => {
                         let _ = tx.send(result);
                     }
-                    Pending::Prompt => match result {
-                        Ok(value) => {
-                            let stop_reason = value.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
-                            self.emit(ChatBody::TurnEnd { stop_reason: stop_reason.to_string() });
-                            self.refresh_goal_soon();
+                    Pending::Prompt => {
+                        // The turn is over (ended, failed or cancelled): no spawn call is running any more.
+                        if self.agent == "cline" {
+                            lock(&self.cline_spawns).clear_active();
                         }
-                        Err(message) => {
-                            self.prompt_failed(message, limit);
-                            if gone {
-                                self.end_dead_session();
+                        match result {
+                            Ok(value) => {
+                                let stop_reason = value.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
+                                self.emit(ChatBody::TurnEnd { stop_reason: stop_reason.to_string() });
+                                self.refresh_goal_soon();
+                            }
+                            Err(message) => {
+                                self.prompt_failed(message, limit);
+                                if gone {
+                                    self.end_dead_session();
+                                }
                             }
                         }
-                    },
+                    }
                 }
             }
             Incoming::Request { id, method, params } => {
@@ -525,7 +531,9 @@ impl Chat {
                         self.replies.try_send(reply).is_ok()
                     });
                 if auto_allowed {
-                } else if method == "session/request_permission" {
+                    return;
+                }
+                if method == "session/request_permission" {
                     lock(&self.permissions).insert(id.to_string(), id.clone());
                     let mut tool_call = params.get("toolCall").cloned().unwrap_or(Value::Null);
                     crate::chat_images::stash_images(&mut tool_call);
