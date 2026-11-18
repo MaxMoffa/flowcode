@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { FileTree } from "./FileTree";
-import { GitPanel } from "../git/GitPanel";
-import type { GitChange } from "../git/gitStatus";
+import { GitDock } from "./GitDock";
+import { buildGitDecor } from "../git/gitDecor";
+import type { GitChange, GitStatus } from "../git/gitStatus";
 import type { ExplorerLinkMode } from "../settings/modes";
 import { readEnum, usePersistentState, writeString } from "../lib/storage";
 import { SegmentedSwitch } from "../lib/SegmentedSwitch";
@@ -28,17 +29,26 @@ interface SidebarProps {
    * it adds a "History" tab (selected by default) and is told whether it is
    * the one showing. */
   history?: (visible: boolean) => ReactNode;
+  /** Selected tab (see `useSidebarTab`); one that has no option falls back to the Explorer. */
+  tab: SidebarTab;
+  onTabChange: (tab: SidebarTab) => void;
+  /** The agent panel, given while the active tab runs an agent. */
+  agent?: ReactNode;
 }
 
-const SIDEBAR_TAB_KEY = "flowcode.sidebarTab";
-/** Kept apart from `SIDEBAR_TAB_KEY`, so a plain terminal keeps its own
- * Explorer/Git choice while agent tabs default to History. */
+/** Only agent tabs have a choice of tabs; a plain terminal just shows the
+ * Explorer. An old stored "git" falls back to the default. */
 const AGENT_SIDEBAR_TAB_KEY = "flowcode.sidebarTab.agent";
-const SIDEBAR_TABS = ["explorer", "git"] as const;
-const AGENT_SIDEBAR_TABS = ["history", "explorer", "git"] as const;
-type SidebarTab = (typeof AGENT_SIDEBAR_TABS)[number];
-const readSidebarTab = (key: string) => readEnum<SidebarTab>(key, SIDEBAR_TABS, "explorer");
+const AGENT_SIDEBAR_TABS = ["history", "explorer", "agent"] as const;
+export type SidebarTab = (typeof AGENT_SIDEBAR_TABS)[number];
 const readAgentSidebarTab = (key: string) => readEnum<SidebarTab>(key, AGENT_SIDEBAR_TABS, "history");
+const noopSetTab = () => {};
+
+/** agentMode: the active tab runs an agent (history and/or agent panel available). Plain tabs only have the Explorer. */
+export function useSidebarTab(agentMode: boolean): [SidebarTab, (tab: SidebarTab) => void] {
+  const [agentTab, setAgentTab] = usePersistentState<SidebarTab>(AGENT_SIDEBAR_TAB_KEY, readAgentSidebarTab, writeString);
+  return agentMode ? [agentTab, setAgentTab] : ["explorer", noopSetTab];
+}
 
 export function Sidebar({
   cwd,
@@ -52,50 +62,68 @@ export function Sidebar({
   onSetLinkMode,
   terminalBusy,
   history,
+  tab,
+  onTabChange,
+  agent,
 }: SidebarProps) {
   const { t } = useI18n();
-  const [plainTab, setPlainTab] = usePersistentState<SidebarTab>(SIDEBAR_TAB_KEY, readSidebarTab, writeString);
-  const [agentTab, setAgentTab] = usePersistentState<SidebarTab>(AGENT_SIDEBAR_TAB_KEY, readAgentSidebarTab, writeString);
-  const tab = history ? agentTab : plainTab;
-  const setTab = history ? setAgentTab : setPlainTab;
-  const [changeCount, setChangeCount] = useState(0);
+  const [git, setGit] = useState<{ root: string; status: GitStatus } | null>(null);
+  const gitDecor = useMemo(() => (git ? buildGitDecor(git.root, git.status) : null), [git]);
+  const summary = useMemo(() => {
+    if (!git) return null;
+    const { status } = git;
+    const count = status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length;
+    return { branch: status.branch, ahead: status.ahead, behind: status.behind, count };
+  }, [git]);
+  const changeCount = summary?.count ?? 0;
+
+  const options = [
+    ...(history ? [{ id: "history" as const, label: t("sidebar.tab.history") }] : []),
+    { id: "explorer" as const, label: t("git.tab.explorer"), count: changeCount > 99 ? "99+" : changeCount },
+    ...(agent ? [{ id: "agent" as const, label: t("sidebar.tab.agent") }] : []),
+  ];
+  const shown: SidebarTab = options.some((o) => o.id === tab) ? tab : "explorer";
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-switch">
-        <SegmentedSwitch
-          options={[
-            ...(history ? [{ id: "history" as const, label: t("sidebar.tab.history") }] : []),
-            { id: "explorer", label: t("git.tab.explorer") },
-            { id: "git", label: t("git.tab.git"), count: changeCount > 99 ? "99+" : changeCount },
-          ]}
-          value={tab}
-          onChange={setTab}
-          ariaLabel={t("git.tabs.aria")}
-          idPrefix="sidebar"
-        />
-      </div>
-      {/* Both panels stay mounted: the FileTree keeps its folder watcher (and
-       * scroll/expansion state) while Git is showing, and Git keeps its draft
-       * commit message. */}
+      {options.length > 1 && (
+        <div className="sidebar-switch">
+          <SegmentedSwitch options={options} value={shown} onChange={onTabChange} ariaLabel={t("git.tabs.aria")} idPrefix="sidebar" />
+        </div>
+      )}
+      {/* The Explorer and History panels stay mounted: the FileTree keeps its
+       * folder watcher (and scroll/expansion state), and the Git drawer inside
+       * the Explorer keeps its draft commit message and its tree decorations.
+       * The agent panel mounts only while showing: it polls. */}
       <div
         className="sidebar-panel"
         role="tabpanel"
         id="sidebar-panel-explorer"
         aria-labelledby="sidebar-tab-explorer"
-        hidden={tab !== "explorer"}
+        hidden={shown !== "explorer"}
       >
-        <FileTree
+        <div className="sidebar-explorer-tree">
+          <FileTree
+            cwd={cwd}
+            onNavigate={onNavigate}
+            onGoHome={onGoHome}
+            onOpenFile={onOpenFile}
+            onOpenTerminal={onOpenTerminal}
+            shell={shell}
+            linkMode={linkMode}
+            onSetLinkMode={onSetLinkMode}
+            terminalBusy={terminalBusy}
+            visible={shown === "explorer"}
+            gitDecor={gitDecor}
+          />
+        </div>
+        <GitDock
           cwd={cwd}
-          onNavigate={onNavigate}
-          onGoHome={onGoHome}
+          visible={shown === "explorer"}
           onOpenFile={onOpenFile}
-          onOpenTerminal={onOpenTerminal}
-          shell={shell}
-          linkMode={linkMode}
-          onSetLinkMode={onSetLinkMode}
-          terminalBusy={terminalBusy}
-          visible={tab === "explorer"}
+          onOpenDiff={onOpenDiff}
+          onStatusChange={setGit}
+          summary={summary}
         />
       </div>
       {history && (
@@ -104,14 +132,16 @@ export function Sidebar({
           role="tabpanel"
           id="sidebar-panel-history"
           aria-labelledby="sidebar-tab-history"
-          hidden={tab !== "history"}
+          hidden={shown !== "history"}
         >
-          {history(tab === "history")}
+          {history(shown === "history")}
         </div>
       )}
-      <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-git" aria-labelledby="sidebar-tab-git" hidden={tab !== "git"}>
-        <GitPanel cwd={cwd} visible={tab === "git"} onOpenFile={onOpenFile} onOpenDiff={onOpenDiff} onCountChange={setChangeCount} />
-      </div>
+      {agent && shown === "agent" && (
+        <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-agent" aria-labelledby="sidebar-tab-agent">
+          {agent}
+        </div>
+      )}
     </aside>
   );
 }

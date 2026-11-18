@@ -115,6 +115,7 @@
 
 .icon-button {
   -webkit-app-region: no-drag;
+  position: relative;
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -151,6 +152,24 @@
    a small dot until it comes back. */
 .icon-button.is-parked {
   position: relative;
+}
+
+.icon-button .sidebar-toggle-fill {
+  fill: currentColor;
+  stroke: none;
+  opacity: .45;
+}
+
+/* Git changes while the sidebar is hidden (see useGitChangeCount). */
+.sidebar-toggle-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 .icon-button.is-parked::after {

@@ -13,6 +13,7 @@ import { readBool, usePersistentState, writeBool } from "../lib/storage";
 import { useI18n } from "../i18n";
 import { useTerminalSettings } from "../terminal/TerminalSettingsContext";
 import { iconSvg, MenuIcons } from "../context-menu/menuIcons";
+import type { GitDecor } from "../git/gitDecor";
 import { isPreviewableFile, openFileInPreview } from "../browser/browserStore";
 
 interface FsEntry {
@@ -164,12 +165,21 @@ function InlineEditRow({ icon, initialValue, allowUnchanged, onCommit, onCancel 
   );
 }
 
+function gitClass(letter: string): string {
+  if (letter === "!") return "git-conflict";
+  return letter === "A" || letter === "U" ? "git-add" : "git-mod";
+}
+
 interface FileRowProps {
   entry: FsEntry;
   active: boolean;
   copied: boolean;
   /** Folder shown under the name for a recursive-search hit; "" otherwise. */
   dir: string;
+  /** Git status letter (see gitDecor), shown after the name. */
+  git?: string;
+  /** A folder with changes inside: shows a dot. */
+  gitDir?: boolean;
   onClick: (entry: FsEntry) => void;
   onDoubleClick: (entry: FsEntry) => void;
   onContextMenu: (e: React.MouseEvent, entry: FsEntry) => void;
@@ -179,11 +189,11 @@ interface FileRowProps {
 // Memoized with primitive props and stable handlers so a poll tick, a copy
 // flash or a selection change re-renders only the rows that actually changed
 // instead of the whole listing.
-const FileRow = memo(function FileRow({ entry, active, copied, dir, onClick, onDoubleClick, onContextMenu, onCopy }: FileRowProps) {
+const FileRow = memo(function FileRow({ entry, active, copied, dir, git, gitDir, onClick, onDoubleClick, onContextMenu, onCopy }: FileRowProps) {
   const { t } = useI18n();
   return (
     <div
-      className={"file-tree-row" + (active ? " is-active" : "")}
+      className={"file-tree-row" + (active ? " is-active" : "") + (git ? " has-git " + gitClass(git) : "")}
       onClick={() => onClick(entry)}
       onDoubleClick={() => onDoubleClick(entry)}
       onContextMenu={(e) => onContextMenu(e, entry)}
@@ -197,6 +207,8 @@ const FileRow = memo(function FileRow({ entry, active, copied, dir, onClick, onD
           </span>
         )}
       </div>
+      {git && <span className="file-tree-git">{git}</span>}
+      {gitDir && <span className="file-tree-git-dot" />}
       <button
         type="button"
         className={"file-tree-copy-btn" + (copied ? " is-copied" : "")}
@@ -228,6 +240,8 @@ interface FileTreeProps {
   /** False while the explorer tab is hidden behind another sidebar tab: the
    * fallback poll then pauses, and one reload runs when it comes back. */
   visible?: boolean;
+  /** Git decorations (letter on files, dot on folders with changes inside). */
+  gitDecor?: GitDecor | null;
 }
 
 // Counts the backend name searches up: a newer one makes the walk of an older
@@ -245,6 +259,7 @@ export function FileTree({
   onSetLinkMode,
   terminalBusy,
   visible = true,
+  gitDecor,
 }: FileTreeProps) {
   const { t } = useI18n();
   const { explorerDoubleClick } = useTerminalSettings();
@@ -757,6 +772,8 @@ export function FileTree({
                 active={selected === entry.path}
                 copied={copiedPath === entry.path}
                 dir={isSearching ? resultDir(entry) : ""}
+                git={entry.is_dir ? undefined : gitDecor?.file(entry.path)}
+                gitDir={entry.is_dir && !!gitDecor && (gitDecor.dir(entry.path) || gitDecor.file(entry.path) !== undefined)}
                 onClick={onRowClick}
                 onDoubleClick={onRowDoubleClick}
                 onContextMenu={onRowContextMenu}

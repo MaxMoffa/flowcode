@@ -3,18 +3,16 @@ import { activatePage, setBrowserOpen, switchBrowserTab, takePendingPage } from 
 
 interface PanelsState {
   sidebarCollapsed: boolean;
-  agentsSidebarOpen: boolean;
   browserOpen: boolean;
 }
 
 /** Each tab keeps which side panels were open in it (not their widths): leaving a tab saves them, coming back restores them.
- * A tab not seen before inherits the file/agents panels as they are but starts without the Browser, which belongs to the tab that opened it.
+ * A tab not seen before inherits the file panel as it is but starts without the Browser, which belongs to the tab that opened it.
  * `restoreRef` is for usePanelLayout's markRestore, set once that hook has run; `forget` drops a closed tab's entry. */
 export function usePerTabPanels(
   activeTabId: string,
   now: PanelsState,
   setSidebarCollapsed: (open: boolean) => void,
-  setAgentsSidebarOpen: (open: boolean) => void,
 ) {
   const panelsByTabRef = useRef(new Map<string, PanelsState>());
   const panelsNowRef = useRef(now);
@@ -36,12 +34,11 @@ export function usePerTabPanels(
     const browser = next.browserOpen || pending !== null;
     const now = panelsNowRef.current;
     // Restored panels are not the user asking for them: in a narrow window they stay parked instead of popping over the content.
-    if ((now.sidebarCollapsed && !next.sidebarCollapsed) || (!now.agentsSidebarOpen && next.agentsSidebarOpen) || (!now.browserOpen && browser)) {
+    if ((now.sidebarCollapsed && !next.sidebarCollapsed) || (!now.browserOpen && browser)) {
       panelRestoreRef.current();
     }
     setSidebarCollapsed(next.sidebarCollapsed);
-    setAgentsSidebarOpen(next.agentsSidebarOpen);
     setBrowserOpen(browser);
-  }, [activeTabId, setSidebarCollapsed, setAgentsSidebarOpen]);
+  }, [activeTabId, setSidebarCollapsed]);
   return { restoreRef: panelRestoreRef, forget: (id: string) => void panelsByTabRef.current.delete(id) };
 }

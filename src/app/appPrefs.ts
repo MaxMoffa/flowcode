@@ -28,7 +28,6 @@ export const CLINE_PLUGIN_SEEDED_KEY = "flowcode.clinePluginSeeded";
 export const PLUGIN_APPROVALS_KEY = "flowcode.pluginApprovals";
 export const FAVORITES_BUTTON_VISIBLE_KEY = "flowcode.favoritesButtonVisible";
 export const SIDEBAR_COLLAPSED_KEY = "flowcode.sidebarCollapsed";
-export const AGENTS_SIDEBAR_OPEN_KEY = "flowcode.agentsSidebarOpen";
 
 export const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((id) => typeof id === "string");

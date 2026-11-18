@@ -21,12 +21,14 @@ import "./git-panel.css";
 interface GitPanelProps {
   /** The folder the explorer is on - the repository is whichever one it is in. */
   cwd: string;
-  /** Whether the Git tab is the one showing; refreshing only matters then. */
+  /** Whether git info is on screen (Explorer tab showing); refreshing fast only matters then. */
   visible: boolean;
   onOpenFile: (absPath: string) => void;
   onOpenDiff: (root: string, change: GitChange, staged: boolean) => void;
-  /** Reports the total number of changes, for the badge on the tab. */
-  onCountChange: (count: number) => void;
+  /** Reports the repo root and its status (for the tab badge and the file
+   * tree's decorations); `null` when there is none (loading, not a repository,
+   * failing). Must be stable (state setter / useCallback). */
+  onStatusChange: (s: { root: string; status: GitStatus } | null) => void;
 }
 
 type Section = "conflicts" | "staged" | "changes";
@@ -39,7 +41,7 @@ interface Row {
 }
 
 const POLL_MS = 4000;
-// Hidden tab: only the badge needs to stay roughly right.
+// Hidden panel: only the badge and tree decorations need to stay roughly right.
 const HIDDEN_POLL_MS = 15000;
 // Failed polls in a row before the panel stops saying "Loading".
 const FAIL_LIMIT = 2;
@@ -103,7 +105,7 @@ export function GitPanel(props: GitPanelProps) {
   return <RepositoryGitPanel key={props.cwd} {...props} />;
 }
 
-function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChange }: GitPanelProps) {
+function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChange }: GitPanelProps) {
   const { t } = useI18n();
   const confirm = useConfirmDialog();
   // undefined: still resolving, null: not in a repository.
@@ -234,11 +236,12 @@ function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onCountChang
     [status],
   );
   const total = staged.length + conflicts.length + changes.length;
-  // No status (loading, not a repository, failing) reports 0, which hides the badge.
-  const reported = status ? total : 0;
+  // No status (loading, not a repository, failing) reports null.
+  const reportedRoot = status && root ? root : null;
   useEffect(() => {
-    onCountChange(reported);
-  }, [reported, onCountChange]);
+    onStatusChange(reportedRoot && status ? { root: reportedRoot, status } : null);
+    // `status` is replaced only when the polled JSON changed.
+  }, [reportedRoot, status, onStatusChange]);
 
   async function run(action: () => Promise<unknown>) {
     setError(null);

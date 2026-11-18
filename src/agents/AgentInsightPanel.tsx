@@ -43,15 +43,6 @@ const SUBMIT_DELAY_MS = 250;
 const COMPACT_FEEDBACK_MS = 2500;
 const WARN_AT = 0.75;
 
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <line x1="5" y1="5" x2="19" y2="19" />
-      <line x1="19" y1="5" x2="5" y2="19" />
-    </svg>
-  );
-}
-
 function RefreshIcon() {
   return (
     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -71,7 +62,6 @@ function RobotIcon() {
 }
 
 interface AgentInsightPanelProps {
-  onClose: () => void;
   onCompactChat?: () => void;
   /** Opens a delegate's chat in a tab next to its orchestrator's. */
   onOpenDelegate?: (parentTabId: string, delegate: DelegateInfo, wslDistro: string | null) => void;
@@ -79,21 +69,13 @@ interface AgentInsightPanelProps {
   onFocusTab?: (tabId: string) => void;
 }
 
-/** The right-hand panel for the agent in front (chat or terminal): context
+/** The sidebar's Agent tab for the agent in front (chat or terminal): context
  * fill with a "compact" action, then context (with the tools it is made of), usage and delegates tabs. */
-export function AgentInsightPanel({ onClose, onCompactChat, onOpenDelegate, onFocusTab }: AgentInsightPanelProps) {
+export function AgentInsightPanel({ onCompactChat, onOpenDelegate, onFocusTab }: AgentInsightPanelProps) {
   const { t } = useI18n();
   const agent = useActiveAgent();
   return (
     <div className="agents-sidebar agent-insight">
-      <div className="agents-sidebar-head">
-        <div className="agents-sidebar-header">
-          <button type="button" className="agents-sidebar-close" title={t("agentPanel.close")} aria-label={t("agentPanel.close")} onClick={onClose}>
-            <CloseIcon />
-          </button>
-          <span className="agents-sidebar-title">{t("agentPanel.title")}</span>
-        </div>
-      </div>
       {agent ? (
         <AgentBody agent={agent} onCompactChat={onCompactChat} onOpenDelegate={onOpenDelegate} onFocusTab={onFocusTab} />
       ) : (

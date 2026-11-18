@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { solvePanels, type PanelReq } from "./panelLayout";
 
-const browser: PanelReq = { key: "browser", width: 480, min: 320 };
-const sidebar: PanelReq = { key: "sidebar", width: 240, min: 180 };
-const agents: PanelReq = { key: "agents", width: 240, min: 200 };
+const browser: PanelReq<string> = { key: "browser", width: 480, min: 320 };
+const sidebar: PanelReq<string> = { key: "sidebar", width: 240, min: 180 };
+const agents: PanelReq<string> = { key: "agents", width: 240, min: 200 };
 
 describe("solvePanels", () => {
   it("keeps preferred widths when everything fits", () => {
@@ -33,7 +33,7 @@ describe("solvePanels", () => {
   });
 
   it("parks lower panels even if a later one would fit", () => {
-    const small: PanelReq = { key: "agents", width: 100, min: 50 };
+    const small: PanelReq<string> = { key: "agents", width: 100, min: 50 };
     const r = solvePanels(800, 420, 8, [sidebar, browser, small]);
     expect(r.parked).toEqual(["browser", "agents"]);
   });

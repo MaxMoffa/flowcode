@@ -388,3 +388,143 @@
 .sidebar-panel[hidden] {
   display: none;
 }
+
+/* Git decorations in the file tree: same colours as the Git panel's letters. */
+.file-tree-row.git-mod .file-tree-name { color: var(--ansi-yellow); }
+.file-tree-row.git-add .file-tree-name { color: var(--ansi-green); }
+.file-tree-row.git-conflict .file-tree-name { color: var(--ansi-red); }
+
+.file-tree-git {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.file-tree-row.git-mod .file-tree-git { color: var(--ansi-yellow); }
+.file-tree-row.git-add .file-tree-git { color: var(--ansi-green); }
+.file-tree-row.git-conflict .file-tree-git { color: var(--ansi-red); }
+
+.file-tree-git-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ansi-yellow);
+  opacity: 0.8;
+}
+
+/* Explorer tab: tree above, Git drawer docked at the bottom. */
+.sidebar-explorer-tree {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.git-dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+
+.git-dock.is-anim {
+  transition: height 0.2s ease;
+}
+
+.git-dock-sash {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: row-resize;
+  z-index: 3;
+  touch-action: none;
+}
+
+.git-dock-sash:hover,
+.git-dock-sash.is-drag {
+  background: linear-gradient(transparent 2px, color-mix(in srgb, var(--accent) 55%, transparent) 2px 5px, transparent 5px);
+}
+
+.git-dock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.git-dock-bar:hover {
+  background: var(--sidebar-hover);
+}
+
+.git-dock-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.git-dock-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-dock-sync {
+  color: var(--fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.git-dock-pill {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ansi-yellow) 16%, transparent);
+  color: var(--ansi-yellow);
+}
+
+.git-dock-chev {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.6;
+  color: var(--fg-muted);
+  transition: transform 0.2s;
+}
+
+/* Points up while closed ("open me"), down once open. */
+.git-dock:not(.is-open) .git-dock-chev {
+  transform: rotate(180deg);
+}
+
+.git-dock-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.git-dock-body[hidden] {
+  display: none;
+}

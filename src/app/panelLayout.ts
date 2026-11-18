@@ -2,22 +2,22 @@
 // user wants open actually fit next to the chat/terminal, and how wide each
 // one is. No React here, so the rules are easy to test.
 
-export type PanelKey = "sidebar" | "browser" | "agents";
+export type PanelKey = "sidebar" | "browser";
 
-export interface PanelReq {
-  key: PanelKey;
+export interface PanelReq<K extends string = PanelKey> {
+  key: K;
   /** The user's preferred width. */
   width: number;
   min: number;
 }
 
-export interface LayoutResult {
+export interface LayoutResult<K extends string = PanelKey> {
   /** Width to give each panel that is displayed. */
-  shown: Partial<Record<PanelKey, number>>;
+  shown: Partial<Record<K, number>>;
   /** Wanted open but without room: hidden until space returns, not closed. */
-  parked: PanelKey[];
+  parked: K[];
   /** The most each shown panel may grow to (for clamping a drag). */
-  maxWidth: Partial<Record<PanelKey, number>>;
+  maxWidth: Partial<Record<K, number>>;
 }
 
 /** `available` is the content width of the body (without its padding),
@@ -28,8 +28,13 @@ export interface LayoutResult {
  * Whatever still overflows after that is taken from the browser first (it is
  * the elastic panel: opening it must not squeeze the explorer), then from the
  * lowest-priority panel up, each down to its min. */
-export function solvePanels(available: number, centerMin: number, gap: number, byPriority: PanelReq[]): LayoutResult {
-  const kept: PanelReq[] = [];
+export function solvePanels<K extends string = PanelKey>(
+  available: number,
+  centerMin: number,
+  gap: number,
+  byPriority: PanelReq<K>[],
+): LayoutResult<K> {
+  const kept: PanelReq<K>[] = [];
   let used = centerMin;
   let cut = byPriority.length;
   for (let i = 0; i < byPriority.length; i++) {
@@ -56,8 +61,8 @@ export function solvePanels(available: number, centerMin: number, gap: number, b
   }
 
   const total = widths.reduce((sum, w) => sum + w, 0);
-  const shown: LayoutResult["shown"] = {};
-  const maxWidth: LayoutResult["maxWidth"] = {};
+  const shown: LayoutResult<K>["shown"] = {};
+  const maxWidth: LayoutResult<K>["maxWidth"] = {};
   kept.forEach((p, i) => {
     shown[p.key] = widths[i];
     const room = available - centerMin - (total - widths[i]) - kept.length * gap;

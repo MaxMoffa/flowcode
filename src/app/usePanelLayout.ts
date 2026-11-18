@@ -11,9 +11,9 @@ import { solvePanels, type LayoutResult, type PanelKey } from "./panelLayout";
 
 type Setter<T> = (next: T | ((prev: T) => T)) => void;
 
-const KEYS: PanelKey[] = ["sidebar", "browser", "agents"];
-/** Most recent first; with nothing touched yet the browser outranks the sidebar, then the agents. */
-const INITIAL_ORDER: PanelKey[] = ["browser", "sidebar", "agents"];
+const KEYS: PanelKey[] = ["sidebar", "browser"];
+/** Most recent first; with nothing touched yet the browser outranks the sidebar. */
+const INITIAL_ORDER: PanelKey[] = ["browser", "sidebar"];
 /** `.app-body` side padding (8px each) and the gap between cards. */
 const BODY_PADDING = 16;
 const GAP = 8;
@@ -22,8 +22,6 @@ interface PanelLayoutInput {
   sidebarMode: SidebarMode;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: Setter<boolean>;
-  agentsSidebarOpen: boolean;
-  setAgentsSidebarOpen: Setter<boolean>;
   browserOpen: boolean;
   setBrowserOpen: Setter<boolean>;
   /** The `.app-body` element whose width the panels share with the center. */
@@ -40,8 +38,6 @@ export function usePanelLayout({
   sidebarMode,
   sidebarCollapsed,
   setSidebarCollapsed,
-  agentsSidebarOpen,
-  setAgentsSidebarOpen,
   browserOpen,
   setBrowserOpen,
   bodyRef,
@@ -69,10 +65,9 @@ export function usePanelLayout({
     return () => observer.disconnect();
   }, [bodyRef]);
 
-  const open: Record<PanelKey, boolean> = { sidebar: !sidebarCollapsed, agents: agentsSidebarOpen, browser: browserOpen };
+  const open: Record<PanelKey, boolean> = { sidebar: !sidebarCollapsed, browser: browserOpen };
   const setOpen = (key: PanelKey, value: boolean) => {
     if (key === "sidebar") setSidebarCollapsed(!value);
-    else if (key === "agents") setAgentsSidebarOpen(value);
     else setBrowserOpen(value);
   };
 
@@ -107,7 +102,6 @@ export function usePanelLayout({
   const sidebarOverlay = isNarrow ? overlay === "sidebar" : sidebarFloats ? open.sidebar : overlay === "sidebar";
   const parked: Record<PanelKey, boolean> = {
     sidebar: isNarrow ? open.sidebar && overlay !== "sidebar" : !sidebarFloats && solved.parked.includes("sidebar") && overlay !== "sidebar",
-    agents: isNarrow ? open.agents && overlay !== "agents" : solved.parked.includes("agents"),
     browser: isNarrow ? open.browser && overlay !== "browser" : solved.parked.includes("browser"),
   };
 
@@ -128,12 +122,12 @@ export function usePanelLayout({
     for (const k of opened) bump(k);
     if (isNarrow && !restoring && opened.length > 0) setPeek(opened[opened.length - 1]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sidebarCollapsed, agentsSidebarOpen, browserOpen]);
+  }, [sidebarCollapsed, browserOpen]);
   // Entering or leaving narrow starts from no overlay; a closed panel has no overlay either.
   useEffect(() => setPeek(null), [isNarrow]);
   useEffect(() => {
     if (peek && !open[peek]) setPeek(null);
-  }, [peek, sidebarCollapsed, agentsSidebarOpen, browserOpen]);
+  }, [peek, sidebarCollapsed, browserOpen]);
 
   /** One toggle for every entry point (button, shortcut, plugin action). */
   const togglePanel = (key: PanelKey) => {
@@ -157,7 +151,7 @@ export function usePanelLayout({
     if (!isNarrow && sidebarFloats) setSidebarCollapsed(true);
     else setPeek(null);
   };
-  /** Backdrop click on a narrow agents/browser overlay. */
+  /** Backdrop click on a narrow browser overlay. */
   const dismissOverlay = () => setPeek(null);
 
   /** Pointer down inside a panel makes it the top priority. */
@@ -177,7 +171,6 @@ export function usePanelLayout({
 
   // Kept mounted a beat after hiding so the docked panels can animate out.
   const sidebarPresence = usePanelPresence(!isNarrow && solved.shown.sidebar !== undefined);
-  const agentsPresence = usePanelPresence(isNarrow ? overlay === "agents" : solved.shown.agents !== undefined);
   const browserPresence = usePanelPresence(isNarrow ? overlay === "browser" : solved.shown.browser !== undefined);
 
   // While a panel animates out it has no solved width; keep its last one so its content doesn't reflow.
@@ -202,7 +195,6 @@ export function usePanelLayout({
     dismissSidebarOverlay,
     dismissOverlay,
     sidebarPresence,
-    agentsPresence,
     browserPresence,
   };
 }

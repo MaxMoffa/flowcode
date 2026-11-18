@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
-import { Sidebar } from "./sidebar/Sidebar";
+import { Sidebar, useSidebarTab } from "./sidebar/Sidebar";
 import { isLikelyTextFile } from "./sidebar/fileIcons";
 import { AgentInsightPanel } from "./agents/AgentInsightPanel";
 import { forgetBrowserTab, openFileInPreview, setBrowserFocusTab, setBrowserOpen, useBrowser } from "./browser/browserStore";
@@ -108,6 +108,8 @@ import { usePanelLayout } from "./app/usePanelLayout";
 import type { PanelKey } from "./app/panelLayout";
 import { usePerTabPanels } from "./app/usePerTabPanels";
 import { useWindowChrome } from "./window/useWindowChrome";
+import { useActiveAgent } from "./agents/activeAgent";
+import { useGitChangeCount } from "./git/useGitChangeCount";
 import { ZoomRow } from "./terminal/ZoomRow";
 import {
   cmdTitlePathCandidates,
@@ -157,7 +159,6 @@ import {
   PLUGIN_APPROVALS_KEY,
   FAVORITES_BUTTON_VISIBLE_KEY,
   SIDEBAR_COLLAPSED_KEY,
-  AGENTS_SIDEBAR_OPEN_KEY,
   isStringArray,
   commandStamp,
   readQuickActions,
@@ -175,10 +176,9 @@ function insertTabAt(tabs: AppTab[], tab: AppTab, at?: number): AppTab[] {
 
 function Shell() {
   // All persisted across restarts - every toggle path (header button,
-  // shortcut, floating backdrop, the agents panel's own X, Settings...) goes
+  // shortcut, floating backdrop, the Agent action, Settings...) goes
   // through these setters, so persisting in one place covers all of them.
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState(SIDEBAR_COLLAPSED_KEY, readFalse, writeBool);
-  const [agentsSidebarOpen, setAgentsSidebarOpen] = usePersistentState(AGENTS_SIDEBAR_OPEN_KEY, readFalse, writeBool);
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const { setSection: setSettingsSection } = useSettingsSection();
   const [sidebarMode, setSidebarMode] = usePersistentState<SidebarMode>(SIDEBAR_MODE_KEY, readSidebarMode, writeString);
@@ -211,15 +211,6 @@ function Shell() {
     getMax: () => layoutLiveRef.current.maxWidth.sidebar ?? Infinity,
     getCurrent: () => layoutLiveRef.current.shown.sidebar,
   });
-  const agentsResize = useResizablePanelWidth({
-    storageKey: "flowcode.agentsSidebarWidth",
-    defaultWidth: 240,
-    min: 200,
-    max: 480,
-    handleSide: "left",
-    getMax: () => layoutLiveRef.current.maxWidth.agents ?? Infinity,
-    getCurrent: () => layoutLiveRef.current.shown.agents,
-  });
   const browserResize = useResizablePanelWidth({
     storageKey: "flowcode.browserWidth",
     defaultWidth: 480,
@@ -243,9 +234,8 @@ function Shell() {
   latestRef.current = { tabs, activeTabId, activeTerminalId };
   const { restoreRef: panelRestoreRef, forget: forgetTabPanels } = usePerTabPanels(
     activeTabId,
-    { sidebarCollapsed, agentsSidebarOpen, browserOpen },
+    { sidebarCollapsed, browserOpen },
     setSidebarCollapsed,
-    setAgentsSidebarOpen,
   );
   // The tab on screen, for pages opened on behalf of another tab (see browserStore).
   useLayoutEffect(() => setBrowserFocusTab(activeTabId), [activeTabId]);
@@ -553,8 +543,6 @@ function Shell() {
     sidebarMode,
     sidebarCollapsed,
     setSidebarCollapsed,
-    agentsSidebarOpen,
-    setAgentsSidebarOpen,
     browserOpen,
     setBrowserOpen,
     bodyRef: appBodyRef,
@@ -562,11 +550,10 @@ function Shell() {
     centerMin: tabs.some((t) => t.id === activeTabId && t.kind === "chat") ? 320 : 360,
     panels: {
       sidebar: { width: sidebarResize.width, min: sidebarResize.min },
-      agents: { width: agentsResize.width, min: agentsResize.min },
       browser: { width: browserResize.width, min: browserResize.min },
     },
   });
-  const { isNarrow, sidebarPresence, agentsPresence, browserPresence, togglePanel, panelPointerDown } = panelLayout;
+  const { isNarrow, sidebarPresence, browserPresence, togglePanel, panelPointerDown } = panelLayout;
   layoutLiveRef.current = { maxWidth: panelLayout.maxWidth, shown: panelLayout.shown };
   panelRestoreRef.current = panelLayout.markRestore;
 
@@ -610,7 +597,7 @@ function Shell() {
     zoomIn: () => activeTermHandle() && zoomTabIn(activeTerminalId),
     zoomOut: () => activeTermHandle() && zoomTabOut(activeTerminalId),
     resetZoom: () => activeTermHandle() && resetTabZoom(activeTerminalId),
-    toggleAgents: () => togglePanel("agents"),
+    toggleAgents: () => toggleAgentTab(),
     toggleBrowser: () => togglePanel("browser"),
     openSettings: () => openSettings(),
     showShortcuts: () => setShortcutsDialogOpen((o) => !o),
@@ -1784,6 +1771,20 @@ function Shell() {
             profileId: activeTerminal.profileId,
           }
         : undefined;
+  // The agent in front, for the sidebar's Agent tab (its own panel, not a second copy of the history source).
+  const activeAgent = useActiveAgent();
+  const agentMode = !!(historyAgent && historyAgent.cwd) || !!activeAgent;
+  const [sidebarTab, setSidebarTab] = useSidebarTab(agentMode);
+  const sidebarVisible = !sidebarCollapsed && !panelLayout.parked.sidebar;
+  // The Agent action is a shortcut to the sidebar's Agent tab: it closes the sidebar only when that tab is already showing.
+  const toggleAgentTab = () => {
+    if (!activeAgent) return togglePanel("sidebar");
+    if (sidebarVisible && sidebarTab === "agent") return togglePanel("sidebar");
+    setSidebarTab("agent");
+    if (!sidebarVisible) togglePanel("sidebar");
+  };
+  // The sidebar button's dot: Git changes in the folder in front while the sidebar is closed (a parked one already shows the parked dot there).
+  const gitChangeCount = useGitChangeCount(sidebarCwd, !sidebarVisible);
 
   const terminalTabs = useMemo(() => stripTabs.filter((t): t is TermTab => t.kind === "terminal"), [stripTabs]);
   // The history lists conversations: a delegated child's tab is none of them.
@@ -2376,7 +2377,7 @@ function Shell() {
         togglePanel("sidebar");
         break;
       case "toggleAgentsSidebar":
-        togglePanel("agents");
+        toggleAgentTab();
         break;
       case "toggleBrowser":
         togglePanel("browser");
@@ -2496,6 +2497,17 @@ function Shell() {
     sidebarPanel = (
       <Sidebar
         cwd={sidebarCwd}
+        tab={sidebarTab}
+        onTabChange={setSidebarTab}
+        agent={
+          activeAgent ? (
+            <AgentInsightPanel
+              onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.paneKey ?? frontChat.id)?.compact() : undefined}
+              onOpenDelegate={openDelegateTab}
+              onFocusTab={setActiveTabId}
+            />
+          ) : undefined
+        }
         onNavigate={browseExplorer}
         onGoHome={() =>
           void resolveStartDir(activeTerminal ? (tabShell(activeTerminal) ?? shellId) : shellId).then(browseExplorer)
@@ -2685,11 +2697,14 @@ function Shell() {
         )
       }
       aria-label={t("app.toggleSidebar")}
-      title={t("app.toggleSidebar.title")}
+      title={sidebarCollapsed && gitChangeCount > 0 ? t("app.toggleSidebar.titleChanges", { count: gitChangeCount }) : t("app.toggleSidebar.title")}
     >
       <svg viewBox="0 0 24 24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
+        <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+        <path d="M9.5 4.5v15" />
+        {sidebarVisible && <path className="sidebar-toggle-fill" d="M6 4.5h3.5v15H6a2.5 2.5 0 0 1-2.5-2.5V7A2.5 2.5 0 0 1 6 4.5z" />}
       </svg>
+      {sidebarCollapsed && gitChangeCount > 0 && <span className="sidebar-toggle-dot" aria-hidden="true" />}
     </button>
   );
 
@@ -2719,9 +2734,8 @@ function Shell() {
                 <PluginUsageButton
                   plugin={plugin}
                   icon={pluginIconNode(plugin)}
-                  active={plugin.action === "toggleAgentsSidebar" ? agentsSidebarOpen : undefined}
+                  active={plugin.action === "toggleAgentsSidebar" ? sidebarVisible && sidebarTab === "agent" && !!activeAgent : undefined}
                   parked={
-                    (plugin.action === "toggleAgentsSidebar" && panelLayout.parked.agents) ||
                     (plugin.action === "toggleBrowser" && panelLayout.parked.browser) ||
                     (plugin.action === "toggleSidebar" && panelLayout.parked.sidebar)
                   }
@@ -3076,9 +3090,6 @@ function Shell() {
             </div>
           </div>
         )}
-        {isNarrow && panelLayout.overlay === "agents" && (
-          <div className="sidebar-floating-backdrop" onClick={panelLayout.dismissOverlay} />
-        )}
         {isNarrow && panelLayout.overlay === "browser" && <div className="sidebar-floating-backdrop" onClick={panelLayout.dismissOverlay} />}
         {browserPresence.mounted && (
           <div
@@ -3099,32 +3110,6 @@ function Shell() {
                 <Suspense fallback={null}>
                   <BrowserPanel dragging={browserResize.dragging} />
                 </Suspense>
-              </div>
-            </div>
-          </div>
-        )}
-        {agentsPresence.mounted && (
-          <div
-            className={
-              "resizable-panel resizable-panel-right" +
-              (agentsPresence.shown ? "" : " is-hidden") +
-              (agentsResize.dragging ? " is-dragging" : "")
-            }
-            style={{ width: agentsPresence.shown ? panelLayout.widthOf("agents") : 0 }}
-            onPointerDownCapture={panelPointerDown("agents")}
-          >
-            <div
-              className={"resize-handle resize-handle-left" + (agentsResize.dragging ? " is-dragging" : "")}
-              onPointerDown={agentsResize.onHandlePointerDown}
-            />
-            <div className="panel-card">
-              <div className="panel-card-content" style={{ width: panelLayout.widthOf("agents") - 2 }}>
-                <AgentInsightPanel
-                  onClose={() => setAgentsSidebarOpen(false)}
-                  onCompactChat={frontChat ? () => chatClosersRef.current.get(frontChat.paneKey ?? frontChat.id)?.compact() : undefined}
-                  onOpenDelegate={openDelegateTab}
-                  onFocusTab={setActiveTabId}
-                />
               </div>
             </div>
           </div>
