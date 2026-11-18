@@ -862,6 +862,9 @@ export const en: Record<MessageKey, string> = {
   "settings.transparency.label": "Panel opacity",
   "settings.transparency.fieldDesc":
     "Lower values make the panels more transparent; higher ones bring them closer to a solid background.",
+  "settings.tabOffscreenGlow.label": "Glow for hidden busy tabs",
+  "settings.tabOffscreenGlow.desc":
+    "When an agent is working in a tab scrolled out of view, the edge of the tab bar on that side glows softly in the progress colour.",
   "settings.header.favorites": "Favorites shortcut in the header",
   "settings.header.favorites.desc":
     "Star-shaped button in the header to open your favorites quickly. Always available from the \"···\" menu too, even when hidden here.",

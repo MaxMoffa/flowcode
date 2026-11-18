@@ -14,6 +14,7 @@ import { profileById, useProfiles, type ProfileInfo } from "../profiles/profiles
 import { ProfileSelect } from "../profiles/ProfileSelect";
 import { ChangelogIcon, ChatIcon, GearIcon } from "../app/icons";
 import { SWEEP_DASHES } from "../../shared/busySweep";
+import { useTerminalSettings } from "./TerminalSettingsContext";
 import "./tabstrip.css";
 
 interface TabStripProps {
@@ -119,6 +120,45 @@ export function useRowOverflow(viewportRef: RefObject<HTMLElement | null>, conte
   // The row's content width changed.
   useEffect(update, [content, update]);
   return { canScrollLeft, canScrollRight };
+}
+
+/** Which sides of the row hide a tab whose agent is working (class
+ * attn-busy): scrolled out of view, or under an arrow's faded edge. Kept in
+ * sync on scroll and resize and whenever `busyKey` (the busy tab ids) changes. */
+function useHiddenBusySides(viewportRef: RefObject<HTMLElement | null>, busyKey: string, enabled: boolean) {
+  const [sides, setSides] = useState({ left: false, right: false });
+  const update = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el || !enabled || !busyKey) {
+      setSides((prev) => (prev.left || prev.right ? { left: false, right: false } : prev));
+      return;
+    }
+    const lo = el.scrollLeft + (el.scrollLeft > 1 ? FADE_WIDTH : 0);
+    const hi = el.scrollLeft + el.clientWidth - (el.scrollLeft + el.clientWidth < el.scrollWidth - 1 ? FADE_WIDTH : 0);
+    let left = false;
+    let right = false;
+    el.querySelectorAll<HTMLElement>(".term-tab.attn-busy").forEach((tab) => {
+      const centre = tab.offsetLeft + tab.offsetWidth / 2;
+      if (centre < lo) left = true;
+      else if (centre > hi) right = true;
+    });
+    setSides((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, [viewportRef, busyKey, enabled]);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || !enabled) return;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    el.addEventListener("scroll", update, { passive: true });
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("scroll", update);
+    };
+  }, [viewportRef, update, enabled]);
+
+  useEffect(update, [update]);
+  return sides;
 }
 
 /** The scroll arrows over a tab row's edges. Always mounted, over the tabs, so
@@ -417,6 +457,7 @@ export function TabStrip({
   }, [editingId]);
 
   const { canScrollLeft, canScrollRight } = useRowOverflow(viewportRef, tabs);
+  const { tabOffscreenGlow } = useTerminalSettings();
   // The tabs an agent is calling the user from (see src/calls): their logo pulses.
   const calls = useCalls();
   const callingIds = useMemo(() => new Set(calls.map((c) => c.tabId)), [calls]);
@@ -592,21 +633,36 @@ export function TabStrip({
 
   const draggedTab = drag?.dragging ? tabs.find((t) => t.id === drag.id) : undefined;
 
+  const attentionOf = (tab: AppTab) =>
+    tab.kind === "terminal"
+      ? agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id))
+      : tab.kind === "chat"
+        ? chatAttention(tab)
+        : null;
+  // Opt-in (Settings > Appearance): the strip's edge glows on the side of a
+  // working agent's tab that is scrolled out of view.
+  const busyKey = tabs
+    .filter((tab) => attentionOf(tab) === "busy")
+    .map((tab) => tab.id)
+    .join(",");
+  const hiddenBusy = useHiddenBusySides(viewportRef, busyKey, tabOffscreenGlow);
+
   return (
     <div className={"tab-strip" + (compact ? " is-compact" : "")} ref={containerRef} data-tauri-drag-region>
       <div className="tab-strip-scroller">
+        {tabOffscreenGlow && (
+          <div className={"term-tab-glow" + (canScrollLeft ? " fade-left" : "") + (canScrollRight ? " fade-right" : "")} aria-hidden>
+            <div className={"term-tab-glow-side is-left" + (hiddenBusy.left ? " is-on" : "")} />
+            <div className={"term-tab-glow-side is-right" + (hiddenBusy.right ? " is-on" : "")} />
+          </div>
+        )}
         <div
           className={"tab-strip-viewport" + (canScrollLeft ? " fade-left" : "") + (canScrollRight ? " fade-right" : "")}
           ref={viewportRef}
           data-tauri-drag-region
         >
           {tabs.map((tab) => {
-            const attention =
-              tab.kind === "terminal"
-                ? agentAttention(agents?.get(tab.id), !!doneIds?.has(tab.id))
-                : tab.kind === "chat"
-                  ? chatAttention(tab)
-                  : null;
+            const attention = attentionOf(tab);
             return (
               <div
                 key={tab.id}

@@ -71,6 +71,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "terminalPalette", section: "appearance", label: "settings.terminalPalette.label", desc: "settings.terminalPalette.desc", keywords: "terminale terminal separare separate colori colors palette tema theme sfondo background ansi" },
   { id: "contrast", section: "appearance", label: "settings.contrast.label", desc: "settings.contrast.desc", keywords: "contrasto contrast leggibilità readability testo text accessibilità accessibility" },
   { id: "transparency", section: "appearance", label: "settings.transparency.label", desc: "settings.transparency.fieldDesc", keywords: "trasparenza opacità vetro blur glass opacity" },
+  { id: "tabOffscreenGlow", section: "appearance", label: "settings.tabOffscreenGlow.label", desc: "settings.tabOffscreenGlow.desc", keywords: "bagliore glow luce light tab schede nascoste hidden scroll agente agent lavoro busy barra" },
   { id: "favorites", section: "appearance", label: "settings.header.favorites", desc: "settings.header.favorites.desc", keywords: "header intestazione barra preferiti favorites stella" },
   { id: "zoom", section: "terminal", label: "settings.zoom.label", desc: "settings.zoom.desc", keywords: "zoom font carattere dimensione testo size" },
   { id: "shell", section: "terminal", label: "settings.shell.label", desc: "settings.shell.desc", keywords: "shell powershell cmd bash wsl zsh" },

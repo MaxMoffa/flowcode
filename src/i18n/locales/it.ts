@@ -863,6 +863,9 @@ export const it = {
   "settings.transparency.label": "Opacità pannelli",
   "settings.transparency.fieldDesc":
     "Valori più bassi rendono i pannelli più trasparenti; più alti li avvicinano a uno sfondo pieno.",
+  "settings.tabOffscreenGlow.label": "Bagliore per le tab nascoste al lavoro",
+  "settings.tabOffscreenGlow.desc":
+    "Quando un agente lavora in una tab fuori vista nella barra, il bordo della barra da quel lato si illumina con un bagliore tenue del colore della barra di progresso.",
   "settings.header.favorites": "Scorciatoia Preferiti nell'intestazione",
   "settings.header.favorites.desc":
     "Pulsante a forma di stella nell'intestazione per aprire rapidamente i preferiti. Sempre disponibile anche dal menu \"···\", anche se nascosto qui.",

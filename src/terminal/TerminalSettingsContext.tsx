@@ -15,6 +15,7 @@ const CONFIRM_LINKS_KEY = "flowcode.confirmLinkOpen";
 const LINK_PREVIEWS_KEY = "flowcode.linkPreviews";
 const CHAT_WEB_IMAGES_KEY = "flowcode.chatWebImages";
 const CHAT_MCP_ICONS_KEY = "flowcode.chatMcpIcons";
+const TAB_OFFSCREEN_GLOW_KEY = "flowcode.tabOffscreenGlow";
 const EXPLORER_DOUBLE_CLICK_KEY = "flowcode.explorerDoubleClick";
 const MIN_SIZE = 9;
 const MAX_SIZE = 28;
@@ -101,6 +102,9 @@ interface TerminalSettingsValue {
   /** Whether Flowcode downloads an MCP service's favicon to show next to its tools in a chat (on by default: the service's site sees the IP). Also decides for phones. */
   chatMcpIcons: boolean;
   setChatMcpIcons: (enabled: boolean) => void;
+  /** Whether the tab strip glows on the side where an agent is working in a tab scrolled out of view (off by default). */
+  tabOffscreenGlow: boolean;
+  setTabOffscreenGlow: (enabled: boolean) => void;
   /** Whether the file explorer enters a folder on double click (the default)
    * or on a single click. */
   explorerDoubleClick: boolean;
@@ -151,6 +155,7 @@ const readConfirmLinks = (key: string) => readBool(key, true);
 const readLinkPreviews = (key: string) => readEnum<LinkPreviewMode>(key, ["always", "never"], "never");
 const readChatWebImages = (key: string) => readBool(key, false);
 const readChatMcpIcons = (key: string) => readBool(key, true);
+const readTabOffscreenGlow = (key: string) => readBool(key, false);
 const readExplorerDoubleClick = (key: string) => readBool(key, true);
 const readNewTabPage = (key: string) => readBool(key, true);
 
@@ -191,6 +196,7 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
   const [linkPreviews, setLinkPreviews] = usePersistentState(LINK_PREVIEWS_KEY, readLinkPreviews, writeString, true);
   const [chatWebImages, setChatWebImages] = usePersistentState(CHAT_WEB_IMAGES_KEY, readChatWebImages, writeBool, true);
   const [chatMcpIcons, setChatMcpIcons] = usePersistentState(CHAT_MCP_ICONS_KEY, readChatMcpIcons, writeBool, true);
+  const [tabOffscreenGlow, setTabOffscreenGlow] = usePersistentState(TAB_OFFSCREEN_GLOW_KEY, readTabOffscreenGlow, writeBool, true);
   const [explorerDoubleClick, setExplorerDoubleClick] = usePersistentState(
     EXPLORER_DOUBLE_CLICK_KEY,
     readExplorerDoubleClick,
@@ -247,6 +253,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setChatWebImages,
       chatMcpIcons,
       setChatMcpIcons,
+      tabOffscreenGlow,
+      setTabOffscreenGlow,
       explorerDoubleClick,
       setExplorerDoubleClick,
       newTabPage,
@@ -279,6 +287,8 @@ export function TerminalSettingsProvider({ children }: { children: ReactNode }) 
       setChatWebImages,
       chatMcpIcons,
       setChatMcpIcons,
+      tabOffscreenGlow,
+      setTabOffscreenGlow,
       explorerDoubleClick,
       setExplorerDoubleClick,
       newTabPage,

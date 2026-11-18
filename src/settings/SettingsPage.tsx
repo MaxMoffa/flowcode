@@ -129,6 +129,8 @@ export function SettingsPage({
     setChatWebImages,
     chatMcpIcons,
     setChatMcpIcons,
+    tabOffscreenGlow,
+    setTabOffscreenGlow,
     explorerDoubleClick,
     setExplorerDoubleClick,
     newTabPage,
@@ -412,6 +414,14 @@ export function SettingsPage({
                   onChange={onSetFavoritesButtonVisible}
                   label={t("settings.header.favorites")}
                   stateLabels={[t("common.show"), t("common.hide")]}
+                />
+              </SettingRow>
+              <SettingRow id="tabOffscreenGlow" label={t("settings.tabOffscreenGlow.label")} desc={t("settings.tabOffscreenGlow.desc")}>
+                <Switch
+                  checked={tabOffscreenGlow}
+                  onChange={setTabOffscreenGlow}
+                  label={t("settings.tabOffscreenGlow.label")}
+                  stateLabels={onOff}
                 />
               </SettingRow>
             </SettingsGroup>

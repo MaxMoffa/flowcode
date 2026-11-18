@@ -82,6 +82,133 @@
   --tab-fade-right: 48px;
 }
 
+/* Opt-in glow (Settings > Appearance, TabStrip's useHiddenBusySides): while an
+   agent works in a tab scrolled out of view, a soft wash of the busy colour
+   enters the bar from that side. No shape of its own - it fills the strip's
+   full height and dies out over 100px with a gaussian falloff (exp(-3.2 x²),
+   13 stops), so no edge shows; its outer end sits under the same fade as the
+   tabs (the arrows' edges), so the wash vanishes under the arrow like they do.
+   Breathes slowly while lit. */
+.term-tab-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  --tab-fade-left: 0px;
+  --tab-fade-right: 0px;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent calc(var(--tab-fade-left) * 0.55),
+    #000 var(--tab-fade-left),
+    #000 calc(100% - var(--tab-fade-right)),
+    transparent calc(100% - var(--tab-fade-right) * 0.55)
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent calc(var(--tab-fade-left) * 0.55),
+    #000 var(--tab-fade-left),
+    #000 calc(100% - var(--tab-fade-right)),
+    transparent calc(100% - var(--tab-fade-right) * 0.55)
+  );
+  transition: --tab-fade-left 160ms ease, --tab-fade-right 160ms ease;
+}
+
+.term-tab-glow.fade-left {
+  --tab-fade-left: 48px;
+}
+
+.term-tab-glow.fade-right {
+  --tab-fade-right: 48px;
+}
+
+/* The side fades in/out on .is-on; its ::before carries the light and the
+   breathing (an animation on the same element would override the fade). */
+.term-tab-glow-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 100px;
+  opacity: 0;
+  transition: opacity 450ms ease;
+  --tab-glow-peak: 0.32;
+}
+
+:root[data-theme="light"] .term-tab-glow-side {
+  --tab-glow-peak: 0.24;
+}
+
+.term-tab-glow-side.is-on {
+  opacity: 1;
+}
+
+.term-tab-glow-side::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: var(--tab-glow-peak);
+  animation: term-tab-glow-breathe 2.6s ease-in-out infinite;
+  /* A little brighter at the bottom, where the tabs sit. */
+  -webkit-mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.35), rgb(0 0 0 / 0.8) 55%, #000);
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.35), rgb(0 0 0 / 0.8) 55%, #000);
+}
+
+.term-tab-glow-side.is-left {
+  left: 0;
+}
+
+.term-tab-glow-side.is-left::before {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--ansi-bright-blue) 100.0%, transparent) 0.0%,
+    color-mix(in srgb, var(--ansi-bright-blue) 97.8%, transparent) 8.3%,
+    color-mix(in srgb, var(--ansi-bright-blue) 91.4%, transparent) 16.7%,
+    color-mix(in srgb, var(--ansi-bright-blue) 81.6%, transparent) 25.0%,
+    color-mix(in srgb, var(--ansi-bright-blue) 69.6%, transparent) 33.3%,
+    color-mix(in srgb, var(--ansi-bright-blue) 56.7%, transparent) 41.7%,
+    color-mix(in srgb, var(--ansi-bright-blue) 43.9%, transparent) 50.0%,
+    color-mix(in srgb, var(--ansi-bright-blue) 32.3%, transparent) 58.3%,
+    color-mix(in srgb, var(--ansi-bright-blue) 22.3%, transparent) 66.7%,
+    color-mix(in srgb, var(--ansi-bright-blue) 14.2%, transparent) 75.0%,
+    color-mix(in srgb, var(--ansi-bright-blue) 8.0%, transparent) 83.3%,
+    color-mix(in srgb, var(--ansi-bright-blue) 3.4%, transparent) 91.7%,
+    color-mix(in srgb, var(--ansi-bright-blue) 0.0%, transparent) 100.0%
+  );
+}
+
+.term-tab-glow-side.is-right {
+  right: 0;
+}
+
+.term-tab-glow-side.is-right::before {
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--ansi-bright-blue) 100.0%, transparent) 0.0%,
+    color-mix(in srgb, var(--ansi-bright-blue) 97.8%, transparent) 8.3%,
+    color-mix(in srgb, var(--ansi-bright-blue) 91.4%, transparent) 16.7%,
+    color-mix(in srgb, var(--ansi-bright-blue) 81.6%, transparent) 25.0%,
+    color-mix(in srgb, var(--ansi-bright-blue) 69.6%, transparent) 33.3%,
+    color-mix(in srgb, var(--ansi-bright-blue) 56.7%, transparent) 41.7%,
+    color-mix(in srgb, var(--ansi-bright-blue) 43.9%, transparent) 50.0%,
+    color-mix(in srgb, var(--ansi-bright-blue) 32.3%, transparent) 58.3%,
+    color-mix(in srgb, var(--ansi-bright-blue) 22.3%, transparent) 66.7%,
+    color-mix(in srgb, var(--ansi-bright-blue) 14.2%, transparent) 75.0%,
+    color-mix(in srgb, var(--ansi-bright-blue) 8.0%, transparent) 83.3%,
+    color-mix(in srgb, var(--ansi-bright-blue) 3.4%, transparent) 91.7%,
+    color-mix(in srgb, var(--ansi-bright-blue) 0.0%, transparent) 100.0%
+  );
+}
+
+@keyframes term-tab-glow-breathe {
+  0%,
+  100% {
+    opacity: calc(var(--tab-glow-peak) * 0.6);
+  }
+  50% {
+    opacity: var(--tab-glow-peak);
+  }
+}
+
 .term-tab {
   box-sizing: border-box;
   position: relative;
