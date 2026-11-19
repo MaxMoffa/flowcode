@@ -75,6 +75,39 @@ pub(super) struct LogEntry {
     pub(super) offsets: Vec<usize>,
     /// `body_size`, grown with each merge - what `Log::bytes` counts.
     pub(super) size: usize,
+    /// Its large tool payloads were already shrunk (`Log::compact`).
+    pub(super) compacted: bool,
+}
+
+/// Entries at the end of the log that compaction never touches.
+pub(super) const COMPACT_KEEP_RECENT: usize = 200;
+/// A string longer than this inside an old tool call is truncated...
+pub(super) const COMPACT_STRING_LIMIT: usize = 16 * 1024;
+/// ...down to this many bytes (plus the marker).
+pub(super) const COMPACT_STRING_KEEP: usize = 2 * 1024;
+
+/// Truncates every string over `COMPACT_STRING_LIMIT` in `value` (image data
+/// excepted: cut base64 would not decode). Returns the approximate bytes freed.
+pub(super) fn shrink_strings(value: &mut Value) -> usize {
+    match value {
+        Value::String(s) if s.len() > COMPACT_STRING_LIMIT => {
+            let total = s.len();
+            let mut cut = COMPACT_STRING_KEEP;
+            while !s.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            s.truncate(cut);
+            s.push_str(&format!("
+… [truncated by Flowcode, {total} bytes]"));
+            total - s.len()
+        }
+        Value::Array(items) => items.iter_mut().map(shrink_strings).sum(),
+        Value::Object(map) => {
+            let is_image = map.get("type").and_then(Value::as_str) == Some("image");
+            map.iter_mut().filter(|(k, _)| !(is_image && k.as_str() == "data")).map(|(_, v)| shrink_strings(v)).sum()
+        }
+        _ => 0,
+    }
 }
 
 impl LogEntry {
@@ -83,7 +116,7 @@ impl LogEntry {
             ChatBody::Update { update } if text_chunk(update).is_some() => vec![0],
             _ => Vec::new(),
         };
-        LogEntry { first_seq: event.seq, size: body_size(&event.body), offsets, event }
+        LogEntry { first_seq: event.seq, size: body_size(&event.body), offsets, compacted: false, event }
     }
 
     /// Merges `next` into this entry if both are text chunks of the same
@@ -144,11 +177,34 @@ pub(super) struct Log {
     pub(super) bytes: usize,
     pub(super) max_events: usize,
     pub(super) max_bytes: usize,
+    /// `bytes` at which the next automatic `compact` runs.
+    compact_at: usize,
 }
 
 impl Log {
     pub(super) fn new(max_events: usize, max_bytes: usize) -> Self {
-        Log { seq: 0, events: VecDeque::new(), bytes: 0, max_events, max_bytes }
+        Log { seq: 0, events: VecDeque::new(), bytes: 0, max_events, max_bytes, compact_at: max_bytes / 2 }
+    }
+
+    /// Shrinks the large strings of tool calls (and their updates) older than
+    /// the last `COMPACT_KEEP_RECENT` entries. `seq`s, order and event kinds
+    /// stay; the payloads stay valid JSON, just shorter, ending in a marker.
+    /// Returns the bytes freed.
+    pub(super) fn compact(&mut self) -> usize {
+        let end = self.events.len().saturating_sub(COMPACT_KEEP_RECENT);
+        let mut freed = 0;
+        for entry in self.events.iter_mut().take(end).filter(|e| !e.compacted) {
+            entry.compacted = true;
+            let ChatBody::Update { update } = &mut entry.event.body else { continue };
+            if !matches!(update.get("sessionUpdate").and_then(Value::as_str), Some("tool_call" | "tool_call_update")) {
+                continue;
+            }
+            let saved = shrink_strings(update).min(entry.size);
+            entry.size -= saved;
+            freed += saved;
+        }
+        self.bytes = self.bytes.saturating_sub(freed);
+        freed
     }
 
     /// Numbers `body` and records it, dropping the oldest entries past the
@@ -164,6 +220,12 @@ impl Log {
                 self.bytes += entry.size;
                 self.events.push_back(entry);
             }
+        }
+        // Old tool output shrinks before whole events are dropped, and once
+        // the chat is over nobody streams into it again.
+        if matches!(event.body, ChatBody::Exit { .. }) || self.bytes >= self.compact_at {
+            self.compact();
+            self.compact_at = (self.max_bytes / 2).max(self.bytes + self.max_bytes / 8);
         }
         while self.events.len() > self.max_events || (self.bytes > self.max_bytes && self.events.len() > 1) {
             let Some(dropped) = self.events.pop_front() else { break };
@@ -377,6 +439,76 @@ mod tests {
         let next = log.push(chunk("agent_message_chunk", "new"), 0);
         assert_eq!(next.seq, 3);
         assert_eq!(summary(&log.after(0)), vec![(3, "new".into())]);
+    }
+
+    fn tool_output(id: &str, len: usize) -> ChatBody {
+        ChatBody::Update {
+            update: json!({
+                "sessionUpdate": "tool_call_update", "toolCallId": id,
+                "rawOutput": "é".repeat(len / 2),
+                "content": [{ "type": "content", "content": { "type": "text", "text": "x".repeat(len) } }]
+            }),
+        }
+    }
+
+    #[test]
+    fn compaction_shrinks_old_tool_output_and_keeps_seqs() {
+        let mut log = big_log();
+        for n in 0..300 {
+            log.push(tool_output(&format!("t{n}"), 40_000), 0);
+        }
+        let before = log.bytes;
+        let seqs: Vec<u64> = log.after(0).iter().map(|e| e.seq).collect();
+        let freed = log.compact();
+        assert!(freed > 0 && log.bytes == before - freed);
+        assert_eq!(log.bytes, log.events.iter().map(|e| e.size).sum::<usize>());
+        let after = log.after(0);
+        assert_eq!(after.iter().map(|e| e.seq).collect::<Vec<_>>(), seqs);
+        let text = |e: &ChatEvent| match &e.body {
+            ChatBody::Update { update } => update["content"][0]["content"]["text"].as_str().unwrap().to_string(),
+            _ => unreachable!(),
+        };
+        assert!(text(&after[0]).len() < 3000 && text(&after[0]).ends_with("[truncated by Flowcode, 40000 bytes]"));
+        assert!(serde_json::to_string(&after[0]).is_ok());
+        // The last COMPACT_KEEP_RECENT entries are intact.
+        assert_eq!(text(&after[299]).len(), 40_000);
+        assert_eq!(text(&after[300 - COMPACT_KEEP_RECENT]).len(), 40_000);
+        assert!(text(&after[300 - COMPACT_KEEP_RECENT - 1]).len() < 3000);
+        // Idempotent.
+        assert_eq!(log.compact(), 0);
+    }
+
+    #[test]
+    fn compaction_runs_on_exit_and_spares_messages_and_images() {
+        let mut log = big_log();
+        log.push(chunk("agent_message_chunk", &"m".repeat(40_000)), 0);
+        let img = json!({ "sessionUpdate": "tool_call_update", "content": [{ "type": "image", "data": "A".repeat(40_000) }] });
+        log.push(ChatBody::Update { update: img }, 0);
+        for n in 0..COMPACT_KEEP_RECENT {
+            log.push(tool_output(&format!("t{n}"), 20_000), 0);
+        }
+        let before = log.bytes;
+        log.push(ChatBody::Exit { code: Some(0) }, 0);
+        assert!(log.bytes <= before + 64, "nothing old to shrink but the entries just past the window");
+        for n in 0..10 {
+            log.push(ChatBody::User { text: n.to_string(), attachments: Vec::new(), images: Vec::new() }, 0);
+        }
+        let all = log.after(0);
+        let ChatBody::Update { update } = &all[0].body else { panic!() };
+        assert_eq!(update["content"]["text"].as_str().unwrap().len(), 40_000);
+        let ChatBody::Update { update } = &all[1].body else { panic!() };
+        assert_eq!(update["content"][0]["data"].as_str().unwrap().len(), 40_000);
+    }
+
+    #[test]
+    fn compaction_triggers_at_half_the_byte_cap() {
+        // 600 x ~40 KB would be 24 MB: over the 16 MiB cap without compaction.
+        let mut log = Log::new(10_000, 16 * 1024 * 1024);
+        for n in 0..600 {
+            log.push(tool_output(&format!("t{n}"), 20_000), 0);
+        }
+        assert_eq!(log.events.len(), 600, "shrunk before anything was dropped");
+        assert!(log.bytes < 16 * 1024 * 1024, "bytes {}", log.bytes);
     }
 
     #[test]

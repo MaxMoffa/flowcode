@@ -154,11 +154,17 @@ async fn receive_upload(shared: &Shared, chat_id: &str, recv: &mut iroh::endpoin
         return Err("Invalid file name".into());
     }
     let _slot = UPLOAD_SLOTS.acquire().await.map_err(|_| "Upload failed".to_string())?;
-    let mut bytes = vec![0u8; meta.size as usize];
-    tokio::time::timeout(UPLOAD_TIMEOUT, recv.read_exact(&mut bytes))
+    // Grown as data arrives: a phone announcing 32 MiB must actually send it
+    // before that memory is committed.
+    let expected = meta.size as usize;
+    let mut bytes: Vec<u8> = Vec::with_capacity(expected.min(1024 * 1024));
+    tokio::time::timeout(UPLOAD_TIMEOUT, (&mut *recv).take(meta.size).read_to_end(&mut bytes))
         .await
         .map_err(|_| "Upload timed out".to_string())?
         .map_err(|_| "Upload interrupted".to_string())?;
+    if bytes.len() != expected {
+        return Err("Upload interrupted".into());
+    }
     let name = meta.name;
     tokio::task::spawn_blocking(move || crate::chat::stage_upload(&name, &bytes))
         .await

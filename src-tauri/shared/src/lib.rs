@@ -143,10 +143,28 @@ pub fn wait_with_timeout(
 fn kill_tree(child: &mut std::process::Child) {
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("taskkill")
+        // Bounded: a taskkill stuck on a protected process must not hang the caller.
+        let spawned = std::process::Command::new("taskkill")
             .args(["/T", "/F", "/PID", &child.id().to_string()])
             .creation_flags(CREATE_NO_WINDOW)
-            .output();
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        if let Ok(mut killer) = spawned {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                match killer.try_wait() {
+                    Ok(Some(_)) | Err(_) => break,
+                    Ok(None) if std::time::Instant::now() >= deadline => {
+                        let _ = killer.kill();
+                        let _ = killer.wait();
+                        break;
+                    }
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(25)),
+                }
+            }
+        }
     }
     let _ = child.kill();
 }
