@@ -866,6 +866,7 @@ pub(super) fn start_once(
         let _ = child.wait();
         return Err(format!("could not open the pipes of `{line}`"));
     };
+    let job = crate::process_job::TreeJob::new(child.id());
     let chat_id = uuid::Uuid::new_v4().to_string();
     let depth = u8::from(extras.link.is_some());
     let token = (!crate::chat_mcp::enabled_tools(&extras.tools, depth).is_empty()).then(|| crate::chat_mcp::register(&chat_id, depth));
@@ -886,6 +887,7 @@ pub(super) fn start_once(
         answer: Mutex::new(String::new()),
         final_answer: Mutex::new(String::new()),
         child: Mutex::new(child),
+        job: Mutex::new(job),
         wsl_group: AtomicU32::new(0),
         wsl_group_seen: AtomicBool::new(false),
         writer: Mutex::new(stdin),

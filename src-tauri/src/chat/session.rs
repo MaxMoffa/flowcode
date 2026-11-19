@@ -57,6 +57,9 @@ pub(super) struct Chat {
     pub(super) answer: Mutex<String>,
     pub(super) final_answer: Mutex<String>,
     pub(super) child: Mutex<Child>,
+    /// The agent's own job (Windows): emptied when the chat is reaped or
+    /// killed, so what the agent started dies even if the agent exited first.
+    pub(super) job: Mutex<Option<crate::process_job::TreeJob>>,
     pub(super) wsl_group: AtomicU32,
     pub(super) wsl_group_seen: AtomicBool,
     pub(super) writer: Mutex<ChildStdin>,
@@ -749,7 +752,10 @@ impl Chat {
         }
         let mut child = lock(&self.child);
         kill_if_running(&mut child);
-        child.wait().ok().and_then(|status| status.code())
+        let code = child.wait().ok().and_then(|status| status.code());
+        // Whatever the agent left running (its own exit doesn't take it along).
+        drop(lock(&self.job).take());
+        code
     }
 
     /// The chat can no longer call Flowcode's tools.
@@ -788,6 +794,8 @@ impl Chat {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        drop(child);
+        drop(lock(&self.job).take());
     }
 
     pub(super) fn announce_resume(&self, state: &str, resume: &ScheduledResume) {

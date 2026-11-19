@@ -646,11 +646,8 @@ pub fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     // Removed from the map right away; the reader thread notices EOF once the
     // process is gone and does the rest of the cleanup (see pty_spawn).
     let session = lock(&state.0).remove(&id);
-    if let Some(mut session) = session {
-        let killed = session.killer.kill().map_err(|e| e.to_string());
-        // Dropping closes the pseudo console, which can take a while.
-        std::thread::spawn(move || drop(session));
-        killed?;
+    if let Some(session) = session {
+        reap(vec![session]);
     }
     Ok(())
 }
@@ -680,15 +677,23 @@ fn spawn_writer(
     });
 }
 
-/// Kills and drops sessions already taken out of the map, off the calling
-/// thread: the kill and the pseudo console's teardown can both be slow.
+/// Kills (with their process trees) and drops sessions already taken out of
+/// the map, off the calling thread: the kill and the pseudo console's
+/// teardown can both be slow.
 fn reap(sessions: Vec<PtySession>) {
     if sessions.is_empty() {
         return;
     }
     std::thread::spawn(move || {
         for mut session in sessions {
+            // The whole tree, not just the shell: what it started (a dev
+            // server, a hidden `codex` probe) would otherwise outlive the
+            // tab, held in Flowcode's job until the app quits. The shell is
+            // still alive here, so its pid can't have been reused.
+            if let Some(pid) = session.pid { crate::chat::kill_tree(pid); }
             let _ = session.killer.kill();
+            // Dropping closes the pseudo console, which can take a while.
+            drop(session);
         }
     });
 }
