@@ -243,3 +243,10 @@ export const SendIcon = () => (
     <path d="M12 19V5M6 11l6-6 6 6" />
   </Svg>
 );
+
+export const EyeIcon = () => (
+  <Svg>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+    <circle cx="12" cy="12" r="3" />
+  </Svg>
+);

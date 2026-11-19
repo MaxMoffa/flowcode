@@ -1,5 +1,9 @@
 /* Shared standalone explorer and work-folder picker, using the phone palette. */
 .page.files-page { padding: 0; overflow: hidden; gap: 0; }
+/* Files page margins match the home: 72px top bar, title and icon glyphs at 18px, content at 16px. */
+.files-page .fx-header { min-height: 72px; padding: 0 6px 0 18px; }
+.files-page .fx-crumbs { padding: 0 10px 8px; }
+.files-page .fx-body { padding-inline: 16px; }
 .fx-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .fx-header { flex: none; display: flex; align-items: center; gap: 6px; min-height: 60px; padding: 6px 12px; }
 .fx-header > div { flex: 1; min-width: 0; }
@@ -25,16 +29,20 @@
 .fx-entry small, .fp-row small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .fx-notice { margin: 10px 0; padding: 16px; border: 1px dashed var(--border-strong); border-radius: 15px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .fx-hint { color: var(--muted); font-size: 13px; line-height: 1.5; }
+/* FAB: accent square, "+" turns into "x" and two labelled mini actions rise above it. */
 .fx-floating { position: fixed; bottom: calc(92px + var(--safe-b)); right: max(16px, env(safe-area-inset-right)); z-index: 12; }
-.fx-launch-button { min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 24px; border: 1px solid var(--border-strong); background: var(--surface-3); color: var(--fg); font-size: 13px; box-shadow: var(--shadow); }
-.fx-launch-button svg { width: 16px; height: 16px; }
-.fx-launch-button[aria-expanded="true"] { color: var(--accent); }
-.fx-launch-menu { position: absolute; right: 0; bottom: 54px; width: 192px; padding: 5px; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 17px; box-shadow: var(--shadow); }
-.fx-launch-menu small { display: block; margin: 5px 9px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fx-launch-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border: 0; border-radius: 11px; background: transparent; color: var(--fg); font-size: 14px; text-align: left; }
-.fx-launch-menu button.accent { color: var(--accent); }
-.fx-launch-menu button:hover { background: var(--surface-3); }
-.fx-dismiss { position: fixed; inset: 0; z-index: 11; border: 0; background: transparent; }
+.fx-fab { width: 58px; height: 58px; padding: 0; border: 0; border-radius: 20px; display: grid; place-items: center; color: var(--on-accent); background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 86%, #fff), var(--accent) 55%, color-mix(in srgb, var(--accent) 75%, var(--accent-2))); box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 36%, transparent), inset 0 1px 0 rgba(255, 255, 255, .35); }
+.fx-fab svg { width: 26px; height: 26px; stroke-width: 2.2; transition: transform .2s ease; }
+.fx-fab.open svg { transform: rotate(45deg); }
+.fx-dial { position: absolute; right: 5px; bottom: 70px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; animation: fx-dial-in .16s ease-out; }
+.fx-dial small { max-width: 220px; margin-right: 2px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-dial button { display: flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none; color: var(--fg); font: 13px var(--font); }
+.fx-dial em { font-style: normal; padding: 7px 11px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.fx-dial i { width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border-strong); box-shadow: 0 6px 16px rgba(0, 0, 0, .35); }
+.fx-dial button.accent i { color: var(--accent); background: linear-gradient(var(--accent-bg), var(--accent-bg)), var(--surface-2); border-color: var(--accent-border); }
+@keyframes fx-dial-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .fx-dial { animation: none; } .fx-fab svg { transition: none; } }
+.fx-dismiss { position: fixed; inset: 0; z-index: 11; border: 0; background: rgba(0, 0, 0, .28); }
 .fx-field { display: grid; gap: 8px; color: var(--muted); font-size: 13px; }
 .fx-field input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--fg); font: 15px var(--font); }
 .fx-danger { background: var(--danger); color: var(--bg); }
@@ -61,12 +69,21 @@
 .hm-shell { min-height: 56px; }
 .hm-tile.st-shell { color: var(--muted); background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
 .fx-header { position: relative; }
-.fx-menu-scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .28); }
-.fx-menu { position: absolute; top: calc(100% - 4px); right: 10px; z-index: 21; width: 248px; display: flex; flex-direction: column; padding: 6px; border-radius: 18px; border: 1px solid var(--border-strong); background: var(--surface); box-shadow: 0 18px 40px rgba(0, 0, 0, .6); transform-origin: top right; animation: fx-menu-in .14s ease-out; }
-.fx-menu button { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: var(--fg); font: 14.5px var(--font); text-align: left; }
+/* Header actions: refresh tinted as the main one, the kebab lit while its menu is open. */
+.fx-icon.fx-primary { margin-right: 2px; border-radius: 15px; background: var(--accent-bg); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.fx-icon.open { background: var(--surface-3); color: var(--fg); }
+/* Scrim starts under the header so the open kebab stays lit. */
+.fx-menu-scrim { position: absolute; top: 100%; left: 0; right: 0; height: 100dvh; z-index: 20; background: rgba(0, 0, 0, .2); }
+.fx-menu { position: absolute; top: calc(100% - 2px); right: 8px; z-index: 21; width: 256px; display: flex; flex-direction: column; padding: 6px; border-radius: 20px; border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--surface) 92%, transparent); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 14px 34px rgba(0, 0, 0, .42); transform-origin: top right; animation: fx-menu-in .14s ease-out; }
+.fx-menu-tail { position: absolute; top: -5.5px; right: 15px; width: 9px; height: 9px; transform: rotate(45deg); background: var(--surface); border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); }
+.fx-menu-label { padding: 8px 12px 4px; font-size: 12px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-menu button { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border: 0; border-radius: 13px; background: transparent; color: var(--fg); font: 14.5px var(--font); text-align: left; }
 .fx-menu button span { flex: 1; }
-.fx-menu button > svg { flex: none; width: 18px; height: 18px; color: var(--muted); }
-.fx-menu button:active { background: var(--surface-3); }
-.fx-menu hr { width: calc(100% - 24px); margin: 4px 12px; border: 0; border-top: 1px solid var(--border); }
+.fx-menu button small { color: var(--muted); font-size: 12px; }
+.fx-menu button:disabled { opacity: .38; }
+.fx-menu button:not(:disabled):active { background: var(--surface-2); }
+.fx-gi { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; background: var(--surface-3); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
+.fx-gi svg { width: 17px; height: 17px; }
+.fx-menu hr { width: calc(100% - 12px); margin: 4px 6px; border: 0; border-top: 1px solid var(--border); }
 @keyframes fx-menu-in { from { transform: scale(.94); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .fx-menu { animation: none; } }

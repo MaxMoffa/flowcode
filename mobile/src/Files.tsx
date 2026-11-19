@@ -8,7 +8,7 @@ import { folderName, fullPath, requestFs, useExplorer } from "./explorerRemote";
 import { FolderPicker } from "./FolderPicker";
 import { launchPath, pathCrumbs } from "./explorerPaths";
 import { t } from "./i18n";
-import { AgentLogo, BackIcon, CloseIcon, DotsIcon, FileIcon, FolderIcon, HomeIcon, KebabIcon, MonitorIcon, PlusIcon, RefreshIcon, TerminalIcon } from "./icons";
+import { AgentsIcon, BackIcon, DotsIcon, EyeIcon, FileIcon, FolderIcon, HomeIcon, KebabIcon, MonitorIcon, PlusIcon, RefreshIcon, TerminalIcon } from "./icons";
 import { NewTerminalSheet } from "./NewTerminalSheet";
 import { sendChecked, showToast, useRemoteSelector, useSupports, type Tab } from "./remote";
 import { isHidden, setShowHidden, useShowHidden } from "./hiddenFiles";
@@ -16,7 +16,7 @@ import { safeStorage } from "./store";
 import { PendingRow, useOpenNew } from "./Terminals";
 import "./explorer.css";
 
-type Sheet = { kind: "item" | "rename" | "delete"; path: string; dir: boolean } | { kind: "new" | "file" | "folder" };
+type Sheet = { kind: "item" | "rename" | "delete"; path: string; dir: boolean } | { kind: "file" | "folder" };
 const pathKey = (host?: string) => "files.path." + (host ?? "");
 const COMPUTER_PATH = "flowcode:computer";
 
@@ -92,12 +92,19 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
   const actionButton = (label: string, onClick: () => void, danger = false) => <button type="button" className={danger ? "danger" : ""} onClick={onClick}>{label}</button>;
 
   return <div className="fx-screen">
-    <header className="fx-header"><div><h1>{t("files")}</h1><small>{hostName}{hiddenCount > 0 && ` · ${t("filesHiddenCount", { n: hiddenCount })}`}</small></div><button type="button" className="fx-icon" aria-label={t("filesRefresh")} onClick={() => setRevision((n) => n + 1)}><RefreshIcon /></button>{currentPath && <button type="button" className="fx-icon" aria-label={t("filesNewFile")} onClick={() => openSheet({ kind: "new" })}><PlusIcon /></button>}<button type="button" className="fx-icon" aria-label={t("filesMore")} aria-haspopup="true" aria-expanded={more} onClick={() => { setLaunch(false); setMore((v) => !v); }}><KebabIcon /></button>
+    <header className="fx-header"><div><h1>{t("files")}</h1><small>{hostName}{hiddenCount > 0 && ` · ${t("filesHiddenCount", { n: hiddenCount })}`}</small></div><button type="button" className="fx-icon fx-primary" aria-label={t("filesRefresh")} onClick={() => setRevision((n) => n + 1)}><RefreshIcon /></button><button type="button" className={"fx-icon" + (more ? " open" : "")} aria-label={t("filesMore")} aria-haspopup="true" aria-expanded={more} onClick={() => { setLaunch(false); setMore((v) => !v); }}><KebabIcon /></button>
       {more && <><div className="fx-menu-scrim" onClick={() => setMore(false)} /><div className="fx-menu" role="menu" aria-label={t("filesMore")}>
-        <button type="button" role="menuitemcheckbox" aria-checked={showHidden} onClick={() => setShowHidden(!showHidden)}><span>{t("filesShowHidden")}</span><i className={"switch" + (showHidden ? " on" : "")} aria-hidden="true" /></button>
+        <span className="fx-menu-tail" aria-hidden="true" />
+        <div className="fx-menu-label" role="presentation">{currentPath ? t("filesMenuCreateIn", { name: folderName(currentPath) }) : t("filesMenuCreate")}</div>
+        <button type="button" role="menuitem" disabled={!currentPath} onClick={() => { setMore(false); openSheet({ kind: "folder" }); }}><i className="fx-gi"><FolderIcon /></i><span>{t("filesNewFolder")}</span></button>
+        <button type="button" role="menuitem" disabled={!currentPath} onClick={() => { setMore(false); openSheet({ kind: "file" }); }}><i className="fx-gi"><FileIcon /></i><span>{t("filesNewFile")}</span></button>
         <hr />
-        <button type="button" role="menuitem" onClick={() => { setMore(false); setLocation({ key, path: null, home: true }); safeStorage.set(key, ""); }}><HomeIcon /><span>{t("filesHome")}</span></button>
-        <button type="button" role="menuitem" onClick={() => navigate(null)}><MonitorIcon /><span>{t("filesComputer")}</span></button>
+        <div className="fx-menu-label" role="presentation">{t("filesMenuView")}</div>
+        <button type="button" role="menuitemcheckbox" aria-checked={showHidden} onClick={() => setShowHidden(!showHidden)}><i className="fx-gi"><EyeIcon /></i><span>{t("filesHiddenShort")}</span><i className={"switch" + (showHidden ? " on" : "")} aria-hidden="true"><i /></i></button>
+        <hr />
+        <div className="fx-menu-label" role="presentation">{t("filesMenuGo")}</div>
+        <button type="button" role="menuitem" onClick={() => { setMore(false); setLocation({ key, path: null, home: true }); safeStorage.set(key, ""); }}><i className="fx-gi"><HomeIcon /></i><span>{t("filesHome")}</span></button>
+        <button type="button" role="menuitem" onClick={() => navigate(null)}><i className="fx-gi"><MonitorIcon /></i><span>{t("filesComputer")}</span><small>{t("filesComputerShort")}</small></button>
       </div></>}</header>
     <nav ref={crumbs} className="fx-crumbs" aria-label={t("path")}><button type="button" onClick={() => navigate(null)}>{t("filesComputer")}</button>{location.path && pathCrumbs(location.path).map((c) => <button type="button" className={c.path === currentPath ? "on" : ""} key={c.path} onClick={() => navigate(c.path)}>{c.label}</button>)}</nav>
     <div className="fx-body"><PendingRow pending={pending} />
@@ -109,7 +116,7 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
     </div>
     {currentPath && !file && !sheet && !agent && !move && <>
       {launch && <button type="button" className="fx-dismiss" aria-label={t("filesCloseLaunch")} onClick={() => setLaunch(false)} />}
-      <div className="fx-floating">{launch && <div className="fx-launch-menu" role="group" aria-label={t("filesLaunch")}><small>{t("filesIn", { name: folderName(currentPath) })}</small><button type="button" className="accent" onClick={() => agentAt(currentPath)}><AgentLogo cli="claude" />{t("newTermAgent")}</button><button type="button" onClick={() => void terminal(currentPath)}><TerminalIcon />{t("terminals")}</button></div>}<button type="button" className="fx-launch-button" aria-expanded={launch} onClick={() => setLaunch((v) => !v)}>{launch ? <CloseIcon /> : <PlusIcon />}{t("filesLaunch")}</button></div>
+      <div className="fx-floating">{launch && <div className="fx-dial" role="group" aria-label={t("filesLaunch")}><small>{t("filesIn", { name: folderName(currentPath) })}</small><button type="button" className="accent" onClick={() => agentAt(currentPath)}><em>{t("newTermAgent")}</em><i><AgentsIcon /></i></button><button type="button" onClick={() => void terminal(currentPath)}><em>{t("filesDialTerminal")}</em><i><TerminalIcon /></i></button></div>}<button type="button" className={"fx-fab" + (launch ? " open" : "")} aria-label={launch ? t("filesCloseLaunch") : t("filesLaunch")} aria-expanded={launch} onClick={() => setLaunch((v) => !v)}><PlusIcon /></button></div>
     </>}
     {agent && <NewTerminalSheet open agentOnly initialCli="claude" initialCwd={agent} folders={folders} onClose={() => setAgent(null)} onCreate={onCreate} />}
     {sheet && <AdaptiveSheet open portal family="nts" variant="dialog" onClose={closeSheet} label={"path" in sheet ? folderName(sheet.path) : t("newTerminalShort")}>
@@ -123,7 +130,6 @@ export function FilesScreen({ hostName, tabs, onOpen }: { hostName?: string; tab
           {actionButton(t("filesMove"), () => { setSheet(null); setMove(sheet.path); })}
           {actionButton(t("filesDelete"), () => openSheet({ ...sheet, kind: "delete" }), true)}
         </div>}
-        {sheet.kind === "new" && <div className="chat-menu-group">{actionButton(t("filesNewFolder"), () => openSheet({ kind: "folder" }))}{actionButton(t("filesNewFile"), () => openSheet({ kind: "file" }))}</div>}
         {["rename", "file", "folder"].includes(sheet.kind) && <><label className="fx-field">{t("filesName")}<input autoFocus value={name} disabled={busy} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !busy) saveName(); }} /></label>{hasSessions && <p className="fx-notice">{t("filesActiveWarning")}</p>}<button type="button" className="btn primary big" disabled={busy || !name.trim()} onClick={saveName}>{busy ? t("loading") : t("filesSave")}</button></>}
         {sheet.kind === "delete" && "path" in sheet && <><p>{t("filesDeleteConfirm", { name: folderName(sheet.path) })}</p>{hasSessions && <p className="fx-notice">{t("filesActiveWarning")}</p>}<button type="button" className="btn big fx-danger" disabled={busy} onClick={() => void mutate({ op: "delete", path: sheet.path })}>{busy ? t("loading") : t("filesDelete")}</button></>}
       </div><button type="button" className="fp-default" disabled={busy} onClick={closeSheet}>{t("profileCancel")}</button>
