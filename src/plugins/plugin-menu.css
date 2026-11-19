@@ -1,13 +1,13 @@
 .plugin-menu {
   position: fixed;
   z-index: 1000;
-  width: 250px;
-  max-height: 320px;
+  width: 320px;
+  max-height: min(480px, calc(100vh - 80px));
   display: flex;
   flex-direction: column;
   background: var(--menu-surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   box-shadow: var(--drop-shadow, 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14));
   backdrop-filter: var(--menu-backdrop);
   -webkit-backdrop-filter: var(--menu-backdrop);
@@ -26,71 +26,190 @@
   }
 }
 
+/* The search: its own rounded field, a step lighter than the card, no divider under it. */
 .plugin-menu-search {
   flex: 0 0 auto;
-  height: 30px;
-  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  margin: 10px 10px 4px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgb(127 127 127 / 0.12);
+  color: var(--fg-muted);
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+
+.plugin-menu-search:focus-within {
+  border-color: var(--border);
+  background: rgb(127 127 127 / 0.16);
+}
+
+.plugin-menu-search-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.plugin-menu-search-icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.plugin-menu-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
   border: none;
-  border-bottom: 1px solid var(--border);
   outline: none;
   background: transparent;
   color: var(--fg);
-  font-size: 12.5px;
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.plugin-menu-search input::placeholder {
+  color: var(--fg-muted);
 }
 
 .plugin-menu-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 5px;
+  padding: 0 6px 6px;
+}
+
+.plugin-menu-heading {
+  margin: 0;
+  padding: 10px 6px 4px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The shortcut bar's features, as tiles. */
+.plugin-menu-pinned {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  padding: 0 0 4px;
+}
+
+.plugin-menu-tile {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.plugin-menu-tile:hover,
+.plugin-menu-tile:focus-visible {
+  outline: none;
+  background: var(--sidebar-hover);
+  color: var(--fg);
+}
+
+.plugin-menu-tile > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-menu-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgb(127 127 127 / 0.14);
+  color: var(--fg);
+}
+
+.plugin-menu-badge svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
 }
 
 .plugin-menu-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
+  border-radius: 8px;
+}
+
+.plugin-menu-item:hover,
+.plugin-menu-item:focus-within {
+  background: var(--sidebar-hover);
 }
 
 .plugin-menu-item-body {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: 1 1 auto;
   min-width: 0;
-  height: 28px;
-  padding: 0 8px;
+  padding: 6px 8px;
   border: none;
   background: transparent;
   color: var(--fg);
-  font-size: 12.5px;
+  font: inherit;
   text-align: left;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
 }
 
-.plugin-menu-item-body:hover {
-  background: var(--sidebar-hover);
+.plugin-menu-item-body:focus-visible {
+  outline: none;
 }
 
-.plugin-menu-item-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  opacity: 0.85;
-}
-
-.plugin-menu-item-icon svg {
-  width: 14px;
-  height: 14px;
-  stroke: currentColor;
-  fill: none;
-}
-
-.plugin-menu-item-label {
+.plugin-menu-item-text {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.plugin-menu-item-label,
+.plugin-menu-item-desc {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.plugin-menu-item-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.plugin-menu-item-desc {
+  color: var(--fg-muted);
+  font-size: 11.5px;
 }
 
 .plugin-menu-pin {
@@ -98,16 +217,26 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
   border: none;
   background: transparent;
   color: var(--fg-muted);
   border-radius: 6px;
   cursor: pointer;
+  opacity: 0;
 }
 
-.plugin-menu-pin:hover {
+.plugin-menu-item:hover .plugin-menu-pin,
+.plugin-menu-item:focus-within .plugin-menu-pin,
+.plugin-menu-pin.is-pinned {
+  opacity: 1;
+}
+
+.plugin-menu-pin:hover,
+.plugin-menu-pin:focus-visible {
+  outline: none;
   background: var(--ctrl-hover-bg);
   color: var(--fg);
 }
@@ -117,28 +246,7 @@
 }
 
 .plugin-menu-empty {
-  padding: 10px;
+  padding: 12px 8px;
   color: var(--fg-muted);
   font-size: 12px;
-}
-
-.plugin-menu-section + .plugin-menu-section {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
-}
-
-.plugin-menu-heading {
-  margin: 0;
-  padding: 4px 8px 3px;
-  color: var(--fg-muted);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.plugin-menu-item-body:focus-visible {
-  outline: none;
-  background: var(--sidebar-hover);
 }

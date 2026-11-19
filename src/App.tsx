@@ -2464,6 +2464,7 @@ function Shell() {
       label: p.label,
       agent: cliOfPlugin(p.id) !== undefined,
       icon: pluginIconNode(p),
+      detail: p.description || (p.builtin ? t("features.builtin") : undefined),
       pinned: quickActionIds.includes(p.id),
       run: () => runPlugin(p),
       onTogglePin: () => toggleQuickAction(p.id),

@@ -14,6 +14,8 @@ interface PluginMenuEntry {
   /** Launches an agent CLI: listed under "Agents". */
   agent: boolean;
   icon: ReactNode;
+  /** The second line: the plugin's description, else "built-in". */
+  detail?: string;
   pinned: boolean;
   run: () => void;
   onTogglePin: () => void;
@@ -62,8 +64,11 @@ function PluginMenuRow({ item, onClose }: { item: PluginMenuEntry; onClose: () =
           onClose();
         }}
       >
-        <span className="plugin-menu-item-icon">{item.icon}</span>
-        <span className="plugin-menu-item-label">{item.label}</span>
+        <span className="plugin-menu-badge">{item.icon}</span>
+        <span className="plugin-menu-item-text">
+          <span className="plugin-menu-item-label">{item.label}</span>
+          {item.detail && <span className="plugin-menu-item-desc">{item.detail}</span>}
+        </span>
       </button>
       <button
         type="button"
@@ -138,6 +143,8 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
   }, [onClose]);
 
   const sections = sectionMenu(items, query, (i) => i.label, (i) => i.agent);
+  // The shortcut bar's features as tiles on top, only while not searching.
+  const pinned = query.trim() ? [] : items.filter((i) => i.pinned);
 
   const bodies = () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>(".plugin-menu-item-body") ?? []);
   const onSearchKeyDown = (e: React.KeyboardEvent) => {
@@ -163,7 +170,7 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
     else rows[e.key === "ArrowDown" ? Math.min(at + 1, rows.length - 1) : at - 1]?.focus();
   };
 
-  const menuWidth = 250;
+  const menuWidth = 320;
   // Opened from the narrow layout's bottom bar, the list has to grow upward.
   const above = anchorRect.top > window.innerHeight / 2;
   const style = {
@@ -173,15 +180,45 @@ export function PluginMenu({ items, anchorRect, onClose }: PluginMenuProps) {
 
   return createPortal(
     <div className="plugin-menu" style={style} ref={menuRef}>
-      <input
-        ref={inputRef}
-        className="plugin-menu-search"
-        placeholder={t("plugins.search")}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={onSearchKeyDown}
-      />
+      <label className="plugin-menu-search">
+        <span className="plugin-menu-search-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+        </span>
+        <input
+          ref={inputRef}
+          placeholder={t("plugins.search")}
+          aria-label={t("plugins.search")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onSearchKeyDown}
+        />
+      </label>
       <div className="plugin-menu-list" onKeyDown={onListKeyDown}>
+        {pinned.length > 0 && (
+          <section className="plugin-menu-section">
+            <h3 className="plugin-menu-heading">{t("plugins.sectionPinned")}</h3>
+            <div className="plugin-menu-pinned">
+              {pinned.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="plugin-menu-tile"
+                  title={item.label}
+                  onClick={() => {
+                    item.run();
+                    onClose();
+                  }}
+                >
+                  <span className="plugin-menu-badge">{item.icon}</span>
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
         {sections.length === 0 && <div className="plugin-menu-empty">{t("common.noResults")}</div>}
         {sections.map((section) => (
           <section key={section.id} className="plugin-menu-section">

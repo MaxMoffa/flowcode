@@ -390,6 +390,7 @@ export const en: Record<MessageKey, string> = {
   "plugins.search": "Search features…",
   "plugins.sectionAgents": "Agents",
   "plugins.sectionTools": "Tools",
+  "plugins.sectionPinned": "In the bar",
   "plugins.pin": "Add to the bar",
   "plugins.unpin": "Remove from the bar",
   "plugins.saveFailed": "Couldn't save the plugin: {error}",

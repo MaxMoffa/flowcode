@@ -390,6 +390,7 @@ export const it = {
   "plugins.search": "Cerca funzionalità…",
   "plugins.sectionAgents": "Agenti",
   "plugins.sectionTools": "Strumenti",
+  "plugins.sectionPinned": "Nella barra",
   "plugins.pin": "Aggiungi alla barra",
   "plugins.unpin": "Rimuovi dalla barra",
   "plugins.saveFailed": "Impossibile salvare il plugin: {error}",
