@@ -1,8 +1,6 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import "./terminal.css";
 import "./wide.css";
-import { AgentsScreen } from "./Agents";
-import { AgentInsight } from "./AgentInsight";
 import { useBackHandler, useEscape } from "./back";
 import { chatKey, ptyKey, remoteEntries, type RemoteEntry } from "../../shared/remoteEntries";
 import { nextDone } from "./doneTabs";
@@ -13,8 +11,7 @@ import { lastInWindow } from "./homeSessions";
 import { dropIndex, moveWithinWindow, windowRange } from "./tabDrag";
 import { ComputerSwitcher } from "./ComputerSwitcher";
 import { t } from "./i18n";
-import { AgentLogo, AgentsIcon, ChatIcon, CloseIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
-import { NewTerminalSheet } from "./NewTerminalSheet";
+import { AgentLogo, AgentsIcon, ChatIcon, FileIcon, FolderIcon, GridIcon, KebabIcon, PanelLeftIcon, PlusIcon, SlidersIcon, TerminalIcon } from "./icons";
 import { interrupt, send, sendChecked, showToast, useRemoteSelector, useSupports, type ChatInfo, type ConnStatus, type MirroredSettings, type Tab } from "./remote";
 import { TermActions, runAction } from "./TermActions";
 import { BusyArc, useOpenNew } from "./Terminals";
@@ -32,7 +29,8 @@ import { tabIndexFor, useWideShortcuts, type WideShortcut } from "./useWideShort
 import { useChatBrowser } from "./useChatBrowser";
 import { WideDiffView } from "./WideDiffView";
 import { LegacyFileView, WideFileView } from "./WideFileView";
-import { WideSidebar } from "./WideSidebar";
+import { WideSidebar, readSideTab, writeSideTab, type SideTab } from "./WideSidebar";
+import { useGitChangeCount } from "./useGitChangeCount";
 import { launchPath } from "./explorerPaths";
 import { folderName } from "./explorerRemote";
 import { WideMenu } from "./WideMenu";
@@ -87,14 +85,17 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const zoom = useUiZoom();
   const uiScale = useUiScale();
   const localTheme = phoneTheme.use();
-  const [agentsOpen, setAgentsOpen] = useState(docked);
   const [filesOpen, setFilesOpen] = useState(docked && big);
+  /** The sidebar tab picked for agent tabs (Cronologia / Esplora / Agente); the top-bar agent button selects "agent". */
+  const [sideTab, setSideTab] = useState<SideTab>(readSideTab);
+  const chooseSideTab = (v: SideTab) => {
+    setSideTab(v);
+    writeSideTab(v);
+  };
   /** The open non-terminal tabs, in opening order. */
   const [docs, setDocs] = useState<Doc[]>([]);
   /** The id of the shown doc; null = the terminal is shown. */
   const [doc, setDoc] = useState<string | null>(null);
-  const [sheet, setSheet] = useState(false);
-  const openSheet = () => setSheet(true);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
@@ -108,6 +109,8 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const canCloseChat = useSupports("chatCloseTab");
   const canRenameChat = useSupports("chatRename");
   const canBrowse = useSupports("preview");
+  const canFs = useSupports("fileExplorer");
+  const canGit = useSupports("git");
   const canChat = useSupports("chat");
   const canTabOps = useSupports("tabOps");
   const { opened: browserOpen, open: openBrowser, close: closeBrowser, show: showBrowserPage, pending: browserPending, dismissPending, page: browserPage, chatId: browserChatId, linksChatId } = useChatBrowser(doc === null ? activeChat : null);
@@ -149,34 +152,26 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     if (activeChat) setDoc(null);
   }, [activeChat]);
   const files = useSideWidth({ key: "wide.filesWidth", defaultWidth: 260, min: 200, max: 520, edge: "right" });
-  const agents = useSideWidth({ key: "wide.agentsWidth", defaultWidth: 290, min: 220, max: 520, edge: "left" });
   const browserSide = useSideWidth({ key: "wide.browserWidth", defaultWidth: 420, min: 300, max: 900, edge: "left" });
-  // Docking opens the panels, floating closes them. Where both would squeeze the terminal, only the agents open (the files toggle opens them).
+  // Docking opens the sidebar (when it leaves the terminal its minimum), floating closes it.
   useEffect(() => {
-    setAgentsOpen(docked);
-    setFilesOpen(docked && panelsFit(window.innerWidth, zoom, files.width ?? 260, agents.width ?? 290));
+    setFilesOpen(docked && panelsFit(window.innerWidth, zoom, files.width ?? 260, 0));
     // Only when the docked state flips, not on every resize or drag.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docked]);
-  // The browser card docks between the terminal and the agents. When the three cards would squeeze the terminal below its minimum, the files card gives way (the files toggle brings it back).
+  // The browser card docks right of the terminal. When both cards would squeeze the terminal below its minimum, the sidebar gives way (its toggle brings it back).
   const browserShown = browserOpen && canBrowse;
   useEffect(() => {
     if (!docked || !browserShown) return;
-    const right = (agentsOpen ? (agents.width ?? 290) : 0) + (browserSide.width ?? 420);
-    if (!panelsFit(window.innerWidth, zoom, files.width ?? 260, right)) setFilesOpen(false);
+    if (!panelsFit(window.innerWidth, zoom, files.width ?? 260, browserSide.width ?? 420)) setFilesOpen(false);
     // Only when the browser opens or the layout docks, not on every drag.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docked, browserShown]);
-  const closeDrawers = () => {
-    setAgentsOpen(false);
-    setFilesOpen(false);
-  };
-  useBackHandler(!docked && (agentsOpen || filesOpen), closeDrawers);
-  // Floating panels (not docked) close by dragging them back toward their edge.
+  const closeDrawers = () => setFilesOpen(false);
+  useBackHandler(!docked && filesOpen, closeDrawers);
+  // A floating sidebar (not docked) closes by dragging it back toward its edge.
   const filesPanel = useRef<HTMLElement>(null);
-  const agentsPanel = useRef<HTMLElement>(null);
   useSheetDrag(filesPanel, () => setFilesOpen(false), !docked && filesOpen, "left");
-  useSheetDrag(agentsPanel, () => setAgentsOpen(false), !docked && agentsOpen, "right");
   useBackHandler(doc !== null, () => setDoc(null));
 
   // A closed terminal takes its relative (legacy) files with it; absolute ones stay.
@@ -385,14 +380,13 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending]);
+  // The agent button opens the sidebar on the Agente tab; pressed again there, it closes the sidebar.
   const toggleAgents = () => {
-    if (!docked && !agentsOpen) setFilesOpen(false);
-    setAgentsOpen((v) => !v);
+    if (filesOpen && agentShown) return setFilesOpen(false);
+    chooseSideTab("agent");
+    setFilesOpen(true);
   };
-  const toggleFiles = () => {
-    if (!docked && !filesOpen) setAgentsOpen(false);
-    setFilesOpen((v) => !v);
-  };
+  const toggleFiles = () => setFilesOpen((v) => !v);
 
   // A narrow strip scrolls: keep the shown tab in view (within the strip only).
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -418,9 +412,10 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
   const menuEntry = tabMenu ? entries.find((x) => x.key === tabMenu.key) : undefined;
   /** The entry whose tab is open (none while a settings or file tab is). */
   const shownKey = doc !== null ? null : active ? ptyKey(active.ptyId) : activeChat ? chatKey(activeChat) : null;
-  /** The agent in front, for the right panel: its chat, or its terminal tab. */
-  const frontChat = doc === null && !active ? activeChat : null;
-  const front = !!frontChat || (doc === null && !!active?.cli);
+  /** The Agente tab exists for the shown agent only (as the sidebar's own switch). */
+  const canAgentTab = canFs && !!sideAgent;
+  const agentShown = canAgentTab && sideTab === "agent";
+  const gitChanges = useGitChangeCount(sideCwd, !filesOpen && canFs && canGit);
 
   // A tab whose agent stopped working while another was shown gets the "done" outline until it is opened.
   useEffect(() => {
@@ -468,6 +463,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
         toggleFiles();
         return true;
       case "toggleAgents":
+        if (!canAgentTab) return false;
         toggleAgents();
         return true;
       case "toggleBrowser":
@@ -499,13 +495,13 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
       }
     }
   };
-  useWideShortcuts(runShortcut, !sheet && renaming === null);
+  useWideShortcuts(runShortcut, renaming === null);
 
   return (
     <div className={"screen wide" + (docked ? " docked" : "") + (big ? "" : " narrow")} style={{ "--w-zoom": zoom } as CSSProperties}>
       <header className="w-top">
-        <button type="button" className="w-ib" aria-label={t("showFiles")} aria-pressed={filesOpen} onClick={toggleFiles}>
-          <FolderIcon />
+        <button type="button" className="w-ib" aria-label={t("showFiles")} title={!filesOpen && gitChanges > 0 ? t("toggleSidebarChanges", { count: gitChanges }) : undefined} aria-pressed={filesOpen} onClick={toggleFiles}>
+          <PanelLeftIcon filled={filesOpen} dot={!filesOpen && gitChanges > 0} />
         </button>
         <ComputerSwitcher pill hostName={hostName} onAdd={onAddComputer} open={computersOpen} onOpenChange={setComputersOpen} />
         <div className="w-tabs" role="tablist" ref={tabsRef}>
@@ -624,7 +620,7 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           </button>
         </div>
         <div className="w-group">
-          <button type="button" className="w-ib" aria-label={t("showAgents")} aria-pressed={agentsOpen} onClick={toggleAgents}>
+          <button type="button" className="w-ib" aria-label={t("showAgents")} aria-pressed={filesOpen && agentShown} disabled={!canAgentTab} onClick={toggleAgents}>
             <AgentsIcon />
           </button>
           {active &&
@@ -696,6 +692,11 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
           <WideSidebar
             cwd={sideCwd}
             agent={sideAgent}
+            tab={sideTab}
+            onTab={chooseSideTab}
+            open={filesOpen}
+            ptyId={active?.ptyId}
+            chatId={!active ? (activeChat ?? undefined) : undefined}
             activeFile={activeFile}
             onOpenFile={(p) => {
               openFile(p);
@@ -776,38 +777,9 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
             <div className={"w-resize left" + (browserSide.dragging ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label={t("resizePanel")} data-no-sheet-drag {...browserSide.handleProps} />
           </aside>
         )}
-        {agentsOpen && (
-          <aside ref={agentsPanel} className="w-side w-right" style={agents.width !== null ? { width: agents.width } : undefined}>
-            <div className="w-ph">
-              <span className="w-ph-title">{front ? t("agentPanel") : t("activeAgents")}</span>
-              <button type="button" className="w-ib sm" aria-label={t("newTerminal")} onClick={openSheet}>
-                <PlusIcon />
-              </button>
-              <button type="button" className="w-ib sm" aria-label={t("closePanel")} onClick={() => setAgentsOpen(false)}>
-                <CloseIcon />
-              </button>
-            </div>
-            <div className={"w-scroll" + (front ? " w-scroll-insight" : "")}>
-              {front ? (
-                <AgentInsight ptyId={frontChat ? undefined : active?.ptyId} chatId={frontChat ?? undefined} open={agentsOpen} onOpenChat={onOpenChat} />
-              ) : (
-                <AgentsScreen
-                  tabs={tabs}
-                  activePty={doc === null ? activePty : null}
-                  activeChat={doc === null ? activeChat : null}
-                  onOpen={(id) => {
-                    select(id);
-                    if (!docked) setAgentsOpen(false);
-                  }}
-                />
-              )}
-            </div>
-            <div className={"w-resize left" + (agents.dragging ? " is-dragging" : "")} role="separator" aria-orientation="vertical" aria-label={t("resizePanel")} data-no-sheet-drag {...agents.handleProps} />
-          </aside>
-        )}
       </div>
       {!docked && browserShown && <Browser ptyId={active?.ptyId ?? null} chatId={browserChatId} linksChatId={linksChatId} initialPage={browserPage} onClose={closeBrowser} />}
-      {!docked && (agentsOpen || filesOpen) && <div className="w-scrim" onClick={closeDrawers} />}
+      {!docked && filesOpen &&<div className="w-scrim" onClick={closeDrawers} />}
       {active && <TermActions tab={active} actions={actions} open={actionsOpen} onClose={closeActions} />}
       {tabMenu && (
         <>
@@ -882,7 +854,6 @@ export function WideShell({ hostName, tabs, settings, status, activePty, onSelec
         </>
       )}
       <WideChangelog open={changelogOpen} onClose={() => setChangelogOpen(false)} />
-      <NewTerminalSheet open={sheet} folders={folders} onClose={() => setSheet(false)} onCreate={onCreate} />
     </div>
   );
 }

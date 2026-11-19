@@ -171,7 +171,7 @@ export function WideTree({ root, activeFile, onOpenFile, onOpenTerminal }: Props
               <button
                 type="button"
                 className={"wt-row" + (e.dir ? " dir" : "") + (!e.dir && path === activeFile ? " on" : "")}
-                style={{ paddingLeft: 6 + depth * 14 }}
+                style={{ paddingLeft: 8 + depth * 14 }}
                 onClick={() => (e.dir ? toggle(path) : onOpenFile(path))}
                 {...pressProps(path, e.dir)}
               >

@@ -8,7 +8,8 @@ const ZOOM: Record<UiScale, number> = { compact: 1, normal: 1.15, large: 1.3 };
 
 const read = (): UiScale => {
   const v = safeStorage.get(KEY);
-  return v === "compact" || v === "large" ? v : "normal";
+  // Compact (1:1) is the default: the tablet then has the desktop's exact px sizes.
+  return v === "normal" || v === "large" ? v : "compact";
 };
 
 /** Phone-local, not mirrored to the desktop. */

@@ -282,3 +282,90 @@
   padding-left: 0;
   padding-right: 0;
 }
+
+/* ===== Desktop parity (agent-insight.css) inside the wide sidebar's Agent tab: same 12.5px base, paddings and segmented switch. ===== */
+.wide .ai-top {
+  padding: 10px 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.wide .ai-chip {
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+.wide .ai-hero {
+  gap: 8px;
+}
+
+.wide .ai-big {
+  font-size: 26px;
+}
+
+.wide .ai-detail {
+  font-size: inherit;
+}
+
+.wide .ai-btn {
+  min-height: 0;
+  padding: 4px 10px;
+  border-color: var(--border);
+  border-radius: var(--radius-ctl);
+  font: inherit;
+}
+
+.wide .ai-btn:active {
+  background: var(--w-hover);
+}
+
+.wide .ai-meter {
+  background: var(--w-hover);
+}
+
+/* The desktop's .segmented-switch. */
+.wide .ai .seg {
+  gap: 2px;
+  margin: 0 0 8px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--w-hover);
+  overflow: hidden;
+}
+
+.wide .ai .seg button {
+  min-height: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.wide .ai .seg button.on {
+  background: var(--w-selected);
+  color: var(--w-sel-fg);
+}
+
+.wide .ai-pane {
+  padding: 10px;
+  border-top: 0;
+}
+
+.wide .ai-row {
+  padding: 4px 2px;
+}
+
+.wide .ai-tip {
+  padding: 6px 8px;
+  border-radius: var(--radius-ctl);
+  background: var(--w-selected);
+  font-size: 11.5px;
+}
+
+.wide .ai-note {
+  font-size: 11px;
+}
+
+.wide .ai-section {
+  margin-bottom: 14px;
+}

@@ -42,6 +42,22 @@
   color: color-mix(in srgb, var(--fg) 85%, transparent);
 }
 
+/* Git changes while the sidebar is hidden (the desktop's .sidebar-toggle-dot). */
+.w-ib {
+  position: relative;
+}
+
+.w-ib-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
+}
+
 .w-ib.sm {
   width: 30px;
   height: 30px;
@@ -638,7 +654,7 @@
 
 .w-scrim {
   position: absolute;
-  inset: calc(52px * var(--w-zoom, 1)) 0 0 0;
+  inset: calc(44px * var(--w-zoom, 1)) 0 0 0;
   background: rgba(10, 7, 5, 0.45);
   z-index: 29;
 }
@@ -740,19 +756,22 @@
 }
 
 /* The agents card: sections and rows of the desktop's agents sidebar. */
-.w-right .gh {
+.w-right .gh,
+.ws-agent .gh {
   padding: 8px 6px 2px;
   font-size: 11px;
   letter-spacing: 0.06em;
 }
 
-.w-right .usage-row {
+.w-right .usage-row,
+.ws-agent .usage-row {
   margin: 0 -6px;
   padding: 0 6px;
   scroll-padding-inline: 6px;
 }
 
-.w-right .card {
+.w-right .card,
+.ws-agent .card {
   border-radius: 10px;
   box-shadow: none;
   -webkit-backdrop-filter: none;
@@ -1127,4 +1146,325 @@
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
+}
+
+/* ===== Desktop parity: the same px values as the desktop app (App.css, tabstrip.css, themes.css). Everything is scoped under .wide so the phone layout is untouched; the chrome is zoomed by --w-zoom ("compact" = 1 is pixel-identical to the desktop). ===== */
+.wide {
+  --radius-ctl: 6px;
+  --w-ctrl-fg: color-mix(in srgb, var(--fg) 85%, transparent);
+  --w-ctrl-hover: color-mix(in srgb, var(--fg) 10%, transparent);
+  --w-hover: color-mix(in srgb, var(--fg) 7%, transparent);
+  --w-sel-fg: var(--fg);
+}
+
+/* Header bar: .app-headerbar 44px, gap 6, padding 0 8. */
+.wide .w-top {
+  height: 44px;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+/* Header icon buttons: .icon-button 28px, 16px icon, radius-ctl, no fill until hover. */
+.wide .w-ib {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-ctl);
+  color: var(--w-ctrl-fg);
+  background: transparent;
+}
+
+.wide .w-ib svg {
+  width: 16px;
+  height: 16px;
+}
+
+.wide .w-ib:active,
+.wide .w-ib:hover:not(:disabled) {
+  background: var(--w-ctrl-hover);
+}
+
+.wide .w-ib[aria-pressed="true"],
+.wide .w-ib[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--fg);
+}
+
+.wide .w-ib-dot {
+  top: 5px;
+  right: 5px;
+}
+
+/* Panel header icon buttons: .file-tree-menu-btn 22px with 13px icons; a transparent halo keeps a 30px touch target. */
+.wide .w-ib.sm {
+  width: 22px;
+  height: 22px;
+}
+
+.wide .w-ib.sm svg {
+  width: 13px;
+  height: 13px;
+}
+
+.wide .w-ib.sm::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
+/* Quick actions: gap 2, margin-left 4, padding-left 6 + divider. */
+.wide .w-group {
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 6px;
+}
+
+/* Tabs: .tab-strip gap 2 / padding 0 4; .term-tab 160x30, gap 7, padding 0 10, radius 10, 12.5px mono. */
+.wide .w-tabs {
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.wide .w-tab {
+  box-sizing: border-box;
+  width: 160px;
+  height: 30px;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--muted);
+  font: 500 12.5px/1 var(--mono);
+}
+
+.wide .w-tab.on {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--w-sel-fg);
+  font-weight: 700;
+}
+
+.wide .w-tab.attn-wait {
+  border-color: color-mix(in srgb, var(--wait) 65%, transparent);
+}
+
+.wide .w-tab.attn-busy {
+  border-color: color-mix(in srgb, var(--busy) 25%, transparent);
+}
+
+.wide .w-tab.attn-done {
+  border-color: color-mix(in srgb, var(--ansi-bright-green) 65%, transparent);
+}
+
+.wide .w-tab-ico {
+  width: 13px;
+  height: 13px;
+}
+
+.wide .w-tab-ico svg:not(.tr-sweep) {
+  width: 13px;
+  height: 13px;
+}
+
+.wide .w-tab .dot {
+  width: 6px;
+  height: 6px;
+}
+
+.wide .w-tab-bubble {
+  right: -3px;
+  bottom: -3px;
+  width: 10px;
+  height: 10px;
+}
+
+.wide .w-tab-x {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  margin-left: 2px;
+  border-radius: 4px;
+  opacity: 0.55;
+  font-size: 13px;
+}
+
+.wide .w-tab-x::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+.wide .w-tab-x:active {
+  opacity: 1;
+  background: var(--w-ctrl-hover);
+}
+
+.wide .w-tab-input {
+  height: 22px;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.wide .w-tab-sep {
+  height: 16px;
+  margin: 0 2px;
+}
+
+/* Computer chip (the remote client's own control) sits at the same height as the 28px icon buttons. */
+.wide .cs-pill {
+  height: 28px;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: var(--radius-ctl);
+  border-color: var(--border);
+  font-size: 12.5px;
+}
+
+/* Cards: the desktop's 1px --card-border and radius 10 already match; the side panels use the desktop's 12.5px base font. */
+.wide .w-side {
+  font-size: 12.5px;
+}
+
+.wide .w-ph {
+  height: 38px;
+  gap: 2px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  font-size: 12.5px;
+}
+
+/* Explorer header: .file-tree-header-label pill. */
+.wide .wt-head .wf-path {
+  flex: 1 1 auto;
+  margin: 0 2px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  font: 600 12px var(--font);
+  letter-spacing: 0.01em;
+  direction: ltr;
+}
+
+/* Context menus (.w-menu) in the desktop's menu metrics. */
+.wide .w-menu {
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.wide .w-menu button {
+  height: 28px;
+  padding: 0 8px;
+  gap: 8px;
+  border-radius: 5px;
+  font-size: 12.5px;
+}
+
+.wide .w-menu button:active {
+  background: var(--w-hover);
+}
+
+.wide .w-menu svg {
+  width: 14px;
+  height: 14px;
+}
+
+.wide .w-menu-zoom {
+  height: 28px;
+  padding: 0 4px 0 8px;
+  font-size: 12.5px;
+}
+
+.wide .w-menu .w-menu-zoom button {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-ctl);
+  font-size: 13px;
+}
+
+.wide .w-menu-nocheck {
+  width: 14px;
+  height: 14px;
+}
+
+/* Touch key bar: one grid. Every key is the same height with the same radius-ctl / 1px border / ctrl fill as the desktop's secondary buttons, a common 4px gap and separators centred on the row. Hit areas are enlarged invisibly. */
+.wide .tm-line {
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.wide .tm-row {
+  box-sizing: border-box;
+  height: 38px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.wide .tm-k,
+.wide .tm-mod.on,
+.wide .tm-mod.locked {
+  box-sizing: border-box;
+  flex: none;
+  height: 26px;
+  min-width: 36px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg);
+  font: 12px/1 var(--mono);
+}
+
+.wide .tm-k::before {
+  content: "";
+  position: absolute;
+  inset: -6px -2px;
+}
+
+.wide .tm-k:active {
+  background: var(--w-ctrl-hover);
+}
+
+.wide .tm-mod.on,
+.wide .tm-mod.locked {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.wide .tm-k.tm-int {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.wide .tm-lock-dot {
+  top: 2px;
+  right: 2px;
+}
+
+.wide .tm-sep {
+  align-self: center;
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+}
+
+/* Waiting bar (Sì / No): desktop secondary-button metrics. */
+.wide .term-wait {
+  padding: 6px 8px 6px 12px;
+}
+
+.wide .term-wait span {
+  font-size: 12.5px;
+}
+
+.wide .term-wait button {
+  min-width: 36px;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12.5px;
 }

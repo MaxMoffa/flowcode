@@ -215,3 +215,77 @@
 .whh-new:disabled {
   opacity: 0.4;
 }
+
+/* ===== Desktop parity (agent-history.css). ===== */
+.wide .whh-search {
+  height: 26px;
+  border-radius: var(--radius-ctl);
+  background: var(--surface);
+}
+
+.wide .whh-search input {
+  font-size: 12px;
+}
+
+.wide .whh-refresh {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-ctl);
+}
+
+.wide .whh-refresh::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+}
+
+.wide .whh-refresh svg {
+  width: 14px;
+  height: 14px;
+}
+
+.wide .whh-empty {
+  font-size: 12px;
+}
+
+.wide .whh-row {
+  min-height: 38px;
+  border-radius: var(--radius-ctl);
+  font-size: inherit;
+}
+
+.wide .whh-row:hover,
+.wide .whh-row:active {
+  background: var(--w-hover);
+}
+
+.wide .whh-row.is-current {
+  background: var(--w-selected);
+  color: var(--w-sel-fg);
+}
+
+.wide .whh-title {
+  font-size: inherit;
+}
+
+/* The bottom button: .agent-history-split, one 28px bordered control inside the 8px footer padding. */
+.wide .whh-footer {
+  box-sizing: border-box;
+  padding: 8px;
+}
+
+.wide .whh-new {
+  box-sizing: border-box;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.wide .whh-new:hover,
+.wide .whh-new:active {
+  background: var(--w-hover);
+}

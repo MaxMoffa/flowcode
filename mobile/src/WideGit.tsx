@@ -13,6 +13,15 @@ interface Props {
   onOpenDiff: (root: string, path: string, staged: boolean, status: string) => void;
   /** The number of changed files, for the tab's badge. */
   onCount?: (n: number) => void;
+  /** The dock bar's summary; null until the status is known (or for another folder). */
+  onStatus?: (s: GitSummary | null) => void;
+}
+
+export interface GitSummary {
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  count: number;
 }
 
 const baseName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
@@ -23,7 +32,7 @@ const statusClass = (s: string, conflict: boolean) => "wg-status wg-status-" + (
 type Group = { key: "conflicts" | "staged" | "changes" | "untracked"; label: string; rows: GitChange[]; staged: boolean };
 
 /** The Git tab of the wide sidebar: the desktop's Git panel (branch, changes, stage / discard, commit). */
-export function WideGit({ cwd, visible, onOpenDiff, onCount }: Props) {
+export function WideGit({ cwd, visible, onOpenDiff, onCount, onStatus }: Props) {
   const [root, setRoot] = useState<string | null | undefined>(undefined);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +94,13 @@ export function WideGit({ cwd, visible, onOpenDiff, onCount }: Props) {
   useEffect(() => {
     onCount?.(count);
   }, [count, onCount]);
+  const branch = status ? status.branch : null;
+  const ahead = status?.ahead ?? 0;
+  const behind = status?.behind ?? 0;
+  const known = !!status;
+  useEffect(() => {
+    onStatus?.(known ? { branch, ahead, behind, count } : null);
+  }, [known, branch, ahead, behind, count, onStatus]);
 
   const run = async (op: () => Promise<unknown>) => {
     if (busy) return;
@@ -176,6 +192,12 @@ export function WideGit({ cwd, visible, onOpenDiff, onCount }: Props) {
           })}
         </div>
       )}
+      <div className="wg-commit">
+        <textarea value={message} rows={2} placeholder={t("wsCommitPlaceholder")} aria-label={t("wsCommitPlaceholder")} disabled={busy} onChange={(e) => setMessage(e.target.value)} />
+        <button type="button" className="wg-commit-btn" disabled={busy || !message.trim() || !status || status.staged.length === 0} onClick={() => void commit()}>
+          {busy ? t("wsCommitting") : t("wsCommit")}
+        </button>
+      </div>
       <div className="wf-list wg-list">
         {error && <div className="wt-note err">{error}</div>}
         {status && groups.length === 0 && <div className="wt-note">{t("wsNoChanges")}</div>}
@@ -226,12 +248,6 @@ export function WideGit({ cwd, visible, onOpenDiff, onCount }: Props) {
             })}
           </section>
         ))}
-      </div>
-      <div className="wg-commit">
-        <textarea value={message} rows={2} placeholder={t("wsCommitPlaceholder")} aria-label={t("wsCommitPlaceholder")} disabled={busy} onChange={(e) => setMessage(e.target.value)} />
-        <button type="button" className="wg-commit-btn" disabled={busy || !message.trim() || !status || status.staged.length === 0} onClick={() => void commit()}>
-          {busy ? t("wsCommitting") : t("wsCommit")}
-        </button>
       </div>
     </>
   );

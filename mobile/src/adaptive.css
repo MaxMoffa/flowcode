@@ -88,10 +88,10 @@
 
 /* ---- drawer ------------------------------------------------------------------ */
 
-/* Full height under the wide header (52px, zoomed with it), clear of the system bars. */
+/* Full height under the wide header (44px, zoomed with it), clear of the system bars. */
 .as-layer.as-drawer .as-panel {
   position: absolute;
-  top: 52px;
+  top: 44px;
   bottom: 0;
   width: 360px;
   max-width: calc(100% - 24px);

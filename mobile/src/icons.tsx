@@ -21,6 +21,18 @@ export const AgentsIcon = () => (
   </Svg>
 );
 
+/** The desktop's sidebar toggle: filled left pane while the sidebar shows, a dot while it is hidden over Git changes. */
+export const PanelLeftIcon = ({ filled, dot }: { filled?: boolean; dot?: boolean }) => (
+  <>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <path d="M9.5 4.5v15" />
+      {filled && <path d="M6 4.5h3.5v15H6a2.5 2.5 0 0 1-2.5-2.5V7A2.5 2.5 0 0 1 6 4.5z" fill="currentColor" stroke="none" opacity=".45" />}
+    </svg>
+    {dot && <span className="w-ib-dot" aria-hidden="true" />}
+  </>
+);
+
 export const TerminalIcon = () => (
   <Svg>
     <rect x="3" y="5" width="18" height="14" rx="3" />
