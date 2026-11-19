@@ -235,6 +235,47 @@ pub(crate) fn run_wsl(mut cmd: std::process::Command) -> Option<std::process::Ou
     flowcode_shared::wait_with_timeout(cmd.spawn().ok()?, WSL_TIMEOUT).ok()
 }
 
+/// Only `[0-9a-f-]`, non-empty: the shape of the uuids we tag processes with.
+/// Checked before a value is handed to a shell in the distro.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+fn is_uuid_like(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || b == b'-')
+}
+
+/// Inside the distro: SIGKILL every process whose environment holds the line
+/// `$1=$2`, except the scanner itself. Killing `wsl.exe` leaves the Linux
+/// side alive (it isn't in the Windows process tree), so tabs and chats tag
+/// their processes with an env var (carried over by WSLENV) and are swept by
+/// it. Arguments are positional, never interpolated into the script.
+#[cfg(target_os = "windows")]
+const WSL_KILL_TAGGED: &str = r#"for d in /proc/[0-9]*; do
+  p=${d#/proc/}
+  [ "$p" = "$$" ] && continue
+  [ -r "$d/environ" ] || continue
+  tr '\0' '\n' < "$d/environ" 2>/dev/null | grep -qxF "$1=$2" && kill -9 "$p" 2>/dev/null
+done; exit 0"#;
+
+/// Kills the Linux processes of `distro` (`None` = default) tagged `var=value`
+/// in their environment. Blocking (bounded by `WSL_TIMEOUT`): call it off the
+/// UI thread. No-op off Windows, and for a malformed `value`/`var`.
+pub(crate) fn kill_wsl_tagged(distro: Option<&str>, var: &str, value: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        let var_ok = !var.is_empty() && var.bytes().all(|b| b.is_ascii_uppercase() || b == b'_');
+        if !var_ok || !is_uuid_like(value) {
+            return;
+        }
+        let mut cmd = std::process::Command::new("wsl.exe");
+        if let Some(distro) = distro {
+            cmd.args(["-d", distro]);
+        }
+        cmd.args(["--exec", "sh", "-c", WSL_KILL_TAGGED, "sh", var, value]);
+        let _ = run_wsl(cmd);
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = (distro, var, value);
+}
+
 /// The machine's default WSL distro name (e.g. "Ubuntu"), for translating a
 /// POSIX path reported by a bare `wsl` session (no explicit `-d`) into a
 /// browsable `\\wsl.localhost\<distro>\...` UNC path - see wslPath.ts.
@@ -369,6 +410,15 @@ fn is_flowcode_command(line: &str) -> bool {
 mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn uuid_like_accepts_only_hex_and_dashes() {
+        assert!(is_uuid_like("0f3a9c1e-1b2d-4e5f-8a7b-123456789abc"));
+        assert!(!is_uuid_like(""));
+        assert!(!is_uuid_like("abc; rm -rf /"));
+        assert!(!is_uuid_like("ABC"));
+        assert!(!is_uuid_like("a b"));
+    }
 
     #[test]
     fn executables_are_refused_by_extension_and_trimmed_name() {

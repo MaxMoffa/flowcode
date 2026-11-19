@@ -31,6 +31,9 @@ pub(super) fn accumulate_answer(answer: &mut String, body: &ChatBody) {
     }
 }
 
+/// Env var tagging the processes of a WSL chat's agent (carried in by WSLENV).
+pub(super) const WSL_TAG_ENV: &str = "FLOWCODE_CHAT_TAG";
+
 /// Everything about one running agent; shared by the commands and the
 /// session's reader thread.
 pub(super) struct Chat {
@@ -62,6 +65,9 @@ pub(super) struct Chat {
     pub(super) job: Mutex<Option<crate::process_job::TreeJob>>,
     pub(super) wsl_group: AtomicU32,
     pub(super) wsl_group_seen: AtomicBool,
+    /// Value of `WSL_TAG_ENV` on every process of a WSL chat's agent, to sweep
+    /// what the group kill misses.
+    pub(super) wsl_tag: Option<String>,
     pub(super) writer: Mutex<ChildStdin>,
     /// Replies the reader thread owes the agent, written by the chat's own
     /// writer thread (`write_replies`): the reader must never block on the
@@ -695,6 +701,9 @@ impl Chat {
     /// waiting on it and tell the window.
     pub(super) fn finish(&self) {
         let code = self.reap();
+        // Linux processes in the distro survive the adapter's exit (and the
+        // Windows job doesn't reach them): sweep them now it is gone.
+        self.kill_wsl_group();
         // The stderr thread usually ends with the process; don't wait on a
         // grandchild that kept the pipe open.
         for _ in 0..10 {
@@ -829,6 +838,12 @@ impl Chat {
                 cmd.args(["--exec", "kill", "-KILL", "--", &format!("-{group}")]);
                 let _ = crate::system::run_wsl(cmd);
             }
+            // Also by tag: the group line may never have been read (killed
+            // early, stderr noisy), and children that left the group (setsid)
+            // escape the group kill.
+            if let Some(tag) = &self.wsl_tag {
+                crate::system::kill_wsl_tagged(self.wsl_distro.as_deref(), WSL_TAG_ENV, tag);
+            }
         }
     }
 }
@@ -958,13 +973,26 @@ pub(super) fn read_line_capped(reader: &mut impl BufRead, buf: &mut Vec<u8>, max
 
 #[cfg(target_os = "windows")]
 pub(crate) fn kill_tree(pid: u32) {
-    let _ = Command::new("taskkill")
+    let Ok(mut taskkill) = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status();
+        .spawn()
+    else {
+        return;
+    };
+    // Bounded: it runs under the chat's `child` lock and on teardown threads.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while matches!(taskkill.try_wait(), Ok(None)) {
+        if std::time::Instant::now() >= deadline {
+            let _ = taskkill.kill();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let _ = taskkill.wait();
 }
 
 /// The agent is spawned as the leader of its own process group (see

@@ -481,7 +481,7 @@ fn version_at_least(output: &str, min: &str) -> bool {
 
 /// Starts the agent's ACP server in `cwd` with its pipes open - inside the
 /// distro of `wsl` when given, else as a Windows process.
-pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, wsl: Option<&WslTarget>) -> Result<(Child, String), String> {
+pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Option<&str>, wsl: Option<&WslTarget>, wsl_tag: Option<&str>) -> Result<(Child, String), String> {
     let (program, args) = launch_command(agent).ok_or_else(|| format!("unknown agent: {agent}"))?;
     #[cfg(target_os = "windows")]
     if let Some(wsl) = wsl {
@@ -495,6 +495,16 @@ pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Opti
         // `-l` but not `-i`: a login shell finds node (nvm...), while an interactive one lets .bashrc print into the ACP stream.
         let script = format!("printf 'FLOWCODE_PROCESS_GROUP=%s\\n' \"$$\" >&2; {script}");
         cmd.arg("--cd").arg(&wsl.cwd).arg("--exec").args(["setsid", "bash", "-lc"]).arg(script);
+        // Tags every process of the agent (WSLENV carries it in) so they can be
+        // swept by it when the group kill can't reach them (see `kill_wsl_group`).
+        if let Some(tag) = wsl_tag {
+            cmd.env(WSL_TAG_ENV, tag);
+            let wslenv = std::env::var("WSLENV").unwrap_or_default();
+            if !wslenv.split(':').any(|v| v.split('/').next() == Some(WSL_TAG_ENV)) {
+                let joined = if wslenv.is_empty() { format!("{WSL_TAG_ENV}/u") } else { format!("{wslenv}:{WSL_TAG_ENV}/u") };
+                cmd.env("WSLENV", joined);
+            }
+        }
         // No profile env: it holds Windows paths, meaningless in the distro (as for the terminals).
         cmd.creation_flags(CREATE_NO_WINDOW).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         let child = cmd.spawn().map_err(|e| format!("could not start `{line}`: {e}"))?;
@@ -502,7 +512,7 @@ pub(super) fn spawn_agent(app: &AppHandle, agent: &str, cwd: &str, profile: Opti
         return Ok((child, line));
     }
     #[cfg(not(target_os = "windows"))]
-    let _ = wsl;
+    let _ = (wsl, wsl_tag);
     // A Flowcode-managed install runs straight under node (no npx, no download);
     // until the first one lands, npx fetches the adapter as before.
     let installed = crate::acp_adapters::installed_entry(app, agent);
@@ -858,7 +868,8 @@ pub(super) fn start_once(
     mut gate: Option<StartGate>,
 ) -> Result<(Arc<Chat>, ChatStarted), String> {
     let wsl = wsl_target(&cwd, shell.as_deref());
-    let (mut child, line) = spawn_agent(&app, &agent, &cwd, profile.as_deref(), wsl.as_ref())?;
+    let wsl_tag = wsl.is_some().then(|| uuid::Uuid::new_v4().to_string());
+    let (mut child, line) = spawn_agent(&app, &agent, &cwd, profile.as_deref(), wsl.as_ref(), wsl_tag.as_deref())?;
     let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
         kill_tree(child.id());
@@ -890,6 +901,7 @@ pub(super) fn start_once(
         job: Mutex::new(job),
         wsl_group: AtomicU32::new(0),
         wsl_group_seen: AtomicBool::new(false),
+        wsl_tag,
         writer: Mutex::new(stdin),
         replies,
         next_id: AtomicU64::new(1),

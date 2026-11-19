@@ -53,6 +53,15 @@ struct PtySession {
     /// Current size, for remote clients (see remote.rs).
     cols: u16,
     rows: u16,
+    /// A `wsl` tab, with its distro (`None` = the default one) and the value
+    /// of `PTY_ID_ENV` its processes carry: killing `wsl.exe` doesn't end
+    /// what runs inside the distro, so `reap` sweeps it by that tag.
+    wsl: Option<WslTag>,
+}
+
+struct WslTag {
+    distro: Option<String>,
+    tag: String,
 }
 
 /// What the writer thread of a session does, in order.
@@ -234,9 +243,20 @@ pub fn profile_of(state: &PtyState, pty_id: &str) -> Option<String> {
 impl PtyState {
     pub(crate) fn shutdown(&self) {
         let sessions = std::mem::take(&mut *lock(&self.0));
+        // WSL sweeps in parallel: each is a `wsl.exe` round trip, and the
+        // app is quitting.
+        let mut sweeps = Vec::new();
         for mut session in sessions.into_values() {
+            if let Some(w) = session.wsl.take() {
+                sweeps.push(std::thread::spawn(move || {
+                    crate::system::kill_wsl_tagged(w.distro.as_deref(), PTY_ID_ENV, &w.tag)
+                }));
+            }
             if let Some(pid) = session.pid { crate::chat::kill_tree(pid); }
             let _ = session.killer.kill();
+        }
+        for sweep in sweeps {
+            let _ = sweep.join();
         }
     }
     /// Queues a write to a session's pty - what `pty_write` and remote
@@ -553,6 +573,7 @@ pub fn pty_spawn(
             profile: profile.clone(),
             cols,
             rows,
+            wsl: (shell_stem == "wsl").then(|| WslTag { distro: wsl_distro.clone(), tag: id.clone() }),
         },
     );
 
@@ -690,6 +711,10 @@ fn reap(sessions: Vec<PtySession>) {
             // server, a hidden `codex` probe) would otherwise outlive the
             // tab, held in Flowcode's job until the app quits. The shell is
             // still alive here, so its pid can't have been reused.
+            // WSL first: the Linux processes aren't in the Windows tree.
+            if let Some(w) = &session.wsl {
+                crate::system::kill_wsl_tagged(w.distro.as_deref(), PTY_ID_ENV, &w.tag);
+            }
             if let Some(pid) = session.pid { crate::chat::kill_tree(pid); }
             let _ = session.killer.kill();
             // Dropping closes the pseudo console, which can take a while.
