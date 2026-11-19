@@ -130,7 +130,7 @@ internal object WidgetRender {
         val gen = System.currentTimeMillis()
         val uris = ArrayList<Uri>(FRAMES)
         for (i in 0 until FRAMES) {
-            val low = WidgetArt.render(kind.scene, w, h, i / FPS, hour, data, null)
+            val low = WidgetArt.render(kind.scene, w, h, i / FPS, hour, data)
             // Nearest neighbour keeps the pixels square.
             val big = Bitmap.createScaledBitmap(low, w * k, h * k, false)
             val name = "${gen}_$i.png"
