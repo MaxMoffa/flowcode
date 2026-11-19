@@ -441,6 +441,14 @@
   gap: 14px;
 }
 
+/* Long conversations: rows far from the end skip layout and paint while off screen (`auto` remembers the real
+   height once seen). The last 10 rows, the live/pending rows and the composer are excluded, so the bottom the
+   follow logic pins to is always fully laid out. */
+.chat-content > :is(.chat-md, .chat-tools, .chat-user:not(.is-pending)):not(:nth-last-child(-n + 10)) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
 /* The work-in-progress line closes the conversation like a last message. */
 .chat-working {
   min-width: 0;

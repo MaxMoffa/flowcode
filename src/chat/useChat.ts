@@ -14,6 +14,8 @@ import { applyEvent, applyLocalError, delegatesOf, forceCancels, initialChat, is
 import { discardAttachment, releasePreview } from "./attachmentRelease";
 import type { ChatAttachment, ChatEvent, ChatModels, ChatModes, ChatStartResult, ChatStatus, ChatThought } from "./chatTypes";
 import { isProviderAuthError } from "../../shared/providerAuth";
+import { forgetGoalChat } from "./GoalChip";
+import { forgetCacheWarning } from "./useCacheWarning";
 import { isNetworkError } from "../../shared/network";
 import { checkOnline, isOnline, noteNetworkOk, noteNetworkTrouble, useOnline } from "../net/online";
 import { markProviderAuthRequired, PROVIDER_AUTHENTICATED, providerAuthRequired, useProviderAuthRequired, type ProviderAuthenticated } from "../profiles/providerAuth";
@@ -299,7 +301,11 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
       startRef.current = null;
       const closing = (async () => {
         await pending?.catch(() => {});
-        if (startedId) await invoke("chat_close", { chatId: startedId }).catch(() => {});
+        if (startedId) {
+          await invoke("chat_close", { chatId: startedId }).catch(() => {});
+          forgetGoalChat(startedId);
+          forgetCacheWarning(startedId);
+        }
       })();
       teardownRef.current = closing;
       chatIdRef.current = null;
@@ -611,6 +617,8 @@ export function useChat({ agent, cwd, profileId, resumeSessionId, strictResume, 
     closedRef.current = true;
     chatIdRef.current = null;
     await invoke("chat_close", { chatId: id }).catch(() => {});
+    forgetGoalChat(id);
+    forgetCacheWarning(id);
   }, []);
 
   return { model, phase, error, modes, models, thought, chatId, wslDistro, authRequired, offline: !online, networkFailed, profileId: profileId ?? null, queued, canAttach: true, resumed: resumedRef.current, loaded, clearCount, sessionId: sessionIdRef.current, lastActivityAt: activityRef.current.at, usageTokens: activityRef.current.tokens, send, cancel, answerPermission, answerAsk, answerDelegatePermission, answerDelegateAsk, attached: !!attachChatId, setMode, setModel, setThought, goalAction, scheduleResume, updateResume, unqueue, force, restart, clear, close };

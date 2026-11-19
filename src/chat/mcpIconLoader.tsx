@@ -11,6 +11,7 @@ const cached = (key: string, load: () => Promise<string | null>): Promise<string
   if (!hit) {
     hit = load().catch(() => null);
     icons.set(key, hit);
+    if (icons.size > 500) icons.delete(icons.keys().next().value as string);
   }
   return hit;
 };

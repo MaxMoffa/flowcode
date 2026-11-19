@@ -11,6 +11,12 @@ interface CacheInfo {
 
 /** Dismissals by session (or chat, before it has one), valued with the "epoch" they silenced; survives remounts. */
 const dismissals = new Map<string, number>();
+const MAX_DISMISSALS = 200;
+
+/** Drops the dismissal kept under a closed chat's id (session-keyed ones are capped instead). */
+export function forgetCacheWarning(chatId: string) {
+  dismissals.delete(chatId);
+}
 
 /**
  * Whether to show the "prompt cache likely expired" card: one timeout to the exact moment, re-planned when the
@@ -81,7 +87,9 @@ export function useCacheWarning(opts: {
 
   const dismiss = useCallback(() => {
     if (epoch === null) return;
+    dismissals.delete(key);
     dismissals.set(key, epoch);
+    if (dismissals.size > MAX_DISMISSALS) dismissals.delete(dismissals.keys().next().value as string);
     bump((n) => n + 1);
   }, [key, epoch]);
 

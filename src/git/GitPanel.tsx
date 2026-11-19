@@ -213,9 +213,12 @@ function RepositoryGitPanel({ cwd, visible, onOpenFile, onOpenDiff, onStatusChan
           debounce = setTimeout(() => void refresh(), 300);
         })
       : null;
+    let polling = false; // a slow git must not stack polls
     const poll = setInterval(
       () => {
-        if (document.visibilityState === "visible" && document.hasFocus()) void refresh();
+        if (polling || document.visibilityState !== "visible" || !document.hasFocus()) return;
+        polling = true;
+        void refresh().finally(() => { polling = false; });
       },
       visible ? POLL_MS : HIDDEN_POLL_MS,
     );

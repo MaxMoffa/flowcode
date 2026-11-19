@@ -42,6 +42,7 @@ export function wslHomeDir(distro: string, user?: string): Promise<string | null
       });
     pending = lookup;
     homeCache.set(key, pending);
+    if (homeCache.size > 500) homeCache.delete(homeCache.keys().next().value as string);
   }
   return pending;
 }

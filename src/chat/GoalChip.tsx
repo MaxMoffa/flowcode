@@ -7,6 +7,12 @@ import { formatElapsed, formatElapsedLong, goalElapsedMs, goalKey, shouldShowGoa
 const openByChat = new Map<string, boolean>();
 const dismissedByChat = new Map<string, string>();
 
+/** Drops a closed chat's chip state (its chat id is never used again). */
+export function forgetGoalChat(chatId: string) {
+  openByChat.delete(chatId);
+  dismissedByChat.delete(chatId);
+}
+
 const CHIP_KEY: Record<GoalStatus, string> = {
   active: "chat.goal.chipActive",
   paused: "chat.goal.chipPaused",

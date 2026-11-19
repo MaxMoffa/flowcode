@@ -19,6 +19,7 @@ function fetchPreview(url: string): Promise<LinkPreview | null> {
   if (!promise) {
     promise = invoke<LinkPreview>("link_preview", { url }).catch(() => null);
     previews.set(url, promise);
+    if (previews.size > 500) previews.delete(previews.keys().next().value as string);
   }
   return promise;
 }

@@ -21,7 +21,7 @@ export interface ChatImageSourceValue {
 const isWeb = (ref: ChatImageRef) => !!ref.url && /^https?:\/\//i.test(ref.url);
 
 /** Without a provider only `data:` refs show. */
-const NONE: ChatImageSourceValue = { load: (ref) => Promise.resolve(ref.url && !isWeb(ref) ? ref.url : null), web: false, local: false, chatId: null };
+const NONE: ChatImageSourceValue = { load: (ref) => (ref.url && !isWeb(ref) ? (isData(ref) ? loadData(ref) : Promise.resolve(ref.url)) : Promise.resolve(null)), web: false, local: false, chatId: null };
 
 export const ChatImageSource = createContext<ChatImageSourceValue>(NONE);
 
@@ -39,9 +39,43 @@ function mimeOf(ref: ChatImageRef, fallback?: string): string {
 }
 
 /** IDs identify content; relative paths belong to one chat and host. */
-const keyOf = (ref: ChatImageRef, chatId: string | null) => (ref.id ? `id:${ref.id}` : ref.path ? `path:${chatId ?? ""}:${ref.rev ?? ""}:${ref.path}` : ref.url ? `url:${ref.url}` : null);
+const isData = (ref: ChatImageRef) => !!ref.url && /^data:/i.test(ref.url);
+/** A short stable key for a `data:` URL (a base64 string must not be a map key). */
+function dataKey(url: string): string {
+  // Called on every render that keys an image: a multi-MB string is sampled
+  // (head and tail in full, a stride between), with its length in the key.
+  let h1 = 0x811c9dc5, h2 = 5381;
+  const edge = 4096;
+  const stride = url.length > 4 * edge ? Math.ceil(url.length / 65536) : 1;
+  for (let i = 0; i < url.length; i += i < edge || i >= url.length - edge ? 1 : stride) {
+    const c = url.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619);
+    h2 = Math.imul(h2, 33) ^ c;
+  }
+  return `data:${url.length}:${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}`;
+}
+/** Decodes a base64 `data:` ref to a Blob; null if malformed. */
+function dataBlob(ref: ChatImageRef): Blob | null {
+  const m = /^data:([^;,]*)((?:;[^;,]*)*),(.*)$/is.exec(ref.url ?? "");
+  if (!m) return null;
+  try {
+    if (/;base64/i.test(m[2])) {
+      const bin = atob(m[3]);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], { type: m[1] || mimeOf(ref) });
+    }
+    return new Blob([decodeURIComponent(m[3])], { type: m[1] || mimeOf(ref) });
+  } catch {
+    return null;
+  }
+}
+/** `data:` refs go through the bounded cache too, so their decoded blob is budgeted and revoked. */
+const loadData = (ref: ChatImageRef) => urls.load(dataKey(ref.url!), async () => dataBlob(ref));
+const keyOf = (ref: ChatImageRef, chatId: string | null) => (ref.id ? `id:${ref.id}` : ref.path ? `path:${chatId ?? ""}:${ref.rev ?? ""}:${ref.path}` : ref.url ? (isData(ref) ? dataKey(ref.url) : `url:${ref.url}`) : null);
 const cacheKey = (scope: string, ref: ChatImageRef, chatId: string | null) => {
   const key = keyOf(ref, chatId);
+  if (key && isData(ref)) return key; // same key as loadData: content-addressed, no scope
   return key ? `${scope}:${key}` : null;
 };
 const retain = (key: string | null) => key ? urls.retain(key) : () => {};
@@ -51,7 +85,7 @@ export function LocalChatImageProvider({ chatId, children }: { chatId: string | 
   const { chatWebImages } = useTerminalSettings();
   const loadOnce = useCallback(
     (ref: ChatImageRef) => {
-      if (ref.url && !isWeb(ref)) return Promise.resolve(ref.url);
+      if (ref.url && !isWeb(ref)) return isData(ref) ? loadData(ref) : Promise.resolve(ref.url);
       const key = cacheKey("local", ref, chatId);
       if (!key) return Promise.resolve(null);
       return urls.load(key, async () => {
@@ -91,7 +125,7 @@ export function RemoteChatImageProvider({ hostId, chatId, children }: { hostId: 
   const value = useMemo<ChatImageSourceValue>(() => {
     const scope = `remote:${hostId}`;
     const load = (ref: ChatImageRef) => {
-      if (ref.url && !isWeb(ref)) return Promise.resolve(ref.url);
+      if (ref.url && !isWeb(ref)) return isData(ref) ? loadData(ref) : Promise.resolve(ref.url);
       const key = cacheKey(scope, ref, chatId);
       if (!key || !(ref.url ? web : supported)) return Promise.resolve(null);
       return urls.load(key, async () => {
