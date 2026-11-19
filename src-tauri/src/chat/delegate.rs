@@ -411,6 +411,7 @@ pub(super) fn child_event(chat: &Chat, body: &ChatBody) {
         parent.emit(ChatBody::Ext { method: method.to_string(), params });
     }
     if changed && task.is_terminal() {
+        stop_finished(&chat.app, &chat.id);
         prune_finished(&chat.app, &state, &task.parent_chat_id);
     }
 }
@@ -426,7 +427,23 @@ pub(super) fn prompt_failed(chat: &Chat, message: &str) {
     if let Ok(parent) = state.get(&task.parent_chat_id) {
         emit_delegate(&parent, &task);
     }
+    stop_finished(&chat.app, &chat.id);
     prune_finished(&chat.app, &state, &task.parent_chat_id);
+}
+
+/// A child whose task ended has nothing left to do (its chat is read-only and
+/// no tool sends it more), but its agent would keep running - hundreds of MB
+/// each - until pruned. Killed now; the session stays, so its chat can still
+/// be read, until `prune_finished` closes it. Off the child's reader thread,
+/// which this runs on: `kill` waits for the process.
+fn stop_finished(app: &AppHandle, child_id: &str) {
+    let app = app.clone();
+    let child_id = child_id.to_string();
+    std::thread::spawn(move || {
+        if let Ok(child) = app.state::<ChatState>().get(&child_id) {
+            child.kill();
+        }
+    });
 }
 
 /// Remove the session before killing it, with no map or task lock held while emitting or waiting.

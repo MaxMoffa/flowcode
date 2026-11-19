@@ -56,6 +56,12 @@ pub struct GitStatus {
 /// answer may be stale.
 static OTHER_RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Upper bounds for one git run (see `run`): reads (what the panels poll)
+/// are quick; anything else may check out a tree or run the repo's hooks.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+const READS: &[&str] = &["status", "rev-parse", "show", "cat-file", "symbolic-ref", "check-ref-format", "for-each-ref", "log", "diff"];
+
 /// The one place git is spawned. Returns stdout (trimmed when `trim`) on
 /// success; a failure carries git's own message (stderr, or stdout when stderr
 /// is empty) so the UI can show - or pattern-match - it. Environment:
@@ -89,7 +95,17 @@ fn run(dir: &str, args: &[&str], input: Option<&str>, trim: bool) -> Result<Stri
         // A write error just means git exited early; its status says why.
         let _ = stdin.write_all(input.as_bytes());
     }
-    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    // A git stuck on a locked repo or a dead network drive would otherwise pin
+    // its blocking thread forever, and every later poll would add another.
+    let read = args.first().is_some_and(|a| READS.contains(a)) || args.starts_with(&["worktree", "list"]);
+    let timeout = if read { READ_TIMEOUT } else { WRITE_TIMEOUT };
+    let output = flowcode_shared::wait_with_timeout(child, timeout).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            format!("git {} timed out after {} s", args.first().unwrap_or(&""), timeout.as_secs())
+        } else {
+            e.to_string()
+        }
+    })?;
     // Anything but a status read may have changed what status says.
     if args.first() != Some(&"status") {
         OTHER_RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
