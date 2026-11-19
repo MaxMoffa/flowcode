@@ -28,7 +28,8 @@ private const val KEY_SNAPSHOT = "snapshot"
 // 24 frames over the same 2 s loop: ~12 fps (the flippers flip every 83 ms).
 private const val FRAMES = 24
 private const val FPS = 12.0
-private const val MAX_SIDE_PX = 1400
+// Launcher memory: every widget keeps ~24 decoded frames, so cap their side at 800 px.
+private const val MAX_SIDE_PX = 800
 
 /** The three widgets: scene index, dp per scene pixel and default size. */
 internal enum class WidgetKind(val scene: Int, val px: Int, val defW: Int, val defH: Int, val provider: Class<*>) {

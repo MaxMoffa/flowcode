@@ -251,9 +251,18 @@ interface BridgeHostOptions<Event extends { seq: number }> {
  * deliberately no request that could answer an agent's permission prompt. */
 export function createBridgeHost<Event extends { seq: number }>({ iframeWindow, manifest, source, onConnect }: BridgeHostOptions<Event>) {
   const received = new Map<number, Event>();
+  /** After the first delivery the events themselves are dropped; only the most recent seqs are kept, to dedupe. */
+  const seen = new Set<number>();
+  const SEEN_CAP = 4096;
+  const markSeen = (seq: number) => {
+    seen.add(seq);
+    if (seen.size > SEEN_CAP) seen.delete(seen.values().next().value as number);
+  };
   let outbox: Event[] = [];
   let replayed = false;
   let delivered = false;
+  /** `received` was emptied by a delivery: a reloaded view needs the replay fetched again. */
+  let drained = false;
   let port: MessagePort | null = null;
   let disposed = false;
 
@@ -265,7 +274,11 @@ export function createBridgeHost<Event extends { seq: number }>({ iframeWindow, 
     if (!delivered) {
       delivered = true;
       outbox = [];
-      post({ type: "events", events: [...received.values()].sort((a, b) => a.seq - b.seq) });
+      const all = [...received.values()].sort((a, b) => a.seq - b.seq);
+      received.clear();
+      drained = true;
+      for (const event of all) markSeen(event.seq);
+      post({ type: "events", events: all });
     } else if (outbox.length > 0) {
       const events = outbox;
       outbox = [];
@@ -277,8 +290,13 @@ export function createBridgeHost<Event extends { seq: number }>({ iframeWindow, 
   let stopEvents: (() => void) | null = null;
   void (async () => {
     const stop = await source.subscribe((event) => {
-      if (received.has(event.seq)) return;
-      received.set(event.seq, event);
+      if (delivered) {
+        if (seen.has(event.seq)) return;
+        markSeen(event.seq);
+      } else {
+        if (received.has(event.seq)) return;
+        received.set(event.seq, event);
+      }
       outbox.push(event);
       deliver();
     });
@@ -343,6 +361,18 @@ export function createBridgeHost<Event extends { seq: number }>({ iframeWindow, 
     channel.port1.onmessage = onRequest;
     port = channel.port1;
     delivered = false;
+    if (drained) {
+      // The events were dropped after the first delivery: fetch the log again
+      // (live events meanwhile collect in `received`, deduped as before).
+      drained = false;
+      replayed = false;
+      void source.replay().then((past) => {
+        if (disposed) return;
+        for (const event of past) if (!received.has(event.seq)) received.set(event.seq, event);
+        replayed = true;
+        deliver();
+      }).catch(() => {});
+    }
     // The page's origin is opaque (sandbox without allow-same-origin): "*" is the only target.
     frame.postMessage({ type: "flowcode:connect", apiVersion: BRIDGE_API_VERSION }, "*", [channel.port2]);
     post({

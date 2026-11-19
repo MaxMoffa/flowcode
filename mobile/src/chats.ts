@@ -91,12 +91,27 @@ const lastUsed = new Map<string, number>();
 let useTick = 0;
 const touch = (chatId: string) => void lastUsed.set(chatId, ++useTick);
 
+/** Memory budget for the kept conversations; an estimate, not a measurement. */
+const SESSIONS_BYTE_BUDGET = 64 * 1024 * 1024;
+/** Rough bytes per raw event, counting the items and blocks derived from it. */
+const EST_BYTES_PER_EVENT = 2048;
+const sessionBytes = (s: ChatSession) => (s.events?.length ?? 0) * EST_BYTES_PER_EVENT;
+
 function pruneSessions(wanted: Set<string>, pendingSend: (id: string) => boolean) {
   const { sessions } = store.get();
   const ids = Object.keys(sessions);
-  if (ids.length <= MAX_SESSIONS) return;
+  let total = 0;
+  for (const id of ids) total += sessionBytes(sessions[id]);
+  if (ids.length <= MAX_SESSIONS && total <= SESSIONS_BYTE_BUDGET) return;
   const evictable = ids.filter((id) => !wanted.has(id) && (refs.get(id) ?? 0) === 0 && !opened.has(id) && !pendingSend(id)).sort((a, b) => (lastUsed.get(a) ?? 0) - (lastUsed.get(b) ?? 0));
-  const drop = new Set(evictable.slice(0, ids.length - MAX_SESSIONS));
+  const drop = new Set<string>();
+  let count = ids.length;
+  for (const id of evictable) {
+    if (count <= MAX_SESSIONS && total <= SESSIONS_BYTE_BUDGET) break;
+    drop.add(id);
+    count--;
+    total -= sessionBytes(sessions[id]);
+  }
   if (drop.size === 0) return;
   store.set({ sessions: Object.fromEntries(Object.entries(sessions).filter(([id]) => !drop.has(id))) });
   drop.forEach((id) => lastUsed.delete(id));

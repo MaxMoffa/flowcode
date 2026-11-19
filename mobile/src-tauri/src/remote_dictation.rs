@@ -12,6 +12,9 @@ use tauri::plugin::TauriPlugin;
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tokio::sync::mpsc;
 
+/// How long one chunk may take to be accepted by the stream before the task gives up.
+const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 enum Msg {
     Chunk(Vec<u8>),
@@ -51,9 +54,43 @@ fn report(app: &AppHandle, session: &str, message: impl Into<String>) {
 async fn pump(conn: iroh::endpoint::Connection, session: String, mut rx: mpsc::UnboundedReceiver<Msg>) -> Result<(), String> {
     let (mut send, _recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
     send.write_all(preview_header(&PreviewTarget::DictAudio(session)).as_bytes()).await.map_err(|e| e.to_string())?;
+    // Messages that arrive while a write is stuck wait here, in order.
+    let mut backlog: std::collections::VecDeque<Msg> = std::collections::VecDeque::new();
     loop {
-        match rx.recv().await {
-            Some(Msg::Chunk(bytes)) => send.write_all(&bytes).await.map_err(|e| e.to_string())?,
+        let msg = match backlog.pop_front() {
+            Some(m) => Some(m),
+            None => rx.recv().await,
+        };
+        match msg {
+            Some(Msg::Chunk(bytes)) => {
+                // A stalled stream must not block forever: an abort or a timeout ends the task.
+                let mut aborted = false;
+                {
+                    let write = tokio::time::timeout(WRITE_TIMEOUT, send.write_all(&bytes));
+                    tokio::pin!(write);
+                    let mut queue_open = true;
+                    loop {
+                        tokio::select! {
+                            res = &mut write => {
+                                res.map_err(|_| "dictation stream stalled".to_string())?.map_err(|e| e.to_string())?;
+                                break;
+                            }
+                            next = rx.recv(), if queue_open => match next {
+                                Some(Msg::Abort) => {
+                                    aborted = true;
+                                    break;
+                                }
+                                Some(other) => backlog.push_back(other),
+                                None => queue_open = false,
+                            },
+                        }
+                    }
+                }
+                if aborted {
+                    let _ = send.reset(0u32.into());
+                    return Ok(());
+                }
+            }
             Some(Msg::Finish) | None => {
                 send.finish().map_err(|e| e.to_string())?;
                 return Ok(());

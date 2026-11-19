@@ -7,12 +7,14 @@ import { onMessage, sendChecked, useRemoteSelector } from "./remote";
 import { createStore } from "./store";
 
 export type ChatImageState = "loading" | "ready" | "missing" | "blocked";
+/** Phones have less memory than the desktop's 64 MB default. */
+const MOBILE_IMAGE_BUDGET = 32 * 1024 * 1024;
 let supportsRequestIds = false;
 /** The desktop the cached images came from. */
 let lastHost: string | undefined;
-const urls = createImageUrlCache();
+const urls = createImageUrlCache(MOBILE_IMAGE_BUDGET);
 const changes = createStore({ generation: 0, retry: 0 });
-const fetcher = createChatImageFetcher((msg) => sendChecked(msg), 30_000, { supportsRequestIds: () => supportsRequestIds });
+const fetcher = createChatImageFetcher((msg) => sendChecked(msg), 30_000, { supportsRequestIds: () => supportsRequestIds, maxCacheBytes: MOBILE_IMAGE_BUDGET });
 onMessage((message) => {
   if (message.t === "ready") {
     supportsRequestIds = !!message.caps?.includes("chatImageRequestId");

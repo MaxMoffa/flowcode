@@ -39,6 +39,13 @@ export function mcpIconLoader(chatId: string): McpIconLoader {
     });
 }
 
+/** The desktop the cached icons came from. */
+let lastHost: string | undefined;
+
 onMessage((m) => {
+  if (m.t === "ready" && m.hostName !== lastHost) {
+    lastHost = m.hostName;
+    store.set({ entries: {} });
+  }
   if (m.t === "mcpicon") setEntry(m.server, typeof m.icon === "string" && m.icon.startsWith("data:image/") ? m.icon : null);
 });
