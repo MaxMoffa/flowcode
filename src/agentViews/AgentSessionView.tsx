@@ -18,6 +18,7 @@ import { subagentHeader, useOpenSubagent } from "../chat/useOpenSubagent";
 import "../chat/chat.css";
 import "./builtins";
 import { AgentHeader } from "./AgentHeader";
+import { CopyIcon, SessionMenuHead, StopIcon, ViewSwitch, viewIcon } from "./SessionMenu";
 import { agentView, resolveAcpView, useAgentViews, viewLabel } from "./registry";
 import { isProviderAuthError } from "../../shared/providerAuth";
 import { OfflineIcon } from "../net/OfflineIcon";
@@ -212,39 +213,26 @@ export function AgentSessionView({
               };
               return (
                 <>
-                  <div className="chat-menu-caption">{t("agentViews.viewAs")}</div>
-                  {views
-                    .filter((view) => view.devices.includes("desktop"))
-                    .map((view) =>
-                      view.transport === "pty" ? (
-                        <button
-                          key={view.id}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={false}
-                          className="chat-menu-item"
-                          disabled={!canSwitch}
-                          title={working ? t("chat.menu.stopFirst") : undefined}
-                          onClick={() => menuAction(switchToTerminal)}
-                        >
-                          <span className="chat-menu-check" />
-                          <span>{viewLabel(view, t, language)}</span>
-                          <kbd>Ctrl+`</kbd>
-                        </button>
-                      ) : (
-                        <button
-                          key={view.id}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={view.id === current.id}
-                          className="chat-menu-item"
-                          onClick={() => menuAction(() => onViewChange(view.id))}
-                        >
-                          <span className="chat-menu-check">{view.id === current.id ? "✓" : ""}</span>
-                          <span>{viewLabel(view, t, language)}</span>
-                        </button>
-                      ),
-                    )}
+                  <SessionMenuHead title={title} lines={[`${label} · ${folder}`]} path={cwd} />
+                  <ViewSwitch
+                    label={t("agentViews.viewAs")}
+                    options={views
+                      .filter((view) => view.devices.includes("desktop"))
+                      .map((view) => ({
+                        id: view.id,
+                        label: viewLabel(view, t, language),
+                        icon: viewIcon(view),
+                        checked: view.transport !== "pty" && view.id === current.id,
+                        disabled: view.transport === "pty" && !canSwitch,
+                        onPick: () => {
+                          if (view.transport === "pty") menuAction(switchToTerminal);
+                          else if (view.id === current.id) close();
+                          else menuAction(() => onViewChange(view.id));
+                        },
+                      }))}
+                    hint={working ? <span>{t("chat.menu.stopFirst")}</span> : <><span>{t("agentViews.switchHint")}</span><kbd>Ctrl+`</kbd></>}
+                  />
+                  <div className="chat-menu-sep" role="separator" />
                   <button
                     type="button"
                     role="menuitem"
@@ -252,10 +240,12 @@ export function AgentSessionView({
                     disabled={!sessionId}
                     onClick={() => menuAction(() => sessionId && void navigator.clipboard.writeText(sessionId).catch(() => {}))}
                   >
+                    <CopyIcon />
                     <span>{t("chat.menu.copyId")}</span>
                   </button>
                   <div className="chat-menu-sep" role="separator" />
                   <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => menuAction(chat.cancel)}>
+                    <StopIcon />
                     <span>{t("chat.menu.stop")}</span>
                   </button>
                 </>

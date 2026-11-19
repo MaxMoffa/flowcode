@@ -1184,6 +1184,7 @@ export const en: Record<MessageKey, string> = {
   "agentViews.viewAs": "View as",
   "agentViews.chat": "Chat",
   "agentViews.terminal": "Terminal",
+  "agentViews.switchHint": "Switch mode",
   "agentViews.chat.desc": "A conversation with messages, tool calls and permission prompts.",
   "agentViews.terminal.desc": "The agent's own interface, in a terminal tab.",
   "agentViews.plugin.title": "{name} view",

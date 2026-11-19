@@ -5,6 +5,7 @@ import { agentCliIcon } from "../plugins/icons";
 import { basename } from "../lib/path";
 import type { ChatStatus } from "../chat/chatTypes";
 import { AgentHeader } from "./AgentHeader";
+import { CopyIcon, SessionMenuHead, StopIcon, ViewSwitch, viewIcon } from "./SessionMenu";
 import { useAgentViews, viewLabel } from "./registry";
 
 interface TerminalAgentHeaderProps {
@@ -43,32 +44,23 @@ export function TerminalAgentHeader({ cli, session, title, cwd, onSwitchToChat, 
         };
         return (
           <>
-            <div className="chat-menu-caption">{t("agentViews.viewAs")}</div>
-            {views
-              .filter((view) => view.devices.includes("desktop"))
-              .map((view) =>
-                view.transport === "pty" ? (
-                  <button key={view.id} type="button" role="menuitemradio" aria-checked className="chat-menu-item" onClick={close}>
-                    <span className="chat-menu-check">✓</span>
-                    <span>{viewLabel(view, t, language)}</span>
-                  </button>
-                ) : (
-                  <button
-                    key={view.id}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={false}
-                    className="chat-menu-item"
-                    disabled={!!chatBlock}
-                    title={chatBlock}
-                    onClick={() => act(() => onSwitchToChat(view.id))}
-                  >
-                    <span className="chat-menu-check" />
-                    <span>{viewLabel(view, t, language)}</span>
-                    {view.id === "chat" && <kbd>Ctrl+`</kbd>}
-                  </button>
-                ),
-              )}
+            <SessionMenuHead title={name} lines={[`${label} · ${folder}`]} path={cwd} />
+            <ViewSwitch
+              label={t("agentViews.viewAs")}
+              options={views
+                .filter((view) => view.devices.includes("desktop"))
+                .map((view) => ({
+                  id: view.id,
+                  label: viewLabel(view, t, language),
+                  icon: viewIcon(view),
+                  checked: view.transport === "pty",
+                  disabled: view.transport !== "pty" && !!chatBlock,
+                  title: view.transport !== "pty" ? chatBlock : undefined,
+                  onPick: () => (view.transport === "pty" ? close() : act(() => onSwitchToChat(view.id))),
+                }))}
+              hint={chatBlock ? <span>{chatBlock}</span> : <><span>{t("agentViews.switchHint")}</span><kbd>Ctrl+`</kbd></>}
+            />
+            <div className="chat-menu-sep" role="separator" />
             <button
               type="button"
               role="menuitem"
@@ -76,10 +68,12 @@ export function TerminalAgentHeader({ cli, session, title, cwd, onSwitchToChat, 
               disabled={!session.session_id}
               onClick={() => act(() => session.session_id && void navigator.clipboard.writeText(session.session_id).catch(() => {}))}
             >
+              <CopyIcon />
               <span>{t("chat.menu.copyId")}</span>
             </button>
             <div className="chat-menu-sep" role="separator" />
             <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => act(onStop)}>
+              <StopIcon />
               <span>{t("chat.menu.stop")}</span>
             </button>
           </>

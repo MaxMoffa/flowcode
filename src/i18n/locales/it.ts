@@ -1192,6 +1192,7 @@ export const it = {
   "agentViews.viewAs": "Visualizza come",
   "agentViews.chat": "Chat",
   "agentViews.terminal": "Terminale",
+  "agentViews.switchHint": "Cambia modalità",
   "agentViews.chat.desc": "Una conversazione con messaggi, strumenti usati e richieste di permesso.",
   "agentViews.terminal.desc": "L'interfaccia dell'agente, in una scheda terminale.",
   "agentViews.plugin.title": "Vista {name}",

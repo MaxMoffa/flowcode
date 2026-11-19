@@ -151,12 +151,6 @@
   font-weight: 600;
 }
 
-.chat-session-agent {
-  flex: 0 0 auto;
-  color: var(--fg-muted);
-  font-size: 12px;
-}
-
 .chat-session-chevron {
   flex: 0 0 auto;
   color: var(--fg-muted);
@@ -210,6 +204,125 @@
   font-size: 12.5px;
 }
 
+/* The header's session menu. Spacing on a 4px grid: the head, the hint under the pills and the rows share one 10px left edge. */
+.chat-menu.is-session {
+  width: 288px;
+  max-width: calc(100vw - 24px);
+  padding: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.chat-menu.is-session .chat-menu-item {
+  min-height: 34px;
+  gap: 10px;
+  padding: 0 10px;
+}
+
+.chat-menu.is-session .chat-menu-sep {
+  margin: 6px 10px;
+}
+
+.chat-menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 10px;
+}
+
+.chat-menu-head b,
+.chat-menu-head small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-menu-head b {
+  margin-bottom: 2px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.chat-menu-head small {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.chat-menu-head small.is-mono {
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+}
+
+.chat-menu-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgb(127 127 127 / 0.12);
+}
+
+.chat-menu-views button {
+  flex: 1 1 40%;
+  min-width: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-menu-views button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-menu-views button svg {
+  flex: 0 0 auto;
+}
+
+.chat-menu-views button:hover:not(:disabled):not([aria-checked="true"]) {
+  color: var(--fg);
+}
+
+.chat-menu-views button[aria-checked="true"] {
+  background: var(--menu-surface);
+  box-shadow: 0 0 0 1px var(--border), 0 1px 3px rgb(0 0 0 / 0.12);
+  color: var(--fg);
+}
+
+.chat-menu-views button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chat-menu-views-hint {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px 4px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.chat-menu-views-hint kbd {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
 .chat-menu-item {
   width: 100%;
   display: flex;
@@ -225,8 +338,18 @@
   cursor: pointer;
 }
 
-.chat-menu-item span:first-child:not(.chat-menu-check) {
+.chat-menu-item span:first-child:not(.chat-menu-check),
+.chat-menu.is-session .chat-menu-item > svg + span {
   flex: 1 1 auto;
+}
+
+.chat-menu.is-session .chat-menu-item > svg {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+}
+
+.chat-menu.is-session .chat-menu-item.is-danger > svg {
+  color: var(--danger);
 }
 
 .chat-menu-item:hover:not(:disabled) {
@@ -252,12 +375,6 @@
   flex: 0 0 auto;
   width: 12px;
   color: var(--accent);
-}
-
-.chat-menu-caption {
-  padding: 6px 8px 2px;
-  color: var(--fg-muted);
-  font-size: 11px;
 }
 
 .chat-menu-sep {

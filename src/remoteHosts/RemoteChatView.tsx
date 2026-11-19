@@ -7,6 +7,7 @@ import type { ChatStatus } from "../chat/chatTypes";
 import "../chat/chat.css";
 import "../agentViews/builtins";
 import { AgentHeader } from "../agentViews/AgentHeader";
+import { ChatViewIcon, CopyIcon, SessionMenuHead, StopIcon, TerminalViewIcon, ViewSwitch } from "../agentViews/SessionMenu";
 import { agentView, resolveAcpView } from "../agentViews/registry";
 import { expectNewTab, sendToHost, useHost, useHostState } from "./remoteHosts";
 import { useRemoteChat } from "./useRemoteChat";
@@ -54,14 +55,22 @@ export function RemoteChatView({ hostId, chatId, hidden }: { hostId: string; cha
             };
             return (
               <>
-                <button type="button" role="menuitem" className="chat-menu-item" disabled={!canTerminal} onClick={() => menuAction(toTerminal)}>
-                  <span>{t("remoteHosts.openAsTerminal")}</span>
-                </button>
+                <SessionMenuHead title={info.label} lines={[`${label} · ${basename(info.cwd)}`, host?.hostName ?? ""]} path={info.cwd} />
+                <ViewSwitch
+                  label={t("agentViews.viewAs")}
+                  options={[
+                    { id: "chat", label: t("agentViews.chat"), icon: <ChatViewIcon />, checked: true, onPick: close },
+                    { id: "terminal", label: t("agentViews.terminal"), icon: <TerminalViewIcon />, checked: false, disabled: !canTerminal, title: t("remoteHosts.openAsTerminal"), onPick: () => menuAction(toTerminal) },
+                  ]}
+                />
+                <div className="chat-menu-sep" role="separator" />
                 <button type="button" role="menuitem" className="chat-menu-item" disabled={!sessionId} onClick={() => menuAction(() => sessionId && void navigator.clipboard.writeText(sessionId).catch(() => {}))}>
+                  <CopyIcon />
                   <span>{t("chat.menu.copyId")}</span>
                 </button>
                 <div className="chat-menu-sep" role="separator" />
                 <button type="button" role="menuitem" className="chat-menu-item is-danger" disabled={!working} onClick={() => menuAction(chat.cancel)}>
+                  <StopIcon />
                   <span>{t("chat.menu.stop")}</span>
                 </button>
               </>
