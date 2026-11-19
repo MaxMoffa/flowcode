@@ -17,6 +17,7 @@ mod newtab_background;
 mod notify;
 mod plugins;
 mod profiles;
+mod mem_watch;
 mod process_job;
 mod provider_launcher;
 pub use provider_launcher::run_if_requested as run_provider_cli;
@@ -123,6 +124,7 @@ pub fn run() {
             });
             // After the marker exists, look for sessions that died uncleanly.
             crash::init(app.handle());
+            mem_watch::start(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {

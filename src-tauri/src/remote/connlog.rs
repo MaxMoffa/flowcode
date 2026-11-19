@@ -9,7 +9,7 @@ use crate::util::{lock, now_ms};
 pub(super) const LOG_CAP_BYTES: u64 = 256 * 1024;
 
 /// `YYYY-MM-DD HH:MM:SS.mmm` (UTC) for a Unix time in milliseconds.
-fn format_utc(ms: u64) -> String {
+pub(crate) fn format_utc(ms: u64) -> String {
     let (secs, millis) = (ms / 1000, ms % 1000);
     let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
     // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
@@ -27,7 +27,7 @@ fn format_utc(ms: u64) -> String {
 
 /// Appends `line` to `path`; a file already past `cap` bytes first becomes
 /// `<path>.old` (replacing the previous one), so the log never exceeds ~2x cap.
-fn append_capped(path: &Path, line: &str, cap: u64) {
+pub(crate) fn append_capped(path: &Path, line: &str, cap: u64) {
     use std::io::Write;
     if std::fs::metadata(path).is_ok_and(|m| m.len() >= cap) {
         let mut old = path.as_os_str().to_owned();

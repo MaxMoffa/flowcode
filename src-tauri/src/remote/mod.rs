@@ -16,7 +16,7 @@ mod auth;
 mod chat;
 mod commands;
 mod conn;
-mod connlog;
+pub(crate) mod connlog;
 mod dictation;
 mod dispatch;
 mod fsbrowse;
