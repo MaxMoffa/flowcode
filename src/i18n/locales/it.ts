@@ -95,6 +95,7 @@ export const it = {
   "settings.calls.desc": "Quando un agente in un'altra scheda ha bisogno di te, un fumetto esce dalla sua scheda con il motivo e, per permessi e domande, le risposte. Spento: resta solo l'indicatore sulla scheda e le notifiche di sistema.",
   "tabs.duplicate": "Duplica",
   "calls.title.call": "{agent} ti chiama",
+  "calls.title.callTerminal": "Un agente nel terminale ti chiama",
   "calls.title.attention": "{agent} ha bisogno di te",
   "calls.title.done": "{agent} ha finito",
   "calls.title.browser": "Una pagina è pronta",

@@ -29,8 +29,8 @@ const DELEGATE_METHOD: &str = "_flowcode/delegate";
 const REQUEST_METHOD: &str = "_flowcode/delegate_request";
 const RESOLVED_METHOD: &str = "_flowcode/delegate_request_resolved";
 const TASK_METHOD: &str = "_flowcode/task";
-const OPEN_METHOD: &str = "_flowcode/open";
-const CALL_METHOD: &str = "_flowcode/call";
+pub(crate) const OPEN_METHOD: &str = "_flowcode/open";
+pub(crate) const CALL_METHOD: &str = "_flowcode/call";
 
 /// How long `delegate_task` and `get_task_result` wait for the child at most:
 /// under the script's own timeout, which also covers the child's start.
@@ -523,7 +523,8 @@ fn describe(task_id: &str, report: &Report) -> String {
 /// and have been given the tool - the caller's word is not enough.
 pub(crate) fn mcp_call(app: &AppHandle, caller: &Caller, tool: &str, args: &Value, deadline_ms: Option<u64>) -> Result<String, String> {
     let state = app.state::<ChatState>();
-    let chat = state.get(&caller.chat_id).map_err(|_| "this chat is closed".to_string())?;
+    let chat_mcp::Owner::Chat(chat_id) = &caller.owner else { return Err("not a chat caller".into()) };
+    let chat = state.get(chat_id).map_err(|_| "this chat is closed".to_string())?;
     if !chat_mcp::enabled_tools(&chat.tools, caller.depth).contains(&tool) {
         return Err(format!("the tool `{tool}` is turned off for this chat"));
     }
@@ -558,13 +559,18 @@ fn open_in_browser(chat: &Chat, args: &Value) -> Result<String, String> {
 
 /// Tells the app to show the user a bubble from this chat's tab (`_flowcode/call`).
 fn call_user(chat: &Chat, args: &Value) -> Result<String, String> {
+    chat.emit(ChatBody::Ext { method: CALL_METHOD.to_string(), params: call_params(args)? });
+    Ok("The user has been notified.".to_string())
+}
+
+/// The `{message, reason}` of a `call_user` call, checked; shared with terminal tabs.
+pub(crate) fn call_params(args: &Value) -> Result<Value, String> {
     let message: String = string_arg(args, "message")?.trim().chars().take(400).collect();
     if message.is_empty() {
         return Err("message is empty".into());
     }
     let reason = args.get("reason").and_then(Value::as_str).filter(|r| matches!(*r, "question" | "review" | "done" | "info")).unwrap_or("info");
-    chat.emit(ChatBody::Ext { method: CALL_METHOD.to_string(), params: json!({ "message": message, "reason": reason }) });
-    Ok("The user has been notified.".to_string())
+    Ok(json!({ "message": message, "reason": reason }))
 }
 
 fn list_agents(app: &AppHandle, state: &ChatState, chat: &Chat) -> String {

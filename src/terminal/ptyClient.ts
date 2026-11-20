@@ -1,12 +1,15 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { AgentToolsConfig } from "../agents/agentToolsSettings";
 
 /** Mirrors `PtyEvent` in src-tauri/src/pty.rs. */
-type PtyEvent = { event: "output"; data: string; seq: number } | { event: "exit" };
+type PtyEvent = { event: "output"; data: string; seq: number } | { event: "exit" } | { event: "ext"; method: string; params: unknown };
 
 interface PtyHandlers {
   /** `seq` numbers each chunk in order - see `detachPty`. */
   onOutput: (data: string, seq: number) => void;
   onExit?: () => void;
+  /** Flowcode's own MCP tools called by an agent in this tab (`_flowcode/open`, `_flowcode/call`). */
+  onExt?: (method: string, params: unknown) => void;
 }
 
 interface SpawnPtyOptions extends PtyHandlers {
@@ -19,12 +22,15 @@ interface SpawnPtyOptions extends PtyHandlers {
   /** An account profile id (see src/profiles); the default profile when
    * omitted. The backend sets the CLIs' config-dir env vars from it. */
   profile?: string;
+  /** What the tab's agents may do through Flowcode's MCP server; none when omitted. */
+  tools?: AgentToolsConfig | null;
 }
 
-function eventChannel({ onOutput, onExit }: PtyHandlers): Channel<PtyEvent> {
+function eventChannel({ onOutput, onExit, onExt }: PtyHandlers): Channel<PtyEvent> {
   const channel = new Channel<PtyEvent>();
   channel.onmessage = (message) => {
     if (message.event === "output") onOutput(message.data, message.seq);
+    else if (message.event === "ext") onExt?.(message.method, message.params);
     else onExit?.();
   };
   return channel;
@@ -40,9 +46,9 @@ function eventChannel({ onOutput, onExit }: PtyHandlers): Channel<PtyEvent> {
  * those bytes). A per-session channel also means each terminal receives only
  * its own session's output, instead of every tab filtering every other tab's
  * bytes off one global event. */
-export async function spawnPty({ cwd, cols, rows, shell, profile, ...handlers }: SpawnPtyOptions): Promise<string> {
+export async function spawnPty({ cwd, cols, rows, shell, profile, tools, ...handlers }: SpawnPtyOptions): Promise<string> {
   const onEvent = eventChannel(handlers);
-  return invoke<string>("pty_spawn", { cwd: cwd || null, cols, rows, shell: shell ?? null, profile: profile ?? null, onEvent });
+  return invoke<string>("pty_spawn", { cwd: cwd || null, cols, rows, shell: shell ?? null, profile: profile ?? null, tools: tools ?? null, onEvent });
 }
 
 /** Stops `id`'s output reaching this window - the first step of moving its

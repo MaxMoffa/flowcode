@@ -95,6 +95,7 @@ export const en: Record<MessageKey, string> = {
   "settings.calls.desc": "When an agent in another tab needs you, a bubble comes out of its tab with the reason and, for permissions and questions, the answers. Off: only the tab indicator and system notifications remain.",
   "tabs.duplicate": "Duplicate",
   "calls.title.call": "{agent} is calling you",
+  "calls.title.callTerminal": "A terminal agent is calling you",
   "calls.title.attention": "{agent} needs you",
   "calls.title.done": "{agent} has finished",
   "calls.title.browser": "A page is ready",

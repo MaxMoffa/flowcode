@@ -83,3 +83,8 @@ export async function readAgentToolsConfig(): Promise<AgentToolsConfig> {
   const ok = await Promise.all(AGENT_CLIS.map((cli) => defaultCliStatus(cli).then((st) => (st ? st.installed && st.logged_in : true), () => true)));
   return toolsConfig(s, AGENT_CLIS.filter((_, i) => ok[i]));
 }
+
+/** What a terminal tab starting now gets: no delegation there yet, so no need to check which agents are signed in. */
+export function currentAgentToolsConfig(): AgentToolsConfig {
+  return toolsConfig(store.get());
+}

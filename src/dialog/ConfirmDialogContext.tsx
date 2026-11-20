@@ -39,6 +39,11 @@ export function useConfirmDialog() {
   return ctx.confirm;
 }
 
+/** `useConfirmDialog` that tolerates a missing provider (undefined then). */
+export function useOptionalConfirmDialog() {
+  return useContext(ConfirmDialogCtx)?.confirm;
+}
+
 /** A confirmation with an optional third action, such as discarding edits. */
 export function useConfirmChoice() {
   const ctx = useContext(ConfirmDialogCtx);

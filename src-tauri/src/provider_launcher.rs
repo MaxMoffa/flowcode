@@ -168,6 +168,76 @@ pub(crate) fn install(
     ))
 }
 
+/// Subcommands that are not a session (or reject unknown flags): no server for them.
+fn skips_mcp(cli: &str) -> &'static [&'static str] {
+    match cli {
+        "claude" => &["mcp", "config", "update", "doctor", "install", "migrate-installer", "setup-token", "plugin", "plugins", "auth", "help"],
+        _ => &["login", "logout", "mcp", "mcp-server", "app-server", "completion", "sandbox", "debug", "apply", "features", "help", "update"],
+    }
+}
+
+/// A TOML string for a `-c` value: the literal form, which has no escapes to get
+/// wrong across the shim's quoting, unless the text can't be one.
+fn toml_string(text: &str) -> String {
+    if text.contains('\'') || text.chars().any(char::is_control) {
+        format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        format!("'{text}'")
+    }
+}
+
+/// The flags that hand Flowcode's MCP server to `cli`, from the settings a tab's
+/// environment carries (`terminal_mcp.rs`). Nothing for a call that starts no
+/// session (`--version`, `mcp list`...) or a CLI without support yet. Claude's
+/// flags use the `=` form: `--mcp-config` takes any number of values, and
+/// `--mcp-config x "prompt"` would swallow the prompt.
+fn mcp_args(cli: &str, user_args: &[std::ffi::OsString], var: impl Fn(&str) -> Option<String>) -> Vec<std::ffi::OsString> {
+    let set = |name: &str| var(name).filter(|v| !v.is_empty());
+    if set("FLOWCODE_MCP_TOKEN").is_none() || set("FLOWCODE_MCP_TOOLS").is_none() {
+        return Vec::new();
+    }
+    let first = user_args.first().map(|a| a.to_string_lossy());
+    if matches!(first.as_deref(), Some("-v" | "--version" | "-h" | "--help")) {
+        return Vec::new();
+    }
+    let subcommand = user_args.iter().map(|a| a.to_string_lossy()).find(|a| !a.starts_with('-'));
+    if subcommand.is_some_and(|s| skips_mcp(cli).contains(&&*s)) {
+        return Vec::new();
+    }
+    let mut out: Vec<std::ffi::OsString> = Vec::new();
+    match cli {
+        "claude" => {
+            if let Some(config) = set("FLOWCODE_MCP_CLAUDE_CONFIG") {
+                out.push(format!("--mcp-config={config}").into());
+            }
+            if let Some(allow) = set("FLOWCODE_MCP_AUTO_ALLOW") {
+                out.push(format!("--allowedTools={allow}").into());
+            }
+        }
+        "codex" => {
+            let Some(script) = set("FLOWCODE_MCP_SCRIPT") else { return Vec::new() };
+            for setting in [
+                "mcp_servers.flowcode.command='node'".to_string(),
+                format!("mcp_servers.flowcode.args=[{}]", toml_string(&script)),
+                "mcp_servers.flowcode.env_vars=['FLOWCODE_MCP_DIR','FLOWCODE_MCP_TOKEN','FLOWCODE_MCP_TOOLS','FLOWCODE_MCP_AGENT']".to_string(),
+            ] {
+                out.push("-c".into());
+                out.push(setting.into());
+            }
+            // Same list as Claude's `--allowedTools`; Codex otherwise asks before every MCP call.
+            let allow = set("FLOWCODE_MCP_AUTO_ALLOW").unwrap_or_default();
+            for tool in allow.split(',').filter_map(|t| t.strip_prefix("mcp__flowcode__")) {
+                if !tool.is_empty() && tool.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                    out.push("-c".into());
+                    out.push(format!("mcp_servers.flowcode.tools.{tool}.approval_mode='approve'").into());
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
 /// Runs before Tauri starts. No credential is put in arguments or returned to the frontend.
 pub fn run_if_requested() {
     let mut args = std::env::args_os().skip(1);
@@ -194,10 +264,15 @@ pub fn run_if_requested() {
         );
     }
     let mut args: Vec<std::ffi::OsString> = args.collect();
+    // Computed from the user's own arguments; placed after any script the resolution below prepends.
+    let mcp = mcp_args(&cli, &args, |name| std::env::var(name).ok());
     let mut program = std::path::PathBuf::from(program);
+    #[allow(unused_mut)]
+    let mut insert_at = 0;
     #[cfg(windows)]
     if program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat")) {
         if let Some((real, mut prefix)) = resolve_cmd_shim(&program) {
+            insert_at = prefix.len();
             prefix.append(&mut args);
             args = prefix;
             program = real;
@@ -207,7 +282,11 @@ pub fn run_if_requested() {
             std::process::exit(1);
         }
     }
+    args.splice(insert_at..insert_at, mcp.iter().cloned());
     let mut command = Command::new(&program);
+    if !mcp.is_empty() && matches!(cli.as_str(), "claude" | "codex") {
+        command.env("FLOWCODE_MCP_AGENT", &cli);
+    }
     command
         .args(args)
         .envs(crate::provider_auth_keys::cli_record_env(
@@ -238,6 +317,64 @@ mod tests {
     #[test]
     fn shell_paths_are_quoted_without_expansion() {
         assert_eq!(quote_shell("a'b$(x)"), "'a'\"'\"'b$(x)'");
+    }
+
+    fn os(args: &[&str]) -> Vec<std::ffi::OsString> {
+        args.iter().map(std::ffi::OsString::from).collect()
+    }
+
+    fn env(name: &str) -> Option<String> {
+        Some(match name {
+            "FLOWCODE_MCP_TOKEN" => "tok",
+            "FLOWCODE_MCP_TOOLS" => "open_in_browser,call_user",
+            "FLOWCODE_MCP_CLAUDE_CONFIG" => "C:\\mcp\\term-1.json",
+            "FLOWCODE_MCP_AUTO_ALLOW" => "mcp__flowcode__call_user",
+            "FLOWCODE_MCP_SCRIPT" => "C:\\mcp\\flowcode-mcp.cjs",
+            _ => return None,
+        }.to_string())
+    }
+
+    #[test]
+    fn claude_gets_its_flags_before_the_prompt_in_the_equals_form() {
+        let args = mcp_args("claude", &os(&["fix the bug"]), env);
+        assert_eq!(args, os(&["--mcp-config=C:\\mcp\\term-1.json", "--allowedTools=mcp__flowcode__call_user"]));
+        assert_eq!(mcp_args("claude", &os(&["--model", "opus", "hi"]), env).len(), 2);
+    }
+
+    #[test]
+    fn calls_that_start_no_session_get_nothing() {
+        assert!(mcp_args("claude", &os(&["mcp", "list"]), env).is_empty());
+        assert!(mcp_args("claude", &os(&["--debug", "doctor"]), env).is_empty());
+        assert!(mcp_args("claude", &os(&["--version"]), env).is_empty());
+        assert!(mcp_args("codex", &os(&["-h"]), env).is_empty());
+        assert!(mcp_args("codex", &os(&["login"]), env).is_empty());
+        assert!(mcp_args("codex", &os(&["mcp-server"]), env).is_empty());
+        assert!(mcp_args("gemini", &os(&[]), env).is_empty());
+    }
+
+    #[test]
+    fn nothing_without_a_token() {
+        assert!(mcp_args("claude", &os(&["hi"]), |n| env(n).filter(|_| n != "FLOWCODE_MCP_TOKEN")).is_empty());
+        assert!(mcp_args("codex", &os(&["hi"]), |_| None).is_empty());
+    }
+
+    #[test]
+    fn codex_gets_the_server_as_config_overrides() {
+        assert_eq!(
+            mcp_args("codex", &os(&["hi"]), env),
+            os(&[
+                "-c", "mcp_servers.flowcode.command='node'",
+                "-c", "mcp_servers.flowcode.args=['C:\\mcp\\flowcode-mcp.cjs']",
+                "-c", "mcp_servers.flowcode.env_vars=['FLOWCODE_MCP_DIR','FLOWCODE_MCP_TOKEN','FLOWCODE_MCP_TOOLS','FLOWCODE_MCP_AGENT']",
+                "-c", "mcp_servers.flowcode.tools.call_user.approval_mode='approve'",
+            ])
+        );
+    }
+
+    #[test]
+    fn a_script_path_with_an_apostrophe_becomes_a_basic_string() {
+        let with_quote = |n: &str| if n == "FLOWCODE_MCP_SCRIPT" { Some("C:\\O'Neil\\a.cjs".to_string()) } else { env(n) };
+        assert_eq!(mcp_args("codex", &os(&[]), with_quote)[3], std::ffi::OsString::from("mcp_servers.flowcode.args=[\"C:\\\\O'Neil\\\\a.cjs\"]"));
     }
 
     #[test]

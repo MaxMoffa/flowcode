@@ -31,6 +31,11 @@ import {
 } from "./asciiBanner";
 import { unrecorded } from "./shellDialect";
 import { t } from "../i18n";
+import { currentAgentToolsConfig } from "../agents/agentToolsSettings";
+import { AGENT_CLIS, cliName } from "../agents/cliInfo";
+import { routeAgentOpen } from "../browser/agentOpen";
+import { addCall } from "../calls/callStore";
+import { useOptionalConfirmDialog } from "../dialog/ConfirmDialogContext";
 import { isLayoutDragging, onLayoutDragEnd } from "../lib/layoutDrag";
 import { onResume } from "../lib/resume";
 import "@xterm/xterm/css/xterm.css";
@@ -209,6 +214,31 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
   const profileIdRef = useRef(profileId);
   profileIdRef.current = profileId;
   const initialFontSizeRef = useRef(fontSize);
+  const tabIdRef = useRef(tabId);
+  tabIdRef.current = tabId;
+  const confirm = useOptionalConfirmDialog();
+  const confirmRef = useRef(confirm);
+  confirmRef.current = confirm;
+  // Flowcode's MCP tools (see `tools` in spawnPty). Refs, so the handlers handed to the channel at spawn time stay current.
+  const onExt = (method: string, params: unknown) => {
+    const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
+    if (method === "_flowcode/open" && typeof p.target === "string" && p.target) {
+      // WSL tabs get no tools yet, so no distro.
+      void routeAgentOpen({ target: p.target, cwd: typeof p.cwd === "string" ? p.cwd : (cwdRef.current ?? ""), direct: true }, null, confirmRef.current, tabIdRef.current);
+    } else if (method === "_flowcode/call" && typeof p.message === "string" && p.message.trim()) {
+      const tab = tabIdRef.current;
+      // A terminal has no agent of its own: the agent named in the call, if it is one of ours.
+      const agent = AGENT_CLIS.find((c) => c === p.agent);
+      addCall({
+        tabId: tab,
+        agent,
+        key: `call:${tab}`,
+        kind: "custom",
+        title: agent ? t("calls.title.call", { agent: cliName(agent) }) : t("calls.title.callTerminal"),
+        detail: p.message.trim(),
+      });
+    }
+  };
 
   // Absolute row (scrollback-inclusive) where a pending silent navigation's
   // injected `cd` started - real pty output is never touched or dropped, so
@@ -867,6 +897,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
           forgetPty(attached.ptyId);
           if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
         },
+        onExt,
       })
         .then(() => {
           // Closed while attaching: nothing else will ever kill it - unless
@@ -998,6 +1029,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
           rows: term.rows,
           shell: shellIdRef.current,
           profile: profileIdRef.current,
+          tools: currentAgentToolsConfig(),
           onOutput: (data, seq) => {
             lastSeqRef.current = seq;
             if (!disposed) receive(data, seq);
@@ -1006,6 +1038,7 @@ export const TerminalView = memo(forwardRef<TerminalHandle, TerminalViewProps>(
             if (ptyIdRef.current) forgetPty(ptyIdRef.current);
             if (!disposed) term.write(`\r\n[${t("terminal.exited")}]\r\n`);
           },
+          onExt,
         });
       } catch (e) {
         if (!disposed) {

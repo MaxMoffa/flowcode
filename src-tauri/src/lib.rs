@@ -7,6 +7,7 @@ mod attention;
 mod chat;
 mod chat_images;
 mod chat_mcp;
+mod terminal_mcp;
 mod agent_insight;
 mod context;
 mod crash;

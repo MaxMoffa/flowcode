@@ -65,6 +65,8 @@ struct PtySession {
     /// pops up a visible terminal window.
     #[allow(dead_code)]
     job: Option<crate::process_job::TreeJob>,
+    /// The tab's Flowcode MCP server; dropping the session revokes its token.
+    mcp: Option<crate::terminal_mcp::TerminalMcp>,
 }
 
 struct WslTag {
@@ -204,6 +206,8 @@ impl Sink {
                 let out = match &event {
                     PtyEvent::Output { data, seq } => RemoteOut::Output { data: data.clone(), seq: *seq },
                     PtyEvent::Exit => RemoteOut::Exit,
+                    // Phones don't get the app's own events (yet).
+                    PtyEvent::Ext { .. } => return true,
                 };
                 match sub.tx.try_send(out) {
                     Ok(()) => true,
@@ -246,6 +250,21 @@ pub struct PtyState(Mutex<HashMap<String, PtySession>>);
 /// dropped from the map when they end, so this needs no separate cleanup.
 pub fn profile_of(state: &PtyState, pty_id: &str) -> Option<String> {
     lock(&state.0).get(pty_id)?.profile.clone()
+}
+
+/// The tools and starting folder of the tab's MCP server (`None`: no such tab, or it has none).
+pub(crate) fn mcp_of(state: &PtyState, id: &str) -> Option<(Vec<&'static str>, String)> {
+    let sessions = lock(&state.0);
+    let mcp = sessions.get(id)?.mcp.as_ref()?;
+    Some((mcp.tools().to_vec(), mcp.cwd().to_string()))
+}
+
+/// Sends an `Ext` event to the tab showing session `id`. The sink is pushed to
+/// outside the map lock, which `push` and the channel have no business under.
+pub(crate) fn emit_ext(state: &PtyState, id: &str, method: &str, params: serde_json::Value) -> Result<(), String> {
+    let sink = Arc::clone(&lock(&state.0).get(id).ok_or("this terminal tab is closed")?.sink);
+    lock(&sink).push(PtyEvent::Ext { method: method.to_string(), params });
+    Ok(())
 }
 
 impl PtyState {
@@ -343,6 +362,9 @@ impl PtyState {
 pub enum PtyEvent {
     Output { data: String, seq: u64 },
     Exit,
+    /// A message from Flowcode's own side to the tab (an agent's MCP tool call,
+    /// see terminal_mcp.rs), shaped like a chat's `ext` event.
+    Ext { method: String, params: serde_json::Value },
 }
 
 /// How much of `pending` can be decoded and emitted now. A multi-byte UTF-8
@@ -399,6 +421,7 @@ pub fn pty_spawn(
     shell: Option<String>,
     on_event: Channel<PtyEvent>,
     profile: Option<String>,
+    tools: Option<crate::chat_mcp::ToolsConfig>,
 ) -> Result<String, String> {
     // No-op once the warmup has run (the common case, since setup() starts it
     // at launch); blocks only if this spawn really did beat it - see
@@ -427,6 +450,9 @@ pub fn pty_spawn(
 
     let mut cmd = CommandBuilder::new(&shell_program);
     let cwd = cwd.filter(|d| !d.is_empty());
+    let cwd_for_mcp = cwd.clone();
+    // Tags everything started in this tab, and names its MCP token's owner.
+    let id = uuid::Uuid::new_v4().to_string();
     // `wsl:<distro>` pins the distro a tab was opened from (a favorite saved
     // in a WSL session, "Apri in un altro terminale" from one) - plain `wsl`
     // keeps using the machine's default distro. A `\\wsl.localhost\<distro>`
@@ -472,17 +498,22 @@ pub fn pty_spawn(
     }
     // Account profile: point the agent CLIs at the profile's own folders. Not
     // for WSL - these are Windows paths, meaningless inside the distro.
+    let mut mcp = None;
     if wsl_distro.is_none() && shell_stem != "wsl" {
         for (k, v) in crate::profiles::env_for(&app, profile.as_deref()) {
             cmd.env(k, v);
         }
         if let Some(path) = crate::provider_launcher::install(&app, profile.as_deref())? { cmd.env("PATH", path); }
+        // The shims above turn these into the agent CLIs' flags. WSL tabs have no shim yet.
+        mcp = tools.as_ref().and_then(|cfg| crate::terminal_mcp::TerminalMcp::new(&app, &id, cfg, cwd_for_mcp.as_deref()));
+        for (k, v) in mcp.iter().flat_map(|m| m.env()) {
+            cmd.env(k, v);
+        }
     }
     // Tags everything started in this tab with the tab's session id, WSL
     // included (WSLENV carries it across into the distro) - the only way to
     // tell which tab an agent running *inside* WSL belongs to, since Linux
     // processes don't show up in the Windows process tree (see agents.rs).
-    let id = uuid::Uuid::new_v4().to_string();
     cmd.env(PTY_ID_ENV, &id);
     let wslenv = std::env::var("WSLENV").unwrap_or_default();
     if !wslenv.split(':').any(|v| v.split('/').next() == Some(PTY_ID_ENV)) {
@@ -584,6 +615,7 @@ pub fn pty_spawn(
             rows,
             wsl: (shell_stem == "wsl").then(|| WslTag { distro: wsl_distro.clone(), tag: id.clone() }),
             job,
+            mcp,
         },
     );
 

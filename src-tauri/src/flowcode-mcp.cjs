@@ -5,6 +5,7 @@
 //
 // Environment, set by Flowcode: FLOWCODE_MCP_DIR (the folder), FLOWCODE_MCP_TOKEN
 // (which chat is calling) and FLOWCODE_MCP_TOOLS (comma list of the tools to offer).
+// Optional: FLOWCODE_MCP_AGENT (which CLI launched the server; set for terminal tabs).
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
@@ -122,7 +123,7 @@ async function ask(tool, args) {
   const response = path.join(DIR, `res-${id}.json`);
   const deadline = Date.now() + tool.timeoutMs;
   try {
-    writeAtomic(request, JSON.stringify({ id, token: TOKEN, tool: tool.name, args: args ?? {}, timeout_ms: tool.timeoutMs }));
+    writeAtomic(request, JSON.stringify({ id, token: TOKEN, tool: tool.name, args: args ?? {}, timeout_ms: tool.timeoutMs, cwd: process.cwd(), agent: process.env.FLOWCODE_MCP_AGENT || undefined }));
   } catch (e) {
     return { ok: false, error: `Could not reach Flowcode: ${e.message}` };
   }

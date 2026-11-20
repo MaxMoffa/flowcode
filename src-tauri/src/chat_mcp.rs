@@ -81,10 +81,24 @@ pub(crate) fn enabled_tools(cfg: &ToolsConfig, depth: u8) -> Vec<&'static str> {
     tools
 }
 
+/// What a terminal tab's agent gets: delegation in tabs is a later phase.
+pub(crate) fn terminal_tools(cfg: &ToolsConfig) -> Vec<&'static str> {
+    let mut tools = enabled_tools(cfg, 0);
+    tools.retain(|t| matches!(*t, OPEN | CALL_USER));
+    tools
+}
+
+/// What owns a token: a chat, or a terminal tab (by its pty id).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Owner {
+    Chat(String),
+    Terminal(String),
+}
+
 /// Who a token stands for.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Caller {
-    pub chat_id: String,
+    pub owner: Owner,
     pub depth: u8,
 }
 
@@ -96,8 +110,12 @@ struct Registry {
 
 impl Registry {
     fn register(&self, chat_id: &str, depth: u8) -> String {
+        self.add(Caller { owner: Owner::Chat(chat_id.to_string()), depth })
+    }
+
+    fn add(&self, caller: Caller) -> String {
         let token = uuid::Uuid::new_v4().to_string();
-        lock(&self.callers).insert(token.clone(), Caller { chat_id: chat_id.to_string(), depth });
+        lock(&self.callers).insert(token.clone(), caller);
         token
     }
 
@@ -118,6 +136,11 @@ fn registry() -> &'static Registry {
 /// A token for a chat that gets the server; give it back with `unregister` when the chat ends.
 pub(crate) fn register(chat_id: &str, depth: u8) -> String {
     registry().register(chat_id, depth)
+}
+
+/// A token for a terminal tab's agents; give it back with `unregister` when the tab closes.
+pub(crate) fn register_terminal(pty_id: &str) -> String {
+    registry().add(Caller { owner: Owner::Terminal(pty_id.to_string()), depth: 0 })
 }
 
 pub(crate) fn unregister(token: &str) {
@@ -198,6 +221,11 @@ pub(crate) fn servers(app: &AppHandle, cfg: &ToolsConfig, depth: u8, token: &str
     }
 }
 
+/// The script and IPC folder, for the terminal tabs' own server entries.
+pub(crate) fn script_and_dir(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
+    setup(app).map(|s| (s.script.clone(), s.dir.clone()))
+}
+
 /// One tool call as the script wrote it.
 #[derive(Debug, PartialEq)]
 struct Request {
@@ -205,6 +233,15 @@ struct Request {
     tool: String,
     args: Value,
     deadline_ms: Option<u64>,
+    /// The server process's working folder (a terminal agent's current folder); never trusted blindly.
+    cwd: Option<String>,
+    /// Which CLI launched the server, when it is one Flowcode knows.
+    agent: Option<String>,
+}
+
+/// A short, control-free string, or nothing: these fields are hints, never a reason to fail the call.
+fn clean_hint(value: Option<&Value>) -> Option<String> {
+    value.and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 4096 && !s.chars().any(char::is_control)).map(str::to_string)
 }
 
 /// A request id is the name of a file: nothing but a uuid-like word may be in it.
@@ -238,7 +275,9 @@ fn parse_request_at(file_id: &str, text: &str, now: u64) -> Result<Request, Stri
         (None, None) => None,
         (None, Some(value)) => Some(value.as_u64().ok_or("deadline_ms must be an unsigned timestamp")?),
     };
-    Ok(Request { token, tool, args, deadline_ms })
+    let cwd = clean_hint(value.get("cwd"));
+    let agent = clean_hint(value.get("agent")).filter(|a| crate::agents::registry::is_known(a));
+    Ok(Request { token, tool, args, deadline_ms, cwd, agent })
 }
 
 pub(crate) fn check_deadline(deadline_ms: Option<u64>, now: u64) -> Result<(), String> {
@@ -254,7 +293,12 @@ pub(crate) fn check_deadline(deadline_ms: Option<u64>, now: u64) -> Result<(), S
 fn dispatch(app: &AppHandle, request: Request) -> Result<String, String> {
     check_deadline(request.deadline_ms, crate::util::now_ms())?;
     let caller = registry().caller(&request.token).ok_or("unknown or expired token")?;
-    crate::chat::delegate::mcp_call(app, &caller, &request.tool, &request.args, request.deadline_ms)
+    match &caller.owner {
+        Owner::Chat(_) => crate::chat::delegate::mcp_call(app, &caller, &request.tool, &request.args, request.deadline_ms),
+        Owner::Terminal(pty_id) => {
+            crate::terminal_mcp::call(app, pty_id, &request.tool, &request.args, request.cwd.as_deref(), request.agent.as_deref())
+        }
+    }
 }
 
 fn write_atomic(dir: &Path, name: &str, body: &str) -> std::io::Result<()> {
@@ -404,7 +448,7 @@ fn lexical(path: &str) -> String {
     format!("{prefix}{}", parts.join("/"))
 }
 
-fn is_within(path: &str, root: &str) -> bool {
+pub(crate) fn is_within(path: &str, root: &str) -> bool {
     if !is_absolute(root) || is_network_path(root) { return false; }
     let (mut path, mut root) = (lexical(path), lexical(root));
     if root.as_bytes().get(1) == Some(&b':') {
@@ -648,6 +692,31 @@ mod tests {
     }
 
     #[test]
+    fn cwd_and_agent_are_hints_kept_only_when_sane() {
+        let parse = |extra: Value| {
+            let mut body = json!({ "id": "a-1", "token": "t", "tool": "open_in_browser" });
+            body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            parse_request("a-1", &body.to_string()).unwrap()
+        };
+        let ok = parse(json!({ "cwd": "C:\\repo", "agent": "claude" }));
+        assert_eq!((ok.cwd.as_deref(), ok.agent.as_deref()), (Some("C:\\repo"), Some("claude")));
+        let none = parse(json!({}));
+        assert_eq!((none.cwd, none.agent), (None, None));
+        assert_eq!(parse(json!({ "cwd": "" })).cwd, None);
+        assert_eq!(parse(json!({ "cwd": "a\nb" })).cwd, None);
+        assert_eq!(parse(json!({ "cwd": "x".repeat(4097) })).cwd, None);
+        assert_eq!(parse(json!({ "cwd": 5 })).cwd, None);
+        assert_eq!(parse(json!({ "agent": "not-an-agent" })).agent, None);
+    }
+
+    #[test]
+    fn terminals_only_get_open_and_call() {
+        assert_eq!(terminal_tools(&on()), [OPEN, CALL_USER]);
+        assert!(terminal_tools(&ToolsConfig { enabled: false, ..on() }).is_empty());
+        assert!(terminal_tools(&ToolsConfig { open: false, call: false, ..on() }).is_empty());
+    }
+
+    #[test]
     fn expired_tool_calls_are_refused_including_the_deadline_itself() {
         assert!(check_deadline(Some(1234), 1233).is_ok());
         assert!(check_deadline(Some(1234), 1234).is_err());
@@ -668,7 +737,7 @@ mod tests {
         let registry = Registry::default();
         assert_eq!(registry.caller("nope"), None);
         let token = registry.register("chat-1", 1);
-        assert_eq!(registry.caller(&token), Some(Caller { chat_id: "chat-1".into(), depth: 1 }));
+        assert_eq!(registry.caller(&token), Some(Caller { owner: Owner::Chat("chat-1".into()), depth: 1 }));
         assert_ne!(token, registry.register("chat-1", 1), "each registration gets its own token");
         registry.unregister(&token);
         assert_eq!(registry.caller(&token), None);
