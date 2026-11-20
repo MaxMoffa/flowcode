@@ -5,12 +5,25 @@ import { addCall, removeCallByKey } from "../calls/callStore";
 import { t } from "../i18n";
 import { basename } from "../lib/path";
 import type { BrowserTabPage, BrowserTabsSnapshot } from "../../shared/remote-types";
+import { nativeView } from "./nativeView";
 export { isPdfTarget, isPreviewableFile } from "../../shared/agentOpen";
 
 const BROWSER_OPEN_KEY = "flowcode.browserOpen";
 
 export type PreviewPage =
-  | { id: string; kind: "url"; url: string; back: string[]; forward: string[] }
+  | {
+      id: string;
+      kind: "url";
+      /** Where the page really is (the native view reports it): what the address bar shows. */
+      url: string;
+      /** What was asked for (typed, an agent, a link): the native view navigates when it changes. */
+      requestedUrl: string;
+      back: string[];
+      forward: string[];
+      title?: string;
+      /** Data URL of the site's favicon. */
+      favicon?: string;
+    }
   | { id: string; kind: "file"; path: string }
   /** `src` is an http(s) URL or an absolute local path. */
   | { id: string; kind: "pdf"; src: string };
@@ -38,6 +51,15 @@ const store = createStore<BrowserState>({ open: readBool(BROWSER_OPEN_KEY, false
 
 export const useBrowser = store.use;
 export const getBrowser = store.get;
+
+/** The native view lives in the backend: tell it, never let a missing one (tests, no Tauri) break the store. */
+function native(call: () => Promise<unknown>) {
+  try {
+    void call().catch(() => {});
+  } catch {
+    /* no Tauri bridge */
+  }
+}
 
 let nextId = 0;
 const newId = () => `page-${++nextId}`;
@@ -180,12 +202,12 @@ function showPage(id: string, fromTabId?: string) {
 function addOrFindPage(target: { kind: "url"; url: string } | { kind: "file"; path: string } | { kind: "pdf"; src: string }): string {
   const existing = store.get().pages.find((p) => {
     if (p.kind !== target.kind) return false;
-    return p.kind === "url" ? p.url === (target as { url: string }).url : p.kind === "file" ? p.path === (target as { path: string }).path : p.src === (target as { src: string }).src;
+    return p.kind === "url" ? p.url === (target as { url: string }).url || p.requestedUrl === (target as { url: string }).url : p.kind === "file" ? p.path === (target as { path: string }).path : p.src === (target as { src: string }).src;
   });
   if (existing) return existing.id;
   const id = newId();
   const page: PreviewPage =
-    target.kind === "url" ? { id, kind: "url", url: target.url, back: [], forward: [] } : target.kind === "file" ? { id, kind: "file", path: target.path } : { id, kind: "pdf", src: target.src };
+    target.kind === "url" ? { id, kind: "url", url: target.url, requestedUrl: target.url, back: [], forward: [] } : target.kind === "file" ? { id, kind: "file", path: target.path } : { id, kind: "pdf", src: target.src };
   store.update((s) => ({ ...s, pages: [...s.pages, page] }));
   return id;
 }
@@ -230,6 +252,7 @@ function openPdfInPreview(src: string, fromTabId?: string) {
 
 /** A url page that turned out to serve a PDF becomes a viewer page, in place. */
 export function convertPageToPdf(id: string, url: string) {
+  native(() => nativeView.close(id));
   store.update((s) => ({
     ...s,
     pages: s.pages.map((p) => (p.id === id && p.kind === "url" ? { id, kind: "pdf" as const, src: url } : p)),
@@ -252,6 +275,7 @@ export function activatePage(id: string) {
 }
 
 export function closePage(id: string) {
+  native(() => nativeView.close(id));
   store.update((s) => {
     const index = s.pages.findIndex((p) => p.id === id);
     if (index < 0) return s;
@@ -269,22 +293,51 @@ function updateUrlPage(id: string, fn: (page: Extract<PreviewPage, { kind: "url"
   }));
 }
 
+/** Asks the page to go to `url`. The address bar follows once the view reports it (syncPageUrl). */
 export function navigatePage(id: string, url: string) {
-  updateUrlPage(id, (p) => (p.url === url ? p : { ...p, url, back: [...p.back, p.url], forward: [] }));
+  updateUrlPage(id, (p) => (p.url === url || p.requestedUrl === url ? p : { ...p, requestedUrl: url }));
 }
 
+/** The native view reports where the page is. Updates the displayed address only (never navigates)
+ * and keeps the history stacks: an address equal to the previous / next entry is back / forward. */
+export function syncPageUrl(id: string, url: string) {
+  updateUrlPage(id, (p) => {
+    if (p.url === url) return p;
+    const base = { ...p, url, requestedUrl: url, title: undefined };
+    if (p.back[p.back.length - 1] === url) return { ...base, back: p.back.slice(0, -1), forward: [p.url, ...p.forward] };
+    if (p.forward[0] === url) return { ...base, back: [...p.back, p.url], forward: p.forward.slice(1) };
+    return { ...base, back: [...p.back, p.url], forward: [] };
+  });
+}
+
+export function setPageTitle(id: string, title: string) {
+  const value = title.trim() || undefined;
+  updateUrlPage(id, (p) => (p.title === value ? p : { ...p, title: value }));
+}
+
+export function setPageFavicon(id: string, favicon: string | null) {
+  updateUrlPage(id, (p) => ((p.favicon ?? null) === favicon ? p : { ...p, favicon: favicon ?? undefined }));
+}
+
+// requestedUrl follows the move too: the view is already there, so it must not navigate.
 export function goBack(id: string) {
+  const page = store.get().pages.find((p) => p.id === id);
+  if (page?.kind !== "url" || page.back.length === 0) return;
   updateUrlPage(id, (p) => {
     const prev = p.back[p.back.length - 1];
-    return prev === undefined ? p : { ...p, url: prev, back: p.back.slice(0, -1), forward: [p.url, ...p.forward] };
+    return prev === undefined ? p : { ...p, url: prev, requestedUrl: prev, back: p.back.slice(0, -1), forward: [p.url, ...p.forward] };
   });
+  native(() => nativeView.back(id));
 }
 
 export function goForward(id: string) {
+  const page = store.get().pages.find((p) => p.id === id);
+  if (page?.kind !== "url" || page.forward.length === 0) return;
   updateUrlPage(id, (p) => {
     const next = p.forward[0];
-    return next === undefined ? p : { ...p, url: next, back: [...p.back, p.url], forward: p.forward.slice(1) };
+    return next === undefined ? p : { ...p, url: next, requestedUrl: next, back: [...p.back, p.url], forward: p.forward.slice(1) };
   });
+  native(() => nativeView.forward(id));
 }
 
 /** True when the server is new: one dev server printed by several tabs, or

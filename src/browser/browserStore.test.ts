@@ -14,6 +14,7 @@ import {
   isPdfTarget,
   isPreviewableFile,
   navigatePage,
+  syncPageUrl,
   browserTabsSnapshot,
   openFileFromRemote,
   openUrlFromRemote,
@@ -123,17 +124,32 @@ describe("store", () => {
   it("keeps back/forward history", () => {
     openUrlInPreview("http://localhost:1/");
     const id = getBrowser().activeId!;
-    navigatePage(id, "http://localhost:1/a");
-    navigatePage(id, "http://localhost:1/b");
+    syncPageUrl(id, "http://localhost:1/a");
+    syncPageUrl(id, "http://localhost:1/b");
     goBack(id);
     goBack(id);
     let page = getBrowser().pages[0];
     expect(page.kind === "url" && page.url).toBe("http://localhost:1/");
     goForward(id);
-    navigatePage(id, "http://localhost:1/c");
+    syncPageUrl(id, "http://localhost:1/c");
     page = getBrowser().pages[0];
     expect(page.kind === "url" && page.forward).toEqual([]);
     expect(page.kind === "url" && page.back).toEqual(["http://localhost:1/", "http://localhost:1/a"]);
+  });
+
+  it("navigatePage only asks: the address follows the view's report", () => {
+    openUrlInPreview("http://localhost:1/");
+    const id = getBrowser().activeId!;
+    navigatePage(id, "http://localhost:1/a");
+    let page = getBrowser().pages[0];
+    expect(page.kind === "url" && [page.url, page.requestedUrl]).toEqual(["http://localhost:1/", "http://localhost:1/a"]);
+    syncPageUrl(id, "http://localhost:1/a");
+    page = getBrowser().pages[0];
+    expect(page.kind === "url" && [page.url, page.requestedUrl, page.back]).toEqual(["http://localhost:1/a", "http://localhost:1/a", ["http://localhost:1/"]]);
+    // back reported by the view (not the store) lands on the same stacks
+    syncPageUrl(id, "http://localhost:1/");
+    page = getBrowser().pages[0];
+    expect(page.kind === "url" && [page.back, page.forward]).toEqual([[], ["http://localhost:1/a"]]);
   });
 
   it("tracks detected servers by port", () => {
@@ -349,7 +365,7 @@ describe("browserTabsSnapshot", () => {
   it("maps pages, servers, active and opened", () => {
     openUrlInPreview("http://localhost:1");
     const id = getBrowser().pages[0].id;
-    navigatePage(id, "http://localhost:2");
+    syncPageUrl(id, "http://localhost:2");
     openFileInPreview("C:/a.html");
     openUrlInPreview("https://x.com/s.pdf");
     addDetectedServer("http://localhost:3000", 3000, "tab-z");

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
@@ -9,6 +9,7 @@ import {
   activatePage,
   closePage,
   convertPageToPdf,
+  getBrowser,
   goBack,
   goForward,
   isLocalUrl,
@@ -18,20 +19,21 @@ import {
   normalizeTypedUrl,
   openUrlInPreview,
   setBrowserOpen,
+  setPageFavicon,
+  setPageTitle,
   setServerAlive,
+  syncPageUrl,
   useBrowser,
   type PreviewPage,
 } from "./browserStore";
+import { nativeView, onNativeLoad, onNativeNavigated, onNativeNewWindow, onNativeTitle, useNativeBrowserView } from "./nativeView";
+import { useViewportCovered } from "./useViewportCovered";
 import "./browser-panel.css";
 
 const PdfViewer = lazy(() => import("./PdfViewer"));
 const ImageFileViewer = lazy(() => import("./ImageFileViewer"));
 const isImagePath = (path: string) => /\.(?:png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(path);
 
-/** Sandbox of the page inside the host frame. A web page keeps its origin
- * (a dev server needs its own cookies and storage) but never gets popups or
- * top navigation. */
-const WEB_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-modals allow-downloads";
 /** How often the active artifact's mtime is read for the auto-reload. */
 const MTIME_POLL_MS = 1500;
 /** How often the detected servers are probed for the live dot. */
@@ -40,6 +42,48 @@ const PROBE_POLL_MS = 4000;
 const LOAD_TIMEOUT_MS = 20_000;
 /** `loading` while the PDF viewer works: not a host load sequence. */
 const PDF_LOADING = -1;
+/** `loading` while a native page view loads (its own started / finished events). */
+const NATIVE_LOADING = -2;
+const TOAST_MS = 4000;
+/** Strip at the bottom the native view leaves free while the toast shows. */
+const TOAST_INSET = 44;
+/** The freeze frame is dropped this long after the overlay left, whether or not the view reported back. */
+const FREEZE_FALLBACK_MS = 800;
+
+/** Favicon per origin (null: none), so a site is asked once. */
+const faviconCache = new Map<string, string | null>();
+const faviconPending = new Set<string>();
+
+function requestFavicon(pageId: string, url: string) {
+  if (isLocalUrl(url)) return;
+  let origin: string;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    return;
+  }
+  if (faviconCache.has(origin)) {
+    setPageFavicon(pageId, faviconCache.get(origin) ?? null);
+    return;
+  }
+  if (faviconPending.has(origin)) return;
+  faviconPending.add(origin);
+  void nativeView
+    .favicon(url)
+    .catch(() => null)
+    .then((icon) => {
+      faviconCache.set(origin, icon ?? null);
+      faviconPending.delete(origin);
+      for (const p of getBrowser().pages) {
+        if (p.kind !== "url") continue;
+        try {
+          if (new URL(p.url).origin === origin) setPageFavicon(p.id, icon ?? null);
+        } catch {
+          /* not an address */
+        }
+      }
+    });
+}
 
 const svg = (children: ReactNode, size?: number) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -88,7 +132,23 @@ const PdfIcon = () =>
       <path d="M8 17v-4h1.3a1.2 1.2 0 0 1 0 2.4H8M12 13v4h.8a2 2 0 0 0 0-4zM16.5 17v-4h1.8" strokeWidth="1.2" />
     </>,
   );
-const ShieldIcon = () => svg(<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />);
+const MoreIcon = () => svg(<path d="M5 12h.01M12 12h.01M19 12h.01" strokeWidth="2.6" />);
+const CopyIcon = () =>
+  svg(
+    <>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" />
+    </>,
+  );
+const DevToolsIcon = () => svg(<path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 6l-2 12" />);
+const TrashIcon = () => svg(<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />);
+const PopupIcon = () =>
+  svg(
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 9h18" />
+    </>,
+  );
 const PlusIcon = () => svg(<path d="M12 5v14M5 12h14" />);
 const ServerIcon = () =>
   svg(
@@ -115,6 +175,7 @@ function describePage(page: PreviewPage): { bold: string; muted: string; full: s
 /** A page's name in the tab list: the file name, or the site plus its last path segment. */
 function tabLabel(page: PreviewPage): string {
   if (page.kind === "file") return basename(page.path);
+  if (page.kind === "url" && page.title) return page.title;
   if (page.kind === "pdf" && !/^https?:\/\//i.test(page.src)) return basename(page.src);
   const url = page.kind === "pdf" ? page.src : page.url;
   try {
@@ -127,13 +188,20 @@ function tabLabel(page: PreviewPage): string {
   }
 }
 
-/** A page's badge: the kind icon for files, a server for local addresses, a lettered square for sites
- * (a cross-origin frame hides the real title and favicon). */
+/** A page's badge: the kind icon for files, a server for local addresses, the favicon of a site
+ * (a lettered square until it is known). */
 function TabBadge({ page }: { page: PreviewPage }) {
   if (page.kind === "file") return <span className="browser-tabs-badge is-icon">{isImagePath(page.path) ? <ImageIcon /> : <FileIcon />}</span>;
   const url = page.kind === "pdf" ? page.src : page.url;
   if (page.kind === "pdf" && !/^https?:\/\//i.test(url)) return <span className="browser-tabs-badge is-icon"><PdfIcon /></span>;
   if (isLocalUrl(url)) return <span className="browser-tabs-badge is-local"><ServerIcon /></span>;
+  if (page.kind === "url" && page.favicon) {
+    return (
+      <span className="browser-tabs-badge is-fav">
+        <img src={page.favicon} alt="" draggable={false} />
+      </span>
+    );
+  }
   let host = url;
   try {
     host = new URL(url).hostname.replace(/^www\./, "");
@@ -149,10 +217,40 @@ function TabBadge({ page }: { page: PreviewPage }) {
   );
 }
 
-/** The sandboxed artifact/dev-server preview: a host page on its own origin
- * (`flowcode-preview://`) that holds the real page in an inner iframe, so the
- * app's CSP never has to open up to the web. All this panel does is tell the
- * host what to load. */
+/** A popover next to its button closes on a click elsewhere, on Escape, and when a page frame takes focus
+ * (a click inside a frame never reaches this document, it only blurs the window). */
+function usePopoverDismiss(open: boolean, close: () => void, popRef: RefObject<HTMLElement | null>, buttonRef: RefObject<HTMLElement | null>) {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (popRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
+      closeRef.current();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Escape also closes the panel when it is an overlay: this one is for the popover only.
+      e.stopPropagation();
+      closeRef.current();
+      buttonRef.current?.focus();
+    };
+    const onBlur = () => closeRef.current();
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [open, popRef, buttonRef]);
+}
+
+/** The preview panel: files, artifacts and PDFs in a sandboxed host page on its own origin
+ * (`flowcode-preview://`, so the app's CSP never opens up to the web), web and localhost pages
+ * in native child webviews (src/browser/nativeView.ts) that paint above the DOM. */
 export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const { pages, activeId, servers } = useBrowser();
   const { artifactScripts, autoReloadArtifacts } = useBrowserSettings();
@@ -162,8 +260,6 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const loadSequence = useRef(0);
   const [readyHost, setReadyHost] = useState<{ url: string; source: Window } | null>(null);
   const [loading, setLoading] = useState<number | null>(null);
-  const [blockedUrl, setBlockedUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -172,34 +268,57 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const [tabsOpen, setTabsOpen] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);
   const tabsButtonRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  // A page opened by another page's popup: the notice with the way back.
+  const [toast, setToast] = useState<{ sourceId: string; host: string } | null>(null);
+  // Pages whose address passed the PDF check (a web page is shown only after it).
+  const [checked, setChecked] = useState<string[]>([]);
+  const [suspended, setSuspended] = useState(false);
+  const [freeze, setFreeze] = useState<{ src: string | null } | null>(null);
+  const coverSeq = useRef(0);
+  /** The page whose native view is hidden behind the freeze frame. */
+  const suspendedFor = useRef<string | null>(null);
 
-  // The tab list closes on a click elsewhere, on Escape, and when the page frame takes focus
-  // (a click inside an iframe never reaches this document, it only blurs the window).
+  usePopoverDismiss(tabsOpen, () => setTabsOpen(false), tabsRef, tabsButtonRef);
+  usePopoverDismiss(menuOpen, () => setMenuOpen(false), menuRef, menuButtonRef);
   useEffect(() => {
-    if (!tabsOpen) return;
-    const onPointer = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (tabsRef.current?.contains(target) || tabsButtonRef.current?.contains(target)) return;
-      setTabsOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // Escape also closes the panel when it is an overlay: this one is for the list only.
-      e.stopPropagation();
-      setTabsOpen(false);
-      tabsButtonRef.current?.focus();
-    };
-    const onBlur = () => setTabsOpen(false);
-    document.addEventListener("pointerdown", onPointer, true);
-    document.addEventListener("keydown", onKey, true);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      document.removeEventListener("pointerdown", onPointer, true);
-      document.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [tabsOpen]);
+    if (!menuOpen) setConfirmClear(false);
+  }, [menuOpen]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
+  // What the native views report. `loading` follows the page in front only.
+  useEffect(() => {
+    const offs = [
+      onNativeNavigated(({ pageId, url }) => syncPageUrl(pageId, url)),
+      onNativeTitle(({ pageId, title }) => setPageTitle(pageId, title)),
+      onNativeLoad(({ pageId, state, url }) => {
+        if (state === "finished") requestFavicon(pageId, url);
+        if (pageId !== activeIdRef.current) return;
+        setLoading((prev) => (state === "started" ? NATIVE_LOADING : prev === NATIVE_LOADING ? null : prev));
+      }),
+      onNativeNewWindow(({ pageId, url }) => {
+        let host = url;
+        try {
+          host = new URL(url).host;
+        } catch {
+          /* show the raw text */
+        }
+        openUrlInPreview(url);
+        setToast({ sourceId: pageId, host });
+      }),
+    ];
+    return () => offs.forEach((off) => off());
+  }, []);
   const hostUrl = pluginFileUrl(convertFileSrc("host", "flowcode-preview"), page?.kind === "file" ? "artifact.html" : "index.html");
   const hostUrlRef = useRef(hostUrl);
   hostUrlRef.current = hostUrl;
@@ -221,14 +340,14 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  const pageKey = page ? `${page.id}|${page.kind === "url" ? page.url : page.kind === "pdf" ? page.src : page.path}` : "";
+  // A url page's address is not part of the key: the native view moves on its own.
+  const pageKey = page ? `${page.id}|${page.kind === "url" ? "" : page.kind === "pdf" ? page.src : page.path}` : "";
 
   useEffect(() => {
     if (!hostReady) return;
     let stale = false;
     const sequence = ++loadSequence.current;
     const current = () => !stale && sequence === loadSequence.current;
-    setBlockedUrl(null);
     if (!page) {
       post({ type: "clear", sequence });
       setLoading(null);
@@ -240,36 +359,21 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
       setLoading((prev) => (prev === PDF_LOADING ? prev : null));
       return;
     }
-    setLoading(sequence);
-    if (page.kind === "file") {
-      void invoke<string>("preview_register_root", { dir: parentPath(page.path) }).then(
-        (token) => {
-          if (!current()) return;
-          const src = `${convertFileSrc("f", "flowcode-preview")}/${token}/${encodeURIComponent(basename(page.path))}`;
-          post({ type: "load", sequence, url: src, sandbox: artifactScripts ? "allow-scripts" : "" });
-        },
-        () => current() && setLoading(null),
-      );
-    } else if (isLocalUrl(page.url)) {
-      post({ type: "load", sequence, url: page.url, sandbox: WEB_SANDBOX });
-    } else {
-      // An iframe doesn't report X-Frame-Options / CSP refusals, so ask first.
-      void invoke<{ blocked: boolean; pdf: boolean }>("preview_frame_check", { url: page.url }).then(
-        ({ blocked, pdf }) => {
-          if (!current()) return;
-          if (pdf) {
-            convertPageToPdf(page.id, page.url);
-            setLoading(null);
-          } else if (blocked) {
-            post({ type: "clear", sequence });
-            setBlockedUrl(page.url);
-            setLoading(null);
-          } else post({ type: "load", sequence, url: page.url, sandbox: WEB_SANDBOX });
-        },
-        // The check itself failing says nothing about the site: try it.
-        () => current() && post({ type: "load", sequence, url: page.url, sandbox: WEB_SANDBOX }),
-      );
+    if (page.kind === "url") {
+      // Web and localhost pages live in native views, not in the host frame.
+      post({ type: "clear", sequence });
+      setLoading(null);
+      return;
     }
+    setLoading(sequence);
+    void invoke<string>("preview_register_root", { dir: parentPath(page.path) }).then(
+      (token) => {
+        if (!current()) return;
+        const src = `${convertFileSrc("f", "flowcode-preview")}/${token}/${encodeURIComponent(basename(page.path))}`;
+        post({ type: "load", sequence, url: src, sandbox: artifactScripts ? "allow-scripts" : "" });
+      },
+      () => current() && setLoading(null),
+    );
     return () => {
       stale = true;
     };
@@ -279,7 +383,7 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   useEffect(() => {
     if (!loading) return;
     const timer = setTimeout(() => {
-      if (loading === loadSequence.current) setLoading(null);
+      if (loading === loadSequence.current || loading === NATIVE_LOADING) setLoading(null);
     }, LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [loading]);
@@ -334,6 +438,10 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
 
   const reload = () => {
     if (!page) return;
+    if (page.kind === "url") {
+      void nativeView.reload(page.id).catch(() => {});
+      return;
+    }
     // Reload uses the same sequence and timeout lifecycle as navigation.
     setReloadNonce((n) => n + 1);
   };
@@ -343,14 +451,6 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
     if (page.kind === "url") void openUrl(page.url);
     else if (page.kind === "pdf" && /^https?:\/\//i.test(page.src)) void openUrl(page.src);
     else void invoke("open_with_default_app", { path: page.kind === "pdf" ? page.src : page.path });
-  };
-
-  const copyBlockedLink = () => {
-    if (!blockedUrl) return;
-    void navigator.clipboard.writeText(blockedUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
   };
 
   const info = page ? describePage(page) : null;
@@ -393,6 +493,92 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
   const freeServers = servers.filter((s) => !openPorts.has(s.port));
 
   const urlPage = page?.kind === "url" ? page : null;
+  const urlId = urlPage?.id ?? null;
+  const requestedUrl = urlPage?.requestedUrl ?? null;
+
+  // A web page is shown only once its address is known not to be a PDF (the PDF viewer takes those).
+  useEffect(() => {
+    if (!urlId || !requestedUrl) return;
+    const markChecked = () => setChecked((c) => (c.includes(urlId) ? c : [...c, urlId]));
+    if (isLocalUrl(requestedUrl)) {
+      markChecked();
+      return;
+    }
+    let stale = false;
+    invoke<{ blocked: boolean; pdf: boolean }>("preview_frame_check", { url: requestedUrl }).then(
+      ({ pdf }) => {
+        if (stale) return;
+        if (pdf) convertPageToPdf(urlId, requestedUrl);
+        else markChecked();
+      },
+      // The check itself failing says nothing about the site: show it.
+      () => !stale && markChecked(),
+    );
+    return () => {
+      stale = true;
+    };
+  }, [urlId, requestedUrl]);
+
+  // The native view is above the DOM: while an overlay covers the viewport (a menu, a dialog, this
+  // panel's own popovers) a snapshot stands in for the page and the view is hidden.
+  const { visible, covered } = useViewportCovered(viewportRef, !dragging);
+  const coverNow = covered || tabsOpen || menuOpen;
+  // Shown only after the PDF check, except pages already shown (a later navigation is checked alongside).
+  const nativeUrl = urlPage && (checked.includes(urlPage.id) || isLocalUrl(urlPage.requestedUrl)) ? urlPage.requestedUrl : null;
+  const nativeLive = !!urlPage && visible && !!nativeUrl;
+  const insetBottom = toast && urlPage ? TOAST_INSET : 0;
+
+  useNativeBrowserView({
+    viewportRef,
+    pageId: urlId ?? "",
+    url: nativeUrl,
+    active: nativeLive,
+    suspended,
+    currentUrl: urlPage?.url ?? null,
+    insetBottom,
+    onShown: () =>
+      requestAnimationFrame(() => {
+        if (suspendedFor.current === null) setFreeze(null);
+      }),
+  });
+
+  useEffect(() => {
+    const mine = ++coverSeq.current;
+    if (!coverNow) {
+      suspendedFor.current = null;
+      setSuspended(false);
+      return;
+    }
+    // Nothing to hide, a snapshot already stands in, or a panel drag is moving the view.
+    if (!nativeLive || !urlId || suspendedFor.current === urlId || dragging) return;
+    // A stale answer (the overlay left, another page came forward) is dropped by its sequence.
+    const stand = (src: string | null) => {
+      if (coverSeq.current !== mine) return;
+      suspendedFor.current = urlId;
+      setFreeze({ src });
+      setSuspended(true);
+    };
+    nativeView.snapshot(urlId).then(stand, () => stand(null));
+  }, [coverNow, nativeLive, urlId, dragging]);
+
+  // The view reports back (onShown) in the normal case; this covers a view that never shows again.
+  useEffect(() => {
+    if (!freeze || coverNow) return;
+    const timer = setTimeout(() => setFreeze(null), FREEZE_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [freeze, coverNow]);
+
+  const copyAddress = () => {
+    if (info) void navigator.clipboard.writeText(info.full).catch(() => {});
+  };
+  const clearSession = () => {
+    if (!urlId) return;
+    void nativeView
+      .clearData(urlId)
+      .then(() => nativeView.reload(urlId))
+      .catch(() => {});
+  };
+  const toastSourceOpen = !!toast && pages.some((p) => p.id === toast.sourceId);
 
   return (
     <div className="browser-panel">
@@ -443,7 +629,10 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           ref={tabsButtonRef}
           type="button"
           className={"browser-tabs-button" + (tabsOpen ? " is-open" : "")}
-          onClick={() => setTabsOpen((o) => !o)}
+          onClick={() => {
+            setMenuOpen(false);
+            setTabsOpen((o) => !o);
+          }}
           title={t("browser.tabs")}
           aria-label={t("browser.tabs")}
           aria-haspopup="true"
@@ -452,15 +641,28 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
           <span className="browser-tabs-count">{pages.length}</span>
           {freeServers.some((s) => s.alive) && <span className="browser-panel-dot is-alive browser-tabs-signal" />}
         </button>
-        <button type="button" className="icon-button sm" disabled={!page} onClick={openExternal} title={t("browser.openExternal")} aria-label={t("browser.openExternal")}>
-          <ExternalIcon />
+        <button
+          ref={menuButtonRef}
+          type="button"
+          className={"icon-button sm" + (menuOpen ? " is-open" : "")}
+          disabled={!page}
+          onClick={() => {
+            setTabsOpen(false);
+            setMenuOpen((o) => !o);
+          }}
+          title={t("browser.more")}
+          aria-label={t("browser.more")}
+          aria-haspopup="true"
+          aria-expanded={menuOpen}
+        >
+          <MoreIcon />
         </button>
         <button type="button" className="icon-button sm" onClick={() => setBrowserOpen(false)} title={t("browser.close")} aria-label={t("browser.close")}>
           <CloseIcon />
         </button>
       </div>
 
-      <div className={"browser-panel-viewport" + (dragging ? " is-dragging" : "") + (page ? " has-page" : "")}>
+      <div ref={viewportRef} className={"browser-panel-viewport" + (dragging ? " is-dragging" : "") + (page ? " has-page" : "")}>
         {loading && <div className="browser-panel-loadbar" />}
         <iframe key={hostUrl} ref={frameRef} className="browser-panel-frame" src={hostUrl} title={t("browser.title")} />
         {page?.kind === "pdf" && (
@@ -482,25 +684,77 @@ export function BrowserPanel({ dragging }: { dragging: boolean }) {
             <p>{t("browser.empty.hint")}</p>
           </div>
         )}
-        {blockedUrl && (
-          <div className="browser-panel-state">
-            <div className="browser-panel-state-icon">
-              <ShieldIcon />
-            </div>
-            <h4>{t("browser.blocked.title")}</h4>
-            <p>{t("browser.blocked.text", { host: new URL(blockedUrl).host })}</p>
-            <div className="browser-panel-state-actions">
-              <button type="button" className="browser-panel-btn is-primary" onClick={() => void openUrl(blockedUrl)}>
-                <ExternalIcon size={13} />
-                {t("browser.blocked.open")}
-              </button>
-              <button type="button" className="browser-panel-btn" onClick={copyBlockedLink}>
-                {copied ? t("common.copied") : t("browser.blocked.copy")}
-              </button>
+        {urlPage && freeze?.src && <img className="browser-panel-freeze" src={freeze.src} alt="" draggable={false} style={{ height: `calc(100% - ${insetBottom}px)` }} />}
+        {urlPage && freeze && !freeze.src && (
+          <div className="browser-panel-pause">
+            <div className="browser-panel-pause-chip">
+              <i />
+              {t("browser.freeze.paused")}
             </div>
           </div>
         )}
+        {toast && (
+          <div className="browser-panel-toast" data-cover-ignore role="status">
+            <PopupIcon />
+            <span>{t("browser.toast.newTab", { host: toast.host })}</span>
+            {toastSourceOpen && (
+              <button
+                type="button"
+                className="browser-panel-toast-link"
+                onClick={() => {
+                  activatePage(toast.sourceId);
+                  setToast(null);
+                }}
+              >
+                {t("browser.toast.back")}
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {menuOpen && (
+        <div ref={menuRef} className="browser-tabs-pop browser-menu-pop" role="menu" aria-label={t("browser.more")}>
+          <button type="button" role="menuitem" className="browser-menu-item" onClick={() => { setMenuOpen(false); openExternal(); }}>
+            <ExternalIcon />
+            {t("browser.openExternal")}
+          </button>
+          <button type="button" role="menuitem" className="browser-menu-item" onClick={() => { setMenuOpen(false); copyAddress(); }}>
+            <CopyIcon />
+            {t("browser.menu.copy")}
+          </button>
+          <div className="browser-tabs-sep" />
+          <button type="button" role="menuitem" className="browser-menu-item" disabled={!urlPage} onClick={() => { setMenuOpen(false); if (urlId) void nativeView.devtools(urlId).catch(() => {}); }}>
+            <DevToolsIcon />
+            {t("browser.menu.devtools")}
+            <span className="browser-menu-key">F12</span>
+          </button>
+          <button type="button" role="menuitem" className="browser-menu-item" disabled={!urlPage} onClick={() => { setMenuOpen(false); if (urlId) void nativeView.reload(urlId, true).catch(() => {}); }}>
+            <ReloadIcon />
+            {t("browser.menu.hardReload")}
+            <span className="browser-menu-key">Ctrl+Shift+R</span>
+          </button>
+          <div className="browser-tabs-sep" />
+          <div className="browser-tabs-heading">{t("browser.menu.session")}</div>
+          {confirmClear ? (
+            <>
+              <button type="button" role="menuitem" className="browser-menu-item is-danger is-confirm" onClick={() => { setMenuOpen(false); clearSession(); }}>
+                <TrashIcon />
+                {t("browser.menu.clearConfirm")}
+              </button>
+              <button type="button" role="menuitem" className="browser-menu-item is-plain" onClick={() => setConfirmClear(false)}>
+                {t("common.cancel")}
+              </button>
+            </>
+          ) : (
+            <button type="button" role="menuitem" className="browser-menu-item is-danger" disabled={!urlPage} onClick={() => setConfirmClear(true)}>
+              <TrashIcon />
+              {t("browser.menu.clear")}
+            </button>
+          )}
+          <div className="browser-menu-note">{t("browser.menu.sessionNote")}</div>
+        </div>
+      )}
 
       {tabsOpen && (
         <div ref={tabsRef} className="browser-tabs-pop" role="dialog" aria-label={t("browser.tabs")}>

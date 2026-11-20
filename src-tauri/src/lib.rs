@@ -44,6 +44,7 @@ mod cline_db;
 mod view_plugins;
 mod watcher;
 mod windows;
+mod browser_view;
 
 use pty::PtyState;
 use tauri::Manager;
@@ -148,6 +149,7 @@ pub fn run() {
                 #[cfg(target_os = "windows")]
                 windows::forget_minimized(label);
                 app.state::<watcher::DirWatchers>().forget(label);
+                browser_view::forget_window(app, label);
             }
         })
         .manage(preview::PreviewRoots::default())
@@ -156,11 +158,24 @@ pub fn run() {
         .manage(dictation::DictationState::default())
         .manage(agents::ProbePids::default())
         .manage(session::SessionStore::default())
+        .manage(browser_view::BrowserViews::default())
         .manage(windows::WindowInits::default())
         .manage(windows::WindowTabs::default())
         .manage(watcher::DirWatchers::default())
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
+            browser_view::browser_view_show,
+            browser_view::browser_view_bounds,
+            browser_view::browser_view_hide,
+            browser_view::browser_view_navigate,
+            browser_view::browser_view_back,
+            browser_view::browser_view_forward,
+            browser_view::browser_view_reload,
+            browser_view::browser_view_close,
+            browser_view::browser_view_devtools,
+            browser_view::browser_view_clear_data,
+            browser_view::browser_view_snapshot,
+            browser_view::browser_favicon,
             set_ui_language,
             crash::crash_pending,
             crash::crash_dismiss,
@@ -335,7 +350,15 @@ pub fn run() {
             remote_client::remote_host_send,
             remote_client::remote_host_cached,
         ])
-        .build(tauri::generate_context!())
+        .build({
+            // The `devtools` cargo feature (browser_view.rs) enables devtools on
+            // every webview in release; the config-created main window opts out.
+            let mut context = tauri::generate_context!();
+            for w in context.config_mut().app.windows.iter_mut() {
+                w.devtools = Some(cfg!(debug_assertions));
+            }
+            context
+        })
         .expect("error while building tauri application")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {

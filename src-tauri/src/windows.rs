@@ -71,6 +71,9 @@ pub async fn window_open(
         .transparent(true)
         .decorations(false)
         .shadow(false)
+        // The `devtools` cargo feature (browser_view.rs) would otherwise turn
+        // devtools on in release for the app's own windows.
+        .devtools(cfg!(debug_assertions))
         .visible(false)
         .build()
         .map_err(|e| {

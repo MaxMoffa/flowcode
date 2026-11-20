@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for every Flowcode window (the main one and those opened by dragging a tab out)",
-  "windows": ["main", "win-*"],
+  "webviews": ["main", "win-*"],
   "permissions": [
     "core:default",
     "opener:default",

@@ -173,6 +173,68 @@
   }
 }
 
+/* The ⋯ menu: the tab list's popover with action rows. */
+.browser-menu-pop {
+  width: min(280px, calc(100% - 16px));
+}
+
+.browser-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-menu-item:hover:not(:disabled) {
+  background: var(--sidebar-hover);
+}
+
+.browser-menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.browser-menu-item svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+}
+
+.browser-menu-item.is-danger,
+.browser-menu-item.is-danger svg {
+  color: var(--ansi-red);
+}
+
+.browser-menu-item.is-confirm {
+  background: color-mix(in srgb, var(--ansi-red) 14%, transparent);
+}
+
+.browser-menu-item.is-plain {
+  padding-left: 32px;
+}
+
+.browser-menu-key {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.browser-menu-note {
+  padding: 2px 9px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+
 .browser-tabs-heading {
   padding: 5px 8px 4px;
   font-size: 10.5px;
@@ -278,6 +340,17 @@
   background: color-mix(in srgb, var(--ansi-green) 55%, var(--bg-elevated));
 }
 
+.browser-tabs-badge.is-fav {
+  background: #fff;
+  overflow: hidden;
+}
+
+.browser-tabs-badge.is-fav img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
 .browser-tabs-badge.is-server {
   border: 1px dashed var(--border);
 }
@@ -380,6 +453,90 @@
   width: 100%;
   height: 100%;
   border: 0;
+}
+
+/* Freeze frame: what the native page showed, left in the DOM while an overlay
+   (menu, dialog) covers it - the native view is hidden then. */
+.browser-panel-freeze {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  filter: saturate(0.85) brightness(0.97);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* No snapshot available (not Windows, or the capture failed). */
+.browser-panel-pause {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-elevated);
+}
+
+.browser-panel-pause-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--menu-surface);
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.browser-panel-pause-chip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* New-tab notice: sits in the strip the native view leaves free at the bottom. */
+.browser-panel-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 16px);
+  padding: 6px 12px;
+  box-sizing: border-box;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--menu-surface);
+  box-shadow: var(--drop-shadow, 0 10px 30px rgba(0, 0, 0, 0.4));
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.browser-panel-toast svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+}
+
+.browser-panel-toast span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-panel-toast-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
 }
 
 /* An iframe swallows pointer events, which would cut the resize drag short
