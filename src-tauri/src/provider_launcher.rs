@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
-const ARGUMENT: &str = "--flowcode-provider";
+pub(crate) const ARGUMENT: &str = "--flowcode-provider";
 
 #[cfg(any(unix, test))]
 fn quote_shell(value: &str) -> String {

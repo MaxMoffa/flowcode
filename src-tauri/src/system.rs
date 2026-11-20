@@ -32,9 +32,49 @@ pub fn with_processes<T>(f: impl FnOnce(&System) -> T) -> T {
                 .with_exe(UpdateKind::OnlyIfNotSet)
                 .with_cwd(UpdateKind::OnlyIfNotSet),
         );
+        #[cfg(target_os = "macos")]
+        refresh_execed(sys);
         *last_refresh = Some(std::time::Instant::now());
     }
     f(sys)
+}
+
+/// sysinfo (0.32, macOS) reads a process's name, argv and exe once and keeps
+/// them across `exec` (same pid, same start time). A tab polled between zsh's
+/// fork and its exec of `codex`, or while the provider-launch shim (which
+/// execs Flowcode, then the real CLI) is still running, would stay
+/// "zsh"/"flowcode" for the whole session and never be seen as an agent.
+/// Re-read argv and exe for every pid whose live executable path moved; the
+/// agent scan then matches on the exe's file name too.
+#[cfg(target_os = "macos")]
+fn refresh_execed(sys: &mut System) {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+    let stale: Vec<Pid> = sys
+        .processes()
+        .iter()
+        .filter(|(pid, p)| live_exe(pid.as_u32()).is_some_and(|exe| p.exe() != Some(exe.as_path())))
+        .map(|(pid, _)| *pid)
+        .collect();
+    if stale.is_empty() {
+        return;
+    }
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&stale),
+        false,
+        ProcessRefreshKind::new().with_cmd(UpdateKind::Always).with_exe(UpdateKind::Always),
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn live_exe(pid: u32) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let n = unsafe { libc::proc_pidpath(pid as i32, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    if n <= 0 {
+        return None;
+    }
+    buf.truncate(n as usize);
+    Some(std::ffi::OsString::from_vec(buf).into())
 }
 
 #[derive(Serialize)]

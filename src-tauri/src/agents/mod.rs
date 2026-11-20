@@ -147,16 +147,31 @@ fn find_agent(
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or(raw_name);
-            if own_name == Some(name.as_str()) {
+            // macOS: sysinfo's name goes stale across exec, the exe path is
+            // kept current (system::refresh_execed) - so match on both.
+            #[cfg(target_os = "macos")]
+            let exe_name = process
+                .exe()
+                .and_then(|p| p.file_stem())
+                .map(|s| s.to_string_lossy().to_lowercase())
+                .filter(|s| *s != name);
+            #[cfg(not(target_os = "macos"))]
+            let exe_name: Option<String> = None;
+            let current = exe_name.as_deref().unwrap_or(&name);
+            // The provider-launch shim is Flowcode too, but it's this tab's
+            // CLI on its way in (its parent on Windows): look inside it.
+            if own_name == Some(current)
+                && !process.cmd().iter().any(|a| a == crate::provider_launcher::ARGUMENT)
+            {
                 continue;
             }
-            if let Some((bin, label)) = agent_binary(&name) {
+            if let Some((bin, label)) = agent_binary(&name).or_else(|| exe_name.as_deref().and_then(agent_binary)) {
                 let started_at = process.start_time().checked_mul(1000);
                 return Some((bin, label, pid.as_u32(), started_at));
             }
             // Node wrappers use `node` as their process name (and a .cmd
             // shim on Windows); identify the agent by its script.
-            if name == "node" {
+            if name == "node" || exe_name.as_deref() == Some("node") {
                 let args: Vec<String> = process.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
                 if node_runs_codex(&args) {
                     let (bin, label) = agent_binary("codex")?;

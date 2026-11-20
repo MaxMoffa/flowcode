@@ -99,7 +99,7 @@ pub async fn window_open(
             }
         }
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     flowcode_shared::apply_window_chrome(&new);
     let _ = new.show();
     let _ = new.set_focus();

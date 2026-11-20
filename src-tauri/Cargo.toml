@@ -94,6 +94,10 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 notify-rust = "4.18.1"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# proc_pidpath: spot processes that exec'd since sysinfo first read them (system.rs).
+libc = "0.2"
+
 
 [dev-dependencies]
 # Paused clocks for the output batching tests (remote/stream.rs).

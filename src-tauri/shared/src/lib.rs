@@ -435,6 +435,25 @@ pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
     set_window_icon_from_exe(hwnd);
 }
 
+/// macOS counterpart of the Windows acrylic: an NSVisualEffectView behind the
+/// webview, so the transparent window blurs the desktop instead of showing it
+/// raw (WKWebView's backdrop-filter can't reach outside the page). The 8px
+/// radius matches `.app-shell`'s border-radius. AppKit wants this on the main
+/// thread, and `window_open` calls in from an async command.
+#[cfg(target_os = "macos")]
+pub fn apply_window_chrome(window: &tauri::WebviewWindow) {
+    let target = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+        let _ = apply_vibrancy(
+            &target,
+            NSVisualEffectMaterial::UnderWindowBackground,
+            Some(NSVisualEffectState::Active),
+            Some(8.0),
+        );
+    });
+}
+
 /// Tauri's default window icon is a single RGBA image - the *first* entry of
 /// icons/icon.ico, which `tauri icon` writes as the 32px one - so on a scaled
 /// display Windows stretches it for the taskbar/Alt+Tab and it comes out
